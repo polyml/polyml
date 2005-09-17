@@ -1,0 +1,250 @@
+(*
+	Copyright (c) 2000
+		Cambridge University Technical Services Limited
+
+	This library is free software; you can redistribute it and/or
+	modify it under the terms of the GNU Lesser General Public
+	License as published by the Free Software Foundation; either
+	version 2.1 of the License, or (at your option) any later version.
+	
+	This library is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+	Lesser General Public License for more details.
+	
+	You should have received a copy of the GNU Lesser General Public
+	License along with this library; if not, write to the Free Software
+	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+
+(* HACKS: use of Array, RunCall *)
+
+structure Misc :
+(*****************************************************************************)
+(*                  Misc exports signature                                  *)
+(*****************************************************************************)
+sig
+  (* standard exceptions used by the compiler *) 
+  exception Interrupt; 
+
+  (* These are handled in the compiler *)
+  exception Conversion of string;     (* string to int conversion failure *)
+  exception ValueMissing of string;  (* table lookup failure *)
+  
+  (* This is handled at the top level *)
+  exception Failure of string;       (* run-time error *)
+
+  (* This isn't handled at all (except generically) *)
+  exception InternalError of string; (* compiler error *)
+
+  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
+
+  val intOfString  : string -> int
+
+  val unescapeString : string -> string
+
+  val isNil : 'a list -> bool
+  val nth: 'a list -> int -> 'a
+  
+  val fold   : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
+  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
+  val filter : ('a -> bool) -> 'a list -> 'a list
+
+  val min : int -> int -> int
+  val max : int -> int -> int
+
+  type 'a iter;
+  
+  val Iter : {next: unit -> 'a iter, value: unit -> 'a, continue: bool} -> 
+                 'a iter
+       
+  val Continue : 'a iter -> bool
+  val Value    : 'a iter -> 'a
+  val Next     : 'a iter -> 'a iter
+
+  val iterList : 'a iter -> 'a list
+  val upto     : int -> int -> int iter
+  val downto   : int -> int -> int iter
+  
+  val for    : 'a iter -> ('a -> 'b) -> unit
+  val forall : ('a -> unit) -> 'a list -> unit
+  val forsucc:  ('a -> 'a) -> ('a * 'b -> bool) -> 
+                      'a -> 'b -> ('a -> 'c) -> unit
+  val first  : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
+
+  val overList        : 'a list -> 'a iter;
+  val mapIterator     : ('a -> 'b) -> 'a iter -> 'b list
+  val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
+  
+  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+end  =
+
+(*****************************************************************************)
+(*                  Misc structure body                                      *)
+(*****************************************************************************)
+struct
+  open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
+  exception Interrupt = SML90.Interrupt; 
+
+  (* These are handled in the compiler *)
+  (* Conversion may be also raised by run-time Conversion routines *)
+  local
+    structure Conversion =
+      RunCall.Run_exception1
+        (
+          type ex_type = string;
+          val ex_iden  = EXC_conversion
+        );
+  in
+    exception Conversion = Conversion.ex;
+  end;
+
+  exception ValueMissing of string;  (* table lookup failure *)
+  
+  (* Handled at the top level.  Not the same as the global Fail exception. *)
+  exception Failure of string;       (* run-time error *)
+
+  (* This isn't handled at all (except generically) *)
+  exception InternalError of string; (* compiler error *)
+
+  fun filter f [] = []
+    | filter f (h::t) = 
+       if f h then h :: filter f t else filter f t;
+
+  fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
+    | quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
+    | quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
+  let
+    val test   = leq h;
+    val op before = filter (fn x => not (test x)) t
+    val after  = filter test t (* 'cos h is leq *them* *)
+  in
+    quickSort leq (op before) @ (h :: quickSort leq after)
+  end;
+
+
+    fun intOfString s =
+	(* This is only ever used on values which have already been checked
+	   by the lexer so the whole of the string should be a valid integer. *)
+		case Int.fromString s of
+			NONE => raise Conversion "intOfString"
+		|	SOME i => i
+
+	(* Convert a string, recognising and converting escape codes.  This is
+	   installed as the initial string conversion function and replaced
+	   when the String structure is compiled.
+	   We can't use fromString because it stops on invalid input and
+	   returns as much as it can rather than raising an exception. *)
+	fun unescapeString(s: string) : string =
+		let
+		val len = size s
+		fun rdr i =
+			if i = len then NONE
+			else SOME(String.sub(s, i), i+1)
+		(* Repeatedly convert escape sequences and accumulate the
+		   results in a list. *)
+		fun convChars i =
+			if i = len then [] (* Finished *)
+			else case Char.scan rdr i of
+				NONE => (* Bad conversion *)
+					raise Conversion "Invalid string constant"
+			  | SOME(res, j) => res :: convChars j
+		in
+			String.implode(convChars 0)
+		end
+
+  
+  fun forall (f:'a -> unit) []     = ()
+  |   forall (f:'a -> unit) (H::T) = (f H; forall f T);
+  
+  fun forsucc succ (op <=) =
+  let
+    fun for first last f =
+      if first <= last then (f first; for (succ first) last f) else ();
+  in
+    for
+  end;
+  
+  fun fold f =
+  let
+    fun loop x []     = x
+    |   loop x (H::T) = f H (loop x T);
+  in
+    loop
+  end;
+  
+  fun revfold f =
+  let
+    fun loop x []     = x
+    |   loop x (H::T) = loop (f H x) T;
+  in
+    loop
+  end;
+ 
+  val isNil = List.null
+  
+  fun max (a:int) (b:int) = Int.max(a, b);
+  fun min (a:int) (b:int) = Int.min(a, b);
+
+  fun nth l n = List.nth(l, n)
+  
+  datatype 'a iter = Iter of { continue: bool,
+			       value:    unit -> 'a,
+			       next:     unit -> 'a iter };
+  
+  fun Continue (Iter {continue,...}) = continue;
+  fun Value    (Iter {value,...})    = value();
+  fun Next     (Iter {next,...})     = next();
+  
+  fun iterList i = if Continue i then Value i :: iterList (Next i) else [];
+  
+  fun first condition (* The condition to search for *)
+	    thenpart  (* Executed if found *)
+	    elsepart  (* Executed if not *) =
+  let
+    fun search i = if Continue i
+		   then
+		     let
+		       val v = Value i;
+		     in
+		       if condition v then thenpart v else search (Next i)
+		     end
+		   else elsepart()
+  in
+    search
+  end;
+  
+  fun for i body = if Continue i then (body (Value i); for (Next i) body) else ();
+  
+  fun overList L = Iter { continue = not (isNil L),
+			  next     = fn () => overList (tl L),
+			  value    = fn () => hd L };
+
+  fun mapIterator     f   i = map     f   (iterList i);
+  (*fun revfoldIterator f x i = revfold f x (iterList i);*)
+  fun revfoldIterator f x i =
+  	if Continue i
+	then revfoldIterator f (f (Value i) x) (Next i)
+	else x
+  
+  fun upto start finish =
+  let
+    fun succ n = Iter { continue = n <= finish,
+			next     = fn () => succ (n+1),
+			value    = fn () => n };
+  in
+    succ start
+  end;
+  
+  fun downto start finish =
+  let
+    fun pred n = Iter { continue = n >= finish,
+			next     = fn () => pred (n-1),
+			value    = fn () => n };
+  in
+    pred start
+  end;
+
+  fun lookupDefault first second = (fn key => first key handle ValueMissing _ => second key);
+
+end (* Misc *);

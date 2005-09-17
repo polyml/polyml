@@ -1,0 +1,90 @@
+.TH POLY 1 2003 LFCS "Unix Programmer's Manual"
+.SH NAME
+poly \- the Poly/ML Standard ML implementation
+.SH SYNOPSIS
+.B poly
+[
+.B \-r
+]
+.I database
+.sp
+.B poly
+.B \-d
+[
+.B \-c
+]
+.I database
+.sp
+.B poly
+.B \-p
+.I "filename parent"
+.SH DESCRIPTION
+.I poly
+starts the Poly/ML shell. Poly/ML is an implementation of Standard ML developed by David Matthews at
+Cambridge and at the Laboratory for Foundations of Computer Science (LFCS) at Edinburgh. 
+.SH OPTIONS
+.TP
+.B \-noDisplay
+.TP
+.BI \-H " size"
+Set the heap size, in MB.
+.TP
+.BI \-IB " size"
+Set the size of the immutables buffer, in MB.
+.TP
+.BI \-MB " size"
+Set the size of the mutables buffer, in MB.
+.TP
+.B \-c
+Database compaction option.
+.TP
+.B \-d
+Compact a database.
+.TP
+.BI \-h " size"
+Set the heap size, in KB.
+.TP
+.BI \-ib " size"
+Set the size of the immutables buffer, in KB.
+.TP
+.BI \-ip " percent"
+Set the percentage of immutables.
+.TP
+.BI \-mb " size"
+Set the size of the mutables buffer, in KB.
+.TP
+.BI \-mp " size"
+Set the percentage of mutables.
+.TP
+.BI \-p " filename parent"
+Change the parent database.
+.TP
+.BI \-s  " level"
+Set the statistics level.
+.TP
+.B \-sf " filename"
+Set the statistics filename.
+.TP
+.BI \-t " timeslice
+Set the timeslice.
+.TP
+.BI \-D " ;evel"
+Set the debugging level.
+.SH EXAMPLES
+.PP
+.nf
+$ poly my_dbase              : write back to my_dbase when commiting
+$ poly -r my_dbase           : never write back to my_dbase
+$ poly my_dbase -noDisplay   : do not connect to X display
+$ poly my_dbase -h 2000      : heap limit of 2000K
+$ poly my_dbase -H 20        : heap limit of 20M
+$ poly my_dbase -s 2         : show garbage collector statistics
+$ poly my_dbase -D 3         : set debugging level
+
+$ poly -d my_dbase           : compact my_dbase
+$ poly -d -c my_dbase        : compact my_dbase and share common data structures 
+.fi
+.SH SEE ALSO
+.PP
+.B http://www.poly.org
+The Poly/ML web site.

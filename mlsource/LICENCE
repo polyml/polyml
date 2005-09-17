@@ -1,0 +1,99 @@
+
+    SOFTWARE  LICENCE FOR  COMPUTER  LANGUAGE  TRANSLATION
+    PROGRAM POLY/ML FOR
+
+    CAMBRIDGE   UNIVERSITY  TECHNICAL   SERVICES   LIMITED
+    (registered   number  01069886)   (formerly   Lynxvale
+    Limited)  whose  registered  office  is   at  The  Old
+    Schools, Cambridge CB2 1TS
+
+    IMPORTANT   --  READ   CAREFULLY  BEFORE   USING   THE
+    SOFTWARE:   This   Licence   Agreement   for   Poly/ML
+    ("Licence  Agreement") is  a legal  agreement  between
+    you,  either   an  individual   or  an  entity   ("the
+    Licensee")   and   Cambridge    University   Technical
+    Services  Limited  and  its  suppliers  and  licensors
+    (collectively   "the  Licensor")   for  the   computer
+    language translation program Poly/ML. You  may install
+    a  copy  of  the Software  and  may  use  it  only  in
+    accordance  with and  to  the  extent allowed  by  the
+    terms  and conditions  of this  License Agreement.  By
+    clicking on  the "Accept" button, installing,  copying
+    or otherwise  so using the  Software, you agree to  be
+    bound by the  terms of this Licence Agreement.  If you
+    do not agree  to the terms of this  Licence Agreement,
+    click on  the "Cancel"  button and/or  do not  install
+    the Software. YOU  AGREE THAT YOUR USE OF  THE PROGRAM
+    ACKNOWLEDGES  THAT   YOU  HAVE   READ  THIS   LICENCE,
+    UNDERSTAND IT, AND AGREE TO  BE BOUND BY ITS TERMS AND
+    CONDITIONS.
+
+    OPERATIVE PROVISIONS:
+
+    1. The Licensor grants to the Licensee a
+    non-exclusive,   royalty-free  licence   to  use   the
+    Software,  with  the  right  to   grant  sub-licences,
+    subject   to  the   terms  and   conditions  of   this
+    Agreement.
+
+    2.  The  copyright  and  other  intellectual  property
+    rights  of whatever  nature in  the  Software are  and
+    shall   remain   the   property   of   the   Licensor.
+
+    3. In this Agreement "Software"  means all versions of
+    the computer language translation program  Poly/ML but
+    not   including  any   Improvements  (as   hereinafter
+    defined by Clause 4) to  such Software licensed to the
+    Licensor pursuant to Clause 5.
+
+    4.  The  copyright  and  other  intellectual  property
+    rights  of   whatever  nature  in  any   improvements,
+    enhancements or  modifications to  the source code  of
+    the  Software  or  which  necessitate  access  to  the
+    source code  of the Software  in order to be  compiled
+    into a functioning  binary form and which are  made by
+    the Licensee  ("the Improvements")  shall vest in  and
+    be   and  remain   the  property   of  the   Licensee.
+
+    5. The Licensee  grants to the Licensor in  good faith
+    a  non-exclusive,  royalty-free  licence  to  use  any
+    Improvements with the  right to grant sub-licences  to
+    any  existing or  future  licensees of  the  Software.
+
+    6. The Licensor  shall be bound to  grant sub-licenses
+    of the  Improvements on  being requested  so to do  by
+    any existing or  future Licensee of the  Software. The
+    Improvements shall promptly  be made available by  the
+    Licensee to  the Licensor and  by the Licensor to  any
+    sub-licensee.   Such  Improvements   shall   be   made
+    available to  a degree  of detail  sufficient for  the
+    purposes of the  license granted under clause 5  or as
+    required by the Licensor.
+
+    7. Any  licence or sub-licence  granted by either  the
+    Licensor or  the Licensee of  the Software and/or  the
+    Improvements  shall contain  provisions  that  reflect
+    the  provisions of  this  Agreement with  any  changes
+    necessary   to   give   the   arrangements   efficacy.
+
+    8. THIS SOFTWARE  IS PROVIDED BY THE LICENSOR  AND ANY
+    CONTRIBUTING  LICENSEES  "AS  IS"  AND  ANY  WARRANTY,
+    EXPRESS OR IMPLIED,  INCLUDING BUT NOT LIMITED  TO THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND  FITNESS FOR
+    A  PARTICULAR PURPOSE,  ARE  DISCLAIMED. IN  NO  EVENT
+    SHALL THE  LICENSOR OR  ANY CONTRIBUTING LICENSEES  BE
+    LIABLE FOR ANY DIRECT, INDIRECT,  INCIDENTAL, SPECIAL,
+    EXEMPLARY,  OR CONSEQUENTIAL  DAMAGES  (INCLUDING  BUT
+    NOT  LIMITED TO  PROCUREMENT  OF SUBSTITUTE  GOODS  OR
+    SERVICES; LOSS OF  USE, DATA, OR PROFITS;  OR BUSINESS
+    INTERRUPTION)  HOWEVER CAUSED  AND  ON ANY  THEORY  OF
+    LIABILITY, WHETHER  IN CONTRACT, STRICT LIABILITY,  OR
+    TORT (INCLUDING NEGLIGENCE OR OTHERWISE)  OR OTHERWISE
+    ARISING IN  ANY WAY OUT OF  THE USE OF THIS  SOFTWARE,
+    EVEN IF  ADVISED OF  THE POSSIBILITY  OF SUCH  DAMAGE,
+    EXCLUDING ANY PERSONAL  INJURY OR DEATH CAUSED  BY THE
+    NEGLIGENCE  OF   THE  LICENSOR  OR  ANY   CONTRIBUTING
+    LICENSEES.
+
+    9.  This  Agreement  is  governed  by  and  is  to  be
+    construed in accordance with English law.

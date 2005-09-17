@@ -1,0 +1,359 @@
+XmNaccelerator			XmCAccelerator			string				XmLabel
+XmNacceleratorText		XmCAcceleratorText		XmString			XmLabel
+XmNaccelerators			XmCAccelerators			XtAccelerators			Core
+XmNactivateCallback		XmCCallback			(callback)			XmArrowButton,XmCascadeButton,XmDrawnButton,XmPushButton,XmText,XmTextField
+XmNadjustLast			XmCAdjustLast			bool				XmRowColumn
+XmNadjustMargin			XmCAdjustMargin			bool				XmRowColumn
+XmNalignment			XmCAlignment			XmAlignment			XmLabel
+XmNallowOverlap			XmCAllowOverlap			bool				XmBulletinBoard
+XmNallowResize			XmCBoolean			bool				XmPanedWindow
+XmNallowShellResize		XmCAllowShellResize		bool				Shell
+XmNancestorSensitive		XmCBoolean			bool				Core,RectObj
+XmNapplyCallback		XmCCallback			(callback)			XmSelectionBox
+XmNapplyLabelString		XmCApplyLabelString		XmString			XmSelectionBox
+XmNargc				XmCArgc				int				ApplicationShell			
+XmNargv				XmCArgv				string list			ApplicationShell
+XmNarmCallback			XmCCallback			(callback)			XmArrowButton,XmDrawnButton,XmPushButton,XmToggleButton
+XmNarmColor			XmCArmColor			Pixel				XmPushButton
+XmNarmPixmap			XmCArmPixmap			Drawable			XmPushButton
+XmNarrowDirection		XmCArrowDirection		XmArrowDirection		XmArrowButton
+XmNautoShowCursorPosition	XmCAutoShowCursorPosition	bool				XmText
+XmNautoUnmanage			XmCAutoUnmanage			bool				XmBulletinBoard
+XmNautomaticSelection		XmCAutomaticSelection		bool				XmList
+XmNbackground			XmCBackground			Pixel				Core
+XmNbackgroundPixmap		XmCBackgroundPixmap		Drawable			Core
+XmNbaseHeight			XmCBaseHeight			int				WMShell
+XmNbaseWidth			XmCBaseWidth			int				WMShell
+XmNblinkRate			XmCBlinkRate			int				XmText,XmTextField
+XmNborderColor			XmCBorderColor			Pixel				Core
+XmNborderPixmap			XmCPixmap			Drawable			Core
+XmNborderWidth			XmCBorderWidth			Dimension			Core,RectObj
+XmNbottomAttachment		XmCAttachment			XmAttachment			XmForm
+XmNbottomOffset			XmCOffset			int				XmForm
+XmNbottomPosition		XmCPosition			int				XmForm
+XmNbottomShadowColor		XmCBottomShadowColor		Pixel				XmManager,XmPrimitive
+XmNbottomShadowPixmap		XmCBottomShadowPixmap		Drawable			XmManager,XmPrimitive
+XmNbottomWidget			XmCWidget			Widget				XmForm
+XmNbrowseSelectionCallback	XmCCallback			(callback)			XmList
+XmNbuttonAcceleratorText	XmCButtonAcceleratorText	XmString list			XmRowColumn
+XmNbuttonAccelerators		XmCButtonAccelerators		string list			XmRowColumn
+XmNbuttonCount			XmCButtonCount			int				XmRowColumn
+XmNbuttonFontList		XmCButtonFontList		XFontStruct list		XmBulletinBoard
+XmNbuttonMnemonicCharSets	XmCButtonMnemonicCharSets	XmString list			XmRowColumn
+XmNbuttonMnemonics		XmCButtonMnemonics		KeySym list			XmRowColumn
+XmNbuttonSet			XmCButtonSet			int				XmRowColumn
+XmNbuttonType			XmCButtonType			XmButtonType list		XmRowColumn
+XmNbuttons			XmCButtons			XmString list			XmRowColumn
+XmNcancelButton			XmCWidget			Widget				XmBulletinBoard
+XmNcancelCallback		XmCCallback			(callback)			XmMessageBox,XmSelectionBox
+XmNcancelLabelString		XmCCancelLabelString		XmString			XmMessageBox,XmSelectionBox
+XmNcascadePixmap		XmCPixmap			Drawable			XmCascadeButton
+XmNcascadingCallback		XmCCallback			(callback)			XmCascadeButton
+XmNchildren			XmCChildren			Widget list			Composite
+XmNclipWindow			XmCClipWindow			Widget				XmScrolledWindow
+XmNcolormap			XmCColormap			Colormap			Core
+XmNcolumns			XmCColumns			short				XmText,XmTextField
+XmNcommand			XmCTextString			XmString			XmCommand
+XmNcommandChangedCallback	XmCCallback			(callback)			XmCommand
+XmNcommandEnteredCallback	XmCCallback			(callback)			XmCommand
+XmNcommandWindow		XmCCommandWindow		Widget				XmMainWindow
+XmNcommandWindowLocation	XmCCommandWindowLocation	XmCommandWindowLocation		XmMainWindow
+XmNcursorPosition		XmCCursorPosition		XmTextPosition			XmText,XmTextField
+XmNcursorPositionVisible	XmCCursorPositionVisible	bool				XmText,XmTextField
+XmNdecimalPoints		XmCDecimalPoints		short				XmScale
+XmNdecrementCallback		XmCCallback			(callback)			XmScrollBar
+XmNdefaultActionCallback	XmCCallback			(callback)			XmList
+XmNdefaultButton		XmCWidget			Widget				XmBulletinBoard
+XmNdefaultButtonShadowThickness	XmCDefaultButtonShadowThickness	Dimension			XmPushButton
+XmNdefaultButtonType		XmCDefaultButtonType		XmDefaultButtonType		XmMessageBox
+XmNdefaultFontList		XmCDefaultFontList		XFontStruct list		VendorShell,XmMenuShell
+XmNdefaultPosition		XmCDefaultPosition		bool				XmBulletinBoard
+XmNdeleteResponse		XmCDeleteResponse		XmDeleteResponse		VendorShell
+XmNdepth			XmCDepth			int				Core
+XmNdestroyCallback		XmCCallback			(callback)			Core,Object
+XmNdialogStyle			XmCDialogStyle			XmDialogStyle			XmBulletinBoard
+XmNdialogTitle			XmCDialogTitle			XmString			XmBulletinBoard
+XmNdialogType			XmCDialogType			XmDialogType			XmMessageBox,XmSelectionBox
+XmNdirListItemCount		XmCDirListItemCount		int				XmFileSelectionBox
+XmNdirListItems			XmCDirListItems			XmString list			XmFileSelectionBox
+XmNdirListLabelString		XmCDirListLabelString		XmString			XmFileSelectionBox
+XmNdirMask			XmCDirMask			XmString			XmFileSelectionBox
+XmNdirSpec			XmCDirSpec			XmString			XmFileSelectionBox
+XmNdirectory			XmCDirectory			XmString			XmFileSelectionBox
+XmNdirectoryValid		XmCDirectoryValid		bool				XmFileSelectionBox
+XmNdisarmCallback		XmCDisarmCallback		(callback)			XmArrowButton,XmDrawnButton,XmPushButton,XmToggleButton
+XmNdoubleClickInterval		XmCDoubleClickInterval		int				XmList
+XmNdragCallback			XmCCallback			(callback)			XmScale,XmScrollBar
+XmNeditMode			XmCEditMode			XmEditMode			XmText
+XmNeditable			XmCEditable			bool				XmText,XmTextField
+XmNentryAlignment		XmCAlignment			XmAlignment			XmRowColumn
+XmNentryBorder			XmCEntryBorder			Dimension			XmRowColumn
+XmNentryCallback		XmCCallback			(callback)			XmRowColumn
+XmNexposeCallback		XmCCallback			(callback)			XmDrawingArea,XmDrawnButton
+XmNextendedSelectionCallback	XmCCallback			(callback)			XmList
+XmNfileListItemCount		XmCFileListItemCount		int				XmFileSelectionBox
+XmNfileListItems		XmCFileListItems		XmString list			XmFileSelectionBox
+XmNfileListLabelString		XmCFileListLabelString		XmString			XmFileSelectionBox
+XmNfileTypeMask			XmCFileTypeMask			XmFileTypeMask			XmFileSelectionBox
+XmNfillOnArm			XmCFillOnArm			bool				XmPushButton
+XmNfillOnSelect			XmCFillOnSelect			bool				XmToggleButton
+XmNfilterLabelString		XmCFilterLabelString		XmString			XmFileSelectionBox
+XmNfocusCallback		XmCCallback			(callback)			XmBulletinBoard,XmText
+XmNfontList			XmCFontList			XFontStruct list		XmLabel,XmList,XmScale,XmText,XmTextField
+XmNforeground			XmCForeground			Pixel				XmManager,XmPrimitive
+XmNfractionBase			XmCFraction			int				XmForm
+XmNgainPrimaryCallback		XmCCallback			(callback)			XmText,XmTextField
+XmNgeometry			XmCGeometry			string				Shell
+XmNheight			XmCHeight			Dimension			Core,RectObj
+XmNheightInc			XmCHeightInc			int				WMShell
+XmNhelpCallback			XmCCallback			(callback)			XmGadget,XmManager,XmPrimitive
+XmNhelpLabelString		XmCHelpLabelString		XmString			XmMessageBox,XmSelectionBox
+XmNhighlightColor		XmCHighlightColor		Pixel				XmManager,XmPrimitive
+XmNhighlightOnEnter		XmCHighlightOnEnter		bool				XmGadget,XmPrimitive,XmScale
+XmNhighlightPixmap		XmCHighlightPixmap		Drawable			XmManager,XmPrimitive
+XmNhighlightThickness		XmCHighlightThickness		Dimension			XmGadget,XmPrimitive,XmScale
+XmNhistoryItemCount		XmCItemCount			int				XmCommand
+XmNhistoryItems			XmCItems			XmString list			XmCommand
+XmNhistoryMaxItems		XmCMaxItems			int				XmCommand
+XmNhistoryVisibleItemCount	XmCVisibleItemCount		int				XmCommand
+XmNhorizontalScrollBar		XmCHorizontalScrollBar		Widget				XmScrolledWindow
+XmNhorizontalSpacing		XmCSpacing			Dimension			XmForm
+XmNiconMask			XmCIconMask			Drawable			WMShell
+XmNiconName			XmCIconName			string				TopLevelShell
+XmNiconNameEncoding		XmCIconNameEncoding		Atom				TopLevelShell
+XmNiconPixmap			XmCIconPixmap			Drawable			WMShell
+XmNiconWindow			XmCIconWindow			Drawable			WMShell
+XmNiconX			XmCIconX			int				WMShell
+XmNiconY			XmCIconY			int				WMShell
+XmNiconic			XmCIconic			bool				TopLevelShell
+XmNincrement			XmCIncrement			int				XmScrollBar
+XmNincrementCallback		XmCCallback			(callback)			XmScrollBar
+XmNindicatorOn			XmCIndicatorOn			bool				XmToggleButton
+XmNindicatorSize		XmCIndicatorSize		Dimension			XmToggleButton
+XmNindicatorType		XmCIndicatorType		XmIndicatorType			XmToggleButton
+XmNinitialDelay			XmCInitialDelay			int				XmScrollBar
+XmNinitialResourcesPersistent	XmCInitialResourcesPersistent	bool				Core
+XmNinitialState			XmCInitialState			XWMStateHint			WMShell
+XmNinput			XmCInput			bool				WMShell
+XmNinputCallback		XmCCallback			(callback)			XmDrawingArea
+XmNisAligned			XmCIsAligned			bool				XmRowColumn
+XmNisHomogeneous		XmCIsHomogeneous		bool				XmRowColumn
+XmNitemCount			XmCItemCount			int				XmList
+XmNitems			XmCItems			XmString list			XmList
+XmNkeyboardFocusPolicy		XmCKeyboardFocusPolicy		XmKeyboardFocusPolicy		VendorShell
+XmNlabelFontList		XmCLabelFontList		XFontStruct list		XmBulletinBoard
+XmNlabelInsensitivePixmap	XmCLabelInsensitivePixmap	Drawable			XmLabel
+XmNlabelPixmap			XmCLabelPixmap			Drawable			XmLabel
+XmNlabelString			XmCLabelString			XmString			XmLabel,XmRowColumn
+XmNlabelType			XmCLabelType			XmLabelType			XmLabel
+XmNleftAttachment		XmCAttachment			XmAttachment			XmForm
+XmNleftOffset			XmCOffset			int				XmForm
+XmNleftPosition			XmCPosition			int				XmForm
+XmNleftWidget			XmCWidget			Widget				XmForm
+XmNlistItemCount		XmCItemCount			int				XmSelectionBox
+XmNlistItems			XmCItems			XmString list			XmSelectionBox
+XmNlistLabelString		XmCListLabelString		XmString			XmSelectionBox
+XmNlistMarginHeight		XmCListMarginHeight		Dimension			XmList
+XmNlistMarginWidth		XmCListMarginWidth		Dimension			XmList
+XmNlistSizePolicy		XmCListSizePolicy		XmVisualPolicy			XmList
+XmNlistSpacing			XmCListSpacing			Dimension			XmList
+XmNlistUpdated			XmCListUpdated			bool				XmFileSelectionBox
+XmNlistVisibleItemCount		XmCVisibleItemCount		int				XmSelectionBox
+XmNlosePrimaryCallback		XmCCallback			(callback)			XmText,XmTextField
+XmNlosingFocusCallback		XmCCallback			(callback)			XmText,XmTextField
+XmNmainWindowMarginHeight	XmCMainWindowMarginHeight	Dimension			XmMainWindow
+XmNmainWindowMarginWidth	XmCMainWindowMarginWidth	Dimension			XmMainWindow
+XmNmapCallback			XmCCallback			(callback)			XmBulletinBoard,XmRowColumn
+XmNmappedWhenManaged		XmCMappedWhenManaged		bool				Core
+XmNmappingDelay			XmCMappingDelay			int				XmCascadeButton
+XmNmargin			XmCMargin			Dimension			XmSeparator
+XmNmarginBottom			XmCMarginBottom			Dimension			XmLabel
+XmNmarginHeight			XmCMarginHeight			Dimension			XmBulletinBoard,XmDrawingArea,XmFrame,XmLabel,XmPanedWindow,XmRowColumn,XmText,XmTextField
+XmNmarginLeft			XmCMarginLeft			Dimension			XmLabel
+XmNmarginRight			XmCMarginRight			Dimension			XmLabel
+XmNmarginTop			XmCMarginTop			Dimension			XmLabel
+XmNmarginWidth			XmCMarginWidth			Dimension			XmBulletinBoard,XmDrawingArea,XmFrame,XmLabel,XmPanedWindow,XmRowColumn,XmText,XmTextField
+XmNmaxAspectX			XmCMaxAspectX			int				WMShell
+XmNmaxAspectY			XmCMaxAspectY			int				WMShell
+XmNmaxHeight			XmCMaxHeight			int				WMShell
+XmNmaxLength			XmCMaxLength			int				XmText,XmTextField
+XmNmaxWidth			XmCMaxWidth			int				WMShell
+XmNmaximum			XmCMaximum			int				XmScale,XmScrollBar
+XmNmenuAccelerator		XmCAccelerators			string				XmRowColumn
+XmNmenuBar			XmCMenuBar			Widget				XmMainWindow
+XmNmenuCursor			XmCCursor			Cursor				XmRowColumn
+XmNmenuHelpWidget		XmCMenuWidget			Widget				XmRowColumn
+XmNmenuHistory			XmCMenuWidget			Widget				XmRowColumn
+XmNmenuPost			XmCMenuPost			string				XmRowColumn
+XmNmessageAlignment		XmCAlignment			XmAlignment			XmMessageBox
+XmNmessageCallback		XmCCallback			(callback)			(everything)
+XmNmessageString		XmCMessageString		XmString			XmMessageBox
+XmNmessageWindow		XmCMessageWindow		Widget				XmMainWindow
+XmNminAspectX			XmCMinAspectX			int				WMShell
+XmNminAspectY			XmCMinAspectY			int				WMShell
+XmNminHeight			XmCMinHeight			int				WMShell
+XmNminWidth			XmCMinWidth			int				WMShell
+XmNminimizeButtons		XmCMinimizeButtons		bool				XmMessageBox,XmSelectionBox
+XmNminimum			XmCMinimum			int				XmScale,XmScrollBar
+XmNmnemonic			XmCMnemonic			KeySym				XmLabel,XmRowColumn
+XmNmnemonicCharSet		XmCMnemonicCharSet		string				XmLabel,XmRowColumn
+XmNmodifyVerifyCallback		XmCCallback			(callback)			XmText,XmTextField
+XmNmotionVerifyCallback		XmCCallback			(callback)			XmText,XmTextField
+XmNmultiClick			XmCMultiClick			XmMultiClickType		XmArrowButton,XmDrawnButton,XmPushButton
+XmNmultipleSelectionCallback	XmCCallback			(callback)			XmList
+XmNmustMatch			XmCMustMatch			bool				XmSelectionBox
+XmNmwmDecorations		XmCMwmDecorations		int				VendorShell
+XmNmwmFunctions			XmCMwmFunctions			int				VendorShell
+XmNmwmInputMode			XmCMwmInputMode			int				VendorShell
+XmNmwmMenu			XmCMwmMenu			string				VendorShell
+XmNnavigationType		XmCNavigationType		XmNavigationType		XmGadget,XmManager,XmPrimitive
+XmNnoMatchCallback		XmCCallback			(callback)			XmSelectionBox
+XmNnoMatchString		XmCNoMatchString		XmString			XmFileSelectionBox
+XmNnoResize			XmCNoResize			bool				XmBulletinBoard
+XmNnumChildren			XmCNumChildren			Cardinal			Composite
+XmNnumColumns			XmCNumColumns			short				XmRowColumn
+XmNokCallback			XmCCallback			(callback)			XmMessageBox,XmSelectionBox
+XmNokLabelString		XmCOkLabelString		XmString			XmMessageBox,XmSelectionBox
+XmNoptionLabel			XmCOptionLabel			XmString			XmRowColumn
+XmNoptionMnemonic		XmCOptionMnemonic		KeySym				XmRowColumn
+XmNorientation			XmCOrientation			XmOrientation			XmRowColumn,XmScale,XmScrollBar,XmSeparator
+XmNoverrideRedirect		XmCOverrideRedirect		bool				Shell
+XmNpacking			XmCPacking			XmPacking			XmRowColumn
+XmNpageDecrementCallback	XmCCallback			(callback)			XmScrollBar
+XmNpageIncrement		XmCPageIncrement		int				XmScrollBar
+XmNpageIncrementCallback	XmCCallback			(callback)			XmScrollBar
+XmNpaneMaximum			XmCPaneMaximum			Dimension			XmPanedWindow
+XmNpaneMinimum			XmCPaneMinimum			Dimension			XmPanedWindow
+XmNpattern			XmCPattern			XmString			XmFileSelectionBox
+XmNpendingDelete		XmCPendingDelete		bool				XmText,XmTextField
+XmNpopdownCallback		XmCCallback			(callback)			Shell
+XmNpopupCallback		XmCCallback			(callback)			Shell
+XmNpopupEnabled			XmCPopupEnabled			bool				XmRowColumn
+XmNpostFromButton		XmCPostFromButton		int				XmRowColumn
+XmNprocessingDirection		XmCProcessingDirection		XmProcessingDirection		XmScale,XmScrollBar
+XmNpromptString			XmCPromptString			XmString			XmCommand
+XmNpushButtonEnabled		XmCPushButtonEnabled		bool				XmDrawnButton
+XmNradioAlwaysOne		XmCRadioAlwaysOne		bool				XmRowColumn
+XmNradioBehavior		XmCRadioBehavior		bool				XmRowColumn
+XmNrecomputeSize		XmCRecomputeSize		bool				XmLabel
+XmNrefigureMode			XmCBoolean			bool				XmPanedWindow
+XmNrepeatDelay			XmCRepeatDelay			int				XmScrollBar
+XmNresizable			XmCBoolean			bool				XmForm
+XmNresizeCallback		XmCCallback			(callback)			XmDrawingArea,XmDrawnButton
+XmNresizeHeight			XmCResizeHeight			bool				XmRowColumn,XmText
+XmNresizePolicy			XmCResizePolicy			XmResizePolicy			XmBulletinBoard,XmDrawingArea
+XmNresizeWidth			XmCResizeWidth			bool				XmRowColumn,XmText,XmTextField
+XmNrightAttachment		XmCAttachment			XmAttachment			XmForm
+XmNrightOffset			XmCOffset			int				XmForm
+XmNrightPosition		XmCPosition			int				XmForm
+XmNrightWidget			XmCWidget			Widget				XmForm
+XmNrowColumnType		XmCRowColumnType		XmRowColumnType			XmRowColumn
+XmNrows				XmCRows				short				XmText
+XmNrubberPositioning		XmCRubberPositioning		bool				XmForm
+XmNsashHeight			XmCSashHeight			Dimension			XmPanedWindow
+XmNsashIndent			XmCSashIndent			Position			XmPanedWindow
+XmNsashShadowThickness		XmCShadowThickness		Dimension			XmPanedWindow
+XmNsashWidth			XmCSashWidth			Dimension			XmPanedWindow
+XmNsaveUnder			XmCSaveUnder			bool				Shell
+XmNscaleHeight			XmCScaleHeight			Dimension			XmScale
+XmNscaleMultiple		XmCScaleMultiple		int				XmScale
+XmNscaleWidth			XmCScaleWidth			Dimension			XmScale
+XmNscrollBarDisplayPolicy	XmCScrollBarDisplayPolicy	XmScrollBarDisplayPolicy	XmList,XmScrolledWindow
+XmNscrollBarPlacement		XmCScrollBarPlacement		XmScrollBarPlacement		XmScrolledWindow
+XmNscrollHorizontal		XmCScroll			bool				XmText
+XmNscrollLeftSide		XmCScrollSide			bool				XmText
+XmNscrollTopSide		XmCScrollSide			bool				XmText
+XmNscrollVertical		XmCScroll			bool				XmText
+XmNscrolledWindowMarginHeight	XmCScrolledWindowMarginHeight	Dimension			XmScrolledWindow
+XmNscrolledWindowMarginWidth	XmCScrolledWindowMarginWidth	Dimension			XmScrolledWindow
+XmNscrollingPolicy		XmCScrollingPolicy		XmScrollingPolicy		XmScrolledWindow
+XmNselectColor			XmCSelectColor			Pixel				XmToggleButton
+XmNselectInsensitivePixmap	XmCSelectInsensitivePixmap	Drawable			XmToggleButton
+XmNselectPixmap			XmCSelectPixmap			Drawable			XmToggleButton
+XmNselectThreshold		XmCSelectThreshold		int				XmText,XmTextField
+XmNselectedItemCount		XmCSelectedItemCount		int				XmList
+XmNselectedItems		XmCSelectedItems		XmString list			XmList
+XmNselectionArray		XmCSelectionArray		XmTextScanType list		XmText,XmTextField
+XmNselectionArrayCount		XmCSelectionArrayCount		int				XmText,XmTextField
+XmNselectionLabelString		XmCSelectionLabelString		XmString			XmSelectionBox
+XmNselectionPolicy		XmCSelectionPolicy		XmSelectionPolicy		XmList
+XmNsensitive			XmCSensitive			bool				Core,RectObj
+XmNseparatorOn			XmCSeparatorOn			bool				XmPanedWindow
+XmNseparatorType		XmCSeparatorType		XmShadowType			XmSeparator
+XmNset				XmCSet				bool				XmToggleButton
+XmNshadowThickness		XmCShadowThickness		Dimension			XmGadget,XmManager,XmPrimitive
+XmNshadowType			XmCShadowType			XmShadowType			XmBulletinBoard,XmDrawnButton,XmFrame
+XmNshellUnitType		XmCShellUnitType		XmUnitType			VendorShell
+XmNshowArrows			XmCShowArrows			bool				XmScrollBar
+XmNshowAsDefault		XmCShowAsDefault		Dimension			XmPushButton
+XmNshowSeparator		XmCShowSeparator		bool				XmMainWindow
+XmNshowValue			XmCShowValue			bool				XmScale
+XmNsimpleCallback		XmCCallback			(callback)			XmRowColumn
+XmNsingleSelectionCallback	XmCCallback			(callback)			XmList
+XmNskipAdjust			XmCBoolean			bool				XmPanedWindow
+XmNsliderSize			XmCSliderSize			int				XmScrollBar
+XmNspacing			XmCSpacing			Dimension			XmPanedWindow,XmRowColumn,XmScrolledWindow,XmToggleButton
+XmNstringDirection		XmCStringDirection		XmStringDirection		XmLabel,XmList,XmManager
+XmNsubMenuId			XmCMenuWidget			Widget				XmCascadeButton,XmRowColumn
+XmNsymbolPixmap			XmCPixmap			Drawable			XmMessageBox
+XmNtextAccelerators		XmCAccelerators			XtAccelerators			XmSelectionBox
+XmNtextColumns			XmCColumns			short				XmSelectionBox
+XmNtextFontList			XmCTextFontList			XFontStruct list		XmBulletinBoard
+XmNtextString			XmCTextString			XmString			XmSelectionBox
+XmNtextTranslations		XmCTranslations			XtTranslations			XmBulletinBoard
+XmNtitle			XmCTitle			string				WMShell
+XmNtitleEncoding		XmCTitleEncoding		Atom				WMShell
+XmNtitleString			XmCTitleString			XmString			XmScale
+XmNtoBottomCallback		XmCCallback			(callback)			XmScrollBar
+XmNtoTopCallback		XmCCallback			(callback)			XmScrollBar
+XmNtopAttachment		XmCAttachment			XmAttachment			XmForm
+XmNtopCharacter			XmCTextPosition			XmTextPosition			XmText
+XmNtopItemPosition		XmCTopItemPosition		int				XmList
+XmNtopOffset			XmCOffset			int				XmForm
+XmNtopPosition			XmCPosition			int				XmForm
+XmNtopShadowColor		XmCTopShadowColor		Pixel				XmManager,XmPrimitive
+XmNtopShadowPixmap		XmCTopShadowPixmap		Drawable			XmManager,XmPrimitive
+XmNtopWidget			XmCWidget			Widget				XmForm
+XmNtransient			XmCTransient			bool				WMShell
+XmNtransientFor			XmCTransientFor			Widget				TransientShell
+XmNtranslations			XmCTranslations			XtTranslations			Core
+XmNtraversalOn			XmCTraversalOn			bool				XmGadget,XmManager,XmPrimitive
+XmNtroughColor			XmCTroughColor			Pixel				XmScrollBar
+XmNunitType			XmCUnitType			XmUnitType			XmGadget,XmManager,XmPrimitive
+XmNunmapCallback		XmCCallback			(callback)			XmBulletinBoard,XmRowColumn
+XmNuseAsyncGeometry		XmCUseAsyncGeometry		bool				VendorShell
+XmNvalue			XmCValue			int				XmScale,XmScrollBar
+XmNvalueChangedCallback		XmCCallback			(callback)			XmScale,XmScrollBar,XmText,XmTextField,XmToggleButton
+XmNverifyBell			XmCVerifyBell			bool				XmText,XmTextField
+XmNverticalScrollBar		XmCVerticalScrollBar		Widget				XmScrolledWindow
+XmNverticalSpacing		XmCSpacing			Dimension			XmForm
+XmNvisibleItemCount		XmCVisibleItemCount		short				XmList
+XmNvisibleWhenOff		XmCVisibleWhenOff		bool				XmToggleButton
+XmNvisual			XmCVisual			Visual				Shell
+XmNvisualPolicy			XmCVisualPolicy			XmVisualPolicy			XmScrolledWindow
+XmNwaitForWm			XmCWaitForWm			bool				WMShell
+XmNwidth			XmCWidth			Dimension			Core,RectObj
+XmNwidthInc			XmCWidthInc			int				WMShell
+XmNwinGravity			XmCWinGravity			int				WMShell
+XmNwindowGroup			XmCWindowGroup			Drawable			WMShell
+XmNwmTimeout			XmCWmTimeout			int				WMShell
+XmNwordWrap			XmCWordWrap			bool				XmText
+XmNworkWindow			XmCWorkWindow			Widget				XmScrolledWindow
+XmNx				XmCX				Position			Core,RectObj
+XmNy				XmCY				Position			Core,RectObj
+
+
+
+
+NOT SUPPORTED
+
+XmNinsertPosition						Composite
+XmNscreen							Core
+XmNcreatePopupChildProc						Shell
+XmNdirSearchProc						XmFileSelectionBox
+XmNfileSearchProc						XmFileSelectionBox
+XmNqualifySearchDataProc					XmFileSelectionBox
+XmNuserData							XmGadget,XmManager,XmPrimitive
+XmNentryClass							XmRowColumn
+XmNwhichButton							XmRowColumn
+XmNsource							XmText

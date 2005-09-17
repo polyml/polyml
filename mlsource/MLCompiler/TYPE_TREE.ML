@@ -1,0 +1,3284 @@
+(*
+	Copyright (c) 2000
+		Cambridge University Technical Services Limited
+
+	This library is free software; you can redistribute it and/or
+	modify it under the terms of the GNU Lesser General Public
+	License as published by the Free Software Foundation; either
+	version 2.1 of the License, or (at your option) any later version.
+	
+	This library is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+	Lesser General Public License for more details.
+	
+	You should have received a copy of the GNU Lesser General Public
+	License along with this library; if not, write to the Free Software
+	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+
+(*
+    Title:      Operations on type structures.
+    Author:     Dave Matthews, Cambridge University Computer Laboratory
+    Copyright   Cambridge University 1985
+*)
+
+
+(* 3/6/94 SPF fixed bug in allowGeneralisation *)
+(* 6/6/94 SPF fixed bug in match *)
+
+functor TYPE_TREE (
+
+(*****************************************************************************)
+(*                  SYSTEM                                                   *)
+(*****************************************************************************)
+structure SYSTEM :
+sig
+  val pointerEq: 'a * 'a -> bool
+end;
+
+(*****************************************************************************)
+(*                  DEBUG                                                    *)
+(*****************************************************************************)
+structure DEBUG :
+sig
+  type 'a dbRef
+  val errorDepth: int dbRef
+  val ml90: bool ref
+  val printTypesWithStructureName : bool ref;
+end;
+
+(*****************************************************************************)
+(*                  CREATEDATABASE                                           *)
+(*****************************************************************************)
+structure CREATEDATABASE :
+sig
+  type 'a dbRef
+  val dbRefGet : 'a dbRef -> 'a
+end;
+
+(*****************************************************************************)
+(*                  LEX                                                      *)
+(*****************************************************************************)
+structure LEX :
+sig
+  type lexan;
+  type prettyPrinter;
+  
+  val errorProc:    lexan * int * (prettyPrinter -> unit) -> unit;
+  val errorMessage: lexan * int * string -> unit;
+  val warningMessage: lexan * int * string -> unit;
+  val lineno:       lexan -> int;
+end;
+    
+(*****************************************************************************)
+(*                  STRUCTVALS                                               *)
+(*****************************************************************************)
+structure STRUCTVALS :
+sig
+  type values;
+  type typeConstrs;
+  type typeId;
+
+  (* A type is the union of these different cases. *)
+  type typeVarForm;
+  datatype types = 
+    TypeVar of typeVarForm
+    
+  | TypeConstruction of (* typeConstructionForm *)
+      {
+        name:  string,
+        value: typeConstrs ref,
+        args:  types list
+      }
+
+  | FunctionType of (* functionTypeForm *)
+    { 
+      arg:    types,
+      result: types
+    }
+  
+  | LabelledType  of (* labelledRecForm *)
+    { 
+      recList: { name: string, typeof: types } list,
+      frozen: bool,
+	  genericInstance: typeVarForm list
+    }
+
+  | OverloadSet	  of (* overloadSetForm *)
+  	{
+		typeset: typeConstrs list
+	}
+
+  | BadType
+  
+  | EmptyType
+  ;
+
+
+  val valName: values -> string
+  val valTypeOf: values -> types
+  
+  val isUnsetId:    typeId -> bool;
+  val isBoundId:    typeId -> bool;
+  val isVariableId: typeId -> bool;
+  val sameTypeId :  typeId * typeId -> bool;
+  val unifyTypeIds: typeId * typeId -> bool;
+  val makeFreeId:   unit -> typeId;
+
+  val tcName:          typeConstrs -> string;
+  val tcArity:         typeConstrs -> int;
+  val tcTypeVars:      typeConstrs -> types list;
+  val tcEquivalent:    typeConstrs -> types;
+  val tcSetEquivalent: typeConstrs * types -> unit;
+  val tcConstructors:  typeConstrs -> values list;
+  val tcEquality:      typeConstrs -> bool;
+  val tcSetEquality:   typeConstrs * bool -> unit;
+  val tcIdentifier:    typeConstrs -> typeId;
+  val tcLetDepth:        typeConstrs -> int;
+  
+  val makeTypeConstrs:
+  	string * types list * types * typeId * bool * int -> typeConstrs;
+  val emptyType: types;
+  
+  val tvLevel:        typeVarForm -> int;
+  val tvEquality:     typeVarForm -> bool;
+  val tvNonUnifiable: typeVarForm -> bool;
+  val tvWeak:         typeVarForm -> bool;
+  val tvValue:        typeVarForm -> types;
+  val tvSetValue:     typeVarForm * types -> unit;
+  
+  val sameTv: typeVarForm * typeVarForm -> bool;
+  
+  val makeTv: types * int * bool * bool * bool -> typeVarForm;
+
+  (* Standard type constructors. *)
+  val generalisable: int;
+  
+  val boolType:   typeConstrs;
+  val intType:    typeConstrs;
+  val charType:   typeConstrs;
+  val stringType: typeConstrs;
+  val wordType:   typeConstrs;
+  val realType:   typeConstrs;
+  val unitType:   typeConstrs;
+  val exnType:    typeConstrs;
+  val undefType:  typeConstrs;
+end;
+    
+(*****************************************************************************)
+(*                  UTILITIES                                                *)
+(*****************************************************************************)
+structure UTILITIES :
+sig
+  val mapTable: ('_a * '_a -> bool) ->
+                   {enter: '_a * '_b -> unit, lookup: '_a -> '_b}
+  val splitString:   string -> { first:string, second:string }
+end;
+
+(*****************************************************************************)
+(*                  PRETTYPRINTER                                            *)
+(*****************************************************************************)
+structure PRETTYPRINTER :
+sig
+  type prettyPrinter 
+  
+  val ppAddString  : prettyPrinter -> string -> unit
+  val ppBeginBlock : prettyPrinter -> int * bool -> unit
+  val ppEndBlock   : prettyPrinter -> unit -> unit
+  val ppBreak      : prettyPrinter -> int * int -> unit
+end;
+
+(*****************************************************************************)
+(*                  MISC                                                     *)
+(*****************************************************************************)
+structure MISC :
+sig
+  exception ValueMissing of string;  (* table lookup failure *)
+  exception InternalError of string;
+
+  val isNil : 'a list -> bool
+  
+  val fold   : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
+  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
+
+  val min : int -> int -> int
+
+  type 'a iter;
+
+  val for      : 'a iter -> ('a -> 'b) -> unit
+  val first    : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
+  val overList : 'a list -> 'a iter;
+  
+  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+end;
+
+(*****************************************************************************)
+(*                  PRINTTABLE                                               *)
+(*****************************************************************************)
+structure PRINTTABLE :
+sig
+  type typeConstrs
+  type codetree
+  val getOverload: string * typeConstrs * (unit->codetree) -> codetree
+end;
+
+(*****************************************************************************)
+(*                  CODETREE                                                 *)
+(*****************************************************************************)
+structure CODETREE :
+sig
+  type codetree
+  
+  val CodeNil:          codetree;
+  val isCodeNil:        codetree -> bool;
+end;
+
+(*****************************************************************************)
+(*                  TYPETREE sharing constraints                             *)
+(*****************************************************************************)
+
+sharing type
+  LEX.prettyPrinter
+= PRETTYPRINTER.prettyPrinter
+                   
+sharing type
+  CREATEDATABASE.dbRef
+= DEBUG.dbRef
+
+sharing type
+  PRINTTABLE.codetree
+= CODETREE.codetree
+
+sharing type
+  PRINTTABLE.typeConstrs
+= STRUCTVALS.typeConstrs
+  
+                   
+) :  
+                   
+(*****************************************************************************)
+(*                  TYPETREE exports signature                               *)
+(*****************************************************************************)
+sig
+  type types;
+  type values;
+  type typeConstrs;
+  type lexan;
+  type prettyPrinter;
+  type typeId;
+
+  val mkTypeVar:          int * bool * bool * bool -> types;
+  val mkTypeConstruction: string * typeConstrs * types list -> types;
+  val mkProductType:      types list -> types;
+  val mkFunctionType:     types * types -> types;
+  val mkLabelled:         {name: string, typeof: types } list * bool -> types;
+  val mkLabelEntry:       string * types -> {name: string, typeof: types };
+  val mkOverloadSet:	  typeConstrs list -> types;
+  val sortLabels:         {name: string, typeof: types } list * (string -> unit) ->
+  								{name: string, typeof: types } list;
+  val entryNumber:        string * types -> int;
+  val recordNotFrozen:    types -> bool;
+  val recordWidth:        types -> int;
+  val makeEquivalent:     typeConstrs * types list -> types;
+  val firstArg:			  types -> types;
+   
+  (* Unify two type variables which would otherwise be non-unifiable. *)
+  val linkTypeVars: types * types -> unit;
+  val setTvarLevel: types * int -> unit;
+
+  (* Get the constructor list from a type. *)
+  val getConstrList: types -> values list;
+
+  (* Fill in the values of type variables and make checks. *)
+  val assignTypes: types * (string -> typeConstrs) * lexan * int -> unit;
+
+   (* Copy a type. *)
+  val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
+
+  (* Print it out prettily *)
+  val display: types * int * prettyPrinter -> unit;
+
+  (* Print out a type constructor. *)
+  val displayTypeConstrs: typeConstrs * int * prettyPrinter -> unit;
+
+  (* A list of type variables. *)
+  val displayTypeVariables: types list * int * prettyPrinter -> unit;
+
+  (* Create an instance of an overloaded type. *)
+  val generaliseOverload: types * typeConstrs list * bool -> types;
+
+  (* Returns the preferred type constructor from an overload. *)
+  val typeConstrFromOverload: types * bool -> typeConstrs;
+
+  (* Error message when overloading cannot be resolved. It is put in this
+     module because we want the message to refer to the argument. *)
+  val overloadError: types * string * string * lexan * int -> unit;
+
+  val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
+
+  (* Checking procedures *)
+
+   (* Match a candidate to a target type. *)
+   val matchTypes: types * types * (typeId -> typeConstrs) *
+                   lexan * int * (prettyPrinter -> unit) -> unit;
+
+  (* Unify two type structures to give a unified type. *)
+  val unify: types * types * lexan * int * (prettyPrinter -> unit) -> unit;
+
+  (* Apply a function to an argument and yield a result type. *)
+  val apply: types * types * lexan * int * (prettyPrinter -> unit) -> types;
+
+  (* Used to establish sharing constraints between type constructors. *)
+  val linkTypeConstructors: typeConstrs * typeConstrs * (string -> unit) -> unit;
+  
+  (* Used to link a type constructor to a type as the result of a "where type"
+     construction. *)
+  val setWhereType: typeConstrs * typeConstrs * (string -> unit) -> unit;
+
+      (* Check that a type constructor permits equality. *)
+  val permitsEquality: typeConstrs -> bool;
+
+  (* Generate new copies of all unbound type variables - this is used on all
+     non-local values or constructors so that, for example, each occurence of
+     "hd", which has type 'a list -> 'a, can be separately bound to types.
+     isExp is false if we are processing a pattern. If we have "ref" as a
+     constructor in a pattern we do not need to introduce imperative type
+     variables. *)
+  val generalise: types * bool -> types;
+
+      (* Release type variables at this nesting level. *)
+  val allowGeneralisation: types * int * bool *
+  						   lexan * int * (prettyPrinter -> unit) -> unit;
+
+  (* Check for a local datatype "escaping".  Added for ML97. *)
+  val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
+
+  (* Check for free type variables.  Added for ML97. *)
+  val checkForFreeTypeVariables: string * types * lexan -> unit;
+
+  val constructorResult: types * types list -> types;
+
+  val checkWellFormed: types * (string -> unit) -> unit;
+
+  val findValueConstructor: values -> values;
+
+  val copyTypeConstr: 
+     typeConstrs * (typeId -> bool) * (unit -> typeId) *
+        {enter: typeId * typeConstrs -> unit,
+         lookup: typeId -> typeConstrs} *
+		 (types -> types) * string ->
+                      typeConstrs;
+
+  val setTypeConstr: typeConstrs * (typeConstrs -> typeId) -> unit;
+
+  val enterTypeConstrs: typeConstrs * typeConstrs *
+                        { enter: typeId * typeConstrs -> unit,
+                          lookup: typeId -> typeConstrs} -> unit;
+
+  val identical:       types * types -> bool;
+  val identicalConstr: typeConstrs * typeConstrs -> bool;
+  val identicalList:   types list * types list -> bool;
+
+  val boolType:   types;
+  val intType:    types;
+  val charType:   types;
+  val stringType: types;
+  val realType:   types;
+  val unitType:   types;
+  val exnType:    types;
+  
+  (* added 6/12/95 SPF *)
+  val badType:    types;
+
+  (* added SPF 16/4/95 *)  
+  val sameTypeVar : types * types -> bool;
+end (* TYPETREE export signature *) =
+
+(*****************************************************************************)
+(*                  TYPETREE functor body                                    *)
+(*****************************************************************************)
+struct
+  open DEBUG;
+  open MISC;
+  open PRETTYPRINTER;
+  
+  open STRUCTVALS;
+  open LEX;
+  open UTILITIES;
+  open CREATEDATABASE;
+  open CODETREE;
+  open PRINTTABLE;
+  
+  (* added 6/12/95 SPF *)
+  val badType : types = BadType;
+  
+  (* added 16/4/96 SPF *)
+  fun sameTypeVar (TypeVar x, TypeVar y) = sameTv (x, y)
+    | sameTypeVar _                      = false;
+
+  
+(************* "types" constructors copied here to reduce garbage *********)
+  fun isTypeVar          (TypeVar          _) = true
+    | isTypeVar          _ = false;
+     
+  fun isTypeConstruction (TypeConstruction _) = true
+    | isTypeConstruction _ = false;
+     
+  fun isFunctionType     (FunctionType     _) = true
+    | isFunctionType     _ = false;
+    
+  fun isLabelled         (LabelledType     _) = true
+    | isLabelled         _ = false;
+    
+  fun isEmpty             EmptyType           = true
+    | isEmpty            _ = false;
+    
+  fun isBad               BadType             = true
+    | isBad              _ = false;
+
+  val emptyType            = EmptyType;
+
+  type typeConstructionForm = 
+      {
+        name:  string,
+        value: typeConstrs ref,
+        args:  types list
+      }
+         
+
+  (* A function type takes two types, the argument and the result. *)
+  and functionTypeForm = 
+    { 
+      arg: types,
+      result: types
+    }
+            
+  (* A fixed labelled record. *)
+  and labelledRecForm = 
+    { 
+      recList: {name: string, typeof: types} list,
+      frozen: bool
+    };
+
+  fun typesTypeVar          (TypeVar          x) = x 
+    | typesTypeVar          _ = raise Match;
+    
+  fun typesTypeConstruction (TypeConstruction x) = x 
+    | typesTypeConstruction _ = raise Match;
+    
+  fun typesFunctionType     (FunctionType     x) = x
+     | typesFunctionType     _ = raise Match;
+     
+  fun typesLabelled         (LabelledType     x) = x
+    | typesLabelled         _ = raise Match;
+    
+  (* A type construction is the application of a type constructor to
+     a sequence of types to yield a type. A construction may have a nil
+     list if it is a single type identifier such as ``int''. *)
+  
+  (* When a type constructor is encountered in the first pass this entry 
+     is put in. Subsequently a type constructor entry will be assigned to
+     it so that the types can be checked. *)
+
+(*************)
+
+  fun mkTypeVar (level, equality, nonunifiable, weak) = 
+      TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
+      
+  fun mkTypeConstruction (name, typc, args) =
+      TypeConstruction {name = name, value = ref typc, args = args};
+
+	local
+		(* Turn a tuple into a record of the form {1=.., 2=... }*)
+		fun maptoRecord ([], _) = []
+		  | maptoRecord (H::T, i) = 
+		  		{name=Int.toString i, typeof=H} :: maptoRecord (T,i+1)
+	in
+		fun mkProductType (typel: types list) =
+			LabelledType {recList = maptoRecord (typel, 1), frozen = true,
+						  genericInstance = []}
+	end
+
+  fun mkFunctionType (arg, result) = 
+      FunctionType {arg = arg, result = result};
+
+  fun mkOverloadSet [constr] =
+  	(* If there is just a single constructor in the set we make
+	   a type construction from it. *)
+		mkTypeConstruction(tcName constr, constr, nil)
+   | mkOverloadSet constrs = 
+  	let
+		(* Make a type variable and point this at the overload set
+		   so we can narrow down the overloading. *)
+		val var = mkTypeVar (generalisable, false, false, false);
+		val set = OverloadSet {typeset=constrs};
+	in
+		tvSetValue (typesTypeVar var, set);
+		var
+	end
+
+  fun mkLabelled (l, frozen) = 
+  let
+    val lab = LabelledType {recList = l, frozen = frozen, genericInstance = []};
+  in
+    if frozen
+    then lab
+    else let (* Use a type variable so that the record can be expanded. *)
+      val var = mkTypeVar (generalisable, false, false, false);
+      val U : unit =
+        if isTypeVar var
+        then tvSetValue (typesTypeVar var, lab)
+        else ();
+    in
+      var
+    end
+  end;
+
+  (* Must remove leading zeros because the labels are compared by
+     string comparison. *)
+   
+  fun mkLabelEntry (name, t) = 
+  let
+    fun stripZeros s = 
+      if size s <= 1  orelse String.str(String.sub(s, 0)) <> "0" 
+      then s
+      else stripZeros (String.substring(s, 1, size s-1));
+  in
+    {name = stripZeros name, typeof = t}
+  end;
+
+  (* Type identifiers bound to standard type constructors. *)
+  (* unit is equivalent to an empty record. *)
+   
+  val unitType =
+    (
+      tcSetEquivalent (unitType, mkLabelled ([], true));
+       mkTypeConstruction ("unit", unitType, [])
+    );
+   
+  val intType    = mkTypeConstruction ("int",     intType,    []);
+  val realType   = mkTypeConstruction ("real",    realType,   []);
+  val charType   = mkTypeConstruction ("char",    charType,   []);
+  val stringType = mkTypeConstruction ("string",  stringType, []);
+  val boolType   = mkTypeConstruction ("bool",    boolType,   []);
+  val exnType    = mkTypeConstruction ("exn",     exnType,    []);
+           
+  fun isUndefined cons = isUnsetId (tcIdentifier cons); 
+
+  (* Similar to alphabetic ordering except that shorter labels come before longer ones.
+     This has the advantage that numerical labels are compared by their numerical order
+     i.e. 1 < 2 < 10 whereas alphabetic ordering puts "1" < "10" < "2". *)
+  fun compareLabels (a : string, b : string) : int = 
+    if size a = size b 
+    then if a = b then 0 else if a < b then ~1 else 1
+    else if size a < size b then ~1 else 1;
+
+  (* Chains down a list of type variables returning the type they are
+     bound to. As a side-effect it also points all the type variables
+     at this type to reduce the need for future chaining and to free
+     unused type variables. Normally a type variable points to at most
+     one other, which then points to "empty". However if we have unified
+     two type variables by pointing one at the other, there may be type
+     variables which pointed to the first and which cannot be found and
+     redirected at the second until they themselves are examined. *)
+     
+  (* rewritten using pattern-matching SPF 17/11/94 *)
+  fun eventual (t as (TypeVar tv)) : types =
+    let
+      (* Note - don't change the level/copy information - the only type
+         variable with this correct is the one at the end of the list. *)
+	  val oldVal = tvValue tv
+      val newVal = eventual oldVal;   (* Search that *)
+    in
+	  (* Update the type variable to point to the last in the chain.
+	     Note: We don't do this if the value hasn't changed.  It would
+		 seem that doing so ought to be perfectly harmless but it
+		 results in large number of expensive assignments to database
+		 variables. *)
+	  if SYSTEM.pointerEq(oldVal, newVal)
+	  then ()
+	  else tvSetValue (tv, newVal); (* Put it on *)
+      case newVal of
+        EmptyType => (* Not bound to anything - return the type variable *)
+          t
+      
+      | LabelledType {frozen = false, recList = instanceList,
+	  				  genericInstance = genericInstance as generic :: _} =>
+	  	(* Flexible record type.  We need to add any fields which have been
+		   added to the generic since we extracted this instance.  In particular
+		   the generic might have been frozen. *)
+		let
+		fun createNewField{name, typeof = TypeVar gtv} =
+			(
+			(*print(concat[
+				"createNewField:",
+				"Generic - equality=", Bool.toString(tvEquality gtv),
+				" level=", Int.toString(tvLevel gtv),
+				" weakness=", Bool.toString(tvWeak gtv),
+				" Instance - equality=", Bool.toString(tvEquality tv),
+				" level=", Int.toString(tvLevel tv),
+				" weakness=", Bool.toString(tvWeak tv),
+				"\n"
+			]);*)
+			{ name = name,
+			  (* The new type variable has to be created with the same properties
+			     as if we had first generalised it from the generic and then
+				 unified with this instance.
+				 The level is inherited from the instance since the generic
+				 will always have level = generalisable.  Nonunifiable must be false. *)
+			  typeof = mkTypeVar (tvLevel tv, tvEquality tv orelse tvEquality gtv,  
+		                       false, tvWeak gtv orelse tvWeak tv)
+			}
+			)
+		|	createNewField _ =  raise InternalError "createNewField: New field is not a type var"
+
+		fun addToInstance([], []) = []
+		 |  addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
+		 |  addToInstance([], _) =
+		 		raise InternalError "addToInstance: Entry in instance but not in generic"
+		 |  addToInstance((generic as {name=gName, ...}):: geRest, inst as instance :: iRest) =
+		 		let
+					val order = compareLabels (gName, #name instance);
+				in
+					if order = 0 (* Equal *)
+					then instance :: addToInstance(geRest, iRest)
+					else if order < 0 (* generic name < instance name *)
+					then createNewField generic :: addToInstance(geRest, inst)
+					else raise InternalError "addToInstance: Entry in instance but not in generic"
+				end
+
+		val (newList, nowFrozen) = 
+			case tvValue generic of
+				LabelledType { recList, frozen, ... } =>
+					(addToInstance(recList, instanceList), frozen)
+			|	_ => raise InternalError "unifyRecords: Not a labelled record"
+		val newRecord =
+			LabelledType {frozen = nowFrozen, genericInstance = genericInstance, recList = newList}
+		in
+			tvSetValue(tv, newRecord);
+          	if nowFrozen then newRecord else t
+		end
+
+      | LabelledType {frozen = false, ...} => t
+	  	(* Flexible record with no generic instances - return the variable. *)
+
+	  | OverloadSet _ => (* Return the set of types. *)
+	  	  t
+
+      | _ => 
+          newVal (* Return the type it is bound to *)
+    end
+    
+   | eventual t (* not a type variable *) = t;
+
+
+  (* Apply a function to every element of a type. *)
+  (* rewritten using pattern-matching SPF 17/11/94 *)
+  fun foldType f =
+  let
+    fun foldT typ v =
+    let
+      val t   = eventual typ;
+      val res = f t v; (* Process this entry. *)
+    in
+      case t of
+        TypeVar tv =>
+          foldT (tvValue tv) res
+
+       | TypeConstruction {args, ...} =>
+           (* Then process the arguments. *)
+           fold foldT res args
+           
+      | FunctionType {arg, result} =>
+          foldT arg (foldT result res)
+    
+      | LabelledType {recList,...} =>
+          fold (fn { name, typeof } => foldT typeof) res recList
+
+      | BadType =>
+          res
+         
+      | EmptyType =>
+          res
+		  
+	  | OverloadSet _ => res
+    end;
+  in
+    foldT
+  end;
+        
+  (* Associates type constructors from the environment with type identifiers
+    (NOT type variables) *)
+  fun assignTypes
+      (t : types, 
+       lookupType : string -> typeConstrs, 
+       lex : lexan, 
+       lineno : int) 
+      : unit =
+  let
+    fun assTypes (typ : types) () : unit =
+      case typ of
+        TypeConstruction {name: string, value: typeConstrs ref, args: types list} =>
+	  (* Assign constructor, then the parameters. *)
+	  if isUndefined (!value)
+	  then let 
+	    (* Must check that it has not already been set -
+	       We might have unitType from an empty record. *)
+	    val constructor : typeConstrs = lookupType name;
+	  in
+	    value := constructor;
+	    (* Check that it has the correct arity. *)
+	    if not (isUndefined constructor)
+	    then let
+	      val arity : int = tcArity constructor;
+	      val num   : int = length args;
+	    in
+	      if arity <> num
+	      then (* Give an error message *)
+	      errorMessage (lex, lineno,
+		  	String.concat["Type constructor (", tcName constructor,
+				") requires ", Int.toString arity, " type(s) not ",
+				Int.toString num])
+	      else ()
+	    end
+	    else ()
+	  end
+	  else ()
+	| _ => () (* not a TypeConstruction *)
+  in (* Apply this to all the types. *)
+    foldType assTypes t ()
+  end;
+
+  (* Checks to see whether a labelled record is in the form of
+     a product i.e. 1=, 2=   We only need this for prettyprinting.
+	 Zero-length records (i.e. unit) and singleton records are not
+	 considered as tuples. *)
+  fun isProductType(LabelledType{recList=recList as _::_::_, frozen=true, ...}) =
+  	let
+		fun isRec [] n = true
+		 |  isRec ({name, typeof} :: l) n =
+		 		name = Int.toString n andalso isRec l (n+1)
+	in
+		isRec recList 1
+	end
+    | isProductType _ = false;
+
+  (* Basic procedure to print a type structure. *)
+  
+  (* prints a block of items *)
+  fun tDisp 
+    (t : types, 
+     depth : int,
+     pprint: prettyPrinter,
+     typeVarName : typeVarForm -> string)
+    : unit =
+  let
+    (* prints a block of items *)
+    fun dispP (t : types, depth : int) : unit =
+    let
+      (* prints a block of items *)
+      fun parenthesise depth t =
+	  if depth <= 1
+	  then ppAddString  pprint "..."
+	  else
+      (  
+        ppBeginBlock pprint (0, false);
+        ppAddString  pprint "(";
+        ppBreak      pprint (0, 0);
+        dispP (t, depth - 1);
+        ppBreak      pprint (0, 0);
+        ppAddString  pprint ")";
+        ppEndBlock   pprint () 
+      );
+    
+      (* prints a sequence of items *)
+      fun prettyList []       depth separator = ()
+
+        | prettyList [H] depth separator =
+          let
+            val v = eventual H;
+          in
+            if separator = "*" andalso
+               (isFunctionType v orelse isProductType v)
+            then (* Must bracket the expression *) parenthesise depth v
+            else dispP (v, depth)
+          end
+
+        | prettyList (H :: T) depth separator =
+          if depth <= 0
+          then ppAddString pprint "..."
+          else let
+            val v = eventual H;
+          in
+            ppBeginBlock pprint (0, false);
+            
+            if separator = "*" andalso
+               (isFunctionType v orelse isProductType v)
+            then (* Must bracket the expression *) parenthesise depth v
+            else dispP (v, depth);
+            
+            ppBreak pprint (if separator = "," then 0 else 1, 0);
+            ppAddString pprint separator;
+            ppEndBlock pprint ();
+
+            ppBreak pprint (1, 0);
+            prettyList T (depth - 1) separator
+          end;
+        
+      val typ = eventual t; (* Find the real type structure *)
+    in 
+      case typ of
+        TypeVar tyVar =>
+		let
+		  val tyVal : types = tvValue tyVar;
+		in
+		  case tyVal of
+		    EmptyType => ppAddString pprint (typeVarName tyVar)
+		  | _         => dispP (tyVal, depth)
+		end
+	  
+     (* Type construction with no arguments *)
+     | TypeConstruction {args = [], name, value = ref tc, ...} =>
+	 	 let
+		 	val constrName = if isUndefined tc then name else tcName tc
+		 in
+		 	(* When printing a type constructor we remove any structure name if  *)
+            ppAddString pprint
+				(if ! printTypesWithStructureName then constrName else #second(splitString constrName))
+		 end
+        
+     (* Type construction with one or more arguments - print out as (a, b, c) cons *)
+     | TypeConstruction {args, name, value = ref tc, ...} =>
+	   if depth <= 0
+	   then ppAddString  pprint "..."
+	   else
+       let
+		 val argVal = eventual (hd args);
+		 val T      = tl args;
+		 (* Use the name of the type constructor to which this is bound
+		    if it is defined.  *)
+		 val tcName =
+		 	if isUndefined tc then name else tcName tc
+       in
+		 ppBeginBlock pprint (0, false);
+		 
+		 if not (isNil T) orelse
+		    isProductType argVal orelse
+		    isFunctionType argVal
+		 then (* parenthesise if there is more than one
+			 or if it is a product or function type. *)
+		    if depth <= 1
+		 then ppAddString  pprint "..."
+		 else
+			 (
+			   ppBeginBlock pprint (0, false);
+			   ppAddString  pprint "(";
+			   ppBreak pprint (0, 0);
+			   prettyList args (depth - 1) ",";
+			   ppBreak pprint (0, 0);
+			   ppAddString  pprint ")";
+			   ppEndBlock pprint ()
+			 )
+		 else dispP (argVal, depth - 1);
+		 
+		 ppBreak pprint (1, 0);
+		 ppAddString  pprint tcName;
+		 ppEndBlock pprint ()
+       end
+        
+     | FunctionType {arg, result} =>
+	 	if depth <= 0
+		then ppAddString pprint "..."
+		else
+       (* print out in infix notation *)
+       let
+	 val evArg = eventual arg;
+       in
+	 ppBeginBlock pprint (0, false);
+	 
+	 (* If the argument is a function it must be printed as (a-> b)->.. *)
+	 if isFunctionType evArg 
+	 then parenthesise depth evArg
+	 else dispP (evArg, depth - 1);
+	 
+	 ppBreak pprint (1, 0);
+	 ppAddString pprint "->";
+	 ppBreak pprint (1, 0);
+	 dispP (result, depth - 1);
+	 
+	 ppEndBlock pprint ()
+       end
+                     
+     | LabelledType {recList, frozen, ...} =>
+	 	if depth <= 0
+		then ppAddString pprint "..."
+		else if isProductType typ
+		then (* Print as a product *)
+       (
+		 ppBeginBlock pprint (0, false) (* Print them as t1 * t2 * t3 .... *);
+		 prettyList (map (fn {name, typeof} => typeof) recList) depth "*";
+		 ppEndBlock pprint ()
+       )
+		else (* Print as a record *)
+       (
+	 ppBeginBlock pprint (2, false);
+	 ppAddString  pprint  "{";
+	 	let
+			fun pRec [] depth = ()
+			  | pRec ({name, typeof} :: T) depth =
+			  	if depth <= 0 then ppAddString pprint "..."
+				else
+					(
+					ppBeginBlock pprint (0, false);
+ 					ppBeginBlock pprint (0, false);
+					ppAddString  pprint (name ^ ":");
+					ppBreak      pprint (1, 0);
+					dispP (typeof, depth - 1);
+					ppEndBlock   pprint ();
+		            if isNil T then ()
+		            else
+		            (
+		              ppBreak pprint (0, 0);
+		              ppAddString pprint ","
+		            );
+            
+					ppEndBlock pprint ();
+					if isNil T then ()
+					else
+						(
+		              	ppBreak pprint (1, 0);
+						pRec T (depth-1)
+						)
+					)
+		in
+			pRec recList (depth - 1)
+		end;
+	 
+	 if not frozen
+	 then let
+	   val dots = 
+	     case recList of
+	       [] =>   "..."
+	     | _  => ", ..."
+	 in
+	   ppAddString pprint dots
+	 end
+	 else ();
+	 
+	 ppAddString pprint "}";
+	 ppEndBlock  pprint ()
+       )
+
+  	 | OverloadSet {typeset = []} => ppAddString pprint "no type"
+
+  	 | OverloadSet {typeset = tconslist} =>
+	 	  (* Just print the type constructors separated by / *)
+		let
+		  	fun printTCcons [] = ()
+			  | printTCcons [tcons] = ppAddString pprint (tcName tcons)
+			  | printTCcons (tcons::rest) =
+			  	(
+				ppAddString pprint (tcName tcons);
+				ppBreak      pprint (0, 0);
+				ppAddString pprint "/";
+				printTCcons rest
+				)
+		in
+			ppBeginBlock pprint (0, false);
+			printTCcons tconslist;
+			ppEndBlock pprint ()
+		end
+
+     | EmptyType =>
+         ppAddString pprint "no type"
+            
+     | BadType =>
+         ppAddString pprint "bad"
+    end (* dispP *)
+  in
+    dispP (t, depth)
+  end (* tDisp *);
+
+
+  (* Generate unique type-variable names. *)
+
+  fun varNameSequence () : typeVarForm -> string = 
+  (* We need to ensure that every distinct type variable has a distinct name.
+     Each new type variable is given a name starting at "'a" and going on
+     through the alphabet. *)
+  let
+    datatype names = Names of {name: string, entry: typeVarForm};
+    val nameNum    = ref ~1;
+    val gNameList  = ref []; (* List of names *)
+  in
+    (* If the type is already there return the name we have given it
+       otherwise make a new name and put it in the list. *)
+    fn (var : typeVarForm) =>
+      first (fn (Names {entry,...}) => sameTv (entry, var))
+	    (fn (Names {name,...})  => name)
+	    (fn () => (* Not on the list - make a new name *)
+	    let
+	      fun name num = (if num >= 26 then name (num div 26 - 1) else "")
+			      ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
+	    in
+	      nameNum := !nameNum + 1;
+	      let
+		val n = (if tvEquality var then "''" else "'") ^
+			(if !ml90 andalso tvWeak var then "_" else "") ^ name(!nameNum);
+	      (* Should explicit type variables be distinguished? *)
+	      in
+		gNameList := Names{name=n, entry=var} :: !gNameList;
+		n
+	      end
+	    end
+	    )
+	    (overList (!gNameList))
+          
+  end (* varNameSequence *);
+  
+
+  (* Print a type (as a block of items) *)
+  fun display (t : types, depth : int, pprint : prettyPrinter) = 
+    tDisp (t, depth, pprint, varNameSequence ());
+
+  (* Print out one or more type variables (unblocked) *)
+  fun printTypeVars
+     (vars : types list,
+      depth : int,
+      typeV : typeVarForm -> string,
+      pprint : prettyPrinter)
+     : unit =
+  let
+    val numOfVars = length vars;
+  in
+    (* Just print the variable *)
+    if numOfVars = 1 
+    then 
+    (
+      tDisp (hd vars, depth, pprint, typeV); 
+      ppBreak pprint (1, 0)
+    )
+    else 
+    (
+      if numOfVars > 1 
+      then (* Must parenthesise them. *)
+	  	 if depth <= 1
+		 then ppAddString pprint "..."
+	  else
+      (
+        ppBeginBlock pprint (0, false);
+        ppAddString pprint "(";
+        ppBreak pprint (0, 0);
+        let
+          fun pVars vars depth = 
+            if depth <= 0 then ppAddString pprint "..."
+            else if not (isNil vars)
+                 then  
+                 (
+                   tDisp (hd vars, depth, pprint, typeV);
+                   ppBreak pprint (0, 0);
+                   if not (isNil (tl vars))
+                   then
+                   (
+                     ppAddString pprint ",";
+                     ppBreak pprint (1, 0);
+                     pVars (tl vars) (depth - 1)
+                   )
+                   else ()
+                 )
+                 else ()
+        in
+          pVars vars depth
+        end;
+        
+        ppAddString pprint ")";
+        ppEndBlock pprint ();
+        ppBreak pprint (1, 0)
+      )
+      else ()
+    )
+  end (* printTypeVars *);
+  
+  
+  (* Version used in parsetree. *)
+  fun displayTypeVariables
+     (vars : types list,
+      depth : int,
+      pprint : prettyPrinter) 
+    : unit =
+       printTypeVars (vars, depth, varNameSequence (), pprint);
+    
+    
+  (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
+     or datatype 'a joe = bill of 'a list | mary of 'a * int or
+     simply type 'a abs if the type is abstract. *)
+  fun displayTypeConstrs 
+     (tCons : typeConstrs,
+      depth : int, 
+      pprint : prettyPrinter)
+     : unit =
+  let
+    val typeV : typeVarForm -> string = varNameSequence ();
+  in
+    if depth <= 0 
+    then ppAddString pprint "..."
+    else if not (isNil (tcConstructors tCons))
+      then let (* It has constructors - datatype declaration *)
+         (* Print a single constructor (blocked) *)
+         fun pValConstr (first, name, typeOf, depth) =
+		 let
+		   val U : unit =
+		     if first then ppBreak pprint (1, 2) else ppBreak pprint (1, 0)
+		 in
+	   (* 1 *) ppBeginBlock pprint (0, false);
+	  
+	   (* 2 *) ppBeginBlock pprint (0, false);
+		   if first
+		   then ppBreak pprint (0, 2)
+		   else let
+		   in
+	   (* 3 *)   ppBeginBlock pprint (0, false);
+		     ppAddString pprint "|";
+		     ppBreak pprint (1, 2);
+	   (* 3 *)   ppEndBlock pprint ()
+		   end;
+		     
+		   if depth <= 0 
+		   then ppAddString pprint "..."
+		   else let
+		   in
+		     ppAddString pprint name;
+		     
+		     (* Function - get the argument type *)
+		     if isFunctionType typeOf
+		     then
+		     ( 
+		       ppBreak pprint (1, 4);
+		       ppAddString pprint "of"
+		     )
+		     else ()
+		   end;
+	   (* 2 *) ppEndBlock pprint ();
+		   
+		   
+		   if isFunctionType typeOf andalso depth > 0
+		   then
+		   ( 
+		       ppBreak pprint (1, 4);
+		       (* print the type as a single block of output *)
+		       tDisp (#arg (typesFunctionType typeOf), depth - 1, pprint, typeV)
+		     )
+		   else ();
+		   
+	   (* 1 *) ppEndBlock pprint ()
+		 end; (* pValConstr *)
+           
+         (* Print a sequence of constructors (unblocked) *)
+         fun pValConstrRest ([],     depth) = ()
+           | pValConstrRest (H :: T, depth) =
+           if depth < 0
+           then ()           
+           else let
+           in
+             pValConstr (false, valName H, valTypeOf H, depth);
+             pValConstrRest (T, depth - 1)
+           end;
+           
+         fun pValConstrList ([],     depth) = () (* shouldn't occur *)    
+           | pValConstrList (H :: T, depth) =
+		 let
+		 in
+		   ppBeginBlock pprint (2, true);
+		   pValConstr (true, valName H, valTypeOf H, depth);
+		   pValConstrRest (T, depth - 1);
+		   ppEndBlock pprint ()
+		 end;
+	   (* Remove any structure name. *)
+	   val tcname = #second(splitString(tcName tCons))
+       in
+         ppBeginBlock pprint (0, false);
+         
+         ppAddString pprint "datatype";
+         ppBreak pprint (1, 2);
+         printTypeVars (tcTypeVars tCons, depth, typeV, pprint);
+         ppAddString pprint (tcname ^ " =");
+         pValConstrList (tcConstructors tCons, depth - 1);
+         
+         ppEndBlock pprint ()
+       end
+       
+       else (* Either direct type equivalent, or an abstract type *)
+         let
+		   (* Remove any structure name. *)
+		   val tcname = #second(splitString(tcName tCons))
+		 in
+           ppBeginBlock pprint (3, false);
+           ppAddString pprint (if tcEquality tCons then "eqtype" else "type");
+           ppBreak pprint (1, 0);
+           printTypeVars (tcTypeVars tCons, depth, typeV, pprint);
+           ppAddString pprint tcname;
+           (* Don't try to print the type it is equivalent to, it will probably
+              be confusing if this is the result of a functor application. *)
+           ppEndBlock pprint ()
+        end
+  end   (* displayTypeConstrs *);
+       
+  (* When we have finished processing a list of patterns we need to check
+     that the record is now frozen. *)
+
+  fun recordNotFrozen (TypeVar t) : bool = 
+    	(* Follow the chain *)
+    	recordNotFrozen (tvValue t)
+	| recordNotFrozen (LabelledType { frozen, ... }) = not frozen
+	| recordNotFrozen _ = false (* record or type alias *);
+
+
+  fun matchError 
+    (s1 : string, alpha : types, s2 : string, beta  : types, s3 : string,
+     lex : lexan, lineno : int, moreInfo : prettyPrinter -> unit) : unit =
+  (
+    errorProc (lex, lineno,
+       fn (pprint : prettyPrinter) =>
+       let
+         (* Use a single sequence. *)
+         val vars : typeVarForm -> string = varNameSequence ();
+       in
+         ppBeginBlock pprint (3, false);
+         ppAddString pprint s1;
+         ppBreak pprint (1, 0);
+         tDisp (alpha, dbRefGet errorDepth, pprint, vars);
+         ppBreak pprint (1, 0);
+         ppAddString pprint s2;
+         ppBreak pprint (1, 0);
+         tDisp (beta, dbRefGet errorDepth, pprint, vars);
+         ppBreak pprint (1, 0);
+         ppAddString pprint s3;
+         ppBreak pprint (1, 0);
+         moreInfo pprint;
+         ppEndBlock pprint ()
+       end
+      )
+  ) (* matchError *);
+
+
+  (* True if two types are equal. Used to reduce the storage required
+     when copying signatures. Rewritten using pattern-matching.
+     SPF 17/11/94. *)
+  fun equalTypes (TypeConstruction x)  (TypeConstruction y) = 
+      sameTypeId (tcIdentifier (! (#value x)), tcIdentifier(! (#value y)))
+        andalso equalTypeLists (#args x) (#args y)
+    
+   | equalTypes (FunctionType x) (FunctionType y) = 
+       equalTypes (#arg x)    (#arg y)   andalso 
+       equalTypes (#result x) (#result y)
+                 
+   | equalTypes (LabelledType x) (LabelledType y) =
+       #frozen x andalso #frozen y andalso  
+       equalRecordLists (#recList x) (#recList y)
+
+   | equalTypes (TypeVar x) (TypeVar y)  =
+      sameTv (x, y)
+      
+   | equalTypes BadType BadType     = true
+  
+   | equalTypes EmptyType EmptyType = true
+
+   | equalTypes _ _ = false
+                              
+  and equalTypeLists []        []    = true
+    | equalTypeLists (x::xs) (y::ys) =
+           equalTypes x y andalso equalTypeLists xs ys
+    | equalTypeLists _        _      = false
+
+  and equalRecordLists []        []    = true
+    | equalRecordLists (x::xs) (y::ys) =
+	       #name x = #name y andalso 
+	       equalTypes(#typeof x) (#typeof y) andalso equalRecordLists xs ys
+    | equalRecordLists _        _      = false;
+    
+
+  fun trivMap (t : types) : types = t; 
+
+  (* See if the types are the same. This is a bit of a fudge, but saves carrying
+     around a flag saying whether the structures were copied. This is only an
+     optimisation. If the values are different it will not go wrong. *)
+  val identical : types * types -> bool = 
+    SYSTEM.pointerEq;
+
+  val identicalConstr : typeConstrs * typeConstrs -> bool =
+    SYSTEM.pointerEq;
+
+  val identicalList : 'a list * 'a list -> bool =
+    SYSTEM.pointerEq;
+
+  (* Copy a type, avoiding copying type structures unnecessarily.
+     Used to make new type variables for all distinct type variables when
+     generalising polymorphic functions, and to make new type stamps for
+     type constructors when generalising signatures. *)
+  fun copyType (at, copyTypeVar, copyTypeConstr) =
+  let
+    fun copyList [] = []
+      | copyList (l as (h :: t)) =
+      let
+        val h' = copyType (h, copyTypeVar, copyTypeConstr);
+        val t' = copyList t;
+      in
+        if identical (h', h) andalso identicalList (t', t)
+        then l
+        else h' :: t'
+      end  (* copyList *);
+
+    fun copyRecordList [] = []
+      | copyRecordList (l as ({name, typeof} :: t)) =
+      let
+        val typeof' = copyType (typeof, copyTypeVar, copyTypeConstr);
+        val t' = copyRecordList t;
+      in
+        if identical (typeof', typeof) andalso identicalList (t', t)
+        then l
+        else {name=name, typeof=typeof'} :: t'
+      end  (* copyList *);
+
+    val atyp = eventual at;
+  in
+    case atyp of
+      TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
+        copyTypeVar atyp
+    
+    | TypeConstruction {name, value, args} => 
+      let
+		val copiedArgs   = copyList args;
+		val copiedConstr = copyTypeConstr (! value);
+		(* Use the name from the copied constructor.  This will normally
+		   be the same as the original EXCEPT in the case where we are
+		   using copyType to generate copies of the value constructors of
+		   replicated datatypes. *)
+		val copiedName = tcName copiedConstr
+      in
+		if identicalList   (copiedArgs, args) andalso
+		   identicalConstr (copiedConstr, !value)
+		then atyp 
+		else (* Must copy it. *) 
+		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs)
+      end 
+           
+    | FunctionType {arg, result} => 
+      let
+        val copiedArg  = copyType (arg,    copyTypeVar, copyTypeConstr);
+        val copiedRes  = copyType (result, copyTypeVar, copyTypeConstr);
+      in
+        if identical (copiedArg, arg) andalso 
+           identical (copiedRes, result)
+        then atyp 
+        else FunctionType {arg = copiedArg, result = copiedRes}
+      end 
+              
+    | LabelledType {recList, frozen, ...} =>
+		(* Rigid labelled records only.  Flexible ones are treated as type vars. *)
+      let
+        val copiedList = copyRecordList recList;
+      in
+        if identicalList (copiedList, recList)
+        then atyp 
+        else LabelledType {recList = copiedList, frozen = frozen, genericInstance = []}
+      end
+                        
+    | EmptyType =>
+        EmptyType
+
+    | BadType =>
+        BadType
+		
+	| OverloadSet _ =>
+		raise InternalError "copyType: OverloadSet found"
+
+  end (* copyType *);
+  
+
+  (* Copy a type constructor and any types it uses in its "equivalent" list.
+     Does not copy value constructors. *)
+  fun copyTypeConstr (tcon, mustCopy, makeId, typeMap as {enter,lookup},
+  					  copyTypeVar, strName) =
+  let
+    val id    = tcIdentifier tcon;
+    val equiv = tcEquivalent tcon;
+    (* Now copy any equivalent and put it on. *)
+    val copiedEquiv =
+      if isEmpty equiv then equiv
+      else
+(* Back out the change needed for free type variables. DCJM 12/4/00. *)
+(*
+	  	let
+			(* We apply copyTypeVar to free type variables but not to bound vars. *)
+			val boundTVs = tcTypeVars tcon
+			fun copyFreeTVs tv =
+				first(fn t => sameTypeVar(t, tv)) (fn _ => tv)
+					(fn () => copyTypeVar tv) (overList boundTVs)
+			fun copyTC tcon =
+				copyTypeConstr (tcon, mustCopy, makeId, typeMap, copyFreeTVs)
+		in
+			copyType (equiv, copyFreeTVs, copyTC)
+		end
+*)
+       copyType
+		 (equiv,
+		  trivMap, (* Don't bother with type variables. *)
+		  fn tcon => copyTypeConstr (tcon, mustCopy, makeId, typeMap, trivMap, strName));
+  in
+    (* Now copy the type constructor if either the id of this constructor
+       must be copied or if its equivalent must be copied.  It is possible
+       that we may have to copy the constructor even if its equivalent has
+       not changed (e.g. this constructor shares  with a free type). We
+       still copy it to make sure that the length of bound stamps is right. *)
+	(* DCJM 17/2/00.  If we have a type (rather than a datatype) and the
+	   "equivalent" has changed we must ensure that we always get a new copy.
+	   This is essential if the type has free variables. *)
+	(* DCJM 9/5/00.  Now backed out this change because it seems that the
+	   change to the definition which would allow free type variables is
+	   actually a mistake. *)
+	if mustCopy id orelse not (identical (equiv, copiedEquiv))
+    then (* If it is the appropriate type of identifier. *)
+      (* We share occurences of type constructors (not just their
+         identifiers) so that if we have a value of a type which is a
+         datatype we can find the constructors when we need to print it. *)
+      lookup id (* Return it if it is in the table. *)
+         handle ValueMissing _ =>
+	   let (* Not there, so copy it. *)
+		 (* Replace any signature name by the given structure name. *)
+		 val newName = strName ^ #second(splitString(tcName tcon))
+	     val r = 
+	       makeTypeConstrs
+			 (newName,
+			  tcTypeVars tcon,
+			  copiedEquiv,
+			  makeId (),
+			  tcEquality tcon,
+			  0 (* Always global. *));
+		  
+	     (* And put it in the table *)
+	     val U : unit = enter (id, r);
+	   in
+	     r
+	   end
+    else tcon
+  end (* copyTypeConstr *);
+
+
+  datatype match = Matched of {old: typeVarForm, new: types};
+
+
+  (* Generate a mapping from one set of type variables to another. *)
+
+  fun tvarSequence (matched : match list, isExp : bool) : types -> types = 
+  let
+    val madeList = ref matched (* List of tyVars. *);
+  in
+    fn (atyp : types) => 
+    let
+      val tyVar = typesTypeVar atyp;
+      
+      (* See if we have already made a type variable for it. *)
+      fun pTypeVar ([] : match list) =
+        let  (* Not on the list - make a new name *)
+          (* Make a unifiable type variable even if the original
+             is nonunifiable. *)
+          val n : types = 
+            mkTypeVar (generalisable, tvEquality tyVar,  
+                       false, tvWeak tyVar andalso isExp); 
+        in
+		  (* Set the new variable to have the same value as the
+		     existing.  That is only really needed if we have an
+			 overload set. *)
+		  tvSetValue (typesTypeVar n, tvValue tyVar);
+          madeList := Matched {old = tyVar, new = n} :: !madeList;
+          n
+        end
+        
+        | pTypeVar (Matched {old, new} :: rest) =
+          if sameTv (old, tyVar) then new else pTypeVar rest;
+    in
+      pTypeVar (!madeList)
+    end
+  end (* tvarSequence *);
+
+  fun generaliseTypes (atyp : types, matched : match list, isExp : bool) : types = 
+  let
+    val tvs : types -> types = tvarSequence (matched, isExp);
+
+    fun copyTypeVar (atyp as TypeVar tyVar) =
+	  if tvLevel tyVar <> generalisable
+      then atyp (* Not generalisable. *)
+      else (* Unbound, overload set or flexible record *)
+	  	 let
+		 	val newTv = tvs atyp
+		 in
+		 	(* If we have a type variable pointing to a generic flexible record we have
+			   to retain a reference to the original so that we can add fields as necessary.
+			   We also have to generalise the fields since that won't have been done.
+			   The generic instance includes any generic instances used in the original
+			   type. *)
+		 	case tvValue tyVar of
+				valu as LabelledType{genericInstance, ...} =>
+					(
+					case copyType (valu, copyTypeVar, fn t => t)  of
+						LabelledType{recList, frozen, ... } =>
+						    tvSetValue (typesTypeVar newTv,
+								LabelledType{recList = recList, frozen = frozen,
+									genericInstance = tyVar :: genericInstance})
+					|	_ => raise InternalError "Copy of labelled record is not a labelled record"
+					)
+			|	_ => ();
+			newTv
+		 end
+	 | copyTypeVar atyp = atyp
+
+	(* We only copy type constructors if their "equivalent" has changed which
+	   will only happen if they contain a free type variable. *)
+	(* I'm using makeFreeId here but I'm not convinced that's right. DCJM 17/2/00. *)
+	(* I've now backed this change out because it seems that the "change" to
+	   the definition which would allow free type variables was actually a
+	   mistake. DCJM 12/4/00 *)
+(*
+	fun copyTCons tcon =
+		copyTypeConstr(tcon, fn _ => false, makeFreeId,
+			{enter = fn _ => (), lookup = fn _ => raise ValueMissing "" },
+			copyTypeVar)
+*)
+  in
+    (* Only process type variables. Return type constructors unchanged. *)
+    copyType (atyp, copyTypeVar, fn t => t (*copyTCons*))
+  end (* generaliseTypes *);
+
+
+  (* Exported wrapper for generaliseTypes. *)
+  fun generalise (atyp : types, isExp : bool) : types = 
+    generaliseTypes (atyp, [], isExp);
+
+  fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
+  let
+	fun checkTypes (typ: types) (ok: bool) : bool =
+		case typ of
+			TypeConstruction {value=ref typCons, ...} =>
+				if ok andalso tcLetDepth typCons > depth
+				then
+					(
+					errorFn("Type contains local datatype (" ^ tcName typCons ^")");
+					false
+					)
+				else true
+		|	_ => true
+  in
+  	foldType checkTypes ty true;
+	()
+  end
+	
+  (* Make a match list from a list of type variables and types. *)
+  
+  fun copyVars (varlist : types list, arglist : types list) : match list =
+    case (varlist, arglist) of
+      (var::vars, arg::args) =>
+        Matched {old = typesTypeVar var, new = arg} :: copyVars (vars, args)
+    | _  => [] (* These will normally be nil at the same time but if we have
+				  had an error they may not be. *)
+  
+   (* Find the argument type which gives this result when the constructor
+      is applied. If we have, for example, a value of type int list and
+      we have discovered that this is a "::" node we have to work back by
+      comparing the type of "::" ('a * 'a list -> 'a list) to find the
+      argument of the constructor (int * int list) and hence how to print it.
+     (Actually "list" is treated specially). *)
+  fun constructorResult (constrType : types, typeArgs : types list) : types =
+  let
+    val constrFun = typesFunctionType constrType;
+  in
+    generaliseTypes
+      (#arg constrFun, 
+       copyVars (#args (typesTypeConstruction (#result constrFun)), typeArgs),
+       true)
+  end;
+
+  (* If we have a type construction which is an alias for another type
+     we construct the alias by first instantiating all the type variables
+     and then copying the type. *)
+     
+  fun makeEquivalent (atyp, args) = 
+    generaliseTypes
+      (tcEquivalent atyp,
+       copyVars (tcTypeVars atyp, args),
+       true);
+
+  (* This 3-valued logic is used because in a few cases we may not be sure
+     if equality testing is allowed. If we have 2 mutually recursive datatypes
+     t = x of s | ... and s = z of t we would first examine "t", find that
+     it uses "s", look at "s", find that refers back to "t". To avoid
+     infinite recursion we return the result that equality "maybe"
+     allowed for "t" and hence for "s". However we may find that the
+     other constructors for "t" do not allow equality and so equality
+     will not be allowed for "s" either. *)
+     
+  datatype tri = Yes (* 3-valued logic *)
+               | No
+               | Maybe;
+
+
+  (* Returns a flag saying if equality testing is allowed for values of
+     the given type. "equality" is used both to generate the code for
+     a specific call of equality e.g.  (a, b, c) = f(x), and to generate
+     the equality operation for a type when it is declared. In the latter
+     case type variables may be parameters which will be filled in later e.g.
+     type 'a list = nil | op :: of ('a * 'a list). "search"
+     is a function which looks up constructors in mutually recursive type
+     declarations. "lookupTypeVar" deals with type variables. If they
+     represent parameters to a type declaration equality 
+     checking will be allowed. If we are unifying this type to an equality
+     type variable they  will be unified to new equality type variables.
+     Otherwise equality is not allowed. *)
+    
+  fun equality (ty, search, lookupTypeVar) : tri =
+  let
+    (* Can't use foldT because it is not monotonic
+       (equality on ref 'a is allowed). *)
+    (* Returns Yes only if equality testing is allowed for all types
+       in the list. *)
+    fun eqForList ([],    soFar) = soFar
+      | eqForList (x::xs, soFar) = 
+        case equality (x, search, lookupTypeVar) of
+           No    => No
+         | Maybe => eqForList (xs, Maybe)
+         | Yes   => eqForList (xs, soFar);
+  in
+    case eventual ty of
+      TypeVar tyVar => (* The type variable may point to a flexible record or
+	  					  an overload set or it may be the end of the chain.
+						  If this is a labelled record we have to make sure that
+						  any fields we add also admit equality.
+						  lookupTypeVar makes the type variable an equality type
+						  so that any new fields are checked for equality but
+						  we also have to call "equality" to check the existing
+						  fields. *)
+		if tvEquality tyVar then Yes
+		else
+			(
+			case tvValue tyVar of
+				lab as LabelledType _ =>
+					(
+					case lookupTypeVar tyVar of
+					  	No => No
+					  | _ => equality (lab, search, lookupTypeVar)
+					)
+			 | _ => lookupTypeVar tyVar
+			)
+   
+   | FunctionType {...} =>
+       No  (* No equality on function types! *)
+    
+   | TypeConstruction {value, args, ...} =>
+     let
+	val constr = !value;
+      in
+	if isUndefined constr
+	  then No
+
+	(* ref - Equality is permitted on refs of all types *)
+	(* The Definition of Standard ML says that ref is the ONLY type
+	   constructor which is treated in this way.  The standard basis
+	   library says that other mutable types such as array should
+	   also work this way.  We allow this by searching for an overloaded
+	   equality operation on the type.  If it is there we treat the
+	   type as admitting equality whether it is monomorphic or
+	   polymorphic and whatever the types it is applied to.  *)
+	else if not (isCodeNil(getOverload("=", constr, fn()=>CodeNil)))
+	  then Yes
+
+	(* "real" is an equality type in ML90 but not in ML97. *)
+	else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.realType)
+	  then if !ml90 then Yes else No
+	  
+        (* Others apart from ref and real *)
+	else if tcEquality constr (* Equality allowed. *)
+	  then eqForList (args, Yes) (* Must be allowed for all the args *)
+	  
+	else if isEmpty (tcEquivalent constr)
+	  then let (* Not an alias. - Look it up. *)
+	    val s = search (tcIdentifier constr);
+	  in 
+	    if s = No then No else eqForList (args, s)
+	  end
+	 
+	 (* May be an alias for a type that allows equality. *)
+	 else
+	   equality (makeEquivalent (constr, args), search, lookupTypeVar)
+      end (* TypeConstruction *)
+         
+   | LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
+   		(* TODO: Avoid copying the list? *)
+       eqForList (map (fn{name,typeof}=>typeof) recList, Yes)
+
+   | OverloadSet {typeset} =>
+		(* This should not happen because all overload sets should be pointed
+		   to by type variables and so should be handled in the TypeVar case. *)
+   		raise InternalError "equality - Overloadset found"
+
+   | BadType =>
+      No
+
+   | EmptyType => (* shouldn't occur *)
+      No
+  end;
+
+  (* When a datatype is declared we test to see if equality is allowed. The
+     types are mutually recursive so value constructors of one type may
+     take arguments involving values of any of the others. *)
+     
+  fun genEqualityFunctions (types, errorMessage, inSignature) =
+  let
+    datatype state =
+      Processed of tri              (* Already processed or processing. *)
+    | NotSeen   of typeConstrs list (* Value is list of constrs. *);
+    
+    (* This table tells us, for each type constructor, whether it definitely
+       admits equality, definitely does not or whether we have yet to look
+       at it. *)
+
+    fun isProcessed (Processed _) = true | isProcessed _ = false;
+    fun isNotSeen   (NotSeen   _) = true | isNotSeen   _ = false;
+    
+    fun stateProcessed (Processed x) = x | stateProcessed _ = raise Match;
+    fun stateNotSeen   (NotSeen   x) = x | stateNotSeen   _ = raise Match;
+    
+    val {enter:typeId * state -> unit,lookup} = mapTable sameTypeId;
+
+    (* Look at each of the constructors in the list. Equality testing is
+       only allowed if it is allowed for each of the alternatives. *)
+    fun constrEq constructor []       soFar = soFar (* end of list - all o.k. *)
+      | constrEq constructor (h :: t) soFar =
+      (* The constructor may be a constant e.g.
+	 datatype 'a list = nil | ... or  a function e.g.
+	 datatype 'a list = ... cons of 'a * 'a list. *)
+      if not (isFunctionType (valTypeOf h)) (* Constant *)
+      then constrEq constructor t soFar (* Go on to the next. *)
+      
+      else let
+	(* Function - look at the argument type. *)
+	(* Search the list for the type variable. If it is there it is a formal
+	   parameter to a datatype so equality testing will be allowed if it is 
+	   allowed for the actual parameter.  *)
+			
+	val eq = 
+	  equality 
+	    (#arg (typesFunctionType (valTypeOf h)),
+	     genEquality,
+	     fn tyVar =>
+	       first 
+	         (fn v => sameTv (typesTypeVar v, tyVar))
+		 (fn types => Yes)
+		 (fn () => No)
+		 (overList (tcTypeVars constructor))
+	    );
+      in
+	if eq = No
+	then (* Not allowed. *) No
+	else (* O.k. - go on to the next. *)
+	  constrEq constructor t (if eq = Maybe then Maybe else soFar)
+      end (* constrEq *)
+
+    (* This procedure checks to see if equality is allowed for this datatype. *)
+    and genEquality constructorId =
+    let 
+      (* Look it up to see if we have already done it. It may fail because
+         we may have constructors that do not admit equality. *)
+      val thisState = lookupDefault lookup (fn _ => Processed No) constructorId;
+    in
+      if isProcessed thisState
+      then stateProcessed thisState (* Have either done it already or are currently doing it. *)
+      else (* notSeen - look at it now. *)
+      (
+        (* Equality is allowed for this datatype only if all of them admit it.
+           There are various other alternatives but this is what the standard says.
+           If the "name" is rigid (free) we must not grant equality if it is not 
+           already there although that is not an error. *)
+        (* Set the state to "Maybe". This prevents infinite recursion. *)
+        enter (constructorId, Processed Maybe);
+        let
+          val eq =
+            revfold 
+              (fn cons => fn t => 
+                 if t = No
+                   then No
+                 else if inSignature andalso
+                         not (isVariableId constructorId) andalso
+                          not (tcEquality cons)
+                   then No
+                else constrEq cons (tcConstructors cons) t)
+            Yes
+            (stateNotSeen thisState);
+        in
+          (* Set the state we have found if it is "yes" or "no".  If it is
+             maybe we have a recursive reference which appears to admit
+             equality, but may not. E.g. if we have
+                 datatype t = A of s | B of int->int  and  s = C of t
+             if we start processing "t" we will go on to "s" and do that
+             before returning to "t". It is only later we find that "t" does
+             not admit equality. If we get "Maybe" as the final result when
+             all the recursion has been unwound we can set the result to
+             "yes", but any intermediate "Maybe"s have to be done again. *)
+          enter (constructorId, if eq = Maybe then thisState else Processed eq);
+          eq
+        end
+      )
+    end (* genEquality *);
+  in
+     (* If we have an eqtype we set it to true, otherwise we set all of them
+       to "notSeen" with the constructor as value. *)
+   for (overList types)
+        (fn dec => 
+        let  (* If we have two datatypes which share we may already have
+                one in the table.  We have to link them together. *)
+          val tclist =
+          let
+            val others  = stateNotSeen (lookup (tcIdentifier dec));
+            val newList = dec :: others;
+          in
+            (* If any of these are already equality types (i.e. share with an eqtype)
+               then they all must be. *)
+            if tcEquality dec orelse tcEquality (hd others)
+            then 
+              for (overList newList) (fn d => tcSetEquality (d, true))
+            else ();
+            newList
+          end (* If not in the list put in a new entry. *)
+              handle ValueMissing _ => [dec];
+        in
+          enter (tcIdentifier dec, NotSeen tclist)
+        end);
+
+      (* Apply genEquality to each element of the list. *)
+      for (overList types) (fn constructor => 
+          let
+            val constructorId = tcIdentifier constructor;
+            val eqForCons     = genEquality constructorId;
+          in
+            (* If the result is "Maybe" it involves a recursive reference, but
+               the rest of the type allows equality. The type admits equality. *)
+            if eqForCons = No
+            then (* Equality not allowed *)
+            ( (* If it has been shared with an eqtype it will have the equality
+                 flag set.  If it does not admit equality it is an error. *)
+              if tcEquality constructor
+              then errorMessage ("Type (" ^ tcName constructor ^ ") does not respect equality")
+              else ()
+            )
+            else
+            ( (* Turn on equality. *)
+              enter (constructorId, Processed Yes);
+              tcSetEquality (constructor, true)
+            )
+          end)
+    end (* genEqualityFunctions *);
+
+  (* Test to see is a type constructor is in an overload set. *)
+  fun isInSet(tcons: typeConstrs, (H::T): typeConstrs list) =
+			sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
+    | isInSet(tcons: typeConstrs, []: typeConstrs list) = false
+
+  (* Type matching algorithm for both unification and signature matching. *)
+  fun typeMatch
+       (Atype : types, (* candidate type when signature matching *)
+        Btype : types, (* target type when signature matching *)
+        (* mapA  : types -> types, *) (* As this was always trivmap I've removed it *)
+        mapB  : types -> types, (* Map type constructors in the target. *)
+        cantMatch     : types * types * string -> unit)
+      : unit =
+  let
+    fun match
+	 (Atype : types,
+	  Btype : types, 
+	  (* mapA  : types -> types, *)
+	  mapB  : types -> types)
+        : unit =
+    let (* Check two records/tuples and return the combined type. *)
+      fun unifyRecords (recA as {frozen=typAFrozen, recList=typAlist, genericInstance = gA},
+	  					recB as {frozen=typBFrozen, recList=typBlist, genericInstance = gB},
+	  					typA : types, typB : types, (*mapA, *)mapB) : types =
+      let
+		(* If we add a field to the instance we have to add a corresponding type variable to
+		   the generic. *)
+		fun addFieldToGeneric field generic =
+		let
+			(* The new entry is just a type variable. *)
+			val newEntry =
+				(
+				(*print(concat[
+					"newEntry:",
+					"equality=", Bool.toString(tvEquality generic),
+					" level=", Int.toString(tvLevel generic),
+					" weakness=", Bool.toString(tvWeak generic),
+					"\n"
+				]);*)
+				{ name = field,
+				  (* The entry must at least inherit the equality attribute (and weakness?).
+				     We should have tvLevel generic = generalisable and tvNonUnifiable generic
+					 = false. *)
+				  typeof = mkTypeVar(tvLevel generic, tvEquality generic,
+				  				tvNonUnifiable generic, tvWeak generic)}
+				)
+			fun addEntry [] = [newEntry]
+			 |  addEntry ((ge as {name, typeof = _}) :: geRest) =
+			 		let
+						val order = compareLabels (name, field)
+					in
+						if order = 0
+						then ge :: geRest (* Already there - this may be a duplicate. *)
+				 		else if order < 0
+						then ge :: addEntry geRest
+						else newEntry :: ge :: geRest
+					end
+		in
+			case tvValue generic of
+				LabelledType { recList, frozen = false, ...} =>
+					tvSetValue(generic,
+						LabelledType { recList = addEntry recList, frozen = false,
+								genericInstance = []})
+			|	LabelledType { recList, frozen = true, ...} =>
+					let
+						(* It seems that in obscure circumstances (see regression file
+						   p073) we can have a generic that is already frozen.  In that
+						   case all the field we want to add should already be in the
+						   frozen record otherwise it's an error.
+						   I don't really understand this and I don't know whether it's
+						   actually possible to have a missing field at this point. *)
+						fun checkEntries [] = ()
+						|	checkEntries ((ge as {name, typeof = _}) :: geRest) =
+							let
+								val order = compareLabels (name, field)
+							in
+								if order = 0 (* It's there *)
+								then ()
+								else if order < 0
+								then checkEntries geRest
+								else cantMatch (typA, mapB typB, "(Field " ^ name ^ " missing)")
+							end
+					in
+						checkEntries recList
+					end
+			|	_ => raise InternalError "addFieldToGeneric: Not a labelled record"
+		end
+
+		fun freezeGeneric generic =
+			case tvValue generic of
+				LabelledType { recList, ...} =>
+					tvSetValue(generic,
+						LabelledType { recList = recList, frozen = true, genericInstance = []})
+			|	_ => raise InternalError "freezeGeneric: Not a labelled record"
+
+        fun matchLabelled ([], []) = []
+          
+             (* Something left in bList - this is fine if typeA is not frozen.
+                e.g.  (a: s, b: t) will match (a: s, ...) but not just (a:s). *)
+          | matchLabelled ([], bList as {name=bName, ...} :: _) =
+           ( 
+            if typAFrozen
+			then cantMatch (typA, mapB typB, "(Field " ^ bName ^ " missing)")
+			else (* Add all the extra fields in bList to all the generics for A. *)
+				List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gA) bList;
+            bList (* return the remainder of the list *)
+           )
+
+          | matchLabelled (aList as {name=aName, ...} :: _, []) = (* Something left in bList *)
+            ( 
+             if typBFrozen
+			 then cantMatch (typA, mapB typB, "(Field " ^ aName ^ " missing)")
+			 else List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gB) aList;
+             aList (* the rest of aList *)
+            )
+        
+          | matchLabelled (aList as ((aVal as {name=aName,typeof=aType})::aRest),
+		  				   bList as ((bVal as {name=bName,typeof=bType})::bRest)) =
+             (* both not nil - look at the names. *)
+             let
+               val order = compareLabels (aName, bName);
+             in
+               if order = 0 (* equal *)
+               then (* same name - must be unifiable types *)
+               ( (* The result is (either) one of these with the rest of the list. *)
+                 match (aType, bType, mapB);
+                 aVal :: matchLabelled (aRest, bRest)
+               )
+               else if order < 0 (* aName < bName *)
+                then 
+                ( (* The entries in each list are in order so this means that this
+                     entry is not in bList. If the typeB is frozen this is an error. *)
+                  if typBFrozen (* Continue with the entry removed. *)
+                  then (cantMatch (typA, mapB typB, "(Field " ^ aName ^ " missing)"); aList)
+                  else
+				  	 (
+					 List.app (addFieldToGeneric aName) gB;
+					 aVal :: matchLabelled (aRest, bList)
+					 )
+                )
+                else (* aName > bName *)
+                  if typAFrozen
+                  then (cantMatch (typA, mapB typB, "(Field " ^ bName ^ " missing)"); bList)
+                  else
+				  	 (
+					 List.app (addFieldToGeneric bName) gA;
+					 bVal :: matchLabelled (aList, bRest)
+					 )
+             end (* not nil *);
+ 
+        (* Return the combined list. Only actually used if both are flexible. *)
+        val result = matchLabelled (typAlist, typBlist)
+		(* We append the generic instances.  This may create duplicates if, for example,
+		   we are unifying a record with itself. *)
+      in
+        if typAFrozen
+		then (if typBFrozen then () else List.app freezeGeneric gB; typA)
+		else if typBFrozen
+		then (if typAFrozen then () else List.app freezeGeneric gA; typB)
+		else LabelledType {recList = result, frozen = false, genericInstance = gA @ gB}
+      end (* unifyRecords *);
+
+    (* Sets a type variable to a value. - Checks that the type variable
+       we are assigning does not occur in the expression we are about to
+       assign to it. Such cases can occur if we have infinitely-typed
+       expressions such as fun a. a::a where a has type 'a list list ...
+       Also propagates the level information of the type variable.
+       Now also deals with flexible records. *)
+    fun assign (var, t) =
+    let
+      (* Mapped over the type to be assigned. *)
+      (* Returns "true" if it is safe to make the assignment. Sorts out
+         imperative type variables and propagates level information.
+         N.B. It does not propagate equality status. The reason is that
+         if we are unifying ''a with '_b ref, the '_b does NOT become
+         an equality type var. In all other cases it would. *)
+      fun checkForLoops t false = false
+       |  checkForLoops (TypeVar tvar) true =
+           let
+             (* The level is the minimum of the two, and if we are unifying with
+                an equality type variable we must make this into one. *)
+             val minLev = min (tvLevel var) (tvLevel tvar);
+			 (* Make the resultant type variable weak unless we are really
+			    unifying it with an overload set. *)
+             val isWeak = ((tvWeak var) orelse (tvWeak tvar))
+			 		andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
+           in
+             if (tvLevel tvar <> minLev) orelse (tvWeak tvar <> isWeak)
+             then 
+               (* If it is nonunifiable we cannot make its level larger. *)
+               if tvNonUnifiable tvar
+			   then cantMatch (Atype, mapB Btype,
+			   			"(Type variable is free in surrounding scope)")
+               else let
+                 (* Must make a new type var with the right properties *)
+                 (* This type variable may be a flexible record, in which
+                    case we have to save the record and put it on the new
+                    type variable. foldType will apply checkForLoops to the
+                    record. *)
+                 val newTv = 
+                   mkTypeVar (minLev, tvEquality tvar, false, isWeak);
+               in
+                 tvSetValue (typesTypeVar newTv, tvValue tvar);
+                 tvSetValue (tvar, newTv)
+               end
+             else ();
+             not (sameTv (tvar, var)) (* Safe if vars are different. *)
+           end
+       |  checkForLoops _ true = true
+         (* end checkForLoops *);
+                   
+      val varVal = tvValue var (* Current value of the variable to be set. *)
+    in (* start of "assign" *)
+		case varVal of
+			LabelledType _ =>
+			(* Flexible record. Check that the records are compatible. *)
+				match (varVal, t, (*trivMap, *)trivMap)
+		  | OverloadSet _ =>
+		  	 (* OverloadSet.  Check that the sets match.  This is only in the
+			    case where t is something other than an overload set since
+				we remove the overload set from a variable when unifying two
+				sets. *)
+		  		match (varVal, t, (*trivMap, *)trivMap)
+		  | _ => ();
+ 
+      (* If this type variable was put in explicitly then it can't be
+         assigned to something else. (We have already checked for the
+         type variables being the same). *) 
+      if tvNonUnifiable var orelse not (foldType checkForLoops t true)
+      then let
+        (* The one case where an apparent occurs check is not an error
+           is when unifying 'a with ('a,'b) x, where x was defined by
+           type ('a,'b) x = 'a. In this case we are really unifying 'a and 'a
+           and so there is no problem. *)
+		(* This originally just checked a single level of expansion.  I've
+		   now turned it into a function to handle arbitrary levels. e.g.
+		   (('a, 'b) x, 'c) x   DCJM 22/8/00. *)
+		fun checkRealError (TypeConstruction {value = ref constr, args, ...}) =
+		      isEmpty (tcEquivalent constr) orelse
+			      let
+			        (* expand type constructor to get its body *)
+					val equiv = eventual (makeEquivalent (constr, args));
+			      in
+				  	checkRealError equiv
+			      end
+		  | checkRealError (TypeVar tv) =
+			    (* is it the same type variable that we started with? *)
+		  		not (sameTv (tv, var))
+		  | checkRealError _ = true
+
+        val realError = checkRealError t
+      in
+        if realError
+        then let
+          (* generate the right error message. *)
+          val msg =
+		  	if tvNonUnifiable var
+			then "(Cannot unify with explicit type variable)"
+			else "(Type variable to be unified occurs in type)";
+        in
+          cantMatch (Atype, mapB Btype, msg)
+        end
+        else ()
+      end
+
+      else let (* Occurs check succeeded. *)
+        fun canMkEqTv (tvar : typeVarForm) : tri = 
+		  (* Turn it into an equality type var. *)
+		  if tvEquality tvar then Yes 
+		  (* If it is nonunifiable we cannot make it into an equality type var. *)
+		  else if tvNonUnifiable tvar then No
+		  else (* Must make a new type var with the right properties *)
+		  let  (* This type variable may be a flexible record or an overload set,
+		  		  in which case we have to save the record and put it on the
+				  new type variable.
+				  We have to do both because we have to ensure that the existing
+				  fields in the flexible record admit equality and ALSO that any
+				  additional fields we may add by unification with other records
+				  also admit equality. *)
+		    val newTv = 
+		      mkTypeVar (tvLevel tvar, true, false, tvWeak tvar);
+			val oldValue = tvValue tvar
+		  in
+		    tvSetValue (tvar, newTv);
+			(* If this is an overloaded type we must remove any types that
+			   don't admit equality. *)
+			case oldValue of
+			   OverloadSet{typeset} =>
+			  		if ! ml90
+					then (* real admits equality in ML90 but not in ML97.  I am
+							assuming here that we will not try overloading on any
+							other type which would not admit equality.  *)
+						(
+						tvSetValue (typesTypeVar newTv, oldValue);
+						Yes
+						)
+					else
+			   		let
+			   		(* Remove any types which do not admit equality. *)
+					   fun filter [] = []
+					    |  filter (h::t) =
+								if tcEquality h then h :: filter t else filter t
+					in
+						case filter typeset of
+							[] => No
+						  | [constr] =>
+						  	( (* Turn a singleton into a type construction. *)
+							tvSetValue (typesTypeVar newTv,
+								mkTypeConstruction(tcName constr, constr, nil));
+							Yes
+							)
+						  | newset =>
+						  	(
+							tvSetValue (typesTypeVar newTv, OverloadSet{typeset=newset});
+							Yes
+							)
+					end
+			  | _ => (* Labelled record or unbound variable. *)
+			  	(
+				tvSetValue (typesTypeVar newTv, oldValue);
+			  	Yes
+				)
+		  end;
+      
+       in
+          (* If we are unifying a type with an equality type variable
+             we must ensure that equality is allowed for that type. This
+             will turn most type variables into equality type vars. *)
+          if tvEquality var andalso equality (t, fn _ => No, canMkEqTv) = No
+          then cantMatch (Atype, mapB Btype, "(Requires equality type)")
+			  (* TODO: This can result in an unhelpful message if var is bound
+			     to a flexible record since there is no indication in the
+				 printed type that the flexible record is an equality type.
+				 It would be improved if we set the value to be EmptyType.
+				 At least then the type variable would be printed which would
+				 be an equality type.
+				 --- Adding the "Requires equality type" should improve things. *)
+          else ();
+         (* Actually make the assignment. It doesn't matter if var is 
+            a labelled record, because t will be either a fixed record
+            or a combination of the fields of var and t.  Likewise if
+			var was previously an overload set this may replace the set
+			by a single type construction. *)
+         tvSetValue (var, t)
+       end
+     end (* assign *);
+
+    (* First find see if typeA and typeB are unified to anything
+       already, and get the end of a list of "flexibles". *)
+    val tA = eventual Atype;
+    val tB = eventual Btype;
+
+  in (* start of "match" *)
+  	case (tA, tB) of
+		(BadType, _) => () (* If either is an error don't try to match *)
+	  | (_, BadType) => ()
+
+	  | (TypeVar typeAVar, TypeVar _) =>
+      	 (* Unbound type variable, flexible record or overload set. *)
+		  let
+          	(* Even if this is a one-way match we can allow type variables
+             in the typeA to be instantiated to anything in the typeB. *)
+			val typeAVal = tvValue typeAVar;
+            (* We have two unbound type variables or flex. records. *)
+            val typB = mapB tB
+          in
+		  	case typB of
+				TypeVar typeBVar =>
+              		if sameTv (typeAVar, typeBVar) (* same type variable? *)
+					then ()
+					else (* no - assign one to the other *)
+						if tvNonUnifiable typeAVar
+		                (* If we have a nonunifiable type variable we want to assign
+		                   the typeB to  it. If the typeB is nonunifiable as well we
+		                   will get an error message. *)
+		            then assign (typeBVar, tA)
+		            else let 
+	                  (* If they are both flexible records we first set the typeB
+	                     to the union of the records, and then set the typeA to
+	                     that. In that way we propagate properties such as
+	                     equality and level between the two variables. *)
+	                  val typBVal = tvValue typeBVar
+					in
+						case (typeAVal, typBVal) of
+							(LabelledType recA, LabelledType recB) =>
+		                    (
+		                      (* Turn these back into simple type variables to save
+		                         checking the combined record against the originals
+		                         when we make the assignment.
+		                         (Would be safe but redundant). *)
+		                      tvSetValue (typeBVar, emptyType);
+		                      tvSetValue (typeAVar, emptyType);
+		                      assign (typeBVar,
+		                              unifyRecords (recA, recB, typeAVal, typBVal, (*trivMap, *)trivMap));
+		                      assign (typeAVar, typB)
+		                    )
+						 | (OverloadSet{typeset=setA}, OverloadSet{typeset=setB}) =>
+						 	let
+								(* The lists aren't ordered so we just have to go
+								   through by hand. *)
+								fun intersect(a, []) = []
+								  | intersect(a, H::T) =
+								  		if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
+								val newSet = intersect(setA, setB)
+						 	in
+								case newSet of
+									[] => cantMatch (Atype, mapB Btype, "(Incompatible overloadings)")
+								 | _ =>
+									(
+				                      tvSetValue (typeBVar, emptyType);
+				                      tvSetValue (typeAVar, emptyType);
+									  (* I've changed this from OverloadSet{typeset=newset}
+									     to use mkOverloadSet.  The main reason was that it
+										 fixed a bug which resulted from a violation of the
+										 assumption that "equality" would not be passed an
+										 overload set except when pointed to by a type variable.
+										 It also removed the need for a separate test for
+										 singleton sets since mkOverloadSet deals with them.
+										 DCJM 1/9/00. *)
+				                      assign (typeBVar, mkOverloadSet newSet);
+				                      assign (typeAVar, typB)
+									)
+							end
+						 | (EmptyType, _) => (* A is not a record or an overload set. *)
+						 	 assign (typeAVar, typB)
+						 | (_, EmptyType) => (* A is a record but B isn't *)
+						 		assign (typeBVar, tA) (* typeB is ordinary type var. *)
+						 | _ => (* Bad combination of labelled record and overload set *)
+							cantMatch (Atype, mapB Btype, "(Incompatible types)")
+					end
+			  | typB => match (tA, typB, (*trivMap, *)trivMap)
+          end
+
+	  | (TypeVar typeAVar, _) =>
+	  	(* typeB is not a type variable so set typeA to typeB.*)
+            assign (typeAVar, mapB tB)
+         
+      | (_, TypeVar _) => (* and typeA is not *)
+	  	(
+	  	case mapB tB of
+			TypeVar tv =>
+			  (* This will fail if we are matching a signature because the
+			     typeB will be non-unifiable. *)
+			  	assign (tv, mapB tA) (* set typeB to typeA *)
+		  | typB => match (tA, typB, (*mapA, *)trivMap)
+		)
+              
+      | (TypeConstruction({value = ref tACons, args=tAargs, ...}), 
+	  	 TypeConstruction ({value=ref tBCons, args=tBargs, ...})) =>
+		(
+		(* We may have a number of possibilities here.
+	     a) If tA is an alias we simply expand it out and recurse (even
+		 if tB is the same alias). e.g. if we have string t where
+		 type 'a t = int*'a we expand string t into int*string and
+		 try to unify that.
+	     b) map it and see if the result is an alias. -- NOW REMOVED
+	     c) If tB is a type construction and it is an alias we expand
+		 that e.g. unifying "int list" and "int t" where type
+		 'a t = 'a list (particularly common in signature/structure
+		 matching.)
+	     d) Finally we try to unify the stamps and the arguments. *)
+		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+		(* Candidate is an alias - expand it. *)
+		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
+		else if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+		then match (tA, makeEquivalent (tBCons, tBargs), (*trivMap, *)mapB)
+		else case mapB tB of
+			(typB as TypeConstruction({value=ref typeBCons, args=typeBargs, ...})) =>
+			(* If the typeB is an alias it must be expanded. *)
+				if not(isUndefined typeBCons) andalso
+					not(isEmpty (tcEquivalent typeBCons))
+				then match (tA, makeEquivalent (typeBCons, typeBargs),
+														  (*trivMap, *)trivMap)
+				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
+				then let (* Same type constructor - do the arguments match? *)
+					fun matchLists []      []    = ()
+					  | matchLists (a::al) (b::bl) =
+					  (  
+					    match (a, b, (*trivMap, *)trivMap);
+					    matchLists al bl
+					  )
+					  | matchLists _ _ = (* This should only happen as a result of
+					  						a different error. *)
+					  		cantMatch (Atype, mapB Btype, "(Different numbers of arguments)")
+				      in
+						matchLists tAargs typeBargs
+				      end
+				else cantMatch (tA, typB, "(Different type constructors)")
+		|	typB => (* Mapping the construction gave us something
+					   other than a construction. *)
+			  match (tA, typB, (*trivMap, *)trivMap)
+	  	)
+
+	  | (OverloadSet {typeset}, TypeConstruction {value=ref tBCons, args=tBargs, ...}) =>
+	  	(* The candidate is an overloaded type and the target is a type
+		   construction. *)
+		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+		then match (tA, makeEquivalent (tBCons, tBargs), (*mapA, *)mapB)
+		else
+			(
+			case mapB tB of
+				typB as TypeConstruction{value = ref typeBCons, args=typeBargs, ...} =>
+				if isUndefined typeBCons
+				then ()
+				else if not(isEmpty (tcEquivalent typeBCons))
+				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
+				else (* See if the target type is among those in the overload set. *)
+					if isNil typeBargs (* Must be a nullary type constructor. *)
+						andalso isInSet(tBCons, typeset)
+				then () (* ok. *)
+				else cantMatch (tA, typB, "(Overloading does not include type)")
+			| typB => match (tA, typB, (*mapA,*) trivMap)
+			)
+
+      | (TypeConstruction {value=ref tACons, args=tAargs, ...}, OverloadSet {typeset}) =>
+		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
+		(* We should never find an overload set as the target for a signature
+		   match but it is perfectly possible for tB to be an overload set
+		   when unifying two types.  *)
+		else if isNil tAargs andalso isInSet(tACons, typeset)
+		then () (* ok. *)
+		else cantMatch (tA, mapB tB, "(Overloading does not include type)")
+		
+	  (* (OverloadSet , OverloadSet) should not occur because that should be
+	     handled in the (TypeVar, TypeVar) case. *)
+		
+      | (TypeConstruction({value = ref tACons, args=tAargs, ...}), _) =>
+		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+		(* Candidate is an alias - expand it. *)
+		then match (makeEquivalent (tACons, tAargs), tB, mapB)
+		else (* typB not a construction (but typeA is) *)
+			cantMatch (tA, mapB tB, "(Incompatible types)")
+		
+      | (_, TypeConstruction {value=ref tBCons, args=tBargs, ...}) => (* and typeA is not. *)
+		(* May have a type equivalence e.g. "string t" matches int*string if  type
+		   'a t = int * 'a . Alternatively we may be matching a structure to a signature
+		   where the signature says "type t" and the structure contains "type 
+		   t = int->int" (say). We need to set the type in the signature to int->int. *)
+		(
+		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+		then match (tA, makeEquivalent (tBCons, tBargs), mapB)
+		else
+			(
+			case mapB tB of
+				typB as TypeConstruction{value = ref typeBCons, args=typeBargs, ...} =>
+				if isUndefined typeBCons
+				then ()
+				else if not(isEmpty (tcEquivalent typeBCons))
+				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
+				else cantMatch (typB, tA, "(Incompatible types)")
+			| typB => match (tA, typB, trivMap)
+			)
+		)
+	     
+	  | (FunctionType {arg=typAarg, result=typAres, ...},
+	     FunctionType {arg=typBarg, result=typBres, ...}) =>
+		( (* must be unifiable functions *)
+		(* In principle it doesn't matter whether we unify arguments or
+		   results first but it could affect the error messages.  Is this
+		   the best way to do it? *)
+	    match (typAarg, typBarg, (*mapA, *) mapB);
+	    match (typAres, typBres, (*mapA, *) mapB)
+		)
+
+	  | (EmptyType, EmptyType) => ()
+			(* This occurs only with exceptions - empty means no argument *)
+	
+	  | (LabelledType recA, LabelledType recB) =>
+		  (* Unify the records, but discard the result because at least one of the
+		     records is frozen. *)
+	  		(unifyRecords (recA, recB, tA, tB, (*mapA, *) mapB); ())
+			
+(*	  | (LabelledType recA, _) =>
+	  		(
+			(* DCJM: Why do we map labelled records when we don't map functions?
+			   Is it something to do with flexible records?  Try commenting this
+			   out. *)
+			case mapB tB of
+				LabelledType recB =>
+					(unifyRecords (recA, recB, tA, tB, trivMap); ())
+			  | typB => cantMatch (tA, typB, "")
+			)
+*)
+	  | _ => cantMatch (tA, mapB tB, "(Incompatible types)")
+
+	end; (* match *)
+  in
+    match (Atype, Btype, (*mapA, *)mapB)
+  end; (* typeMatch *)
+
+  fun unify 
+        (alpha    : types,
+         beta     : types,
+         lex      : lexan,
+         lineno   : int,
+         moreInfo : prettyPrinter -> unit) 
+         : unit =
+  let
+    fun cantMatch (typeA, typeB, reason) =
+      matchError ("Can't unify", typeA, "with", typeB, reason, 
+                  lex, lineno, moreInfo);
+                     
+  in
+    typeMatch (alpha, beta, (*trivMap, *)trivMap, cantMatch)
+  end;
+
+  (* Given a function type returns the first argument if the
+     function takes a tuple otherwise returns the only argument.
+	 Extended to include the case where the argument is not a function
+	 in order to work properly for overloaded literals. *)
+  fun firstArg(FunctionType{arg=
+  		LabelledType { recList = {typeof, ...} ::_, ...}, ...}) =
+			eventual typeof
+   |  firstArg(FunctionType{arg, ...}) = eventual arg
+   |  firstArg t = eventual t
+
+  (* Returns the result type of a function. *)
+  fun getResult(FunctionType{result, ...}) = eventual result
+   |  getResult _ = raise InternalError "getResult - not a function";
+
+  (* Returns an instance of an overloaded function using the supplied
+     list of type constructors for the overloading. *)
+  fun generaliseOverload(t, constrs, isConverter) =
+  	let
+		val arg =
+			if isConverter
+			then getResult t
+			else firstArg t
+	in
+		case arg of
+			TypeVar tv =>
+				(* The argument should be a type variable, possibly set to
+				   an empty overload set.  This should be replaced by
+				   the current overload set in the copied function type. *)
+				generaliseTypes(t,
+					[Matched{old=tv, new=mkOverloadSet constrs}], true)
+		  | _ => raise InternalError "generaliseOverload - arg is not a type var"
+	end
+
+  (* Return a type constructor from an overload.  If there are
+     several (i.e. the overloading has not resolved to a single type)
+	 it returns the "best".  Returns undefType if there is no suitable
+	 type or if there is more than one type in ML 90. *)
+  fun typeConstrFromOverload(f, isConverter) =
+  let
+  	fun prefType(TypeVar tvar) =
+			( (* If we still have an overload set that's because it has
+			     not reduced to a single type.  In ML 97 we default to
+				 int, real, word, char or string in that order.  This
+				 works correctly for overloading literals so long as
+				 the literal conversion functions are correctly installed. *)
+			case tvValue tvar of
+				OverloadSet{typeset} =>
+					let
+						(* If we accept this type we have to freeze the
+							overloading to this type.
+							I'm not happy about doing this here but it
+							seems the easiest solution. *)
+						fun freezeType tcons =
+							(
+							tvSetValue(tvar,
+								mkTypeConstruction(tcName tcons, tcons, []));
+							tcons
+							)
+					in
+						if !ml90 andalso not isConverter
+						then undefType (* No defaulting on functions in ML 90
+										  but allow defaulting on literals *)
+						else if isInSet(STRUCTVALS.intType, typeset)
+						then freezeType STRUCTVALS.intType
+						else if isInSet(STRUCTVALS.realType, typeset)
+						then freezeType STRUCTVALS.realType
+						else if isInSet(STRUCTVALS.wordType, typeset)
+						then freezeType STRUCTVALS.wordType
+						else if isInSet(STRUCTVALS.charType, typeset)
+						then freezeType STRUCTVALS.charType
+						else if isInSet(STRUCTVALS.stringType, typeset)
+						then freezeType STRUCTVALS.stringType
+						else undefType
+					end
+			  | _ => undefType (* Unbound or flexible record. *)
+			)
+  	 |  prefType(TypeConstruction{value=ref constr, args, ...}) =
+	  		if isEmpty (tcEquivalent constr)
+			then constr (* Generally args will be nil in this case but
+						   in the special case of looking for an equality
+						   function for 'a ref or 'a array it may not be.  *)
+			else prefType (makeEquivalent (constr, args))
+  	 |  prefType _ = undefType
+  in
+  	prefType(firstArg f)
+  end;
+  
+  (* Error message about overloading. *)
+
+  fun overloadError (t : types, opName : string, types : string,
+                     lex : lexan, lineno : int) : unit =
+  (* Find the argument type of the function. *)
+  let 
+    (* Get the first arg if there are more than one, and see if
+       it is matched to anything. *)
+    val arg = firstArg t
+  in
+    if isTypeVar arg (* Unresolved *)
+    then errorMessage (lex, lineno, "Unable to resolve overloading for " ^ opName)
+    else
+      errorProc (lex, lineno,
+         fn (pprint:prettyPrinter) =>
+         (
+           ppBeginBlock pprint (3, true);
+           ppAddString pprint
+              (opName ^ " is overloaded on " ^ types ^ " but not ");
+           display (arg, dbRefGet errorDepth, pprint);
+           ppEndBlock pprint ()
+         ))
+  end (* overloadError *);
+
+  fun apply (f, arg, lex, lineno, moreInfo) =
+  let
+    val ef = eventual f;
+  in
+    if isFunctionType ef
+    then (* Special case for functions. *)
+    let
+      val funType  = typesFunctionType ef;
+      val U : unit = unify (#arg funType, arg, lex, lineno, moreInfo);
+    in
+      #result funType
+    end
+    else (* Type variables etc. - Use general case. *)
+    let  (* Make arg->'a, and unify with the function. *)
+      val resType  = mkTypeVar (generalisable, false, false, false);
+      val fType    = mkFunctionType (arg, resType);
+      
+      (* This may involve more than just assigning the type to "ef". *)
+      val U : unit = unify (ef, fType, lex, lineno, moreInfo);
+    in
+      resType (* The result is the type variable unified to the result. *)
+    end
+  end (* apply *);
+
+  (* Assigns type variables to variables with generalisation permitted
+     if their level is at least that of the current level.
+	 In ML90 mode this produces an error message for any top-level
+	 free imperative type variables.  We don't do that in ML97 because
+	 it is possible that another declaration may "freeze" the type variable
+	 before the composite expression reaches the top level. *)
+  fun allowGeneralisation (t, level, nonExpansive, lex, lineno, moreInfo) =
+	let
+		fun giveError(s1: string, s2: string) =
+			errorProc(lex, lineno,
+				fn (pprint: prettyPrinter) =>
+				let
+		         (* Use a single sequence. *)
+		         val vars : typeVarForm -> string = varNameSequence ();
+				in
+		         ppBeginBlock pprint (3, false);
+		         ppAddString pprint s1;
+		         ppBreak pprint (1, 0);
+		         tDisp (t, dbRefGet errorDepth, pprint, vars);
+		         ppBreak pprint (1, 0);
+		         ppAddString pprint s2;
+		         ppBreak pprint (1, 0);
+		         moreInfo pprint;
+		         ppEndBlock pprint ()
+				end);
+
+		fun general (TypeVar tvar) showError =
+			if tvLevel tvar >= level andalso
+             	tvLevel tvar <> generalisable
+			then let
+			    (* Is this an overload set ? *)
+				val isOverloadSet = 
+					case tvValue tvar of
+						OverloadSet _ => true
+					|	_ => false
+
+	            (* Make a new generisable type variable, except that weak type
+	               variables in an expansive context cannot be generalised.
+				   We also don't generalise if this is an overload set.
+				   The reason for that is that it allows us to get overloading
+				   information from the surrounding context.
+				   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
+				   would be take the default type (in this case int).
+				   DCJM 1/9/00. *)
+	            val nonCopiable =
+					(not nonExpansive andalso (tvWeak tvar orelse not(!ml90)))
+					orelse isOverloadSet;
+	            val newLevel =
+	               if nonCopiable then level-1 else generalisable (* copiable *);
+
+				val isOk =
+					(* If the type variable has top-level scope then we have
+	                   a free type variable.  We only want to generate this
+					   message once even if we have multiple type variables.*)
+					(* If the type variable is non-unifiable and the expression is
+					   expansive then we have an error since this will have to
+					   be a monotype.  *)
+					if tvNonUnifiable tvar andalso nonCopiable andalso showError
+					then
+						(
+						giveError("Type", "includes a free type variable");
+						false
+						)
+		            else if newLevel = 1 andalso showError andalso (!ml90)
+		            then
+						(
+						giveError ("Type", "includes a free imperative type variable");
+						false
+						)
+		            else showError;
+	            val newVal =
+	                 mkTypeVar 
+	                   (newLevel, tvEquality tvar,
+	                    if nonCopiable then (tvNonUnifiable tvar) else false,
+	                    tvWeak tvar)
+			in
+	            (* If an explicit type variable is going out of scope we can
+	               generalise it, except if it is nonunifiable. *)
+	            (* It may be a flexible record so we have to transfer the
+	               record to the new variable. *)
+	            tvSetValue (typesTypeVar newVal, tvValue tvar);
+				tvSetValue (tvar, newVal);
+				isOk
+			end
+			else showError
+		| general _ isOk = isOk
+	in
+		foldType general t true;
+		()
+	end (*  end allowGeneralisation *);
+
+
+  (* Check for free type variables.  Added for ML97.  This replaces the
+     test in allowGeneralisation above and is applied to all top-level
+	 values including those in structures and functors.  *)
+  (* I've changed this from giving an error message, which prevented the
+     code from evaluating, to giving a warning and setting the type
+	 variables to unique type variables.  That allows, for example,
+	 fun f x = raise x; f Subscript; to work.  DCJM 8/3/01. *)
+  fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan) : unit =
+  let
+  	(* Generate new names for the type constructors. *)
+    val count = ref 0
+	fun genName num =
+		(if num >= 26 then genName (num div 26 - 1) else "")
+		^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
+
+	fun checkTypes (TypeVar tvar) () =
+		if isEmpty(tvValue tvar) andalso tvLevel tvar = 1
+		then (* The type variable is unbound (specifically, not
+		        an overload set) and it is not generic i.e. it
+				must have come from an expansive expression. *)
+			let
+				val name = "_" ^ genName(!count)
+				val _ = count := !count + 1;
+				val tCons =
+					makeTypeConstrs (name, [], emptyType, makeFreeId(),
+						tvEquality tvar, 0);
+	            val newVal = mkTypeConstruction(name, tCons, [])
+			in
+				warningMessage(lex, lineno lex, 
+					concat["The type of (", valName,
+						") contains a free type variable.\n",
+						"Setting it to a unique monotype."]);
+				tvSetValue (tvar, newVal)
+			end
+		else ()
+	 |  checkTypes _ () = ()
+
+  in
+  	foldType checkTypes ty ();
+	()
+  end
+
+
+  (* Sets any variable stamps in the type to new bound stamps.  This is used
+     in the final phase of compiling a signature when we need to turn variable
+     stamps into bound stamps. *)
+  fun setTypeConstr (tcon, makeId) =
+  let
+    val id    = tcIdentifier tcon;
+    val equiv = tcEquivalent tcon;
+  in
+    if not (isEmpty equiv) then setTypes (equiv, makeId) else ();
+    if isVariableId id then (unifyTypeIds (id, makeId tcon); ()) else () 
+  end
+
+  (* Applies setTypeConstr to every type constructor. *)
+  
+  and setTypes (t, makeId) =
+  let
+    fun setTypeConstrVal t () = 
+      if isTypeConstruction t 
+      then setTypeConstr(! (#value (typesTypeConstruction t)), makeId)
+      else ();
+  in
+    foldType setTypeConstrVal t ()
+  end
+
+  (* Enter a type constructor into the match table. *)
+  (* We should simply have to enter the candidate type against the target
+     identifier in the table, but unfortunately it is not always that simple.
+     It is possible that the target has an "equivalent" which is no longer
+     in the signature and so will not match up to a candidate. e.g.
+         sig type a type b sharing type a=b type b end
+     could end up with a pointing to b which is no longer there. *)
+  (* Put the candidate against this entry in the table and also against
+     any equivalents of this target which are not already matched. *)
+  
+  fun enterTypeConstrs (target, candidate, matchTab as {enter,lookup}) =
+  let
+    val equiv = tcEquivalent target;
+  in
+    if isBoundId (tcIdentifier target)
+    then #enter matchTab (tcIdentifier target, candidate)
+    else ();
+    
+    if isTypeConstruction equiv
+    then let
+      val t = ! (#value (typesTypeConstruction equiv));
+      (* Is it in the table already?  If so don't overwrite it. *)
+    in
+       (#lookup matchTab (tcIdentifier t); {}) (* bugfix 3/8/94 SPF *)
+	  handle ValueMissing _ => enterTypeConstrs (t, candidate, matchTab)
+    end
+    else ()
+  end;
+
+  (* Check that two types match. *)
+  fun matchTypes
+    (candidate : types, 
+     target    : types,
+     targMap   : typeId -> typeConstrs,
+     lex       : lexan,
+     lineno    : int,
+     moreInfo  : prettyPrinter -> unit)
+    : unit =
+  let
+    fun copyTarget t =
+      (* Don't bother with type variables. *)
+      copyType (t, trivMap,
+        fn tcon =>
+        ( (* Copy it if it is in the map. *)
+           copyTypeConstr
+              (tcon, 
+               (fn id => (targMap id; true) (* bugfix SPF 3/8/93 *)
+                            handle ValueMissing _ => false),
+               makeFreeId, (* Not used. *)
+              {lookup = targMap, enter = (fn (id, tc) => ())},
+			  trivMap, ""
+              )
+       ));
+                   
+      (* Do the match to a version of the candidate with copies of the
+         type variables so that we can instantiate them.  We could do
+         this by passing in a mapping function but the problem is that
+         if we have a type variable that gets unified to another variable
+         we will not map it properly if it occurs again (we call "eventual"
+         and get the second tv before calling the map function so we get a
+         second copy and not the first copy).
+       *)
+         
+      val copiedCandidate : types = generalise (candidate, true);
+      
+      fun cantMatch (candidate, target, reason) =
+           matchError ("Can't match", candidate, "to", target, reason,
+                       lex, lineno, moreInfo);       
+    in
+      typeMatch (copiedCandidate, target, copyTarget, cantMatch)
+    end;
+
+    (* Returns true if a type constructor permits equality. *)
+    
+    fun permitsEquality constr =
+       if tcEquality constr then true
+       else if isEmpty(tcEquivalent constr) then false
+       else not (equality 
+                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr),
+                    fn tri => No,
+                    fn tri => Yes)
+                  = No);
+
+  (* Try to set one type constructor to point to the other. It may not
+     succeed if they are both already assigned to other types in which
+     case no error message is produced. These errors are detected by a
+     second pass using matchTypes later on. This is used to establish 
+     sharing constraints, which can be a problem since either type
+     constructor could be a variable or rigid depending on other sharing. *)
+  fun linkTypeConstructors (typeA, typeB, cantMatch) =
+  let
+    (* Set the equivalent field of a type constructor to a type. *)
+    fun setEquiv toSet v =
+    let
+      (* Make a type construction out of constructor,
+         using type variables from "toSet". *)
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet);
+        (* If "toSet" is an eqtype we need to check that the "v" also is one.
+           If we are establishing a sharing constraint between two variable
+           types one of which is  an eqtype we have to make them all eqtypes. *)
+    in
+      if tcEquality toSet
+      then 
+        if isVariableId (tcIdentifier v) andalso isEmpty (tcEquivalent v)
+           then tcSetEquality (v, true)
+        else if not (permitsEquality v)
+           then cantMatch ("Cannot share: (" ^ tcName v ^ ") is not an eqtype")
+        else ()
+      else ();
+        
+      (* Set the "equivalent" to the value.  We can't simply set the stamps
+         to be the same  because the equality attribute is held in the
+         type constructor instead (as the semantics says) in the name.
+         We would have a problem if we shared a type with a datatype that
+         was later found to be an eqtype. *)
+      tcSetEquivalent (toSet, construction)
+    end (* setEquiv *);
+  in
+    if isUndefined typeA orelse isUndefined typeB
+    then ()
+	else
+      if tcArity typeA <> tcArity typeB (* Check arity. *)
+      then 
+		 cantMatch ("Cannot share: Types (" ^ tcName typeA ^ ") have different arities.")
+    else let
+      (* The argument lists must be identical lists of type variables. *)
+      fun eqArgs []                 []                 = true
+        | eqArgs (TypeVar ta :: al) (TypeVar tb :: bl) =
+            sameTv (ta, tb) andalso eqArgs al bl
+        | eqArgs _                    _                = false;
+
+     (* First see if either has been matched to another type. If what it
+        has been matched to is a type constructor then we look at that. *)
+      val AEquiv = tcEquivalent typeA;
+      val BEquiv = tcEquivalent typeB;
+    in
+	  if not (isEmpty AEquiv)
+	  then (* This type is matched to something else.  This could have arisen
+			  either from a previous sharing constraint or from a type
+			  abbreviation.  This is only allowed if it is another
+			  type constructor.  In ML90, where we can share with rigid types,
+			  this could also arise as a result of sharing with a rigid
+			  type construction.  We ignore that, since we're not trying to
+			  maintain full compatibility with ML90, and generate an error
+			  message anyway. *)
+		 (
+			if isTypeConstruction AEquiv andalso 
+				eqArgs (#args (typesTypeConstruction AEquiv)) (tcTypeVars typeA)
+			then linkTypeConstructors (! (#value (typesTypeConstruction AEquiv)),
+					typeB, cantMatch)
+			else cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is a type function")
+		 )
+	  else if not (isEmpty BEquiv)
+	  then (* ditto for type B *)
+		 (
+			if isTypeConstruction BEquiv andalso 
+				eqArgs (#args (typesTypeConstruction BEquiv)) (tcTypeVars typeB)
+			then linkTypeConstructors (typeA,
+					! (#value (typesTypeConstruction BEquiv)), cantMatch)
+			else cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is a type function")
+		 )
+      
+        (* Neither A nor B can already be matched to anything. *)
+      else if sameTypeId (tcIdentifier typeA, tcIdentifier typeB)
+        (* Are they the same already? If so skip all this. *)
+      then ()
+	  else let  (* Not there. *)
+        val AIsDatatype = not (isNil(tcConstructors typeA));
+        val BIsDatatype = not (isNil(tcConstructors typeB));
+        (* If we have a variable type constructor which is a type or eqtype
+           (but not a datatype) we can set its "equivalent" field to the
+           other type constr. *)
+      in
+		    (* In ML90 we are allowed to unify a rigid and a flexible type.
+			   In ML97 both must be flexible. *)
+		if not (isVariableId (tcIdentifier typeA)) andalso not (! ml90)
+		then cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not flexible")
+
+		else if not (isVariableId (tcIdentifier typeB)) andalso not (! ml90)
+		then cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not flexible")
+
+        else if isVariableId (tcIdentifier typeA) andalso not AIsDatatype
+        then setEquiv typeA typeB
+        
+        else if isVariableId (tcIdentifier typeB) andalso not BIsDatatype
+        then setEquiv typeB typeA
+        
+          (* We have two type constructors in which neither has an
+             equivalent field which is set or can be set. They must
+             either be datatypes or rigid (non-variable) abstract types.
+             We just try to link their stamps. We check by a later pass
+             that this has succeeded. *)
+		else if isVariableId (tcIdentifier typeA) orelse
+             isVariableId (tcIdentifier typeB) 
+		then let
+            (* If they are both rigid this is not going to work.
+               Skip it and report the error later. *)
+            (* Equality status. If either has equality status then the 
+               result should have equality, except that we can't change the
+                equality status of a rigid (free) stamp.  We have to do this
+                before unifying the stamps because that could change the
+                kind of stamp. *)
+            val AEq = permitsEquality typeA;
+            val BEq = permitsEquality typeB;
+          in
+		    (
+            if AEq andalso not BEq
+            then (* Want to set B to be an eqtype as well. *)
+              if isVariableId (tcIdentifier typeB) 
+              then (tcSetEquality (typeB, true); true)
+              else (cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not an eqtype"); false)
+
+            else if BEq andalso not AEq
+            then (* Want to set A to be an eqtype as well. *)
+               if isVariableId (tcIdentifier typeA)
+               then (tcSetEquality (typeA, true); true)
+               else (cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not an eqtype"); false)
+
+            else true
+            ) andalso 
+	            (* Unify the type "names" (unique ids). *)
+	            unifyTypeIds (tcIdentifier typeA, tcIdentifier typeB);
+			()
+          end
+          else
+		  	(* Both are rigid.  This case can only occur if ml90 is true.
+			   We've already checked that they don't have the same type
+			   name so we can just generate an error message. *)
+		  	cantMatch ("Cannot share: (" ^ tcName typeA ^ ") and (" ^
+				tcName typeB ^ ") are different types")
+      end
+    end
+  end (* linkTypeConstructors *);
+
+
+  (* Set a type constructor looked up in the signature to a dummy type
+     constructor representing the type realisation.  The reason for
+	 using a dummy type constructor is that it allows us to match up
+	 the type variables used in the original declaration of the type
+	 with the type variables used in the realisation.  It also means
+	 that the code is very similar to the old (ML90) version of
+	 linkTypeConstructors which worked with rigid type constructors
+	 as well as flexible. *)
+  fun setWhereType (tcToSet, equivTc, cantSet) =
+  let
+    (* Set the equivalent field of a type constructor to a type. *)
+    fun setEquiv toSet v =
+    let
+      (* Make a type construction out of constructor,
+         using type variables from "toSet". *)
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet);
+        (* If "toSet" is an eqtype we need to check that the "v" also is one.
+           If we are establishing a sharing constraint between two variable
+           types one of which is  an eqtype we have to make them all eqtypes. *)
+    in
+      if tcEquality toSet
+      then 
+        if isVariableId (tcIdentifier v) andalso isEmpty (tcEquivalent v)
+           then tcSetEquality (v, true)
+        else if not (permitsEquality v)
+           then cantSet ("(" ^ tcName v ^ ") is not an eqtype")
+        else ()
+      else ();
+        
+      (* Set the "equivalent" to the value.  We can't simply set the stamps
+         to be the same  because the equality attribute is held in the
+         type constructor instead (as the semantics says) in the name.
+         We would have a problem if we shared a type with a datatype that
+         was later found to be an eqtype. *)
+      tcSetEquivalent (toSet, construction)
+    end (* setEquiv *)
+  in
+    if isUndefined tcToSet
+	then () (* Probably because looking up the type constructor name failed. *)
+
+    else if tcArity tcToSet <> tcArity equivTc (* Check arity. *)
+    then cantSet ("Cannot apply type realisation: Types (" ^
+	  			tcName tcToSet ^ ") have different arities.")
+    else let
+      (* The argument lists must be identical lists of type variables. *)
+      fun eqArgs []                 []                 = true
+        | eqArgs (TypeVar ta :: al) (TypeVar tb :: bl) =
+            sameTv (ta, tb) andalso eqArgs al bl
+        | eqArgs _                    _                = false;
+
+     (* First see if either has been matched to another type. If what it
+        has been matched to is a type constructor then we look at that. *)
+      val toSetEquiv = tcEquivalent tcToSet;
+      val equivEquiv = tcEquivalent equivTc;
+    in
+		if not (isEmpty toSetEquiv)
+		then
+		 (* It's bound to something. I really don't know if this is legal or not.
+		    If it is legal it's only legal if it's bound to another type name.
+			This might arise as a result of a sharing constraint. *)
+			(
+			case toSetEquiv of
+				TypeConstruction { value = ref tc, args, ... } =>
+					if eqArgs args (tcTypeVars tcToSet)
+					then setWhereType (tc, equivTc, cantSet)
+					else cantSet ("Cannot apply type realisation: (" ^
+									 tcName tcToSet ^ ") is a type function")
+			| _ => cantSet ("Cannot apply type realisation: (" ^
+							 tcName tcToSet ^ ") is a type function")
+			)
+
+		   (* If the type we are trying to assign is a simple construction
+			  of a type constructor with matching type variables then we try
+			  to match to that.  (e.g. where type 'a A.t = 'a s).  In this
+			  case only it is possible for A.t to be a datatype if s is
+			  also a datatype. *) 
+		else if isTypeConstruction equivEquiv andalso
+	        eqArgs (#args (typesTypeConstruction equivEquiv)) (tcTypeVars equivTc)
+		then setWhereType (tcToSet,
+				! (#value (typesTypeConstruction equivEquiv)), cantSet)
+      
+		(* It must have a variable stamp.  The only way I can see that
+		   it might not be would be if another "where type" has already
+		   been applied to this type. *)
+		else if not (isVariableId (tcIdentifier tcToSet))
+		then cantSet ("Cannot apply type realisation: (" ^
+							 tcName tcToSet ^ ") is already free.")
+
+		(* If it's an eqtype then the type function must admit equality.  Again, I
+		   don't know if it's legal to use "where type" to set the "equivalent"
+		   of an eqtype at all. *)
+		else if tcEquality tcToSet andalso not (permitsEquality equivTc)
+		then cantSet ("Cannot apply type realisation: (" ^
+							 tcName tcToSet ^
+							 ") is an eqtype but the type does not permit equality.")
+
+	    (* Check if it's a datatype.  If we need to get the effect of
+		   a "where type" constraint with a datatype we have to use
+		   datatype replication. *)
+		(* It's not clear at the moment whether this is allowed or not.
+		   I'm going to allow it for the moment.  N.B.  We don't check the
+		   constructors.  That's because we can't be sure that there aren't
+		   other datatypes which already share with this one and they are
+		   allowed to have different constructors in ML97.
+		   e.g. sig datatype t = A|B of int datatype s = X of real
+		   		    sharing type s = t end
+		   is legal in ML97, although unmatchable.  If we apply a
+		   "where type" constraint to, say s, e.g. where type s = bool,
+		   we don't check it. *)
+		else if not (isNil(tcConstructors tcToSet))
+		then
+		(*
+			cantSet ("Cannot apply type realisation: (" ^
+							 tcName tcToSet ^ ") is a datatype.")
+		*)
+			if isNil(tcConstructors equivTc)
+			then
+				cantSet ("Cannot apply type realisation: (" ^
+							 tcName tcToSet ^ ") is a datatype but (" ^
+							 tcName equivTc ^ ") is not.")
+			else (unifyTypeIds(tcIdentifier tcToSet, tcIdentifier equivTc); ())
+
+		else (* Just set the equivalent field to point to the type. *)
+			setEquiv tcToSet equivTc
+    end
+  end (* setWhereType *);
+
+
+  (* A simple sort routine - particularly if the list is already sorted.
+     Reports duplicate names. *)
+  fun sortLabels ([],      duplicate) = []
+    | sortLabels (s::rest, duplicate) =
+  let
+    fun enter s name [] = [s]
+      | enter s name (l as ( (h as {name=hname, typeof}) :: t)) =
+      let
+        val comp = compareLabels (name, hname);
+      in
+        if comp = 0 (* Equal. *)
+        then duplicate ("Label (" ^ name ^ ") appears more than once.") else ();
+        if comp <= 0 then s :: l else h :: enter s name t
+      end;
+  in  
+    enter s (#name s) (sortLabels (rest, duplicate))
+  end;
+
+  (* Returns the number of the entry in the list. Used to find out the
+     location of fields in a labelled record for expressions and pattern
+     matching. Assumes that the label appears in the list somewhere. *)
+     
+  fun entryNumber (label, LabelledType{recList, ...}) =
+    let (* Count up the list. *)
+      fun entry ({name, typeof}::l) n =
+        if name = label then n else entry l (n + 1)
+	   |  entry [] _ = raise Match
+    in
+      entry recList 0
+    end
+	  
+   | entryNumber (label, TypeVar tvar) =
+      	entryNumber (label, tvValue tvar)
+      
+   | entryNumber (label, TypeConstruction{value=ref equiv, ...}) = (* Type alias *)
+		entryNumber (label, tcEquivalent equiv)
+      
+   | entryNumber (label, _) =
+   		raise InternalError "entryNumber - not a record"
+
+  (* Size of a labelled record. *)
+
+  fun recordWidth (LabelledType{recList, ...}) =
+  		length recList
+	  
+   | recordWidth (TypeVar tvar) =
+      	recordWidth (tvValue tvar)
+      
+   | recordWidth (TypeConstruction{value=ref equiv, ...}) = (* Type alias *)
+		recordWidth (tcEquivalent equiv)
+      
+   | recordWidth _ =
+   		raise InternalError "entryNumber - not a record"
+
+    (* Unify two type variables which would otherwise be non-unifiable.
+       Used when we have found a local type variable with the same name
+       as a global one. *)
+  fun linkTypeVars (a, b) =
+  let
+    val ta = typesTypeVar (eventual a); (* Must both be type vars. *)
+    val tb = typesTypeVar (eventual b);
+  in  (* Set the one with the higher level to point to the one with the
+         lower, so that the effective level is the lower. *)
+    if (tvLevel ta) > (tvLevel tb)
+    then tvSetValue (ta, b)
+    else tvSetValue (tb, a)
+  end;
+
+  (* Set its level by setting it to a new type variable. *)
+  fun setTvarLevel (typ, level) =
+  let
+    val tv = typesTypeVar (eventual typ); (* Must be type var. *)
+  in
+    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, tvWeak tv))
+  end;
+
+  (* Checks that every type identifier mentioned is rigid.  Used when we
+     have unified a rigid and a flexible structure. *)
+  fun checkWellFormed (t, errorMessage) =
+  let
+    fun check typ () =
+      if isTypeConstruction typ
+      then let
+        val cons = typesTypeConstruction typ;
+        val constructor = ! (#value cons);
+        val equiv = tcEquivalent constructor;
+      in
+        if not (isEmpty equiv)
+        then checkWellFormed (equiv, errorMessage)
+        else if isVariableId (tcIdentifier constructor)
+          then 
+            errorMessage
+              ("Ill-formed signature - type ("
+               ^ tcName constructor
+               ^") is not rigid.")
+          else ()
+      end
+      else ();
+  in (* Apply this to all the types. *)
+    foldType check t ()
+  end;
+
+  (* Applied to type constructions (e.g. 'a list) to get the value
+     constructors for the type constructor.  Used in the match compiler
+     to find the number of constructors in a datatype. *)
+  fun getConstrList (TypeConstruction{value=ref constr, args, ...}) =
+    let
+      val l      = tcConstructors constr
+    in
+      (* In a few cases it is possible for the value to be an equivalent. *)
+      if isNil l andalso not(isEmpty(tcEquivalent constr))
+      then getConstrList (makeEquivalent (constr, args))
+      else l
+    end
+  |  getConstrList (FunctionType{result, ...}) =
+      (* May be the type of a constructor - look at result type *)
+      getConstrList result
+  |  getConstrList _ = [];
+       
+  (* Find a value constructor in the list of constructors for the datatype.
+     This is used in structures.copySig to reduce the amount of space used *)
+  fun findValueConstructor copied =
+  let
+    val t    = valTypeOf copied;
+    val name = valName copied;
+    (* The value constructor's type may be a value of the datatype or
+       a function returning a value. *)
+    val construction =
+      if isFunctionType t then #result(typesFunctionType t) else t;
+    val constructor  = ! (#value (typesTypeConstruction construction));
+    (* If the value constructor is in the list return it otherwise return
+       the copied version. In fact the only case when it will not be in
+       the list is if the list is empty. We have to check the types are
+       the same because we also use this when copying datatypes. *)
+  in
+    first (fn v => valName v = name)
+          (fn v => if equalTypes (valTypeOf v) t then v else copied)
+          (fn () => copied)
+          (overList (tcConstructors constructor))
+  end; 
+end (* TYPETREE *);

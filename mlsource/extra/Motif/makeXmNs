@@ -1,0 +1,38 @@
+#
+
+echo "signature XM_TYPES = sig"                                  >  XM_TYPES.ML
+echo "include MOTIF_TYPES ;"                                     >> XM_TYPES.ML
+echo "local open XWINDOWS in"                                    >> XM_TYPES.ML
+awk -f makeExceptions.awk < XmNs.doc | align_of                  >> XM_TYPES.ML
+awk -f makeClasses.awk    < XmNs.doc | align_types | sort | uniq >> XM_TYPES.ML
+echo "end (* local *) ;"                                         >> XM_TYPES.ML
+echo "end (* sig *) ;"                                           >> XM_TYPES.ML
+
+echo "structure XmTypes = struct"                                 >  XmTypes.ML
+echo "local open MotifTypes XWindows in"                          >> XmTypes.ML
+awk -f makeExceptions.awk < XmNs.doc | align_of                   >> XmTypes.ML
+awk -f initialClasses.awk < XmNs.doc | align_equals | sort | uniq >> XmTypes.ML
+echo "end (* local *) ;"                                          >> XmTypes.ML
+echo "end (* struct *) ;"                                         >> XmTypes.ML
+
+echo "structure InitialiseCore = struct"          >  InitialiseCore.ML
+echo "local open MotifTypes XmTypes MotifCore in" >> InitialiseCore.ML
+awk -f makeInitials.awk   < XmNs.doc              >> InitialiseCore.ML
+echo "end (* local *) ;"                          >> InitialiseCore.ML
+echo "end (* struct *) ;"                         >> InitialiseCore.ML
+
+exit
+
+echo "signature XM_TYPES = sig"               >  XM_TYPES.ML
+echo "include MOTIF_TYPES ;"                  >> XM_TYPES.ML
+echo "local open XWINDOWS in"                 >> XM_TYPES.ML
+awk -f makeDatatype.awk < XmNs.doc | align_of >> XM_TYPES.ML
+echo "end (* local *) ;"                      >> XM_TYPES.ML
+echo "end (* sig *) ;"                        >> XM_TYPES.ML
+
+echo "structure XmTypes = struct"             >  XmTypes.ML
+echo "local open MotifTypes XWindows in"      >> XmTypes.ML
+awk -f makeDatatype.awk < XmNs.doc | align_of >> XmTypes.ML
+echo "end (* local *) ;"                      >> XmTypes.ML
+echo "end (* struct *) ;"                     >> XmTypes.ML
+

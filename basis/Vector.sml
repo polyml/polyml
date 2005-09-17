@@ -1,0 +1,502 @@
+(*
+    Title:      Standard Basis Library: Vector Structure
+    Author:     David Matthews
+    Copyright   David Matthews 1999, 2005
+
+	This library is free software; you can redistribute it and/or
+	modify it under the terms of the GNU Lesser General Public
+	License as published by the Free Software Foundation; either
+	version 2.1 of the License, or (at your option) any later version.
+	
+	This library is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+	Lesser General Public License for more details.
+	
+	You should have received a copy of the GNU Lesser General Public
+	License along with this library; if not, write to the Free Software
+	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+
+(* G&R 2004 status: updated.  Added VectorSlice and VECTOR_SLICE. *)
+
+signature VECTOR =
+  sig
+
+    eqtype  'a vector
+    val maxLen : int
+    val fromList : 'a list -> 'a vector
+    val tabulate : (int * (int -> 'a)) -> 'a vector
+    val length : 'a vector -> int
+    val sub : ('a vector * int) -> 'a
+	val update: 'a vector * int * 'a -> 'a vector
+	
+    val concat : 'a vector list -> 'a vector
+    val mapi : ((int * 'a) -> 'b) -> 'a vector -> 'b vector
+    val map : ('a -> 'b) -> 'a vector -> 'b vector
+
+    val appi : ((int * 'a) -> unit) -> 'a vector -> unit
+    val app : ('a -> unit) -> 'a vector -> unit
+
+    val foldli : ((int * 'a * 'b) -> 'b) -> 'b -> 'a vector -> 'b
+    val foldri : ((int * 'a * 'b) -> 'b) -> 'b -> 'a vector -> 'b
+    val foldl : (('a * 'b) -> 'b) -> 'b -> 'a vector -> 'b
+    val foldr : (('a * 'b) -> 'b) -> 'b -> 'a vector -> 'b
+	
+	val findi: (int * 'a -> bool) -> 'a vector -> (int * 'a) option
+	val find: ('a -> bool) -> 'a vector -> 'a option
+	val exists: ('a -> bool) -> 'a vector -> bool
+	val all: ('a -> bool) -> 'a vector -> bool
+	val collate: ('a * 'a -> order) -> 'a vector * 'a vector -> order
+  end;
+  
+local
+	open RuntimeCalls
+	(* Inherit the definition of vector in the initial environment.
+	   We have to declare vector in the initial environment in order
+	   for equality to work correctly. *)
+
+	(* It would be simpler to be able to define these as functions
+	   to or from 'a vector but that gives error messages about free
+	   type variables. *)
+	val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+	val System_loadw: word*word->word = RunCall.run_call2 POLY_SYS_load_word;
+	val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
+	val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length;
+    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullorzero; (* A zero word. *)
+	val System_move_words:
+		word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
+
+	val vecAsWord: 'a vector -> word = RunCall.unsafeCast
+	and wordAsVec: word -> 'a vector = RunCall.unsafeCast
+	val intAsWord: int -> word = RunCall.unsafeCast
+	and wordAsInt: word -> int = RunCall.unsafeCast
+
+	local
+		val System_alloc: int*int*int->word  = RunCall.run_call3 POLY_SYS_alloc_store
+	in
+		(* All the arrays are initially created containing zeros and then initialised. *)
+		fun alloc len = System_alloc(len, 0, 0)
+	end
+	
+	fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.unsafeCast(System_loadw (vecAsWord v, intAsWord i))
+	and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
+		System_setw (vecAsWord v, intAsWord i, RunCall.unsafeCast new);
+in
+
+structure Vector: VECTOR =
+struct
+	(* N.B.  This implementation of vectors is implicitly used in
+	   Array.extract.  Don't change this implementation without also
+	   changing that. It's also used in the interface to the RTS in OS.Poll and Socket.select. *)
+    type 'a vector = 'a vector
+
+	(* The maximum vector size is limited by the size of the length field. On a
+	   32 bit machine we have 24 bits of length field and 8 bits of flags so
+	   the maximum value is 2^24 - 1. *)
+	local
+		val doCall: int*unit -> int
+				 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+	in
+		val maxLen = doCall(100, ())
+	end;
+
+    infix 9 sub (* For what it's worth *)
+  
+    (* Lock the arrays after they have been created.  All this does is
+       switch off the "mutable" bit.  This does not prevent updating of
+       itself, the signature does that by removing "update", but improves
+       g.c. performance and causes equality to check for value equality
+       not pointer equality. *)
+	val listLength = length; (* Pick this up from the prelude. *)
+ 
+    fun length v = wordAsInt(System_length(vecAsWord v));
+
+	fun op sub (vec:'a vector, i: int): 'a =
+	let
+		val v = vecAsWord vec
+	in
+		if i < 0 orelse i >= wordAsInt(System_length v)
+		then raise General.Subscript
+		else RunCall.unsafeCast(System_loadw (v, intAsWord i))
+	end
+ 
+ 	(* Create a vector from a list.  We have to treat an empty list specially
+	   because we don't allow zero sized heap objects. *)
+    fun fromList [] : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+      | fromList (l : 'a list) : 'a vector =
+		let
+		val length = listLength l;
+			
+		(* Make a vector initialised to zero. *)
+		val vec = alloc length;
+		
+		(* Copy the list elements into the vector. *)
+		fun init (v, i, a :: l) =
+			(
+			System_setw(v, intAsWord i, RunCall.unsafeCast a);
+			init(v, i + 1, l)
+			)
+		|  init (_, _, []) = ();
+		
+	in
+		init(vec, 0, l);
+	    System_lock vec;
+	    wordAsVec vec
+	end
+		
+    fun tabulate (0, f) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+     |  tabulate (length: int , f : int->'a): 'a vector =
+	let
+		val vec =
+			if length > 0 then alloc length else raise General.Size;
+		(* Initialise it to the function values. *)
+		fun init i = 
+			if length <= i then ()
+			else (System_setw(vec, intAsWord i, RunCall.unsafeCast(f i)); init(i+1))
+	in
+		init 0;
+		System_lock vec;
+		wordAsVec vec
+	end
+	
+
+	fun concat [] = wordAsVec System_zero
+	 |  concat [v] = v (* Handle special cases to reduce copying. *)
+	 |  concat l =
+	let
+		(* Calculate the total length *)
+		fun total [] i = i
+		  | total (h::t) i = total t (i+length h)
+	
+		val total_len = total l 0
+	in
+		if total_len = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc total_len
+				
+			fun copy_list [] _ = ()
+			  | copy_list (h::t) j =
+		  		let
+					val v = vecAsWord h
+					val src_len = length h
+				in
+					System_move_words(v, 0, new_vec, j, src_len);
+			  		copy_list t (j+src_len)
+				end
+		in
+			copy_list l 0;
+			System_lock new_vec;
+			wordAsVec new_vec
+		end
+	end
+	
+	
+	fun map (f: 'a->'b) (vec: 'a vector): 'b vector =
+	let
+		val len = length vec
+	in
+		if len = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc len
+			val newResult = wordAsVec new_vec
+				
+			fun domap i =
+				if i >= len then ()
+				else (unsafeUpdate(newResult, i, f(unsafeSub(vec, i))); domap(i+1))
+		in
+			domap 0;
+			System_lock new_vec;
+			newResult
+		end
+	end
+
+	fun mapi (f: int*'a->'b) (vec:'a vector): 'b vector =
+	let
+		val len = length vec
+	in
+		if len = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc len
+			val newResult = wordAsVec new_vec
+				
+			fun domap i =
+				if i >= len then ()
+				else (unsafeUpdate(newResult, i, f(i, unsafeSub(vec, i))); domap(i+1))
+		in
+			domap 0;
+			System_lock new_vec;
+			newResult
+		end
+	end
+	
+	(* Create a new vector with the ith element replaced by c *)
+	fun update(v: 'a vector, i , c) =
+		if i < 0 orelse i >= length v
+		then raise Subscript
+		else mapi (fn (j, s) => if j = i then c else s) v
+
+	(* Create the other functions. *)
+	structure VectorOps =
+		PolyVectorOperations(
+			struct
+				type 'a vector = 'a vector
+				fun length v = System_length(vecAsWord v)
+				local val u = unsafeSub in fun unsafeSub (v: 'a vector, i: word) = u(v, wordAsInt i) end
+				fun unsafeSet _ = raise Fail "Should not be called"
+			end);
+
+	open VectorOps;
+
+	local
+		(* Install the pretty printer for vectors *)
+		(* We may have to do this outside the structure if we
+		   have opaque signature matching. *)
+		fun pretty(put: string->unit, beg: int*bool->unit,
+				   brk: int*int->unit, nd: unit->unit)
+				  (depth: int)
+				  (printElem: 'a * int -> unit)
+				  (x: 'a vector) =
+			let
+				val last = length x - 1
+				fun put_elem (index, w, d) =
+					if d = 0 then (put "..."; d-1)
+					else if d < 0 then d-1
+					else
+					(
+					printElem(w, d-1);
+					if index <> last then (put ","; brk(1, 0)) else ();
+					d-1
+					)
+			in
+				beg(3, false);
+				put "fromList[";
+				if depth <= 0 then put "..."
+				else (foldli put_elem depth x; ());
+				put "]";
+				nd()
+			end
+	in
+		val unused = RunCall.Inner.install_pp pretty
+	end
+
+end (* Vector *)
+
+structure VectorSlice =
+struct
+	datatype 'a slice = Slice of { vector: 'a vector,  start: int, length: int };
+	
+	fun length(Slice{length, ...}) = length
+	
+	fun op sub (Slice{vector, start, length}, i: int): 'a =
+		if i < 0 orelse i >= length then raise General.Subscript
+		else unsafeSub(vector, i+start)
+	
+	(* Create a slice from a vector. *)
+	fun slice(vec: 'a vector, i: int, NONE) =
+		let
+			val len = Vector.length vec
+		in
+			if i >= 0 andalso i <= len
+			then Slice{vector=vec, start=i, length=len-i} (* Length is rest of vector. *)
+			else raise General.Subscript
+		end
+	 |  slice(vec: 'a vector, i: int, SOME l) =
+		let
+			val len = Vector.length vec
+		in
+			if i >= 0 andalso l >= 0 andalso i+l <= len
+			then Slice{vector=vec, start=i, length=l} (* Length is as given. *)
+			else raise General.Subscript
+		end
+		
+	(* Slice from the whole vector. *)
+	fun full v = Slice{vector=v, start=0, length=Vector.length v}
+
+	(* Slice from existing slice *)
+	fun subslice(Slice{vector, start, length}, i: int, NONE) =
+		if i >= 0 andalso i <= length
+		then Slice{vector=vector, start=i+start, length=length-i} (* Length is rest of array. *)
+		else raise General.Subscript
+
+	 |  subslice(Slice{vector, start, length}, i: int, SOME l) =
+		if i >= 0 andalso l >= 0 andalso i+l <= length
+		then Slice{vector=vector, start=i+start, length=l} (* Length is as given. *)
+		else raise General.Subscript
+	
+	fun vector(Slice{vector, start, length}) =
+		if length = 0 then wordAsVec System_zero (* Special case for zero *)
+		else
+		let
+			(* Make a vector initialised to zero. *)
+			val new_vec = alloc length
+		in
+			System_move_words(vecAsWord vector, start, new_vec, 0, length);
+			System_lock new_vec;
+			wordAsVec new_vec
+		end
+
+	fun base(Slice{vector, start, length}) = (vector, start, length)
+	
+	fun isEmpty(Slice{length, ...}) = length = 0
+
+	(* Return the first item of the slice and the rest of the slice. *)
+	fun getItem(Slice{length=0, ...}) = NONE
+	 |  getItem(Slice{vector, start, length}) =
+	 		SOME(unsafeSub(vector, start), Slice{vector=vector, start=start+1, length=length-1})
+			
+
+	fun concat [] = wordAsVec System_zero
+	 |  concat l =
+	let
+		(* Calculate the total length *)
+		fun total [] i = i
+		  | total (h::t) i = total t (i+length h)
+	
+		val total_len = total l 0
+	in
+		if total_len = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc total_len
+				
+			fun copy_list [] _ = ()
+			  | copy_list (Slice{vector, start, length}::t) j =
+			  	(
+					System_move_words(vecAsWord vector, start, new_vec, j, length);
+			  		copy_list t (j+length)
+				)
+		in
+			copy_list l 0;
+			System_lock new_vec;
+			wordAsVec new_vec
+		end
+	end
+	
+	fun map (f: 'a->'b) (Slice{vector:'a Vector.vector, start, length}): 'b Vector.vector =
+		if length = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc length
+			val newResult = wordAsVec new_vec
+				
+			fun domap i =
+				if i >= length then ()
+				else (unsafeUpdate(newResult, i, f(unsafeSub(vector, i+start))); domap(i+1))
+		in
+			domap 0;
+			System_lock new_vec;
+			newResult
+		end
+
+	fun mapi (f: int*'a->'b) (Slice{vector:'a Vector.vector, start, length}): 'b Vector.vector =
+		if length = 0 then wordAsVec System_zero
+		else
+		let
+			(* Allocate a new vector. *)
+			val new_vec = alloc length
+			val newResult = wordAsVec new_vec
+				
+			fun domap i =
+				if i >= length then ()
+				else (unsafeUpdate(newResult, i, f(i, unsafeSub(vector, i+start))); domap(i+1))
+		in
+			domap 0;
+			System_lock new_vec;
+			newResult
+		end
+
+
+	(* Create the other functions. *)
+	structure VectorOps =
+		PolyVectorOperations(
+			struct
+				type 'a vector = 'a slice
+				fun length(Slice{length, ...}) = intAsWord length
+				fun unsafeSub (Slice{vector, start, ...}, i) =
+					RunCall.unsafeCast(System_loadw (vecAsWord vector, i + intAsWord start))
+				fun unsafeSet _ = raise Fail "Should not be called"
+			end);
+
+	open VectorOps;
+
+end (* VectorSlice *)
+
+end (* Local in end *);
+
+(* The VECTOR_SLICE signature refers to the Vector structure which complicates things. *)
+signature VECTOR_SLICE =
+  sig
+    type 'a slice
+    val length : 'a slice -> int
+    val sub : ('a slice * int) -> 'a
+	val full: 'a Vector.vector -> 'a slice
+	val slice: 'a Vector.vector * int * int option -> 'a slice
+	val subslice: 'a slice * int * int option -> 'a slice
+	val base: 'a slice -> 'a Vector.vector * int * int
+	val vector: 'a slice -> 'a Vector.vector
+    val concat : 'a slice list -> 'a Vector.vector
+	val isEmpty: 'a slice -> bool
+	val getItem: 'a slice -> ('a * 'a slice) option
+    val appi : ((int * 'a) -> unit) -> 'a slice -> unit
+    val app : ('a -> unit) -> 'a slice -> unit
+    val mapi : ((int * 'a) -> 'b) -> 'a slice -> 'b Vector.vector
+    val map : ('a -> 'b) -> 'a slice -> 'b Vector.vector
+    val foldli : ((int * 'a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
+    val foldri : ((int * 'a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
+    val foldl : (('a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
+    val foldr : (('a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
+	val findi: (int * 'a -> bool) -> 'a slice -> (int * 'a) option
+	val find: ('a -> bool) -> 'a slice -> 'a option
+	val exists: ('a -> bool) -> 'a slice -> bool
+	val all: ('a -> bool) -> 'a slice -> bool
+	val collate: ('a * 'a -> order) -> 'a slice * 'a slice -> order
+  end;
+  
+structure VectorSlice :> VECTOR_SLICE = VectorSlice;
+
+local
+	open VectorSlice
+
+	(* Install the pretty printer for vector slices *)
+	(* We may have to do this outside the structure if we
+	   have opaque signature matching. *)
+	fun pretty(put: string->unit, beg: int*bool->unit,
+			   brk: int*int->unit, nd: unit->unit)
+			  (depth: int)
+			  (printElem: 'a * int -> unit)
+			  (x: 'a slice) =
+		let
+			val last = length x - 1
+			fun put_elem (index, w, d) =
+				if d = 0 then (put "..."; d-1)
+				else if d < 0 then d-1
+				else
+				(
+				printElem(w, d-1);
+				if index <> last then (put ","; brk(1, 0)) else ();
+				d-1
+				)
+		in
+			beg(3, false);
+			put "fromList[";
+			if depth <= 0 then put "..."
+			else (foldli put_elem depth x; ());
+			put "]";
+			nd()
+		end
+in
+	val _ = RunCall.Inner.install_pp pretty
+end;
+
+
+(* type 'a vector is available unqualified in the global basis. *)
+val vector : 'a list -> 'a vector = Vector.fromList;

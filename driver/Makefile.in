@@ -1,0 +1,109 @@
+###########################################
+# Common Flags
+###########################################
+
+CPUFLAGS  = -D@ARCHFLAG@
+CC	  = @CC@
+AS	  = @AS@
+LD	  = @LD@
+CPP	  = @CPP@
+OSFLAGS	  = @OSFLAGS@
+DEFAULT_POLYPATH = '"@DEFAULT_POLYPATH@"'
+
+
+# All architectures
+AFLAGS    = $(CPUFLAGS) $(OSFLAGS)
+ASFLAGS	  = $(AFLAGS)
+CFLAGS    = $(CPUFLAGS) $(OSFLAGS) @OPTFLAGS@ @INCLUDES@ -DDEFAULT_POLYPATH=$(DEFAULT_POLYPATH)
+LINTFLAGS = $(CPUFLAGS) $(OSFLAGS) @IFLAGS@
+XLFLAGS   = @LIBS@
+
+TARGETS = poly
+
+INSTALLDIR = @INSTALLDIR@
+
+# 
+none:	Makefile
+	make all
+
+Makefile: Makefile.in configure
+	./configure
+
+all: $(TARGETS)
+
+install: $(TARGETS)
+	cp $(TARGETS) $(INSTALLDIR)
+ 
+POLYOBJS = \
+  mpoly.o \
+  improve.o \
+  discgc.o \
+  gc.o \
+  diagnostics.o \
+  mmap.o \
+  arb.o \
+  reals.o \
+  timing.o \
+  processes.o \
+  profiling.o \
+  realconv.o \
+  objsize.o \
+  alloc.o \
+  copygc.o \
+  proper_io.o \
+  foreign.o \
+  cwd.o \
+  process_env.o \
+  basicio.o \
+  network.o \
+  unix_specific.o \
+  sighandler.o \
+  run_time.o @OBJS@
+
+
+READPORTOBJS = \
+   readport.o \
+   copygc.o \
+   alloc.o \
+   mmap.o \
+   proper_io.o \
+   diagnostics.o
+
+
+poly:	$(POLYOBJS) version.o
+	$(LD) $(POLYOBJS) version.o $(XLFLAGS) -o poly
+
+readport: $(READPORTOBJS)
+	$(LD) $(READPORTOBJS) -o readport
+
+tidy:
+	rm -f *.o
+
+clean: tidy
+	rm -f $(TARGETS)
+
+# Special rule for i386 assembly code.
+i386_assembly.o: i386.asm
+	sed -f masm2gas < i386.asm > i386.S
+	$(CC) $(AFLAGS) -c i386.S -o i386_assembly.o
+	rm -f i386.S
+
+# Special rule for Power PC.  This is needed because of pecularities with MAC OS X.
+power_assembly.o: power_assembly.S
+	$(CPP) $(ASFLAGS) -DGCC $< | tr ';' '\012' > powtemp.s
+	$(AS) -o $@ -c powtemp.s
+	rm -f powtemp.s
+
+xwindows.o: xwindows.c
+	$(CC) $(CFLAGS) -c xwindows.c -o xwindows.o
+
+# Make sure the version is updated whenever anything is recompiled.
+version.o: $(POLYOBJS) $(DISCGARBOBJS)
+	$(CC) $(CFLAGS) -c version.c -o version.o
+
+#
+depend:
+	makedepend -L $(CFLAGS) *.c *.s
+
+# DO NOT DELETE THIS LINE -- make depend depends on it.
+

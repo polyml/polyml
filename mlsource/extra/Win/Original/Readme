@@ -1,0 +1,12 @@
+This directory contains the code for Panos's Windows interface.
+SPF 11/3/96
+
+I've modified it to allow it, more or less, to compile on the
+present version of Poly/ML (4.0 beta1).  It needs more work to
+get it to run though.  It seems to use some additional functions
+in the run-time system (RTS) which aren't provided and I can't
+find any source for them.  It might be possible to reconstruct them.
+N.B. The RTS contains code to process window messages since that
+is needed to handle DDE.  It may be that this is sufficient to
+handle all the cases.
+DCJM 17/10/00.

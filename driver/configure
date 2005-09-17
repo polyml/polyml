@@ -1,0 +1,140 @@
+#!/bin/sh
+# Poly/ML configuration script.  Generates a Makefile from Makefile.in
+# using appropriate configuration information.
+#
+# Defaults
+OPTFLAGS="-g -O2 -Wall"
+CCOMP="gcc -DGCC"
+AS="gcc"
+CPP="gcc -E"
+LD="gcc"
+IFLAGS=""
+INCLUDES=""
+LIBS=""
+OBJS=""
+INSTALLDIR="/usr/bin"
+DEFAULT_POLYPATH=.:/usr/lib/poly:/usr/local/lib/poly
+
+# Basic operating system.  Use this to find the other parameters.
+OS=`uname`
+case $OS in
+	SunOS)	echo "SunOS operating system"
+		ARCH=`uname -p`
+		OS=sunos
+		OSFLAGS="-DSOLARIS -DSOLARIS2 -DBIGHEAP"
+		LIBS="-lm -ldl"
+		DEFAULT_POLYPATH=.:/opt/sfw/lib/poly
+		INSTALLDIR="/opt/sfw/bin"
+	;;
+	
+	Linux)  echo "Linux operating system"
+		ARCH=`uname -m`
+		OS=linux
+		OSFLAGS=-DLINUX
+		LIBS="-lm -ldl"
+	;;
+	
+	FreeBSD) echo "FreeBSD operating system"
+		ARCH=`uname -m`
+		OS=freebsd
+		OSFLAGS=-DFREEBSD
+		LIBS="-lm"
+	;;
+
+	Darwin) echo "Mac OS X operating system"
+		ARCH=`uname -m`
+		OS=freebsd
+		OSFLAGS="-DMACOSX"
+		AS="cc -x assembler-with-cpp"
+		LD="cc"
+		CPP="cc -E"
+		CCOMP="cc -DGCC"
+		VERSION=`uname -r`
+		OBJS=$OBJS" dlfcn_simple.o"
+#		Mac OS X 10.1 and earlier used diferent parameters when calling exception handlers.
+		if [ ${VERSION%.*} -lt 6 ]
+		then OSFLAGS="${OSFLAGS} -DMACOSXPRE102"
+		fi
+	;;
+
+	OpenBSD) echo "OpenBSD operating system"
+		ARCH=`uname -m`
+		OS=freebsd
+		OSFLAGS="-DFREEBSD"
+		LIBS="-lm"
+	;;
+	
+	*) echo "Unknown operating system" $OS
+		ARCH=`uname -m`
+	;;
+esac
+	
+# Architecture
+case $ARCH in
+	sparc)	echo "Building for Sparc architecture"
+		OBJS=$OBJS" sparc_assembly.o sparc_dep.o"
+		ARCHFLAG=SPARC;; 
+	
+	i?86)	echo "Building for Intel architecture"
+		OBJS=$OBJS" i386_assembly.o i386_dep.o"
+		ARCHFLAG=i386;;
+
+	Power* | ppc)	echo "Building for Power architecture"
+		OBJS=$OBJS" power_assembly.o power_dep.o"
+		ARCHFLAG=POWER2;;
+	
+	*)	echo "Poly/ML is not available for this architecture - " $ARCH
+		echo "Building interpreted version"
+		OBJS=$OBJS" interpret.o"
+		ARCHFLAG=INTERPRETED;;
+esac
+
+# Should we include X-windows/Motif support?
+# Assume, for the moment, that if we have Motif we have the rest of X-Windows.
+# This looks for the presence of Xm.h as well as the libraries.  We may only have
+# the client libraries installed.
+if [ -f /usr/dt/include/Xm/Xm.h -o -f /usr/X11R6/include/Xm/Xm.h -o -f /usr/include/Xm/Xm.h ]
+then
+if [ -f /usr/dt/lib/libXm.so -o -f /usr/dt/lib/libXm.a ] ;
+then
+	echo "Including support for X-Windows/Motif"
+	OBJS=$OBJS" xwindows.o"
+	LIBS=$LIBS" -L/usr/dt/lib -L/usr/openwin/lib -lXm -lXt -lX11 -lsocket -lgen -lnsl -lintl -Wl,-R\"/usr/dt/lib:/usr/openwin/lib\""
+	INCLUDES=$INCLUDES" -I/usr/dt/include"
+
+elif [ -f /usr/X11R6/lib/libXm.so -o -f /usr/X11R6/lib/libXm.a ] ;
+then
+	echo "Including support for X-Windows/Motif"
+	OBJS=$OBJS" xwindows.o"
+	LIBS=$LIBS" -L/usr/X11R6/lib -lXm -lXt -lXp -lXext -lX11"
+	INCLUDES=$INCLUDES" -I/usr/X11R6/include"
+elif [ -f /usr/lib/libXm.so -o -f /usr/lib/libXm.a ] ;
+then
+	echo "Including support for X-Windows/Motif"
+	OBJS=$OBJS" xwindows.o"
+	LIBS=$LIBS" -lXm -lXt -lXp -lXext -lX11"
+else
+	OBJS=$OBJS" noxwindows.o"
+	echo "Excluding support for X-Windows/Motif"
+fi
+else
+	OBJS=$OBJS" noxwindows.o"
+	echo "Excluding support for X-Windows/Motif"
+fi
+
+cat <<EOF > config.build
+s,@OBJS@,$OBJS,g
+s,@OS@,$OS,g
+s,@ARCHFLAG@,$ARCHFLAG,g
+s,@CC@,$CCOMP,g
+s,@OSFLAGS@,$OSFLAGS,g
+s,@OPTFLAGS@,$OPTFLAGS,g
+s,@AS@,$AS,g
+s,@LD@,$LD,g
+s,@INCLUDES@,$INCLUDES,g
+s#@LIBS@#$LIBS#g
+s,@CPP@,$CPP,g
+s,@INSTALLDIR@,$INSTALLDIR,g
+s,@DEFAULT_POLYPATH@,$DEFAULT_POLYPATH,g
+EOF
+sed -f config.build < Makefile.in > Makefile
