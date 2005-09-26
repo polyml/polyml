@@ -136,12 +136,14 @@ struct
 	
 	(* The maximum array size is limited by the size of the length field. On a
 	   32 bit machine we have 24 bits of length field and 8 bits of flags so
-	   the maximum value is 2^24 - 1, less 1 for the length word. *)
+	   the maximum value is 2^24 - 1, less 1 for word that contains the array length.
+	   This means that the maximum size of an array is one less than the maximum size
+	   of a vector.  This could cause problems. *)
 	local
 		val doCall: int*unit -> int
 				 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
 	in
-		val maxLen = doCall(100, ())
+		val maxLen = doCall(100, ()) - 1
 	end;
 	
 	fun op sub (vec: 'a array as Array v, i: int): 'a =
