@@ -918,7 +918,7 @@ void MD_trap_handler1(void)
         fflush(stdout);
 #endif
 
-		assert (len < (1<<24)); /* max object size is 2^24 words */
+		assert (len <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
 	    
 	    if (store_profiling)
 	       add_count(IC, SP, len);
