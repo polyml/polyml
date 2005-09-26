@@ -208,7 +208,7 @@ struct
      Returns the string split at the last ".". The first part is empty
      if there are no dots in it. *)
    let
-   	  val (first, second) = Substring.splitr(fn c => c <> #".") (Substring.all s)
+   	  val (first, second) = Substring.splitr(fn c => c <> #".") (Substring.full s)
    in
    	  if Substring.isEmpty first
 	  then {first  = "", second = s}

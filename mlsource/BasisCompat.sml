@@ -33,3 +33,9 @@ structure TextIO =
 	open TextIO
 	fun inputLine f = case TextIO.inputLine f of "" => NONE | s => SOME s
 	end;
+
+structure Substring =
+	struct
+	open Substring
+	val full = all
+	end;
