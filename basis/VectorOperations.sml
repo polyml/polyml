@@ -103,13 +103,13 @@ struct
 		end
 		
 		fun foldri f init vec =
-		let	
+		let
 			val len = length vec
 			fun dofold j acc = 
-				if j < 0w0 then acc
-				else dofold (j-0w1) (f (wordAsInt j, unsafeSub(vec, j), acc))
+				if j = 0w0 then acc
+				else dofold (j-0w1) (f (wordAsInt(j-0w1), unsafeSub(vec, j-0w1), acc))
 		in
-			dofold (len-0w1) init
+			dofold len init
 		end
 		
 		(* Apply a function to each element in turn and update the array with the
