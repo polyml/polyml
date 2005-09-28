@@ -125,6 +125,7 @@ struct
 		(* Find out the error which will be generated if a stream in
 		   non-blocking mode would block. *)
 		val eAgain = OS.syserror "EAGAIN" and eWouldBlock = OS.syserror "EWOULDBLOCK"
+		and eInProgress = OS.syserror "EINPROGRESS"
 	in
 		(* If evaluating the function raises EAGAIN or EWOULDBLOCK we return NONE
 		   otherwise if it succeeds return SOME result.  Pass other exceptions back
@@ -133,6 +134,7 @@ struct
 			SOME(f arg) handle exn as OS.SysErr(_, SOME e) =>
 				if (case eAgain of SOME again => e = again | NONE => false) then NONE
 				else if (case eWouldBlock of SOME wouldBlock => e = wouldBlock | NONE => false) then NONE
+				else if (case eInProgress of SOME inProgress => e = inProgress | NONE => false) then NONE
 				else raise exn
 	end
 
