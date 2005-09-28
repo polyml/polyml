@@ -3,7 +3,9 @@
 # using appropriate configuration information.
 #
 # Defaults
-OPTFLAGS="-g -O2 -Wall"
+# Optimisation seems to give problems at least on Linux.
+#OPTFLAGS="-g -O2 -Wall"
+OPTFLAGS="-g -Wall -fno-strict-aliasing"
 CCOMP="gcc -DGCC"
 AS="gcc"
 CPP="gcc -E"
