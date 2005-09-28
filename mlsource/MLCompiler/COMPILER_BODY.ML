@@ -179,6 +179,9 @@ sig
   type signatures
 
   val pass2Structs: structs list * lexan * env -> unit
+  val checkForFreeTypeVars:
+  	((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
+		((string*functors->unit)->unit) * lexan -> unit
   val pass4Structs:  
     codetree * structs list *
      {
@@ -577,6 +580,18 @@ struct
       (* If no errors then do second pass to match identifiers
          and declarations and return type of expression. *)
       val UUU:unit = STRUCTURES.pass2Structs (parseTree, lex, localEnv);
+
+	  (* We need to check that no top-level value has a free type
+	     variable in its type.  We can only do that once unification
+		 is complete because one declaration may "freeze" the type of
+		 another within a single "topdec".
+		 Don't do this check if we've already reported an error.
+		 Mistyped top-level functions are given type ('a) which then
+		 would be reported as an error here. *)
+	  val U: unit =
+	  	if errorOccurred lex then ()
+	  	else STRUCTURES.checkForFreeTypeVars(#apply newValEnv, #apply newStrEnv,
+							 #apply newFuncEnv, lex);
  
       val pass2Time = cpuTime startTime;
  

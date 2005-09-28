@@ -669,6 +669,10 @@ sig
 
   val pass2Structs:   structs list * lexan * env -> unit;
 
+  val checkForFreeTypeVars:
+  	((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
+		((string*functors->unit)->unit) * lexan -> unit
+
   val pass4Structs:
     codetree * structs list *
      {
@@ -3344,77 +3348,45 @@ struct
     in        
       forall pass2Dec strs (* Process all the top level entries. *)
     end (* pass2Struct *);
-	
-	  (* When we have done all the unification we can we need to check all
-	     the values for free type variables.  The arguments to this function
-		 are functions which yield all the values, structures and functors
-		 in the top-level environment. *)
-	  fun checkForFreeTypeVars(applyVal, applyStruct, applyFunc, lex : lexan) =
-	  let
-			(* Check the type of a value. *)
-			fun checkValue(name: string, v: values) =
-				checkForFreeTypeVariables(name, valTypeOf v, lex)
-	
-			(* Find all the values in the structure. *)
-			fun checkStruct(name: string, s: signatures) =
-			let
-				fun checkEntry(dName: string, dVal: universal, ()) =
-					if tagIs structVar dVal
-					then checkStruct(name ^ dName ^ ".",
-							structSignat((tagProject structVar) dVal))
-					else if tagIs valueVar dVal
-					then checkValue(name ^ dName, (tagProject valueVar) dVal)
-					else ()
-			in
-				univFold(sigTab s, checkEntry, ())
-			end
-	  in
-			applyVal(fn (s: string, v: values) => checkValue(s, v));
-			applyStruct(
-				fn (n: string, s: structVals) =>
-					checkStruct(n^".", structSignat s));
-			(* Look at the result signature of the functor. *)
-			applyFunc(
-				fn (n: string, f: functors) => checkStruct(n^"().", functorResult f))
-	  end;
 		 
   in (* Structures and types at the top level are free identifiers. *)
-    List.app (
-		fn s =>
-			let
-				val checkValEnv   = UTILITIES.searchList();
-				val checkStrEnv   = UTILITIES.searchList();
-				val checkFuncEnv  = UTILITIES.searchList();
-				val checkEnv = Env {
-				      lookupVal		= #lookupVal env,
-				      lookupType	= #lookupType env,
-				      lookupFix		= #lookupFix env,
-				      lookupStruct	= #lookupStruct env,
-				      lookupSig		= #lookupSig env,
-				      lookupFunct	= #lookupFunct env,
-				      lookupTvars	= #lookupTvars env,
-				      enterType		= #enterType env,
-				      enterFix		= #enterFix env,
-				      enterSig		= #enterSig env,
-				      enterVal		= fn pair => ( #enter checkValEnv pair; #enterVal env pair),
-				      enterStruct	= fn pair => ( #enter checkStrEnv pair; #enterStruct env pair),
-				      enterFunct	= fn pair => ( #enter checkFuncEnv pair; #enterFunct env pair)
-				}
-			in
-				pass2Struct ([s], (* make free ids *) ref ~1, checkEnv, lineno lex, "");
-				(* We need to check for free type variables at each stage rather than
-				   for the topdec as a whole because otherwise we could get a free
-				   type variable linked in to a functor argument and break the type
-				   system. *)
-				(* This was previously called in COMPILER_BODY and there was a comment
-				   there which said "Don't do this check if we've already reported an error.
-				   Mistyped top-level functions are given type ('a) which then
-				   would be reported as an error here. The call was preceded by
-				   if errorOccurred lex then () else ... Maybe make that change here. *)
-				checkForFreeTypeVars(#apply checkValEnv, #apply checkStrEnv,
-									 #apply checkFuncEnv, lex)
-			end) strs
+    pass2Struct (strs, (* make free ids *) ref ~1, Env env, lineno lex, "")
   end (*pass2Structs *);
+
+  (* When we have done all the unification we can we need to check all
+     the values for free type variables.  The arguments to this function
+	 are functions which yield all the values, structures and functors
+	 in the top-level environment. *)
+  fun checkForFreeTypeVars(applyVal, applyStruct, applyFunc, lex : lexan) =
+  let
+		(* Check the type of a value. *)
+		fun checkValue(name: string, v: values) =
+			checkForFreeTypeVariables(name, valTypeOf v, lex)
+
+		(* Find all the values in the structure. *)
+		fun checkStruct(name: string, s: signatures) =
+		let
+			fun checkEntry(dName: string, dVal: universal, ()) =
+				if tagIs structVar dVal
+				then checkStruct(name ^ dName ^ ".",
+						structSignat((tagProject structVar) dVal))
+				else if tagIs valueVar dVal
+				then checkValue(name ^ dName, (tagProject valueVar) dVal)
+				else ()
+		in
+			univFold(sigTab s, checkEntry, ())
+		end
+  in
+		applyVal(fn (s: string, v: values) => checkValue(s, v));
+		applyStruct(
+			fn (n: string, s: structVals) =>
+				checkStruct(n^".", structSignat s));
+		(* Look at the result signature of the functor. *)
+		applyFunc(
+			fn (n: string, f: functors) => checkStruct(n^"().", functorResult f))
+  end;
+
+
 
   (*							*
    *     Code-generation phase.	*
