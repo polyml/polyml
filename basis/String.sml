@@ -248,7 +248,8 @@ local
 	(* This can be used where we have already checked the range. *)
 	val unsafeSub = LibrarySupport.unsafeStringSub;
 
-	(* String comparison function used in isPrefix and isSuffix. *)
+	(* String comparison function used in isPrefix and isSuffix.
+	   N.B.  The caller must make sure that neither string is a single character. *)
 	fun byteMatch s1 s2 i j l =
 		if l = 0w0 then true
 		else if System_loadb(s1, i + wordSize) = System_loadb(s2, j + wordSize)
@@ -903,7 +904,11 @@ local
 		let
 			val size_s1 = size s1 and size_s2 = size s2
 		in
-			if size_s1 <= size_s2 then byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
+			if size_s1 <= size_s2
+			then if size_s1 = 1 (* We have to deal with the case of single chars. *)
+			then if size_s2 = 1 then s1 = s2
+			else vecAsChar s1 = System_loadb(s2, wordSize)
+			else byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
 			else false
 		end
 
@@ -912,7 +917,11 @@ local
 		let
 			val size_s1 = size s1 and size_s2 = size s2
 		in
-			if size_s1 <= size_s2 then byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
+			if size_s1 <= size_s2
+			then if size_s1 = 1 (* We have to deal with the case of single chars. *)
+			then if size_s2 = 1 then s1 = s2
+			else vecAsChar s1 = System_loadb(s2, wordSize+intAsWord(size_s2-1))
+			else byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
 			else false
 		end
 
@@ -927,7 +936,9 @@ local
 			then true
 			else doMatch (i+0w1) (s-1)
 		in
-			doMatch 0w0 size_s2
+			if size_s1 = 1
+			then Char.contains s2 (vecAsChar s1) 
+			else doMatch 0w0 size_s2
 		end
 		
 		
