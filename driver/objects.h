@@ -243,7 +243,11 @@ typedef struct
   word  p_reg[1];
 } StackObject;
 
-#if defined(i386)
+#if defined(INTERPRETED)
+#define CHECKED_REGS 2
+#define UNCHECKED_REGS 0
+
+#elif defined(i386)
 #define CHECKED_REGS 6
 #define UNCHECKED_REGS 1
 
@@ -259,9 +263,6 @@ typedef struct
 #define CHECKED_REGS 21
 #define UNCHECKED_REGS 2
 
-#elif defined(INTERPRETED)
-#define CHECKED_REGS 2
-#define UNCHECKED_REGS 0
 #endif
 
 #if defined(i386) || (defined(LINUX) && defined(POWER2))
