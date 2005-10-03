@@ -50,6 +50,11 @@
 #include "alloc.h"
 
 
+#if defined(WINDOWS_PC)
+int useConsole = 0;
+HANDLE hMainWindow = 0;
+#endif
+
 void MD_update_code_addresses(word **addr, word **old, int L, void (*op)(word **))
 {
 }
@@ -166,6 +171,38 @@ static void readValue(word *p, int i)
 	}
 }
 
+static struct HeaderStruct memHdr;
+
+/* CopyGC assumes it is copying between databases.  This constructs a header which looks like
+   a database so that we can copy to it and then from it.  */
+static Header OpenMemoryDatabase(Header A)
+{
+	memset(&memHdr, 0, sizeof(memHdr));
+
+	memHdr.page_size = A->page_size;
+	strcpy(memHdr.parent, A->parent);
+	memHdr.gc_space.parent = A->gc_space.parent;
+	memHdr.up = A->up;
+	memHdr.gc_const = A->gc_const;
+
+	memHdr.i_space.top = LOCAL_ITOP;
+	memHdr.i_space.bottom = memHdr.i_space.pointer = LOCAL_ITOP - (A->i_space.top - A->i_space.bottom);
+	memHdr.m_space.top = LOCAL_MTOP;
+	memHdr.m_space.bottom = memHdr.m_space.pointer = LOCAL_MTOP - (A->m_space.top - A->m_space.bottom);
+	memHdr.m_space.bitmap_bytes = BITMAP_BYTES(memHdr.m_space.pointer - memHdr.m_space.bottom);
+	memHdr.i_space.bitmap_bytes = BITMAP_BYTES(memHdr.i_space.pointer - memHdr.i_space.bottom);
+	memHdr.i_space.page_table = malloc(memHdr.i_space.bitmap_bytes);
+	memHdr.m_space.page_table = malloc(memHdr.m_space.bitmap_bytes);
+	memHdr.i_space.max_pages = A->i_space.max_pages;
+	memHdr.m_space.max_pages = A->m_space.max_pages;
+	memHdr.gc_space.h_bottom = memHdr.gc_space.i_bottom = memHdr.i_space.bottom;
+	memHdr.gc_space.i_top = memHdr.i_space.top;
+	memHdr.gc_space.m_bottom = memHdr.m_space.bottom;
+	memHdr.gc_space.m_top = memHdr.m_space.top;
+
+	return &memHdr;
+}
+
 int main(int argc, char **argv)
 {
 	char     extension[] = "~";
@@ -193,7 +230,9 @@ int main(int argc, char **argv)
 
 	CreateMappedDatabase(filename);
 
-	A = OpenMappedDatabase(filename, M_DISCGARB1, 0);
+	/* Do we need these special flags? */
+	B = OpenMappedDatabase(filename,M_WRITABLE | M_DISCGARB2,0);
+    A = OpenMemoryDatabase(B);
 
 	/* First pass. Create the objects. */
 	f = fopen(portname, "r");
@@ -488,13 +527,7 @@ int main(int argc, char **argv)
 	A->gc_space.i_top    = A->i_space.pointer;
 	A->gc_space.m_top    = A->m_space.pointer;
     
-	/* Create the new database, with a temporary name */
-	CreateNewCopyDatabase(tempfilename, A);
-
 	a = &A->gc_const;
-
-	/* Do we need these special flags? */
-	B = OpenMappedDatabase(tempfilename,M_WRITABLE | M_DISCGARB2,0);
 	b = &B->gc_const;
   
 	old = &A->gc_space;
@@ -504,35 +537,11 @@ int main(int argc, char **argv)
   
 	/* Copy the reachable heap from old to new;
      don't bother to restore old afterwards. */
-	total = CopyGC ((OpRootsFunc)CopyRoot, a, b, old->parent, old, &new,
+	total = CopyGC ((OpRootsFunc)CopyRoot, a, b, old->parent ? & old->parent->gc_space : 0, old, &new,
 		  B, NewMutable, NewImmutable, 0);
 
 	/* Close the new database */
 	CommitMappedDatabase(B);
-  
-	/* Rename it */
-	proper_printf("Renaming %s to %s\n",tempfilename, filename);
-#ifdef WINDOWS_PC
-	/* In Windows 95 there doesn't seem to be a way of atomically
-	   replacing an existing file.  rename and MoveFile will only work
-	   if the destination file does not already exist.  MoveFileEx will
-	   do what we want in NT and 98.
-	   We delete the old file first and then do the rename. */
-	/* Must unmap all the mapped pages before trying to delete it
-	   since Windows has an internal handle on the file.  Should
-       probably do this in the Unix versions as well but we'll leave
-       it for the moment.  */
-	UnmapSpace(A,&A->i_space);
-	UnmapSpace(A,&A->m_space);
-	if (unlink(filename))
-	{
-		SysError("Unable to delete %s", filename);
-	}
-#endif
-	if (rename(tempfilename,filename))
-	{
-		SysError("Unable to rename %s to %s", tempfilename, filename);
-	}
 
 	return 0;
 }
