@@ -33,7 +33,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#if defined(FREEBSD) || defined(MACOSX)
+#if defined(LINUX) || defined(FREEBSD) || defined(MACOSX)
 #include <stdlib.h>
 #elif defined(WINDOWS_PC)
 #include <malloc.h>
@@ -49,6 +49,10 @@
 #include "mmap.h"
 #include "alloc.h"
 
+
+void MD_update_code_addresses(word **addr, word **old, int L, void (*op)(word **))
+{
+}
 /* added SPF 26/10/93 */
 #include "gc.h"
 #include "copygc.h"
@@ -73,11 +77,14 @@
 
 /* imports */
 
+
 static Header A = 0;
 static Header B = 0;
 static FILE	*f;
 static int nObjects, nRoot;
 static word	**objMap;
+int be_silent = 0;
+
 
 #ifdef WINDOWS_PC
 void SetResetCC(const int enable) /* OK */
@@ -236,7 +243,7 @@ int main(int argc, char **argv)
 			ch = getc(f);
 			if (ch == 'M') { isMutable = 1; objBits |= OBJ_MUTABLE_BIT; }
 			else if (ch == 'N') objBits |= OBJ_NEGATIVE_BIT;
-			else if (ch == 'L') { isOpt = 1; objBits |= OBJ_FIRST_BIT; }
+			else if (ch == 'L') { isOpt = 1;}
 		} while (ch == 'M' || ch == 'N' || ch == 'L');
 
 		/* Object type. */
@@ -488,7 +495,7 @@ int main(int argc, char **argv)
 
 	/* Do we need these special flags? */
 	B = OpenMappedDatabase(tempfilename,M_WRITABLE | M_DISCGARB2,0);
-	b = &->gc_const;
+	b = &B->gc_const;
   
 	old = &A->gc_space;
 	new = NewDataSpaces(B);

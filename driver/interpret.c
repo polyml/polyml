@@ -29,6 +29,7 @@
 #include "sys.h"
 #include "profiling.h"
 #include "mm.h"
+#include "arb.h"
 #include "processes.h"
 #include "run_time.h"
 #include "mpoly.h"
@@ -59,6 +60,7 @@
 #define newptr     A.M.pointer
 #define locallimit A.M.bottom
 
+int registerMaskVector[1]; /* This is referred to in process_env.c but never actually used in the interpreted version. */
 
 extern StackObject *poly_stack;
 //extern word *end_of_stack;
@@ -114,7 +116,7 @@ void MD_interrupt_code_using_context(ucontext_t *context)
    interrupt_requested = 1;
 }
 
-#elif defined(LINUX)
+#elif ! defined(WINDOWS_PC)
 void MD_increment_profile_count_using_context(struct sigcontext *context)
 {
 }
@@ -124,7 +126,7 @@ void MD_interrupt_code_using_context(struct sigcontext *context)
    interrupt_requested = 1;
 }
 
-#elif defined(WINDOWS_PC)
+#else
 void MD_interrupt_code(void)
 /* Stop the Poly code at a suitable place. */
 /* We may get an asynchronous interrupt at any time. */

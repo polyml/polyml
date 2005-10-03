@@ -1421,7 +1421,7 @@ word le_longc(Handle y, Handle x)
 }
 #endif
 
-#if !defined(SPARC) && !defined(i386)
+#if !defined(SPARC) && !defined(i386) || defined(INTERPRETED)
 
 Handle vec_length_c(Handle vector)    /* Length of a vector */
 {
