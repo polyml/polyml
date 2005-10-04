@@ -1779,7 +1779,7 @@ INLINE_ROUTINE(move_bytes)
 	ld	[%g4],%i3	     ! length
 	add	%i4,%o0,%i4	     ! source address
 	srl	%i3,TAGSHIFT,%i3     ! untagged length
-	cmp	0,%i3
+	cmp	%i3,0
 	be	mvb3
 	add	%i5,%o2,%i5	     ! Use delay slot to calculate destination address
 	cmp	%i5,%i4		     ! carry not set if dest >= source
