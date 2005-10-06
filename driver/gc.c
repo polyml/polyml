@@ -1806,10 +1806,15 @@ static long last_state_usr  = 0;
 #else
 /* Unix */
 /* new version - times represented as ints counting clock ticks */
+/* This should be changed to use getrusage.  DCJM 6/10/05. */
+#if ! (defined(CLOCKS_PER_SEC))
+#define CLOCKS_PER_SEC CLK_TCK
+#endif
+
 static void PrintDelta(const clock_t *new, const clock_t *old, const char letter)
 {
   const long fracs_per_second = 100L;
-  long ticks_per_second  = CLK_TCK;
+  long ticks_per_second  = CLOCKS_PER_SEC;
   long round             = ticks_per_second / 2L;
   
   long delta_ticks = *new - *old;
