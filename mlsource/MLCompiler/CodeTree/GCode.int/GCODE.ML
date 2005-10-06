@@ -103,7 +103,16 @@ sig
        
    (* genRecRef - Recursive reference to a procedure. *)
    val genRecRef: code * code -> unit
-      
+
+   (* Create a container on the stack *)
+   val genContainer : int * code -> unit;
+
+   (* Copy a tuple into a container. *)
+   val genSetContainer : int * code -> unit;
+ 
+   (* Create a tuple from a container. *)
+   val genTupleFromContainer : int * code -> unit;
+     
    (* copyCode - Finish up after compiling a procedure. *)
    val copyCode : code -> address;
    
@@ -235,6 +244,7 @@ sig
   datatype inlineStatus =
     NonInline
   | MaybeInline
+  | SmallFunction
   | OnlyInline
   ;
 
@@ -305,8 +315,11 @@ sig
        max     : int
       }
    
-   | While of (* A while-loop *) 
-      'a codetree * 'a codetree
+   | BeginLoop of (* Start of tail-recursive inline function. *)
+       'a codetree * 'a codetree list
+
+   | Loop of (* Jump back to start of tail-recursive function. *)
+       'a codetree list
       
    | Raise of (* Raise an exception *)
        'a codetree
@@ -323,11 +336,17 @@ sig
    | Recconstr of (* Records (tuples) *)
        'a codetree list
 
-   | COr of  (* Conditional "or" (orelse) *)
-       'a codetree * 'a codetree
-       
-   | CAnd of (* Conditional "and" (andalso) *)
-       'a codetree * 'a codetree
+   | Container of int (* Create a container for a tuple on the stack. *)
+
+   | SetContainer of (* Copy a tuple to a container. *)
+   	  {
+       container: 'a codetree,
+	   tuple:     'a codetree,
+	   size:      int
+	  }
+
+   | TupleFromContainer of (* Make a tuple from the contents of a container. *)
+	   'a codetree * int
 
    | Global of 'a (* Global value *)
    | CodeNil
@@ -383,6 +402,7 @@ struct
   datatype inlineStatus =
     NonInline
   | MaybeInline
+  | SmallFunction
   | OnlyInline
   ;
   
@@ -443,7 +463,7 @@ struct
        
    | Cond of (* If-statement *)
        'a codetree * 'a codetree * 'a codetree
-   
+
    | Case of (* Case expressions *)
       {
        cases   : ('a codetree * int list) list,
@@ -452,9 +472,12 @@ struct
        min     : int,
        max     : int
       }
-   
-   | While of (* A while-loop *) 
-      'a codetree * 'a codetree
+
+   | BeginLoop of (* Start of tail-recursive inline function. *)
+       'a codetree * 'a codetree list
+
+   | Loop of (* Jump back to start of tail-recursive function. *)
+       'a codetree list
       
    | Raise of (* Raise an exception *)
        'a codetree
@@ -471,11 +494,17 @@ struct
    | Recconstr of (* Records (tuples) *)
        'a codetree list
 
-   | COr of  (* Conditional "or" (orelse) *)
-       'a codetree * 'a codetree
-       
-   | CAnd of (* Conditional "and" (andalso) *)
-       'a codetree * 'a codetree
+   | Container of int (* Create a container for a tuple on the stack. *)
+
+   | SetContainer of (* Copy a tuple to a container. *)
+   	  {
+       container: 'a codetree,
+	   tuple:     'a codetree,
+	   size:      int
+	  }
+
+   | TupleFromContainer of (* Make a tuple from the contents of a container. *)
+	   'a codetree * int
 
    | Global of 'a (* Global value *)
    | CodeNil
@@ -670,6 +699,7 @@ struct
         case isInline of
           NonInline   => ""
         | MaybeInline => "INLINE"
+		| SmallFunction => "SMALL"
         | OnlyInline  => "ONLYINLINE"
     in
       ppBeginBlock pprint (1, true);
@@ -696,9 +726,22 @@ struct
       
     | Newenv ptl =>
         printList "BLOCK" ptl ";"
-      
-    | While pair =>
-        printDiad "WHILE" pair
+
+	| BeginLoop(loopExp, args) =>
+	    (
+	      ppBeginBlock pprint (3, false);
+	      printList "BEGINLOOP" args ",";
+	      ppBreak pprint (0, 0);
+      	  ppAddString pprint "(";
+	      ppBreak pprint (0, 0);
+	      pretty (loopExp, prettyOptVal, pprint);
+	      ppBreak pprint (0, 0);
+      	  ppAddString pprint ")";
+	      ppEndBlock pprint ()
+	    )
+
+    | Loop ptl =>
+        printList "LOOP" ptl ","
       
     | Raise c =>
        printMonad "RAISE" c
@@ -769,12 +812,34 @@ struct
       
     | Recconstr ptl =>
         printList "RECCONSTR" ptl ","
+
+    | Container size =>
+      ppAddString pprint ("CONTAINER " ^ Int.toString size)
     
-    | CAnd pair =>
-        printDiad "CAND" pair
-      
-    | COr pair =>
-        printDiad "COR" pair
+    | SetContainer{container, tuple, size} =>
+	    (
+	      ppBeginBlock pprint (3, false);
+	      ppAddString pprint ("SETCONTAINER(" ^ Int.toString size ^ ", ");
+	      pretty (container, prettyOptVal, pprint);
+	      ppBreak pprint (0, 0);
+      	  ppAddString pprint ",";
+	      ppBreak pprint (1, 0);
+	      pretty (tuple, prettyOptVal, pprint);
+	      ppBreak pprint (0, 0);
+      	  ppAddString pprint ")";
+	      ppEndBlock pprint ()
+	    )
+
+    | TupleFromContainer (container, size) =>
+	  (
+	      ppBeginBlock pprint (3, false);
+	      ppAddString pprint ("TUPLECONTAINER(" ^ Int.toString size ^ ", ");
+	      ppBreak pprint (0, 0);
+	      pretty (container, prettyOptVal, pprint);
+	      ppBreak pprint (0, 0);
+	      ppAddString pprint ")";
+	      ppEndBlock pprint ()
+	  )
       
     | Global glob =>
     (
@@ -811,23 +876,28 @@ struct
       | Eval {function,argList,...}     => size function + sizeList argList + 2
       | MutualDecs _                    => !maxInlineSize (* no inlining *)
       | Cond (i,t,e)                    => size i + size t + size e + 2
-      | CAnd (i,t)                      => size i + size t + 1
-      | COr (i,e)                       => size i + size e + 1
-      | While (b,e)                     => size b + size e + 2
+      | BeginLoop (b, args)             => size b + sizeList args
+      | Loop args                       => sizeList args + 1
       | Raise c                         => size c + 1
       | Ldexc                           => 1
       | Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
       | Recconstr cl                    => sizeList cl + 2 (* optimistic *)
+	  | Container size                  => 1 (* optimistic *)
+	  | SetContainer{container, tuple = Recconstr cl, ...} =>
+	  									(* We can optimise this. *) sizeList cl + size container
+	  | SetContainer{container, tuple, size=len} => size container + size tuple + len
+	  | TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
       | Global glob                     => sizeOptVal (glob, size)
       | Case {test,default,cases,...}   =>
 	  size test + size default + sizeCaseList cases
       ;
    in
-     case pt of 
-        Lambda _             => true
-      | Declar {value, ...}  => isSmall (value, sizeOptVal)
-      | Newenv [c]           => isSmall (c, sizeOptVal)
-      | _                    => size pt < !maxInlineSize
+   	 (* We previously treated functions which only contained Lambdas as always small.
+	    I've now taken that out because it caused the code to blow up if the Lambda
+		turned out to be a large function (e.g. fun f x = fn y => ...BIGCODE...).
+		There may be a case for lifting the inner lambda out much as we already do
+		with fun declarations but this needs to be done in the front end.  DCJM 14/3/02.  *)
+     size pt < !maxInlineSize
    end;
 
   open RuntimeCalls; (* for POLY_SYS numbers *)
@@ -1088,7 +1158,7 @@ struct
    end; (* locaddr *)
 
    (* generates code from the tree *)
-   fun gencde (pt : 'a codetree, whereto : whereto, tailKind : tail, matchFailFn : unit -> unit) : unit =
+   fun gencde (pt : 'a codetree, whereto : whereto, tailKind : tail, matchFailFn : unit -> unit, loopAddr) : unit =
    let
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
@@ -1124,7 +1194,7 @@ struct
 	   end;
 	   
 	   val U : unit = 
-	      gencde (exp1, whereto, tailKind, newMatchFailFn);
+	      gencde (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
 	     
 	   (* Get rid of the result from the stack.
 	      If there is a result then exp2 will push it. *)
@@ -1144,7 +1214,7 @@ struct
 	   val U : unit = apply (fn (lab : labels) => fixup (lab, cvec)) (!failLabs);
 	   
 	   (* Compile exp2 using the OLD matchFailFn *)
-	   val U : unit = gencde (exp2, whereto, tailKind, matchFailFn);
+	   val U : unit = gencde (exp2, whereto, tailKind, matchFailFn, loopAddr);
 
 	   (* If exp1 succeeded, we merge back in here. *)
 	   val U : unit = fixup (suceedLab, cvec);
@@ -1170,7 +1240,7 @@ struct
 	      
 	    | _ => (* Other declaration - to the stack. *)
 	      let
-		val U : unit = gencde (value, ToStack, NotEnd, matchFailFn);
+		val U : unit = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
 	      in
 		STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
 	      end
@@ -1188,7 +1258,7 @@ struct
        
        | Indirect {base, offset} =>
          let
-           val U : unit = gencde (base, ToStack, NotEnd, matchFailFn);
+           val U : unit = gencde (base, ToStack, NotEnd, matchFailFn, loopAddr);
          in
            genIndirect (offset, cvec)
          end
@@ -1204,7 +1274,7 @@ struct
          end
   
        | Cond (testPart, thenPart, elsePart) =>
-           genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn)
+           genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
   
        | Newenv vl =>
          let
@@ -1222,42 +1292,79 @@ struct
               val U : unit =
                 case valu of
                   MutualDecs dl => genMutualDecs (dl, matchFailFn)
-                | Declar _ => gencde (valu, ToStack, NotEnd, matchFailFn)
+                | Declar _ => gencde (valu, ToStack, NotEnd, matchFailFn, loopAddr)
                 | _ =>
                 (* If this is the last one it is the result of the block
                    so it is generated to the stack if the block needs a
                    result. *)
                    case valus of
-                     [] => gencde (valu, whereto, tailKind, matchFailFn)
-                   | _  => gencde (valu, NoResult, NotEnd, matchFailFn)
+                     [] => gencde (valu, whereto, tailKind, matchFailFn, loopAddr)
+                   | _  => gencde (valu, NoResult, NotEnd, matchFailFn, loopAddr)
             in (* process the tail *)
               codeList valus
             end
           in
             codeList vl
           end
-  
-       | While (test, body) =>
-         let
-           val startLoop : addrs = ic cvec; (* Start of loop *)
-  
-           (* loop condition *)
-           val U : unit = gencde (test, ToStack, NotEnd, matchFailFn);
-           val exitLoop : labels = putBranchInstruction (jumpFalse, cvec);
-           val U : unit = decsp ();
-  
-           (* loop body *)
-           val U : unit = gencde (body, NoResult, NotEnd, matchFailFn);
-           
-           (* Repeat. *)
-           val U : unit = jumpback (startLoop, cvec);
-         in
-           fixup (exitLoop, cvec)
-         end
+		  
+		 | BeginLoop (body, args) =>
+		    (* Execute the body which will contain at least one Loop instruction.
+		  	   There will also be path(s) which don't contain Loops and these
+			   will drop through. *)
+		 	let
+		 		(* Evaluate each of the arguments, pushing the result onto the stack. *)
+				fun genLoopArg (Declar {addr, value, ...}) =
+					(
+					 gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
+					 STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
+					 !realstackptr (* Return the posn on the stack. *)
+					)
+				|	genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
+				val argIndexList = map genLoopArg args;
+
+				val startSp = ! realstackptr; (* Remember the current top of stack. *)
+				val startLoop : addrs = ic cvec; (* Start of loop *)
+			in
+				(* Process the body, passing the jump-back address down for the Loop instruction(s). *)
+				gencde (body, whereto, tailKind, matchFailFn, SOME(startLoop, startSp, argIndexList))
+				(* Leave the arguments on the stack.  They can be cleared later if needed. *)
+			end
+
+		 | Loop argList => (* Jump back to the enclosing BeginLoop. *)
+		 	let
+				val (startLoop, startSp, argIndexList) =
+					case loopAddr of
+						SOME l => l
+					|	NONE => raise InternalError "No BeginLoop for Loop instr"
+				(* Evaluate the arguments.  First push them to the stack because evaluating
+				   an argument may depend on the current value of others.  Only when we've
+				   evaluated all of them can we overwrite the original argument positions. *)
+				fun loadArgs ([], []) = !realstackptr - startSp (* The offset of all the args. *)
+				  | loadArgs (arg:: argList, argOffset :: argIndexList) =
+				  	let
+						(* Evaluate all the arguments. *)
+						val U: unit = gencde (arg, ToStack, NotEnd, matchFailFn, NONE);
+						val argOffset = loadArgs(argList, argIndexList);
+					in
+						genSetStackVal(argOffset, cvec); (* Copy the arg over. *)
+						decsp(); (* The argument has now been popped. *)
+						argOffset
+					end
+				  | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
+
+				val U: int = loadArgs(argList, argIndexList)
+			in
+				if !realstackptr <> startSp
+				then resetStack (!realstackptr - startSp, false, cvec) (* Remove any local variables. *)
+				else ();
+		    
+				(* Jump back to the start of the loop. *)
+				jumpback (startLoop, cvec)
+			end
   
        | Raise exp =>
          let
-           val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn);
+           val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
            val U : unit = genRaiseEx cvec;
          in
            exited := true
@@ -1278,7 +1385,7 @@ struct
              val U : unit = incsp ();
  
 	     (* Push the exception to be caught. *)
-	     val U : unit = gencde (tag, ToStack, NotEnd, matchFailFn)
+	     val U : unit = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
 	   in
 	     handlerLab
 	   end;
@@ -1295,7 +1402,7 @@ struct
 	  (* Code generate the body; "NotEnd" because we have to come back
 	     to remove the handler; "ToStack" because delHandler needs
 	     a result to carry down. *)
-	  val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn);
+	  val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
 	  
           (* Now get out of the handler and restore the old one. *)
           val skipHandler : labels = putBranchInstruction (delHandler, cvec);
@@ -1320,7 +1427,7 @@ struct
           val U : unit = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
 	  (* If we were executing machine code we must re-enter the interpreter. *)
           val U : unit = genEnterIntCatch cvec;
-          val U : unit = gencde (handler, ToStack, NotEnd, matchFailFn);
+          val U : unit = gencde (handler, ToStack, NotEnd, matchFailFn, loopAddr);
           
           (* Finally fix-up the jump around the handler *)
           val U : unit = fixup (skipHandler, cvec);
@@ -1341,8 +1448,8 @@ struct
            val numberOfCases = List.length cases;
          in
            if 3 * numberOfCases < max - min + 5
-           then genSparseCase(cas, whereto, tailKind, matchFailFn)
-           else genDenseCase (cas, whereto, tailKind, matchFailFn)
+           then genSparseCase(cas, whereto, tailKind, matchFailFn, loopAddr)
+           else genDenseCase (cas, whereto, tailKind, matchFailFn, loopAddr)
          end
   
        | Recconstr recList =>
@@ -1351,7 +1458,7 @@ struct
            fun loadItems [] = ()
              | loadItems (v :: vs) =
              let
-               val U : unit = gencde (v, ToStack, NotEnd, matchFailFn);
+               val U : unit = gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
              in
                loadItems vs
              end;
@@ -1363,13 +1470,62 @@ struct
          in
            realstackptr := !realstackptr - (size - 1)
          end
-  
-        | CAnd (exp1, exp2) =>
-            genCond (exp1, exp2, constntFalse, whereto, tailKind, matchFailFn)
-  
-        | COr  (exp1, exp2) =>
-            genCond (exp1, constntTrue, exp2, whereto, tailKind, matchFailFn)
-  
+
+			(* Containers are supposed to be implemented on the stack for efficiency.
+			   Unfortunately they cause problems in this code because we assume
+			   that if we generate a value to the stack it only occupies a single
+			   word.  Rather than change this code and risk breaking something I'm
+			   simply generating them as mutable tuples on the heap. *)
+	    | Container size =>
+			(* Reserve a number of words on the stack for use as a tuple on the
+			   stack.  The result is the address of this space. *)
+			(
+			genContainer(size, cvec); (* Push the address of this container. *)
+			incsp() (* Pushes a single word. *)
+			)
+
+		| SetContainer{container, tuple, size} =>
+			(* Copy the contents of a tuple into a container.  If the tuple is a
+			   Recconstr instruction we can avoid generating the tuple and then
+			   unpacking it and simply copy the fields that make up the tuple
+			   directly into the container. *)
+			(
+				(* Load the address of the container. *)
+				gencde (container, ToStack, NotEnd, matchFailFn, loopAddr);
+			
+				case tuple of
+					Recconstr cl =>
+						(* Simply set the container from the values. *)
+					let
+						fun setValue(v, offset) =
+						(
+							gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
+							(* Move the entry into the container. This instruction
+							   pops the value to be moved but not the destination. *)
+							genMoveToVec(offset, cvec);
+							decsp();
+							offset + 1
+						)
+					in
+						List.foldl setValue 0 cl;
+						() (* The container address is still on the stack. *)
+					end
+
+				|	_ =>
+					( (* General case. *)
+						gencde (tuple, ToStack, NotEnd, matchFailFn, loopAddr);
+						genSetContainer(size, cvec);
+						decsp(); decsp()
+					)
+
+			)
+
+		| TupleFromContainer(container, size) =>
+			(* Create a tuple from the contents of a container. *)
+			(
+			    gencde(container, ToStack, NotEnd, matchFailFn, loopAddr)
+			)
+   
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
   
@@ -1501,7 +1657,7 @@ struct
              | loadItems (v :: vs, addr : int) =
              let
                (* Generate an item and move it into the vector *)
-               val U : unit = gencde (v, ToStack, NotEnd, matchFailed);
+               val U : unit = gencde (v, ToStack, NotEnd, matchFailed, NONE);
                val U : unit = genMoveToVec(addr, cvec);
                val U : unit = decsp ();
              in
@@ -1523,7 +1679,7 @@ struct
            val U : unit = incsp ();
            
            val U : unit =
-             apply (fn (pt: 'a codetree) => gencde (pt, ToStack, NotEnd, matchFailFn)) (#closure lam);
+             apply (fn (pt: 'a codetree) => gencde (pt, ToStack, NotEnd, matchFailFn, NONE)) (#closure lam);
                 
            val U : unit = genTuple (sizeOfClosure, cvec);
          in
@@ -1580,9 +1736,10 @@ struct
                 third: 'a codetree,
                 whereto: whereto,
                 tailKind: tail,
-                matchFailFn : unit -> unit) : unit =
+                matchFailFn : unit -> unit,
+				loopAddr) : unit =
    let
-     val U : unit = gencde (first, ToStack, NotEnd, matchFailFn);
+     val U : unit = gencde (first, ToStack, NotEnd, matchFailFn, loopAddr);
      val toElse : labels = putBranchInstruction(jumpFalse, cvec);
      val U : unit = decsp();
    in
@@ -1594,7 +1751,7 @@ struct
            value to get the stack level right we generate it with ``noresult''
            and the stack resetting mechanism will ensure that a result is
            pushed if it is needed. *)
-         val U : unit = gencde (second, NoResult, tailKind, matchFailFn);
+         val U : unit = gencde (second, NoResult, tailKind, matchFailFn, loopAddr);
          val U : unit = fixup (toElse, cvec) (* Skipped the then-part. *)
        in
          exited := false (* If the test failed we won't have exited. *)
@@ -1602,7 +1759,7 @@ struct
        
      | _ =>
        let
-	 val U : unit = gencde (second, whereto, tailKind, matchFailFn);
+	 val U : unit = gencde (second, whereto, tailKind, matchFailFn, loopAddr);
 	 (* Get rid of the result from the stack. If there is a result then the
 	    ``else-part'' will push it. *)
 	 val U : unit = case whereto of ToStack => decsp () | NoResult => ();
@@ -1616,7 +1773,7 @@ struct
 	 (* start of "else part" *)
 	 val U : unit = fixup (toElse, cvec);
 	 val U : unit = exited := false;
-	 val U : unit = gencde (third, whereto, tailKind, matchFailFn);
+	 val U : unit = gencde (third, whereto, tailKind, matchFailFn, loopAddr);
  
 	 val elseExited : bool= !exited;
 	 
@@ -1635,7 +1792,7 @@ struct
      fun loadArgs [] = ()
        | loadArgs (v :: vs) =
        let (* Push each expression onto the stack. *)
-         val U : unit = gencde(v, ToStack, NotEnd, matchFailFn);
+         val U : unit = gencde(v, ToStack, NotEnd, matchFailFn, NONE);
        in
          loadArgs vs
        end;
@@ -1740,7 +1897,7 @@ struct
 		(* Can load the args first. *)
 		val U : unit = loadArgs argList;
 	      in 
-		gencde (#function eval, ToStack, NotEnd, matchFailFn)
+		gencde (#function eval, ToStack, NotEnd, matchFailFn, NONE)
 	      end
 	      
 	      else let
@@ -1748,7 +1905,7 @@ struct
 		   risk leaving. It might have a side-effect and we must
 		   ensure that any side-effects it has are done before the
 		   arguments are loaded. *)
-		val U : unit = gencde(#function eval, ToStack, NotEnd, matchFailFn);
+		val U : unit = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
 		val U : unit = loadArgs(argList);
 		(* Load the procedure again. *)
 		val U : unit = genLocal(argsToPass, cvec);
@@ -1773,14 +1930,15 @@ struct
         (pt: 'a caseForm,
          whereto: whereto,
          tailKind: tail,
-         matchFailFn : unit -> unit) : unit =
+         matchFailFn : unit -> unit,
+		 loopAddr) : unit =
    let
      (* If there is no default case the results are all
         void for the type-checking to work so we don't
         generate them. *)
      val whereto = case #default pt of CodeNil => NoResult | _ => whereto;
      
-     val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn);
+     val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
 
      (* The exit jumps are chained together. *)
      val lastEndJump : labels ref = ref noJump;
@@ -1813,7 +1971,7 @@ struct
      val U : unit =
        case #default pt of
          CodeNil => ()
-       | c       => gencde (c, whereto, tailKind, matchFailFn);
+       | c       => gencde (c, whereto, tailKind, matchFailFn, loopAddr);
 
      val U : unit = exited := false;
 
@@ -1850,7 +2008,7 @@ struct
 
 	 (* Generate code for this case *)
 	 val U : unit = exited := false;
-	 val U : unit = gencde (body, whereto, tailKind, matchFailFn);
+	 val U : unit = gencde (body, whereto, tailKind, matchFailFn, loopAddr);
        in
 	 genEachCase otherCases
        end; (* genEachCase *)
@@ -1868,7 +2026,8 @@ struct
         (pt : 'a caseForm,
          whereto : whereto,
          tailKind : tail,
-         matchFailFn : unit -> unit) : unit =
+         matchFailFn : unit -> unit,
+		 loopAddr) : unit =
    let
      (* Have already dealt with cases where there is only one case. *)
      (* If there is no default case the results are all
@@ -1889,7 +2048,7 @@ struct
           val lastOne : bool = case cs of [] => true | _ => false;
           
           (* Is this really safe? What about multiple side-effects? SPF *)
-          val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn);
+          val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
             
           (* Push the value to be compared. *)
           val U : unit = pushConst(toWord c, cvec);
@@ -1921,7 +2080,7 @@ struct
         val lab : labels = putInCases matches;
         
         (* Now the expression. *)
-        val U : unit = gencde(body, whereto, tailKind, matchFailFn);
+        val U : unit = gencde(body, whereto, tailKind, matchFailFn, loopAddr);
         val thisHasExited : bool = !exited;
         
         (* Remove the result - the default case will leave it. *)
@@ -1951,7 +2110,7 @@ struct
           CodeNil => ()
         | c => (* put in the default *)
 	    let
-	      val U : unit = gencde(#default pt, whereto, tailKind, matchFailFn);
+	      val U : unit = gencde(#default pt, whereto, tailKind, matchFailFn, loopAddr);
 	    in
 	      exited := (!exited andalso casesExited)
 	    end;
@@ -1996,7 +2155,7 @@ struct
 	 
        | dec => (* constants or reccons.*)
 	 let
-	   val U : unit = gencde (dec, ToStack, NotEnd, matchFailFn);
+	   val U : unit = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
 	   val U : unit = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
 	 in
 	   genMutualDecs (otherDecs, matchFailFn)
@@ -2015,7 +2174,7 @@ struct
    (* Assume we always want a result. There is otherwise a problem if the
       called routine returns a result of type void (i.e. no result) but the
       caller wants a result (e.g. the identity function). *)
-    val U : unit = gencde (pt, ToStack, EndOfProc, matchFailed);
+    val U : unit = gencde (pt, ToStack, EndOfProc, matchFailed, NONE);
 
     val U : unit = if !exited then () else genReturn (numOfArgs, cvec);
   in (* body of codegen *)

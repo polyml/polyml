@@ -142,6 +142,15 @@ sig
        
    (* genRecRef - Recursive reference to a procedure. *)
    val genRecRef: code * code -> unit
+
+   (* Create a container on the stack *)
+   val genContainer : int * code -> unit;
+
+   (* Copy a tuple into a container. *)
+   val genSetContainer : int * code -> unit;
+ 
+   (* Create a tuple from a container. *)
+   val genTupleFromContainer : int * code -> unit;
       
    (* copyCode - Finish up after compiling a procedure. *)
    val copyCode : code -> address;
@@ -367,11 +376,11 @@ struct
     (* Opcode 1 reserved for Interpreter's internal use *)
     val opcode_jump              = Opcode 2;
     val opcode_jumpFalse         = Opcode 3;
-    (* Opcode 4 not used *)
+	val opcode_containerW		 = Opcode 4; (* Added DCJM 5/10/05. *)
     val opcode_delHandler        = Opcode 5;
     val opcode_jumpI             = Opcode 6;
     val opcode_jumpIFalse        = Opcode 7;
-    (* Opcode 8 not used *)
+ 	val opcode_set_containerW	 = Opcode 8; (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
     val opcode_caseSwitch        = Opcode 10;
     val opcode_callSl            = Opcode 11;
@@ -456,7 +465,8 @@ struct
     val opcode_getStore_2        = Opcode 82;
     val opcode_getStore_3        = Opcode 83;
     val opcode_getStore_4        = Opcode 84;
-    (* Opcode 85 not used *)
+ 	val opcode_tuple_containerW	 = Opcode 85; (* Added DCJM 5/10/05. *)
+
     val opcode_nonLocalL_1       = Opcode 86;
     val opcode_nonLocalL_2       = Opcode 87;
     val opcode_nonLocalL_3       = Opcode 88;
@@ -1697,6 +1707,16 @@ struct
        	genWord (level, into)
 		)
    end;
+
+  fun genContainer (size : int, cvec: code) : unit =
+    (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));
+
+  fun genSetContainer (size : int, cvec: code) : unit =
+    (genOpc(opcode_set_containerW, 3, cvec); genWord(size, cvec));
+
+  fun genTupleFromContainer (size : int, cvec: code) : unit =
+    (genOpc(opcode_tuple_containerW, 3, cvec); genWord(size, cvec));
+
 
   (* Adds in the reset. *)
   fun resetStack (offset : int, carryValue : bool, cvec : code) : unit =
