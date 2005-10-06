@@ -54,7 +54,7 @@ case $OS in
 		VERSION=`uname -r`
 		OBJS=$OBJS" dlfcn_simple.o"
 #		Mac OS X 10.1 and earlier used diferent parameters when calling exception handlers.
-		if [ ${VERSION%.*} -lt 6 ]
+		if [ ${VERSION%%.*} -lt 6 ]
 		then OSFLAGS="${OSFLAGS} -DMACOSXPRE102"
 		fi
 	;;
