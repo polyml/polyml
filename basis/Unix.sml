@@ -68,7 +68,9 @@ struct
 	type ('a,'b) proc =
 	 { pid: Posix.Process.pid,
 	   infd: Posix.IO.file_desc,
-	   outfd: Posix.IO.file_desc
+	   outfd: Posix.IO.file_desc,
+	   (* We have to remember the result status. *)
+	   result: OS.Process.status option ref
 	 }
 	type signal = Posix.Signal.signal
 	datatype exit_status = datatype Posix.Process.exit_status
@@ -120,7 +122,7 @@ struct
 			(
 			Posix.IO.close(#infd toChild);
 			Posix.IO.close(#outfd fromChild);
-			{pid=pid, infd= #infd fromChild, outfd= #outfd toChild}
+			{pid=pid, infd= #infd fromChild, outfd= #outfd toChild, result = ref NONE}
 			)
 	end
 
@@ -133,7 +135,7 @@ struct
 		fun sys_get_buffsize (strm: OS.IO.iodesc): int = doIo(15, strm, 0)
 	end
 
-	fun textInstreamOf {pid, infd, outfd} =
+	fun textInstreamOf {pid, infd, ...} =
 	let
 		val n = Posix.FileSys.fdToIOD infd
 		val textPrimRd =
@@ -144,7 +146,7 @@ struct
 		TextIO.mkInstream streamIo
 	end
 		
-	fun textOutstreamOf {pid, infd, outfd} =
+	fun textOutstreamOf {pid, outfd, ...} =
 	let
 		val n = Posix.FileSys.fdToIOD outfd
 		val buffSize = sys_get_buffsize n
@@ -157,9 +159,9 @@ struct
 		TextIO.mkOutstream streamIo
 	end
 
-	fun binInstreamOf {pid, infd, outfd} =
+	fun binInstreamOf {pid, infd, ...} =
 	let
-		val n = Posix.FileSys.fdToIOD outfd
+		val n = Posix.FileSys.fdToIOD infd
 		val binPrimRd =
 			LibraryIOSupport.wrapBinInFileDescr{fd=n, name="BinPipeInput", initBlkMode=true}
 		val streamIo =
@@ -168,7 +170,7 @@ struct
 		BinIO.mkInstream streamIo
 	end
 		
-	fun binOutstreamOf {pid, infd, outfd} =
+	fun binOutstreamOf {pid, outfd, ...} =
 	let
 		val n = Posix.FileSys.fdToIOD outfd
 		val buffSize = sys_get_buffsize n
@@ -195,14 +197,18 @@ struct
 		 	doCall(16, (3, SysWord.toInt(Posix.Signal.toWord s)))
 	end
 
-	fun reap{pid, infd, outfd} =
+	fun reap {result = ref(SOME r), ...} = r
+	|   reap(p as {pid, infd, outfd, result}) =
 	let
 		val u = Posix.IO.close infd;
 		val u = Posix.IO.close outfd;
 		val (_, status) =
 			Posix.Process.waitpid(Posix.Process.W_CHILD pid, [])
 	in
-		toStatus status
+		(* If the process is only stopped we need to wait again. *)
+		case status of
+			W_STOPPED _ => reap p
+		|	_ => let val s = toStatus status in result := SOME s; s end
 	end
 
 	fun exit w = OS.Process.exit(toStatus (W_EXITSTATUS w))
