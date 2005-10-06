@@ -37,6 +37,9 @@
 #include <time.h>
 #include <windows.h>
 #include "Console.h" /* For hApplicationInstance. */
+#else
+/* UNIX version */
+#include <time.h>
 #endif
 
 #if defined(FREEBSD) || defined(MACOSX)
@@ -52,9 +55,6 @@
 #endif
 
 #include <assert.h>
-
-/* Can't find header with time in it, so ... */
-extern time_t time (time_t *);
 
 #include <stdarg.h>
 #include <errno.h>
