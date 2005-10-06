@@ -39,9 +39,11 @@ INSTR_return_w   0x92 /* int */
 
 #define INSTR_jump		0x02
 #define INSTR_jump_false	0x03
+#define INSTR_container     0x04    /* Added DCJM 5/10/05. */
 #define INSTR_del_handler	0x05
 #define INSTR_jump_i		0x06
 #define INSTR_jump_i_false	0x07
+#define INSTR_set_container 0x08    /* Added DCJM 5/10/05. */
 #define INSTR_del_handler_i	0x09
 #define INSTR_case		0x0a
 #define INSTR_call_sl		0x0b
@@ -118,6 +120,7 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_get_store_2	0x52
 #define INSTR_get_store_3	0x53
 #define INSTR_get_store_4	0x54
+#define INSTR_tuple_container 0x55    /* Added DCJM 5/10/05. */
 #define INSTR_non_local_l_1	0x56
 #define INSTR_non_local_l_2	0x57
 #define INSTR_non_local_l_3	0x58

@@ -417,7 +417,7 @@ void MD_switch_to_poly(void)
 				case POLY_SYS_set_string_length: 
 					/* Store the length word of a string. */
 					t = (word*)UNTAGGED(*sp++);
-					((word**)*sp)[u] = t;
+					((word**)*sp)[0] = t;
 					*sp = TAGGED(0);
 					break; 
 
@@ -442,11 +442,11 @@ void MD_switch_to_poly(void)
 
 				case POLY_SYS_div_word:
 					if ((u = UNTAGGED(*sp++)) == 0) raise_exception0(EXC_divide);
-					*sp = TAGGED(UNTAGGED(*sp) / u); break; 
+					*sp = TAGGED((unsigned)UNTAGGED(*sp) / (unsigned)u); break; 
 
 				case POLY_SYS_mod_word: 
 					if ((u = UNTAGGED(*sp++)) == 0) raise_exception0(EXC_divide);
-					*sp = TAGGED(UNTAGGED(*sp) % u); break; 
+					*sp = TAGGED((unsigned)UNTAGGED(*sp) % (unsigned)u); break; 
 
 				case POLY_SYS_xor_word: 
 					u = *sp++; *sp = TAGGED(UNTAGGED(*sp) ^ UNTAGGED(u)); break; 
@@ -963,6 +963,51 @@ void MD_switch_to_poly(void)
 			t = (word*)*sp++; u = UNTAGGED(*sp++);
 			((word**)*sp)[u] = t;
 			*sp = TAGGED(0); break;
+
+        case INSTR_container: /* Create a container. */
+            /* This is supposed to be on the stack but that causes problems in gencde
+               so we create a mutable segment on the heap. */
+ 			u = arg1;
+			newptr -= u+1;
+			if (newptr < locallimit) {
+				poly_stack->p_sp = sp;
+				poly_stack->p_pc = pc;
+				poly_stack->p_reg[1] = TAGGED(li);
+				newptr += u+1;
+				storetrace(u);
+				goto RESTART;
+			}
+			*newptr = OBJ_MUTABLE_BIT | u;
+			t = newptr+1;
+			for(; --u >= 0; ) t[u] = TAGGED(0);
+            *(--sp) = (word)t; /* Push the address of the container. */
+            pc += 2;
+            break;
+
+        case INSTR_set_container: /* Copy a tuple into a container. */
+            t =(word*)*sp++; /* Pop the source tuple address. */
+            for (u = arg1; --u >= 0; ) ((word*)(*sp))[u] = t[u]; /* Copy the items. */
+            sp++;
+            pc += 2;
+            break;
+
+        case INSTR_tuple_container: /* Create a tuple from a container. */
+			u = arg1;
+			newptr -= u+1;
+			if (newptr < locallimit) {
+				poly_stack->p_sp = sp;
+				poly_stack->p_pc = pc;
+				poly_stack->p_reg[1] = TAGGED(li);
+				newptr += u+1;
+				storetrace(u);
+				goto RESTART;
+			}
+			*newptr = u;
+			t = newptr+1;
+			for(; --u >= 0; ) t[u] = ((word*)(*sp))[u];
+			*sp = (word)t;
+			pc += 2;
+			break;
 
 		default: crash("Unknown instruction %x\n", li);
 
