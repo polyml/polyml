@@ -176,7 +176,7 @@ static int isAvailable(PIOSTRUCT strm)
 	{
 		if (WaitForSingleObject(hFile, 0) == WAIT_OBJECT_0)
 			return 1;
-		else 0;
+		else return 0;
 	}
 	else
 		/* File - We may be at end-of-file but we won't block. */
