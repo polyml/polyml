@@ -34,4 +34,4 @@
 #endif
 
 char *poly_runtime_system_version =
-ARCH "4.1.4 (" __TIME__ " " __DATE__ ")\nCopyright (c) 2002-5 CUTS and contributors.";
+ARCH "4.2.0 (" __TIME__ " " __DATE__ ")\nCopyright (c) 2002-5 CUTS and contributors.";
