@@ -424,7 +424,7 @@ struct
   fun dummyInitialFn (b : bool) = ();
  
   fun dummyStartupFn () =
-    TextIO.output (TextIO.stdOut, "Poly/ML 4.1.4 Release\n");
+    TextIO.output (TextIO.stdOut, "Poly/ML 4.2.0 Release\n");
  
   val initialFn : (bool -> unit) ref = ref dummyInitialFn;
   val startupFn : (unit -> unit) ref = ref dummyStartupFn;
