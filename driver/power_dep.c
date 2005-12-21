@@ -1579,17 +1579,18 @@ void MD_update_code_addresses(word **addr, word **old, int L, void (*op)(word **
     	word instr = *pt++;
     	if ((instr & 0xfc1f0000) == 0x3c000000) /* addis rd,r0. */
     	{
+                int isSigned = (*pt & 0xfc000000) == 0x38000000; /* Add instruction. */
 			int reg = (instr >> 21) & 31;
     		word *valu, *oldvalu;
 			unsigned hi, lo;
     		/* Ignore the unchecked registers. */
     		if (reg == 11 || reg == 12) continue;
-    		/* Next must be an ADD instruction. */
-    		assert((*pt & 0xfc000000) == 0x38000000);
+    		/* Next must be an ADD or OR instruction. */
+    		assert((*pt & 0xfc000000) == 0x38000000 || (*pt & 0xfc000000) == 0x60000000);
     		/* Put together the two halves. */
 			hi = instr & 0xffff;
 			lo = *pt & 0xffff;
-			if (lo >= 32768) hi--; /* Correct for sign extension. */
+			if (lo >= 32768 && isSigned) hi--; /* Correct for sign extension. */
     		valu = (word*)((hi << 16) + lo);
     		oldvalu = valu;
     		/* Process this address. */
@@ -1599,7 +1600,7 @@ void MD_update_code_addresses(word **addr, word **old, int L, void (*op)(word **
 			{
 				hi = (word)valu >> 16;
 				lo = (word)valu & 0xffff;
-				if (lo & 0x8000) hi++; /* Adjust the for sign extension */
+				if ((lo & 0x8000) && isSigned) hi++; /* Adjust the for sign extension */
 	    		pt[-1] = (instr & 0xffff0000) | hi;
 	    		*pt = (*pt & 0xffff0000) | lo;
 			}
