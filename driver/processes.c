@@ -1420,6 +1420,7 @@ void init_process_system(void)
     /* Set up a handler for SIGALRM. SIGALRM
        is sent periodically when there are several processes running to ensure
        that each process gets a fair share of the machine. */
+	markSignalInuse(SIGALRM);
 	setSignalHandler(SIGALRM, (signal_handler_type)catchALRM);
 #endif
     

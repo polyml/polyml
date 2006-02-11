@@ -482,7 +482,8 @@ void re_init_sig_handler(void)
 			{
 				if (done[i] == 0 &&
 					root->signal_vector[i] != 0 && /* Never set for this signal */
-					root->signal_vector[i] != TAGGED(DEFAULT_SIG))
+					root->signal_vector[i] != TAGGED(DEFAULT_SIG) &&
+					! nonMaskable[i])
 				{
 #ifdef WINDOWS_PC
 					if (root->signal_vector[i] == TAGGED(IGNORE_SIG))
