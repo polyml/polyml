@@ -499,6 +499,10 @@ void MD_switch_to_poly(void)
 					}
 					else goto USE_RTS_CALL;
 
+                case POLY_SYS_str_compare:
+                    sp[1] = TAGGED(string_test((pstring*)(sp+1), (pstring*)sp, sp, pc, li));
+                    sp++; break;
+
 				case POLY_SYS_teststreq:
 					sp[1] = ((string_test((pstring*)(sp+1), (pstring*)sp, sp, pc, li) == 0) ? True : False);
 					sp++; break;
@@ -1715,6 +1719,7 @@ void MD_init_interface_vector(void)
     add_word_to_io_area(POLY_SYS_substring, TAGGED(POLY_SYS_substring));
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));
     add_word_to_io_area(POLY_SYS_get_flags, TAGGED(POLY_SYS_get_flags));
+    add_word_to_io_area(POLY_SYS_str_compare, TAGGED(POLY_SYS_str_compare));
     add_word_to_io_area(POLY_SYS_teststreq, TAGGED(POLY_SYS_teststreq));
     add_word_to_io_area(POLY_SYS_teststrneq, TAGGED(POLY_SYS_teststrneq));
     add_word_to_io_area(POLY_SYS_teststrgtr, TAGGED(POLY_SYS_teststrgtr));

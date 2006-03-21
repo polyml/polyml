@@ -1177,6 +1177,7 @@ void MD_init_interface_vector(void)
     add_function_to_io_area(POLY_SYS_substring, &substringa);
     add_function_to_io_area(POLY_SYS_get_length, &get_length_a);
     add_function_to_io_area(POLY_SYS_get_flags, &get_flags_a);
+    add_function_to_io_area(POLY_SYS_str_compare, &str_compare);
     add_function_to_io_area(POLY_SYS_teststreq, &teststreq);
     add_function_to_io_area(POLY_SYS_teststrneq, &teststrneq);
     add_function_to_io_area(POLY_SYS_teststrgtr, &teststrgtr);

@@ -39,6 +39,7 @@ struct
   val POLY_SYS_gettime             = 19
   val POLY_SYS_filemode            = 20
 *)
+  val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
   val POLY_SYS_teststreq           = 24
   val POLY_SYS_teststrneq          = 25
   val POLY_SYS_teststrgtr          = 26

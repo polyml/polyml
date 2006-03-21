@@ -53,6 +53,7 @@ extern  word *interface_map[];
 #define POLY_SYS_raisex              14
 #define POLY_SYS_get_length          15
 #define POLY_SYS_get_flags           17
+#define POLY_SYS_str_compare         23 /* DCJM 21/3/06 */
 #define POLY_SYS_teststreq           24
 #define POLY_SYS_teststrneq          25
 #define POLY_SYS_teststrgtr          26

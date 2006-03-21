@@ -440,6 +440,7 @@ UNIT		TEXTEQU		TAGGED(0)
 ZERO		TEXTEQU		TAGGED(0)
 FALSE		TEXTEQU		TAGGED(0)
 TRUE		TEXTEQU		TAGGED(1)
+MINUS1		TEXTEQU		TAGGED(0-1)
 PSBITS		EQU			c0000000h
 F_bytes		EQU			01000000h
 F_mutable	EQU			40000000h
@@ -454,6 +455,7 @@ ELSE
 .set	ZERO,		TAGGED(0)
 .set	FALSE,		TAGGED(0)
 .set	TRUE,		TAGGED(1)
+.set	MINUS1,		TAGGED(0-1)
 .set	PSBITS,		0xc0000000
 .set	F_bytes,	0x01000000
 .set	F_mutable,	0x40000000
@@ -2104,6 +2106,14 @@ tststr4:
 
  ;# These functions compare strings for lexical ordering.  This version, at
  ;# any rate, assumes that they are UNSIGNED bytes.
+
+CALLMACRO	INLINE_ROUTINE	str_compare
+	call	teststr
+	ja		RetTrue			;# Return TAGGED(1) if it's greater
+	je		RetFalse		;# Return TAGGED(0) if it's equal
+	movl	CONST MINUS1,Reax	;# Return TAGGED(-1) if it's less.
+	ret
+
 
 CALLMACRO	INLINE_ROUTINE	teststrgeq
 	call	teststr

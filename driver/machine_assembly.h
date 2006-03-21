@@ -45,6 +45,7 @@ extern int install_roota();
 extern int strconcata();
 extern int change_dira();
 extern int substringa();
+extern int str_compare();
 extern int teststreq();
 extern int teststrneq();
 extern int teststrgtr();
