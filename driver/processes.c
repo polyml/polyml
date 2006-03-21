@@ -507,7 +507,7 @@ void check_current_stack_size(word *lower_limit)
     if (old_len == MAXIMUM_STACK)
     {
 	/* Cannot expand the stack any further. */
-	proper_printf("Warning - Stack limit reached - interrupting process\n");
+	proper_fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
 	MD_set_exception(poly_stack,interrupt_exn);
 	return;
     }
@@ -515,6 +515,8 @@ void check_current_stack_size(word *lower_limit)
     for (new_len = old_len; new_len < min_size; new_len *= 2);
     if (new_len > MAXIMUM_STACK) new_len = MAXIMUM_STACK;
 
+#if (0)
+    /* Suppress this message.  It seems to cause problems. */
     if (new_len >= (1 << 16))
     {
 		/* DCJM 23/3/04. This is now sent to stderr rather than stdout.
@@ -523,6 +525,7 @@ void check_current_stack_size(word *lower_limit)
                                old_len * sizeof(word), new_len * sizeof(word));
 	  proper_fflush(stderr);
     }
+#endif
 
     /* Must make a new frame and copy the data over. */
     new_stack = NEWSTACK(new_len);
