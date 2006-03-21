@@ -1599,6 +1599,19 @@ STRINGTEST(teststrgtr,gt)
 STRINGTEST(teststrneq,ne)
 STRINGTEST(teststreq,eq)
 
+INLINE_ROUTINE(str_compare)
+    mflr	rr
+    ori		rr,rr,RETURNOFFSET
+    bl		test_string
+    cror	31,31,31 /* needed? */
+    mtlr	rr
+    li		r3,TAGGED(1)
+    bgtlr
+    li		r3,TAGGED(0)
+    beqlr
+    li		r3,TAGGED(-1)
+    blr
+    RegMask(str_compare, (M_R3|M_R4|M_R23|M_RR))
 
 /***************************************************************************/
 /* String equality functions                                               */
