@@ -226,6 +226,7 @@ sig
    val profiling   : int dbRef
    val errorDepth  : int dbRef
    val printDepth  : int dbRef
+   val lineLength  : int dbRef
    
    val traceCompiler : bool ref
    val printString:   (string->unit) ref
@@ -778,7 +779,8 @@ struct
                 
 
 		   let
-            val pstream = prettyPrint (77, lexPrint lex);
+	    val ll = dbRefGet lineLength;
+            val pstream = prettyPrint (if ll < 10 then 10 else ll, lexPrint lex);
 
 		    fun printEntry (_, TypeConstrKind t) =
 				TYPETREE.displayTypeConstrs (t, dbRefGet printDepth, pstream)

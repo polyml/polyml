@@ -266,6 +266,7 @@ sig
   val timing     : bool dbRef;
   val printDepth : int dbRef;
   val errorDepth : int dbRef;
+  val lineLength : int dbRef;
   
   val assemblyCode        : bool ref;
   val parsetree           : bool ref;
@@ -980,6 +981,7 @@ end;
      val U : unit = putSetFunction "timing"      Bool DEBUG.timing;
      val U : unit = putSetFunction "print_depth" Int  DEBUG.printDepth;
      val U : unit = putSetFunction "error_depth" Int  DEBUG.errorDepth;
+     val U : unit = putSetFunction "line_length" Int  DEBUG.lineLength;
    end;
 
    local
@@ -999,6 +1001,7 @@ end;
      val U : unit = putGetFunction "get_timing"      Bool DEBUG.timing;
      val U : unit = putGetFunction "get_print_depth" Int  DEBUG.printDepth;
      val U : unit = putGetFunction "get_error_depth" Int  DEBUG.errorDepth;
+     val U : unit = putGetFunction "get_line_length" Int  DEBUG.lineLength;
    end;
 
 (*****************************************************************************)

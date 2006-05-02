@@ -77,7 +77,7 @@ case $ARCH in
 		OBJS=$OBJS" sparc_assembly.o sparc_dep.o"
 		ARCHFLAG=SPARC;; 
 	
-	i?86)	echo "Building for Intel architecture"
+	i?86 | x86_64)	echo "Building for Intel architecture"
 		OBJS=$OBJS" i386_assembly.o i386_dep.o"
 		ARCHFLAG=i386;;
 

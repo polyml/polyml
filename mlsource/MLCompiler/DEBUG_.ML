@@ -74,6 +74,7 @@ struct
     val profiling   = dbRefCreate 0;
     val errorDepth  = dbRefCreate 6;
     val printDepth  = dbRefCreate 999;
+    val lineLength  = dbRefCreate 77;
   end;
   
   val traceCompiler = ref false;

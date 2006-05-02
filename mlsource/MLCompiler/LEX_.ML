@@ -438,7 +438,13 @@ struct
 						nextCh();
 						getString soFar
 						)
-					else getString (next :: #"\\" :: soFar)
+			else if next = #"^"	(* \^c escape sequence for Control+c *)
+			then	let
+					val next2 = !ch;
+					val _ = nextCh();
+				in	getString (next2 :: #"^" :: #"\\" :: soFar)
+				end
+			else getString (next :: #"\\" :: soFar)
 				  end
 
 			|	ch => (* Anything else *)
