@@ -581,8 +581,8 @@ let
 	            class = DLG_STATIC (flags[WS_CHILD, WS_VISIBLE, WS_GROUP]),
 	            title =
 					DLG_TITLESTRING
-	                   "mlEdit - An exmple of Windows programming in Poly/ML\
-					   \\nCopyright David C.J. Matthews 2001",
+	                   "mlEdit - An example of Windows programming in Poly/ML\
+					   \\nCopyright David C.J. Matthews 2001-6",
 	            creationData = NONE,  extendedStyle = 0}] }
 
 		(* Dialogue procedure. *)
