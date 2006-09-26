@@ -46,4 +46,9 @@ sig
 	val PASCALFUNCTION3 : 'a Conversion * 'b Conversion * 'c Conversion -> 'd Conversion
 							-> ( 'a * 'b * 'c -> 'd) Conversion
 
+	val FUNCTION4 : 'a Conversion * 'b Conversion * 'c Conversion * 'd Conversion -> 'e Conversion
+							-> ( 'a * 'b * 'c * 'd -> 'e) Conversion
+	val PASCALFUNCTION4 : 'a Conversion * 'b Conversion * 'c Conversion * 'd Conversion -> 'e Conversion
+							-> ( 'a * 'b * 'c * 'd -> 'e) Conversion
+
 end

@@ -263,7 +263,7 @@ struct
 		   calculating the header size which is generally a bit of a pain.  DCJM. *)
 		fun getBitmapInfoHdr(w: Word8Vector.vector): BITMAPINFOHEADER =
 		let
-			val size = LargeWord.toInt(Pack32Little.subVec(w, 0))
+			val size = LargeWord.toInt(PackWord32Little.subVec(w, 0))
 			(* Check that the size of the structure given by the
 			   first word is less than the overall size.  There are
 			   various extended versions of the BITMAPINFOHEADER structure
@@ -272,16 +272,16 @@ struct
 				if size > Word8Vector.length w
 				then raise Fail "Bitmap length field is wrong"
 				else ()
-			val width = LargeWord.toIntX(Pack32Little.subVecX(w, 1))
-			val height = LargeWord.toIntX(Pack32Little.subVecX(w, 2))
-			val planes = LargeWord.toIntX(Pack16Little.subVecX(w, 6))
-			val bitsPerPixel = LargeWord.toIntX(Pack16Little.subVecX(w, 7))
-			val compression = toComp(LargeWord.toIntX(Pack32Little.subVecX(w, 4)))
-			val sizeImage = LargeWord.toIntX(Pack32Little.subVecX(w, 5))
-			val xPelsPerM = LargeWord.toIntX(Pack32Little.subVecX(w, 6))
-			val yPelsPerM = LargeWord.toIntX(Pack32Little.subVecX(w, 7))
-			val clrUsed = LargeWord.toIntX(Pack32Little.subVecX(w, 8))
-			val clrImportant = LargeWord.toIntX(Pack32Little.subVecX(w, 9))
+			val width = LargeWord.toIntX(PackWord32Little.subVecX(w, 1))
+			val height = LargeWord.toIntX(PackWord32Little.subVecX(w, 2))
+			val planes = LargeWord.toIntX(PackWord16Little.subVecX(w, 6))
+			val bitsPerPixel = LargeWord.toIntX(PackWord16Little.subVecX(w, 7))
+			val compression = toComp(LargeWord.toIntX(PackWord32Little.subVecX(w, 4)))
+			val sizeImage = LargeWord.toIntX(PackWord32Little.subVecX(w, 5))
+			val xPelsPerM = LargeWord.toIntX(PackWord32Little.subVecX(w, 6))
+			val yPelsPerM = LargeWord.toIntX(PackWord32Little.subVecX(w, 7))
+			val clrUsed = LargeWord.toIntX(PackWord32Little.subVecX(w, 8))
+			val clrImportant = LargeWord.toIntX(PackWord32Little.subVecX(w, 9))
 		in
 			{ width = width, height = height, bitsPerPixel = bitsPerPixel,
 			  planes = planes, compression = compression, sizeImage = sizeImage,
@@ -377,7 +377,7 @@ struct
 				   the size of the header structure (which may not be a
 				   BITMAPINFOHEADER but some other version of it), the number of
 				   colours and the compression. *)
-				val hdrSize = LargeWord.toInt(Pack32Little.subVec(w, 0))
+				val hdrSize = LargeWord.toInt(PackWord32Little.subVec(w, 0))
 				val { clrUsed, compression, bitsPerPixel, ...} = getBitmapInfoHdr w
 				val numColours =
 					if clrUsed <> 0

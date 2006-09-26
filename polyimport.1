@@ -1,0 +1,34 @@
+.TH POLY 1 "Poly/ML Version 5 2006"
+.SH NAME
+polyimport \- the Poly/ML import program
+.SH SYNOPSIS
+.B polyimport
+.I importfile
+.SH DESCRIPTION
+.I polyimport 
+reads in a Poly/ML import file and runs it.  Import files are generated using the PolyML.exportPortable
+function.
+.SH OPTIONS
+.TP
+.BI \-H " size"
+Set the initial heap size, in MB.
+.TP
+.BI \--heap " size"
+Set the initial heap size, in MB.
+.TP
+.BI \--immutable " size"
+Set the size of the immutables buffer, in MB.
+.TP
+.BI \--mutable " size"
+Set the size of the mutables buffer, in MB.
+.TP
+.BI \--timeslice " timeslice
+Set the timeslice.
+.TP
+.BI \--debug " level"
+Set the debugging level.
+.fi
+.SH SEE ALSO
+.PP
+.B http://www.poly.org
+The Poly/ML web site.

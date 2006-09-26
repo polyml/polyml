@@ -19,43 +19,24 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* DCJM June 2000.  Removed some functions which are no in the standard
+(* DCJM June 2000.  Removed some functions which are not in the standard
    basis library and added onEntry *)
 local
-  open RuntimeCalls;
+    open RuntimeCalls;
 in
 
-  structure PolyML =
-(* We must not have a signature on the result otherwise print and makestring
-   will be given polymorphic types and will only produce "?" *)
+    structure PolyML =
+    (* We must not have a signature on the result otherwise print and makestring
+       will be given polymorphic types and will only produce "?" *)
 
- struct
+    struct
     (* Some of these are inherited from PolyML in the root environment, but
        this structure hides that one. *)
     open PolyML.Inner;
 
-	(* These are retained for backwards compatibility.  It's quite
-	   likely that people will use them interactively so a message is
-	   quite useful. *)
-    fun exit (n: int) : unit =
-		(
-		(!RunCall.printString) "The standard function is OS.Process.exit\n";
-		RunCall.run_call1 POLY_SYS_exit (n mod 256)
-		)
-
-    fun quit() = exit 0;
-
 	local
-		val chDir: string -> unit = RunCall.run_call1 POLY_SYS_chdir
-	in
-		fun cd s =
-			(
-			(!RunCall.printString) "The standard function is OS.FileSys.chDir\n";
-			chDir s
-			)
-	end
-
-	local
+	    (* This is slightly awkward but is needed because otherwise the compiler
+		   would complain about a free type variable. *)
 		val etrace: word->word = RunCall.run_call1 POLY_SYS_exception_trace;
 	in
 		fun exception_trace (f: unit->'a):'a =
@@ -63,28 +44,63 @@ in
 	end
 
 	local
-		(* Each database has its own list of start-up functions. *)
-		type t = ((unit->unit) list) ref
-		val onEntryList: t RunCall.dbList =
-			RunCall.dbListCreate (fn () => (ref[] : t),
-								  [ref[(! RunCall.startupFn)]]: t list) 
-		(* Run the list in reverse order - First the parent database
-		   in reverse order then the other databases. *)
+	    (* Initialise the list with the existing start-up function *)
+		val onEntryList: (unit->unit) list ref = ref[]
+		(* Run the list in reverse order. *)
 		fun runOnEntry [] = ()
 		  | runOnEntry (f :: b) = (runOnEntry b; f() handle _ => ());
-		fun runOnEntries [] = ()
-		  | runOnEntries (a :: b) = (runOnEntries b; runOnEntry(!a));
-		(* Set the start-up function to run this list. *)
-		val unused = RunCall.startupFn :=
-				(fn () => runOnEntries(RunCall.dbListToList onEntryList))
 	in
 		(* The equivalent of atExit except that functions are added to
 		   the list persistently and of course the functions are executed
 		   at start-up rather than close-down. *)
-		fun onEntry (f: unit->unit) =
-			case RunCall.dbListToList onEntryList of
-				[] => raise Fail "onEntry - no list"
-			|	(l :: _) => l := f :: !l
+		fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
+		
+    	(* Export functions - write out the function and everything reachable from it. *)
+    	fun export(filename: string, f: unit->unit): unit =
+		    let
+		       fun run () = (runOnEntry(! onEntryList); f())
+			in 
+    		   RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, run))
+			end
+    	fun exportPortable(filename: string, f: unit->unit): unit =
+		    let
+		       fun run () = (runOnEntry(! onEntryList); f())
+			in 
+     		   RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, run))
+			end
 	end
-  end;
+
+	(* Load and save functions - save and reload a copy of the mutables and
+	   anything reachable. *)
+    fun load(filename: string): unit =
+		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (17, filename)
+	fun save(filename: string): unit =
+		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (18, filename)
+		
+	fun shareCommonData(root: 'a): unit =
+		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
+
+
+    (* The first two used to be in the System structure but that is no longer included. *)
+  	fun objSize(x:'a): unit    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
+	and showSize(x:'a): unit   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
+	and objProfile(x:'a): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
+	
+	val fullGC: unit -> unit = 
+	    RunCall.run_call0 POLY_SYS_full_gc;
+	
+	val stackTrace: unit -> unit = 
+	    RunCall.run_call0 POLY_SYS_stack_trace;
+	  
+	local
+		val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
+    in
+		fun pointerEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
+	end
+	
+	fun rtsVersion () : int = RunCall.run_call2 POLY_SYS_process_env(104, ())
+	fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
+    fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
+
+    end;
 end;

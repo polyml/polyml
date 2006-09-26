@@ -218,28 +218,18 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
    val parsetree   : bool ref
    val codetree    : bool ref
    
-   val timing      : bool dbRef
-   val profiling   : int dbRef
-   val errorDepth  : int dbRef
-   val printDepth  : int dbRef
-   val lineLength  : int dbRef
+   val timing      : bool ref
+   val profiling   : int ref
+   val errorDepth  : int ref
+   val printDepth  : int ref
+   val lineLength  : int ref
    
    val traceCompiler : bool ref
    val printString:   (string->unit) ref
    val printInAlphabeticalOrder : bool ref
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet: 'a dbRef -> 'a;
 end;
 
 (*****************************************************************************)
@@ -319,10 +309,6 @@ end;
 (*****************************************************************************)
 (*                  COMPILERBODY sharing constraints                         *)
 (*****************************************************************************)
-
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   PRETTYPRINTER.prettyPrinter
@@ -425,12 +411,11 @@ struct
   open STRUCTVALS;
   open PRETTYPRINTER;
   open LEX;
-  open CREATEDATABASE;
   open DEBUG;
   type word = ADDRESS.word
 
   fun printTimes (parseTime,pass2Time,treeTime,codeTime,endRunTime) : unit =
-    if not (dbRefGet timing) then ()
+    if not (! timing) then ()
     else let
       val print = (!printString)
       fun printTime t = print(Time.fmt 1 t)
@@ -518,7 +503,7 @@ struct
           val pstream = prettyPrint (77,lexPrint lex);
         in
           ppBeginBlock pstream (0, false);
-          STRUCTURES.displayStructs (parseTree, dbRefGet printDepth, pstream);
+          STRUCTURES.displayStructs (parseTree, ! printDepth, pstream);
           ppEndBlock pstream ()
         end
         else ();
@@ -635,7 +620,7 @@ struct
        let (* let3 *)
          (* Save the value of the profiling switch,
              and switch profiling on if required. *)
-         val wasProfiling = dbRefGet profiling;
+         val wasProfiling = ! profiling;
 
          val startRunTime = Timer.startCPUTimer(); (* Save the run-time *)
          val U : unit = startProfile wasProfiling;
@@ -658,7 +643,7 @@ struct
              ppAddString  pstream "Exception-";
              ppBreak      pstream (1, 0);
              VALUEOPS.printStruct (exceptionData,
-               TYPETREE.exnType, dbRefGet errorDepth, pstream, printEnv);
+               TYPETREE.exnType, ! errorDepth, pstream, printEnv);
              ppBreak      pstream (1, 0);
              ppAddString  pstream "raised";
              ppEndBlock   pstream ();
@@ -691,7 +676,7 @@ struct
          val endRunTime = cpuTime startRunTime;
 
        in (* let3 *)
-         if dbRefGet printDepth <= 0
+         if ! printDepth <= 0
          then let (* Don't print anything. *)
              (* Just add the entries to the global declarations. *)
             val pass4Env = 
@@ -779,27 +764,27 @@ struct
                 
 
 		   let
-	    val ll = dbRefGet lineLength;
+	    val ll = ! lineLength;
             val pstream = prettyPrint (if ll < 10 then 10 else ll, lexPrint lex);
 
 		    fun printEntry (_, TypeConstrKind t) =
-				TYPETREE.displayTypeConstrs (t, dbRefGet printDepth, pstream)
+				TYPETREE.displayTypeConstrs (t, ! printDepth, pstream)
 			|	printEntry (name, FixStatusKind f) =
 				 (
 				 ppBeginBlock pstream (0, false);
-                 VALUEOPS.displayFixStatus (f, dbRefGet printDepth, pstream);
+                 VALUEOPS.displayFixStatus (f, ! printDepth, pstream);
                  ppBreak pstream (1, 0);
                  ppAddString pstream name;
 				 ppEndBlock pstream ()
 				 )
 			|   printEntry (_, SignatureKind s) =
-                 VALUEOPS.displaySignatures (s, dbRefGet printDepth, pstream)
+                 VALUEOPS.displaySignatures (s, ! printDepth, pstream)
 			|   printEntry (_, StructureKind s) =
-                 VALUEOPS.displayStructures (s, dbRefGet printDepth, pstream, printEnv)
+                 VALUEOPS.displayStructures (s, ! printDepth, pstream, printEnv)
 			|   printEntry (_, FunctorKind f) =
-                 VALUEOPS.displayFunctors (f, dbRefGet printDepth, pstream)
+                 VALUEOPS.displayFunctors (f, ! printDepth, pstream)
 			|   printEntry (_, ValueKind v) =
-                   VALUEOPS.displayValues (v, dbRefGet printDepth, pstream, printEnv);
+                   VALUEOPS.displayValues (v, ! printDepth, pstream, printEnv);
 
 			(* Primarily sort by name, secondarily by type of entry. *)
 			fun kindToInt(FixStatusKind _) = 0

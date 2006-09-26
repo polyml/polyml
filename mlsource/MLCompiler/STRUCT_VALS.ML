@@ -71,6 +71,9 @@ sig
   val makeUnivTable: unit -> univTable;
   val univEnter:     univTable * 'a tagMethods * string * 'a -> unit;
   val univLookup:    univTable * 'a tagMethods * string -> 'a;
+  
+  (* Freeze a mutable table so it is immutable. *)
+  val univFreeze:       univTable -> univTable
 end;
 
 
@@ -112,6 +115,10 @@ sig
   
   (* Types *)
   
+  datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
+  val pling: 'a possRef -> 'a
+  val updatePR: 'a possRef * 'a -> unit
+  
   (* Standard type constructors. *)
   
   type typeVarForm;
@@ -124,7 +131,7 @@ sig
   | TypeConstruction of (* typeConstructionForm *)
       {
         name:  string,
-        value: typeConstrs ref,
+        value: typeConstrs possRef,
         args:  types list
       }
 
@@ -210,7 +217,10 @@ sig
   val tcIdentifier:      typeConstrs -> typeId;
   val tcLetDepth:        typeConstrs -> int;
 
+  (* These are all logically equivalent but include differing numbers of refs *)
   val makeTypeConstrs:
+  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  val makeFrozenTypeConstrs:
   	string * types list * types * typeId *  bool * int-> typeConstrs;
 
   val tvLevel:        typeVarForm -> int;
@@ -354,10 +364,15 @@ struct
   open MISC;
   open UNIVERSAL;
   open UNIVERSALTABLE;
-   
+
+  (* The idea of this is reduce the number of mutable objects. *)
+  datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
+  fun pling(FrozenRef x) = x | pling(VariableRef(ref x)) = x
+  fun updatePR(VariableRef r, x) = r := x | updatePR(FrozenRef _, _) = raise Fail "Assignment to frozen ref"
+
   abstype uniqueId = Unique of int ref
   with
-    fun makeUnique () = Unique (ref 0);
+    fun makeUnique () = Unique (ref 0); (* REF HOTSPOT - 400 *)
 
     fun sameUnique (Unique a, Unique b) = (a = b);
   end;
@@ -384,7 +399,7 @@ struct
   
     val makeBoundId = Bound;
   
-    fun makeVariableId () = Variable (ref Unset);
+    fun makeVariableId () = Variable (ref Unset); (* REF HOTSPOT - 260 *)
   
     (* If it is a constant or an unset variable return it,
        otherwise return the value the variable is bound to. *)
@@ -477,7 +492,7 @@ struct
     (* Used when we want to give a name to a signature. *)
     fun makeCopy (name, copy, minTypes, maxTypes) =
     	Signatures { name       = name,
-			   tab        = sigTab copy,
+			   tab        = univFreeze(sigTab copy),
 			   minTypes   = minTypes, 
 			   maxTypes   = maxTypes  };
        
@@ -505,9 +520,12 @@ struct
         name:       string,
         arity:      int,
         typeVars:   types list,
-        equiv:      types ref,
-        constrs:    values list ref, (* List of value constructors. *)
-        equal:      bool ref,
+		updatable: (* We have a single ref here to minimise the number of refs. *)
+		   {
+		      equiv:      types,
+			  constrs:    values list, (* List of value constructors. *)
+              equal:      bool
+		   }  possRef,
         identifier: typeId,
 		letDepth:	int (* Added 7/8/00 DCJM.
 						   Needed to check for local datatypes. *)
@@ -560,7 +578,7 @@ struct
   withtype typeConstructionForm = 
       {
         name:  string,
-        value: typeConstrs ref,
+        value: typeConstrs possRef,
         args:  types list
       }
       
@@ -651,7 +669,7 @@ struct
   *)
       
   fun makeTv (t : types, lev, equality, nonunifiable, weak) : typeVarForm =
-    { value    = ref t,
+    { value    = ref t, (* REF HOTSPOT - 400 *)
       encoding = (lev * 8 + (if equality     then 4 else 0)
 			  + (if nonunifiable then 2 else 0)
 			  + (if weak         then 1 else 0)) };
@@ -687,18 +705,36 @@ struct
   fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
   fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
   fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
-  
-  fun tcEquivalent    (TypeConstrs {equiv,...} : typeConstrs) = ! equiv;
-  fun tcSetEquivalent (TypeConstrs {equiv,...} : typeConstrs, t) = 
-        (equiv := t);
-         
-  fun tcConstructors    (TypeConstrs {constrs,...} : typeConstrs) = ! constrs;
-  fun tcSetConstructors (TypeConstrs {constrs,...} : typeConstrs, v) =
-        (constrs := v);
+
+    local
+        fun getUpdatable (TypeConstrs {updatable,...} : typeConstrs) = pling updatable;
+    in
+        val tcEquivalent = #equiv o getUpdatable
+        val tcConstructors  = #constrs o getUpdatable
+        val tcEquality = #equal o getUpdatable;
         
-  fun tcEquality    (TypeConstrs {equal,...} : typeConstrs) = ! equal;
-  fun tcSetEquality (TypeConstrs {equal,...} : typeConstrs, e) = 
-        (equal := e);
+        fun tcSetEquivalent (TypeConstrs {updatable,...}, t) =
+		    let
+		        val v = pling updatable
+			in
+			    updatePR(updatable, { equiv = t, constrs = #constrs v, equal = #equal v})
+			end
+		
+        fun tcSetConstructors (TypeConstrs {updatable,...}, constrs) =
+		    let
+		        val v = pling updatable
+			in
+			    updatePR(updatable, { equiv = #equiv v, constrs = constrs, equal = #equal v})
+			end
+			
+        fun tcSetEquality (TypeConstrs {updatable,...}, eq) =
+		    let
+		        val v = pling updatable
+			in
+			    updatePR(updatable, { equiv = #equiv v, constrs = #constrs v, equal = eq})
+			end
+	end
+	
   fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
         
   fun makeTypeConstrs (name, typeVars, equivalent, uid, equ, depth) =
@@ -707,24 +743,49 @@ struct
 		name       = name,
 		arity      = length typeVars,
 		typeVars   = typeVars,
-		equiv      = ref equivalent,
-		constrs    = ref [],
-		equal      = ref equ,
+		updatable  =
+		    VariableRef (ref (* REF HOTSPOT - 690 refs here. *)
+		         {
+            		equiv   = equivalent,
+            		constrs = [],
+            		equal   = equ
+				  }),
 		identifier = uid,
 		letDepth   = depth
       };
-
+	  
+  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, equ, depth) =
+    TypeConstrs
+      {
+		name       = name,
+		arity      = length typeVars,
+		typeVars   = typeVars,
+		updatable  =
+		    FrozenRef
+		         {
+            		equiv   = equivalent,
+            		constrs = [],
+            		equal   = equ
+				  },
+		identifier = uid,
+		letDepth   = depth
+      };
+	  
   fun baseType name eq =
-    makeTypeConstrs (name, [], EmptyType, makeFreeId (), eq, 0);
+    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId (), eq, 0);
 
-  val boolType   = baseType "bool"   true;
+  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId (), true, 0);
   val intType    = baseType "int"    true;
   val charType   = baseType "char"   true;
   val stringType = baseType "string" true;
   val wordType   = baseType "word"   true;
   val realType   = baseType "real"   false; (* Not an eqtype in ML97. *)
-  val unitType   = baseType "unit"   true;
   val exnType    = baseType "exn"    false;
+  (* The unit type is equivalent to the empty record. *)
+  val unitType   =
+      makeFrozenTypeConstrs ("unit", [],
+	       LabelledType {recList = [], frozen = true, genericInstance = []},
+		   makeFreeId (), true, 0);
    
   val listType =
      makeTypeConstrs 
@@ -743,7 +804,7 @@ struct
        true, 0);
          
   val undefType = 
-    makeTypeConstrs ("undefined", [], EmptyType, unsetId, false, 0);
+    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, false, 0);
 
   (* Infix status. *) 
  
@@ -792,10 +853,11 @@ struct
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code) =
-		makeStruct (name, signat, makeGlobal code);
-  
+		makeStruct (name, makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat), makeGlobal code);
+ 
+    (* This is used for the top-level name space so must be mutable. *)
     fun makeEmptyGlobal name =
-		makeGlobalStruct(name, makeSignatures "", CodeZero);
+		makeStruct (name, makeSignatures "", makeGlobal CodeZero);
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat) = 

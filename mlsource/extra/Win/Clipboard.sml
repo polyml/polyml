@@ -160,7 +160,7 @@ struct
 				fun copyToBuf (i, v): unit =
 					assign Cchar (offset i Cchar buf) (toCint(Word8.toInt v))
 			in
-				Word8Vector.appi copyToBuf (w, 0, NONE);
+				Word8Vector.appi copyToBuf w;
 				GlobalUnlock hGlob;
 				toHG hGlob
 			end

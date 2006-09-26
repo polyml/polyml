@@ -20,14 +20,13 @@
 structure TypeTree =
   TYPE_TREE
     (
-      structure SYSTEM     = System
+      structure ADDRESS    = Address
       structure DEBUG      = Debug
       structure LEX        = Lex
       structure STRUCTVALS = StructVals
       structure UTILITIES  = Utilities
       structure MISC       = Misc
       structure PRETTYPRINTER = PrettyPrinter
-      structure CREATEDATABASE = CreateDatabase
       structure CODETREE = CodeTree
       structure PRINTTABLE = PrintTable
     ) ;

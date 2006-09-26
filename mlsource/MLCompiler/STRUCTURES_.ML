@@ -453,19 +453,9 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
-  val errorDepth: int dbRef;
+  val errorDepth: int ref;
   val inlineFunctors: bool ref;
   val ml90: bool ref;
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet: 'a dbRef -> 'a;
 end;
 
 (*****************************************************************************)
@@ -536,10 +526,6 @@ end;
 (*****************************************************************************)
 (*                  STRUCTURES sharing constraints                           *)
 (*****************************************************************************)
-
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   LEX.lexan
@@ -708,7 +694,6 @@ struct
   open ADDRESS;
   open UNIVERSALTABLE;
   open UNIVERSAL; (* for tagMethods record selectors *)
-  open CREATEDATABASE;
   open DEBUGGER;
 
   val displayType = TYPETREE.display;
@@ -848,7 +833,7 @@ struct
     
     (* Make a signature for initialisating variables and for
        undeclared signature variables. *)
-    val undefinedSignature = makeSignatures "UNDEFINED";
+    val undefinedSignature = makeCopy("UNDEFINED", makeSignatures "UNDEFINED", 0, 0);
   
     (* Construction functions called by the parser. *)
     val emptyStruct    = EmptyStruct; (* added SPF 8/2/94 *)
@@ -1259,7 +1244,7 @@ struct
            ppBeginBlock pprint (0, false);
            ppAddString pprint "Found near";
            ppBreak pprint (1, 0);
-           displayStructs ([near], dbRefGet errorDepth, pprint);
+           displayStructs ([near], ! errorDepth, pprint);
            ppEndBlock pprint ();
            ppEndBlock pprint ()
          ))
@@ -1272,7 +1257,7 @@ struct
       ( 
         ppAddString pprint ("While checking (" ^ name ^ ") near");
         ppBreak pprint (1, 2);
-        displayStructs ([sVal], dbRefGet errorDepth, pprint)
+        displayStructs ([sVal], ! errorDepth, pprint)
       );
 
   (* Error message routine for lookupType and lookupStructure. *)
@@ -1643,7 +1628,7 @@ struct
                 },
                 mustCopyType, makeTypeId, typeMap, strName);
   in
-      newSig
+	  makeCopy(sigName source, newSig, sigMinTypes newSig, sigMaxTypes newSig)
   end (* copySig *)
 
   (* Generate new entries for all the elements of the signature. *)
@@ -2314,7 +2299,8 @@ struct
              }
 		in
 			makeSigInto(str, Env checkedStructEnv, Env env, lno, strName, 0);
-			newSig
+			(* Make a copy to freeze it as immutable.*)
+			makeCopy(sigName, newSig, sigMinTypes newSig, sigMaxTypes newSig)
 		end
 
 		(* Constructs a signature and inserts it into an environment at a given offset.
@@ -2412,7 +2398,11 @@ struct
 				  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
 				  else ();
                   assignTypes (typeof, lookup, lex, line);
-                  #enterVal structEnv (name, mkFormal (name, SimpleValue, typeof, offset));
+				  (* The type is copied before being entered in the environment.
+				     This isn't logically necessary but has the effect of removing
+					 ref we put in for type constructions. *)
+                  #enterVal structEnv (name, mkFormal (name, SimpleValue,
+				        copyType (typeof, fn x => x, fn x => x), offset));
                   (offset + 1)
                 end
                

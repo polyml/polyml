@@ -328,6 +328,36 @@ fun PASCALFUNCTION3 (c1, c2, c3) cr =
 	in
 	mkConversion from to (Cfunction ([ctype1, ctype2, ctype3], ctyper))
  	end;
+	
+fun FUNCTION4 (c1, c2, c3, c4) cr =
+	let
+	val (from1,to1,ctype1) = breakConversion c1
+	val (from2,to2,ctype2) = breakConversion c2
+	val (from3,to3,ctype3) = breakConversion c3
+	val (from4,to4,ctype4) = breakConversion c4
+	val (fromr,tor,ctyper) = breakConversion cr
+	fun from v = raise Foreign "Conversion from C function to ML function is not implemented"
+	fun convF f [a,b,c,d] = tor(f(from1 a, from2 b, from3 c, from4 d))
+	  | convF _ _ = raise Union.Never "arg mismatch"
+	fun to f = toCfunction [ctype1, ctype2, ctype3, ctype4] ctyper (convF f)
+	in
+	mkConversion from to (Cfunction ([ctype1, ctype2, ctype3, ctype4], ctyper))
+ 	end;
+
+fun PASCALFUNCTION4 (c1, c2, c3, c4) cr =
+	let
+	val (from1,to1,ctype1) = breakConversion c1
+	val (from2,to2,ctype2) = breakConversion c2
+	val (from3,to3,ctype3) = breakConversion c3
+	val (from4,to4,ctype4) = breakConversion c4
+	val (fromr,tor,ctyper) = breakConversion cr
+	fun from v = raise Foreign "Conversion from C function to ML function is not implemented"
+	fun convF f [a,b,c,d] = tor(f(from1 a, from2 b, from3 c, from4 d))
+	  | convF _ _ = raise Union.Never "arg mismatch"
+	fun to f = toPascalfunction [ctype1, ctype2, ctype3, ctype4] ctyper (convF f)
+	in
+	mkConversion from to (Cfunction ([ctype1, ctype2, ctype3, ctype4], ctyper))
+ 	end;
 (*
 val FUNCTION : 'a Conversion * 'b Conversion -> ( 'a -> 'b ) Conversion
 val PASCALFUNCTION : 'a Conversion * 'b Conversion -> ( 'a -> 'b ) Conversion *)

@@ -1,0 +1,100 @@
+/*
+    Title:  scanaddrs.h - Scan addresses in objects
+
+    Copyright (c) 2006 David C.J. Matthews
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+*/
+
+#ifndef SCANADDRS_H_INCLUDED
+#define SCANADDRS_H_INCLUDED
+
+#include "globals.h"
+
+typedef enum {
+    PROCESS_RELOC_DIRECT = 0,           // 32 or 64 bit address of target
+    PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
+    PROCESS_RELOC_PPCDUAL16SIGNED,      // Power PC - two consecutive words - second is signed.
+    PROCESS_RELOC_PPCDUAL16UNSIGNED,    // Power PC - two consecutive words - second is unsigned
+    PROCESS_RELOC_SPARCDUAL,            // SPARC - two consecutive words
+    PROCESS_RELOC_SPARCRELATIVE         // Sparc - 30 bit relative address
+} ScanRelocationKind;
+
+class ScanAddress {
+public:
+    virtual ~ScanAddress() {} // Keeps gcc happy
+
+protected:
+    // Scan an address in the memory.  "pt" always points into an object.
+    // It is not called with pt pointing at a C++ automatic variable.
+    // Tagged integers have already been filtered out.
+    // The result is the length word of the object to use if the object
+    // is to be processed recursively or 0 if it should not be.
+    // Default action - call ScanObjectAddress for the base object address of
+    // the address.
+    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+
+public:
+    // The fundamental overridable for this class.  Takes the object address and returns
+    // the updated address.  If nothing else is overridden everything eventually comes here.
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) = 0;// { return base; }
+
+    typedef enum { STRENGTH_STRONG = 0, STRENGTH_WEAK = 1 } RtsStrength;
+
+    // Scan an address in the run-time system.  This normally just applies ScanObjectAddress
+    // but if this is a weak reference it can set *pt to NULL
+    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak = STRENGTH_STRONG)
+        { *pt = ScanObjectAddress(*pt); }
+
+    // Process a constant within the code.
+    // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
+    // ScanObjectAddress for the base address of the object referred to.
+    virtual void ScanConstant(byte *addressOfConstant, ScanRelocationKind code);
+
+    // Scan the objects in the region and process their addresses.  Applies ScanAddressesInObject
+    // to each of the objects.  The "region" argument points AT the first length word.
+    // Typically used to scan or update addresses in the mutable area.
+    void ScanAddressesInRegion(PolyWord *region, POLYUNSIGNED length);
+
+protected:
+    // General object processor.
+    // If the object is a word object calls ScanAddressesAt for all the addresses.
+    //
+    // If the object is a code object calls ScanAddressesAt for the constant area and
+    // calls (indirectly) ScanConstant, and by default ScanObjectAddress for addresses within
+    // the code
+    //
+    // If the object is a stack calls ScanStackAddress which calls ScanObjectAddress for
+    // addresses within the code.
+    void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+
+    void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
+
+    // Process a word found on the stack and return the (updated) value.  Stacks may contain
+    // code addresses and addresses within the current stack.  "isCode" is set to true for
+    // the program counter which may be a code address but not satisfy IsCodeObject.
+    // The default action is to ignore integers and addresses within the stack and to call
+    // ScanObjectAddress for the base addresses of all other addresses.
+    PolyWord ScanStackAddress(PolyWord val, void *valueAddress, StackObject *base, bool isCode);
+
+    // Extract a constant from the code.
+    static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
+public:
+    // Store a constant in the code.
+    static void SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code);
+};
+
+#endif

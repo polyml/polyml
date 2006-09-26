@@ -1037,14 +1037,24 @@ local
 	    val op > : (string * string) -> bool = op >
 	    val op >= : (string * string) -> bool = op >=
 	
-		(* TODO: This involves two comparisons.  It would be better to
-		   have a single RTS call which would return a value <0, =0, >0.
-		   In this version we do the equality test first since that will
-		   return immediately if the strings are not the same length. *)
-		fun compare (s1, s2) =
-			if s1 = s2 then General.EQUAL
-			else if s1 < s2 then General.LESS
-			else General.GREATER
+		local
+		(* The previous version of compare involved two tests.  This
+		   uses a single string comparison and then tests the result. *)
+			val strCompare: string*string->int =
+				RunCall.run_call2 POLY_SYS_str_compare
+		in
+			fun compare (s1, s2) =
+			let
+				val c = strCompare(s1, s2)
+			in
+				if c = 0
+				then General.EQUAL
+				else if c = 1
+				then General.GREATER
+				else General.LESS
+			end
+		end
+					
 		end (* String *)
 
 in

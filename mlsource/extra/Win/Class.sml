@@ -149,11 +149,12 @@ struct
 			 hIconSm: HICON option}
 
 		local
-			val WNDCLASSEX = STRUCT12(INT,WORD,INT,INT,INT,HINSTANCE,HGDIOBJOPT,
+		    val WNDPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
+			val WNDCLASSEX = STRUCT12(INT,WORD,WNDPROC,INT,INT,HINSTANCE,HGDIOBJOPT,
 									  HGDIOBJOPT,HGDIOBJOPT,RESID,STRING,HGDIOBJOPT)
 			val (fromCwndclassex, toCwndclassex, wndclassEx) = breakConversion WNDCLASSEX
 			val CallWindowProc =
-				call5 (user "CallWindowProcA") (INT, HWND, INT, POINTER, POINTER) INT
+				call5 (user "CallWindowProcA") (WNDPROC, HWND, INT, POINTER, POINTER) INT
 		in
 			fun RegisterClassEx({style: Style.flags, 
 								wndProc: HWND * Message * 'a -> LRESULT option * 'a,
@@ -167,8 +168,7 @@ struct
 			let
 				(* The window procedure we pass to the C call is our dispatch function
 				   in the RTS. *)
-				val windowProc: int =
-					RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
+				val windowProc = Message.mainCallbackFunction
 				val cWndClass =
 					toCwndclassex(sizeof wndclassEx,
 						Style.toWord style,
@@ -195,7 +195,7 @@ struct
 			fun GetClassInfoEx(hInst, class): 'a WNDCLASSEX =
 			let
 				val v =
-					toCwndclassex(sizeof wndclassEx, 0w0, 0, 0, 0, hNull, 
+					toCwndclassex(sizeof wndclassEx, 0w0, fn _ => 0, 0, 0, hNull, 
 								  NONE, NONE, NONE, IdAsInt 0, "", NONE)
 				val res = call3(user "GetClassInfoExA") (HINSTANCE, STRING, POINTER)
 							(SUCCESSSTATE "GetClassInfoEx") (hInst, class, address v)

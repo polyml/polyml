@@ -314,23 +314,6 @@ sig
   val structureEq: word * word -> bool;
 end (* CODETREE export signature *) =
 
-let
-
-(*****************************************************************************)
-(*                  STRETCHARRAY                                             *)
-(*****************************************************************************)
-structure STRETCHARRAY :
-sig
-  type 'a stretchArray
-
-  val stretchArray : int * '_a -> '_a stretchArray
-  val sub          : 'a stretchArray * int -> 'a
-  val update       : '_a stretchArray * int * '_a -> unit
-  val length	   : 'a stretchArray -> int
-end = StretchArray
-   
-in
-
 (*****************************************************************************)
 (*                  CODETREE functor body                                    *)
 (*****************************************************************************)
@@ -339,7 +322,7 @@ struct
   open DEBUGSWITCH;
   open PRETTYPRINTER;
   open ADDRESS;
-  open STRETCHARRAY;
+  open StretchArray;
   open MISC; (* after ADDRESS, so we get MISC.length, not ADDRESS.length *)
   open RuntimeCalls; (* for POLY_SYS numbers and EXC_nil *)
   
@@ -899,7 +882,7 @@ struct
 		 real operations don't raise exceptions (we don't get overflow
 		 exceptions) so are safe.  *)
    	  val safeCalls =
-	  	[POLY_SYS_strconcat, POLY_SYS_substring, POLY_SYS_get_length,
+	  	[POLY_SYS_get_length,
 		 POLY_SYS_get_flags, (* POLY_SYS_alloc_store, - can raise Size *)
 		 POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
 		 POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
@@ -913,11 +896,11 @@ struct
 		 POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
 		 POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
 		 POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
-		 POLY_SYS_int_to_word, POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
+		 POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
 		 POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
 		 POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
 		 POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
-		 POLY_SYS_string_sub, POLY_SYS_mul_word, POLY_SYS_plus_word,
+		 POLY_SYS_mul_word, POLY_SYS_plus_word,
 		 POLY_SYS_minus_word, POLY_SYS_or_word,
 		 POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
 		 POLY_SYS_word_geq, POLY_SYS_word_leq,
@@ -954,7 +937,7 @@ struct
       val safeForImmutable =
 	  	[POLY_SYS_get_flags, POLY_SYS_load_byte, POLY_SYS_load_word]
    	  val safeCalls =
-	  	[POLY_SYS_strconcat, POLY_SYS_substring, POLY_SYS_get_length,
+	  	[POLY_SYS_get_length,
 		 POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
 		 POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
 		 POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
@@ -968,11 +951,11 @@ struct
 		 POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
 		 POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
 		 POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
-		 POLY_SYS_int_to_word, POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
+		 POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
 		 POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
 		 POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
 		 POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
-		 POLY_SYS_string_sub, POLY_SYS_mul_word, POLY_SYS_plus_word,
+		 POLY_SYS_mul_word, POLY_SYS_plus_word,
 		 POLY_SYS_minus_word, POLY_SYS_div_word, POLY_SYS_or_word,
 		 POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
 		 POLY_SYS_mod_word, POLY_SYS_word_geq, POLY_SYS_word_leq,
@@ -1185,14 +1168,14 @@ DCJM 2000.
 					fun tabul n l =
 						if n = size
 						then l
-					 	else if STRETCHARRAY.sub(vec, n)
+					 	else if StretchArray.sub(vec, n)
 						then tabul (n+1) (n::l)
 						else tabul (n+1) l
 				in
 					tabul 0 []
 				end
-				val localLength = STRETCHARRAY.length localUses
-				and argLength = STRETCHARRAY.length argUses
+				val localLength = StretchArray.length localUses
+				and argLength = StretchArray.length argUses
 				val localSaved = tabulate(localLength, localUses)
 				and argSaved = tabulate(argLength, argUses)
 			in
@@ -1209,24 +1192,24 @@ DCJM 2000.
 					else case f of
 						[] =>
 							(
-								STRETCHARRAY.update(t, i, false);
+								StretchArray.update(t, i, false);
 								copyArray (i-1) [] t
 							)
 					|	head :: tail =>
 						if head = i
 						then 
 							(
-								STRETCHARRAY.update(t, i, true);
+								StretchArray.update(t, i, true);
 								copyArray (i-1) tail t
 							)
 						else
 							(
-								STRETCHARRAY.update(t, i, false);
+								StretchArray.update(t, i, false);
 								copyArray (i-1) f t
 							)
 			in
-				copyArray (STRETCHARRAY.length argUses -1) args argUses;
-				copyArray (STRETCHARRAY.length localUses -1) locals localUses;
+				copyArray (StretchArray.length argUses -1) args argUses;
+				copyArray (StretchArray.length localUses -1) locals localUses;
 				closureUses := !clos
 		  	end;
 
@@ -1237,7 +1220,7 @@ DCJM 2000.
 				fun addArray [] t = ()
 				 |  addArray (head::tail) t =
 						(
-						STRETCHARRAY.update(t, head, true);
+						StretchArray.update(t, head, true);
 						addArray tail t
 						)
 			in
@@ -1476,7 +1459,7 @@ DCJM 2000.
 		     taking a unit argument will not use it. *)
 		  fun addKills n =
 		     if n > numArgs then nil
-			 else if not (STRETCHARRAY.sub(argUses, n))
+			 else if not (StretchArray.sub(argUses, n))
 			 then mkGenLoad(~n, 0, true, true) :: addKills (n+1)
 			 else addKills (n+1)
 
@@ -2869,6 +2852,9 @@ DCJM 2000.
 
 			val nArgs = List.length argList
             val copiedArgs = copy argList (~nArgs);
+			(* Create an immutable vector from the parameter array to reduce the
+			   amount of mutable data, *)
+			val frozenParams = StretchArray.vector paramVec
 
 			(* All declarations should be of positive addresses. *)
             fun setNewTabForInline (addr, v) = update (localNewVec, addr, SOME v)
@@ -2911,7 +2897,7 @@ DCJM 2000.
 		                   val optVal =
 		                     if index > 0
 		                     then getSome (localVec sub index) (* locals *)
-		                     else getSome (paramVec sub ~index) (* parameters *)
+		                     else getSome (Vector.sub(frozenParams, ~index)) (* parameters *)
 		                 in
 		                   changeLevel optVal (depth - nestingOfThisProcedure)
 		                 end
@@ -2987,7 +2973,7 @@ DCJM 2000.
 						  | filterArgs' n (arg :: rest) =
 						  	let
 								(* Is this simply passing the original argument value?  *)
-								val original = getSome (paramVec sub n)
+								val original = getSome (Vector.sub(frozenParams, n))
 								val unChanged =
 									case (arg, optGeneral original) of
 										(Constnt w, Constnt w') =>
@@ -3075,7 +3061,7 @@ DCJM 2000.
 								simpleOptVal(mkLoad(getParamNo index, depth-nesting))
 							 else (* Unchanged - get the entry from the table, converting
 							 		 the level because it's in the surrounding scope. *)
-							 	changeLevel (getSome (paramVec sub ~index)) (depth-nesting+1)
+							 	changeLevel (getSome (Vector.sub(frozenParams, ~index))) (depth-nesting+1)
 			            |  prev (ptr as { addr=index, ...}, depth, levels) =
 								(optEnviron funct) (ptr, depth, levels - 1);
 
@@ -3163,7 +3149,7 @@ DCJM 2000.
 							 then (* This argument changes - must use a variable even if
 							 		 the original argument was a constant. *)
 								simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
-							 else getSome (paramVec sub ~index) (* parameters *)
+							 else getSome (Vector.sub(frozenParams, ~index)) (* parameters *)
 		                 in
 		                   changeLevel optVal (depth - nestingOfThisProcedure)
 		                 end
@@ -3211,7 +3197,7 @@ DCJM 2000.
 							then makeDecs (n-1) isCall
 							else
 							let
-								val argVal = getGeneral(getSome (paramVec sub n))
+								val argVal = getGeneral(getSome (Vector.sub(frozenParams, n)))
 								val argDec =
 								(* If we are calling a function we just put the
 								   argument values in. *)
@@ -3242,7 +3228,9 @@ DCJM 2000.
 					then simpleOptVal(BeginLoop(getGeneral procBody, makeDecs nArgs false))
 					else procBody
 				end			  
-          in 
+          in
+		    StretchArray.freeze localVec;
+			StretchArray.freeze localNewVec;
            (* The result is the result of the body of the inline procedure. *)
            (* The declarations needed for the inline procedure, the         *)
            (* declarations used to load the arguments and the declarations  *)
@@ -3375,7 +3363,7 @@ DCJM 2000.
 		  val cleanedBody =
 		  	cleanProc(getGeneral newCode, checkRecursion, nesting)
 
-        in
+          val resultCode =
 			case lambdaInline of
 				OnlyInline =>
 				(* Used only for functors.  Don't compile now. Return the processed
@@ -3430,7 +3418,7 @@ DCJM 2000.
 		              special = original,
 		              environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
 					  decs    = [],
-					  recCall = ref false
+					  recCall = ref false (* *** REF HOTSPOT; Contributes many refs to the environment. *)
 		            }
 
 			|	_ => (* "Normal" function.  If the function is small we mark it as
@@ -3482,9 +3470,13 @@ DCJM 2000.
 			             },
 		              environ = lookupNewAddr,
 					  decs    = [],
-					  recCall = ref false
+					  recCall = ref false (* *** REF HOTSPOT; Contributes many refs to the environment. *)
 		            }
 			end
+        in
+		    StretchArray.freeze oldAddrTab;
+			StretchArray.freeze newAddrTab;
+		    resultCode
         end (* Lambda{...} *)
            
      |  optimise (pt as Constnt _, _) =
@@ -4077,10 +4069,12 @@ DCJM 2000.
 
         val gen  = if !allConsts then makeConstVal newRec else newRec;
         val spec = Recconstr (#spec_args newDecs);
+		
+		val vec = StretchArray.vector newTab
         
         fun env ({addr, ...}:loadForm, depth, levels) : optVal =
           changeLevel
-            (getSome (newTab sub addr))
+            (getSome (Vector.sub(vec, addr)))
             (depth - nestingOfThisProcedure)
       
       in
@@ -4379,19 +4373,25 @@ DCJM 2000.
 		);
       
       fun eval pt = evaluate (preCodeAndPrint pt) codeGenAndPrint;
-    in  
-      optimiseProc
-        (pt,
-         lookupNewAddr,
-		 lookupOldAddr,
-         enterDec,
-		 enterNewDec,
-         0, (* nesting *)
-         ref 1,
-         false, (*Not inline*)
-         eval,
-		 NONE,
-		 [])
+	  
+	  val resultCode =
+          optimiseProc
+            (pt,
+             lookupNewAddr,
+    		 lookupOldAddr,
+             enterDec,
+    		 enterNewDec,
+             0, (* nesting *)
+             ref 1,
+             false, (*Not inline*)
+             eval,
+    		 NONE,
+    		 [])
+    in
+	    (* Turn the arrays into vectors. *)
+		StretchArray.freeze oldAddrTab;
+		StretchArray.freeze newAddrTab;
+	    resultCode
     end; (* insertedCode *)
     
     val gen  = optGeneral insertedCode;
@@ -4595,6 +4595,4 @@ DCJM 2000.
       end
   end; (* genCode *)
 
-end (* CODETREE functor body *)
-
-end (* structure-level let *);
+end (* CODETREE functor body *);

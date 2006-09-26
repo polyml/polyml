@@ -513,7 +513,7 @@ struct
 					fun copyToBuf (i, c): unit =
 						assign Cchar (offset (i + !off) Cchar v) (toCint(Word8.toInt c))
 				in
-					Word8Vector.appi copyToBuf (driverPrivate, 0, NONE)
+					Word8Vector.appi copyToBuf driverPrivate
 				end;
 
 				address v

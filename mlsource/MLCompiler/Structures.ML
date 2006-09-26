@@ -34,6 +34,5 @@ structure Structures =
     structure ADDRESS    = Address
     structure ARRAY      = Array
     structure STRETCHARRAY = StretchArray
-    structure CREATEDATABASE = CreateDatabase
 	structure DEBUGGER   = Debugger
   );

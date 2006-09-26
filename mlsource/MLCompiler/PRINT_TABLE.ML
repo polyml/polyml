@@ -42,16 +42,6 @@
 functor PRINT_TABLE (
 
 (*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbList
-  val dbListCreate : (unit -> '_a) * '_a list -> '_a dbList
-  val dbListToList : 'a dbList -> 'a list
-end
-
-(*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
 structure STRUCTVALS :
@@ -108,118 +98,80 @@ end =
 (*****************************************************************************)
 struct
   open STRUCTVALS;
-  open CREATEDATABASE;
   open PRETTYPRINTER;
   open MISC;
   type overloadEntry = string * typeConstrs * codetree;
-  
-  (* On entering a new database level, create a new printable ref *)
-  fun newOverloadLevel () : overloadEntry list ref = ref [] 
 
-  (* Create a dbList of refs. The number of refs in the list depends on which
-     level of the database hierarchy we're running in.  *)
-  val overloadTable : overloadEntry list ref dbList = 
-    dbListCreate (newOverloadLevel, [newOverloadLevel ()]);
+  (* Create a ref to hold the list *)
+  val overloadTable : overloadEntry list ref = ref []
     
   (* The most recent ref refers to the current level of the hierarchy,
      so is the one we should update. *)
   fun addOverload (name, cons, overload) = 
-    case dbListToList overloadTable of
-      [] => raise InternalError "Overload table initialisation error"
-    | (thisLevel :: otherLevels) =>
-		let
-			(* Remove any existing occurrences of the type
-			   at this level. The only reason is to allow any
-			   existing function to be garbage-collected. *)
-			fun filter [] = []
-			  | filter ((this as (n, t, _)) :: rest) =
-			  		if n = name andalso
-						 sameTypeId (tcIdentifier cons, tcIdentifier t)
-					then filter rest
-					else this :: filter rest
-		in
-			thisLevel := (name, cons, overload) :: filter (!thisLevel)
-		end
+	let
+		(* Remove any existing occurrences of the type. The only reason
+		   is to allow any existing function to be garbage-collected. *)
+		fun filter [] = []
+		  | filter ((this as (n, t, _)) :: rest) =
+		  		if n = name andalso
+					 sameTypeId (tcIdentifier cons, tcIdentifier t)
+				then filter rest
+				else this :: filter rest
+	in
+		overloadTable := (name, cons, overload) :: filter (!overloadTable)
+	end
   
   (* Return all the overloads for a particular identifier. *)
   fun getOverloads name =
   let
-    fun search []                         = []
-      | search (thisLevel :: otherLevels) =
-	    let
-	      fun searchList []         = search otherLevels
-	      |   searchList ((n,t,v)::rest) = 
-	            if name = n then (t, v) :: searchList rest else searchList rest
-	    in
-	      searchList (!thisLevel)
-	    end
+      fun searchList []         = []
+      |   searchList ((n,t,v)::rest) = 
+            if name = n then (t, v) :: searchList rest else searchList rest
   in
-    search (dbListToList overloadTable) 
+      searchList (! overloadTable) 
   end;
 
   (* Return the first matching overload or call mkDefault.  *)
   fun getOverload(name, constr, mkDefault) =
   let
-    fun search []                         = mkDefault()
-      | search (thisLevel :: otherLevels) =
-	    let
-	      fun searchList []         = search otherLevels
-	      |   searchList ((n,t,v)::rest) = 
-	            if name = n andalso
-					sameTypeId (tcIdentifier constr, tcIdentifier t)
-				then v else searchList rest
-	    in
-	      searchList (!thisLevel)
-	    end
+      fun searchList []         = mkDefault()
+      |   searchList ((n,t,v)::rest) = 
+            if name = n andalso
+				sameTypeId (tcIdentifier constr, tcIdentifier t)
+			then v else searchList rest
   in
-    search (dbListToList overloadTable) 
+      searchList (! overloadTable) 
   end;
   	
   (* TODO: Treat the pretty print functions as just another form of
      overloading except that we only want the most recent occurrence. *)
   type printEntry = typeId *
   						(prettyPrinter -> int -> word -> word -> unit);
-  
-  (* On entering a new database level, create a new printable ref *)
-  fun newLevel () : printEntry list ref = ref [] 
 
-  (* Create a dbList of refs. The number of refs in the list depends on which
-     level of the database hierarchy we're running in.  *)
-  val printTable : printEntry list ref dbList = 
-    dbListCreate (newLevel, [newLevel ()]);    
-  (* The most recent ref refers to the current level of the hierarchy,
-     so is the one we should update. *)
+  (* Create a ref to hold the list.  *)
+  val printTable : printEntry list ref = ref [];
+   
   fun addPp (consid, pproc) = 
-    case dbListToList printTable of
-      [] => raise InternalError "Print table initialisation error"
-    | (thisLevel :: otherLevels) =>
-		let
-			(* Remove any existing occurrences of the identifier
-			   at this level. The only reason is to allow any
-			   existing function to be garbage-collected. *)
-			fun filter [] = []
-			  | filter ((this as (i, _)) :: rest) =
-			  		if sameTypeId (i, consid)
-					then filter rest
-					else this :: filter rest
-		in
-			thisLevel := (consid,pproc) :: filter (!thisLevel)
-		end
+     let
+		(* Remove any existing occurrences of the type. The only reason
+		   is to allow any existing function to be garbage-collected. *)
+		fun filter [] = []
+		  | filter ((this as (i, _)) :: rest) =
+		  		if sameTypeId (i, consid)
+				then filter rest
+				else this :: filter rest
+	 in
+		printTable := (consid,pproc) :: filter (!printTable)
+     end
   
   (* However, we should search ALL the refs when we lookup a constructor *)
   fun getPrint id =
   let
-    fun search []                         = raise ValueMissing ""
-      | search (thisLevel :: otherLevels) =
-    let
-      fun searchList []         = search otherLevels
+      fun searchList []         = raise ValueMissing ""
       |   searchList ((i,p)::t) = 
             if sameTypeId (i, id) then p else searchList t;
-    in
-      searchList (!thisLevel)
-    end
   in
-    search (dbListToList printTable) 
+      searchList (! printTable) 
   end;
   
 end;

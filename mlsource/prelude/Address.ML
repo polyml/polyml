@@ -182,7 +182,7 @@ struct
     RunCall.run_call1 POLY_SYS_get_flags;
 
   val setFlags: address * short -> unit =
-    RunCall.run_call2 POLY_SYS_set_flags;
+    RunCall.run_call2 POLY_SYS_code_flags;
 
   val wordSize: int =
     RunCall.run_call0 POLY_SYS_bytes_per_word ();

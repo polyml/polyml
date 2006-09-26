@@ -32,9 +32,9 @@ functor TYPE_TREE (
 (*****************************************************************************)
 (*                  SYSTEM                                                   *)
 (*****************************************************************************)
-structure SYSTEM :
+structure ADDRESS :
 sig
-  val pointerEq: 'a * 'a -> bool
+  val wordEq: 'a * 'a -> bool
 end;
 
 (*****************************************************************************)
@@ -42,19 +42,9 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
-  val errorDepth: int dbRef
+  val errorDepth: int ref
   val ml90: bool ref
   val printTypesWithStructureName : bool ref;
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet : 'a dbRef -> 'a
 end;
 
 (*****************************************************************************)
@@ -79,6 +69,10 @@ sig
   type values;
   type typeConstrs;
   type typeId;
+  
+  datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
+  val pling: 'a possRef -> 'a
+  val updatePR: 'a possRef * 'a -> unit
 
   (* A type is the union of these different cases. *)
   type typeVarForm;
@@ -88,7 +82,7 @@ sig
   | TypeConstruction of (* typeConstructionForm *)
       {
         name:  string,
-        value: typeConstrs ref,
+        value: typeConstrs possRef,
         args:  types list
       }
 
@@ -138,7 +132,10 @@ sig
   val tcLetDepth:        typeConstrs -> int;
   
   val makeTypeConstrs:
-  	string * types list * types * typeId * bool * int -> typeConstrs;
+  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  val makeFrozenTypeConstrs:
+  	string * types list * types * typeId *  bool * int-> typeConstrs;
+	
   val emptyType: types;
   
   val tvLevel:        typeVarForm -> int;
@@ -241,10 +238,6 @@ end;
 sharing type
   LEX.prettyPrinter
 = PRETTYPRINTER.prettyPrinter
-                   
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   PRINTTABLE.codetree
@@ -387,6 +380,7 @@ sig
   val realType:   types;
   val unitType:   types;
   val exnType:    types;
+  val wordType:   types;
   
   (* added 6/12/95 SPF *)
   val badType:    types;
@@ -406,7 +400,6 @@ struct
   open STRUCTVALS;
   open LEX;
   open UTILITIES;
-  open CREATEDATABASE;
   open CODETREE;
   open PRINTTABLE;
   
@@ -487,7 +480,21 @@ struct
       TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
       
   fun mkTypeConstruction (name, typc, args) =
-      TypeConstruction {name = name, value = ref typc, args = args};
+    let
+	    (* If we're building a type construction from a known constructor
+		   set it now and freeze it.  If we need to find it in a later
+		   pass make it a real ref.  The idea is to avoid having unnecessary
+		   mutable objects. *)
+		(* This is the ref hotspot in this module but has been reduced
+		   considerably now we copy types before entering them in signatures.
+		   It may be possible to reduce it further by copying datatype constructors. *)
+	    val typeCons =
+		   if isUnsetId (tcIdentifier typc)
+		   then VariableRef (ref typc)
+		   else FrozenRef typc
+	in
+        TypeConstruction {name = name, value = typeCons, args = args}
+	end;
 
 	local
 		(* Turn a tuple into a record of the form {1=.., 2=... }*)
@@ -549,13 +556,8 @@ struct
   end;
 
   (* Type identifiers bound to standard type constructors. *)
-  (* unit is equivalent to an empty record. *)
    
-  val unitType =
-    (
-      tcSetEquivalent (unitType, mkLabelled ([], true));
-       mkTypeConstruction ("unit", unitType, [])
-    );
+  val unitType = mkTypeConstruction ("unit", unitType, []);
    
   val intType    = mkTypeConstruction ("int",     intType,    []);
   val realType   = mkTypeConstruction ("real",    realType,   []);
@@ -563,7 +565,8 @@ struct
   val stringType = mkTypeConstruction ("string",  stringType, []);
   val boolType   = mkTypeConstruction ("bool",    boolType,   []);
   val exnType    = mkTypeConstruction ("exn",     exnType,    []);
-           
+  val wordType   = mkTypeConstruction ("word",    wordType,   []);
+          
   fun isUndefined cons = isUnsetId (tcIdentifier cons); 
 
   (* Similar to alphabetic ordering except that shorter labels come before longer ones.
@@ -596,7 +599,7 @@ struct
 		 seem that doing so ought to be perfectly harmless but it
 		 results in large number of expensive assignments to database
 		 variables. *)
-	  if SYSTEM.pointerEq(oldVal, newVal)
+	  if ADDRESS.wordEq(oldVal, newVal)
 	  then ()
 	  else tvSetValue (tv, newVal); (* Put it on *)
       case newVal of
@@ -716,39 +719,41 @@ struct
        lex : lexan, 
        lineno : int) 
       : unit =
-  let
-    fun assTypes (typ : types) () : unit =
-      case typ of
-        TypeConstruction {name: string, value: typeConstrs ref, args: types list} =>
-	  (* Assign constructor, then the parameters. *)
-	  if isUndefined (!value)
-	  then let 
-	    (* Must check that it has not already been set -
-	       We might have unitType from an empty record. *)
-	    val constructor : typeConstrs = lookupType name;
-	  in
-	    value := constructor;
-	    (* Check that it has the correct arity. *)
-	    if not (isUndefined constructor)
-	    then let
-	      val arity : int = tcArity constructor;
-	      val num   : int = length args;
-	    in
-	      if arity <> num
-	      then (* Give an error message *)
-	      errorMessage (lex, lineno,
-		  	String.concat["Type constructor (", tcName constructor,
-				") requires ", Int.toString arity, " type(s) not ",
-				Int.toString num])
-	      else ()
-	    end
-	    else ()
-	  end
-	  else ()
-	| _ => () (* not a TypeConstruction *)
-  in (* Apply this to all the types. *)
-    foldType assTypes t ()
-  end;
+    let
+        fun assTypes (typ : types) () : unit =
+            case typ of
+                TypeConstruction {name: string, value, args: types list} =>
+                (* Assign constructor, then the parameters. *)
+                    if isUndefined (pling value)
+                    then
+    				    let 
+                        (* Must check that it has not already been set -
+                           We might have unitType from an empty record. *)
+                            val constructor : typeConstrs = lookupType name;
+                        in
+                            updatePR(value, constructor);
+                            (* Check that it has the correct arity. *)
+                            if not (isUndefined constructor)
+                            then
+    						let
+                                val arity : int = tcArity constructor;
+                                val num   : int = length args;
+                            in
+                                if arity <> num
+                                then (* Give an error message *)
+                                errorMessage (lex, lineno,
+                                    String.concat["Type constructor (", tcName constructor,
+                                        ") requires ", Int.toString arity, " type(s) not ",
+                                        Int.toString num])
+                                else ()
+                            end
+                            else ()
+                        end
+                    else ()
+            | _ => () (* not a TypeConstruction *)
+    in (* Apply this to all the types. *)
+        foldType assTypes t ()
+    end;
 
   (* Checks to see whether a labelled record is in the form of
      a product i.e. 1=, 2=   We only need this for prettyprinting.
@@ -839,9 +844,9 @@ struct
 		end
 	  
      (* Type construction with no arguments *)
-     | TypeConstruction {args = [], name, value = ref tc, ...} =>
+     | TypeConstruction {args = [], name, value, ...} =>
 	 	 let
-		 	val constrName = if isUndefined tc then name else tcName tc
+		 	val constrName = if isUndefined(pling value) then name else tcName(pling value)
 		 in
 		 	(* When printing a type constructor we remove any structure name if  *)
             ppAddString pprint
@@ -849,7 +854,7 @@ struct
 		 end
         
      (* Type construction with one or more arguments - print out as (a, b, c) cons *)
-     | TypeConstruction {args, name, value = ref tc, ...} =>
+     | TypeConstruction {args, name, value, ...} =>
 	   if depth <= 0
 	   then ppAddString  pprint "..."
 	   else
@@ -859,7 +864,7 @@ struct
 		 (* Use the name of the type constructor to which this is bound
 		    if it is defined.  *)
 		 val tcName =
-		 	if isUndefined tc then name else tcName tc
+		 	if isUndefined(pling value) then name else tcName(pling value)
        in
 		 ppBeginBlock pprint (0, false);
 		 
@@ -1247,11 +1252,11 @@ struct
          ppBeginBlock pprint (3, false);
          ppAddString pprint s1;
          ppBreak pprint (1, 0);
-         tDisp (alpha, dbRefGet errorDepth, pprint, vars);
+         tDisp (alpha, ! errorDepth, pprint, vars);
          ppBreak pprint (1, 0);
          ppAddString pprint s2;
          ppBreak pprint (1, 0);
-         tDisp (beta, dbRefGet errorDepth, pprint, vars);
+         tDisp (beta, ! errorDepth, pprint, vars);
          ppBreak pprint (1, 0);
          ppAddString pprint s3;
          ppBreak pprint (1, 0);
@@ -1266,7 +1271,7 @@ struct
      when copying signatures. Rewritten using pattern-matching.
      SPF 17/11/94. *)
   fun equalTypes (TypeConstruction x)  (TypeConstruction y) = 
-      sameTypeId (tcIdentifier (! (#value x)), tcIdentifier(! (#value y)))
+      sameTypeId (tcIdentifier (pling(#value x)), tcIdentifier(pling(#value y)))
         andalso equalTypeLists (#args x) (#args y)
     
    | equalTypes (FunctionType x) (FunctionType y) = 
@@ -1304,13 +1309,13 @@ struct
      around a flag saying whether the structures were copied. This is only an
      optimisation. If the values are different it will not go wrong. *)
   val identical : types * types -> bool = 
-    SYSTEM.pointerEq;
+    ADDRESS.wordEq;
 
   val identicalConstr : typeConstrs * typeConstrs -> bool =
-    SYSTEM.pointerEq;
+    ADDRESS.wordEq;
 
   val identicalList : 'a list * 'a list -> bool =
-    SYSTEM.pointerEq;
+    ADDRESS.wordEq;
 
   (* Copy a type, avoiding copying type structures unnecessarily.
      Used to make new type variables for all distinct type variables when
@@ -1349,7 +1354,7 @@ struct
     | TypeConstruction {name, value, args} => 
       let
 		val copiedArgs   = copyList args;
-		val copiedConstr = copyTypeConstr (! value);
+		val copiedConstr = copyTypeConstr (pling value);
 		(* Use the name from the copied constructor.  This will normally
 		   be the same as the original EXCEPT in the case where we are
 		   using copyType to generate copies of the value constructors of
@@ -1357,7 +1362,11 @@ struct
 		val copiedName = tcName copiedConstr
       in
 		if identicalList   (copiedArgs, args) andalso
-		   identicalConstr (copiedConstr, !value)
+		   identicalConstr (copiedConstr, pling value)
+		   (* Although it's logically unnecessary we also copy it if we have
+		      a ref pointing to the constructor.  This reduces the number of
+			  refs left around. *)
+		   andalso (case value of FrozenRef _ => true | _ => false)
 		then atyp 
 		else (* Must copy it. *) 
 		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs)
@@ -1559,11 +1568,11 @@ struct
   let
 	fun checkTypes (typ: types) (ok: bool) : bool =
 		case typ of
-			TypeConstruction {value=ref typCons, ...} =>
-				if ok andalso tcLetDepth typCons > depth
+			TypeConstruction {value, ...} =>
+				if ok andalso tcLetDepth (pling value) > depth
 				then
 					(
-					errorFn("Type contains local datatype (" ^ tcName typCons ^")");
+					errorFn("Type contains local datatype (" ^ tcName  (pling value) ^")");
 					false
 					)
 				else true
@@ -1675,7 +1684,7 @@ struct
     
    | TypeConstruction {value, args, ...} =>
      let
-	val constr = !value;
+        val constr = pling value;
       in
 	if isUndefined constr
 	  then No
@@ -2114,7 +2123,10 @@ struct
 		(* This originally just checked a single level of expansion.  I've
 		   now turned it into a function to handle arbitrary levels. e.g.
 		   (('a, 'b) x, 'c) x   DCJM 22/8/00. *)
-		fun checkRealError (TypeConstruction {value = ref constr, args, ...}) =
+		fun checkRealError (TypeConstruction {value, args, ...}) =
+            let
+			    val constr = pling value
+			in
 		      isEmpty (tcEquivalent constr) orelse
 			      let
 			        (* expand type constructor to get its body *)
@@ -2122,6 +2134,7 @@ struct
 			      in
 				  	checkRealError equiv
 			      end
+			end
 		  | checkRealError (TypeVar tv) =
 			    (* is it the same type variable that we started with? *)
 		  		not (sameTv (tv, var))
@@ -2324,9 +2337,11 @@ struct
 		  | typB => match (tA, typB, (*mapA, *)trivMap)
 		)
               
-      | (TypeConstruction({value = ref tACons, args=tAargs, ...}), 
-	  	 TypeConstruction ({value=ref tBCons, args=tBargs, ...})) =>
-		(
+      | (TypeConstruction({value = valueA, args=tAargs, ...}), 
+	  	 TypeConstruction ({value = valueB, args=tBargs, ...})) =>
+		let
+		    val tACons = pling valueA and tBCons = pling valueB
+		in
 		(* We may have a number of possibilities here.
 	     a) If tA is an alias we simply expand it out and recurse (even
 		 if tB is the same alias). e.g. if we have string t where
@@ -2344,93 +2359,119 @@ struct
 		else if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
 		then match (tA, makeEquivalent (tBCons, tBargs), (*trivMap, *)mapB)
 		else case mapB tB of
-			(typB as TypeConstruction({value=ref typeBCons, args=typeBargs, ...})) =>
-			(* If the typeB is an alias it must be expanded. *)
-				if not(isUndefined typeBCons) andalso
-					not(isEmpty (tcEquivalent typeBCons))
-				then match (tA, makeEquivalent (typeBCons, typeBargs),
-														  (*trivMap, *)trivMap)
-				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
-				then let (* Same type constructor - do the arguments match? *)
-					fun matchLists []      []    = ()
-					  | matchLists (a::al) (b::bl) =
-					  (  
-					    match (a, b, (*trivMap, *)trivMap);
-					    matchLists al bl
-					  )
-					  | matchLists _ _ = (* This should only happen as a result of
-					  						a different error. *)
-					  		cantMatch (Atype, mapB Btype, "(Different numbers of arguments)")
-				      in
-						matchLists tAargs typeBargs
-				      end
-				else cantMatch (tA, typB, "(Different type constructors)")
+			(typB as TypeConstruction({value=valueB, args=typeBargs, ...})) =>
+                let
+				    val typeBCons = pling valueB
+				in
+    			(* If the typeB is an alias it must be expanded. *)
+    				if not(isUndefined typeBCons) andalso
+    					not(isEmpty (tcEquivalent typeBCons))
+    				then match (tA, makeEquivalent (typeBCons, typeBargs),
+    														  (*trivMap, *)trivMap)
+    				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
+    				then let (* Same type constructor - do the arguments match? *)
+    					fun matchLists []      []    = ()
+    					  | matchLists (a::al) (b::bl) =
+    					  (  
+    					    match (a, b, (*trivMap, *)trivMap);
+    					    matchLists al bl
+    					  )
+    					  | matchLists _ _ = (* This should only happen as a result of
+    					  						a different error. *)
+    					  		cantMatch (Atype, mapB Btype, "(Different numbers of arguments)")
+    				      in
+    						matchLists tAargs typeBargs
+    				      end
+    				else cantMatch (tA, typB, "(Different type constructors)")
+				end
 		|	typB => (* Mapping the construction gave us something
 					   other than a construction. *)
 			  match (tA, typB, (*trivMap, *)trivMap)
-	  	)
+	  	end
 
-	  | (OverloadSet {typeset}, TypeConstruction {value=ref tBCons, args=tBargs, ...}) =>
+	  | (OverloadSet {typeset}, TypeConstruction {value=valueB, args=tBargs, ...}) =>
 	  	(* The candidate is an overloaded type and the target is a type
 		   construction. *)
-		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
-		then match (tA, makeEquivalent (tBCons, tBargs), (*mapA, *)mapB)
-		else
-			(
-			case mapB tB of
-				typB as TypeConstruction{value = ref typeBCons, args=typeBargs, ...} =>
-				if isUndefined typeBCons
-				then ()
-				else if not(isEmpty (tcEquivalent typeBCons))
-				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
-				else (* See if the target type is among those in the overload set. *)
-					if isNil typeBargs (* Must be a nullary type constructor. *)
-						andalso isInSet(tBCons, typeset)
-				then () (* ok. *)
-				else cantMatch (tA, typB, "(Overloading does not include type)")
-			| typB => match (tA, typB, (*mapA,*) trivMap)
-			)
+        let
+		    val tBCons = pling valueB
+		in
+    		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+    		then match (tA, makeEquivalent (tBCons, tBargs), (*mapA, *)mapB)
+    		else
+    			(
+    			case mapB tB of
+    				typB as TypeConstruction{value=valueB, args=typeBargs, ...} =>
+					let
+					    val typeBCons = pling valueB
+					in
+        				if isUndefined typeBCons
+        				then ()
+        				else if not(isEmpty (tcEquivalent typeBCons))
+        				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
+        				else (* See if the target type is among those in the overload set. *)
+        					if isNil typeBargs (* Must be a nullary type constructor. *)
+        						andalso isInSet(tBCons, typeset)
+        				then () (* ok. *)
+        				else cantMatch (tA, typB, "(Overloading does not include type)")
+					end
+    			| typB => match (tA, typB, (*mapA,*) trivMap)
+    			)
+		end
 
-      | (TypeConstruction {value=ref tACons, args=tAargs, ...}, OverloadSet {typeset}) =>
-		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
-		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
-		(* We should never find an overload set as the target for a signature
-		   match but it is perfectly possible for tB to be an overload set
-		   when unifying two types.  *)
-		else if isNil tAargs andalso isInSet(tACons, typeset)
-		then () (* ok. *)
-		else cantMatch (tA, mapB tB, "(Overloading does not include type)")
+      | (TypeConstruction {value=valueA, args=tAargs, ...}, OverloadSet {typeset}) =>
+        let
+		    val tACons = pling valueA
+		in
+    		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+    		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
+    		(* We should never find an overload set as the target for a signature
+    		   match but it is perfectly possible for tB to be an overload set
+    		   when unifying two types.  *)
+    		else if isNil tAargs andalso isInSet(tACons, typeset)
+    		then () (* ok. *)
+    		else cantMatch (tA, mapB tB, "(Overloading does not include type)")
+		end
 		
 	  (* (OverloadSet , OverloadSet) should not occur because that should be
 	     handled in the (TypeVar, TypeVar) case. *)
 		
-      | (TypeConstruction({value = ref tACons, args=tAargs, ...}), _) =>
-		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
-		(* Candidate is an alias - expand it. *)
-		then match (makeEquivalent (tACons, tAargs), tB, mapB)
-		else (* typB not a construction (but typeA is) *)
-			cantMatch (tA, mapB tB, "(Incompatible types)")
+      | (TypeConstruction({value = valueA, args=tAargs, ...}), _) =>
+        let
+		    val tACons = pling valueA
+		in
+    		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+    		(* Candidate is an alias - expand it. *)
+    		then match (makeEquivalent (tACons, tAargs), tB, mapB)
+    		else (* typB not a construction (but typeA is) *)
+    			cantMatch (tA, mapB tB, "(Incompatible types)")
+		end
 		
-      | (_, TypeConstruction {value=ref tBCons, args=tBargs, ...}) => (* and typeA is not. *)
+      | (_, TypeConstruction {value=valueB, args=tBargs, ...}) => (* and typeA is not. *)
 		(* May have a type equivalence e.g. "string t" matches int*string if  type
 		   'a t = int * 'a . Alternatively we may be matching a structure to a signature
 		   where the signature says "type t" and the structure contains "type 
 		   t = int->int" (say). We need to set the type in the signature to int->int. *)
-		(
+		let
+		    val tBCons = pling valueB
+		in
 		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
 		then match (tA, makeEquivalent (tBCons, tBargs), mapB)
 		else
 			(
 			case mapB tB of
-				typB as TypeConstruction{value = ref typeBCons, args=typeBargs, ...} =>
-				if isUndefined typeBCons
-				then ()
-				else if not(isEmpty (tcEquivalent typeBCons))
-				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
-				else cantMatch (typB, tA, "(Incompatible types)")
+				typB as TypeConstruction{value = valueB, args=typeBargs, ...} =>
+				    let
+					    val typeBCons = pling valueB
+					in
+                        if isUndefined typeBCons
+        				then ()
+        				else if not(isEmpty (tcEquivalent typeBCons))
+        				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
+        				else cantMatch (typB, tA, "(Incompatible types)")
+                    end
 			| typB => match (tA, typB, trivMap)
 			)
-		)
+		end
 	     
 	  | (FunctionType {arg=typAarg, result=typAres, ...},
 	     FunctionType {arg=typBarg, result=typBres, ...}) =>
@@ -2560,12 +2601,16 @@ struct
 					end
 			  | _ => undefType (* Unbound or flexible record. *)
 			)
-  	 |  prefType(TypeConstruction{value=ref constr, args, ...}) =
-	  		if isEmpty (tcEquivalent constr)
-			then constr (* Generally args will be nil in this case but
-						   in the special case of looking for an equality
-						   function for 'a ref or 'a array it may not be.  *)
-			else prefType (makeEquivalent (constr, args))
+  	 |  prefType(TypeConstruction{value, args, ...}) =
+            let
+			    val constr = pling value
+			in
+    	  		if isEmpty (tcEquivalent constr)
+    			then constr (* Generally args will be nil in this case but
+    						   in the special case of looking for an equality
+    						   function for 'a ref or 'a array it may not be.  *)
+    			else prefType (makeEquivalent (constr, args))
+			end
   	 |  prefType _ = undefType
   in
   	prefType(firstArg f)
@@ -2590,7 +2635,7 @@ struct
            ppBeginBlock pprint (3, true);
            ppAddString pprint
               (opName ^ " is overloaded on " ^ types ^ " but not ");
-           display (arg, dbRefGet errorDepth, pprint);
+           display (arg, ! errorDepth, pprint);
            ppEndBlock pprint ()
          ))
   end (* overloadError *);
@@ -2637,7 +2682,7 @@ struct
 		         ppBeginBlock pprint (3, false);
 		         ppAddString pprint s1;
 		         ppBreak pprint (1, 0);
-		         tDisp (t, dbRefGet errorDepth, pprint, vars);
+		         tDisp (t, ! errorDepth, pprint, vars);
 		         ppBreak pprint (1, 0);
 		         ppAddString pprint s2;
 		         ppBreak pprint (1, 0);
@@ -2735,7 +2780,7 @@ struct
 				val name = "_" ^ genName(!count)
 				val _ = count := !count + 1;
 				val tCons =
-					makeTypeConstrs (name, [], emptyType, makeFreeId(),
+					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(),
 						tvEquality tvar, 0);
 	            val newVal = mkTypeConstruction(name, tCons, [])
 			in
@@ -2772,7 +2817,7 @@ struct
   let
     fun setTypeConstrVal t () = 
       if isTypeConstruction t 
-      then setTypeConstr(! (#value (typesTypeConstruction t)), makeId)
+      then setTypeConstr(pling (#value (typesTypeConstruction t)), makeId)
       else ();
   in
     foldType setTypeConstrVal t ()
@@ -2798,7 +2843,7 @@ struct
     
     if isTypeConstruction equiv
     then let
-      val t = ! (#value (typesTypeConstruction equiv));
+      val t = pling (#value (typesTypeConstruction equiv));
       (* Is it in the table already?  If so don't overwrite it. *)
     in
        (#lookup matchTab (tcIdentifier t); {}) (* bugfix 3/8/94 SPF *)
@@ -2926,7 +2971,7 @@ struct
 		 (
 			if isTypeConstruction AEquiv andalso 
 				eqArgs (#args (typesTypeConstruction AEquiv)) (tcTypeVars typeA)
-			then linkTypeConstructors (! (#value (typesTypeConstruction AEquiv)),
+			then linkTypeConstructors (pling (#value (typesTypeConstruction AEquiv)),
 					typeB, cantMatch)
 			else cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is a type function")
 		 )
@@ -2936,7 +2981,7 @@ struct
 			if isTypeConstruction BEquiv andalso 
 				eqArgs (#args (typesTypeConstruction BEquiv)) (tcTypeVars typeB)
 			then linkTypeConstructors (typeA,
-					! (#value (typesTypeConstruction BEquiv)), cantMatch)
+					pling (#value (typesTypeConstruction BEquiv)), cantMatch)
 			else cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is a type function")
 		 )
       
@@ -3075,9 +3120,9 @@ struct
 			This might arise as a result of a sharing constraint. *)
 			(
 			case toSetEquiv of
-				TypeConstruction { value = ref tc, args, ... } =>
+				TypeConstruction {value, args, ... } =>
 					if eqArgs args (tcTypeVars tcToSet)
-					then setWhereType (tc, equivTc, cantSet)
+					then setWhereType (pling value, equivTc, cantSet)
 					else cantSet ("Cannot apply type realisation: (" ^
 									 tcName tcToSet ^ ") is a type function")
 			| _ => cantSet ("Cannot apply type realisation: (" ^
@@ -3092,7 +3137,7 @@ struct
 		else if isTypeConstruction equivEquiv andalso
 	        eqArgs (#args (typesTypeConstruction equivEquiv)) (tcTypeVars equivTc)
 		then setWhereType (tcToSet,
-				! (#value (typesTypeConstruction equivEquiv)), cantSet)
+				pling (#value (typesTypeConstruction equivEquiv)), cantSet)
       
 		(* It must have a variable stamp.  The only way I can see that
 		   it might not be would be if another "where type" has already
@@ -3175,8 +3220,8 @@ struct
    | entryNumber (label, TypeVar tvar) =
       	entryNumber (label, tvValue tvar)
       
-   | entryNumber (label, TypeConstruction{value=ref equiv, ...}) = (* Type alias *)
-		entryNumber (label, tcEquivalent equiv)
+   | entryNumber (label, TypeConstruction{value, ...}) = (* Type alias *)
+		entryNumber (label, tcEquivalent(pling value))
       
    | entryNumber (label, _) =
    		raise InternalError "entryNumber - not a record"
@@ -3189,8 +3234,8 @@ struct
    | recordWidth (TypeVar tvar) =
       	recordWidth (tvValue tvar)
       
-   | recordWidth (TypeConstruction{value=ref equiv, ...}) = (* Type alias *)
-		recordWidth (tcEquivalent equiv)
+   | recordWidth (TypeConstruction{value, ...}) = (* Type alias *)
+		recordWidth (tcEquivalent(pling value))
       
    | recordWidth _ =
    		raise InternalError "entryNumber - not a record"
@@ -3225,7 +3270,7 @@ struct
       if isTypeConstruction typ
       then let
         val cons = typesTypeConstruction typ;
-        val constructor = ! (#value cons);
+        val constructor = pling (#value cons);
         val equiv = tcEquivalent constructor;
       in
         if not (isEmpty equiv)
@@ -3246,9 +3291,10 @@ struct
   (* Applied to type constructions (e.g. 'a list) to get the value
      constructors for the type constructor.  Used in the match compiler
      to find the number of constructors in a datatype. *)
-  fun getConstrList (TypeConstruction{value=ref constr, args, ...}) =
+  fun getConstrList (TypeConstruction{value, args, ...}) =
     let
-      val l      = tcConstructors constr
+        val constr = pling value
+        val l = tcConstructors constr
     in
       (* In a few cases it is possible for the value to be an equivalent. *)
       if isNil l andalso not(isEmpty(tcEquivalent constr))
@@ -3270,7 +3316,7 @@ struct
        a function returning a value. *)
     val construction =
       if isFunctionType t then #result(typesFunctionType t) else t;
-    val constructor  = ! (#value (typesTypeConstruction construction));
+    val constructor  = pling (#value (typesTypeConstruction construction));
     (* If the value constructor is in the list return it otherwise return
        the copied version. In fact the only case when it will not be in
        the list is if the list is empty. We have to check the types are

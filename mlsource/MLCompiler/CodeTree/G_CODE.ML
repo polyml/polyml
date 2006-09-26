@@ -55,7 +55,6 @@ sig
   val regNone:     reg;
   val regResult:   reg;
   val regClosure:  reg;
-  val regCode:     reg;
   val regStackPtr: reg;
   val regHandler:  reg;
   val regReturn:   reg;
@@ -3604,7 +3603,7 @@ struct
 		     into the argument registers. *)
           val (endOfArgs, argEntries) = pushArgs evaluatedArgs;
               
-          (* load regClosure/regCode *)
+          (* load regClosure *)
           val (codeAddrOpt, isIndirect, codeEntries, regsLocked) = loadProc ();
               
         in
@@ -3690,7 +3689,7 @@ struct
 	         (* the arguments are now all in their rightful places *)
 		 val argEntries = moveArgs argsOnPstack 0;
 	
-	 	 (* Now load regClosure/regCode as appropriate. We delay this
+	 	 (* Now load regClosure as appropriate. We delay this
 	 	    until now, because we don't want to zap regCode before
 	 	    we've loaded all the constant arguments. *)
 	 	 val (codeAddrOpt, isIndirect, callEntries, registersLocked) = loadProc ();
@@ -3774,8 +3773,7 @@ struct
 		val registerSet =
 			case clos of
 				SOME (Constnt w) =>
-					regSetUnion(listToSet(regClosure :: regCode :: argRegs),
-							getRegisterSet w)
+					regSetUnion(listToSet(regClosure :: argRegs), getRegisterSet w)
 			  | _ (* Recursive or not a constant. *) => allRegisters;
 
 		(* Add the registers to the set modified by this function.
@@ -3929,13 +3927,12 @@ struct
 	      [Constnt lengthCnst, Constnt flagsCnst, value] =>
 		 if isShort lengthCnst andalso isShort flagsCnst
 		 then let
-		   val flags : short = toShort flagsCnst;
+		   (* Allocstore always constructs mutable segments and sets the mutable bit. *)
+		   val flags : short = ADDRESS.Or(toShort flagsCnst, F_mutable);
 		 in
-		   if wordEq (flags, F_words) orelse
-		      wordEq (flags, F_mutable_words)
+		   if wordEq (flags, F_mutable_words)
 			  (* Add byte segments if/when we have byte assignment. *)
 			 (* orelse
-			  wordEq (flags, F_bytes) orelse
 		      wordEq (flags, F_mutable_bytes) *)
 		   then let (* only do easy cases *)
 		     val length : int = toInt (toShort lengthCnst);
@@ -3947,7 +3944,7 @@ struct
 		       val U : unit = incrUseCount (transtable, locn, length - 1) 
 		       val vec      = callgetvec (length, flags, whereto);
 		       val (storeKind, unitSize) =
-			   	  if wordEq (flags, F_words) orelse wordEq (flags, F_mutable_words)
+			   	  if wordEq (flags, F_mutable_words)
 				  then (STORE_WORD, wordSize)
 				  else (STORE_BYTE, 1)
 
@@ -4158,15 +4155,12 @@ struct
 	    val tailCall = isEndOfProc tailKind andalso not fpRel;
 	    val bodyCall = not tailCall;
   
-	    (* Load and lock regClosure and regCode. Returns the indexes of
+	    (* Load and lock regClosure. Returns the indexes of
 		   these entries in the stack. *)
 	    fun loadStaticLinkProc (): (stackIndex option * bool * stackIndex list * reg list) =
-	    (* For self-calls using "Recursive", we put the address of
-	       the constants section, not the address of the code 
-	       segment, into regCode. *)
 	      if selfCall (* recursive *)
 	      then let
-			(* Do we really need *exclusive* use of these registers? 
+			(* Do we really need *exclusive* use of this register? 
 			   Perhaps this is to force the old value onto the stack if
 			   we haven't saved it yet, but we should have done this
 			   in pushAllBut (below) unless we're in a tail-call in
@@ -4213,7 +4207,7 @@ struct
 			fun getArgRegs n =
 				if n >= argRegs orelse n >= argsToPass then []
 				else argReg n :: getArgRegs(n+1)
-			val argRegs = listToSet(regClosure :: regCode :: getArgRegs 0)
+			val argRegs = listToSet(regClosure :: getArgRegs 0)
 		in
 			val registerSet =
 				if selfCall then allRegisters (* Have to push everything. *)

@@ -294,9 +294,9 @@ val load_sym            = next(two);
 (*
 DCJM 7/4/04.  It took me a while to figure out what was going on since I didn't have
 any documentation.
-There are two versions of call_sym: call_sym_origCversion and call_sym_and_convert.
+There were two versions of call_sym: call_sym_origCversion and call_sym_and_convert.
 
-The older version, call_sym_origCversion, takes three parameters: sym,
+The older version, call_sym_origCversion, took three parameters: sym,
 args and retChoice.  "sym" is the function to call, "args" is a list of pairs of
 type info (as a code) and values and "retChoice" indicates the type of the result.
 The result of this function is passed back as a vol.
@@ -308,9 +308,11 @@ are the same as before or "out" parameters where only the type is supplied (sinc
 an "out" parameter doesn't have a value before the function is called).  The result
 is now a pair where the first component is the function result as before and the
 second component the list of the values of the "out" parameters.
+The newer version does all the conversion of ML arguments into C values and of the
+result of the C function back into ML as part of a single RTS call whereas the
+older version required multiple RTS calls.
 *)
 
-val call_sym_origCversion = next(three);
 val call_sym_and_convert  = next(three);
     
 val alloc               = next(one); (* Different name from that in foreign.c *)
@@ -345,25 +347,7 @@ val toCbytes            = next(one); (* Added DCJM 29/6/01 *)
 val fromCbytes          = next(one); (* Added DCJM 29/6/01 *)
 (* Note: fromCbytes takes a pair. *)
 
-val toCfunctionX		= next(three);(* Added DCJM 7/4/04 *)
-val toPascalfunctionX	= next(three);(* Added DCJM 7/4/04 *)
-val deliverResult		= next(one);(* Added DCJM 7/4/04 *)
-
-(* Because of the way callbacks are handled the result of the function has
-   to be delivered by calling into the run-time system. *)
-fun toCfunction args res f =
-let
-	fun fA X = deliverResult (f X)
-in
-	toCfunctionX args res fA
-end
-
-fun toPascalfunction args res f =
-let
-	fun fA X = deliverResult (f X)
-in
-	toPascalfunctionX args res fA
-end
-
+val toCfunction		    = next(three);(* Added DCJM 7/4/04 *)
+val toPascalfunction	= next(three);(* Added DCJM 7/4/04 *)
 
 end (* struct *)

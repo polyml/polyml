@@ -995,6 +995,7 @@ structure Message :
 	val updateWindowHandle: HWND -> unit
 	val compileMessage: Message -> int * CInterface.vol * CInterface.vol
 	val LPMSG: MSG CInterface.Conversion
+	val mainCallbackFunction: int*int*int*int->int
   end
  =
 struct
@@ -2868,13 +2869,17 @@ WM_MOUSELEAVE                   0x02A3
 			(* *)
 			datatype tableEntry = TableEntry of {hWnd: HWND, callBack: callback}
 			val windowTable = ref [] : tableEntry list ref
-
-			val SetWindowLong = call3 (user "SetWindowLongA") (HWND, INT, INT) INT
+		    val WNDPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
+			(* This is used to set the window proc.  The result is also a window proc
+			   but since we're passing it to CallWindowProc it's simpler to treat the
+			   result as an int. *)
+			val SetWindowLong = call3 (user "SetWindowLongA") (HWND, INT, WNDPROC) INT
 			val CallWindowProc = call5 (user "CallWindowProcA") (INT, INT, INT, INT, INT) INT
-		
-			fun deliverResult i = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1106, i)
-			fun installFun f = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1105, f)
 
+            (* This message is used to test if we are using the Poly callback.  We use
+			   the same number as MFC uses so it's unlikely that any Windows class will
+			   use this. *)
+			val WMTESTPOLY = 0x0360
 		in
 			fun getCallback(hw: int) =
 				List.find (fn (TableEntry{hWnd, ...}) => hw = intOfHandle hWnd) (! windowTable)
@@ -2898,6 +2903,9 @@ WM_MOUSELEAVE                   0x02A3
 			   right.  Unlike ML objects they can't move as a result of garbage
 			   colection. *)
 			fun mainCallbackFunction(hw:int, msgId:int, wParam:int, lParam:int) =
+			if msgId = WMTESTPOLY
+			then ~1 (* This tests whether we are already installed. *)
+			else
 			let
 				(* Normally we will have a callback for this window.  The only
 				   case when we haven't will be if we've just created it in
@@ -2917,7 +2925,7 @@ WM_MOUSELEAVE                   0x02A3
 						valOf(getCallback hw) (* Should now be there, we hope! *)
 						)
 			in
-				deliverResult(callBack(hw, msgId, wParam, lParam))
+				callBack(hw, msgId, wParam, lParam)
 			end
 
 			fun addCallback (hWnd,
@@ -2960,32 +2968,37 @@ WM_MOUSELEAVE                   0x02A3
 						|	NONE => defProc(h, uMsg, wParam, lParam)
 					end;
 				in
-					(* We need to ensure that callback is installed whenever we might create a window. *)
-					installFun mainCallbackFunction;
-
 					windowTable :=
 						TableEntry{ hWnd = hWnd, callBack = callBack } :: ! windowTable
 				end
 
 			fun subclass(w: HWND, f: HWND * Message * 'a -> LRESULT option * 'a, init: 'a) =
 			let
-				val ourWProc = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
-				(* Set up the new window proc and get the existing one. *)
-				val oldWProc = SetWindowLong(w, ~4, ourWProc)
-
-				(* TODO: What if it's not there? *)
-				val TableEntry{hWnd, callBack} = valOf(getCallback(intOfHandle w))
+    			val sendMsg = call4(user "SendMessageA") (HWND, INT, POINTER, POINTER) INT
+			    val testPoly: int = sendMsg(w, WMTESTPOLY, toCint 0, toCint 0)
 				
-				val newDefProc =
-					if oldWProc = ourWProc
-					then (* Our function was already installed - chain this callback onto
-						    the result. *)
-						callBack
-					else fn (h, m, w, l) => CallWindowProc(oldWProc, h, m, w, l)
+				(* TODO: What if it's not there?  It must be if we created it using
+				   our version of CreateWindow. *)
+				val TableEntry{hWnd, callBack} = valOf(getCallback(intOfHandle w))
 			in
-				(* Remove any existing callback function and install the new one. *)
-				removeCallback w;
-				addCallback(w, f, init, newDefProc)
+			    if testPoly = ~1
+				then (* We already have our Window proc installed. *)
+				    (
+        				removeCallback w;
+        				addCallback(w, f, init, callBack)
+				    )
+				else
+    			let
+     				(* Set up the new window proc and get the existing one. *)
+    				val oldWProc = SetWindowLong(w, ~4, mainCallbackFunction)
+    
+    				val newDefProc =
+     					fn (h, m, w, l) => CallWindowProc(oldWProc, h, m, w, l)
+    			in
+    				(* Remove any existing callback function and install the new one. *)
+    				removeCallback w;
+    				addCallback(w, f, init, newDefProc)
+    			end
 			end
 		end
 
@@ -3062,7 +3075,6 @@ WM_MOUSELEAVE                   0x02A3
 			val peekMsg = call5(user "PeekMessageA") (POINTER, HWND, INT, INT, INT) INT
 			val transMsg = call1(user "TranslateMessage") (POINTER) INT
 			val dispMsg = call1(user "DispatchMessageA") (POINTER) INT
-			val callWin = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific
 			val msg = alloc 7 Cint
 			val res = peekMsg(address msg, toHWND(toCint 0), 0, 0, 1)
 		in

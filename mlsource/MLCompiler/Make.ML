@@ -20,16 +20,12 @@
 structure Make =
   MAKE_ (
     structure DEBUG = Debug;
-    structure RUNCALL = RunCall;
-    structure RUNTIMECALLS = RuntimeCalls;
     structure STRUCTVALS = StructVals;
     structure HASHTABLE = HashTable;
     structure LEX = Lex;
     structure COMPILERBODY = CompilerBody;
     structure MISC = Misc;
-    structure SYSTEM = System;
     structure UNIVERSAL = Universal
     structure UNIVERSALTABLE = UniversalTable
-    structure CREATEDATABASE = CreateDatabase
 	structure VALUE_OPS = ValueOps
   ); 

@@ -32,23 +32,6 @@
 functor MAKE_ (
 
 (*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b;
-end;
-
-(*****************************************************************************)
-(*                  RUNTIMECALLS                                             *)
-(*****************************************************************************)
-structure RUNTIMECALLS :
-sig
-  val POLY_SYS_shrink_stack : int;
-end;
-
-
-(*****************************************************************************)
 (*                  DEBUG                                                    *)
 (*****************************************************************************)
 structure DEBUG :
@@ -62,16 +45,6 @@ sig
   val inputChar : (unit -> char option) ref;
   val nextIsNewline : (unit->bool) ref;
   val flushInput : (unit->unit) ref;
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE export signature                          *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbList
-  val dbListCreate : (unit -> '_a) * '_a list -> '_a dbList
-  val dbListToList :  'a dbList -> 'a list
 end;
 
 (*****************************************************************************)
@@ -182,14 +155,6 @@ sig
   val structVar:     structVals  tagMethods;
   val signatureVar:  signatures  tagMethods;
   val functorVar:    functors    tagMethods;
-end;
-
-(*****************************************************************************)
-(*                  SYSTEM                                                   *)
-(*****************************************************************************)
-structure SYSTEM :
-sig
-  val rtsVersion : unit -> int
 end;
 
 (* DCJM 8/8/00.  Previously Misc was a global but we aren't allowed
@@ -328,9 +293,7 @@ struct
   
   (* A VERY dangerous function - use with extreme care *) 
   fun shrink_stack (newsize : int) : unit = 
-    if 317 <= SYSTEM.rtsVersion ()
-    then RUNCALL.run_call1 RUNTIMECALLS.POLY_SYS_shrink_stack newsize
-    else (); (* unsupported on old versions of the RTS *)
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_shrink_stack newsize
 
   exception ObjNotFile;
     
@@ -346,28 +309,28 @@ struct
 (*****************************************************************************)
 (*                  dbEnv abstype                                            *)
 (*****************************************************************************)
+(* The aim of this is to allow a local name space to be added over the top
+   of an existing one.  It is used primarily in the debugger but also in the
+   secondary shell (if that hasn't been removed!) *)
   local
-    open CREATEDATABASE;
     open UNIVERSALTABLE
   in
-    abstype dbEnv = DbEnv of univTable dbList
+    abstype dbEnv = DbEnv of univTable list
     with
       (* turn a univTable into an environment *)
-      fun makeDbEnv (utab : univTable) : dbEnv =
-        DbEnv (dbListCreate (makeUnivTable, [utab])); 
+      fun makeDbEnv (utab : univTable) : dbEnv = DbEnv ([utab]); 
         
       (* copy an environment, adding an extra level for new definitions *)
       fun makeSubshellDbEnv ((DbEnv dbl) : dbEnv) : dbEnv =
       let
         val utab = makeUnivTable ();
-        val utl  = dbListToList dbl;
       in
-        DbEnv (dbListCreate (makeUnivTable, utab :: utl))
+        DbEnv (utab :: dbl)
       end;
         
       (* enter a value into an environment *)
       fun dbEnvEnter (DbEnv db, t : 'a tagMethods, s : string, v : 'a) : unit =
-        case dbListToList db of
+        case db of
           [] => raise InternalError "Environment initialisation error"
         | (thisLevel :: _) => univEnter (thisLevel, t, s, v);
         
@@ -380,13 +343,13 @@ struct
              univLookup (thisLevel, t, s)
                handle ValueMissing _ => lookupList otherLevels;
       in
-        lookupList (dbListToList db)
+        lookupList db
       end;
   
       (* delete an entry, but only from the top-level table *)
       (* This may raise ValueMissing *)
       fun dbEnvForget (DbEnv db, s : string, t : 'a tagMethods) : unit =
-        case dbListToList db of
+        case db of
           [] => raise InternalError "Environment initialisation error"
         | (thisLevel :: _) => univDelete (thisLevel, t, s)
 
@@ -399,7 +362,7 @@ struct
 	  	 fun eachLevel(u: univTable, s: string list): string list =
 		 	s @ mapIterator (fn (n : string, v : 'a) => n) (univOverSpecific (u, t))
 	  in
-	  	 List.foldl eachLevel [] (dbListToList db)
+	  	 List.foldl eachLevel [] db
 	  end
 
 	  (* In order to print out an exception packet we have to be able to find the
@@ -417,7 +380,7 @@ struct
 					NONE => searchList f tl
 				|	result => result
 	  in
-	  	  searchList (fn u => VALUE_OPS.findException u w) (dbListToList db)
+	  	  searchList (fn u => VALUE_OPS.findException u w) db
 	  end
     end;
   end;
@@ -444,19 +407,40 @@ struct
   datatype 'a option = None | Some of 'a;
 
   datatype RCSstate = NormalFile | RCSFile | RCSDirectory;
+  
+  (* This is almost the same as OS.Path.joinDirFile except that that function uses
+     the separator compiled in when the structure was compiled which means that the
+	 saved heaps are not portable from Windows to Unix. *)
+  fun joinDirFile{dir, file} =
+     let
+		local
+			val doCall: int*int -> string
+				 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+		in
+			val separator = doCall (7, 0)
+		end
+		local
+			val doCall: int*Char.char -> bool
+				 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+		in
+			fun isSeparator ch = doCall (8, ch)
+		end
+	 in
+    	if dir = "" then file (* Return the file name unchanged *)
+    	else if isSeparator(String.sub(dir, size dir - 1))
+    	then dir ^ file
+    	else dir ^ separator ^ file
+	 end
+
 
   fun longName (directory, file, NormalFile) =
-  		(* OS.Path.joinDirFile had a bug when dealing with empty directory
-		   names.  We need a work-around here. *)
-		if directory = ""
-		then file
-  		else OS.Path.joinDirFile{dir=directory, file = file}
+  		joinDirFile{dir=directory, file = file}
         
     | longName (directory, file, RCSFile) =
-  		OS.Path.joinDirFile{dir=directory, file = file ^ ",v"}
+  		joinDirFile{dir=directory, file = file ^ ",v"}
 
     | longName (directory, file, RCSDirectory) =
-		OS.Path.joinDirFile{dir=OS.Path.joinDirFile{dir=directory, file = "DIR"},
+		joinDirFile{dir=joinDirFile{dir=directory, file = "DIR"},
 						    file = file ^ ",v"}
 
   fun findFileTuple (directory, object, rcsMode) [] = None
@@ -585,7 +569,7 @@ let
       val fullName  =
 	  		if directory = "" (* Work around for bug. *)
 			then objName
-			else OS.Path.joinDirFile{dir=directory, file=objName};
+			else joinDirFile{dir=directory, file=objName};
 
       val objIsDir  = testForDirectory fullName;
       val here      = fullName;
@@ -774,7 +758,7 @@ let
 				(* Temporary work-around for bug. *)
 				if directory = ""
 				then file
-				else OS.Path.joinDirFile{dir=directory, file=file}
+				else joinDirFile{dir=directory, file=file}
 
         (* Check out the file if necessary. *)
         fun beginRCS () =

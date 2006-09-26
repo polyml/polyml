@@ -31,7 +31,5 @@ structure ValueOps =
     structure PRETTYPRINTER = PrettyPrinter
     structure UNIVERSAL     = Universal
     structure RUNCALL       = RunCall
-    structure CREATEDATABASE  = CreateDatabase
-	structure SYSTEM		= System
 	structure UTILITIES		= Utilities
   ) ;

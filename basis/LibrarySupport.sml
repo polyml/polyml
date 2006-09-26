@@ -82,7 +82,7 @@ struct
 	val isShortString: string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
 	local
-		val F_mutable_bytes : word = 0w65;
+		val F_mutable_bytes : word = 0wx41;
 		val byteMask : word =  0w255;
 		val System_alloc: word*word*word->string  =
 			RunCall.run_call3 POLY_SYS_alloc_store

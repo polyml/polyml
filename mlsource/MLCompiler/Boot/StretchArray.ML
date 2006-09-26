@@ -22,11 +22,17 @@
     Author:     Simon Finn, Abstract Hardware Ltd.
 *)
 
-
-(* HACKS: imports Array implicitly *)
-
 (* Version of array which expands as new elements are assigned.
-   Used for tables which have no obvious upper limit. *)
+   Used for tables which have no obvious upper limit.
+   
+   This is used in CODETREE and the resulting tables are captured in
+   the environments of the resulting values.  Previously this resulted in
+   a lot of mutable data being kept around and in particularly ending up in
+   exported module.  The garbage collector has to scan mutables on every
+   collection so mutable data can have a disproportionate effect on
+   performance. We now freeze the tables once they have been created.
+   This costs extra time during compilation but that should be more than made
+   up for by faster garbage collection. *)
 structure StretchArray :
 sig
   type 'a stretchArray;
@@ -34,65 +40,86 @@ sig
   exception Subscript;
   exception Size;
   
-  val stretchArray : int * '_a -> '_a stretchArray;
-  val update : '_a stretchArray * int * '_a -> unit;
+  val stretchArray : int * 'a -> 'a stretchArray;
+  val update : 'a stretchArray * int * 'a -> unit;
   val length : 'a stretchArray -> int;
   val sub    : 'a stretchArray * int -> 'a;
+  val freeze : 'a stretchArray -> unit
+  
+  val vector: 'a stretchArray -> 'a vector
 end =
 
 struct
-  val expansionFactor = 3; (* Factor by which to increase size. *)
+    val expansionFactor = 3; (* Factor by which to increase size. *)
 
-  exception Subscript = (*Array.*)Subscript and Size = (*Array.*)Size;
+    exception Subscript = (*Array.*)Subscript and Size = (*Array.*)Size;
 
-  (* use Array to hold the contents - less efficient than making
-     this a primitive, but does it matter? *)
-  type 'a stretchArray =
+    (* use Array to hold the contents - less efficient than making
+       this a primitive, but does it matter? *)
+	 
+    datatype 'a vecOrArray = 
+        AnArray of 'a array
+	  | AVector of 'a vector
+
+    type 'a stretchArray =
     {
       initialVal : 'a,
-      contents   : 'a Array.array ref
+      contents   : 'a vecOrArray ref
     }
      
-  fun stretchArray (originalSize: int, initialVal: '_a)
-    :'_a stretchArray =
+    fun stretchArray (originalSize: int, initialVal: 'a) :'a stretchArray =
     {
       initialVal = initialVal,
-      contents   = ref (Array.array (originalSize, initialVal))
+      contents   = ref (AnArray(Array.array(originalSize, initialVal)))
     };
 
-  
-  fun length (sa: 'a stretchArray) : int =
-     Array.length (! (#contents sa));
+    fun length { contents = ref (AnArray a), ...} = Array.length a
+	  | length  { contents = ref (AVector v), ...} = Vector.length v
  
-  (* Returns the value if there is one, otherwise returns the default. *)
-  infix 9 sub;
-  fun (sa :'a stretchArray) sub (index : int) : 'a =
-  let
-    val a : 'a Array.array = ! (#contents sa);
-  in
-    if index < Array.length a
-    then Array.sub (a, index) (* may raise Array.Subscript *)
-    else #initialVal sa
-  end; 
+    (* Returns the value if there is one, otherwise returns the default. *)
+    infix 9 sub;
+	
+    fun ({contents = ref (AnArray a), initialVal, ...} :'a stretchArray) sub index : 'a =
+        if index < Array.length a
+        then Array.sub (a, index) (* may raise Subscript *)
+        else initialVal
+	 |  ({contents = ref (AVector v), initialVal, ...} :'a stretchArray) sub index : 'a =
+        if index < Vector.length v
+        then Vector.sub (v, index) (* may raise Subscript *)
+        else initialVal
   
-  fun max (x:int) (y:int) : int = if x <= y then y else x;      
-	     
-  (* Sets the appropriate entry. *)
-  fun update (sa: '_a stretchArray, index: int, value: '_a) : unit =
-    Array.update (! (#contents sa), index, value)
-       handle Subscript => 
-	 if index < 0 then raise Subscript
-	 else let
-	   (* The new vector must be big enough to hold the new item
-	      and expanded by the expansion factor. *)
-	   val oldSize = length sa;
-	   val newSize = max (oldSize * expansionFactor) (index + 1);
-	   val newVec = Array.array(newSize, #initialVal sa);
-	   (* val newVec  = Array.tabulate (newSize, fn i => sa sub i); *)
-	 in
-	   Array.copy{src= !(#contents sa), dst=newVec, di=0};
-	   #contents sa := newVec;
-	   Array.update (newVec, index, value)
-	 end;
+    (* Sets the appropriate entry. *)
+	fun update ({contents = ref (AVector _), ...}, _, _) =
+	        raise Fail "Attempt to update a locked stretchArray"
+			
+    |   update ({contents = contents as ref (AnArray a), initialVal, ... }: 'a stretchArray, index: int, value: 'a) : unit =
+            if index < Array.length a
+			then Array.update (a, index, value) (* May raise Subscript if the index is -ve *)
+			else
+			let
+        	   (* The new vector must be big enough to hold the new item
+        	      and expanded by the expansion factor. *)
+        	   val oldSize = Array.length a;
+        	   val newSize = Int.max (oldSize * expansionFactor, index + 1);
+        	   val newVec = Array.array(newSize, initialVal);
+        	in
+        	   Array.copy{src=a, dst=newVec, di=0};
+        	   contents := AnArray newVec;
+        	   Array.update (newVec, index, value)
+        	end
+
+    (* Create an immutable vector from the current contents of the array. *)
+    fun vector ({contents = ref (AnArray a), ...}: 'a stretchArray): 'a vector =
+	    Array.vector a
+	|   vector {contents = ref (AVector v), ...} = v
+
+    (* Turn an array into a vector and turn the ref into an immutable. *)
+	fun freeze {contents = ref (AVector v), ...} = ()
+	 |  freeze {contents = contents as ref (AnArray a), ...} =
+	    (
+	    contents := AVector(Array.vector a);
+		Address.lock(Address.toAddress contents)
+		)
+
 end;
 

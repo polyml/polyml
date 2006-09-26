@@ -137,7 +137,8 @@ struct
 
 		(* Dialogue procedures never call DefWindowProc. *)
 		fun dlgProcRes (lres, state) = (SOME lres, state)
-
+		
+		val DLGPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
 	in
 		type HWND = HWND and HINSTANCE = HINSTANCE
 
@@ -211,22 +212,22 @@ struct
 		fun decompileTemplate (w: Word8Vector.vector): DLGTEMPLATE =
 		let
 			val ptr = ref 0
-			val isExtended = Pack32Little.subVec(w, 0) = 0wxFFFF0001
+			val isExtended = PackWord32Little.subVec(w, 0) = 0wxFFFF0001
 			val _ = if isExtended then raise Fail "Extended templates not implemented" else ();
 	
-			val style = Pack32Little.subVec(w, !ptr div 4)
+			val style = PackWord32Little.subVec(w, !ptr div 4)
 			val _ = ptr := !ptr + 4;
-			val exStyle = LargeWord.toInt(Pack32Little.subVec(w, !ptr div 4))
+			val exStyle = LargeWord.toInt(PackWord32Little.subVec(w, !ptr div 4))
 			val _ = ptr := !ptr + 4;
-			val cdit = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+			val cdit = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			val _ = ptr := !ptr + 2;
-			val x = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+			val x = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			val _ = ptr := !ptr + 2;
-			val y = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+			val y = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			val _ = ptr := !ptr + 2;
-			val cx = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+			val cx = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			val _ = ptr := !ptr + 2;
-			val cy = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+			val cy = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			val _ = ptr := !ptr + 2;
 
 			(* Extract a null-terminated Unicode string and advance ptr beyond it. *)
@@ -235,24 +236,24 @@ struct
 				val start = !ptr
 				fun advance () =
 				let
-					val next = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+					val next = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				in
 					ptr := !ptr + 2;
 					if next = 0 then () else advance()
 				end
 			in
 				advance();
-				unicodeToString(Word8Vector.extract(w, start, SOME(!ptr-start-2)))
+				unicodeToString(Word8VectorSlice.vector(Word8VectorSlice.slice(w, start, SOME(!ptr-start-2))))
 			end
 
 			fun ffffOrString(): Resource.RESID =
 			let
-				val next = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val next = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 			in
 				if next = 0xffff
 				then ( (* Resource identifier. *)
 					ptr := !ptr + 4;
-					Resource.IdAsInt(LargeWord.toInt(Pack16Little.subVec(w, (!ptr-2) div 2)))
+					Resource.IdAsInt(LargeWord.toInt(PackWord16Little.subVec(w, (!ptr-2) div 2)))
 				)
 				else (* Resource name. *)
 					Resource.IdAsString(getString())
@@ -277,7 +278,7 @@ struct
 				if Style.anySet(Style.fromWord style, Style.DS_SETFONT)
 				then
 				let
-					val size = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+					val size = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 					val _ = ptr := !ptr + 2
 					val name = getString()
 				in
@@ -291,19 +292,19 @@ struct
 				(* Must be aligned onto a DWORD boundary. *)
 				val _ = while !ptr mod 4 <> 0 do ptr := !ptr + 1;
 
-				val style = Pack32Little.subVec(w, !ptr div 4)
+				val style = PackWord32Little.subVec(w, !ptr div 4)
 				val _ = ptr := !ptr + 4;
-				val exStyle = LargeWord.toInt(Pack32Little.subVec(w, !ptr div 4))
+				val exStyle = LargeWord.toInt(PackWord32Little.subVec(w, !ptr div 4))
 				val _ = ptr := !ptr + 4;
-				val x = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val x = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				val _ = ptr := !ptr + 2;
-				val y = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val y = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				val _ = ptr := !ptr + 2;
-				val cx = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val cx = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				val _ = ptr := !ptr + 2;
-				val cy = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val cy = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				val _ = ptr := !ptr + 2;
-				val id = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+				val id = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 				val _ = ptr := !ptr + 2;
 
 				val class =
@@ -324,14 +325,14 @@ struct
 
 				val creation =
 				let
-					val length = LargeWord.toInt(Pack16Little.subVec(w, !ptr div 2))
+					val length = LargeWord.toInt(PackWord16Little.subVec(w, !ptr div 2))
 					val _ = ptr := !ptr + 2;
 					val start = !ptr
 					val _ = ptr := !ptr + length
 				in
 					if length = 0
 					then NONE
-					else SOME(Word8Vector.extract(w, start, SOME length))
+					else SOME(Word8VectorSlice.vector(Word8VectorSlice.slice(w, start, SOME length)))
 				end
 			in
 			{
@@ -371,13 +372,13 @@ struct
 				if #font t = NONE
 				then Style.clear(Style.DS_SETFONT, #style t)
 				else Style.flags[#style t, Style.DS_SETFONT]
-			val _ = Pack32Little.update(basis, 0, Style.toWord style);
-			val _ = Pack32Little.update(basis, 1, LargeWord.fromInt(#extendedStyle t));
-			val _ = Pack16Little.update(basis, 4, LargeWord.fromInt(List.length(#items t)));
-			val _ = Pack16Little.update(basis, 5, LargeWord.fromInt(#x t));
-			val _ = Pack16Little.update(basis, 6, LargeWord.fromInt(#y t));
-			val _ = Pack16Little.update(basis, 7, LargeWord.fromInt(#cx t));
-			val _ = Pack16Little.update(basis, 8, LargeWord.fromInt(#cy t));
+			val _ = PackWord32Little.update(basis, 0, Style.toWord style);
+			val _ = PackWord32Little.update(basis, 1, LargeWord.fromInt(#extendedStyle t));
+			val _ = PackWord16Little.update(basis, 4, LargeWord.fromInt(List.length(#items t)));
+			val _ = PackWord16Little.update(basis, 5, LargeWord.fromInt(#x t));
+			val _ = PackWord16Little.update(basis, 6, LargeWord.fromInt(#y t));
+			val _ = PackWord16Little.update(basis, 7, LargeWord.fromInt(#cx t));
+			val _ = PackWord16Little.update(basis, 8, LargeWord.fromInt(#cy t));
 
 			fun sixteenBit i = Word8Vector.fromList[Word8.fromInt i, Word8.fromInt(i div 256)]
 
@@ -421,13 +422,13 @@ struct
 			        | DLG_SCROLLBAR s	=> (Scrollbar.Style.toWord s, Resource.IdAsInt 0x84)
 			        | DLG_STATIC s		=> (Static.Style.toWord s, Resource.IdAsInt 0x82)
 
-				val _ = Pack32Little.update(basis, 0, style);
-				val _ = Pack32Little.update(basis, 1, LargeWord.fromInt(#extendedStyle t));
-				val _ = Pack16Little.update(basis, 4, LargeWord.fromInt(#x t));
-				val _ = Pack16Little.update(basis, 5, LargeWord.fromInt(#y t));
-				val _ = Pack16Little.update(basis, 6, LargeWord.fromInt(#cx t));
-				val _ = Pack16Little.update(basis, 7, LargeWord.fromInt(#cy t));
-				val _ = Pack16Little.update(basis, 8, LargeWord.fromInt(#id t));
+				val _ = PackWord32Little.update(basis, 0, style);
+				val _ = PackWord32Little.update(basis, 1, LargeWord.fromInt(#extendedStyle t));
+				val _ = PackWord16Little.update(basis, 4, LargeWord.fromInt(#x t));
+				val _ = PackWord16Little.update(basis, 5, LargeWord.fromInt(#y t));
+				val _ = PackWord16Little.update(basis, 6, LargeWord.fromInt(#cx t));
+				val _ = PackWord16Little.update(basis, 7, LargeWord.fromInt(#cy t));
+				val _ = PackWord16Little.update(basis, 8, LargeWord.fromInt(#id t));
 				val title =
 					resOrString(
 						case #title t of
@@ -440,7 +441,7 @@ struct
 					|	SOME r => [r, nullString]
 				val vec = 
 					Word8Vector.concat
-						(Word8Array.extract(basis, 0, NONE) ::
+						(Word8ArraySlice.vector(Word8ArraySlice.full basis) ::
 						 resOrString class :: title :: creation)
 				val rounding = Word8Vector.length vec mod 4
 			in
@@ -452,7 +453,7 @@ struct
 
 			val header = 
 				Word8Vector.concat
-					(Word8Array.extract(basis, 0, NONE) :: menu :: class :: title :: font)
+					(Word8ArraySlice.vector(Word8ArraySlice.full basis) :: menu :: class :: title :: font)
 			val rounding = Word8Vector.length header mod 4
 			val alignment = Word8Vector.tabulate(4-rounding, fn _ => 0w0)
 		in
@@ -462,15 +463,13 @@ struct
 		(* CreateDialogIndirect: Create a modeless dialogue using a resource. *)
 		local
 			val sysCreateDialog =
-				call5 (user "CreateDialogParamA") (HINSTANCE, RESID, HWND, INT, INT) HWND
+				call5 (user "CreateDialogParamA") (HINSTANCE, RESID, HWND, DLGPROC, INT) HWND
 		in
 			fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
 			let
-				val windowProc: int =
-					RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
 				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
 				val res = checkWindow "CreateDialog" 
-					(sysCreateDialog(hInst, lpTemplate, hWndParent, windowProc, 0))
+					(sysCreateDialog(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0))
 			in
 				(* Add this to the modeless dialogue list so that keyboard
 				   operations will work. *)
@@ -482,12 +481,10 @@ struct
 		(* CreateDialogIndirect: Create a modeless dialogue from a template. *)
 		local
 			val sysCreateDialogIndirect =
-				call5 (user "CreateDialogIndirectParamA") (HINSTANCE, POINTER, HWND, INT, INT) HWND
+				call5 (user "CreateDialogIndirectParamA") (HINSTANCE, POINTER, HWND, DLGPROC, INT) HWND
 		in
 			fun CreateDialogIndirect (hInst, template, hWndParent, dialogueProc, init) =
 			let
-				val windowProc: int =
-					RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
 				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
 				(* Compile the template and copy it to C memory. *)
 				val compiled = compileTemplate template
@@ -495,9 +492,9 @@ struct
 				val templ = alloc size Cchar
 				fun copyToBuf(i, v): unit =
 					assign Cchar (offset i Cchar templ) (toCint(Word8.toInt v))
-				val _ = Word8Vector.appi copyToBuf (compiled, 0, NONE)
+				val _ = Word8Vector.appi copyToBuf compiled
 				val res = checkWindow "CreateDialog" 
-					(sysCreateDialogIndirect(hInst, address templ, hWndParent, windowProc, 0))
+					(sysCreateDialogIndirect(hInst, address templ, hWndParent, Message.mainCallbackFunction, 0))
 			in
 				(* Add this to the modeless dialogue list so that keyboard
 				   operations will work. *)
@@ -509,15 +506,13 @@ struct
 		(* DialogBox: create a dialogue using a resource. *)
 		local
 			val sysDialogBox =
-				call5 (user "DialogBoxParamA") (HINSTANCE, RESID, HWND, INT, INT) INT
+				call5 (user "DialogBoxParamA") (HINSTANCE, RESID, HWND, DLGPROC, INT) INT
 		in
 			fun DialogBox (hInst, lpTemplate, hWndParent, dialogueProc, init) =
 			let
 				(* We can use the normal window procedure as a dialogue proc. *)
-				val windowProc: int =
-					RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
 				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
-				val result = sysDialogBox(hInst, lpTemplate, hWndParent, windowProc, 0)
+				val result = sysDialogBox(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0)
 			in
 				(* How do we remove the callback?  Look for the last message? *)
 				result
@@ -527,12 +522,10 @@ struct
 		(* DialogBoxIndirect: create a dialogue using a template. *)
 		local
 			val sysDialogBoxIndirect =
-				call5 (user "DialogBoxIndirectParamA") (HINSTANCE, POINTER, HWND, INT, INT) INT
+				call5 (user "DialogBoxIndirectParamA") (HINSTANCE, POINTER, HWND, DLGPROC, INT) INT
 		in
 			fun DialogBoxIndirect (hInst, template, hWndParent, dialogueProc, init) =
 			let
-				val windowProc: int =
-					RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1102, ())
 				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
 				(* Compile the template and copy it to C memory. *)
 				val compiled = compileTemplate template
@@ -540,9 +533,9 @@ struct
 				val templ = alloc size Cchar
 				fun copyToBuf(i, v): unit =
 					assign Cchar (offset i Cchar templ) (toCint(Word8.toInt v))
-				val _ = Word8Vector.appi copyToBuf (compiled, 0, NONE)
+				val _ = Word8Vector.appi copyToBuf compiled
 			in
-				sysDialogBoxIndirect(hInst, address templ, hWndParent, windowProc, 0)
+				sysDialogBoxIndirect(hInst, address templ, hWndParent, Message.mainCallbackFunction, 0)
 			end
 		end
 

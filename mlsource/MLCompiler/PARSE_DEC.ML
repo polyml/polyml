@@ -420,9 +420,6 @@ sig
   exception ValueMissing of string;  (* table lookup failure *)
 
   val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
-
-  (* These convert the external representation to the internal representation *)
-  val intOfString  : string -> int
 end;
 
 (*****************************************************************************)
@@ -1755,8 +1752,8 @@ struct
                 if (sy lex) eq SYMBOLS.integerConst
                 then (* Read a precedence number *)
                   let
-                    val num = intOfString (id lex);
-                  in
+                    val num = valOf(Int.fromString (id lex))
+				  in
                     if num < 0 orelse num > 9
                     then errorMessage (lex, lineno lex,
                                       "Precedence " ^ id lex ^ 

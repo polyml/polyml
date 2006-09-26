@@ -115,6 +115,8 @@ sig
   val isVariableId:   typeId -> bool;
   val unifyTypeIds:   typeId * typeId -> bool;
   val sameTypeId:     typeId * typeId -> bool;
+  
+  type 'a possRef
      
   (* A type is the union of these different cases. *)
   type typeVarForm
@@ -124,7 +126,7 @@ sig
   | TypeConstruction of (* typeConstructionForm *)
       {
         name:  string,
-        value: typeConstrs ref,
+        value: typeConstrs possRef,
         args:  types list
       }
 
@@ -382,19 +384,9 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
-  val errorDepth: int dbRef;
+  val errorDepth: int ref;
   val ml90: bool ref
   val debug: bool ref
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet: 'a dbRef -> 'a;
 end;
 
 (*****************************************************************************)
@@ -509,10 +501,6 @@ end;
 (*****************************************************************************)
 (*                  PARSETREE sharing constraints                            *)
 (*****************************************************************************)
-
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   LEX.lexan
@@ -710,7 +698,6 @@ struct
   open ADDRESS;
   open RUNCALL;
   open ARRAY;
-  open CREATEDATABASE;
   open DEBUGGER;
   open RuntimeCalls; (* for POLY_SYS numbers *)
   
@@ -1832,7 +1819,7 @@ struct
            ppBeginBlock pprint (0, false);
            ppAddString pprint "Found near";
            ppBreak pprint (1, 0);
-           ptDisplay (near, dbRefGet errorDepth, pprint);
+           ptDisplay (near, ! errorDepth, pprint);
            ppEndBlock pprint ();
            ppEndBlock pprint ()))
     end;
@@ -1860,7 +1847,7 @@ struct
         (
           ppAddString pprint "Found near";
           ppBreak pprint (1, 0);
-          ptDisplay (v, dbRefGet errorDepth, pprint)
+          ptDisplay (v, ! errorDepth, pprint)
         );
 
       (* A simpler error message routine for lookup_... where the message

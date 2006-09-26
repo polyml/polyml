@@ -96,6 +96,9 @@ sig
   val sameTypeId: typeId * typeId -> bool
 
   type typeVarForm
+  
+  type 'a possRef
+  val pling: 'a possRef -> 'a
 
   (* A type is the union of these different cases. *)
   datatype types = 
@@ -104,7 +107,7 @@ sig
   | TypeConstruction of (* typeConstructionForm *)
       {
         name:  string,
-        value: typeConstrs ref,
+        value: typeConstrs possRef,
         args:  types list
       }
 
@@ -306,18 +309,8 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
-  val printDepth  : int dbRef;
+  val printDepth  : int ref;
   val maxPacking  : int ref;
-end;
-
-(*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet: 'a dbRef -> 'a;
 end;
 
 (*****************************************************************************)
@@ -421,14 +414,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  SYSTEM                                                   *)
-(*****************************************************************************)
-structure SYSTEM :
-sig
-  val pointerEq: 'a * 'a -> bool
-end;
-
-(*****************************************************************************)
 (*                  UTILITIES                                                *)
 (*****************************************************************************)
 structure UTILITIES :
@@ -439,10 +424,6 @@ end;
 (*****************************************************************************)
 (*                  VALUEOPS sharing constraints                             *)
 (*****************************************************************************)
-
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   CODETREE.codetree
@@ -657,7 +638,6 @@ struct
   open TYPESTRUCT;
   open PRINTTABLE;
   open DEBUG;
-  open CREATEDATABASE;
   open ADDRESS;
   open UNIVERSALTABLE;
   open UNIVERSAL; (* for tagMethods etc. *)
@@ -1278,8 +1258,9 @@ struct
 	  | FunctionType _ => 
 	      UnaryFunction
 	
-	  | TypeConstruction {name, value=ref cons, args} =>
+	  | TypeConstruction {name, value, args} =>
 	  	let
+		    val cons = pling value
 			val equiv = tcEquivalent cons;
 		in
 	  		(* We may have a type equivalence or this may be a datatype. *)
@@ -1611,7 +1592,7 @@ struct
 			   add this value to the list.  If we do we won't be able to
 			   print the constructed value. *)
 			val newList =
-				if SYSTEM.pointerEq(v, value) then objList
+				if ADDRESS.wordEq(v, value) then objList
 				else value :: objList
 		  in
 		    printInfixed(name, resType, v, newList)
@@ -1632,7 +1613,7 @@ struct
 		   we've seen before and just print .... We really only need to include
 		   mutable structures in the list because only they can form loops
 		   but it's easier to include everything. *)
-		if List.exists (fn v => SYSTEM.pointerEq(value, v)) objList
+		if List.exists (fn v => ADDRESS.wordEq(value, v)) objList
 		then ppAddString pprint "..."
 	
 		else case types of
@@ -1645,71 +1626,75 @@ struct
 			  else prints (value, tyVal, depth, precedence, objList)
 			end
 	
-		| TypeConstruction{value = ref constr, args, ...} =>
-	  if isUnsetId (tcIdentifier constr)
-	    then ppAddString pprint "?"
-
-	  (* Type-specific printing is all handled by the libraries now. *)
-	  (* Although unit is a type construction it is treated as
-	     equivalent to the empty labelled record.  That means we
-		 can't install a pretty printer for it using install_pp. *)
-	  else if sameTypeId (tcIdentifier constr, tcIdentifier unitType)
-	    then ppAddString pprint "()"
-
-	  (* Leave this one, at least for the moment, since we need to be able
-	     to look the exception up in the environment. *)
-	  else if sameTypeId (tcIdentifier constr, tcIdentifier exnType)
-	    then let (* Exception. *)
-	      val exn  : exn    = unsafeCast value;
-	      val name : string = exnName exn;
-		  (* In order to be able to print this exception we need to find the type of
-		     any arguments.  Previously we used the name to search for a global
-			 exception with that name but that doesn't help if the exception is in
-			 a structure.  We now do a search of the complete name space.  *)
-		in
-		  case lookupExnById (exnId exn) of
-		  	SOME exc =>
-			let
-				val typeof = valTypeOf exc
+		| TypeConstruction{value=tval, args, ...} =>
+            let
+			    val constr = pling tval
 			in
-				if isEmpty typeof
-				then ppAddString pprint name
-				else printInfixed(name, typeof, exnValue exn, value::objList)
-			end
-		  |	NONE => ppAddString pprint name (* Just put the name. *)
-	    end
-	    
-	  else (* All the others. *)
-	    let    (* Use the given print function if it is in the table,
-		          otherwise use the default. *)
-			(* If we have a print function installed for this type constructor
-			   we have to pass it the functions to print the argument types
-			   (if any). *)
-			fun makeArg argType =
-		  		let
-					fun printArg(v, depth) = prints(v, argType, depth, ~1, value::objList)
-				in
-					mkConst(toWord printArg)
-				end
-			(* The easiest way to make a tuple is to use Codetree.mkTuple
-			   which makes a tuple immediately if all the arguments
-			   are constants. *)
-			val argTuple =
-				case args of
-					[] => CodeZero
-				  | [t] => makeArg t
-				  | args => mkTuple(map makeArg args)
-		in	
-	      getPrint (tcIdentifier constr) pprint depth (evalue argTuple) value
-	      handle ValueMissing _ =>
-	      ( if not (isNil (tcConstructors constr))
-		    then printConstruction args (tcConstructors constr)
-		    else if not (isEmpty (tcEquivalent constr))  (* May be an alias *)
-		    then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
-		    else ppAddString pprint "?"
-		  )
-	    end
-		(* isTypeConstruction *)
+        	  if isUnsetId (tcIdentifier constr)
+        	    then ppAddString pprint "?"
+        
+        	  (* Type-specific printing is all handled by the libraries now. *)
+        	  (* Although unit is a type construction it is treated as
+        	     equivalent to the empty labelled record.  That means we
+        		 can't install a pretty printer for it using install_pp. *)
+        	  else if sameTypeId (tcIdentifier constr, tcIdentifier unitType)
+        	    then ppAddString pprint "()"
+        
+        	  (* Leave this one, at least for the moment, since we need to be able
+        	     to look the exception up in the environment. *)
+        	  else if sameTypeId (tcIdentifier constr, tcIdentifier exnType)
+        	    then let (* Exception. *)
+        	      val exn  : exn    = unsafeCast value;
+        	      val name : string = exnName exn;
+        		  (* In order to be able to print this exception we need to find the type of
+        		     any arguments.  Previously we used the name to search for a global
+        			 exception with that name but that doesn't help if the exception is in
+        			 a structure.  We now do a search of the complete name space.  *)
+        		in
+        		  case lookupExnById (exnId exn) of
+        		  	SOME exc =>
+        			let
+        				val typeof = valTypeOf exc
+        			in
+        				if isEmpty typeof
+        				then ppAddString pprint name
+        				else printInfixed(name, typeof, exnValue exn, value::objList)
+        			end
+        		  |	NONE => ppAddString pprint name (* Just put the name. *)
+        	    end
+        	    
+        	  else (* All the others. *)
+        	    let    (* Use the given print function if it is in the table,
+        		          otherwise use the default. *)
+        			(* If we have a print function installed for this type constructor
+        			   we have to pass it the functions to print the argument types
+        			   (if any). *)
+        			fun makeArg argType =
+        		  		let
+        					fun printArg(v, depth) = prints(v, argType, depth, ~1, value::objList)
+        				in
+        					mkConst(toWord printArg)
+        				end
+        			(* The easiest way to make a tuple is to use Codetree.mkTuple
+        			   which makes a tuple immediately if all the arguments
+        			   are constants. *)
+        			val argTuple =
+        				case args of
+        					[] => CodeZero
+        				  | [t] => makeArg t
+        				  | args => mkTuple(map makeArg args)
+        		in	
+        	      getPrint (tcIdentifier constr) pprint depth (evalue argTuple) value
+        	      handle ValueMissing _ =>
+        	      ( if not (isNil (tcConstructors constr))
+        		    then printConstruction args (tcConstructors constr)
+        		    else if not (isEmpty (tcEquivalent constr))  (* May be an alias *)
+        		    then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
+        		    else ppAddString pprint "?"
+        		  )
+        	    end
+        		(* isTypeConstruction *)
+            end
       
 		| FunctionType _ => ppAddString pprint "fn"
       
@@ -2279,8 +2264,9 @@ struct
 				  else makeEq(tyVal, resKind, findTyVars)
 				end
 
-		|	TypeConstruction{value = ref constr, args, ...} =>
+		|	TypeConstruction{value, args, ...} =>
 			let
+			    val constr = pling value
 				val id = tcIdentifier constr
 		 	    (* See if we have a special version of equality for this type.
 				   N.B.  The only special functions we have for polytypes are
@@ -2455,7 +2441,7 @@ struct
                        else ffArg (typesFunctionType instance);
          fun printProc value =
          (
-           printStruct (value, argType, dbRefGet printDepth,
+           printStruct (value, argType, ! printDepth,
                         prettyPrint (77, lexPrint lex), env);
             value
           );
@@ -2477,7 +2463,7 @@ struct
            val result = ref ""; (* Accumulate results in this *)
            val pp = uglyPrint (fn s => result := !result ^ s);
            val U : unit = 
-             printStruct (value, argType, dbRefGet printDepth, pp, env);
+             printStruct (value, argType, ! printDepth, pp, env);
          in
            ! result
          end;
@@ -2547,65 +2533,69 @@ struct
                  different modules may be at different points in the chain. *)
 			  (* This does mean that it's not possible to install a
 			     pretty printer for a type constructor rather than a datatype. *)
-           fun followTypes (TypeConstruction{value=ref constr, args, ...}) : typeId =
-               if isEmpty (tcEquivalent constr)
-               then let
-                 val typeId : typeId = tcIdentifier constr;
-
-				 (* Check that the argument is a function from the type
-				    variable to unit. *)
-				 fun checkFun(tvar: types, FunctionType{arg, result}) =
-				 	(
-					case rmvars arg of
-						LabelledType{recList=[{name="1", typeof=arg},
-											  {name="2", typeof=depthType}],
-									 frozen=true, ...} =>
-						if sameTypeVar(rmvars tvar, rmvars arg)
-						then
-							(
-							case rmvars depthType of
-								TypeConstruction{value=ref constr, args=[], ...} =>
-									if sameTypeId (tcIdentifier constr,
-												tcIdentifier intType)
-									then ()
-									else raise Failure "Argument printer must have type 'a*int->unit (second arg not int)"
-							  | _ => raise Failure "Argument printer must have type 'a*int->unit (second arg not type int)"
-							)
-					   	else raise Failure "Argument printer must have type 'a*int->unit (mismatched 'a)"
-					  | _ =>
-					  	raise Failure "Argument printer must have type 'a*int->unit (not pair)"
-					)
-				   | checkFun(tvar: types, _) =
-				   		raise Failure "Argument printer must have type 'a*int->unit (not function)"
-				 
-				 fun checkFuns([], []) = ()
-				   | checkFuns(tvar::tRest, {name, typeof}::argRest) =
-				   		(checkFun(tvar, typeof); checkFuns(tRest, argRest))
-				   | checkFuns _ =
-				   		raise Failure "Tuple size does not match type"
-				 	
-               in
-			   	 (* Check that the arity of the type constructor matches
-				    the arity of the tuple. *)
-				 case args of
-				 	[] => (* Simple constructor *)
-						() (* Ignore this for the moment. *)
-				   | [t] => checkFun(t, argPrints)
-				   | tlist =>
-				   		if not (isProductType argPrints)
-						then raise Failure "Argument must be a tuple"
-						else (
-						case argPrints of
-							LabelledType{recList, ...} => checkFuns(tlist, recList)
-						  | _ => ()
-						);
-                 (* Check that it's a top-level datatype (NOT in a functor) *)
-                   if not (isFreeId typeId)
-                   then raise Failure "Invalid type (not free at top-level)"
-                   else ();
-                 typeId
-               end
-               else followTypes (makeEquivalent (constr, args))
+           fun followTypes (TypeConstruction{value, args, ...}) : typeId =
+		       let
+			       val constr = pling value
+			   in
+                   if isEmpty (tcEquivalent constr)
+                   then let
+                     val typeId : typeId = tcIdentifier constr;
+    
+    				 (* Check that the argument is a function from the type
+    				    variable to unit. *)
+    				 fun checkFun(tvar: types, FunctionType{arg, result}) =
+    				 	(
+    					case rmvars arg of
+    						LabelledType{recList=[{name="1", typeof=arg},
+    											  {name="2", typeof=depthType}],
+    									 frozen=true, ...} =>
+    						if sameTypeVar(rmvars tvar, rmvars arg)
+    						then
+    							(
+    							case rmvars depthType of
+    								TypeConstruction{value, args=[], ...} =>
+    									if sameTypeId (tcIdentifier(pling value),
+    												tcIdentifier intType)
+    									then ()
+    									else raise Failure "Argument printer must have type 'a*int->unit (second arg not int)"
+    							  | _ => raise Failure "Argument printer must have type 'a*int->unit (second arg not type int)"
+    							)
+    					   	else raise Failure "Argument printer must have type 'a*int->unit (mismatched 'a)"
+    					  | _ =>
+    					  	raise Failure "Argument printer must have type 'a*int->unit (not pair)"
+    					)
+    				   | checkFun(tvar: types, _) =
+    				   		raise Failure "Argument printer must have type 'a*int->unit (not function)"
+    				 
+    				 fun checkFuns([], []) = ()
+    				   | checkFuns(tvar::tRest, {name, typeof}::argRest) =
+    				   		(checkFun(tvar, typeof); checkFuns(tRest, argRest))
+    				   | checkFuns _ =
+    				   		raise Failure "Tuple size does not match type"
+    				 	
+                   in
+    			   	 (* Check that the arity of the type constructor matches
+    				    the arity of the tuple. *)
+    				 case args of
+    				 	[] => (* Simple constructor *)
+    						() (* Ignore this for the moment. *)
+    				   | [t] => checkFun(t, argPrints)
+    				   | tlist =>
+    				   		if not (isProductType argPrints)
+    						then raise Failure "Argument must be a tuple"
+    						else (
+    						case argPrints of
+    							LabelledType{recList, ...} => checkFuns(tlist, recList)
+    						  | _ => ()
+    						);
+                     (* Check that it's a top-level datatype (NOT in a functor) *)
+                       if not (isFreeId typeId)
+                       then raise Failure "Invalid type (not free at top-level)"
+                       else ();
+                     typeId
+                   end
+                   else followTypes (makeEquivalent (constr, args))
+			   end
            | followTypes _ =
 				raise Failure "Invalid type (not a type construction)";
            
@@ -2712,10 +2702,14 @@ struct
 			fun rmvars (TypeVar tv) = rmvars(tvValue tv)
 		     | rmvars t = t
 
-			fun followTypes(TypeConstruction{value = ref constr, args, ...}):typeConstrs =
-               if isEmpty (tcEquivalent constr)
-               then constr
-               else followTypes (makeEquivalent (constr, args))
+			fun followTypes(TypeConstruction{value, args, ...}):typeConstrs =
+			    let
+				    val constr = pling value
+				in
+                   if isEmpty (tcEquivalent constr)
+                   then constr
+                   else followTypes (makeEquivalent (constr, args))
+                end
 			 | followTypes t =
 			 	raise Failure "Invalid type (not a type construction)";
 

@@ -39,8 +39,6 @@ sig
 
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 
-  val intOfString  : string -> int
-
   val unescapeString : string -> string
 
   val isNil : 'a list -> bool
@@ -122,13 +120,6 @@ struct
     quickSort leq (op before) @ (h :: quickSort leq after)
   end;
 
-
-    fun intOfString s =
-	(* This is only ever used on values which have already been checked
-	   by the lexer so the whole of the string should be a valid integer. *)
-		case Int.fromString s of
-			NONE => raise Conversion "intOfString"
-		|	SOME i => i
 
 	(* Convert a string, recognising and converting escape codes.  This is
 	   installed as the initial string conversion function and replaced

@@ -326,7 +326,7 @@ struct
 			fun copyToBuf (buf, n) (i, v): unit =
 				assign Cchar (offset (n+i) Cchar buf) (toCchar v)
 		in
-			CharVector.appi (copyToBuf (buf, n)) (s, 0, NONE);
+			CharVector.appi (copyToBuf (buf, n)) s;
 			assign Cchar (offset (n + size s) Cchar buf) (toCint 0)
 		end
 

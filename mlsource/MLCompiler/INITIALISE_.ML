@@ -46,6 +46,7 @@ sig
   val stringType: types;
   val unitType:   types;
   val charType:   types;
+  val wordType:   types;
 end;
 
 (*****************************************************************************)
@@ -90,6 +91,8 @@ sig
   val tcSetConstructors: typeConstrs * values list -> unit;
   val tcTypeVars:     typeConstrs -> types list
   val makeTypeConstrs:
+  	string * types list * types * typeId * bool * int -> typeConstrs;
+  val makeFrozenTypeConstrs:
   	string * types list * types * typeId * bool * int -> typeConstrs;
 
   val generalisable: int;
@@ -203,26 +206,13 @@ sig
   type univTable
   type values
   
-  val makeDbEnv    : univTable -> dbEnv
   val makeIntoEnv  : dbEnv -> string -> unit
   val useIntoEnv   : dbEnv -> string -> unit
   val dependsInEnv : dbEnv -> string -> unit
   val dependenciesInEnv : dbEnv -> string -> string list
   val runCompiler  : dbEnv -> 
        (unit -> string) * (string -> unit) -> unit -> unit
-       
-  val shellProc   : (dbEnv * string ref * string ref) -> 
-    {
-     shell:      unit -> unit,    (* The command processor *)
-	 debugger:	 (string -> values)*(unit->bool) -> unit,
-     startLog:   string -> unit,  (* Starts logging commands to a file *)
-     restartLog: string -> unit,  (* Appends logging commands to a file *)
-     stopLog:    unit -> unit,    (* Stops logging *)
-     writeLog:   string -> unit,  (* Writes a string to the log file *)
-     logName:    unit -> string,  (* Get the log name *)
-     isLogging:  unit -> bool     (* true if logging, otherwise false *)
-    }
-    
+     
   val forgetMakeInfo  : dbEnv -> string -> unit;
   val forgetSignature : dbEnv -> string -> unit;
   val forgetStructure : dbEnv -> string -> unit;
@@ -249,24 +239,15 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b;
-end;
-
-(*****************************************************************************)
 (*                  DEBUG                                                    *)
 (*****************************************************************************)
 structure DEBUG :
 sig
-  type 'a dbRef
-  val profiling  : int dbRef;
-  val timing     : bool dbRef;
-  val printDepth : int dbRef;
-  val errorDepth : int dbRef;
-  val lineLength : int dbRef;
+  val profiling  : int ref;
+  val timing     : bool ref;
+  val printDepth : int ref;
+  val errorDepth : int ref;
+  val lineLength : int ref;
   
   val assemblyCode        : bool ref;
   val parsetree           : bool ref;
@@ -294,31 +275,15 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  CREATEDATABASE                                           *)
-(*****************************************************************************)
-structure CREATEDATABASE :
-sig
-  type 'a dbRef
-  val dbRefGet: 'a dbRef -> 'a;
-  val dbRefPut: 'a dbRef * 'a -> unit;
-
-  type 'a dbList
-  val dbListCreate : (unit -> '_a) * '_a list -> '_a dbList
-  val dbListToList :  'a dbList -> 'a list
-
-  val createDatabase : string * (unit -> unit) * (unit -> bool) -> unit
-end;
-
-(*****************************************************************************)
 (*                  MISC                                                     *)
 (*****************************************************************************)
 structure MISC :
 sig
   type 'a iter
-  val intOfString  : string -> int
   val unescapeString : string -> string
   val mapIterator : ('a -> 'b) -> 'a iter -> 'b list
   val upto : int -> int -> int iter
+  exception Conversion of string;     (* string to int conversion failure *)
 end;
 
 (*****************************************************************************)
@@ -345,10 +310,6 @@ end;
 (*****************************************************************************)
 (*                  INITIALISE sharing constraints                           *)
 (*****************************************************************************)
-
-sharing type
-  CREATEDATABASE.dbRef
-= DEBUG.dbRef
 
 sharing type
   ADDRESS.word
@@ -384,15 +345,18 @@ sharing type
 (*****************************************************************************)
 sig
   type dbEnv
-  val initGlobalEnv : (unit -> unit) * (unit -> bool) * 
-                      string ref * string ref -> 
-                         dbEnv * (unit -> unit)
-
-  (* called to initialise a new (primary or secondary) process group *)
-  val initialFn : (bool -> unit) ref;
-  
-  (* called at start of each session *)
-  val startupFn : (unit -> unit) ref;
+  type env
+  type values
+  val initGlobalEnv :
+	  {  shell:      unit -> unit,    (* The command processor *)
+		 debugger:	 (string -> values)*(unit->bool) -> unit,
+		 startLog:   string -> unit,  (* Starts logging commands to a file *)
+		 restartLog: string -> unit,  (* Appends logging commands to a file *)
+		 stopLog:    unit -> unit,    (* Stops logging *)
+		 writeLog:   string -> unit,  (* Writes a string to the log file *)
+		 logName:    unit -> string,  (* Get the log name *)
+		 isLogging:  unit -> bool     (* true if logging, otherwise false *)
+	   } * env * dbEnv * (unit->unit) -> unit
 end =
 
 (*****************************************************************************)
@@ -404,8 +368,6 @@ struct
    open VALUEOPS;
    open CODETREE;
    open ADDRESS;
-   open RUNCALL;
-   open CREATEDATABASE;
    open MAKE;
    open MISC;
    open RuntimeCalls; (* for POLY_SYS calls *)
@@ -417,46 +379,22 @@ struct
     | applyList f (h :: t) = (f h : unit; applyList f t);
 
 (*****************************************************************************)
-(*                  version strings                                          *)
-(*****************************************************************************)
-  (* The initialisation function was used in AHL's version to initialise
-     their licence manager.  I don't think there's any use for it now.
-	 DCJM June 2000. *)
-  fun dummyInitialFn (b : bool) = ();
- 
-  fun dummyStartupFn () =
-    TextIO.output (TextIO.stdOut, "Poly/ML 4.2.0 Release\n");
- 
-  val initialFn : (bool -> unit) ref = ref dummyInitialFn;
-  val startupFn : (unit -> unit) ref = ref dummyStartupFn;
-
-(*****************************************************************************)
 (*                  initGlobalEnv                                            *)
 (*****************************************************************************)
 fun initGlobalEnv
-     (rootShell    : unit -> unit,
-      systemCommit : unit -> bool, 
-      prompt1      : string ref,
-      prompt2      : string ref) =
+     (
+	  mainShell,
+	  globals      : env,
+	  globalTable  : dbEnv,
+	  rootShell    : unit -> unit) =
 let
-  local
-     (* Create the global (top-level) environment *)
-     val globalUnivTable = structSignat (makeEmptyGlobal "global");
-  in
-     (* create a functional view of it *)
-     val (Env globalEnv) = makeEnv globalUnivTable;
-   
-     (* globalTable is like globalUnivTable except that it also
-        implements automatic child-database inheritance *)
-     val globalTable : dbEnv = makeDbEnv (sigTab globalUnivTable);
-  end;
-
+   val Env globalEnv = globals
    
 (*****************************************************************************)
 (*                  Utilities                                                *)
 (*****************************************************************************)
    (* shouldn't these be imported from somewhere? *)
-   fun ioOp (x: int) : 'a = run_call1 POLY_SYS_io_operation x;
+   fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
    val intZero    = mkConst (toWord 0);
    val realZero   = mkConst (toWord 0.0);
 
@@ -489,6 +427,7 @@ let
      val Bool   = boolType;
      val Unit   = unitType;
 	 val Char	= charType;
+	 val Word   = wordType;
      
      val mkTypeConstruction = mkTypeConstruction;
      val mkTypeVar = mkTypeVar;
@@ -667,7 +606,7 @@ let
    type to have a ref-style equality i.e. 'a vector would permit equality
    even if 'a did not. *)
   val vectorType =
-     makeTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0);
+     makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0);
    val U : unit = enterGlobalType  ("vector", vectorType);
 
 (*****************************************************************************)
@@ -687,34 +626,6 @@ let
       #enterVal PolyMLEnv (name, value)
     end;
 
-(*****************************************************************************)
-(*                  PolyML.dbList etc                                        *)
-(*****************************************************************************)
-  
-  local
-    val dbListType : typeConstrs = (* Not an equality type *)
-      makeTypeConstrs ("dbList", [makeTV ()], emptyType,
-	  					makeFreeId (), false, 0);
-   
-    fun DbList (base : types) : types =
-      mkTypeConstruction ("dbList", dbListType, [base]);
-
-    local (* an imperative type variable *)
-      val a : types = makeImpTV ();
-    in
-      val dbListCreateType : types = (Unit ->> a) ** (List a) ->> DbList a;
-    end;
-    
-    local (* a normal type variable *)
-      val a : types = makeTV ();
-    in
-      val dbListToListType : types = DbList a ->> List a;
-    end;
-  in
-    val U : unit = #enterType PolyMLEnv ("dbList", dbListType);
-    val U : unit = enterPolyML ("dbListCreate", mkConst (toWord dbListCreate), dbListCreateType);
-    val U : unit = enterPolyML ("dbListToList", mkConst (toWord dbListToList), dbListToListType);
-   end;
 
 (*****************************************************************************)
 (*                  PolyML.unsafeCast                                        *)
@@ -777,10 +688,10 @@ let
       let 
         val name = "run_call1(1)";
         val ioOpEntry = mkEntry POLY_SYS_io_operation;
-	val level = 1;
-	val args  = 1;
-	val n     = mkLoad (~1, 0)                 (* the outer parameter *)
-	val body  = mkEval (ioOpEntry, [n], true); (* early! *)
+        val level = 1;
+        val args  = 1;
+        val n     = mkLoad (~1, 0)                 (* the outer parameter *)
+        val body  = mkEval (ioOpEntry, [n], true); (* early! *)
       in
         mkInlproc (body, level, args, name)
       end;
@@ -808,39 +719,39 @@ let
       
       val innerBody : codetree =
       let
-	val f     = mkLoad (1, 1);        (* first item from enclosing scope *)
-	val tuple = mkLoad (~1, 0);       (* the inner parameter *)
-	val args  = mapIterator (fn n => mkInd (n, tuple)) (upto 0 (width - 1));
+		val f     = mkLoad (1, 1);        (* first item from enclosing scope *)
+		val tuple = mkLoad (~1, 0);       (* the inner parameter *)
+		val args  = mapIterator (fn n => mkInd (n, tuple)) (upto 0 (width - 1));
       in
-	mkEval (f, args, false) (* no early evaluation (f may have side effects!) *)
+		mkEval (f, args, false) (* no early evaluation (f may have side effects!) *)
       end;
       
       val innerLambda : codetree  =
       let
-	val level = 2;
-	val args  = 1;
+		val level = 2;
+		val args  = 1;
       in
-	mkInlproc (innerBody, level, args, name ^ "(1)")
+		mkInlproc (innerBody, level, args, name ^ "(1)")
       end;
       
       val outerBody : codetree  =
       let
-	val n = mkLoad (~1, 0)                 (* the outer parameter *)
-	val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
+		val n = mkLoad (~1, 0)                 (* the outer parameter *)
+		val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
       in
-	mkEnv
-	  [
-	    mkDec (1, f),
-	    innerLambda
-	  ]
+		mkEnv
+		  [
+		    mkDec (1, f),
+		    innerLambda
+		  ]
       end;
       
       val outerLambda : codetree  =
       let
-	val level = 1;
-	val args  = 1;
+		val level = 1;
+		val args  = 1;
       in
-	mkInlproc (outerBody, level, args, name)
+		mkInlproc (outerBody, level, args, name)
       end;
     in
       outerLambda
@@ -866,14 +777,38 @@ let
   local
     fun addVal (name : string, value : 'a, typ : types) : unit =
       enterPolyML (name, mkConst (toWord value), typ)
+	  
+	(* These are only used during the bootstrap phase.  Replacements are installed once
+	   the appropriate modules of the basis library are compiled. *)
+	fun intOfString s =
+		let
+		val radix =
+			if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
+			   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
+			then StringCvt.HEX else StringCvt.DEC
+		in
+			case StringCvt.scanString (Int.scan radix) s of
+				NONE => raise Conversion "Invalid integer constant"
+			  | SOME res => res
+		end
+
+	fun wordOfString s =
+		let
+		val radix =
+			if String.size s > 2 andalso String.sub(s, 2) = #"x"
+			then StringCvt.HEX else StringCvt.DEC
+		in
+			case StringCvt.scanString (Word.scan radix) s of
+				NONE => raise Conversion "Invalid word constant"
+			  | SOME res => res
+		end
   in
-    val U : unit = addVal ("initialFn", initialFn, Ref (Bool ->> Unit));
-    val U : unit = addVal ("startupFn", startupFn, Ref (Unit ->> Unit));
 	(* When we start the compiler we don't have any conversion functions.
 	   We can't even use a literal string until we have installed a
 	   basic converter. *)
     val U : unit = addVal ("convStringName", "convString", String);
     val U : unit = addVal ("convInt", intOfString, String ->> Int);
+    val U : unit = addVal ("convWord", wordOfString, String ->> Word);
 	(* Convert a string, recognising and converting the escape codes. *)
     val U : unit = addVal ("convString", unescapeString, String ->> String);
 	(* References to functions for interactive input and output.  We need to
@@ -966,10 +901,14 @@ end;
 (*****************************************************************************)
 (*                  PolyML.profiling etc.                                    *)
 (*****************************************************************************)
-   local
-     fun setVbl (vbl: 'a dbRef) (n : 'a) : unit = dbRefPut (vbl, n);
 
-     fun putSetFunction (name : string) (typ : types) (vbl: 'a dbRef) : unit = 
+(* TODO: Now these are simply refs and not special database refs there's no need
+   for separate get- and set- functions.  However, these have been around
+   for so long it's probably better to leave them as they were. *)
+   local
+     fun setVbl (vbl: 'a ref) (n : 'a) : unit = vbl := n;
+
+     fun putSetFunction (name : string) (typ : types) (vbl: 'a ref) : unit = 
      let
        val setEntry = mkConst (toWord (setVbl vbl : 'a -> unit));
        val setType  = typ ->> Unit;
@@ -985,10 +924,9 @@ end;
    end;
 
    local
-     fun getVbl (vbl: 'a dbRef) : unit -> 'a = 
-       fn () => dbRefGet vbl;
+     fun getVbl (vbl: 'a ref) : unit -> 'a =  fn () => ! vbl;
 
-     fun putGetFunction (name : string) (typ : types) (vbl : 'a dbRef) : unit = 
+     fun putGetFunction (name : string) (typ : types) (vbl : 'a ref) : unit = 
      let
        val getEntry = mkConst (toWord (getVbl vbl : unit -> 'a));
        val getType  = Unit ->> typ;
@@ -1030,6 +968,7 @@ SPF 1/6/95
     
     val compilerType : types = 
       unitToString ** stringToUnit ->> Unit ->> Unit;
+	  
   in
     val U : unit = applyList (addEnvFn stringToUnit)
       [
@@ -1040,83 +979,57 @@ SPF 1/6/95
       
     val U : unit = 
       addEnvFn compilerType ("compiler", runCompiler);
+	  
    end;
 
 
+    local
+        val rootType = Unit ->> Unit
+		val rootFunction = mkConst (toWord rootShell)
+	in
+	    val U: unit = enterInner ("rootFunction",   rootFunction,   rootType);
+	end;
+	
 (*****************************************************************************)
 (*                  PolyML.logging etc.                                      *)
 (*****************************************************************************)
-   local
-     val
-       {
-		 shell:      unit -> unit,    (* The command processor *)
-		 debugger:	 (string -> values)*(unit->bool) -> unit,
-		 startLog:   string -> unit,  (* Starts logging commands to a file *)
-		 restartLog: string -> unit,  (* Appends logging commands to a file *)
-		 stopLog:    unit -> unit,    (* Stops logging *)
-		 writeLog:   string -> unit,  (* Writes a string to the log file *)
-		 logName:    unit -> string,  (* Get the log name *)
-		 isLogging:  unit -> bool     (* true if logging, otherwise false *)
-	}
-	  = shellProc (globalTable, prompt1, prompt2);
-     
-     val startLogEntry   = mkConst (toWord startLog);
-     val startLogType    = String ->> Unit;
-     
-     val restartLogEntry = mkConst (toWord restartLog);
-     val restartLogType  = String ->> Unit;
-     
-     val stopLogEntry    = mkConst (toWord stopLog);
-     val stopLogType     = Unit ->> Unit;
-     
-     val writeLogEntry   = mkConst (toWord writeLog);
-     val writeLogType    = String ->> Unit;
-     
-     val logNameEntry    = mkConst (toWord logName);
-     val logNameType     = Unit ->> String;
-     
-     val isLoggingEntry  = mkConst (toWord isLogging);
-     val isLoggingType   = Unit ->> Bool;
-   in
-     val U : unit = enterInner ("startLog",   startLogEntry,   startLogType);
-     val U : unit = enterInner ("restartLog", restartLogEntry, restartLogType);
-     val U : unit = enterInner ("stopLog",    stopLogEntry,    stopLogType);
-     val U : unit = enterInner ("writeLog",   writeLogEntry,   writeLogType);
-     val U : unit = enterInner ("logName",    logNameEntry,    logNameType);
-     val U : unit = enterInner ("isLogging",  isLoggingEntry,  isLoggingType);
-     val sessionShell = shell; (* save for later! *)
-   end;
 
-(*****************************************************************************)
-(*                  PolyML.make_database                                     *)
-(*****************************************************************************)
-   local
-     fun makeDb (name: string) : unit = 
-       createDatabase (name, rootShell, systemCommit);
-     
-     val makeDbEntry = mkConst (toWord makeDb);
-     val makeDbType  = String ->> Unit;
-   in
-     val U : unit = enterInner ("make_database", makeDbEntry, makeDbType);
-   end;
+(* I've retained this but moved it into a sub-structure.  I really don't know
+   whether it's useful any more.  DCJM 17/6/06. *)
+		
+    local
+		(* Create a new structure for the logging functions. *)
+		val Logging = makeEmptyGlobal "Logging";
+		val _ = #enterStruct InnerEnv ("Logging", Logging);
+		val (Env LogEnv) = makeEnv (structSignat Logging);
+		val enterLogVal  = #enterVal LogEnv;
 
-(*****************************************************************************)
-(*                  PolyML.commit                                            *)
-(*****************************************************************************)
-   local
-     fun userCommit () : bool =
-     let
-       val b : bool = systemCommit ();
-       val U : unit = if b then () else (!startupFn) ();
-     in
-       b
-     end;
-     
-     val commitEntry = mkConst (toWord userCommit);
-     val commitType  = Unit ->> Bool;
-   in
-     val U : unit = enterInner ("commit", commitEntry, commitType);
-   end;
+		fun enterLogConst (name : string, value : word, typ : types) : unit =
+		let
+			val value = mkGvar (name, typ, mkConst value);
+		in
+			enterLogVal (name, value)
+		end;
+		
+		val
+	       {
+			 shell:      unit -> unit,    (* The command processor *)
+			 debugger:	 (string -> values)*(unit->bool) -> unit,
+			 startLog:   string -> unit,  (* Starts logging commands to a file *)
+			 restartLog: string -> unit,  (* Appends logging commands to a file *)
+			 stopLog:    unit -> unit,    (* Stops logging *)
+			 writeLog:   string -> unit,  (* Writes a string to the log file *)
+			 logName:    unit -> string,  (* Get the log name *)
+			 isLogging:  unit -> bool     (* true if logging, otherwise false *)
+		   } = mainShell;
+ 	in
+		val U : unit = enterLogConst ("startLog",   toWord startLog,   String ->> Unit);
+		val U : unit = enterLogConst ("restartLog", toWord restartLog, String ->> Unit);
+		val U : unit = enterLogConst ("stopLog",    toWord stopLog,    Unit ->> Unit);
+		val U : unit = enterLogConst ("writeLog",   toWord writeLog,   String ->> Unit);
+		val U : unit = enterLogConst ("logName",    toWord logName,    Unit ->> String);
+		val U : unit = enterLogConst ("isLogging",  toWord isLogging,  Unit ->> Bool);
+	end;
    
 (*****************************************************************************)
 (*                  Exceptions                                               *)
@@ -1132,8 +1045,7 @@ SPF 1/6/95
    in
      val U : unit = applyList (addInnerExn String)
        [
-        ("Commit",     EXC_commit),      (*   3 *)
-		("XWindows",   EXC_XWindows),    (*  10 *)
+ 		("XWindows",   EXC_XWindows),    (*  10 *)
         ("Foreign",    EXC_foreign)      (*  23 *)
        ];
     end;
@@ -1177,16 +1089,12 @@ SPF 1/6/95
      local
        (* make an anonymous, empty signature *)
        val sig0    : signatures = makeSignatures "";
-         
-       val argSig0 : signatures = makeCopy ("", sig0, 0, 0);
-
-       val (Env argEnv) = makeEnv argSig0;
-       
+       val (Env argEnv) = makeEnv sig0;
        val exIdenVal : values = makeFormalV ("ex_iden", Int, 0);
-
        val U : unit = #enterVal argEnv ("ex_iden", exIdenVal);
-     in
-       val argSig0 = argSig0;
+        
+      in
+       val argSig0 = makeCopy ("", sig0, 0, 0)
      end
        
            
@@ -1194,16 +1102,12 @@ SPF 1/6/95
      local
        (* make an anonymous, empty signature *)
        val sig0    = makeSignatures ""
-       val resSig0 = makeCopy ("", sig0, 0, 0);
-       
-       val (Env resEnv) = makeEnv resSig0;
- 
+       val (Env resEnv) = makeEnv sig0;
        val exType = emptyType;
        val exVal = makeFormalEx ("ex", exType, 0);
-          
        val U : unit = #enterVal resEnv ("ex", exVal);
      in
-        val resSig0 = resSig0;
+        val resSig0 = makeCopy ("", sig0, 0, 0);
      end
                  
     (* The functor turns the value into an exception by returning the argument. *)
@@ -1228,44 +1132,39 @@ SPF 1/6/95
    local
      (* Make a nullary type constructor (the type of the exception) *)
      val exTypeConstr = 
-       makeTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0);
+       makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0);
 
      (* Argument signature. *)
      local
        (* make an anonymous, empty signature *)
        val sig1 = makeSignatures "";
-           
-       (* Contains 1 bound type *)
-       val argSig1 = makeCopy ("", sig1, 0, 1);
 
-       val (Env argEnv) = makeEnv argSig1;
+       val (Env argEnv) = makeEnv sig1;
        
        val exIdenVal = makeFormalV ("ex_iden", Int, 0);
 
        val U : unit = #enterType argEnv ("ex_type", exTypeConstr);
        val U : unit = #enterVal  argEnv ("ex_iden", exIdenVal);
      in
-       val argSig1 = argSig1;
+       (* Contains 1 bound type *)
+        val argSig1 = makeCopy ("", sig1, 0, 1);
      end
 
      (* Result signature. *)
      local
-       (* make an anonymous, empty signature *)
-       val sig1 = makeSignatures "";
-           
-       (* 1 bound type inherited from argument sig *)
-       val resSig1 = makeCopy ("", sig1, 0, 1);
-
-       val (Env resEnv) = makeEnv resSig1;
+        (* make an anonymous, empty signature *)
+        val sig1 = makeSignatures "";
+        val (Env resEnv) = makeEnv sig1;
        
-     (* get the actual type from the nullary type constructor *)
-     val exType = mkTypeConstruction ("ex_type", exTypeConstr, []);
-     val exVal  = makeFormalEx ("ex", exType, 0);
+        (* get the actual type from the nullary type constructor *)
+        val exType = mkTypeConstruction ("ex_type", exTypeConstr, []);
+        val exVal  = makeFormalEx ("ex", exType, 0);
           
-       val U : unit = #enterVal resEnv ("ex", exVal);
-     in
-        val resSig1 = resSig1;
-    end
+        val U : unit = #enterVal resEnv ("ex", exVal);
+     in      
+        (* 1 bound type inherited from argument sig *)
+        val resSig1 = makeCopy ("", sig1, 0, 1);
+     end
                  
      (* The functor turns the value into an exception by returning the argument. *)
      val Run_exception1 = 
@@ -1321,7 +1220,8 @@ SPF 1/6/95
          ("ml90",        		 toWord ml90,        		 Ref Bool),
          ("debug",        		 toWord debug,        		 Ref Bool),
          ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
-         ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool)
+         ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
+         ("compilerVersion",     toWord "5.0 Beta1", String)
       ]
    end;
 
@@ -1403,7 +1303,7 @@ SPF 1/6/95
       ("dependencies", dependenciesInEnv);
   end;
 in
-  (globalTable, sessionShell)
+  ()
 end (* initGlobalEnv *);
 
 

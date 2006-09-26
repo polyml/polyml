@@ -43,7 +43,7 @@ local
 		address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
 	val System_isShort   : address -> bool = RunCall.run_call1 POLY_SYS_is_short
     val emptyVec: vector =
-		RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullorzero;
+		RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector;
 
 	val maxLen = CharVector.maxLen
 

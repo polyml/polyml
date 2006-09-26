@@ -21,86 +21,94 @@ structure MLCompiler =
 struct
   local
     open RuntimeCalls;
-    
-    fun systemCommit () : bool = RunCall.run_call0 POLY_SYS_commit ()
-
-    datatype envShellOption = 
-      None
-    | Some of Initialise.dbEnv * (unit -> unit);
-
-    val mainEnvShell = ref None;
-    
-    (* create the main and secondary shells for the database *)
-    fun rootShell () =
-      case !mainEnvShell of
-        None => raise Misc.InternalError "Shell environment not set"
-      | Some (mainEnv, sessionShell) =>
-	let
-	  val secondaryEnv = Make.makeSubshellDbEnv mainEnv;
-	  val {shell = secondarySessionShell, ...} =
-	     Make.shellProc (secondaryEnv, ref "2> ", ref "2# ");
-	  val {debugger, ...} =
-	     Make.shellProc (secondaryEnv, ref "debug> ", ref "debug# ");
-	  (* Link up the debugger. *)
-	  val _ = Debugger.setDebugger debugger;
+	  local
+	     open StructVals
+		 open Make
+	     (* Create the global (top-level) environment *)
+	     val globalUnivTable = structSignat (makeEmptyGlobal "global");
+	  in
+	     (* create a functional view of it *)
+	     val globalEnv = makeEnv globalUnivTable;
+	   
+	     (* Wrap the environment.  I'm not sure this is still needed. *)
+	     val globalTable : dbEnv = makeDbEnv (sigTab globalUnivTable);
+	  end;
+	  
+	val mainShell = Make.shellProc (globalTable, ref "> ", ref "# ");
 	
-	  (* print message, run a session-shell, then quit *)
-	  fun mainLoop sessionShell true  =
-	  		OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
-	    | mainLoop sessionShell false = 
-	       (
-		   	 (* Runs the start-up function every time. *)
-			 (!Initialise.startupFn) ();
-			 sessionShell ();
-			 (* When the shell finishes i.e. ^D has been typed we call commit.  This returns
-			    true when the commit has been completed but leaves the database in the state
-				in which the commit is about to return.  The next time we run the database
-				the commit does return but the value it returns is false.  In that case we
-				start a new session.  If the commit fails (currently only because the database
-				has been opened for read-only) we ignore the error. *)
-			 mainLoop sessionShell (systemCommit () handle _ => true)
-	       );
-    
-	  (* We have to start the initial functions in BOTH
-	     the primary and secondary process groups as
-	     otherwise the security process wouldn't be running
-	     while we had switched to the secondary shell. *)
-	  (* the secondary process group *)
-	  fun secondaryGo () =
-	    (
-	      (!Initialise.initialFn) false;
-	      mainLoop secondarySessionShell false
-	    );
-    
-	  (* the primary process group *)
-	  fun mainGo () : unit = 
-	    (
-	      RunCall.run_call1 POLY_SYS_install_subshells secondaryGo;
-	      (!Initialise.initialFn) true;
-	      mainLoop sessionShell false
-	    );
-	in
-	  mainGo ()
+	val mainSessionShell = #shell mainShell
+
+    val secondaryEnv = Make.makeSubshellDbEnv globalTable;
+    val {shell = secondarySessionShell, ...} =
+        Make.shellProc (secondaryEnv, ref "2> ", ref "2# ");
+	 
+    val {debugger, ...} =
+        Make.shellProc (secondaryEnv, ref "debug> ", ref "debug# ");
+    (* Link up the debugger. *)
+    val _ = Debugger.setDebugger debugger;
+
+	fun printVersion() = ()
+		
+    (* create the main and secondary shells for exporting *)
+    (* the primary process group *)
+    fun mainGo () : unit = 
+    (
+	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
+		then ()
+		else (!RunCall.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+      mainSessionShell ();
+	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
+    );
+	
+   (* the secondary process group *)
+   fun secondaryGo () =
+    (
+      secondarySessionShell ();
+	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
+    );
+
+    (* This is the root function to run the Poly/ML top level. *)
+    fun rootShell () =
+	let
+        val argList = CommandLine.arguments();
+		fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
+		fun rtsCopyright() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (11, ())
+		fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
+    in
+	    if List.exists(fn s => s = "-v") argList
+		then (* -v option : Print version information and exit *)
+    		(!RunCall.printString)
+			     (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
+			                     "    RTS version: ", rtsRelease(), "\n"])
+
+		else if List.exists(fn s => s = "--help") argList
+		then (* --help option: Print argument information and exit. *)
+		   (
+     		(!RunCall.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+			(!RunCall.printString) "Compiler arguments:\n";
+			(!RunCall.printString) "\n";
+			(!RunCall.printString) "-v        Print the version of Poly/ML and exit\n";
+			(!RunCall.printString) "--help    Print this message and exit\n";
+			(!RunCall.printString) "-q        Suppress the start-up message\n";
+			(!RunCall.printString) "\nRun time system arguments:\n";
+			(!RunCall.printString) (rtsHelp())
+		   )
+		else
+		   (
+            RunCall.run_call1 POLY_SYS_install_subshells secondaryGo;
+            mainGo ()
+		)
 	end;
+
+    val U:unit =
+	    Initialise.initGlobalEnv (mainShell, globalEnv, globalTable, rootShell);
   in
-    (* The main shell *)
-    val (globalEnv, sessionShell) = 
-      Initialise.initGlobalEnv 
-         (rootShell, systemCommit, Debug.prompt1, Debug.prompt2);
-       
-    val U : unit =
-      mainEnvShell := Some (globalEnv, sessionShell);
-       
-    val make = Make.makeIntoEnv globalEnv;
-    val use  = Make.useIntoEnv globalEnv;
+
+    val make = Make.makeIntoEnv globalTable; (* I don't think this is used. *)
+    val use  = Make.useIntoEnv globalTable; (* Used to compile in the prelude and basis. *)
     
     fun shell () : unit = 
-    let
-      (* kill all db-specific values (no longer really necessary) *)
-      val U : unit = CreateDatabase.resetSpecifics ();
-    in
       (* install new compiler as main shell *)
       RunCall.run_call1 POLY_SYS_install_root rootShell
-    end;
   end;
 end;

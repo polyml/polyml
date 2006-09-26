@@ -75,7 +75,7 @@ local
 	val System_loadw: word*int->word = RunCall.run_call2 POLY_SYS_load_word;
 	val System_setw: word * int * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
 	val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullorzero; (* A zero word. *)
+    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
 	val System_move_words:
 		word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
 
@@ -117,7 +117,7 @@ struct
 	   more efficient than the alternative of setting every word to the length. *)
 	fun alloc len =
 		let
-			val vec = System_alloc(len+1, 0, 0)
+			val vec = System_alloc(len+1, 0x40, 0)
 		in
 			System_setw(vec, 0, RunCall.unsafeCast len);
 			Array vec
@@ -125,7 +125,7 @@ struct
 	 
 	fun array(len, a) =
 		let
-			val vec = System_alloc(len+1, 0, RunCall.unsafeCast a)
+			val vec = System_alloc(len+1, 0x40, RunCall.unsafeCast a)
 		in
 			System_setw(vec, 0, RunCall.unsafeCast len);
 			Array vec

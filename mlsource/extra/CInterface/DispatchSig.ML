@@ -40,8 +40,6 @@ sig
     val load_lib     : string -> rawvol
     val load_sym     : rawvol -> string -> rawvol
 
-    val call_sym_origCversion     : rawvol -> (RawCtype * rawvol) list -> RawCtype -> rawvol
-
     structure Union : UnionSig
 	
 	val call_sym_and_convert

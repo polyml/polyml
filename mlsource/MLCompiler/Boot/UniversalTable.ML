@@ -35,6 +35,9 @@ sig
   
   val univOverSpecific: univTable * 'a tagMethods -> (string * 'a) iter;
 
+  (* Freeze a mutable table so it is immutable. *)
+  val univFreeze:       univTable -> univTable
+
 end =
 
 
@@ -186,17 +189,7 @@ struct
         end;
       end (* local *);
 
-(*...
-      open Environ;
-      fun makeEnviron table =
-        environIn
-          {
-            lookup = univLookup table,
-            enter  = univEnter  table,
-            delete = univDelete table,
-            over   = univOver   table
-           };
-... *)
+    fun univFreeze (Table h) = Table(hashFreeze h)
 
     end (* with *);
   end (* local *);

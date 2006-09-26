@@ -63,7 +63,7 @@ local
 	val System_loadw: word*word->word = RunCall.run_call2 POLY_SYS_load_word;
 	val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
 	val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length;
-    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullorzero; (* A zero word. *)
+    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
 	val System_move_words:
 		word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
 

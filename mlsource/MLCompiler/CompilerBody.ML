@@ -36,12 +36,10 @@ structure CompilerBody =
     structure PARSEDEC   = ParseDec
     structure DEBUG      = Debug
     structure UTILITIES  = Utilities
-    
     structure MISC       = Misc
     structure PRETTYPRINTER = PrettyPrinter
     structure POLYML     = PolyML
     structure ADDRESS    = Address
     structure RUNCALL    = RunCall
-    structure CREATEDATABASE = CreateDatabase
 ) ;
 

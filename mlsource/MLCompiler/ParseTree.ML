@@ -33,6 +33,5 @@ structure ParseTree =
     structure ARRAY      = Array
     structure ADDRESS    = Address
     structure RUNCALL    = RunCall
-    structure CREATEDATABASE    = CreateDatabase
 	structure DEBUGGER = Debugger
   ) ;

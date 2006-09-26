@@ -299,7 +299,7 @@ struct
 			end
 			
 	in
-		(* Install this as a conversion function for word literals.
+		(* Install this as a conversion function for integer literals.
 		   Unlike other overloaded functions there's no need to
 		   ensure that overloaded conversion functions are installed
 		   at the top-level.  The compiler has type "int" built in
@@ -307,7 +307,15 @@ struct
 		   form nnn... in preference to any other if unification does
 		   not give an explicit type. *)
 		val unused: unit = RunCall.addOverload convInt "convInt"
-	end
+	end	
+end;
+
+local
+	(* Install the pretty printer for int *)
+	fun prettyInt(p, _, _, _) _ _ x =
+		p(Int.toString x)
+in
+	val unused = RunCall.Inner.install_pp prettyInt
 end;
 
 structure LargeInt = Int

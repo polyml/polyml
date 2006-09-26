@@ -22,7 +22,6 @@ structure PrintTable  =
   PRINT_TABLE
     (
       structure STRUCTVALS = StructVals
-      structure CREATEDATABASE = CreateDatabase
       structure PRETTYPRINTER = PrettyPrinter
       structure MISC = Misc
     );

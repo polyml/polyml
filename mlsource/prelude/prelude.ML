@@ -122,7 +122,7 @@ infix  0  before
   val it: real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real;
   RunCall.addOverload it "~";
   local
-    val zero: word = RunCall.run_call1 RuntimeCalls.POLY_SYS_int_to_word 0
+    val zero: word = RunCall.unsafeCast 0
   in
     fun it x = zero - x
   end;
@@ -133,7 +133,7 @@ infix  0  before
   fun it (x: real): real = if x >= 0.0 then x else ~ x;
   RunCall.addOverload it "abs";
   local
-  	val zero: word = RunCall.run_call1 RuntimeCalls.POLY_SYS_int_to_word 0
+  	val zero: word = RunCall.unsafeCast 0
   in
     fun it x = if x >= zero then x else ~ x
   end;
@@ -266,10 +266,15 @@ end;
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
-val op ^ : string * string -> string = 
-	  RunCall.run_call2 RuntimeCalls.POLY_SYS_strconcat;
+(*val op ^ : string * string -> string = 
+	  RunCall.run_call2 RuntimeCalls.POLY_SYS_strconcat;*)
 
-(* TODO: This need not be built into the RTS. *)
+(* This is built in because the length of a string is stored as
+   an untagged integer.  The result needs to be a tagged integer.  Actually
+   this might be better written using a separate function POLY_SYS_get_string_length
+   (by analogy with POLY_SYS_set_string_length) and then
+   fun size (s: string): int = if isShort s then 1 else POLY_SYS_get_string_length s;
+   The advantage would be that the . *)
 val size : string -> int =
 	  RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
 
@@ -322,26 +327,8 @@ local
 		else raise Conversion "Bad character"
 	end;
 
-	(* Temporary conversion function for word.  This is replaced in the Word
-	   structure. *)
-	val wordFromInt: int->word = RunCall.run_call1 POLY_SYS_int_to_word
-
-    fun string_sub(s: string, i: int): string =
-	   RunCall.run_call2 RuntimeCalls.POLY_SYS_string_sub(s, i+1)
-
-	(* Highly inefficient version of substring but we will be
-	   replacing this function shortly. *)
-	fun substring(s: string, i: int, n: int): string =
-		if n = 0 then ""
-		else string_sub(s, i) ^ substring(s, i+1, n-1)
-
-	(* We just remove the 0w at the start and convert it as an integer. *)
-	fun convWord (s: string) : word =
-		if size s < 3 then raise Conversion "Too short"
-		else wordFromInt(PolyML.convInt(substring(s, 2, size s - 2)))
 in
 	val it = RunCall.addOverload convChar "convChar";
-	val it = RunCall.addOverload convWord "convWord";	
 end;
 
 (* Print functions.  Some of these are replaced by functions in the Basis library and
@@ -353,14 +340,14 @@ local
     val ord0 = ord #"0";
 	val chr = RunCall.unsafeCast
   
-    fun soi acc 0 = acc
+(*    fun soi acc 0 = acc
     |   soi acc n = soi (chr (n mod 10 + ord0) ^ acc) (n div 10);
 	
 	fun stringOfInt 0 = "0"
     |   stringOfInt n = if n < 0 then "~" ^ soi "" (~n) else soi "" n;
 
 	fun print_int (put, beg, brk, nd) depth _ (i: int) =
-		put(stringOfInt i)
+		put(stringOfInt i) *)
 
 	fun print_bool (put, beg, brk, nd) depth _ (b: bool) =
 		put(if b then "true" else "false")
@@ -369,7 +356,7 @@ local
 		put(s) (* Not escaped at the moment. *)
 
 	fun print_char (put, beg, brk, nd) depth _ (c: char) =
-		put("#" ^ (RunCall.unsafeCast c))
+		(put("#");  put(RunCall.unsafeCast c))
 
 	fun print_list (put, beg, brk, nd) depth printEl (l: 'a list) =
 		let
@@ -393,7 +380,7 @@ local
 	    end
 
 in
-  	val it = PolyML.Inner.install_pp print_int;
+(*  	val it = PolyML.Inner.install_pp print_int; *)
   	val it = PolyML.Inner.install_pp print_bool;
   	val it = PolyML.Inner.install_pp print_string;
   	val it = PolyML.Inner.install_pp print_char;

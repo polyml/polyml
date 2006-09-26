@@ -36,8 +36,8 @@ val _ = List.app PolyML.Compiler.forgetStructure
 	  "Conversions" ];
 
 val _ = List.app PolyML.Compiler.forgetFunctor
-   ["STRUCT", "CTYPE_SAVE_SIZEOF", "RELOAD_FUN",
+   ["STRUCT", "CTYPE_SAVE_SIZEOF",
    "CINTERFACE", "CALL_WITH_CONV", "STRUCT_CONVERSIONALS",
-   "SIMULATE_CALLSYM", "CTYPE", "CONVERSIONS", 
+   "CTYPE", "CONVERSIONS", 
    "VOLS_THAT_HOLD_REFS", "VOL_BASIC"];
 
