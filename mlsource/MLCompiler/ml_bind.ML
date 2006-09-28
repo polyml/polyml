@@ -34,7 +34,7 @@ struct
 	     val globalTable : dbEnv = makeDbEnv (sigTab globalUnivTable);
 	  end;
 	  
-	val mainShell = Make.shellProc (globalTable, ref "> ", ref "# ");
+	val mainShell = Make.shellProc (globalTable, Debug.prompt1, Debug.prompt2);
 	
 	val mainSessionShell = #shell mainShell
 
