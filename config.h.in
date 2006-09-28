@@ -168,6 +168,9 @@
 /* Define to 1 if you have the <locale.h> header file. */
 #undef HAVE_LOCALE_H
 
+/* Define to 1 if the system has the type `long long'. */
+#undef HAVE_LONG_LONG
+
 /* Define to 1 if `lstat' has the bug that it succeeds when given the
    zero-length file name argument. */
 #undef HAVE_LSTAT_EMPTY_STRING_BUG
@@ -514,6 +517,9 @@
    second argument and the buffer pointer as the third, as on System V before
    release 3. */
 #undef SETVBUF_REVERSED
+
+/* The size of a `long', as computed by sizeof. */
+#undef SIZEOF_LONG
 
 /* The size of a `void*', as computed by sizeof. */
 #undef SIZEOF_VOIDP
