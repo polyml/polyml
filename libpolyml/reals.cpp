@@ -220,7 +220,7 @@ Handle Real_neqc(Handle y, Handle x)
 /* CALL_IO1(Real_float, REF, NOIND) */
 Handle Real_floatc(Handle x) /* SHORT int to real */
 {
-    int n = UNTAGGED(DEREFWORDHANDLE(x));
+    POLYSIGNED n = UNTAGGED(DEREFWORDHANDLE(x));
     return real_result((double)n);
 }
 
@@ -733,7 +733,7 @@ Handle Real_dispatchc(Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown real arithmetic function: %d", c);
             raise_exception_string(EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }
