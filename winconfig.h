@@ -83,6 +83,9 @@
 #undef HAVE_FCNTL_H
 #define HAVE_FCNTL_H 1
 
+/* Define to 1 if you have the <fenv.h> header file. */
+#undef HAVE_FENV_H
+
 /* Define to 1 if you have the <float.h> header file. */
 #undef HAVE_FLOAT_H
 #define HAVE_FLOAT_H 1
@@ -110,10 +113,6 @@
 #undef HAVE_GETHOSTBYADDR
 #define HAVE_GETHOSTBYADDR 1
 
-/* Define to 1 if you have the `gethostbyname' function. */
-#undef HAVE_GETHOSTBYNAME
-#define HAVE_GETHOSTBYNAME 1
-
 /* Define to 1 if you have the `gethostname' function. */
 #undef HAVE_GETHOSTNAME
 #define HAVE_GETHOSTNAME 1
@@ -136,6 +135,9 @@
 
 /* Define to 1 if you have the <ieeefp.h> header file. */
 #undef HAVE_IEEEFP_H
+
+/* Define to 1 if the system has the type `IMAGE_FILE_HEADER'. */
+#undef HAVE_IMAGE_FILE_HEADER
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -172,9 +174,15 @@
 #undef HAVE_LOCALE_H
 #define HAVE_LOCALE_H 1
 
+/* Define to 1 if the system has the type `long long'. */
+#undef HAVE_LONG_LONG
+
 /* Define to 1 if `lstat' has the bug that it succeeds when given the
    zero-length file name argument. */
 #undef HAVE_LSTAT_EMPTY_STRING_BUG
+
+/* Define to 1 if you have the <mach-o/reloc.h> header file. */
+#undef HAVE_MACH_O_RELOC_H
 
 /* Define to 1 if you have the <malloc.h> header file. */
 #undef HAVE_MALLOC_H
@@ -276,6 +284,9 @@
 #undef HAVE_SQRT
 #define HAVE_SQRT 1
 
+/* Define to 1 if the system has the type `stack_t'. */
+#undef HAVE_STACK_T
+
 /* Define to 1 if `stat' has the bug that it succeeds when given the
    zero-length file name argument. */
 #undef HAVE_STAT_EMPTY_STRING_BUG
@@ -327,9 +338,18 @@
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
+/* Define to 1 if you have the `sysctl' function. */
+#undef HAVE_SYSCTL
+
 /* Define to 1 if you have the <sys/dir.h> header file, and it defines `DIR'.
    */
 #undef HAVE_SYS_DIR_H
+
+/* Define to 1 if you have the <sys/elf_386.h> header file. */
+#undef HAVE_SYS_ELF_386_H
+
+/* Define to 1 if you have the <sys/elf_SPARC.h> header file. */
+#undef HAVE_SYS_ELF_SPARC_H
 
 /* Define to 1 if you have the <sys/errno.h> header file. */
 #undef HAVE_SYS_ERRNO_H
@@ -371,6 +391,9 @@
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #undef HAVE_SYS_STAT_H
 #define HAVE_SYS_STAT_H 1
+
+/* Define to 1 if you have the <sys/sysctl.h> header file. */
+#undef HAVE_SYS_SYSCTL_H
 
 /* Define to 1 if you have the <sys/systeminfo.h> header file. */
 #undef HAVE_SYS_SYSTEMINFO_H
@@ -445,14 +468,17 @@
 /* Define to 1 if you have the <X11/Xlib.h> header file. */
 #undef HAVE_X11_XLIB_H
 
+/* Define to 1 if the system has the type `x86_thread_state32_t'. */
+#undef HAVE_X86_THREAD_STATE32_T
+
+/* Define to 1 if the system has the type `x86_thread_state64_t'. */
+#undef HAVE_X86_THREAD_STATE64_T
+
 /* Define to 1 if you have the <Xm/Xm.h> header file. */
 #undef HAVE_XM_XM_H
 
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
-
-/* Define to 1 if you have the `_setjmp' function. */
-#undef HAVE__SETJMP
 
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */
@@ -492,6 +518,14 @@
    second argument and the buffer pointer as the third, as on System V before
    release 3. */
 #undef SETVBUF_REVERSED
+
+/* The size of a `long', as computed by sizeof. */
+#undef SIZEOF_LONG
+#define SIZEOF_LONG 4
+
+/* The size of a `void*', as computed by sizeof. */
+#undef SIZEOF_VOIDP
+#define SIZEOF_VOIDP 4
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
