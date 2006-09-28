@@ -82,9 +82,9 @@ in
 
 
     (* The first two used to be in the System structure but that is no longer included. *)
-  	fun objSize(x:'a): unit    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
-	and showSize(x:'a): unit   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
-	and objProfile(x:'a): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
+  	fun objSize(x:'a): int    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
+	and showSize(x:'a): int   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
+	and objProfile(x:'a): int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
 	
 	val fullGC: unit -> unit = 
 	    RunCall.run_call0 POLY_SYS_full_gc;
