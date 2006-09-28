@@ -245,10 +245,10 @@ static void RaiseXWindows(char *s) __attribute__((noreturn));
 #define debug1(fmt,p1) {if (userOptions.debug & DEBUG_X) printf(fmt,p1);}
 #define debug3(fmt,p1,p2,p3) {if (userOptions.debug & DEBUG_X) printf(fmt,p1,p2,p3);}
 
-#define debugCreate(type,value)  debug1("%x " #type " created\n",(int)(value))
-#define debugReclaim(type,value) debug1("%x " #type " reclaimed\n",(int)(value))
-#define debugReclaimRef(type,value) debug1("%x " #type " reference reclaimed\n",(int)(value))
-#define debugRefer(type,value) debug1("%x " #type " referenced\n",(int)(value))
+#define debugCreate(type,value)  debug1("%lx " #type " created\n",(unsigned long)(value))
+#define debugReclaim(type,value) debug1("%lx " #type " reclaimed\n",(unsigned long)(value))
+#define debugReclaimRef(type,value) debug1("%lx " #type " reference reclaimed\n",(unsigned long)(value))
+#define debugRefer(type,value) debug1("%lx " #type " referenced\n",(unsigned long)(value))
 #define debugCreateCallback(MLValue,CValue,CListCell)  debug3("%p Widget callback reference created (%p,%p)\n",CValue,CListCell,MLValue)
 #define debugReclaimCallback(MLValue,CValue,CListCell) debug3("%p Widget callback reference removed (%p,%p)\n",CValue,CListCell,MLValue)
 
@@ -608,7 +608,7 @@ static Bool callbacks_enabled = False;
 /* Unfortunately, we can't do this for GCs or VISUALS, since the actual C object */
 /* contains the id we want, and we can't access the id if we haven't got the     */
 /* object. For these, we return a constant instead.                              */
-static int hashId(X_Object *P)
+static unsigned long hashId(X_Object *P)
 {
 
 #define HASH_GC     0
@@ -617,16 +617,16 @@ static int hashId(X_Object *P)
   switch(UNTAGGED(P->type))
   {
     case X_GC:       return HASH_GC;
-    case X_Font:     return (unsigned)(*(((X_Font_Object*)P)->font));
-    case X_Cursor:   return (unsigned)(*(((X_Cursor_Object*)P)->cursor));
-    case X_Window:   return (unsigned)(*(((X_Window_Struct*)P)->drawable));
-    case X_Pixmap:   return (unsigned)(*(((X_Pixmap_Object*)P)->pixmap));
-    case X_Colormap: return (unsigned)(*(((X_Colormap_Object*)P)->cmap));
+    case X_Font:     return (unsigned long)(*(((X_Font_Object*)P)->font));
+    case X_Cursor:   return (unsigned long)(*(((X_Cursor_Object*)P)->cursor));
+    case X_Window:   return (unsigned long)(*(((X_Window_Struct*)P)->drawable));
+    case X_Pixmap:   return (unsigned long)(*(((X_Pixmap_Object*)P)->pixmap));
+    case X_Colormap: return (unsigned long)(*(((X_Colormap_Object*)P)->cmap));
     case X_Visual:   return HASH_VISUAL;
-    case X_Display:  return (unsigned)(((X_Display_Object*)P)->display);
-    case X_Widget:   return (unsigned)(*(((X_Widget_Object*)P)->widget));
-    case X_Trans:    return (unsigned)(((X_Trans_Object*)P)->table);
-    case X_Acc:      return (unsigned)(((X_Acc_Object*)P)->acc);
+    case X_Display:  return (unsigned long)(((X_Display_Object*)P)->display);
+    case X_Widget:   return (unsigned long)(*(((X_Widget_Object*)P)->widget));
+    case X_Trans:    return (unsigned long)(((X_Trans_Object*)P)->table);
+    case X_Acc:      return (unsigned long)(((X_Acc_Object*)P)->acc);
     default:         Crash ("Bad X_Object type (%d) in hashId",UNTAGGED(P->type));
   }
   /*NOTREACHED*/
@@ -644,12 +644,12 @@ static void initXList(void)
 
 static X_List **hashXList(X_Object *P)
 {
-  unsigned id = hashId(P);
+  unsigned long id = hashId(P);
   unsigned n  = (id % XLISTSIZE); /* a poor hash function, but good enough for now */
   return &(XList[n]);
 }
 
-static X_List *findXList(unsigned id)
+static X_List *findXList(unsigned long id)
 {
   unsigned n  = (id % XLISTSIZE); /* a poor hash function, but good enough for now */
   return XList[n];
@@ -1040,8 +1040,8 @@ static X_Object *FindResource
 (
   Handle   dsHandle,   /* Handle to (X_Display_Object *) */
   X_types  type,
-  unsigned id,
-  unsigned hashid
+  unsigned long id,
+  unsigned long hashid
 )
 {
   X_List *L;
@@ -1078,16 +1078,16 @@ static X_Object *FindResource
 }
 
 // Why are there these casts to unsigned here????
-#define FindWindow(d,id)   ((X_Window_Object *)   FindResource(d,X_Window,(unsigned)id,(unsigned)id))
-#define FindPixmap(d,id)   ((X_Pixmap_Object *)   FindResource(d,X_Pixmap,(unsigned)id,(unsigned)id))
-#define FindCursor(d,id)   ((X_Cursor_Object *)   FindResource(d,X_Cursor,(unsigned)id,(unsigned)id))
-#define FindFont(d,id)     ((X_Font_Object *)     FindResource(d,X_Font,(unsigned)id,(unsigned)id))
-#define FindColormap(d,id) ((X_Colormap_Object *) FindResource(d,X_Colormap,(unsigned)id,(unsigned)id))
-#define FindWidget(id)     ((X_Widget_Object *)   FindResource((Handle)NULL,X_Widget,(unsigned)id,(unsigned)id))
+#define FindWindow(d,id)   ((X_Window_Object *)   FindResource(d,X_Window,(unsigned long)id,(unsigned long)id))
+#define FindPixmap(d,id)   ((X_Pixmap_Object *)   FindResource(d,X_Pixmap,(unsigned long)id,(unsigned long)id))
+#define FindCursor(d,id)   ((X_Cursor_Object *)   FindResource(d,X_Cursor,(unsigned long)id,(unsigned long)id))
+#define FindFont(d,id)     ((X_Font_Object *)     FindResource(d,X_Font,(unsigned long)id,(unsigned long)id))
+#define FindColormap(d,id) ((X_Colormap_Object *) FindResource(d,X_Colormap,(unsigned long)id,(unsigned long)id))
+#define FindWidget(id)     ((X_Widget_Object *)   FindResource((Handle)NULL,X_Widget,(unsigned long)id,(unsigned long)id))
 
 /* can't use id for hashing in the following, so use arbitrary values instead */
-#define FindGC(d,id)       ((X_GC_Object *)       FindResource(d,X_GC,(unsigned)id,HASH_GC))
-#define FindVisual(d,id)   ((X_Visual_Object *)   FindResource(d,X_Visual,(unsigned)id,HASH_VISUAL))
+#define FindGC(d,id)       ((X_GC_Object *)       FindResource(d,X_GC,(unsigned long)id,HASH_GC))
+#define FindVisual(d,id)   ((X_Visual_Object *)   FindResource(d,X_Visual,(unsigned long)id,HASH_VISUAL))
 
 static Handle AddXObject(Handle objectHandle)
 {
@@ -1617,7 +1617,7 @@ static Pixmap GetPixmap(X_Object *P)
 
     if (! ResourceExists(P)) 
       {
-        debug1("Non-existent window %x\n",(int)P);
+        debug1("Non-existent window %lx\n",(long)P);
       }
 
     if (*(((X_Window_Object*)P)->drawable) == None) return None;
@@ -5618,7 +5618,7 @@ static Handle GetID(X_Object *P)
     case X_Pixmap:   return Make_unsigned(GetPixmap(P));            /* DrawableID */
     case X_Colormap: return Make_unsigned(GetColormap(P));          /* ColormapID */
     case X_Visual:   return Make_unsigned(GetVisual(P)->visualid);  /* VisualID   */
-    case X_Widget:   return Make_unsigned((unsigned)GetNWidget(P)); /* Widget -- SAFE(?) */
+    case X_Widget:   return Make_unsigned((unsigned long)GetNWidget(P)); /* Widget -- SAFE(?) */
     default:         Crash ("Bad X_Object type (%d) in GetID",UNTAGGED(P->type)) /*NOTREACHED*/;
     }
 }
