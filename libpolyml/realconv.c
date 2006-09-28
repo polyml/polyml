@@ -204,14 +204,17 @@
 #endif
 #endif
 
-// This is supposed to be set to the byte order.
-
 #ifdef _WIN32_WCE
 #undef DEBUG
 #endif
 
-#if (SIZEOF_VOIDP == 8)
+#if (SIZEOF_LONG == 8)
+// If "long" is the same size as "double" we need to define this.
 #define Long int
+#endif
+
+#ifndef HAVE_LONG_LONG
+#define NO_LONG_LONG
 #endif
 
 #ifndef Long
