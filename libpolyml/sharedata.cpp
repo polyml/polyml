@@ -325,6 +325,20 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
 {
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0) || gMem.IsIOPointer(old.AsAddress()))
         return old; //  Nothing to do.
+
+    // When we are updating addresses in the stack or in code segments we may have
+    // code pointers.
+    if (old.IsCodePtr())
+    {
+        // Find the start of the code segment
+        PolyObject *oldObject = ObjCodePtrToPtr(old.AsCodePtr());
+        // Calculate the byte offset of this value within the code object.
+        POLYUNSIGNED offset = old.AsCodePtr() - (byte*)oldObject;
+        PolyWord newObject = GetNewAddress(oldObject);
+        return PolyWord::FromCodePtr(newObject.AsCodePtr() + offset);
+    }
+
+    ASSERT(old.IsDataPtr());
          
     ASSERT(IsDataAddress(old));
 
@@ -430,6 +444,18 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     return depth;
 }
 
+static void RestoreLengthWords(Vector *vec)
+{
+   // Restore the length words.
+    Item *itemVec = vec->vector;
+    for (POLYUNSIGNED  i = 0; i < vec->nitems; i++)
+    {
+        itemVec[i].pt->SetLengthWord(itemVec[i].L); // restore genuine length word
+        ASSERT (OBJ_IS_LENGTH(itemVec[i].pt->LengthWord()));
+    }
+}
+
+
 static unsigned verbose = 0;
 
 // ShareData.  This is the main entry point.
@@ -442,9 +468,6 @@ void ShareData(Handle root)
 
     if (! root->Word().IsDataPtr())
         return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
-
-    // Do a full garbage collection.  This should simplify the scanning at the end.
-    FullGC();
 
     // Build the vectors from the immutable objects.
     ProcessAddToVector addToVector;
@@ -465,40 +488,27 @@ void ShareData(Handle root)
 
     ProcessFixupAddress fixup;
 
-    // Restore the length words of the zero level objects.
-    if (vectors && vectors->depth == 0)
-    {
-        Vector *v = vectors;
-        // Restore the length words.
-        Item *itemVec = v->vector;
-        for (POLYUNSIGNED  i = 0; i < v->nitems; i++)
-        {
-            itemVec[i].pt->SetLengthWord(itemVec[i].L); // restore genuine length word
-            ASSERT (OBJ_IS_LENGTH(itemVec[i].pt->LengthWord()));
-        }
+    Vector *vec = vectors;
 
-        vectors = v->next;
-        delete(v);
-    }
+    if (vec && vec->depth == 0) // Skip the level zero objects.
+         vec = vec->next; // We fix them up when we've done all the rest.
 
-    while (vectors)
+    while (vec)
     {
-        Vector *v = vectors;
-        fixup.FixupItems(v);
-        qsort (v->vector, v->nitems, sizeof(Item), CompareItems);
+        fixup.FixupItems(vec);
+        qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
         
-        POLYUNSIGNED n = MergeSameItems (v);
+        POLYUNSIGNED n = MergeSameItems (vec);
         
         if (n && verbose)
         {
-            printf("Level %4lu, Objects %6lu, Shared %6lu\n", v->depth, v->nitems, n);
+            printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
         }
         
-        totalObjects += v->nitems;
+        totalObjects += vec->nitems;
         totalShared  += n;
         
-        vectors = v->next; // Get the next vector (if any)
-        delete(v);  // Free the space associated with this level.
+        vec = vec->next; // Get the next vector (if any)
     }  
 
   /* 
@@ -525,30 +535,33 @@ void ShareData(Handle root)
 
   SPF 26/1/95
 */
-    /* We also need to scan all the level 0 objects (mutables, stacks and code) in order
-       to make any addresses point to shared immutables.  It isn't essential to scan
-       objects that aren't reachable from our root; pointers in those objects could
-       be left pointing at the originals provided we turn the tombstones back into
-       normal length words.  Updating them, though, will reduce the heap size.  It's
-       easier simply to update all the addresses in the heap. */
 
-    // Do complete scans over all the memory areas and all the roots updating
-    // any forwarding pointers,
-    unsigned j;
-    for (j = 0; j < gMem.npSpaces; j++)
+
+    /* We have updated the addresses in objects with non-zero level so they point to
+       the single occurrence but we need to do the same with level 0 objects
+       (mutables, stacks and code). */
+    vec = vectors;
+    if (vec && vec->depth == 0)
     {
-        MemSpace *space = gMem.pSpaces[j];
-        // Permanent areas are filled with objects from the bottom.
-        fixup.ScanAddressesInRegion(space->bottom, space->top - space->bottom); // Bottom to top
-    }
-    for (j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        // Local areas only have objects from the allocation pointer to the top.
-        fixup.ScanAddressesInRegion(space->pointer, space->top - space->pointer);
+        Vector *v = vec;
+        RestoreLengthWords(v);
+        fixup.FixupItems(v);
+        vec = vec->next;
+        delete(v); // Free all the data
     }
 
-    GCModules(&fixup); // Fix up any roots that point to changed addresses.
+    /* Previously we made a complete scan over the memory updating any addresses so
+       that if we have shared two substructures within our root we would also
+       share any external pointers.  This has been removed but we have to
+       reinstate the length words we've overwritten with forwarding pointers because
+       there may be references to unshared objects from outside. */
+    while (vec != 0)
+    {
+        Vector *v = vec;
+        RestoreLengthWords(v);
+        vec = vec->next;
+        delete(v);
+    }
 
     if (verbose)
     {
