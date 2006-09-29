@@ -142,7 +142,8 @@ void Bitmap::ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 {
     POLYUNSIGNED word_index = bitno / BITS_PER_WORD;
     
-    ASSERT (0 < length);
+    if (length == 0)
+        return;
     
     // Clear the first part word
     POLYUNSIGNED start_bit_index = bitno % BITS_PER_WORD;
