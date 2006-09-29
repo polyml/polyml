@@ -1322,7 +1322,11 @@ void Processes::StartStopInterruptTimer(void)
 /* It is used to ensure that processes get a fair share of the machine. */
 {
 #if ! defined(WINDOWS_PC) /* UNIX version */
-    if (no_of_processes > no_waiting+1)
+    /* We currently run this all the time.  It is needed because
+       addSigCount in sighandler doesn't actually call InterruptCode
+       (there's a similar situation with ^C followed by "f") and so
+       an interrupt handler won't be called. */
+    if (1 || no_of_processes > no_waiting+1)
     { // We have more than one process able to run
         if (! timerRunning && userOptions.timeslice != 0)
         {
