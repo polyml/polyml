@@ -3019,7 +3019,7 @@ Calling conventions:
           val addr = tagTest1 (rs, cvec);
         in
           genMove  (rd, rs, cvec);
-          genImmed (SUB, rd, semitag c, cvec); (* needs AHL RTS *)
+          genImmed (SUB, rd, semitag c, cvec);
           genJO8   (addr, cvec)
         end
 
@@ -3028,19 +3028,19 @@ Calling conventions:
         (* Fixed precision addition - doesn't check for overflow. *)
         (* The argument is shifted but not tagged *)
         let
-                  val c = toInt (toShort constnt)
-                in
-          genLeal (rd, rs, semitag c, cvec)
-                end
+            val c = toInt (toShort constnt)
+        in
+            genLeal (rd, rs, semitag c, cvec)
+        end
   
     | instrSubW => 
         (* Fixed precision subtraction - doesn't check for overflow.  *)
         (* The argument is shifted but not tagged. *)
         let
-                  val c = toInt (toShort constnt)
-                in
-          genLeal (rd, rs, ~ (semitag c), cvec)
-                end
+            val c = toInt (toShort constnt)
+        in
+            genLeal (rd, rs, ~ (semitag c), cvec)
+        end
   
     (*  Now removed.  This is no longer safe now that we look for constants
             in the code.
@@ -3055,7 +3055,7 @@ Calling conventions:
     | instrOrW => 
         (* Logical or. *)
         let
-                  val c = toInt (toShort constnt);
+          val c = toInt (toShort constnt);
           val tagged = tag c;
         in
           genMove  (rd, rs, cvec);
@@ -3065,7 +3065,7 @@ Calling conventions:
     | instrAndW => 
         (* Logical and. *)
         let
-                  val c = toInt (toShort constnt);
+          val c = toInt (toShort constnt);
           val tagged = tag c;
         in
           genMove  (rd, rs, cvec);
@@ -3075,40 +3075,35 @@ Calling conventions:
     | instrXorW => 
         (* Constant must be shifted but not tagged. *)
         let
-                  val c = toInt (toShort constnt)
-                in
+          val c = toInt (toShort constnt)
+        in
           genMove  (rd, rs, cvec);
           genImmed (XOR, rd, semitag c, cvec)
         end
 
     | instrUpshiftW =>
-        (* Word shift of more than 31 (unsigned) is defined to return zero
+        (* Word shift of more than 63 (unsigned) is defined to return zero
            for the logical shifts and either 0 or all ones for the arithmetic
            shift.  The i386 shift instructions mask the shift value instead. *)
         let
-           val c = toInt (toShort constnt)
+            val c = toInt (toShort constnt)
         in
-            if c < 0 orelse c > 31
+            if c < 0 orelse c > 63
             then genMoveI (rd, tag 0, cvec)
             else
-            let
-              fun power2 n = if n = 0 then 1 else 2 * power2 (n-1)
-            in
-              genMove (rd, rs, cvec);
-              genOpRegPlus2 (Group2_8_A, rd, 4 (* shl *), cvec);
-              gen8s (c, cvec);
-              (* We have shifted the tag bit along with everything else.
-                 We need to subtract the shifted tag bit and a tag bit to
-                 the end. *)
-              genLeal (rd, rd, 1 - power2 c, cvec)
-            end
+            (
+                genLeal (rd, rs, ~1, cvec); (* Remove the tag. *)
+                genOpRegPlus2 (Group2_8_A, rd, 4 (* shl *), cvec);
+                gen8s (c, cvec);
+                genImmed (OR, rd, tag 0, cvec) (* Put in the tag *)
+            )
         end
 
     | instrDownshiftW => 
         let
           val c = toInt (toShort constnt)
         in
-            if c < 0 orelse c > 31
+            if c < 0 orelse c > 63
             then genMoveI (rd, tag 0, cvec)
             else
                (
@@ -3120,26 +3115,26 @@ Calling conventions:
         end
 
     | instrDownshiftArithW =>
-                (* In this case it's easiest to set the shift to 31. *)
+        (* In this case it's easiest to set the shift to 63. *)
         let
           val c = toInt (toShort constnt)
         in
           genMove (rd, rs, cvec);
           genOpRegPlus2 (Group2_8_A, rd, 7 (* sar *), cvec);
-          gen8s (if c < 0 orelse c > 31 then 31 else c, cvec);
+          gen8s (if c < 0 orelse c > 63 then 63 else c, cvec);
           genImmed (OR, rd, tag 0, cvec) (* Put in the tag *)
         end
  
         | instrMulA =>
-                (* We only handle multiplication by two at the moment.  We
-                   could handle a wider range but it's not that easy particularly
-                   because the overflow flag is not defined on shifts of more than
-                   one. *)
+           (* We only handle multiplication by two at the moment.  We
+              could handle a wider range but it's not that easy particularly
+              because the overflow flag is not defined on shifts of more than
+              one. *)
         let 
-                  val c = toInt (toShort constnt)
+          val c = toInt (toShort constnt)
           val addr = tagTest1 (rs, cvec);
         in
-                  if c = 2 then () else raise InternalError "Multiply not implemented";
+          if c = 2 then () else raise InternalError "Multiply not implemented";
           (* Do the actual operation after removing a tag from one arg. *)
           genLeal (rd, rs, ~1, cvec);
           genReg  (ADD, rd, rs, cvec);
@@ -3192,12 +3187,12 @@ Calling conventions:
 
         | instrModW =>
         let
-                  val c = toInt (toShort constnt)
-                  val ASSERT = log2 c (* Check it's a power of 2. *)
-          val tagged = tag (c-1)
+            val c = toInt (toShort constnt)
+            val ASSERT = log2 c (* Check it's a power of 2. *)
+            val tagged = tag (c-1)
         in
-          genMove  (rd, rs, cvec);
-          genImmed (AND, rd, tagged, cvec)
+            genMove  (rd, rs, cvec);
+            genImmed (AND, rd, tagged, cvec)
         end
 
     | instrLoad => 
