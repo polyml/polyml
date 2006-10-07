@@ -335,34 +335,16 @@ char *RTSArgHelp(void)
     return buff;
 }
 
-
-// Process the patch table.  This is only used in the C version to handle
-// constants in the code that can't be represented simply in C.
-static void ApplyPatchTable(exportDescription *exports)
-{
-    unsigned long *pt = exports->patchTable;
-    while (*pt)
-    {
-        unsigned char *toPatch = (unsigned char*)(*pt++);
-        unsigned long v = *pt++;
-        int code = *pt++;
-#ifdef SPARC
-        /* This is a temporary fudge. */
-        if (code == 0) code = PROCESS_RELOC_SPARCDUAL;
-        else if (code == 1) code = PROCESS_RELOC_SPARCRELATIVE;
-#endif
-        ScanAddress::SetConstantValue(toPatch, PolyWord::FromUnsigned(v), (ScanRelocationKind)code);
-    }
-}
-
 void InitHeaderFromExport(exportDescription *exports)
 {
-    // For the moment just check these.
-    ASSERT(exports->structLength == sizeof(exportDescription));
-    ASSERT(exports->memTableSize == sizeof(memoryTableEntry));
-
-    if (exports->patchTable)
-        ApplyPatchTable(exports);
+    // Check the structure sizes stored in the export structure match the versions
+    // used in this library.
+    if (exports->structLength != sizeof(exportDescription) ||
+        exports->memTableSize != sizeof(memoryTableEntry))
+    {
+        Exit("The exported object file does not match this version of the library");
+    }
+    // We could also check the RTS version and the architecture.
 
     memoryTableEntry *memTable = exports->memTable;
     for (unsigned i = 0; i < exports->memTableEntries; i++)
@@ -374,19 +356,4 @@ void InitHeaderFromExport(exportDescription *exports)
             (void)gMem.NewPermanentSpace((PolyWord*)memTable[i].mtAddr,
                 memTable[i].mtLength/sizeof(PolyWord), (memTable[i].mtFlags & MTF_WRITEABLE) != 0);
     }
-
-    // We should no longer have root objects just root functions.
-    ASSERT(exports->rootObject == 0);
-
-#if (0)
-#ifndef WINDOWS_PC
-    // This is horrible!!!  It is needed to get execute permission
-    // on iovec (and immutableDB when we compile it from C).
-    int pageSize = getpagesize();
-    char *p = (char*)malloc(1024+pageSize-1);
-
-    p = (char *)(((long) p + pageSize-1) & ~(pageSize-1));
-    mprotect(p, 1024, PROT_READ|PROT_WRITE|PROT_EXEC);
-#endif
-#endif
 }

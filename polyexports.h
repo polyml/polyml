@@ -56,9 +56,7 @@ typedef struct _exportDescription {
     UNSIGNEDADDR timeStamp;        // Creation time stamp
     unsigned architecture;         // Machine architecture
     unsigned rtsVersion;           // Run-time system version
-    void *rootObject;              // Backwards compatibility - points to the root object
     unsigned ioSpacing;            // Size of each entry in the io interface area.
-    unsigned long *patchTable;     // Pointer to patch table if needed.
 } exportDescription;
 
 extern exportDescription poly_exports;
