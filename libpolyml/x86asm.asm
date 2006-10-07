@@ -837,8 +837,8 @@ ELSE
     movsq                           ;# Copy the words
 ENDIF
 ENDIF
-    MOVL    Reax,Recx               ;# Clobber bad values
     MOVL    CONST UNIT,Reax             ;# The function returns unit
+    MOVL    Reax,Recx               ;# Clobber bad values
     MOVL    Reax,Redi
     MOVL    Reax,Resi
  ;# Visual Studio 5 C++ seems to assume that the direction flag
@@ -1664,7 +1664,9 @@ ENDIF
     MOVL    [Reax],Redi
     CMPL    [Rebx],Redi
 tststr4:
-    MOVL    Reax,Recx       ;# Clobber these
+    MOVL    CONST 1,Reax      ;# Clobber these
+    MOVL    Reax,Rebx       
+    MOVL    Reax,Recx       
     MOVL    Reax,Resi
     MOVL    Reax,Redi
     ret
