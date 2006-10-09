@@ -158,7 +158,5 @@ void DoCheckMemory()
         if (space->isMutable)
             memCheck.ScanAddressesInRegion(space->pointer, space->top-space->pointer);
     }
-//    memCheck.ScanAddressesInRegion(A.M.pointer, A.M.top-A.M.pointer);
-//    memCheck.ScanAddressesInRegion(A.I.pointer, A.I.top-A.I.pointer);
     gMem.OpOldMutables(&memCheck);
 }
