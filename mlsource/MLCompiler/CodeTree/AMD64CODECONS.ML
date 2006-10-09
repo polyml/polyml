@@ -799,10 +799,14 @@ struct
     constVec    := {const = valu, addrs = !ic, posn = realPosn} :: ! constVec;
     (* We must put a valid tagged integer in here because we might
        get a garbage collection after we have copied this code into
-       the new code segment but before we've put in the real constant. *)
+       the new code segment but before we've put in the real constant.
+       If this is a relative branch we need to point this at itself.
+       Until it is set to the relative offset of the destination it
+       needs to contain an address within the code and this could
+       be the last instruction. *)
     if isInline andalso wordSize = 8
     then gen64s (tag 0, cvec)
-    else gen32s (tag 0, cvec)
+    else gen32s (case posn of InlineRelative => ~5 | _ => tag 0, cvec)
   end
 
 

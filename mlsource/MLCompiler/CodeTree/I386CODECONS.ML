@@ -700,15 +700,18 @@ struct
      the constant directly in the code since at this stage the code is
 	 simply a byte segment and if we have a garbage collection the value
 	 won't be updated. *)
-  fun addConstToVec (valu: const, isRel,
-  					 cvec as Code{numOfConsts, constVec, ic, ...}): unit =
+  fun addConstToVec (valu: const, isRel, cvec as Code{numOfConsts, constVec, ic, ...}): unit =
   (
 	numOfConsts := ! numOfConsts + 1;
 	constVec    := (valu, !ic, isRel) :: ! constVec;
     (* We must put a valid tagged integer in here because we might
        get a garbage collection after we have copied this code into
-	   the new code segment but before we've put in the real constant. *)
-    gen32s (tag 0, cvec)
+       the new code segment but before we've put in the real constant.
+       If this is a relative branch we need to point this at itself.
+       Until it is set to the relative offset of the destination it
+       needs to contain an address within the code and this could
+       be the last instruction. *)
+    gen32s (if isRel then ~5 else tag 0, cvec)
   )
 
 
@@ -2054,9 +2057,9 @@ Calling conventions:
 			addConstToVec (WVal w, false, cvec)
 		  );
 
-     exited := true (* We're not coming back. *)      
+     exited := true (* We're not coming back. *)
     );
-     
+
 
   (* Exported. Return and remove args. *)
   fun returnFromFunction (resReg, args, cvec as Code{exited, ...}) : unit =
