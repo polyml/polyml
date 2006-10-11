@@ -436,6 +436,7 @@ void X86Dependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc    = PC_RETRY_SPECIAL;
     stack->p_sp    = stack->Offset(stack_size-4); 
+    stack->p_hr    = stack->Offset(stack_size-3);
     stack->p_nreg  = CHECKED_REGS;
 
     for (POLYUNSIGNED i = 0; i < CHECKED_REGS; i++) stack->p_reg[i] = TAGGED(0);
@@ -459,7 +460,6 @@ void X86Dependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
     stack->Set(stack_size-2, killJump); // Default handler.
     /* Set up exception handler */
     stack->Set(stack_size-3, TAGGED(0)); /* Default handler. */
-    stack->p_hr = stack->Offset(stack_size-3);
     /* Return address. */
     stack->Set(stack_size-4, killJump); // Return address
 }
@@ -809,7 +809,7 @@ void X86Dependent::SetMemRegisters(void)
     memRegisters.localMpointer = allocSpace->pointer + 1;
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
-    if (store_profiling || (userOptions.debug & DEBUG_REGION_CHECK))
+    if (store_profiling || (userOptions.debug & (DEBUG_FORCEGC|DEBUG_REGION_CHECK)))
         memRegisters.localMbottom = memRegisters.localMpointer;
 
     memRegisters.polyStack = poly_stack;
@@ -818,7 +818,7 @@ void X86Dependent::SetMemRegisters(void)
     // but if we've had an interrupt we set it to the end of the stack.
     memRegisters.stackTop = poly_stack->Offset(poly_stack->Length() - 1);
     memRegisters.stackLimit = poly_stack->Offset(poly_stack->p_space);
-    if (interrupted || (userOptions.debug & DEBUG_REGION_CHECK))
+    if (interrupted)
         memRegisters.stackLimit = memRegisters.stackTop;
     memRegisters.handlerRegister = poly_stack->p_hr;
     memRegisters.requestCode = 0; // Clear these because only one will be set.
@@ -928,8 +928,9 @@ void X86Dependent::HeapOverflowTrap(void)
     // attempted allocation.  Add back the space we tried to allocate
     allocSpace->pointer += wordsNeeded;
 #endif /* X86_64 */
-    
-    if (allocSpace->pointer < allocSpace->bottom + wordsNeeded)
+
+
+    if (allocSpace->pointer < allocSpace->bottom + wordsNeeded || (userOptions.debug & DEBUG_FORCEGC))
         /* a genuine storage request, not just (or as well as) a profiling trap */
     {
 
@@ -937,7 +938,10 @@ void X86Dependent::HeapOverflowTrap(void)
             Crash ("Bad length in heap overflow trap");
 
         // See if we have another space to satisfy the request without a GC.
-        allocSpace = gMem.GetAllocSpace(wordsNeeded);
+        if ((userOptions.debug & DEBUG_FORCEGC))
+            allocSpace = 0;
+        else
+            allocSpace = gMem.GetAllocSpace(wordsNeeded);
 
         if (allocSpace == 0)
         { // No.
