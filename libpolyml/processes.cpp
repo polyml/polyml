@@ -1346,7 +1346,9 @@ void Processes::StartStopInterruptTimer(void)
     }
     else if (timerRunning)
     { // Stop the timer.
-        setitimer(ITIMER_REAL, 0, 0);
+        struct itimerval cancelTimer;
+        memset(&cancelTimer, 0, sizeof(cancelTimer));
+        setitimer(ITIMER_REAL, &cancelTimer, 0);
         timerRunning = false;
     }
 #endif
@@ -1398,7 +1400,9 @@ void Processes::Uninit(void)
     hStopEvent = NULL;
 #else
     // Stop the timer.  We mustn't get any interrupts from now on.
-    setitimer(ITIMER_REAL, 0, 0);
+    struct itimerval cancelTimer;
+    memset(&cancelTimer, 0, sizeof(cancelTimer));
+    setitimer(ITIMER_REAL, &cancelTimer, 0);
 #endif
 }
 
