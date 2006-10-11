@@ -751,5 +751,10 @@ void Profiling::Uninit(void)
     }
     if (hStopEvent) CloseHandle(hStopEvent);
     hStopEvent = NULL;
+#else
+    // Make sure the timer is not running
+    struct itimerval stoptime;
+    memset(&stoptime, 0, sizeof(stoptime));
+    setitimer(ITIMER_VIRTUAL, &stoptime, NULL);
 #endif
 }
