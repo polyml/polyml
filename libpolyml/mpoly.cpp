@@ -284,15 +284,17 @@ int polymain(int argc, char **argv, exportDescription *exports)
 }
 
 void Uninitialise(void)
-/* Close down everything and free all resources. */
+// Close down everything and free all resources.  Stop any threads or timers.
 {
     uninit_run_time_system();
 }
 
 void finish (int n)
 {
-#if defined(WINDOWS_PC)
+    // Make sure we don't get any interrupts once the destructors are
+    // applied to globals or statics.
     Uninitialise();
+#if defined(WINDOWS_PC)
     ExitThread(n);
 #else
     exit (n);

@@ -1396,6 +1396,9 @@ void Processes::Uninit(void)
 
     if (hStopEvent) CloseHandle(hStopEvent);
     hStopEvent = NULL;
+#else
+    // Stop the timer.  We mustn't get any interrupts from now on.
+    setitimer(ITIMER_REAL, 0, 0);
 #endif
 }
 
