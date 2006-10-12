@@ -155,7 +155,9 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
         break;
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            //offset -= 4; // We needed that for ELF.  Do we need it for Mach-O?
+            // For Mach-O we seem to need to subtract the offset of this instruction
+            // from the base of the segment.
+            offset -= ((char*)addr - (char*)memTable[findArea(addr)].mtAddr) + 4;
             struct relocation_info reloc;
             setRelocationAddress(addr, &reloc.r_address);
             reloc.r_symbolnum = aArea + 1; // Section numbers start at 1
