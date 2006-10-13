@@ -25308,9 +25308,9 @@ _ACEOF
 
 
 fi
-echo "$as_me:$LINENO: checking for ppc_thread_state_t" >&5
-echo $ECHO_N "checking for ppc_thread_state_t... $ECHO_C" >&6
-if test "${ac_cv_type_ppc_thread_state_t+set}" = set; then
+echo "$as_me:$LINENO: checking for struct ppc_thread_state" >&5
+echo $ECHO_N "checking for struct ppc_thread_state... $ECHO_C" >&6
+if test "${ac_cv_type_struct_ppc_thread_state+set}" = set; then
   echo $ECHO_N "(cached) $ECHO_C" >&6
 else
   cat >conftest.$ac_ext <<_ACEOF
@@ -25325,9 +25325,9 @@ cat >>conftest.$ac_ext <<_ACEOF
 int
 main ()
 {
-if ((ppc_thread_state_t *) 0)
+if ((struct ppc_thread_state *) 0)
   return 0;
-if (sizeof (ppc_thread_state_t))
+if (sizeof (struct ppc_thread_state))
   return 0;
   ;
   return 0;
@@ -25355,21 +25355,21 @@ if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
   ac_status=$?
   echo "$as_me:$LINENO: \$? = $ac_status" >&5
   (exit $ac_status); }; }; then
-  ac_cv_type_ppc_thread_state_t=yes
+  ac_cv_type_struct_ppc_thread_state=yes
 else
   echo "$as_me: failed program was:" >&5
 sed 's/^/| /' conftest.$ac_ext >&5
 
-ac_cv_type_ppc_thread_state_t=no
+ac_cv_type_struct_ppc_thread_state=no
 fi
 rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
 fi
-echo "$as_me:$LINENO: result: $ac_cv_type_ppc_thread_state_t" >&5
-echo "${ECHO_T}$ac_cv_type_ppc_thread_state_t" >&6
-if test $ac_cv_type_ppc_thread_state_t = yes; then
+echo "$as_me:$LINENO: result: $ac_cv_type_struct_ppc_thread_state" >&5
+echo "${ECHO_T}$ac_cv_type_struct_ppc_thread_state" >&6
+if test $ac_cv_type_struct_ppc_thread_state = yes; then
 
 cat >>confdefs.h <<_ACEOF
-#define HAVE_PPC_THREAD_STATE_T 1
+#define HAVE_STRUCT_PPC_THREAD_STATE 1
 _ACEOF
 
 

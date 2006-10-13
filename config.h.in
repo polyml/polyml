@@ -244,9 +244,6 @@
 /* Define to 1 if you have the `pow' function. */
 #undef HAVE_POW
 
-/* Define to 1 if the system has the type `ppc_thread_state_t'. */
-#undef HAVE_PPC_THREAD_STATE_T
-
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
@@ -335,6 +332,9 @@
 
 /* Define to 1 if you have the `strtod' function. */
 #undef HAVE_STRTOD
+
+/* Define to 1 if the system has the type `struct ppc_thread_state'. */
+#undef HAVE_STRUCT_PPC_THREAD_STATE
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
