@@ -126,7 +126,6 @@
  ************************************************************************/
 
 #include "globals.h"
-#include "memory.h"
 #include "gc.h"
 #include "xwindows.h"
 #include "mpoly.h"

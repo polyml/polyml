@@ -88,7 +88,6 @@
 
 #include "globals.h"
 #include "sighandler.h"
-#include "memory.h"
 #include "arb.h"
 #include "machine_dep.h"
 #include "foreign.h"

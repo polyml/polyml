@@ -54,7 +54,6 @@
 #endif
 
 #include "globals.h"
-#include "memory.h"
 #include "gc.h"
 #include "run_time.h"
 #include "mpoly.h"

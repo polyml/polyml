@@ -53,7 +53,6 @@
 #endif
 
 #include "globals.h"
-#include "memory.h"
 #include "run_time.h"
 #include "mpoly.h"
 #include "arb.h"

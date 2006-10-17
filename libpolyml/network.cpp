@@ -123,7 +123,6 @@ typedef int socklen_t;
 #include "run_time.h"
 #include "mpoly.h"
 #include "processes.h"
-#include "memory.h"
 #include "network.h"
 #include "io_internal.h"
 #include "sys.h"

@@ -57,7 +57,6 @@
 #include "osmem.h"
 #include "scanaddrs.h"
 #include "gc.h"
-#include "memory.h"
 #include "machine_dep.h"
 #include "diagnostics.h"
 #include "memmgr.h"

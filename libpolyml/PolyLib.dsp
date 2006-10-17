@@ -438,10 +438,6 @@ SOURCE=.\memmgr.h
 # End Source File
 # Begin Source File
 
-SOURCE=.\memory.h
-# End Source File
-# Begin Source File
-
 SOURCE=.\mpoly.h
 # End Source File
 # Begin Source File

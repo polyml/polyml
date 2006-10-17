@@ -237,7 +237,6 @@ static void RaiseXWindows(char *s) __attribute__((noreturn));
 
 #include "globals.h"
 #include "sys.h"
-#include "memory.h"
 #include "xwindows.h"
 
 #define debug1(fmt,p1) { /*EMPTY*/ }

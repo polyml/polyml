@@ -143,7 +143,6 @@ typedef char TCHAR;
 #include "arb.h"
 #include "processes.h"
 #include "diagnostics.h"
-#include "memory.h"
 #include "io_internal.h"
 #include "scanaddrs.h"
 #include "polystring.h"

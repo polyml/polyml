@@ -38,7 +38,6 @@
 
 
 #include "globals.h"
-#include "memory.h"
 #include "diagnostics.h"
 #include "machine_dep.h"
 #include "scanaddrs.h"

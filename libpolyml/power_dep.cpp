@@ -74,7 +74,6 @@
 #define GPSL(scp)   GPR28(scp)
 
 #include "globals.h"
-#include "memory.h"
 #include "gc.h"
 #include "run_time.h"
 #include "mpoly.h"

@@ -22,7 +22,6 @@
 #ifndef _MPOLY_H_DEFINED
 #define _MPOLY_H_DEFINED
 
-#include "memory.h" // For LocalMemory and Header
 #include "noreturn.h"
 
 extern struct _userOptions {

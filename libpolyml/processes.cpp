@@ -90,7 +90,6 @@
  ************************************************************************/
 
 #include "globals.h"
-#include "memory.h"
 #include "gc.h"
 #include "mpoly.h"
 #include "arb.h"

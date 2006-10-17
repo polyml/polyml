@@ -55,7 +55,6 @@
 
 
 #include "globals.h"
-#include "memory.h"
 #include "arb.h"
 #include "run_time.h"
 #include "machine_dep.h"

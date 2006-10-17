@@ -56,7 +56,6 @@
 #include "save_vec.h"
 #include "machine_dep.h"
 #include "scanaddrs.h"
-#include "memory.h"
 #include "run_time.h"
 #include "sys.h"
 #include "gc.h"
