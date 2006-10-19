@@ -913,20 +913,19 @@ static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
             nISpaces++;
         }
     }
-    POLYUNSIGNED buffSize = userOptions.immutableFreeSpace;
     
-    if (buffSize + wordsNeeded > currentSize) // need to get some more space
+    if (userOptions.immutableFreeSpace + wordsNeeded > currentSize) // need to get some more space
     {
         // We want to ensure that we have immutableFreeSpace free after this
-        // collection.  We allocate in units of immutableFreeSpace so as not to
+        // collection.  We allocate in units of immutableSegSize so as not to
         // have too many small segments.
-        POLYUNSIGNED requestedGrowth = buffSize + wordsNeeded - currentSize;
-        if (requestedGrowth < buffSize)
-            requestedGrowth = buffSize;
+        POLYUNSIGNED requestedGrowth = userOptions.immutableFreeSpace + wordsNeeded - currentSize;
+        if (requestedGrowth < userOptions.immutableSegSize)
+            requestedGrowth = userOptions.immutableSegSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
         unsigned spaceFactor = nISpaces / 3;
-        while (spaceFactor > 0) { requestedGrowth += buffSize; spaceFactor--; }
+        while (spaceFactor > 0) { requestedGrowth += userOptions.immutableSegSize; spaceFactor--; }
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -989,10 +988,9 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
             nSpaces++;
         }
     }
-    const POLYUNSIGNED requiredBufferFree =
-        isMutableSpace ? userOptions.mutableFreeSpace : userOptions.immutableFreeSpace;
     
-    const POLYUNSIGNED requiredFree   = requiredBufferFree + wordsRequired;
+    const POLYUNSIGNED requiredFree = wordsRequired +
+        (isMutableSpace ? userOptions.mutableFreeSpace : userOptions.immutableFreeSpace);
     
     /* Basic sanity checks. */
     ASSERT(0 <= wordsRequired);
@@ -1001,12 +999,14 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     if (requiredFree > currentlyFree) // expand the heap.
     {
         POLYUNSIGNED requestedGrowth = requiredFree - currentlyFree;
-        if (requestedGrowth < requiredBufferFree)
-            requestedGrowth = requiredBufferFree;
+        const POLYUNSIGNED segSize =
+            isMutableSpace ? userOptions.mutableSegSize : userOptions.immutableSegSize;
+        if (requestedGrowth < segSize)
+            requestedGrowth = segSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
         unsigned spaceFactor = nSpaces / 3;
-        while (spaceFactor > 0) { requestedGrowth += requiredBufferFree; spaceFactor--; }
+        while (spaceFactor > 0) { requestedGrowth += segSize; spaceFactor--; }
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -1067,14 +1067,14 @@ static int RecollectThisGeneration(unsigned thisGeneration)
 void CreateHeap(void)
 {
     // Immutable space
-    POLYUNSIGNED immutSize = ROUNDDOWN(userOptions.immutableFreeSpace, BITSPERWORD);
+    POLYUNSIGNED immutSize = ROUNDDOWN(userOptions.immutableSegSize, BITSPERWORD);
     if (gMem.NewLocalSpace(immutSize, false) == 0)
         Exit("Unable to allocate immutable area");
 
     // Mutable space
-    POLYUNSIGNED mutSize = ROUNDDOWN(userOptions.mutableFreeSpace, BITSPERWORD);
+    POLYUNSIGNED mutSize = ROUNDDOWN(userOptions.mutableSegSize, BITSPERWORD);
     if (gMem.NewLocalSpace(mutSize, true) == 0)
-        Exit("Unable to allocate immutable area");
+        Exit("Unable to allocate mutable area");
 }
 
 static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)

@@ -23,6 +23,7 @@
 #define _MPOLY_H_DEFINED
 
 #include "noreturn.h"
+#include "polyexports.h"
 
 extern struct _userOptions {
     unsigned    user_arg_count;
@@ -32,8 +33,9 @@ extern struct _userOptions {
     bool        noDisplay;          /* X display flag                         */
     unsigned    timeslice;          /* Poly/ML process timeslice (in ms)      */
     // Not all of these can be set any longer.
-    unsigned    heapSize, immutableFreeSpace, mutableFreeSpace;
-    unsigned    immutableMinFree, mutableMinFree; // Probably remove
+    unsigned long    heapSize, immutableSegSize, mutableSegSize;
+    unsigned long    immutableFreeSpace, mutableFreeSpace;
+    unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 } userOptions;
 
 // Values for debugging flags
@@ -50,5 +52,7 @@ extern PolyWord *IoEntry(unsigned SYS_op);
 NORETURNFN(extern void finish(int n));
 
 extern char *RTSArgHelp(void);
+
+extern UNSIGNEDADDR exportTimeStamp;
 
 #endif /* _MPOLY_H_DEFINED */

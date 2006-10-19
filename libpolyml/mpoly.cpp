@@ -88,6 +88,8 @@ PolyWord *IoEntry(unsigned sysOp)
 
 struct _userOptions userOptions;
 
+UNSIGNEDADDR exportTimeStamp;
+
 #ifdef INTERPRETED
 #define ARCH "Portable-"
 #elif WINDOWS_PC
@@ -205,9 +207,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
         Usage("Missing import file name");
     
     if (hsize < 500) Usage ("Invalid heap-size value");
-    // Some of these are no longer relevant.
-    if (100 < immutablePercent) Usage ("Invalid immutables-percent value");
-    if (100 < mutablePercent) Usage ("Invalid mutables-percent value");
     
     // DCJM: Now allow a timeslice of 0 to disable asynchronous interrupts.
     // They make it very difficult to single step in the debugger.
@@ -220,19 +219,29 @@ int polymain(int argc, char **argv, exportDescription *exports)
     if (msize == 0) msize = 4 * 1024 + hsize / 5;  /* set default mutable buffer size */
     if (isize == 0) isize = hsize - msize;  /* set default immutable buffer size */
     
-    // This used to be the maximum overall size of the heap.  It was
-    // also used to set the defaults for immutableFreeSpace and mutableFreeSpace.
+    // Set the heap size and segment sizes.  We allocate in units of this size,
     userOptions.heapSize           = K_to_words(hsize);
-
-    // This is the space we try to have free at the end of a collection.
-    userOptions.immutableFreeSpace = K_to_words(isize);
-    userOptions.mutableFreeSpace   = K_to_words(msize);
+    userOptions.immutableSegSize   = K_to_words(isize);
+    userOptions.mutableSegSize     = K_to_words(msize);
 
     // The space we need to have free at the end of a partial collection.  If we have less
     // than this we do a full GC.
-    userOptions.immutableMinFree = (100 - immutablePercent) * userOptions.immutableFreeSpace / 100;
-    userOptions.mutableMinFree = (100 - mutablePercent) * userOptions.mutableFreeSpace / 100;
-    
+    // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
+    // mutable segment size since we allocate new objects in the mutable area and this
+    // determines how soon we will need to do another GC.
+    userOptions.immutableMinFree = 0;
+    userOptions.mutableMinFree = userOptions.mutableSegSize - userOptions.mutableSegSize / 5;
+
+    // This is the space we try to have free at the end of a major collection.  If
+    // we have less than this we allocate another segment.
+    userOptions.immutableFreeSpace = userOptions.immutableSegSize/2; // 50% full
+    if (userOptions.immutableFreeSpace < userOptions.immutableMinFree)
+        userOptions.immutableFreeSpace = userOptions.immutableMinFree;
+    // For the mutable area it is 90% of the segment size.
+    userOptions.mutableFreeSpace   = userOptions.mutableSegSize - userOptions.mutableSegSize/10;
+    if (userOptions.mutableFreeSpace < userOptions.mutableMinFree)
+        userOptions.mutableFreeSpace = userOptions.mutableMinFree;
+   
     /* initialise the run-time system before opening the database */
     init_run_time_system();
     
@@ -347,6 +356,7 @@ void InitHeaderFromExport(exportDescription *exports)
         Exit("The exported object file does not match this version of the library");
     }
     // We could also check the RTS version and the architecture.
+    exportTimeStamp = exports->timeStamp; // Needed for load and save.
 
     memoryTableEntry *memTable = exports->memTable;
     for (unsigned i = 0; i < exports->memTableEntries; i++)
