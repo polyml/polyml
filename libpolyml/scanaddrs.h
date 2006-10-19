@@ -88,7 +88,7 @@ protected:
     // the program counter which may be a code address but not satisfy IsCodeObject.
     // The default action is to ignore integers and addresses within the stack and to call
     // ScanObjectAddress for the base addresses of all other addresses.
-    PolyWord ScanStackAddress(PolyWord val, void *valueAddress, StackObject *base, bool isCode);
+    PolyWord ScanStackAddress(PolyWord val, StackObject *base, bool isCode);
 
     // Extract a constant from the code.
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
