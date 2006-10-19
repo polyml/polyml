@@ -153,8 +153,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
     else
         userOptions.programName = ""; // Set it to a valid empty string
     
-    unsigned immutablePercent = 100; //
-    unsigned mutablePercent = 20; // do a full GC if mutable buffer more than 20% full after partial GC
     char *importFileName = 0;
     userOptions.debug       = 0;
     userOptions.noDisplay   = false;
