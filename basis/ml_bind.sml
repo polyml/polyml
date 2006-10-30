@@ -32,6 +32,7 @@ structure i = Int
 structure a = Array
 structure w = LargeWord
 structure w8 = Word8
+structure w32 = Word32
 structure ii = IntInf
 structure w8a = Word8Array (* Depends on Word8, Word, String, Substring *)
 structure by = Byte (* Depends on Word8Array among others. *)

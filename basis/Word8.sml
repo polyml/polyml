@@ -65,6 +65,8 @@ struct
 	fun fromLargeWord (w: LargeWord.word) =
 		fromWord(Word.fromLargeWord w)
 	and fromInt (i: int): word = fromWord(Word.fromInt i)
+	
+	val fromLarge = fromLargeWord
 
 			(* Arithmetic shift - sign extends. *)
 	(* TODO: Replace by built-in?  We need a separate function from
@@ -113,6 +115,7 @@ struct
 	(* Convert to a large word by sign extending. *)
 	fun toLargeWordX (w: word): LargeWord.word =
 		LargeWord.fromInt(toIntX w);
+	val toLargeX = toLargeWordX
 	
 	(* Use Word.scan but check that the result is in the range. *)
 	val wordScan = scan;
