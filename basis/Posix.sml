@@ -811,7 +811,10 @@ struct
 		in
 			fun alarm t =
 			let
-				val prev = doCall(20,  toAbsolute t)
+				(* A value of zero cancels the timer. *)
+				val nextTime =
+					if t = Time.zeroTime then Time.zeroTime else toAbsolute t
+				val prev = doCall(20, nextTime)
 			in
 				(* The result is either zero if there is no timer
 				   or the absolute time. *)

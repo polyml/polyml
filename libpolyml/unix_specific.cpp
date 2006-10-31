@@ -546,7 +546,8 @@ Handle OS_spec_dispatch_c(Handle args, Handle code)
         }
 
     case 20: /* Sets an alarm and returns the current alarm time.  The caller (within
-            the Posix structure) converts these from/to relative times. */
+            the Posix structure) converts these from/to relative times.  A value of
+            zero for the time cancels the timer. */
         {
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
