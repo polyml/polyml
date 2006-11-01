@@ -129,6 +129,7 @@
 #define MUTABLE(x) (OBJ_MUTABLE_BIT | (x))
 
 #define NEWSTACK(len) ((StackObject *)alloc(len, F_MUTABLE_BIT|F_STACK_BIT))
+#define NEWSTACKHANDLE(len) (alloc_and_save(len, F_MUTABLE_BIT|F_STACK_BIT))
 #define NEWPROCESSHANDLE()   (alloc_and_save(sizeof(ProcessBase)/sizeof(PolyWord), F_MUTABLE_BIT))
 #define NEWSYNCHROHANDLE()   (alloc_and_save(sizeof(synchroniser)/sizeof(PolyWord), F_MUTABLE_BIT))
 
@@ -285,11 +286,10 @@ ProcessHandle Processes::fork_proc(Handle proc, SynchroHandle synchro, bool isCo
 {
     /* Load the closure and make the pc local. */
     ProcessHandle p_base = NEWPROCESSHANDLE();
+    Handle stack = NEWSTACKHANDLE(machineDependent->InitialStackSize());
+    machineDependent->InitStackFrame(stack, proc, arg);
+    DEREFPROCHANDLE(p_base)->stack = (StackObject*)DEREFWORDHANDLE(stack);
     
-    DEREFPROCHANDLE(p_base)->stack = NEWSTACK(machineDependent->InitialStackSize());
-    
-    /* Get the frame ready to run. */
-    machineDependent->InitStackFrame(DEREFPROCHANDLE(p_base)->stack, proc, arg);
     POLYUNSIGNED status = PROCESS_RUNABLE; //  Ready to run. */
 
     DEREFPROCHANDLE(p_base)->block_data    = TAGGED(0);
@@ -316,16 +316,13 @@ ProcessHandle Processes::fork_proc(Handle proc, SynchroHandle synchro, bool isCo
 /*                                                                            */
 /******************************************************************************/
 ProcessHandle Processes::make_new_root_proc(Handle proc)
-/* Create a root process for a new database. */
+// Create an initial root process.
 {
-    /* Must allocate in the local area so it becomes part of the new database */
     ProcessHandle p_base = NEWPROCESSHANDLE();
+    Handle stack = NEWSTACKHANDLE(machineDependent->InitialStackSize());
+    machineDependent->InitStackFrame(stack, proc, 0);
       
-    DEREFPROCHANDLE(p_base)->stack = NEWSTACK(machineDependent->InitialStackSize());
-
-    /* Get the frame ready to run. */
-    machineDependent->InitStackFrame(DEREFPROCHANDLE(p_base)->stack, proc, 0);
-
+    DEREFPROCHANDLE(p_base)->stack = (StackObject*)DEREFWORDHANDLE(stack);
     DEREFPROCHANDLE(p_base)->status        = TAGGED(PROCESS_RUNABLE|PROCESS_IS_CONSOLE); /* Ready to run. */
     DEREFPROCHANDLE(p_base)->block_data    = TAGGED(0);
     DEREFPROCHANDLE(p_base)->block_channel = NO_CHANNEL;
@@ -1134,8 +1131,7 @@ ProcessHandle Processes::synchronise(ProcessBase **wchain, ProcessBase **pchain,
 /*      set_process_list - called from mpoly.c - allocates                    */
 /*                                                                            */
 /******************************************************************************/
-// This may allocate if this is the first time we've started the process and
-// the stack has just been read from the database.
+// Sets up the initial process from the root function.
 
 void Processes::set_process_list(PolyObject *rootFunction)
 /* Sets the initial process list when the system is entered. */
