@@ -104,7 +104,7 @@ class Interpreter : public MachineDependent {
 public:
     Interpreter(): allocSpace(0) {}
 
-    virtual void InitStackFrame(StackObject *stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg);
     // Switch to Poly and return with the io function to call.
     virtual int SwitchToPoly(void);
     virtual void SetForRetry(int ioCall) {} // Nothing to do
@@ -151,9 +151,10 @@ void Interpreter::storetrace(POLYUNSIGNED wordsNeeded)
     ASSERT(allocSpace != 0);
 }
 
-void Interpreter::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
+void Interpreter::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
     PolyObject *closure = DEREFWORDHANDLE(proc);
     POLYUNSIGNED stack_size = stack->Length();
     stack->p_space = OVERFLOW_STACK_SIZE;
@@ -662,7 +663,18 @@ int Interpreter::SwitchToPoly(void)
                 pc = (*sp++).AsCodePtr(); /* Return address */
                 sp += returnCount; /* Add on number of args. */
                 if (pc == TAGGED(0).AsCodePtr())
-                    kill_selfc(); /* Exit */
+                {
+                    try
+                    {
+                        kill_selfc(); // This thread is exiting.
+                        // kill_selfc throws an exception because it can't
+                        // return normally - the thread is no longer there.
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    goto RESTART;
+                }
                 else if (pc == TAGGED(1).AsCodePtr())
                 {
                     /* Return from a call to exception_trace when an exception
