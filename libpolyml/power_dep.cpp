@@ -176,7 +176,7 @@ static struct MemRegisters {
 class PowerPCDependent: public MachineDependent {
 public:
     PowerPCDependent(): allocSpace(0), allocWords(0) {}
-    virtual void InitStackFrame(StackObject *stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg);
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
     virtual int SwitchToPoly(void);
     virtual void SetForRetry(int ioCall);
@@ -366,9 +366,10 @@ and normal RTS calls, and it is also used to implement tail-calls.
 #define NOTIFYGC 0
 
 // InitStackFrame.  Set up a stack frame for a new thread (process).
-void PowerPCDependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
+void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
     POLYUNSIGNED stack_size = stack->Length();
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc = PC_RETRY_SPECIAL; /* As if we had called MD_set_for_retry. */
@@ -382,6 +383,7 @@ void PowerPCDependent::InitStackFrame(StackObject *stack, Handle proc, Handle ar
     // or return from a function always subtracts two.
     Handle killCode = BuildKillSelfCode();
     PolyWord killJump = PolyWord::FromUnsigned(killCode->Word().AsUnsigned() | HANDLEROFFSET);
+    stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
 
     stack->PS_R24 = DEREFWORD(proc); /* Set r24 to the closure address. */
     stack->PS_LR = killJump; /* Set link reg to code to kill process. */

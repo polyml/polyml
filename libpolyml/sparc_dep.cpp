@@ -143,7 +143,7 @@ class SparcDependent: public MachineDependent {
 public:
     SparcDependent(): allocSpace(0), allocWords(0) {}
 
-    virtual void InitStackFrame(StackObject *stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg);
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
     virtual int SwitchToPoly(void);
     virtual void SetForRetry(int ioCall);
@@ -314,7 +314,7 @@ extern void SparcAsmFlushInstructionCache(void *p, POLYUNSIGNED bytes);
 
 };
 
-void SparcDependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
+void SparcDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
    /* This code is pretty tricky. 
@@ -329,6 +329,7 @@ void SparcDependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
             point at itself.     
     */
     unsigned i;
+    StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
 
     POLYUNSIGNED stack_size = stack->Length();
     stack->p_space = OVERFLOW_STACK_SIZE;
@@ -344,6 +345,7 @@ void SparcDependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
     // or return from a function always subtracts two.
     Handle killCode = BuildKillSelfCode();
     PolyWord killJump = PolyWord::FromUnsigned(killCode->Word().AsUnsigned() | HANDLEROFFSET);
+    stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
 
     stack->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(proc); /* Set regClosureto the closure address. */
     stack->p_reg[CHECKED_REGS]      = PolyWord::FromUnsigned(UNCHECKED_REGS);

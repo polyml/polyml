@@ -104,7 +104,7 @@ class X86Dependent: public MachineDependent {
 public:
     X86Dependent(): allocSpace(0), allocReg(0), allocWords(0) {}
 
-    virtual void InitStackFrame(StackObject *stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg);
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
     virtual int SwitchToPoly(void);
     virtual void SetForRetry(int ioCall);
@@ -428,9 +428,10 @@ int X86Dependent::SwitchToPoly(void)
     } while (1);
 }
 
-void X86Dependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
+void X86Dependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
     POLYUNSIGNED stack_size     = stack->Length();
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc    = PC_RETRY_SPECIAL;
@@ -456,6 +457,7 @@ void X86Dependent::InitStackFrame(StackObject *stack, Handle proc, Handle arg)
     // address before jumping to it.
     Handle killCode = BuildKillSelf();
     PolyWord killJump = killCode->Word();
+    stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
     stack->Set(stack_size-2, killJump); // Default handler.
     /* Set up exception handler */
     stack->Set(stack_size-3, TAGGED(0)); /* Default handler. */

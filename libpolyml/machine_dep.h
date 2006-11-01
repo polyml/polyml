@@ -72,7 +72,7 @@ typedef enum {
 class MachineDependent {
 public:
     virtual ~MachineDependent() {} // Keep the compiler happy
-    virtual void InitStackFrame(StackObject *stack, Handle proc, Handle arg) = 0;
+    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg) = 0;
     virtual unsigned InitialStackSize(void) { return 128; } // Initial size of a stack 
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
     // Switch to Poly and return with the io function to call.
