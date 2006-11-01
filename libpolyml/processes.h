@@ -146,7 +146,6 @@ typedef Handle ProcessHandle; /* Handle to (process_base *) */
 typedef Handle SynchroHandle; /* Handle to (synchroniser *) */
 typedef Handle ChanHandle;    /* Handle to (PolyWord *) */
 
-extern Handle make_new_root_proc(Handle proc);
 extern ProcessHandle fork_function(Handle proc, Handle arg);
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
