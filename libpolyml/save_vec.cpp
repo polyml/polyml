@@ -72,7 +72,7 @@ Handle SaveVec::push(PolyWord valu) /* Push a PolyWord onto the save vec. */
     if (save_vec_addr >= save_vec+SVEC_SIZE)
         Crash("Save_vec overflow\n");
 
-    CheckPointer(valu);
+    Check(valu);
 
     *save_vec_addr = SaveVecEntry(valu);
     return save_vec_addr++;
