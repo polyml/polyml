@@ -483,7 +483,9 @@ struct
   in (* let1 *)
     (* An empty declaration (or end of file!) *)
     if SYMSET.inside (sy lex, stopSyms)
-    then fn () => () (* Do nothing *)
+    then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
+       then (resetLexan lex; raise Failure "Static errors (pass 1)")
+       else fn () => () (* Do nothing *)
     else let (* let2 *)
       (* create a "throw away" compiling environment for this topdec *)
       val newFixEnv = UTILITIES.searchList ();
