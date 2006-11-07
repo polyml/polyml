@@ -335,6 +335,8 @@ void SparcDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc    = PC_RETRY_SPECIAL; /* As if we had called MD_set_for_retry. */
     stack->p_nreg  = CHECKED_REGS;
+    stack->p_sp = (PolyWord*)stack + stack_size - 3;
+    stack->p_hr = stack->p_sp;
     
     /* Reset all registers since this may be an old stack frame */
     for (i = 0; i < CHECKED_REGS; i++)
@@ -363,9 +365,6 @@ void SparcDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     stack->Set(stack_size-1, PolyWord::FromStackAddr(stack->Offset(stack_size-1)));
     stack->Set(stack_size-2, killJump);
     stack->Set(stack_size-3, TAGGED(0)); /* Default handler. */
-    
-    stack->p_sp = (PolyWord*)stack + stack_size - 3;
-    stack->p_hr = stack->p_sp;
     
     // Return address into %o7 plus 2 bytes.  A return will always add 6 to the value.
     stack->p_reg[OFFSET_REGRETURN] = killJump;

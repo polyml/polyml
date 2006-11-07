@@ -374,6 +374,8 @@ void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc = PC_RETRY_SPECIAL; /* As if we had called MD_set_for_retry. */
     stack->p_nreg = NUMCHECKED; /* r3-r8, r13-r25, link */
+    stack->p_hr = stack->Offset(stack_size-3);
+    stack->p_sp  = stack->Offset(stack_size-3); /* sp */
     /* Reset all registers since this may be an old stack frame */
     for (unsigned i = 0; i < NUMCHECKED; i++)
         stack->p_reg[i] = TAGGED(0);
@@ -402,8 +404,6 @@ void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     stack->Set(stack_size-2, killJump);
     /* Set up exception handler */
     stack->Set(stack_size-3, TAGGED(0)); /* Default handler. */
-    stack->p_hr = stack->Offset(stack_size-3);
-    stack->p_sp  = stack->Offset(stack_size-3); /* sp */
 }
 
 // These are just for debugging.  They record the last point before
