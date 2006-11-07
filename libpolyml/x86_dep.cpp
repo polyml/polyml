@@ -433,10 +433,11 @@ void X86Dependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 {
     StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
     POLYUNSIGNED stack_size     = stack->Length();
+    POLYUNSIGNED topStack = stack_size-5;
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc    = PC_RETRY_SPECIAL;
-    stack->p_sp    = stack->Offset(stack_size-4); 
-    stack->p_hr    = stack->Offset(stack_size-3);
+    stack->p_sp    = stack->Offset(topStack); 
+    stack->p_hr    = stack->Offset(topStack)+1;
     stack->p_nreg  = CHECKED_REGS;
 
     for (POLYUNSIGNED i = 0; i < CHECKED_REGS; i++) stack->p_reg[i] = TAGGED(0);
@@ -448,8 +449,16 @@ void X86Dependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     /* If this function takes an argument store it in the argument register. */
     if (arg != 0) stack->p_reg[0] = DEREFWORD(arg);
 
+    /* We initialise the end of the stack with a sequence that will jump to
+       kill_self whether the process ends with a normal return or by raising an
+       exception.
+       There's one additional complication.  kill_self is called via CallIO0
+       which loads the value at *p_sp into p_pc assuming this is a return address.
+       We need to make sure that this value is acceptable since this stack may be
+       scanned by a subsequent minor GC if it's already been copied by a minor GC. */
+    stack->Set(topStack+4, TAGGED(0)); // Acceptable value if we've exited by exception.
     /* No previous handler so point it at itself. */
-    stack->Set(stack_size-1, PolyWord::FromStackAddr(stack->Offset(stack_size-1)));
+    stack->Set(topStack+3, PolyWord::FromStackAddr(stack->Offset(topStack)+3));
     // Set the default handler and return address to point to this code.
     // It's not necessary, on this architecture at least, to make these off-word
     // aligned since we're pointing at the start of some code.  That may be
@@ -458,11 +467,12 @@ void X86Dependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     Handle killCode = BuildKillSelf();
     PolyWord killJump = killCode->Word();
     stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
-    stack->Set(stack_size-2, killJump); // Default handler.
-    /* Set up exception handler */
-    stack->Set(stack_size-3, TAGGED(0)); /* Default handler. */
-    /* Return address. */
-    stack->Set(stack_size-4, killJump); // Return address
+    stack->Set(topStack+2, killJump); // Default handler.
+    /* Set up exception handler.  This also, conveniently, ends up in p_pc
+       if we return normally.  */
+    stack->Set(topStack+1, TAGGED(0)); /* Default handler. */
+    // Normal Return address.
+    stack->Set(topStack, killJump);
 }
 
 // IO Functions called indirectly from assembly code.
