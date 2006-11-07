@@ -391,8 +391,13 @@ globldec(PPCAsmSwitchToPoly)
     mflr    r0
     mfcr    rtemp2
     stmw    r13,-8*nfprs-4*ngprs(r1) /* DCJM.  Formerly stm. */
+#ifdef MACOSX
     stw     r0,8(r1)                 /* Return address */
-    stw     rtemp2,4(r1)             /* Is this currently used in C ? */
+    stw     rtemp2,4(r1)             /* Condition codes. */
+#else
+/* Linux saves the return address in the second word. */
+    stw     r0,4(r1)
+#endif
     stwu    r1,-szdsa(r1)
     
     mr      r13,r3                   /* Move the MemRegisters value into r13 */
@@ -512,7 +517,13 @@ globldec(PPCSaveStateAndReturn)
 
     /* Reload the registers and return to C. */
     lwz     r1,0(r1)
+#ifdef MACOSX
     lwz     r0,8(r1)
+    lwz     rtemp1,4(r1)
+    mtcr    rtemp1
+#else
+    lwz     r0,4(r1)
+#endif
     mtlr    r0
     lmw     r13,-8*nfprs-4*ngprs(r1)
     blr
