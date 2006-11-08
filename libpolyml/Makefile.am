@@ -53,7 +53,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     process_env.cpp basicio.cpp network.cpp unix_specific.cpp \
     sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
-    rts_module.cpp bitmap.cpp poly_specific.cpp loadsave.cpp \
+    rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE)
 
