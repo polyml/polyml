@@ -69,13 +69,6 @@ in
      		   RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, run))
 			end
 	end
-
-	(* Load and save functions - save and reload a copy of the mutables and
-	   anything reachable. *)
-    fun load(filename: string): unit =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (17, filename)
-	fun save(filename: string): unit =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (18, filename)
 		
 	fun shareCommonData(root: 'a): unit =
 		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
