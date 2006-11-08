@@ -50,7 +50,6 @@
 #ifndef _WIN32_WCE
 #include "exporter.h"
 #endif
-#include "loadsave.h"
 #include "version.h"
 #include "sharedata.h"
 #include "objsize.h"
@@ -121,10 +120,7 @@ Handle poly_dispatch_c(Handle args, Handle code)
     case 16:
         return ObjProfile(args);
 
-    case 17:
-        return loadHeap(args); // Load in a saved file
-    case 18:
-        return saveHeap(args); // Save state.
+    /* 17 and 18 are no longer used. */
 
     case 19: // Return the RTS argument help string.
         return SAVE(C_string_to_Poly(RTSArgHelp()));
