@@ -208,10 +208,6 @@ SOURCE=.\interpret.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=.\loadsave.cpp
-# End Source File
-# Begin Source File
-
 SOURCE=.\memmgr.cpp
 # End Source File
 # Begin Source File
@@ -423,10 +419,6 @@ SOURCE=.\int_opcodes.h
 # Begin Source File
 
 SOURCE=.\io_internal.h
-# End Source File
-# Begin Source File
-
-SOURCE=.\loadsave.h
 # End Source File
 # Begin Source File
 
