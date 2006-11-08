@@ -1454,8 +1454,13 @@ struct
       lookup id (* Return it if it is in the table. *)
          handle ValueMissing _ =>
 	   let (* Not there, so copy it. *)
-		 (* Replace any signature name by the given structure name. *)
-		 val newName = strName ^ #second(splitString(tcName tcon))
+		 (* Replace any signature name by the given structure name unless this is
+		    is a type equivalence.  It may be that the type is not actually
+			declared in this structure. *)
+		 val newName =
+		     if isEmpty equiv
+			 then strName ^ #second(splitString(tcName tcon))
+			 else tcName tcon
 	     val r = 
 	       makeTypeConstrs
 			 (newName,
