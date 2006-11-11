@@ -83,6 +83,10 @@
 #include <sys/select.h>
 #endif
 
+#ifdef HAVE_WINDOWS_H
+#include <windows.h>
+#endif
+
 /************************************************************************
  *
  * Include runtime headers
@@ -186,12 +190,13 @@ private:
     unsigned  no_waiting;          // Number of those processes waiting for IO.
     bool      timerRunning;
 
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
 public:
     HANDLE hStopEvent; /* Signalled to stop all threads. */
 private:
     HANDLE hInterruptTimer; /* Interrupt timer thread. */
-#else
+#endif
+#ifndef WINDOWS_PC
     /* The file descriptors currently active are held in the bits in this word.
        Apart from processes waiting for IO streams the window system also needs to
        be aware of window activity.
@@ -1287,7 +1292,10 @@ ProcessHandle fork_function(Handle proc, Handle arg)
 /*                                                                            */
 /******************************************************************************/
 
-#if defined(WINDOWS_PC)
+#if defined(HAVE_WINDOWS_H)
+/* This thread interrupts the ML code periodically.  It is used in Windows
+   in place of SIGALRM.  Cygwin seems to have problems with SIGALRM so we
+   use this in Cygwin as well. */
 DWORD WINAPI ProcessTimeOut(LPVOID parm)
 {
     // Go round this loop every timeslice until the stop event is signalled.
@@ -1305,7 +1313,7 @@ static void catchALRM(SIG_HANDLER_ARGS(sig, context))
 // Called to request a call to the entries in int_procs some time later.
 {
     SIGNALCONTEXT *scp = (SIGNALCONTEXT *)context;
-    // ASSERT(sig == SIGALRM); // Sometimes get sig == 0 here in Cygwin.
+    ASSERT(sig == SIGALRM);
     interrupted = sig;
     machineDependent->InterruptCodeUsingContext(scp);
 }
@@ -1316,7 +1324,7 @@ void Processes::StartStopInterruptTimer(void)
 /* Start or stop the interrupt timer.                                */
 /* It is used to ensure that processes get a fair share of the machine. */
 {
-#if ! defined(WINDOWS_PC) /* UNIX version */
+#if ! defined(HAVE_WINDOWS_H) /* UNIX version */
     /* We currently run this all the time.  It is needed because
        addSigCount in sighandler doesn't actually call InterruptCode
        (there's a similar situation with ^C followed by "f") and so
@@ -1353,8 +1361,7 @@ void Processes::Init(void)
 {
     poly_stack = 0;
     end_of_stack = 0;
-#ifdef WINDOWS_PC
-
+#ifdef HAVE_WINDOWS_H
     /* Create event to stop timeslice interrupts. */
     hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
@@ -1381,7 +1388,7 @@ void Processes::Reinit(void)
 
 void Processes::Uninit(void)
 {
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     /* Stop the timer thread. */
     if (hStopEvent) SetEvent(hStopEvent);
     if (hInterruptTimer)
