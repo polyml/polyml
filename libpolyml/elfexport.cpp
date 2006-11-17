@@ -479,7 +479,7 @@ void ELFExport::exportStore(const char *outFileName)
     // sections[sect_data].sh_size is set later.
 
     // Relocation section
-    sections[sect_relocation].sh_name = makeStringTableEntry(".rela.poly", &sectionStrings);
+    sections[sect_relocation].sh_name = makeStringTableEntry(useRela ? ".rela.poly" : ".rel.poly", &sectionStrings);
     sections[sect_relocation].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
     sections[sect_relocation].sh_link = sect_symtab; // Index to symbol table
     sections[sect_relocation].sh_info = sect_data; // Applies to data section
@@ -550,7 +550,9 @@ void ELFExport::exportStore(const char *outFileName)
     }
 
     // Global symbols - Just one: poly_exports
-    writeSymbol("poly_exports", areaSpace, 0, STB_GLOBAL, STT_OBJECT, sect_data);
+    writeSymbol("poly_exports", areaSpace, 
+        sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries,
+        STB_GLOBAL, STT_OBJECT, sect_data);
 
     sections[sect_symtab].sh_info = symbolCount-1; // One more than last local sym
     sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolCount;
