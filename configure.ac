@@ -48,6 +48,9 @@ AC_PROG_CPP
 AM_PROG_AS
 
 # Checks for libraries.
+AC_CHECK_LIB(gcc, main)
+AC_CHECK_LIB(gcc_s, main)
+AC_CHECK_LIB(stdc++, main)
 AC_CHECK_LIB(dl, dlopen)
 AC_CHECK_LIB(m, floor)
 # Solaris needs -lsocket and -lnsl

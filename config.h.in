@@ -138,6 +138,12 @@
 /* Define to 1 if you have the `dl' library (-ldl). */
 #undef HAVE_LIBDL
 
+/* Define to 1 if you have the `gcc' library (-lgcc). */
+#undef HAVE_LIBGCC
+
+/* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
+#undef HAVE_LIBGCC_S
+
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
 
@@ -146,6 +152,9 @@
 
 /* Define to 1 if you have the `socket' library (-lsocket). */
 #undef HAVE_LIBSOCKET
+
+/* Define to 1 if you have the `stdc++' library (-lstdc++). */
+#undef HAVE_LIBSTDC__
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11
