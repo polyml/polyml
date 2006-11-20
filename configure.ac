@@ -50,7 +50,6 @@ AM_PROG_AS
 # Checks for libraries.
 AC_CHECK_LIB(dl, dlopen)
 AC_CHECK_LIB(m, floor)
-AC_CHECK_LIB([stdc++], [main])
 # Solaris needs -lsocket and -lnsl
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
