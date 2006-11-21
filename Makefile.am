@@ -3,6 +3,8 @@ AUTOMAKE_OPTIONS=foreign
 AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 
+POLYIMPORT_OPTIONS = -H 10
+
 SUBDIRS = libpolyml libpolymain
 
 bin_PROGRAMS = polyimport poly
@@ -43,7 +45,7 @@ polyimport_LDADD = libpolyml/libpolyml.la
 
 #
 polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT) < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
 
 # Poly/ML command to compile the compile and build the export version.
 # Run "make" to import it and build the poly executable with it.

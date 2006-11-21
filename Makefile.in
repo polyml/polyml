@@ -223,6 +223,7 @@ target_alias = @target_alias@
 AUTOMAKE_OPTIONS = foreign
 AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
+POLYIMPORT_OPTIONS = -H 10
 SUBDIRS = libpolyml libpolymain
 man_MANS = poly.1 polyimport.1
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = imports/polymlx86_64.txt
@@ -794,7 +795,7 @@ uninstall-man: uninstall-man1
 
 #
 polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT) < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
 
 # Poly/ML command to compile the compile and build the export version.
 # Run "make" to import it and build the poly executable with it.
