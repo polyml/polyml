@@ -686,7 +686,7 @@ test_string4:
 ! Start of main loop.  The length is checked either above or in the dealy slot below.
     bne     test_string5
     nop
-    jmp     %o7+8             ! Results depend on the lengths
+    b       test_string5a     ! Results depend on the lengths
     cmp     %i4,%i5           ! In the delay slot, compare i4 which is zero with the length excess
 
 test_string5:
@@ -698,8 +698,11 @@ test_string5:
     be,a    test_string4      ! Repeat if equal.  If it isn't annul the next instr.
     subcc   %i4,1,%i4         ! Subtract 1 and set the condition code
 ! If we find a difference we return with the result in the condition codes.
+
+test_string5a:
     mov     TAGGED(0),%o0     ! Clobber these which will point into the string
     mov     TAGGED(0),%o1
+	mov     TAGGED(0),%g1     ! and this which is an untagged character
 
 test_string6:
     jmp     %o7+8
