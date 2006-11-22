@@ -2093,12 +2093,12 @@ struct
 				fun findTv [] n = findTyVars tv (* Not in this list. *)
 				 |  findTv (TypeVar tv' :: tvs) n =
 				 		if sameTv(tv, tv')
-						then TwoArgs(fn {level, ...} => mkLoad(~n, level-outerFunLevel))
+						then TwoArgs(fn {level, ...} => mkLoad(n, level-outerFunLevel))
 						else findTv tvs (n+1)
 				 |  findTv _ _ =
 				 		raise InternalError "findTv: not a type variable"
 			in
-				findTv constructorTypeVars 1
+				findTv constructorTypeVars (~nTypeVars)
 			end
 
 			(* Filter out the EnumForm constructors.  They arise
