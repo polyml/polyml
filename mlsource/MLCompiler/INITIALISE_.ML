@@ -1221,7 +1221,7 @@ SPF 1/6/95
          ("debug",        		 toWord debug,        		 Ref Bool),
          ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
          ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
-         ("compilerVersion",     toWord "5.0 Beta1", String)
+         ("compilerVersion",     toWord "5.0 Release", String)
       ]
    end;
 

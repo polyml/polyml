@@ -4,6 +4,7 @@ AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 
 POLYIMPORT_OPTIONS = -H 10
+BOOTSTRAP_OPTIONS = -H 10
 
 SUBDIRS = libpolyml libpolymain
 
@@ -50,6 +51,6 @@ polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
 # Poly/ML command to compile the compile and build the export version.
 # Run "make" to import it and build the poly executable with it.
 bootstrap: poly
-	./poly < mlsource/BuildExport.sml
+	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
 
 

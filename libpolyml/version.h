@@ -24,9 +24,8 @@
 #define VERSION_H_INCLUDED
 
 // Poly/ML system interface level
-// Make this 49X for the beta versions.
-#define POLY_version_number     491
-#define TextVersion             "4.9.1"
+#define POLY_version_number    500 
+#define TextVersion             "5.0"
 
 extern char *poly_runtime_system_version;
 extern char *poly_runtime_system_copyright;
