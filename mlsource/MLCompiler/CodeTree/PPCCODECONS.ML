@@ -3789,6 +3789,7 @@ Calling conventions:
     val U : unit = genMtlr(regZero, cvec);
     val U : unit = genInstruction(blrlQuad, cvec);
     val U : unit = fixup(skipTrap, cvec);
+    val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
   in
     lab
   end;
@@ -3887,6 +3888,7 @@ Calling conventions:
         val U : unit = fixup(skipTrap, cvec);
 
         val U : unit = genCmp (r1, r2, cvec);
+        val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
       in
         putConditional (test, cvec)
       end
@@ -3958,6 +3960,7 @@ Calling conventions:
             val U : unit = genInstruction(blrlQuad, cvec);
             val U : unit = fixup(skipTrap, cvec);
             val U : unit = genCmpi (r, si, cvec);
+            val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
           in
             putConditional (test, cvec)
           end
