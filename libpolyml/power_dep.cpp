@@ -60,6 +60,13 @@
 #define NIP(scp)    scp->uc_mcontext->ss.srr0
 #define GPR27(scp)  scp->uc_mcontext->ss.r27
 #define GPR28(scp)  scp->uc_mcontext->ss.r28
+
+#elif defined(HAVE_MCONTEXT_T_GREGS)
+// Linux (new)
+#define NIP(scp)    (scp)->uc_mcontext.uc_regs->gregs[PT_NIP]
+#define GPR27(scp)  (scp)->uc_mcontext.uc_regs->gregs[PT_R27]
+#define GPR28(scp)  (scp)->uc_mcontext.uc_regs->gregs[PT_R28]
+
 #else
 
 /* Before OS X 10.2 signal handlers were given sigcontext structures. */

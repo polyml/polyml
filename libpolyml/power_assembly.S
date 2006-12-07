@@ -456,17 +456,20 @@ globldec(PPCAsmSwitchToPoly)
     lwz     r0,100(rtemp3)      /* Link register. */
     mtlr    r0
 
+    li      r0,0            /* Clear overflow bit. */
+    mtxer   r0              /* mcrxr is being phased out. */
+
     lwz     r0,116(rtemp3)      /* condition codes */
 
     lwz     rtemp3,4(rtemp3)    /* pc */
 
-    mcrxr   0               /* Clear overflow bit. */
     mtctr   rtemp3          /* set up return address */
     mtcr    r0              /* restore condition codes */
     bctr                    /* complete return */
 
 
 globldec(PPCSaveStateAndReturn)
+PPCSaveStateAndReturn1:
 /* Code to save the state and switch to C.  This is used both for
    IO Calls and also for traps so it needs to save everything.
    DOESN'T put anything into poly_stack->p_pc.  This may be set by the trap
@@ -552,14 +555,14 @@ address of the entry on it is returned.
 globldec(gbla(name)) \
     li      rtemp2,ioCall; \
     stw     rtemp2,4(r13); \
-    b       gbl(PPCSaveStateAndReturn); \
+    b       PPCSaveStateAndReturn1; \
     RegMask(name,Mask_all)
 
 #define  CALL_IO_LOCAL(name, ioCall) \
         /*EXTERN(gblc(name));*/ \
     li      rtemp2,ioCall; \
     stw     rtemp2,4(r13); \
-    b       gbl(PPCSaveStateAndReturn); \
+    b       PPCSaveStateAndReturn1; \
     RegMask(name,Mask_all)
 
     
@@ -989,7 +992,9 @@ INLINE_ROUTINE(neg_long)
     li  rtemp1,TAGGED(0)
     beqM    neg_long1   /* emulate if argument is long */
     
-    mcrxr   0       /* reset XER overflow state */
+    li      r0,0
+    mtxer   r0       /* reset XER overflow state */
+
     subfco. rtemp2,r3,rtemp1
     bsoM    neg_long1   /* emulate if result overflows */
         
@@ -1006,7 +1011,9 @@ INLINE_ROUTINE(add_long)
     andi.   r0,r0,1
     beqM    add_long1   /* emulate if either argument is long */
 
-    mcrxr   0       /* reset XER overflow state */
+    li      r0,0
+    mtxer   r0       /* reset XER overflow state */
+ 
     addo.   rtemp2,r3,r4
     bsoM    add_long1   /* emulate if result overflows */
     subi    r3,rtemp2,1 /* restore tag bit */
@@ -1022,7 +1029,9 @@ INLINE_ROUTINE(sub_long)
     andi.   r0,r0,1
     beqM    sub_long1   /* emulate if either argument is long */
 
-    mcrxr   0       /* reset XER overflow state */
+    li      r0,0
+    mtxer   r0       /* reset XER overflow state */
+
     subfco. rtemp2,r4,r3
     bsoM    sub_long1   /* emulate if result overflows */
     addi    r3,rtemp2,1 /* restore tag bit */
