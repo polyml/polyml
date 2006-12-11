@@ -211,7 +211,7 @@ sig
   val dependsInEnv : dbEnv -> string -> unit
   val dependenciesInEnv : dbEnv -> string -> string list
   val runCompiler  : dbEnv -> 
-       (unit -> string) * (string -> unit) -> unit -> unit
+       (unit -> string) * (string -> unit) * (unit -> int) * string -> unit -> unit
      
   val forgetMakeInfo  : dbEnv -> string -> unit;
   val forgetSignature : dbEnv -> string -> unit;
@@ -965,9 +965,16 @@ SPF 1/6/95
   
     val stringToUnit : types = String ->> Unit;
     val unitToString : types = Unit ->> String;
-    
+
+    (* For backwards compatibility include the old version.  *)
     val compilerType : types = 
       unitToString ** stringToUnit ->> Unit ->> Unit;
+	  
+	fun oldCompiler env (get, put) = runCompiler env (get, put, fn () => 0, "")
+	  
+    val compilerExType : types = 
+      TYPETREE.mkProductType[unitToString, stringToUnit, (Unit ->> Int), String]
+	        ->> Unit ->> Unit;
 	  
   in
     val U : unit = applyList (addEnvFn stringToUnit)
@@ -978,7 +985,10 @@ SPF 1/6/95
       ];
       
     val U : unit = 
-      addEnvFn compilerType ("compiler", runCompiler);
+      addEnvFn compilerType ("compiler", oldCompiler);
+	  
+    val U : unit = 
+      addEnvFn compilerExType ("compilerEx", runCompiler);
 	  
    end;
 

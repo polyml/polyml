@@ -239,7 +239,7 @@ sig
   val dependsInEnv : dbEnv -> string -> unit
   val dependenciesInEnv : dbEnv -> string -> string list
   val runCompiler : dbEnv -> 
-       (unit -> string) * (string -> unit) -> unit -> unit
+       (unit -> string) * (string -> unit) * (unit-> int) * string -> unit -> unit
        
   val shellProc   : (dbEnv * string ref * string ref) -> 
     {
@@ -1212,7 +1212,7 @@ end; (* dependsInEnv *)
 (*                  runCompiler (runcomp with ML compiler bound in)          *)
 (*****************************************************************************)
 fun runCompiler (globalEnv : dbEnv) : 
-  (unit -> string) * (string -> unit) -> unit -> unit =
+  (unit -> string) * (string -> unit) * (unit -> int) * string -> unit -> unit =
 let
 
 (*****************************************************************************)
@@ -1273,7 +1273,8 @@ let
 (*****************************************************************************)
 (*                  use                                                      *)
 (*****************************************************************************)
-  fun runComp (get : unit -> string, put : string -> unit) : unit -> unit =
+  fun runComp (get : unit -> string, put : string -> unit,
+               lineNo: unit -> int, fileName: string) : unit -> unit =
   let
     val lastString = ref ""; (* Current command text *)
     val textPtr    = ref 0;  (* Position in this text *)
@@ -1297,9 +1298,7 @@ let
     ); (* readin *)
     
     (* The lexer for this compilation *)
-    (* For the time being, for backwards compatibility,
-        we don't pass the file name or line number argument on. *)
-    val lex : LEX.lexan = LEX.initial (readin, "", (fn () => 0), put);
+    val lex : LEX.lexan = LEX.initial (readin, fileName, lineNo, put);
     val code : unit -> unit = COMPILERBODY.compiler (lex, useEnv, dbEnvFindException globalEnv);
   in
     code
