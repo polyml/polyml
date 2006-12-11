@@ -6,7 +6,7 @@ AM_ASFLAGS = $(ARCHFLAG) $(OSFLAG)
 AM_CCASFLAGS = $(ARCHFLAG) $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -release 5.0
+libpolyml_la_LDFLAGS = -version-info 0:0
 
 # Select the architecture-specific modules
 if ARCHI386
