@@ -32,7 +32,6 @@ structure LEX :
 sig
   type lexan
   
-  val lexPrint:    lexan -> string -> unit
   val nullLex:     lexan
 end;
 
@@ -311,6 +310,7 @@ structure DEBUG :
 sig
   val printDepth  : int ref;
   val maxPacking  : int ref;
+  val printString : (string->unit) ref;
 end;
 
 (*****************************************************************************)
@@ -2434,7 +2434,7 @@ struct
   |  codeVal (Value{access = Formal _, ...}, level, _, _, _, _) =
   		raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, lex, lineno, env) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, _, _, env) =
         let 
          (* "instance" should be 'a -> 'a. We need to get the 'a. *)
          val argType = if not (isFunctionType instance) then badType
@@ -2442,7 +2442,7 @@ struct
          fun printProc value =
          (
            printStruct (value, argType, ! printDepth,
-                        prettyPrint (77, lexPrint lex), env);
+                        prettyPrint (77, ! DEBUG.printString), env);
             value
           );
            (* Coerce the procedure so that it can be put into the code. *)
@@ -2450,7 +2450,7 @@ struct
          mkConst (toWord printProc)
        end 
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, lex, lineno, env) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _, env) =
        let 
          (* "instance" should be 'a -> string. We need to get the 'a. *)
          val argType =
@@ -2471,7 +2471,7 @@ struct
          mkConst (toWord makeString)
        end
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, lex, lineno, env) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, _, _, _) =
          let 
          (* "instance" should be ((,,,) -> int-> 'a -> 'b -> unit) -> unit.
              We need to get the 'a and 'b.  This function installs a
