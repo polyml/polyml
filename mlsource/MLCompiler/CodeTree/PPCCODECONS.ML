@@ -1095,7 +1095,6 @@ struct
   | OR       (* 444 *)
   | DIVWU    (* 459 *)
   | MTSPR    (* 467 *)
-  | MCRXR    (* 512 *)
   | SUBFCO   (* 520 (512 + 8) *)
   | MULLWO   (* 747 (512 + 235) *)
   | ADDO     (* 778 (512 + 266) *)
@@ -1118,7 +1117,6 @@ struct
     | MFSPR  => int10_339
     | OR     => int10_444
     | MTSPR  => int10_467
-    | MCRXR  => int10_512
     | SUBFCO => int10_520
     | ADDO   => int10_778
     | SRAWI  => int10_824
@@ -1479,13 +1477,6 @@ struct
         printHex5 F3
       )
       )
-
-      | 512 => (* MCRXR *)
-      let
-      in
-    printString "mcrxr\t";
-    printHex3 (F1 div exp2_2)
-      end
 
       | 520 => (* SUBFCO *)
         printArithmeticXform ("subfco", instr)
@@ -2047,9 +2038,6 @@ struct
   
     fun mfctr (rt : reg) : quad = 
       XformQuad (EXT31, getReg5 rt, CTR, int5_0, op31ToInt10 MFSPR, false);
-      
-    val mcrxr0Quad : quad =
-      XformQuad (EXT31, int5_0, int5_0, int5_0, op31ToInt10 MCRXR, false);
   end;
   
 (*****************************************************************************)
