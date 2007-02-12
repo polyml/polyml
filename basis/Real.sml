@@ -343,8 +343,8 @@ struct
 	in
 		fun fromDecimal { class = INF, sign=true, ...} = negInf
 		  | fromDecimal { class = INF, sign=false, ...} = posInf
-		  | fromDecimal { class = ZERO, sign=true, ...} = 0.0
-		  | fromDecimal { class = ZERO, sign=false, ...} = ~0.0
+		  | fromDecimal { class = ZERO, sign=true, ...} = ~0.0
+		  | fromDecimal { class = ZERO, sign=false, ...} = 0.0
 		  | fromDecimal { class = NAN, sign=true, digits=[], ... } = negNan
 		  | fromDecimal { class = NAN, sign, digits=[], ... } = posNan
 		  | fromDecimal { class = NAN, sign, digits, ... } =
