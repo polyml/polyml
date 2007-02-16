@@ -844,10 +844,18 @@ struct
 		   being nil. *)
 			List.foldl (fn (s, ()) => closeOut s handle _ => ()) ()
 				(! outputStreamList)
-		fun setAtExit () = OS.Process.atExit closeAll
+		(* In addition, discard any unwritten data in open streams.
+		   If we have called PolyML.export with unwritten data that will still be
+		   there whenever the exported function is run so we need to discard it. 
+		   This issue really applies only to stdOut since stdErr is normally
+		   unbuffered and other streams will generate an exception if we try to
+		   write. *)
+		fun discardAll () =
+		    List.app (fn(OutStream{bufp, ...}) => bufp := 0) (! outputStreamList)
+		fun doOnEntry () = (discardAll(); OS.Process.atExit closeAll)
 	in
-		val it = PolyML.onEntry setAtExit;
-		val it = setAtExit() (* Set it up for this session as well. *)
+		val it = PolyML.onEntry doOnEntry;
+		val it = doOnEntry() (* Set it up for this session as well. *)
 	end
 end;
 
