@@ -978,13 +978,17 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     bool sizeChanged = false;
     POLYUNSIGNED currentSize = 0, currentlyFree = 0;
     unsigned nSpaces = 0;
+    POLYUNSIGNED largestFree = 0;
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
         if (space->isMutable == isMutableSpace)
         {
-            currentSize += space->top - space->bottom;
-            currentlyFree += space->pointer - space->bottom;
+            POLYUNSIGNED spaceSize = space->top - space->bottom;
+            POLYUNSIGNED spaceFree = space->pointer - space->bottom;
+            currentSize += spaceSize;
+            currentlyFree += spaceFree;
+            if (largestFree < spaceFree) largestFree = spaceFree;
             nSpaces++;
         }
     }
@@ -996,8 +1000,11 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     ASSERT(0 <= wordsRequired);
     ASSERT(0 <= requiredFree);
     
-    if (requiredFree > currentlyFree) // expand the heap.
-    {
+    // We may be trying to allocate a very large object, e.g. a new stack segment, in
+    // which case we must ensure that we have enough space in at least one space.
+    // Otherwise we just check we have enough free overall.
+    if (requiredFree > currentlyFree || (isMutableSpace && largestFree < wordsRequired))
+    {    // expand the heap.
         POLYUNSIGNED requestedGrowth = requiredFree - currentlyFree;
         const POLYUNSIGNED segSize =
             isMutableSpace ? userOptions.mutableSegSize : userOptions.immutableSegSize;
@@ -1007,6 +1014,7 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         // The factors here are a guess.  Maybe tune them more carefully
         unsigned spaceFactor = nSpaces / 3;
         while (spaceFactor > 0) { requestedGrowth += segSize; spaceFactor--; }
+        if (requestedGrowth < wordsRequired) requestedGrowth = wordsRequired;
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
