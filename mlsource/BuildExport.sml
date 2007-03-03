@@ -32,11 +32,6 @@ PolyML.make "mlsource/MLCompiler";
    garbage in the hashValue function. *)
 Debug.maxInlineSize := 50;
 
-(* Set the current stdOut to unbuffered before we save the heap. stdOut
-   will be replaced when we compile the basis library but if we don't do
-   this we end up with extra prompts when we first start. *)
-TextIO.StreamIO.setBufferMode(TextIO.getOutstream TextIO.stdOut, IO.NO_BUF);
-
 PolyML.shareCommonData MLCompiler.shell;
 
 let
