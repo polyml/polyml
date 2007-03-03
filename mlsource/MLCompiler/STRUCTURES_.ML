@@ -76,7 +76,7 @@ sig
   type typeId;
   type types
 
-  type 'a tagMethods;
+  type 'a tag;
 
   datatype structVals = 
     NoStruct
@@ -115,7 +115,7 @@ sig
   val structName:         structVals -> string;
   val structAccess:       structVals -> valAccess;
   
-  val structVar:          structVals  tagMethods;
+  val structVar:          structVals  tag;
 
   val makeSelectedStruct: structVals * structVals -> structVals;
   val makeLocalStruct:    string * signatures -> structVals;
@@ -176,7 +176,7 @@ sig
   val tcSetConstructors: typeConstrs * values list -> unit;
   val tcIdentifier:      typeConstrs -> typeId;
   
-  val typeConstrVar:     typeConstrs tagMethods;
+  val typeConstrVar:     typeConstrs tag;
   
   val makeTypeConstrs:
   	string * types list * types * typeId * bool * int -> typeConstrs;
@@ -210,12 +210,12 @@ sig
   val valName:         values -> string;
   val valTypeOf:       values -> types;
 
-  val valueVar:        values      tagMethods;
+  val valueVar:        values      tag;
 
   (* Infix status *)
   type fixStatus;
 
-  val fixVar: fixStatus tagMethods;
+  val fixVar: fixStatus tag;
 
   datatype env = 
     Env of
@@ -428,10 +428,10 @@ structure UNIVERSAL :
 
 sig
   type universal
-  type 'a tagMethods
+  type 'a tag
   
-  val tagIs      : 'a tagMethods -> universal -> bool
-  val tagProject : 'a tagMethods -> universal -> 'a
+  val tagIs      : 'a tag -> universal -> bool
+  val tagProject : 'a tag -> universal -> 'a
 end;
 
 (*****************************************************************************)
@@ -441,10 +441,10 @@ structure UNIVERSALTABLE:
 sig
   type universal
   type univTable
-  type 'a tagMethods
+  type 'a tag
   
-  val univEnter:  univTable * 'a tagMethods * string * 'a -> unit;
-  val univLookup: univTable * 'a tagMethods * string -> 'a;
+  val univEnter:  univTable * 'a tag * string * 'a -> unit;
+  val univLookup: univTable * 'a tag * string -> 'a;
   val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
@@ -577,9 +577,9 @@ sharing type
 = TYPETREE.typeConstrs
 
 sharing type
-  STRUCTVALS.tagMethods
-= UNIVERSALTABLE.tagMethods
-= UNIVERSAL.tagMethods
+  STRUCTVALS.tag
+= UNIVERSALTABLE.tag
+= UNIVERSAL.tag
  
 sharing type
   STRUCTVALS.env 
@@ -693,7 +693,7 @@ struct
   open DEBUG;
   open ADDRESS;
   open UNIVERSALTABLE;
-  open UNIVERSAL; (* for tagMethods record selectors *)
+  open UNIVERSAL; (* for tag record selectors *)
   open DEBUGGER;
 
   val displayType = TYPETREE.display;

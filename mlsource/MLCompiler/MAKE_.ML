@@ -80,8 +80,8 @@ end;
 (*****************************************************************************)
 structure UNIVERSAL :
 sig
-  type 'a tagMethods
-  val makeTag : unit -> '_a tagMethods
+  type 'a tag
+  val tag : unit -> '_a tag
 end;
 
 (*****************************************************************************)
@@ -105,15 +105,15 @@ end;
 (*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
-  type 'a tagMethods;
+  type 'a tag;
   type univTable;
   type 'a iter;
   
   val makeUnivTable:  unit -> univTable
-  val univEnter:  univTable * 'a tagMethods * string * 'a -> unit;
-  val univLookup: univTable * 'a tagMethods * string -> 'a;
-  val univDelete: univTable * 'a tagMethods * string -> unit;
-  val univOverSpecific: univTable * 'a tagMethods -> (string * 'a) iter;
+  val univEnter:  univTable * 'a tag * string * 'a -> unit;
+  val univLookup: univTable * 'a tag * string -> 'a;
+  val univDelete: univTable * 'a tag * string -> unit;
+  val univOverSpecific: univTable * 'a tag -> (string * 'a) iter;
 end;
 
 (*****************************************************************************)
@@ -121,7 +121,7 @@ end;
 (*****************************************************************************)
 structure STRUCTVALS :
 sig
-  type 'a tagMethods;
+  type 'a tag;
   
   type types;
   type values;
@@ -149,12 +149,12 @@ sig
 	enterFunct:   string * functors    -> unit
       };
 
-  val valueVar:      values      tagMethods;
-  val typeConstrVar: typeConstrs tagMethods;
-  val fixVar:        fixStatus   tagMethods;
-  val structVar:     structVals  tagMethods;
-  val signatureVar:  signatures  tagMethods;
-  val functorVar:    functors    tagMethods;
+  val valueVar:      values      tag;
+  val typeConstrVar: typeConstrs tag;
+  val fixVar:        fixStatus   tag;
+  val structVar:     structVals  tag;
+  val signatureVar:  signatures  tag;
+  val functorVar:    functors    tag;
 end;
 
 (* DCJM 8/8/00.  Previously Misc was a global but we aren't allowed
@@ -193,9 +193,9 @@ end;
 (*****************************************************************************)
 
 sharing type
-  UNIVERSAL.tagMethods
-= UNIVERSALTABLE.tagMethods
-= STRUCTVALS.tagMethods
+  UNIVERSAL.tag
+= UNIVERSALTABLE.tag
+= STRUCTVALS.tag
 
 sharing type
    COMPILERBODY.env
@@ -297,7 +297,7 @@ struct
 
   exception ObjNotFile;
     
-  type 'a tagMethods = 'a UNIVERSAL.tagMethods;
+  type 'a tag = 'a UNIVERSAL.tag;
   
   fun splitFilename (name: string) : string * string =
   	 let
@@ -329,14 +329,14 @@ struct
       end;
         
       (* enter a value into an environment *)
-      fun dbEnvEnter (DbEnv db, t : 'a tagMethods, s : string, v : 'a) : unit =
+      fun dbEnvEnter (DbEnv db, t : 'a tag, s : string, v : 'a) : unit =
         case db of
           [] => raise InternalError "Environment initialisation error"
         | (thisLevel :: _) => univEnter (thisLevel, t, s, v);
         
   
       (* find a value in an environment *)
-      fun dbEnvLookup (DbEnv db, t : 'a tagMethods, s : string) : 'a =
+      fun dbEnvLookup (DbEnv db, t : 'a tag, s : string) : 'a =
       let
         fun lookupList []                         = raise ValueMissing s
           | lookupList (thisLevel :: otherLevels) =
@@ -348,7 +348,7 @@ struct
   
       (* delete an entry, but only from the top-level table *)
       (* This may raise ValueMissing *)
-      fun dbEnvForget (DbEnv db, s : string, t : 'a tagMethods) : unit =
+      fun dbEnvForget (DbEnv db, s : string, t : 'a tag) : unit =
         case db of
           [] => raise InternalError "Environment initialisation error"
         | (thisLevel :: _) => univDelete (thisLevel, t, s)
@@ -357,7 +357,7 @@ struct
 	     Now expanded to include parents so that it really shows everything.
 		 We should remove duplicates since there may be entries in parent
 		 databases with the same names as items in the children. *)
-      fun dbEnvContents (DbEnv db, t : 'a tagMethods) : string list =
+      fun dbEnvContents (DbEnv db, t : 'a tag) : string list =
 	  let
 	  	 fun eachLevel(u: univTable, s: string list): string list =
 		 	s @ mapIterator (fn (n : string, v : 'a) => n) (univOverSpecific (u, t))
@@ -501,8 +501,8 @@ struct
   local
     open UNIVERSAL
   in
-    val timeStampTagMethods    : timeStamp tagMethods   = makeTag ();
-    val dependenciesTagMethods : string list tagMethods = makeTag ();
+    val timeStampTagMethods    : timeStamp tag   = tag ();
+    val dependenciesTagMethods : string list tag = tag ();
   end;
 
 (*****************************************************************************)
@@ -514,10 +514,10 @@ let
     open UNIVERSAL
     open UNIVERSALTABLE
   in
-    fun lookupGlobalEnv (t: 'a tagMethods) (name: string) : 'a =
+    fun lookupGlobalEnv (t: 'a tag) (name: string) : 'a =
       dbEnvLookup (globalEnv, t, name);
        
-    fun enterGlobalEnv (t: 'a tagMethods, name: string, v: 'a) : unit =
+    fun enterGlobalEnv (t: 'a tag, name: string, v: 'a) : unit =
       dbEnvEnter (globalEnv, t, name, v);
   end; (* local for global environment *)
 
@@ -628,7 +628,7 @@ let
             else ();
          
           (* Called by the compiler to look-up a global identifier. *)
-          fun lookupMakeEnv (t: 'a tagMethods) (name: string) : 'a =
+          fun lookupMakeEnv (t: 'a tag) (name: string) : 'a =
             (
               let
                 (* Have we re-declared it ? *)
@@ -666,7 +666,7 @@ let
             state is set to checked when we finish making the object but
             setting it now suppresses messages about circular dependencies
             if we use the identifier within the file. *)
-          fun enterMakeEnv (kind : string, t: 'a tagMethods) (name: string, v: 'a) : unit =
+          fun enterMakeEnv (kind : string, t: 'a tag) (name: string, v: 'a) : unit =
             (
               (* Put in the value. *)
               enterGlobalEnv (t, name, v);
@@ -706,7 +706,7 @@ let
             ) (* enter *);
             
  
-          fun enterGlobalEnv (t: 'a tagMethods) (name: string, v: 'a) : unit =
+          fun enterGlobalEnv (t: 'a tag) (name: string, v: 'a) : unit =
             dbEnvEnter (globalEnv, t, name, v);
 
           fun lookupTvars (name: string) = 
@@ -1003,10 +1003,10 @@ let
     open UNIVERSAL
     open UNIVERSALTABLE
 
-    fun lookupGlobalEnv (t: 'a tagMethods) (name: string) : 'a =
+    fun lookupGlobalEnv (t: 'a tag) (name: string) : 'a =
       dbEnvLookup (globalEnv, t, name);
        
-    fun enterGlobalEnv (t: 'a tagMethods) (name: string, v: 'a) : unit =
+    fun enterGlobalEnv (t: 'a tag) (name: string, v: 'a) : unit =
       dbEnvEnter (globalEnv, t, name, v);
 
     fun lookupTvars (name: string) = 
@@ -1225,10 +1225,10 @@ let
     (* Don't eta-reduce theses definitions 'cos they've got to
        work properly if the current environment is changed within
        a bind file. *)
-    fun lookupGlobalEnv (t: 'a tagMethods) (name: string) : 'a =
+    fun lookupGlobalEnv (t: 'a tag) (name: string) : 'a =
       dbEnvLookup (globalEnv, t, name);
        
-    fun enterGlobalEnv (t: 'a tagMethods) (name: string, v: 'a) : unit =
+    fun enterGlobalEnv (t: 'a tag) (name: string, v: 'a) : unit =
       dbEnvEnter (globalEnv, t, name, v);
 
     fun lookupTvars (name: string) = 
@@ -1322,7 +1322,7 @@ end; (* scope of runCompiler *)
       dbEnvForget (makeEnv, name, dependenciesTagMethods)
 	handle ValueMissing _ => ();
 	
-    open STRUCTVALS; (* for the various tagMethods *)
+    open STRUCTVALS; (* for the various tag *)
   in
     fun forgetMakeInfo (makeEnv : dbEnv) (name : string) : unit =
       (
@@ -1494,10 +1494,10 @@ let
     (* Don't eta-reduce theses definitions 'cos they've got to
        work properly if the current environment is changed within
        a bind file. *)
-    fun lookupGlobalEnv (t: 'a tagMethods) (name: string) : 'a =
+    fun lookupGlobalEnv (t: 'a tag) (name: string) : 'a =
       dbEnvLookup (globalEnv, t, name);
        
-    fun enterGlobalEnv (t: 'a tagMethods) (name: string, v: 'a) : unit =
+    fun enterGlobalEnv (t: 'a tag) (name: string, v: 'a) : unit =
       dbEnvEnter (globalEnv, t, name, v);
 
     fun lookupTvars (name: string) = 

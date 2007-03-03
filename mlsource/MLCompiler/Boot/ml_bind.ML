@@ -22,15 +22,7 @@ struct
   structure Address        = Address
   structure Misc           = Misc
   structure HashTable      = HashTable
-  structure Universal      = Universal
-(* structure Environ        = Environ   SPF 18/8/94 *)
   structure UniversalTable = UniversalTable
   structure PrettyPrinter  = PrettyPrinter
   structure StretchArray   = StretchArray
-
-  (* Mike needs to do 'proper' functions etc for these *)
-
-  (*  dbRef in printTable.ML
-      printDepth = dbSpecific in DebugSwitch.ML
-   *)
 end;

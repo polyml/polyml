@@ -235,13 +235,13 @@ sig
 
   val makeEnv: signatures -> env;
   
-  type 'a tagMethods;
+  type 'a tag;
 
-  val signatureVar:  signatures  tagMethods
-  val structVar:     structVals  tagMethods
-  val typeConstrVar: typeConstrs tagMethods
-  val valueVar:      values      tagMethods
-  val fixVar:        fixStatus   tagMethods
+  val signatureVar:  signatures  tag
+  val structVar:     structVals  tag
+  val typeConstrVar: typeConstrs tag
+  val valueVar:      values      tag
+  val fixVar:        fixStatus   tag
 end;
 
 (*****************************************************************************)
@@ -356,10 +356,10 @@ end;
 structure UNIVERSAL :
 sig
   type universal
-  type 'a tagMethods
+  type 'a tag
   
-  val tagIs      : 'a tagMethods -> universal -> bool
-  val tagProject : 'a tagMethods -> universal -> 'a
+  val tagIs      : 'a tag -> universal -> bool
+  val tagProject : 'a tag -> universal -> 'a
   
 end;
 
@@ -475,8 +475,8 @@ sharing type
 = UNIVERSALTABLE.universal
 
 sharing type
-  UNIVERSAL.tagMethods
-= STRUCTVALS.tagMethods
+  UNIVERSAL.tag
+= STRUCTVALS.tag
 ) : 
   
 (*****************************************************************************)
@@ -640,7 +640,7 @@ struct
   open DEBUG;
   open ADDRESS;
   open UNIVERSALTABLE;
-  open UNIVERSAL; (* for tagMethods etc. *)
+  open UNIVERSAL; (* for tag etc. *)
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
   

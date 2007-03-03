@@ -20,20 +20,20 @@
 structure UniversalTable :
 sig
   type universal;
-  type 'a tagMethods;
+  type 'a tag;
   type univTable;
   type 'a iter;
   
   val makeUnivTable:    unit -> univTable;
   
-  val univEnter:        univTable * 'a tagMethods * string * 'a -> unit;
-  val univLookup:       univTable * 'a tagMethods * string -> 'a;
-  val univDelete:       univTable * 'a tagMethods * string -> unit;
+  val univEnter:        univTable * 'a tag * string * 'a -> unit;
+  val univLookup:       univTable * 'a tag * string -> 'a;
+  val univDelete:       univTable * 'a tag * string -> unit;
   
   val univOver:         univTable -> (string * universal) iter;
   val univFold:         univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
   
-  val univOverSpecific: univTable * 'a tagMethods -> (string * 'a) iter;
+  val univOverSpecific: univTable * 'a tag -> (string * 'a) iter;
 
   (* Freeze a mutable table so it is immutable. *)
   val univFreeze:       univTable -> univTable
@@ -48,14 +48,14 @@ struct
     open Universal;
   in
     type universal = universal
-    type 'a tagMethods = 'a tagMethods;
+    type 'a tag = 'a tag;
     type 'a iter = 'a iter;
   
     abstype univTable = Table of universal list hash
     with
       fun makeUnivTable() = Table (hashMake 10); (* Choose a number. *)
       
-      fun univLookup (Table tab, t:'a tagMethods, name:string) : 'a =
+      fun univLookup (Table tab, t:'a tag, name:string) : 'a =
       let
         fun search []     = raise ValueMissing name
         |   search (H::T) = if tagIs t H then (tagProject t H) else search T;
@@ -63,7 +63,7 @@ struct
         search (hashSub (tab, name))
       end;
       
-      fun univEnter (Table tab, t:'a tagMethods, name:string, v:'a) : unit =
+      fun univEnter (Table tab, t:'a tag, name:string, v:'a) : unit =
       let
         val u = tagInject t v;
         
@@ -77,7 +77,7 @@ struct
           search (hashSub (tab, name)) handle ValueMissing _ => [u])
       end;
       
-      fun univDelete (Table tab, t:'a tagMethods, name:string) : unit  =
+      fun univDelete (Table tab, t:'a tag, name:string) : unit  =
       let
         fun search []     = raise ValueMissing name
         |   search (H::T) = if tagIs t H then T else H :: search T;
@@ -141,7 +141,7 @@ struct
         end;
         
         (* Iterator over entries with a specific tag. *)
-        fun univOverSpecific (tab : univTable, t:'a tagMethods) = 
+        fun univOverSpecific (tab : univTable, t:'a tag) = 
         let
           fun tagMatches i = tagIs t (snd (Value i));
           

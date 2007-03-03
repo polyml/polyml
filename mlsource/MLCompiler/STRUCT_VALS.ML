@@ -55,9 +55,9 @@ end;
 (*****************************************************************************)
 structure UNIVERSAL :
 sig
-  type 'a tagMethods
+  type 'a tag
   
-  val makeTag : unit -> '_a tagMethods
+  val tag : unit -> '_a tag
 end;
 
 (*****************************************************************************)
@@ -65,12 +65,12 @@ end;
 (*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
-  type 'a tagMethods;
+  type 'a tag;
   type univTable;
   
   val makeUnivTable: unit -> univTable;
-  val univEnter:     univTable * 'a tagMethods * string * 'a -> unit;
-  val univLookup:    univTable * 'a tagMethods * string -> 'a;
+  val univEnter:     univTable * 'a tag * string * 'a -> unit;
+  val univLookup:    univTable * 'a tag * string -> 'a;
   
   (* Freeze a mutable table so it is immutable. *)
   val univFreeze:       univTable -> univTable
@@ -82,8 +82,8 @@ end;
 (*****************************************************************************)
 
 sharing type
-  UNIVERSAL.tagMethods
-= UNIVERSALTABLE.tagMethods
+  UNIVERSAL.tag
+= UNIVERSALTABLE.tag
 
 ) :  
 
@@ -344,14 +344,14 @@ sig
 
   val makeEnv: signatures -> env;
 
-  type 'a tagMethods;
+  type 'a tag;
   
-  val valueVar:      values      tagMethods;
-  val typeConstrVar: typeConstrs tagMethods;
-  val fixVar:        fixStatus   tagMethods;
-  val structVar:     structVals  tagMethods;
-  val signatureVar:  signatures  tagMethods;
-  val functorVar:    functors    tagMethods;
+  val valueVar:      values      tag;
+  val typeConstrVar: typeConstrs tag;
+  val fixVar:        fixStatus   tag;
+  val structVar:     structVals  tag;
+  val signatureVar:  signatures  tag;
+  val functorVar:    functors    tag;
 
 end (* STRUCTVALS export signature *) =  
 
@@ -950,17 +950,17 @@ struct
     |   functorAccess (Functor {access,...}) = access;
   end; (* functors abstype *)
   
-  val valueVar:      values      tagMethods = makeTag();
-  val typeConstrVar: typeConstrs tagMethods = makeTag();
-  val fixVar:        fixStatus   tagMethods = makeTag();
-  val structVar:     structVals  tagMethods = makeTag();
-  val signatureVar:  signatures  tagMethods = makeTag();
-  val functorVar:    functors    tagMethods = makeTag();
+  val valueVar:      values      tag = tag();
+  val typeConstrVar: typeConstrs tag = tag();
+  val fixVar:        fixStatus   tag = tag();
+  val structVar:     structVals  tag = tag();
+  val signatureVar:  signatures  tag = tag();
+  val functorVar:    functors    tag = tag();
 
-  fun makeLook (t:'a tagMethods) table =
+  fun makeLook (t:'a tag) table =
     fn n => univLookup (table, t, n);
   
-  fun makeEnter (t:'a tagMethods) table =
+  fun makeEnter (t:'a tag) table =
     fn (n, v) => univEnter (table, t, n, v);
 
   datatype env = 

@@ -217,10 +217,10 @@ sig
     };
 
         
-  type 'a tagMethods;
-  val structVar:     structVals  tagMethods;
-  val valueVar:      values      tagMethods;
-  val typeConstrVar: typeConstrs tagMethods;
+  type 'a tag;
+  val structVar:     structVals  tag;
+  val valueVar:      values      tag;
+  val typeConstrVar: typeConstrs tag;
 
 end;
 
@@ -439,12 +439,10 @@ end;
 structure UNIVERSAL :
 sig
   type universal
-  type 'a tagMethods
+  type 'a tag
   
-  val makeTag : unit -> '_a tagMethods
-  
-  val tagIs      : 'a tagMethods -> universal -> bool
-  val tagProject : 'a tagMethods -> universal -> 'a
+  val tagIs      : 'a tag -> universal -> bool
+  val tagProject : 'a tag -> universal -> 'a
 end;
 
 (*****************************************************************************)
@@ -554,8 +552,8 @@ sharing type
 = STRUCTVALS.univTable
 
 sharing type
-  STRUCTVALS.tagMethods
-= UNIVERSAL.tagMethods;
+  STRUCTVALS.tag
+= UNIVERSAL.tag;
 
 sharing type
   UNIVERSALTABLE.universal

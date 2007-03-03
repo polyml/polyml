@@ -17,47 +17,56 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Universal :
+structure Universal :>
 
 sig
   type universal
-  type 'a tagMethods
+  type 'a tag
   
-  val makeTag : unit -> '_a tagMethods
+  val tag : unit -> 'a tag
   
-  val tagIs      : 'a tagMethods -> universal -> bool
-  val tagInject  : 'a tagMethods -> 'a -> universal
-  val tagProject : 'a tagMethods -> universal -> 'a
+  val tagIs      : 'a tag -> universal -> bool
+  val tagInject  : 'a tag -> 'a -> universal
+  val tagProject : 'a tag -> universal -> 'a
   
 end =
 
 
 struct
 
-  abstype universal = Universal of exn
-  with
-    type 'a tagMethods =
+	(* The universal type is based on exn which provides a tagged union.
+	   We use opaque signature matching to create a different type. *)
+    type universal = exn
+
+    type 'a tag =
       { 
         is:      universal -> bool,
         inject: 'a -> universal,
         project: universal -> 'a
       };
-   
-    fun makeTag () : '_a tagMethods =
+
+	(* The Match exception is created in the General structure in the basis
+	   library which hasn't been built yet. *)
+    local
+		structure Match = RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_Match )
+	in
+		exception Match = Match.ex
+	end
+  
+    fun tag () : 'a tag =
     let
-      exception E of '_a ;
+      exception E of 'a;
     in
       { 
-        inject  = fn x => Universal (E x),
-        project = fn (Universal (E x)) => x    | _ => raise Match,
-        is      = fn (Universal (E x)) => true | _ => false
+        inject  = fn x => E x,
+        project = fn E x => x    | _ => raise Match,
+        is      = fn E x => true | _ => false
       }
     end ;
 
-    val tagIs      : 'a tagMethods -> universal -> bool  = #is
-    val tagInject  : 'a tagMethods -> 'a -> universal    = #inject
-    val tagProject : 'a tagMethods -> universal -> 'a    = #project
-  end ;
+    val tagIs      : 'a tag -> universal -> bool  = #is
+    val tagInject  : 'a tag -> 'a -> universal    = #inject
+    val tagProject : 'a tag -> universal -> 'a    = #project
   
 end;
 
@@ -68,8 +77,8 @@ This code will test the above structure
 datatype t = T of int ;
 datatype x = X of string ;
 
-val {is=ist,inject=injectT:t->universal,project=projectT} = makeTag();
-val {is=isx,inject=injectX:x->universal,project=projectX} = makeTag();
+val {is=ist,inject=injectT:t->universal,project=projectT} = tag();
+val {is=isx,inject=injectX:x->universal,project=projectX} = tag();
 
 val a = injectT (T 42) ;
 val b = injectT (T 24) ;

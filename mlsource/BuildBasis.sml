@@ -26,9 +26,11 @@ PolyML.Inner.print_depth 1;
 PolyML.Inner.use "mlsource/prelude/RunCall";
 PolyML.Inner.use "mlsource/prelude/RuntimeCalls";
 PolyML.Inner.use "mlsource/prelude/prelude";
-PolyML.Inner.use "mlsource/prelude/processes";
-PolyML.Inner.use "mlsource/prelude/Signal";
 PolyML.Inner.use "mlsource/prelude/prelude2";
+
+PolyML.use "mlsource/prelude/Signal";
+PolyML.use "mlsource/prelude/Universal";
+PolyML.use "mlsource/prelude/processes";
 
 (* Build the main basis library. *)
 PolyML.use "basis/build";
