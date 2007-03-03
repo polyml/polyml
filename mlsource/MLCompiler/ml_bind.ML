@@ -55,7 +55,7 @@ struct
     (
 	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
 		then ()
-		else (!RunCall.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+		else (!Debug.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
       mainSessionShell ();
 	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
     );
@@ -77,21 +77,21 @@ struct
     in
 	    if List.exists(fn s => s = "-v") argList
 		then (* -v option : Print version information and exit *)
-    		(!RunCall.printString)
+    		(!Debug.printString)
 			     (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
 			                     "    RTS version: ", rtsRelease(), "\n"])
 
 		else if List.exists(fn s => s = "--help") argList
 		then (* --help option: Print argument information and exit. *)
 		   (
-     		(!RunCall.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
-			(!RunCall.printString) "Compiler arguments:\n";
-			(!RunCall.printString) "\n";
-			(!RunCall.printString) "-v        Print the version of Poly/ML and exit\n";
-			(!RunCall.printString) "--help    Print this message and exit\n";
-			(!RunCall.printString) "-q        Suppress the start-up message\n";
-			(!RunCall.printString) "\nRun time system arguments:\n";
-			(!RunCall.printString) (rtsHelp())
+     		(!Debug.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+			(!Debug.printString) "Compiler arguments:\n";
+			(!Debug.printString) "\n";
+			(!Debug.printString) "-v        Print the version of Poly/ML and exit\n";
+			(!Debug.printString) "--help    Print this message and exit\n";
+			(!Debug.printString) "-q        Suppress the start-up message\n";
+			(!Debug.printString) "\nRun time system arguments:\n";
+			(!Debug.printString) (rtsHelp())
 		   )
 		else
 		   (
