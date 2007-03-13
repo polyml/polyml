@@ -1502,7 +1502,7 @@ static struct {
 #ifdef _SC_XOPEN_VERSION
     { "_SC_XOPEN_VERSION",      _SC_XOPEN_VERSION },
 #endif
-#ifdef SC_NPROCESSORS_CONF
+#ifdef _SC_NPROCESSORS_CONF
     { "_SC_NPROCESSORS_CONF",   _SC_NPROCESSORS_CONF },
 #endif
 #ifdef _SC_NPROCESSORS_ONLN
