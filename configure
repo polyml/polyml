@@ -30451,7 +30451,7 @@ case $ac_cv_with_portable in
 
                 polyarch=ppc
                 ;;
-          x86_64)
+          x86_64* | amd64*)
                 ARCHFLAG=-DX86_64
 
                 polyarch=x86_64
