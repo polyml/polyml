@@ -221,7 +221,7 @@ case $ac_cv_with_portable in
                 AC_SUBST([ARCHFLAG], [-DPOWER2])
                 polyarch=ppc
                 ;;
-          x86_64)
+          x86_64* | amd64*)
                 AC_SUBST([ARCHFLAG], [-DX86_64])
                 polyarch=x86_64
                 ;;
