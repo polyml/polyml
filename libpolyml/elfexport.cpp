@@ -353,7 +353,8 @@ static struct { const char *name; unsigned procType, relocation; bool useRela; }
     { "sparc",  EM_SPARC,   R_SPARC_32,     true },
     { "Power",  EM_PPC,     R_PPC_ADDR32,   true },
     { "ppc",    EM_PPC,     R_PPC_ADDR32,   true },
-    { "x86_64", EM_X86_64,  R_X86_64_64,    false }
+    { "x86_64", EM_X86_64,  R_X86_64_64,    false },
+    { "amd64",  EM_X86_64,  R_X86_64_64,    false }
 };
 
 void ELFExport::exportStore(const char *outFileName)
