@@ -216,6 +216,10 @@ public:
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes);
     virtual Architectures MachineArchitecture(void) { return MA_PPC; } 
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
+    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
 
 private:
 
@@ -1556,6 +1560,42 @@ void PowerPCDependent::SetCodeConstant(TaskData *taskData, Handle/*data*/, Handl
     pointer[1] = PolyWord::FromUnsigned((pointer[1].AsUnsigned() & 0xffff0000) | lo);
 }
 
+// We have assembly code versions of atomic increment and decrement and it's
+// important that if we use the same method of locking a mutex whether it's
+// done in the assembly code or the RTS.
+// Increment the value contained in the first word of the mutex.
+Handle PowerPCDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
+{
+    PolyObject *p = DEREFHANDLE(mutexp);
+    POLYUNSIGNED result;
+    __asm__ __volatile__ (
+     "1: lwarx   %0,0,%1\n"    //  Load value at 0(r3) with reservation.
+        "addi    %0,%0,2\n"    // 2 is TAGGED(1)-TAG
+        "stwcx.  %0,0,%1\n"    // Store the updated value unless someone else did.
+        "bne-    1b\n"         // Repeat if we couldn't do the store
+    :"=r"(result)   // %0 - Output - updated value
+    :"r"(p)         // %1 - Input  - address of mutex
+    : "cc", "memory" // Modifies cc and memory
+    );
+    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
+}
+
+// Decrement the value contained in the first word of the mutex.
+Handle PowerPCDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
+{
+    PolyObject *p = DEREFHANDLE(mutexp);
+    POLYUNSIGNED result;
+    __asm__ __volatile__ (
+     "1: lwarx   %0,0,%1\n"    //  Load value at 0(r3) with reservation.
+        "subi    %0,%0,2\n"    // 2 is TAGGED(1)-TAG
+        "stwcx.  %0,0,%1\n"    // Store the updated value unless someone else did.
+        "bne-    1b\n"         // Repeat if we couldn't do the store
+    :"=r"(result)   // %0 - Output - updated value
+    :"r"(p)         // %1 - Input  - address of mutex
+    : "cc", "memory" // Modifies cc and memory
+    );
+    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
+}
 
 // On the PPC it's important to flush the cache.  The PPC has separate data and instruction
 // caches and there is no internal synchronisation.  This actually does two things: it
