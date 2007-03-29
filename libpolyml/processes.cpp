@@ -1136,7 +1136,9 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
     Handle stack = // Allocate the stack in the parent's heap.
         alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_BIT);
     newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
-    machineDependent->InitStackFrame(newTaskData, stack, threadFunction, args);
+    // Also allocate anything needed for the new stack in the parent's heap.
+    // The child still has inMLHeap set so mustn't GC.
+    machineDependent->InitStackFrame(taskData, stack, threadFunction, args);
 
     // Now actually fork the thread.
     bool success = 0;
