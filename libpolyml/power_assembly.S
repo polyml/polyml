@@ -377,6 +377,7 @@ Offsets in MemRegisters
     20     polyStack
     24     stackLimit
     56     stackTop
+    60     threadId
 */
 
 /***************************************************************************/
@@ -1424,7 +1425,31 @@ i2w1:
     blr
     RegMask (int_to_word,M_R3|M_R23)
     RegMask (get_first_long_word,M_R3|M_R23)
+    
+INLINE_ROUTINE(atomic_incr)
+ati1:
+    lwarx  r4,0,r3        /* Load value at 0(r3) with reservation. */
+    addi   r4,r4,2        /* 2 is TAGGED(1)-TAG */
+    stwcx. r4,0,r3        /* Store the updated value unless someone else did. */
+    bne-   ati1
+    mr     r3,r4
+    blr
+    RegMask(atomic_incr,M_R3|M_R4|M_R23)
+    
+INLINE_ROUTINE(atomic_decr)
+atd1:
+    lwarx  r4,0,r3
+    subi   r4,r4,2        /* 2 is TAGGED(1)-TAG */
+    stwcx. r4,0,r3
+    bne-   atd1
+    mr     r3,r4
+    blr
+    RegMask(atomic_decr,M_R3|M_R4|M_R23)
 
+INLINE_ROUTINE(thread_self)
+    lwz    r3,60(r13)  /* Load the the thread id. */
+    blr
+    RegMask(thread_self,M_R3|M_R23)
 
 globldec(MD_flush_instruction_cache)
 /*
@@ -1523,8 +1548,8 @@ globldec(registerMaskVector)
     dd  Mask_all                /* 58 is unused */
     dd  Mask_all                /* 59 is unused */
     dd  Mask_all                /* 60 is unused */
-    dd  Mask_all        /* 61 */
-    dd  Mask_all       /* 62 */
+    dd  Mask_all                /* 61 */
+    dd  Mask_all                /* 62 */
     dd  Mask_all                /* 63 is unused */
     dd  Mask_all                /* 64 is unused */
     dd  Mask_all                /* 65 is unused */
@@ -1532,10 +1557,10 @@ globldec(registerMaskVector)
     dd  Mask_all                /* 67 is unused */
     dd  Mask_all                /* 68 is unused */
     dd  Mask_all                /* 69 is unused */
-    dd  Mask_all                /* 70 is unused */
-    dd  Mask_all                /* 71 is unused */
-    dd  Mask_all                /* 72 is unused */
-    dd  Mask_all                /* 73 is unused */
+    dd  Mask_atomic_incr        /* 70 */
+    dd  Mask_atomic_decr        /* 71 */
+    dd  Mask_thread_self        /* 72 */
+    dd  Mask_all                /* 73 */
     dd  Mask_all                /* 74 is unused */
     dd  Mask_all                /* 75 is unused */
     dd  Mask_all                /* 76 is unused */
@@ -1543,14 +1568,14 @@ globldec(registerMaskVector)
     dd  Mask_all                /* 78 is unused */
     dd  Mask_all                /* 79 is unused */
     dd  Mask_all                /* Mask_version_number_1 = 80 */
-    dd  Mask_all                 /* 81 - now unused */
-    dd  Mask_all        /* 82 */
-    dd  Mask_all      /* 83 */
-    dd  Mask_all           /* 84 */
-    dd  Mask_all         /* 85 */
-    dd  Mask_all     /* 86 */
-    dd  Mask_all  /* 87 */
-    dd  Mask_all            /* 88 */
+    dd  Mask_all                /* 81 - now unused */
+    dd  Mask_all                /* 82 */
+    dd  Mask_all                /* 83 */
+    dd  Mask_all                /* 84 */
+    dd  Mask_all                /* 85 */
+    dd  Mask_all                /* 86 */
+    dd  Mask_all                /* 87 */
+    dd  Mask_all                /* 88 */
     dd  Mask_all                /* 89 is unused */
     dd  Mask_all                /* 90 is unused */
     dd  Mask_all                /* 91 is unused */

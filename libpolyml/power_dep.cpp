@@ -173,6 +173,7 @@ typedef struct MemRegisters {
     byte        *raiseDiv;
     byte        *arbEmulation;
     PolyWord    *stackTop; // Used in "raisex"
+    PolyObject  *threadId;
 } MemRegisters;
 
 class PowerPCTaskData: public MDTaskData {
@@ -295,6 +296,9 @@ extern int word_gtr();
 extern int word_lss();
 extern int set_string_length_a();
 extern int get_first_long_word_a();
+extern int atomic_incr();
+extern int atomic_decr();
+extern int thread_self();
 extern void PPCAsmSwitchToPoly(struct MemRegisters *);
 extern void MD_flush_instruction_cache(void *p, POLYUNSIGNED bytes);
 extern void PPCSaveStateAndReturn(void);
@@ -584,6 +588,7 @@ void PowerPCDependent::SetMemRegisters(TaskData *taskData)
         mdTask->memRegisters.heapBase = taskData->allocLimit;
     
     mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    mdTask->memRegisters.threadId = taskData->threadObject;
 
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
         // We need to retry the call.  The entry point should be the
@@ -1237,12 +1242,11 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_ln_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_io_operation, codeAddr);
     add_word_to_io_area(POLY_SYS_io_operation, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_atomic_incr, codeAddr);
-    add_word_to_io_area(POLY_SYS_atomic_incr, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_atomic_decr, codeAddr);
-    add_word_to_io_area(POLY_SYS_atomic_decr, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_thread_self, codeAddr);
-    add_word_to_io_area(POLY_SYS_thread_self, PolyWord::FromCodePtr(codeAddr));
+
+    add_function_to_io_area(POLY_SYS_atomic_incr, atomic_incr);
+    add_function_to_io_area(POLY_SYS_atomic_decr, atomic_decr);
+    add_function_to_io_area(POLY_SYS_thread_self, thread_self);
+    
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_thread_dispatch, codeAddr);
     add_word_to_io_area(POLY_SYS_thread_dispatch, PolyWord::FromCodePtr(codeAddr));
 
