@@ -132,6 +132,8 @@ typedef struct _MemRegisters {
     PolyWord    *stackTop; // Used in "raisex"
     byte        *raiseException; // Called to raise an exception
     byte        *ioEntry; // Called to save the ML state and return to C.
+    PolyObject  *threadId; // Pointer to ML thread object.
+    unsigned    *globalLock; // Pointer to global lock.
 } MemRegisters;
 
 class SparcTaskData: public MDTaskData {
@@ -146,7 +148,7 @@ public:
 
 class SparcDependent: public MachineDependent {
 public:
-    SparcDependent() {}
+    SparcDependent(): globalLock(0) {}
 
     // Create a task data object.
     virtual MDTaskData *CreateTaskData(void) { return new SparcTaskData(); }
@@ -174,6 +176,10 @@ public:
     virtual Architectures MachineArchitecture(void) { return MA_Sparc; }
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes);
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
+    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
 
 private:
     bool TrapHandle(TaskData *taskData);
@@ -181,6 +187,8 @@ private:
     void SetMemRegisters(TaskData *taskData);
     Handle BuildCodeSegment(TaskData *taskData, const unsigned *code, unsigned codeWords, char functionName);
     Handle BuildKillSelfCode(TaskData *taskData);
+
+    unsigned globalLock; // This is used in atomic increment and decrement.
 };
 
 #define VERSION_NUMBER POLY_version_number
@@ -253,9 +261,9 @@ extern int load_byte();
 extern int load_word();
 extern int assign_byte();
 extern int assign_word();
-extern int atomic_incra();
-extern int atomic_decra();
-extern int thread_selfa();
+extern int atomic_incr();
+extern int atomic_decr();
+extern int thread_self();
 extern int thread_dispatcha();
 extern int kill_selfa();
 extern int alloc_store();
@@ -486,6 +494,8 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
         mdTask->memRegisters.heapSpaceT = ((char*)taskData->allocPointer-(char*)taskData->allocLimit) | 0x80000000;
     
     mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    mdTask->memRegisters.threadId = taskData->threadObject;
+    mdTask->memRegisters.globalLock = &globalLock;
     
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
         // We need to retry the call.  The entry point should be the
@@ -1116,9 +1126,9 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_exp_real, &Real_expa);
     add_function_to_io_area(POLY_SYS_ln_real, &Real_lna);
     add_function_to_io_area(POLY_SYS_io_operation, &io_operationa);
-    add_function_to_io_area(POLY_SYS_atomic_incr, &atomic_incra);
-    add_function_to_io_area(POLY_SYS_atomic_decr, &atomic_decra);
-    add_function_to_io_area(POLY_SYS_thread_self, &thread_selfa);
+    add_function_to_io_area(POLY_SYS_atomic_incr, &atomic_incr);
+    add_function_to_io_area(POLY_SYS_atomic_decr, &atomic_decr);
+    add_function_to_io_area(POLY_SYS_thread_self, &thread_self);
     add_function_to_io_area(POLY_SYS_thread_dispatch, &thread_dispatcha);
     add_function_to_io_area(POLY_SYS_offset_address, &offset_address);
     add_function_to_io_area(POLY_SYS_shift_right_word, &shift_right_word);
@@ -1349,6 +1359,50 @@ void SparcDependent::SetCodeConstant(TaskData *taskData, Handle data, Handle con
         pointer[0] |= hi;
         pointer[1] = (pointer[1] & 0xfffff000) | lo;
     }
+}
+
+
+// We have assembly code versions of atomic increment and decrement and it's
+// important that if we use the same method of locking a mutex whether it's
+// done in the assembly code or the RTS.
+// Increment the value contained in the first word of the mutex.
+Handle SparcDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
+{
+    PolyObject *p = DEREFHANDLE(mutexp);
+    unsigned *gLock = &globalLock;
+    __asm__ __volatile__ (
+     "1: ldstub [%0],%%l0\n"  // Load the value in globalLock and set it to 0xff
+         " cmp %%l0,0\n"      // If the value was already 0xff try again
+         " bne 1b\n"
+         " nop\n"
+    :                       // No output
+    :"r"(gLock)             // %0 - Input - Address of globalLock
+    : "%l0", "cc", "memory" // Modifies l0, cc and memory
+    );
+    PolyWord result = PolyWord::FromUnsigned(p->Get(0).AsUnsigned() + (1<<POLY_TAGSHIFT));
+    p->Set(0, result);
+    globalLock = 0; // Release the lock
+    return taskData->saveVec.push(result);
+}
+
+// Decrement the value contained in the first word of the mutex.
+Handle SparcDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
+{
+    PolyObject *p = DEREFHANDLE(mutexp);
+    unsigned *gLock = &globalLock;
+    __asm__ __volatile__ (
+     "1: ldstub [%0],%%l0\n"  // Load the value in globalLock and set it to 0xff
+         " cmp %%l0,0\n"      // If the value was already 0xff try again
+         " bne 1b\n"
+         " nop\n"
+    :                       // No output
+    :"r"(gLock)             // %0 - Input - Address of globalLock
+    : "%l0", "cc", "memory" // Modifies l0, cc and memory
+    );
+    PolyWord result = PolyWord::FromUnsigned(p->Get(0).AsUnsigned() - (1<<POLY_TAGSHIFT));
+    p->Set(0, result);
+    globalLock = 0; // Release the lock
+    return taskData->saveVec.push(result);
 }
 
 void SparcDependent::FlushInstructionCache(void *p, POLYUNSIGNED bytes)

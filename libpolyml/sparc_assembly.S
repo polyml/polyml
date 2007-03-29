@@ -94,6 +94,8 @@ or "tnz 16" to (possibly) raise "Range".
 #define MR_STACKLIMIT     [%i0+24]
 #define MR_STACKTOP       [%i0+28]
 #define MR_IOENTRY        [%i0+36]
+#define MR_THREADID       [%i0+40]
+#define MR_GLOBALLOCK     [%i0+44]
 
 #define loadg(x, r) sethi %hi(x),r; ld [r+%lo(x)],r
 #define storeg(r, x, w) sethi %hi(x),w; st r,[w+%lo(x)]
@@ -299,9 +301,6 @@ gbla(name): \
     CALL_IO(Real_ln, POLY_SYS_ln_real)
     CALL_IO(Real_repr, POLY_SYS_Repr_real)
     CALL_IO(Real_conv, POLY_SYS_conv_real)
-    CALL_IO(atomic_incr, POLY_SYS_atomic_incr)
-    CALL_IO(atomic_decr, POLY_SYS_atomic_decr)
-    CALL_IO(thread_self, POLY_SYS_thread_self)
     CALL_IO(thread_dispatch, POLY_SYS_thread_dispatch)
     CALL_IO(kill_self, POLY_SYS_kill_self)
     CALL_IO(objsize_, POLY_SYS_objsize)                     ! MJC 27/04/88
@@ -1219,6 +1218,44 @@ INLINE_ROUTINE(minus_word)
 
     TEST(word_lss,bcs)
 
+INLINE_ROUTINE(atomic_incr)
+    ld      MR_GLOBALLOCK,%i5   ! Load address of global lock
+ati1:
+    ldstub [%i5],%i4            ! Load current value and set to 0xff
+    cmp    %i4,0                ! Was it previously locked?
+    bne    ati1                 ! If yes, keep looping
+    nop
+    ld     [%o0],%i4            ! First word of mutex
+    add    %i4,shiftup(1,TAGSHIFT),%i4 ! Add one
+    st     %i4,[%o0]            ! Store in mutex
+    mov    %i4,%o0              ! Result to result reg
+    mov    0,%i4                ! Set the lock to zero
+    st     %i4,[%i5]
+    jmp    %o7+6
+    nop
+    RegMask (atomic_incr,M_O0|M_O4|M_O7)
+
+INLINE_ROUTINE(atomic_decr)
+    ld      MR_GLOBALLOCK,%i5   ! Load address of global lock
+atd1:
+    ldstub [%i5],%i4            ! Load current value and set to 0xff
+    cmp    %i4,0                ! Was it previously locked?
+    bne    atd1                 ! If yes, keep looping
+    nop
+    ld     [%o0],%i4            ! First word of mutex
+    sub    %i4,shiftup(1,TAGSHIFT),%i4 ! Add one
+    st     %i4,[%o0]            ! Store in mutex
+    mov    %i4,%o0              ! Result to result reg
+    mov    0,%i4                ! Set the lock to zero
+    st     %i4,[%i5]
+    jmp    %o7+6
+    nop
+    RegMask (atomic_decr,M_O0|M_O4|M_O7)
+
+INLINE_ROUTINE(thread_self)
+    jmp    %o7+6
+    ld     MR_THREADID,%o0     ! (DELAY SLOT) Return thread id
+    RegMask (thread_self,M_O0|M_O4|M_O7)
 
 /* Register mask vector. - extern int registerMaskVector[];
    Each entry in this vector is a set of the registers modified
