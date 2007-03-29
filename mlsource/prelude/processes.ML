@@ -337,7 +337,7 @@ struct
 		fun fun_to_fork () =
 			(
 				setLocal(procTag, data);
-	       		(f () handle _ => print "Uncaught exception in process\n")
+	       		(f () handle _ => ())
 			)
 		val newproc = fork(fun_to_fork, attrs)
 	in
