@@ -1,6 +1,5 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+	Copyright (c) 2007 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -17,16 +16,7 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Initialise =
- INITIALISE_ (
-  structure TYPETREE   = TypeTree
-  structure STRUCTVALS = StructVals
-  structure VALUEOPS   = ValueOps
-  structure CODETREE   = CodeTree
-  structure ADDRESS    = Address
-  structure DEBUG      = Debug
-  structure MAKE       = Make
-  structure MISC       = Misc
-  structure DEBUGGER   = Debugger
-  structure VERSION    = CompilerVersion
-);
+structure CompilerVersion =
+struct
+   val compilerVersion = "5.1 Testing"
+end;

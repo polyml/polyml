@@ -25,13 +25,22 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-/* shared data objects */
-extern bool store_profiling;
-extern bool emulate_profiling;
+// Current profiling mode
+typedef enum {
+    kProfileOff = 0,
+    kProfileTime,
+    kProfileStoreAllocation,
+    kProfileEmulation
+} ProfileMode;
 
-extern void stop_profiling(int print);
-extern Handle profilerc(Handle mode_handle);
-extern void add_count(POLYCODEPTR pc, PolyWord *sp, int incr);
+extern ProfileMode profileMode;
+
+#include "machine_dep.h" // For SIGNALCONTEXT
+
+extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
+extern Handle profilerc(TaskData *taskData, Handle mode_handle);
+extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, int incr);
 
 #endif /* _PROFILING_H_DEFINED */

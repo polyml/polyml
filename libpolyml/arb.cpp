@@ -51,15 +51,10 @@ N.B. This actually breaks the rule that all immutable values must have a
 canonical representation.  That is required for structure equality to work.
 */ 
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
-
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -78,6 +73,7 @@ canonical representation.  That is required for structure equality to work.
 #include "run_time.h"
 #include "arb.h"
 #include "save_vec.h"
+#include "processes.h"
 
 
 /* The "value in the Poly" Heap */
@@ -129,12 +125,12 @@ static POLYUNSIGNED get_length(PolyWord x)
 /*                                                                            */
 /******************************************************************************/
 /* indirection removed 31/10/93 SPF */
-POLYUNSIGNED get_C_ulong(PolyWord number)
+POLYUNSIGNED get_C_ulong(TaskData *taskData, PolyWord number)
 {
     if ( IS_INT(number) )
     {
         POLYSIGNED i = UNTAGGED(number);
-        if ( i < 0 ) raise_exception0 ( EXC_size );
+        if ( i < 0 ) raise_exception0(taskData, EXC_size );
         return i;
     }
     else
@@ -142,8 +138,8 @@ POLYUNSIGNED get_C_ulong(PolyWord number)
         POLYUNSIGNED length = get_length(number);
         POLYSIGNED c = 0;
         byte *ptr = number.AsCodePtr();
-        if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0 ( EXC_size );
-        if ( length > sizeof(PolyWord) ) raise_exception0 ( EXC_size );
+        if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size );
+        if ( length > sizeof(PolyWord) ) raise_exception0(taskData, EXC_size );
         while ( length-- ) c = (c << 8) | ((byte *) ptr)[length];
         return c;
     }
@@ -156,7 +152,7 @@ POLYUNSIGNED get_C_ulong(PolyWord number)
 /******************************************************************************/
 /* indirection removed 31/10/93 SPF */
 #define MAX_INT_PLUS1   ((POLYUNSIGNED)0x80 << ( (sizeof(PolyWord)-1) *8))
-POLYSIGNED get_C_long(PolyWord number)
+POLYSIGNED get_C_long(TaskData *taskData, PolyWord number)
 {
     if ( IS_INT(number) )
     {
@@ -169,7 +165,7 @@ POLYSIGNED get_C_long(PolyWord number)
         POLYUNSIGNED c = 0;
         byte *ptr = number.AsCodePtr();
         
-        if ( length > sizeof(PolyWord) ) raise_exception0 ( EXC_size );
+        if ( length > sizeof(PolyWord) ) raise_exception0(taskData, EXC_size );
         
         while ( length-- )
         {
@@ -179,7 +175,7 @@ POLYSIGNED get_C_long(PolyWord number)
         if ( sign == 0 && c <  MAX_INT_PLUS1) return   (POLYSIGNED)c;
         if ( sign != 0 && c <= MAX_INT_PLUS1) return -((POLYSIGNED)c);
         
-        raise_exception0 ( EXC_size );
+        raise_exception0(taskData, EXC_size );
         /*NOTREACHED*/
 		return 0;
     }
@@ -191,13 +187,13 @@ POLYSIGNED get_C_long(PolyWord number)
 /*                                                                            */
 /******************************************************************************/
 /* indirection removed 31/10/93 SPF */
-short get_C_short(PolyWord number)
+short get_C_short(TaskData *taskData, PolyWord number)
 {
-    int i = (int)get_C_long ( number );
+    int i = (int)get_C_long(taskData, number);
     
     if ( i <= 32767 && i >= -32768 ) return i;
     
-    raise_exception0 ( EXC_size );
+    raise_exception0(taskData, EXC_size );
     /*NOTREACHED*/
 	return 0;
 }
@@ -208,13 +204,13 @@ short get_C_short(PolyWord number)
 /*                                                                            */
 /******************************************************************************/
 /* indirection removed 31/10/93 SPF */
-unsigned short get_C_ushort(PolyWord number)
+unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
 {
-    POLYUNSIGNED u = get_C_ulong ( number );
+    POLYUNSIGNED u = get_C_ulong(taskData, number );
     
     if ( u <= 65535 ) return (short)u;
     
-    raise_exception0 ( EXC_size );
+    raise_exception0(taskData, EXC_size );
     /*NOTREACHED*/
 	return 0;
 }
@@ -222,7 +218,7 @@ unsigned short get_C_ushort(PolyWord number)
 /* Get a arbitrary precision value as a pair of words.
    At present this is used to extract a 64-bit quantity as two
    words.  Only used in Windows code.  */
-void get_C_pair(PolyWord number, unsigned long *pHi, unsigned long *pLo)
+void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo)
 {
     if ( IS_INT(number) )
     {
@@ -238,8 +234,8 @@ void get_C_pair(PolyWord number, unsigned long *pHi, unsigned long *pLo)
         unsigned long c;
         POLYOBJPTR ptr = number.AsObjPtr();
         
-        if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(EXC_size);
-        if ( length > 2*sizeof(unsigned long) ) raise_exception0(EXC_size);
+        if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
+        if ( length > 2*sizeof(unsigned long) ) raise_exception0(taskData, EXC_size);
         
         /* Low-order word. */
         if (length > sizeof(unsigned long)) i = sizeof(unsigned long); else i = length;
@@ -302,9 +298,9 @@ static Handle get_long(Handle x, Handle extend, int *sign)
 /*      copy_long - utility function                                          */
 /*                                                                            */
 /******************************************************************************/
-static Handle copy_long(Handle x, POLYUNSIGNED lx)
+static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
 {
-    Handle y = alloc_and_save(WORDS(lx+1), F_BYTE_BIT|F_MUTABLE_BIT);
+    Handle y = alloc_and_save(taskData, WORDS(lx+1), F_BYTE_BIT|F_MUTABLE_BIT);
     
     // copy the bytes
     byte *u = DEREFBYTEHANDLE(x);  
@@ -325,7 +321,7 @@ static Handle copy_long(Handle x, POLYUNSIGNED lx)
    in the style of get_length, but also may convert its argument
    from long to short integer */
 
-static Handle make_canonical(Handle x, int sign)
+static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 {   /* get length in BYTES */
     POLYUNSIGNED size = get_length(DEREFWORD(x));
     PolyObject *tempX = DEREFWORDHANDLE(x);
@@ -349,9 +345,9 @@ static Handle make_canonical(Handle x, int sign)
         if (r <= MAXTAGGED || (r == MAXTAGGED+1 && sign < 0))
         {
             if (sign < 0)
-                return gSaveVec->push(TAGGED(-(POLYSIGNED)r));
+                return taskData->saveVec.push(TAGGED(-(POLYSIGNED)r));
             else
-                return gSaveVec->push(TAGGED(r));
+                return taskData->saveVec.push(TAGGED(r));
         }
     }
     
@@ -368,12 +364,12 @@ static Handle make_canonical(Handle x, int sign)
 /*      Make_XXX functions (used in runtime system)                           */
 /*                                                                            */
 /******************************************************************************/
-Handle Make_arbitrary_precision(POLYSIGNED val)
+Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from a word value. */
 {
     if (val <= MAXTAGGED && val >= -MAXTAGGED-1) /* No overflow */
-        return gSaveVec->push(TAGGED(val));
+        return taskData->saveVec.push(TAGGED(val));
     
     POLYUNSIGNED uval;
 
@@ -384,7 +380,7 @@ Handle Make_arbitrary_precision(POLYSIGNED val)
     // If the high order byte is non-zero add an extra word for the sign.
     if ((uval >> ((sizeof(long)-1)*8)) != 0) words++;
 
-    Handle y = alloc_and_save(words, ((val < 0) ? F_NEGATIVE_BIT : 0)| F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, ((val < 0) ? F_NEGATIVE_BIT : 0)| F_BYTE_BIT);
 
     byte *v = DEREFBYTEHANDLE(y);
     for (POLYUNSIGNED i = 0; uval != 0; i++)
@@ -396,17 +392,17 @@ Handle Make_arbitrary_precision(POLYSIGNED val)
     return y;
 }
 
-Handle Make_unsigned(POLYUNSIGNED uval)
+Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED uval)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from an unsigned value. */
 {
-    if (uval <= MAXTAGGED) return gSaveVec->push(TAGGED(uval));
+    if (uval <= MAXTAGGED) return taskData->saveVec.push(TAGGED(uval));
     
     int words = 1;
     // If the high order byte is non-zero add an extra word for the sign.
     if ((uval >> ((sizeof(long)-1)*8)) != 0) words++;
 
-    Handle y = alloc_and_save(words, F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, F_BYTE_BIT);
     
     byte *v = DEREFBYTEHANDLE(y);
     for (POLYUNSIGNED i = 0; uval != 0; i++)
@@ -420,16 +416,16 @@ Handle Make_unsigned(POLYUNSIGNED uval)
 
 /* Creates an arbitrary precision number from two words.
    At present this is used for 64-bit quantities. */
-Handle Make_arb_from_pair(unsigned hi, unsigned lo)
+Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo)
 {
     /* If the high word is zero we can use either the tagged short
        form or a single word. */
-    if (hi == 0) return Make_unsigned(lo);
+    if (hi == 0) return Make_unsigned(taskData, lo);
     int words = 2;
     // If the high order byte is non-zero add an extra word for the sign.
     if ((hi >> ((sizeof(hi)-1)*8)) != 0) words++;
     
-    Handle y = alloc_and_save(words, F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, F_BYTE_BIT);
     
     byte *v = DEREFBYTEHANDLE(y);
     int i;
@@ -451,15 +447,15 @@ Handle Make_arb_from_pair(unsigned hi, unsigned lo)
    for Unix time values where the time is returned as two words, a number
    of seconds and a number of microseconds and we wish to return the
    result as a number of microseconds. */
-Handle Make_arb_from_pair_scaled(unsigned hi, unsigned lo, unsigned scale)
+Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, unsigned scale)
 {
    /* We might be able to compute the number as a 64 bit quantity and
       then convert it but this is probably more portable. It does risk
       overflowing the save vector. */
-    Handle hHi = Make_unsigned(hi);
-    Handle hLo = Make_unsigned(lo);
-    Handle hScale = Make_unsigned(scale);
-    return add_longc(mult_longc(hHi, hScale), hLo);
+    Handle hHi = Make_unsigned(taskData, hi);
+    Handle hLo = Make_unsigned(taskData, lo);
+    Handle hScale = Make_unsigned(taskData, scale);
+    return add_longc(taskData, mult_longc(taskData, hHi, hScale), hLo);
 }
 
 /******************************************************************************/
@@ -467,7 +463,7 @@ Handle Make_arb_from_pair_scaled(unsigned hi, unsigned lo, unsigned scale)
 /*      neg_longc - called from assembly code                                  */
 /*                                                                            */
 /******************************************************************************/
-Handle neg_longc(Handle x)
+Handle neg_longc(TaskData *taskData, Handle x)
 {
     Handle long_x, long_y;
     int sign_x;
@@ -476,7 +472,7 @@ Handle neg_longc(Handle x)
     {
         POLYSIGNED s = UNTAGGED(DEREFWORD(x));
         if (s != -MAXTAGGED-1) // If it won't overflow
-            return gSaveVec->push(TAGGED(-s));
+            return taskData->saveVec.push(TAGGED(-s));
     }
     
     /* Either overflow or long argument - convert to long form */
@@ -486,10 +482,10 @@ Handle neg_longc(Handle x)
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
     
     /* copy the argument (so we can return it) */
-    long_y = copy_long(long_x,lx);
+    long_y = copy_long(taskData, long_x,lx);
     
     /* Return the value with the sign changed. */
-    return make_canonical(long_y, sign_x ^ -1);
+    return make_canonical(taskData, long_y, sign_x ^ -1);
 } /* neg_longc */
 
 
@@ -499,7 +495,7 @@ Handle neg_longc(Handle x)
 /*            computes sign * (abs(x) + abs(y))                               */
 /*                                                                            */
 /******************************************************************************/
-static Handle add_unsigned_long(Handle x, Handle y, int sign)
+static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
     byte *u; /* byte-pointer for longer number  */
     byte *v; /* byte-pointer for shorter number */
@@ -517,7 +513,7 @@ static Handle add_unsigned_long(Handle x, Handle y, int sign)
     {
         // Get result vector. It must be 1 byte longer than u
         // to have space for any carry, plus one byte for the sign.
-        z = alloc_and_save(WORDS(ly+2), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(ly+2), F_MUTABLE_BIT|F_BYTE_BIT);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(y); lu = ly;
@@ -528,7 +524,7 @@ static Handle add_unsigned_long(Handle x, Handle y, int sign)
     {
         // Get result vector. It must be 1 byte longer than u
         // to have space for any carry, plus one byte for the sign.
-        z = alloc_and_save(WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_BIT);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(x); lu = lx;
@@ -559,7 +555,7 @@ static Handle add_unsigned_long(Handle x, Handle y, int sign)
     /* Finally put the carry into the last byte */
     w[i] = (byte)carry;
     
-    return make_canonical(z, sign);
+    return make_canonical(taskData, z, sign);
 } /* add_unsigned_long */
 
 
@@ -569,7 +565,7 @@ static Handle add_unsigned_long(Handle x, Handle y, int sign)
 /*            computes sign * (abs(x) - abs(y))                               */
 /*                                                                            */
 /******************************************************************************/
-static Handle sub_unsigned_long(Handle x, Handle y, int sign)
+static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
     byte *u; /* byte-pointer alias for larger number  */
     byte *v; /* byte-pointer alias for smaller number */
@@ -586,7 +582,7 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
     if (lx < ly)
     {
         sign ^= -1; /* swap sign of result SPF 21/1/94 */
-        z = alloc_and_save(WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
         
         
         /* now safe to dereference pointers */
@@ -595,7 +591,7 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
     }
     else if (ly < lx)
     {
-        z = alloc_and_save(WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(x); lu = lx;
@@ -607,12 +603,12 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
         int i = lx - 1;
         for( ; i >= 0 && DEREFBYTEHANDLE(x)[i] == DEREFBYTEHANDLE(y)[i]; i--);
         
-        if (i < 0) return gSaveVec->push(TAGGED(0)); /* They are equal */
+        if (i < 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
         
         if (DEREFBYTEHANDLE(x)[i] < DEREFBYTEHANDLE(y)[i])
         {
             sign ^= -1; /* swap sign of result SPF 21/1/94 */
-            z = alloc_and_save(WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(y); lu = ly;
@@ -620,7 +616,7 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
         }
         else
         {
-            z = alloc_and_save(WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(x); lu = lx;
@@ -648,7 +644,7 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
         borrow >>= 8;
     }
     
-    return make_canonical(z, sign);
+    return make_canonical(taskData, z, sign);
 } /* sub_unsigned_long */
 
 
@@ -657,7 +653,7 @@ static Handle sub_unsigned_long(Handle x, Handle y, int sign)
 /*      add_longc - called from sparc_dep.c                                   */
 /*                                                                            */
 /******************************************************************************/
-Handle add_longc(Handle y, Handle x)
+Handle add_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -669,7 +665,7 @@ Handle add_longc(Handle y, Handle x)
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) + UNTAGGED(DEREFWORD(y));
         if (t <= MAXTAGGED && t >= -MAXTAGGED-1) /* No overflow */
         {
-            return gSaveVec->push(TAGGED(t));
+            return taskData->saveVec.push(TAGGED(t));
         }
     }
     
@@ -680,11 +676,11 @@ Handle add_longc(Handle y, Handle x)
     /* Work out whether to add or subtract */
     if ((sign_y ^ sign_x) >= 0) /* signs the same? */
     { /* sign(x) * (abs(x) + abs(y)) */
-        return add_unsigned_long(long_x, long_y, sign_x);
+        return add_unsigned_long(taskData, long_x, long_y, sign_x);
     }
     else
     { /* sign(x) * (abs(x) - abs(y)) */
-        return sub_unsigned_long(long_x, long_y, sign_x);
+        return sub_unsigned_long(taskData, long_x, long_y, sign_x);
     }
 } /* add_longc */
 
@@ -694,7 +690,7 @@ Handle add_longc(Handle y, Handle x)
 /*      sub_longc - called from sparc_dep.c                                   */
 /*                                                                            */
 /******************************************************************************/
-Handle sub_longc(Handle y, Handle x)
+Handle sub_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -706,7 +702,7 @@ Handle sub_longc(Handle y, Handle x)
         makes it more difficult to check for overflow. */
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) - UNTAGGED(DEREFWORD(y));
         if (t <= MAXTAGGED && t >= -MAXTAGGED-1) /* No overflow */
-            return gSaveVec->push(TAGGED(t));
+            return taskData->saveVec.push(TAGGED(t));
     }
     
     /* Either overflow or long arguments. */
@@ -716,11 +712,11 @@ Handle sub_longc(Handle y, Handle x)
     /* If the signs are different add the two values. */
     if ((sign_y ^ sign_x) < 0) /* signs differ */
     { /* sign(x) * (abs(x) + abs(y)) */
-        return add_unsigned_long(long_x, long_y, sign_x);
+        return add_unsigned_long(taskData, long_x, long_y, sign_x);
     }
     else
     { /* sign(x) * (abs(x) - abs(y)) */
-        return sub_unsigned_long(long_x, long_y, sign_x);
+        return sub_unsigned_long(taskData, long_x, long_y, sign_x);
     }
 } /* sub_longc */
 
@@ -730,7 +726,7 @@ Handle sub_longc(Handle y, Handle x)
 /*      mult_longc - called from sparc_assembly.s                             */
 /*                                                                            */
 /******************************************************************************/
-Handle mult_longc(Handle y, Handle x)
+Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y, long_z;
     int sign_x, sign_y;
@@ -749,11 +745,11 @@ Handle mult_longc(Handle y, Handle x)
     /* Check for zero args. */
     if (lx == 0 || ly == 0)
     {
-        return gSaveVec->push(TAGGED(0));
+        return taskData->saveVec.push(TAGGED(0));
     }
     
     /* Get space for result */
-    long_z = alloc_and_save(WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+    long_z = alloc_and_save(taskData, WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
     
     {
         /* Can now load the actual addresses because they will not change now. */
@@ -778,7 +774,7 @@ Handle mult_longc(Handle y, Handle x)
             w[i+j] = (byte)r;
         }
         
-        return make_canonical(long_z, sign_x ^ sign_y);
+        return make_canonical(taskData, long_z, sign_x ^ sign_y);
     }
 } /* mult_long */
 
@@ -887,7 +883,7 @@ result is packed into ``res'' and is separated out by div and rem */
 /*      div_long_c - called from sparc_assembly.s                             */
 /*                                                                            */
 /******************************************************************************/
-Handle div_longc(Handle y, Handle x)
+Handle div_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -899,11 +895,11 @@ Handle div_longc(Handle y, Handle x)
         POLYSIGNED ys = UNTAGGED(DEREFWORD(y));
         /* Raise exceptions if dividing by zero. */
         if (ys == 0)
-            raise_exception0(EXC_divide);
+            raise_exception0(taskData, EXC_divide);
         
         /* Only possible overflow is minint div -1 */
         if (xs != -MAXTAGGED-1 || ys != -1)
-            return gSaveVec->push(TAGGED(xs / ys));
+            return taskData->saveVec.push(TAGGED(xs / ys));
     }
     
     /* Long operands or overflow - convert to long form */
@@ -915,21 +911,21 @@ Handle div_longc(Handle y, Handle x)
     POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
     
     /* If length of v is zero raise divideerror */
-    if (ly == 0) raise_exception0(EXC_divide);
+    if (ly == 0) raise_exception0(taskData, EXC_divide);
     
     /* Get quotient */
     if (lx < ly)
     {
         /* When x < y quotient must be zero. */
-        return gSaveVec->push(TAGGED(0));
+        return taskData->saveVec.push(TAGGED(0));
     }
     else
     {
         Handle long_z;
-        long_y = copy_long(long_y,ly); /* copy in case it needs shifting */
+        long_y = copy_long(taskData, long_y,ly); /* copy in case it needs shifting */
         
         /* vector for result - size of x + 3 */
-        long_z = alloc_and_save(WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
         
         div_unsigned_long
             (DEREFBYTEHANDLE(long_x), 
@@ -950,7 +946,7 @@ Handle div_longc(Handle y, Handle x)
             DEREFBYTEHANDLE(long_z)[i] = 0; 
         }
         
-        return make_canonical(long_z, sign_x ^ sign_y);
+        return make_canonical(taskData, long_z, sign_x ^ sign_y);
     }
 } /* div_longc */
 
@@ -959,7 +955,7 @@ Handle div_longc(Handle y, Handle x)
 /*      rem_long_c - called from sparc_assembly.s                             */
 /*                                                                            */
 /******************************************************************************/
-Handle rem_longc(Handle y, Handle x)
+Handle rem_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -971,11 +967,11 @@ Handle rem_longc(Handle y, Handle x)
         POLYSIGNED ys = UNTAGGED(DEREFWORD(y));
         /* Raise exceptions if remaindering by zero. */
         if (ys == 0)
-            raise_exception0(EXC_divide);
+            raise_exception0(taskData, EXC_divide);
         
         /* Only possible overflow is minint mod -1 */
         if (xs != -MAXTAGGED-1 || ys != -1)
-            return gSaveVec->push(TAGGED(xs % ys));
+            return taskData->saveVec.push(TAGGED(xs % ys));
     }
     
     /* Long operands or overflow - convert any shorts to long form */
@@ -987,7 +983,7 @@ Handle rem_longc(Handle y, Handle x)
     POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
     
     /* If length of y is zero raise divideerror */
-    if (ly == 0) raise_exception0(EXC_divide);
+    if (ly == 0) raise_exception0(taskData, EXC_divide);
     
     /* Get remainder */
     if (lx < ly)
@@ -1001,10 +997,10 @@ Handle rem_longc(Handle y, Handle x)
         Handle long_z;
         
         /* copy in case it needs shifting */
-        long_y = copy_long(long_y,ly);
+        long_y = copy_long(taskData, long_y,ly);
         
         /* vector for result - size of x + 3 */
-        long_z = alloc_and_save(WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
         
         div_unsigned_long
             (DEREFBYTEHANDLE(long_x),
@@ -1024,7 +1020,7 @@ Handle rem_longc(Handle y, Handle x)
             DEREFBYTEHANDLE(long_z)[i] = 0; 
         }
         
-        return make_canonical(long_z, sign_x /* Same sign as dividend */ );
+        return make_canonical(taskData, long_z, sign_x /* Same sign as dividend */ );
         /* ML says it should have same as divisor. */
     }
 } /* rem_longc */
@@ -1072,7 +1068,7 @@ static int compare_unsigned(Handle x, Handle y)
 /*      compareLong - called by run-time system                                */
 /*                                                                            */
 /******************************************************************************/
-int compareLong(Handle y, Handle x)
+int compareLong(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -1117,7 +1113,7 @@ int compareLong(Handle y, Handle x)
 
 
 /* logical_long.  General purpose function for binary logical operations. */
-static Handle logical_long(Handle x, Handle y, int signX, int signY,
+static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, int signY,
                            unsigned(*op)(unsigned, unsigned))
 {
     byte *u; /* byte-pointer for longer number  */
@@ -1138,7 +1134,7 @@ static Handle logical_long(Handle x, Handle y, int signX, int signY,
             // Get result vector. There can't be any carry at the end so
             // we just need to make this as large as the larger number
             // plus sign byte
-            z = alloc_and_save(WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(y); lu = ly;
@@ -1149,7 +1145,7 @@ static Handle logical_long(Handle x, Handle y, int signX, int signY,
         else
         {
             /* Get result vector. */
-            z = alloc_and_save(WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(x); lu = lx;
@@ -1213,7 +1209,7 @@ static Handle logical_long(Handle x, Handle y, int signX, int signY,
         ASSERT(sign == 0 || borrowW == 0);
     }
     
-    return make_canonical(z, sign);
+    return make_canonical(taskData, z, sign);
 } /* logical_long */
 
 static unsigned doAnd(unsigned i, unsigned j)
@@ -1236,7 +1232,7 @@ static unsigned doXor(unsigned i, unsigned j)
 /*      and_longc - called by run-time system                                 */
 /*                                                                            */
 /******************************************************************************/
-Handle and_longc(Handle y, Handle x)
+Handle and_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -1247,14 +1243,14 @@ Handle and_longc(Handle y, Handle x)
        /* There's no problem with overflow so we can just AND together
            the values. */
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) & UNTAGGED(DEREFWORD(y));
-        return gSaveVec->push(TAGGED(t));
+        return taskData->saveVec.push(TAGGED(t));
     }
     
     /* Long arguments. */
     long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
     long_y = get_long(y, yHandle , &sign_y);
     
-    return logical_long(long_x, long_y, sign_x, sign_y, doAnd);
+    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doAnd);
 }
 
 /******************************************************************************/
@@ -1262,7 +1258,7 @@ Handle and_longc(Handle y, Handle x)
 /*      or_longc - called by run-time system                                 */
 /*                                                                            */
 /******************************************************************************/
-Handle or_longc(Handle y, Handle x)
+Handle or_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -1273,14 +1269,14 @@ Handle or_longc(Handle y, Handle x)
     /* There's no problem with overflow so we can just OR together
         the values. */
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) | UNTAGGED(DEREFWORD(y));
-        return gSaveVec->push(TAGGED(t));
+        return taskData->saveVec.push(TAGGED(t));
     }
     
     /* Long arguments. */
     long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
     long_y = get_long(y, yHandle , &sign_y);
     
-    return logical_long(long_x, long_y, sign_x, sign_y, doOr);
+    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doOr);
 }
 
 /******************************************************************************/
@@ -1288,7 +1284,7 @@ Handle or_longc(Handle y, Handle x)
 /*      xor_longc - called by run-time system                                 */
 /*                                                                            */
 /******************************************************************************/
-Handle xor_longc(Handle y, Handle x)
+Handle xor_longc(TaskData *taskData, Handle y, Handle x)
 {
     Handle long_x, long_y;
     int sign_x, sign_y;
@@ -1299,14 +1295,14 @@ Handle xor_longc(Handle y, Handle x)
     /* There's no problem with overflow so we can just XOR together
         the values. */
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) ^ UNTAGGED(DEREFWORD(y));
-        return gSaveVec->push(TAGGED(t));
+        return taskData->saveVec.push(TAGGED(t));
     }
     
     /* Long arguments. */
     long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
     long_y = get_long(y, yHandle , &sign_y);
     
-    return logical_long(long_x, long_y, sign_x, sign_y, doXor);
+    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
 }
 
 /*
@@ -1317,50 +1313,50 @@ Some of them are retained in some code-generators to handle the
 long forms of integers.
 */
 
-Handle equal_longc(Handle y, Handle x)
+Handle equal_longc(TaskData *taskData, Handle y, Handle x)
 /* Returns 1 if the arguments are equal, otherwise 0. */
 {
-    bool c = compareLong(y, x) == 0;
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    bool c = compareLong(taskData, y, x) == 0;
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle not_equal_longc(Handle y, Handle x)
+Handle not_equal_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = compareLong(y, x) != 0;
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    bool c = compareLong(taskData, y, x) != 0;
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle gt_longc(Handle y, Handle x)
+Handle gt_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = (compareLong(y, x) == 1);
+    bool c = (compareLong(taskData, y, x) == 1);
     
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle ls_longc(Handle y, Handle x)
+Handle ls_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = (compareLong(y, x) == -1);
+    bool c = (compareLong(taskData, y, x) == -1);
     
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle ge_longc(Handle y, Handle x)
+Handle ge_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = compareLong(y, x) != -1;
+    bool c = compareLong(taskData, y, x) != -1;
     
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle le_longc(Handle y, Handle x)
+Handle le_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = compareLong(y, x) != 1;
+    bool c = compareLong(taskData, y, x) != 1;
     
-    return gSaveVec->push(c ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
 /* Return the low-order bits of an integer whether it is long or
    short form. */
-Handle int_to_word_c(Handle x)
+Handle int_to_word_c(TaskData *taskData, Handle x)
 {
     /* If it's already short it's easy. */
     if (IS_INT(DEREFWORD(x)))
@@ -1374,7 +1370,7 @@ Handle int_to_word_c(Handle x)
     }
     if (OBJ_IS_NEGATIVE(x->Word().AsObjPtr()->LengthWord()))
         r = 0-r; // Use 0-r rather than -r since it's an unsigned value.
-    return gSaveVec->push(TAGGED(r));
+    return taskData->saveVec.push(TAGGED(r));
 }
 
 

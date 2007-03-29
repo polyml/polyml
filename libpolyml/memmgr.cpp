@@ -18,14 +18,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -303,43 +299,34 @@ bool MemMgr::IsPermanentMemoryPointer(const void *pt)
     return false;
 }
 
-// Return a mutable local space with at least enough room to satisfy
-// the request or 0 if there isn't one.
-LocalMemSpace *MemMgr::GetAllocSpace(POLYUNSIGNED words)
+// Allocate an area of the heap of at least minWords and at most maxWords.
+// This is used both when allocating single objects (when minWords and maxWords
+// are the same) and when allocating heap segments.  If there is insufficient
+// space to satisfy the minimum it will return 0.
+PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
 {
+    allocLock.Lock();
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
         if (space->isMutable)
         {
             POLYUNSIGNED available = space->pointer - space->bottom;
-            if (available >= words)
-                return space;
-        }
-    }
-    return 0; // There isn't one.
-}
-
-// Get the largest mutable local space with at least enough room
-LocalMemSpace *MemMgr::GetLargestSpace(POLYUNSIGNED words)
-{
-    LocalMemSpace *result = 0;
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        if (space->isMutable)
-        {
-            POLYUNSIGNED available = space->pointer - space->bottom;
-            if (available >= words)
-            { // Large enough and the largest so far
-                result = space;
-                words = available+1; // Only larger areas will match
+            if (available > 0 && available >= minWords)
+            {
+                // Reduce the maximum value if we had less than that.
+                if (available < maxWords)
+                    maxWords = available;
+                space->pointer -= maxWords; // Allocate it.
+                PolyWord *result = space->pointer; // Return the address.
+                allocLock.Unlock();
+                return result;
             }
         }
     }
-    return result;
+    allocLock.Unlock();
+    return 0; // There isn't space even for the minimum.
 }
-
 
 MemMgr gMem; // The one and only memory manager object
 

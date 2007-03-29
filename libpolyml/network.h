@@ -24,7 +24,8 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle Net_dispatch_c(Handle args, Handle code);
+extern Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
 #endif

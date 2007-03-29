@@ -33,7 +33,7 @@ public:
     PExport();
     virtual ~PExport();
 public:
-    virtual void exportStore(const char *outFileName);
+    virtual void exportStore(void);
 
 private:
     // ScanAddress overrides

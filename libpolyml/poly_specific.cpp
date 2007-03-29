@@ -22,15 +22,10 @@
 /* This module is used for various run-time calls that are either in the
    PolyML structure or otherwise specific to Poly/ML. */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -47,46 +42,35 @@
 #include "run_time.h"
 #include "version.h"
 #include "save_vec.h"
-#ifndef _WIN32_WCE
 #include "exporter.h"
-#endif
 #include "version.h"
 #include "sharedata.h"
 #include "objsize.h"
 #include "memmgr.h"
+#include "processes.h"
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(n)
 
 
-Handle poly_dispatch_c(Handle args, Handle code)
+Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 1:
-#ifdef _WIN32_WCE
-		raise_syscall("Exporting is not implemented in Windows CE", 0);
-		return 0;
-#else
-        return exportNative(args); // Export
-#endif
+        return exportNative(mdTaskData, args); // Export
     case 2:
-		raise_syscall("C Export has been withdrawn", 0);
+		raise_syscall(mdTaskData, "C Export has been withdrawn", 0);
 		return 0;
     case 3:
-#ifdef _WIN32_WCE
-		raise_syscall("Exporting is not implemented in Windows CE", 0);
-		return 0;
-#else
-        return exportPortable(args); // Export as portable format
-#endif
+        return exportPortable(mdTaskData, args); // Export as portable format
 
     case 10: // Return the RTS version string.
-        return SAVE(C_string_to_Poly(poly_runtime_system_version));
+        return SAVE(C_string_to_Poly(mdTaskData, poly_runtime_system_version));
 
     case 11: // Return the RTS copyright string
-        return SAVE(C_string_to_Poly(poly_runtime_system_copyright));
+        return SAVE(C_string_to_Poly(mdTaskData, poly_runtime_system_copyright));
 
     case 12: // Return the architecture
         {
@@ -100,38 +84,38 @@ Handle poly_dispatch_c(Handle args, Handle code)
             case MA_X86_64:         arch = "X86_64"; break;
             default:                arch = "Unknown"; break;
             }
-            return SAVE(C_string_to_Poly(arch));
+            return SAVE(C_string_to_Poly(mdTaskData, arch));
         }
 
     case 13: // Share common immutable data.
         {
-            ShareData(args);
+            ShareData(mdTaskData, args);
             return SAVE(TAGGED(0));
         }
 
         // ObjSize and ShowSize have their own IO vector entries but really they don't
         // need them.  Include them here and add ObjProfile.
     case 14:
-        return ObjSize(args);
+        return ObjSize(mdTaskData, args);
 
     case 15:
-        return ShowSize(args);
+        return ShowSize(mdTaskData, args);
 
     case 16:
-        return ObjProfile(args);
+        return ObjProfile(mdTaskData, args);
 
     /* 17 and 18 are no longer used. */
 
     case 19: // Return the RTS argument help string.
-        return SAVE(C_string_to_Poly(RTSArgHelp()));
+        return SAVE(C_string_to_Poly(mdTaskData, RTSArgHelp()));
 
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */
-            return Make_arbitrary_precision(MAX_OBJECT_SIZE);
+            return Make_arbitrary_precision(mdTaskData, MAX_OBJECT_SIZE);
     case 101: /* Return the maximum string size (in bytes).
                  It is the maximum number of bytes in a segment
                  less one word for the length field. */
-            return Make_arbitrary_precision(
+            return Make_arbitrary_precision(mdTaskData,
                 (MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord));
     case 102: /* Test whether the supplied address is in the io area.
                  This was previously done by having get_flags return
@@ -140,8 +124,8 @@ Handle poly_dispatch_c(Handle args, Handle code)
         {
             PolyWord *pt = (PolyWord*)DEREFWORDHANDLE(args);
             if (gMem.IsIOPointer(pt))
-                return Make_arbitrary_precision(1);
-            else return Make_arbitrary_precision(0);
+                return Make_arbitrary_precision(mdTaskData, 1);
+            else return Make_arbitrary_precision(mdTaskData, 0);
         }
     case 103: /* Return the register mask for the given function.
                  This is used by the code-generator to find out
@@ -157,10 +141,11 @@ Handle poly_dispatch_c(Handle args, Handle code)
                 {
                     if (pt == (PolyObject*)IoEntry(i))
                     {
-                        return Make_arbitrary_precision(machineDependent->GetIOFunctionRegisterMask(i));
+                        return Make_arbitrary_precision(mdTaskData,
+                                machineDependent->GetIOFunctionRegisterMask(i));
                     }
                 }
-                raise_syscall("Io pointer not found", 0);
+                raise_syscall(mdTaskData, "Io pointer not found", 0);
             }
             else
             {
@@ -184,13 +169,13 @@ Handle poly_dispatch_c(Handle args, Handle code)
                     {
                         return SAVE(mask);
                     }
-                    else return Make_arbitrary_precision(-1);
+                    else return Make_arbitrary_precision(mdTaskData, -1);
                 }
-                else raise_syscall("Not a code pointer", 0);
+                else raise_syscall(mdTaskData, "Not a code pointer", 0);
             }
         }
 
-    case 104: return Make_arbitrary_precision(POLY_version_number);
+    case 104: return Make_arbitrary_precision(mdTaskData, POLY_version_number);
 
     case 105: /* Get the name of the function. */
         {
@@ -205,10 +190,10 @@ Handle poly_dispatch_c(Handle args, Handle code)
                     {
                         char buff[8];
                         sprintf(buff, "RTS%d", i);
-                        return SAVE(C_string_to_Poly(buff));
+                        return SAVE(C_string_to_Poly(mdTaskData, buff));
                     }
                 }
-                raise_syscall("Io pointer not found", 0);
+                raise_syscall(mdTaskData, "Io pointer not found", 0);
             }
             else if (pt->IsCodeObject()) /* Should now be a code object. */ 
             {
@@ -217,17 +202,17 @@ Handle poly_dispatch_c(Handle args, Handle code)
                 PolyWord name = codePt[0];
                 /* May be zero indicating an anonymous segment - return null string. */
                 if (name == PolyWord::FromUnsigned(0))
-                    return SAVE(C_string_to_Poly(""));
+                    return SAVE(C_string_to_Poly(mdTaskData, ""));
                 else return SAVE(name);
             }
-            else raise_syscall("Not a code pointer", 0);
+            else raise_syscall(mdTaskData, "Not a code pointer", 0);
         }
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown poly-specific function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(mdTaskData, EXC_Fail, msg);
 			return 0;
         }
     }

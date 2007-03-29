@@ -307,6 +307,11 @@ sig
 	val traceFunctions: bool -> unit
 end;
 
+structure VERSION:
+sig
+   val compilerVersion: string
+end;
+
 (*****************************************************************************)
 (*                  INITIALISE sharing constraints                           *)
 (*****************************************************************************)
@@ -349,13 +354,7 @@ sig
   type values
   val initGlobalEnv :
 	  {  shell:      unit -> unit,    (* The command processor *)
-		 debugger:	 (string -> values)*(unit->bool) -> unit,
-		 startLog:   string -> unit,  (* Starts logging commands to a file *)
-		 restartLog: string -> unit,  (* Appends logging commands to a file *)
-		 stopLog:    unit -> unit,    (* Stops logging *)
-		 writeLog:   string -> unit,  (* Writes a string to the log file *)
-		 logName:    unit -> string,  (* Get the log name *)
-		 isLogging:  unit -> bool     (* true if logging, otherwise false *)
+		 debugger:	 (string -> values)*(unit->bool) -> unit
 	   } * env * dbEnv * (unit->unit) -> unit
 end =
 
@@ -1000,46 +999,6 @@ SPF 1/6/95
 	    val U: unit = enterInner ("rootFunction",   rootFunction,   rootType);
 	end;
 	
-(*****************************************************************************)
-(*                  PolyML.logging etc.                                      *)
-(*****************************************************************************)
-
-(* I've retained this but moved it into a sub-structure.  I really don't know
-   whether it's useful any more.  DCJM 17/6/06. *)
-		
-    local
-		(* Create a new structure for the logging functions. *)
-		val Logging = makeEmptyGlobal "Logging";
-		val _ = #enterStruct InnerEnv ("Logging", Logging);
-		val (Env LogEnv) = makeEnv (structSignat Logging);
-		val enterLogVal  = #enterVal LogEnv;
-
-		fun enterLogConst (name : string, value : word, typ : types) : unit =
-		let
-			val value = mkGvar (name, typ, mkConst value);
-		in
-			enterLogVal (name, value)
-		end;
-		
-		val
-	       {
-			 shell:      unit -> unit,    (* The command processor *)
-			 debugger:	 (string -> values)*(unit->bool) -> unit,
-			 startLog:   string -> unit,  (* Starts logging commands to a file *)
-			 restartLog: string -> unit,  (* Appends logging commands to a file *)
-			 stopLog:    unit -> unit,    (* Stops logging *)
-			 writeLog:   string -> unit,  (* Writes a string to the log file *)
-			 logName:    unit -> string,  (* Get the log name *)
-			 isLogging:  unit -> bool     (* true if logging, otherwise false *)
-		   } = mainShell;
- 	in
-		val U : unit = enterLogConst ("startLog",   toWord startLog,   String ->> Unit);
-		val U : unit = enterLogConst ("restartLog", toWord restartLog, String ->> Unit);
-		val U : unit = enterLogConst ("stopLog",    toWord stopLog,    Unit ->> Unit);
-		val U : unit = enterLogConst ("writeLog",   toWord writeLog,   String ->> Unit);
-		val U : unit = enterLogConst ("logName",    toWord logName,    Unit ->> String);
-		val U : unit = enterLogConst ("isLogging",  toWord isLogging,  Unit ->> Bool);
-	end;
    
 (*****************************************************************************)
 (*                  Exceptions                                               *)
@@ -1231,7 +1190,7 @@ SPF 1/6/95
          ("debug",        		 toWord debug,        		 Ref Bool),
          ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
          ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
-         ("compilerVersion",     toWord "5.0 Release", String)
+         ("compilerVersion",     toWord VERSION.compilerVersion, String)
       ]
    end;
 

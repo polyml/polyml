@@ -169,15 +169,10 @@
  *	the result overflows to +-Infinity or underflows to 0.
  */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_SYS_PARAM_H
@@ -202,10 +197,6 @@
 #else
 #define IEEE_MC68k
 #endif
-#endif
-
-#ifdef _WIN32_WCE
-#undef DEBUG
 #endif
 
 #if (SIZEOF_LONG == 8)

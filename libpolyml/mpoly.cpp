@@ -20,15 +20,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -124,7 +119,6 @@ struct __argtab {
     { "--timeslice",    "Time slice (ms)",                       1,      &userOptions.timeslice }
 };
 
-
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
@@ -133,16 +127,11 @@ int polymain(int argc, char **argv, exportDescription *exports)
     if (memsize == 0) // Unable to determine memory size so default to 64M.
         memsize = 64 * 1024 * 1024;
 
-#ifdef _WIN32_WCE
-    hsize = memsize / 4 / 1024;
-    isize = 3 * 1024;
-    msize = 1 * 1024;
-#else
     // Set the default initial size to half the memory.
     hsize = memsize / 2 / 1024;
     isize = 0; /* use standard default */
     msize = 0; /* use standard default */
-#endif
+
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
 
@@ -281,9 +270,8 @@ int polymain(int argc, char **argv, exportDescription *exports)
     re_init_run_time_system();
     
     // Set up the initial process to run the root function.
-    processes->set_process_list(rootFunction);
+    processes->BeginRootThread(rootFunction);
     
-    (void)EnterPolyCode(); // Will normally (always?) call finish directly
     finish(0);
     
     /*NOTREACHED*/
@@ -349,7 +337,8 @@ void InitHeaderFromExport(exportDescription *exports)
     // Check the structure sizes stored in the export structure match the versions
     // used in this library.
     if (exports->structLength != sizeof(exportDescription) ||
-        exports->memTableSize != sizeof(memoryTableEntry))
+        exports->memTableSize != sizeof(memoryTableEntry) ||
+        exports->rtsVersion != POLY_version_number)
     {
         Exit("The exported object file does not match this version of the library");
     }

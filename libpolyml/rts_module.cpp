@@ -19,14 +19,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #include "rts_module.h"
@@ -70,8 +66,8 @@ void GCModules(ScanAddress *process)
         module_table[i]->GarbageCollect(process);
 }
 
-void InterruptModules(int sig)
+void InterruptModules(TaskData *taskData)
 {
     for(unsigned i = 0; i < modCount; i++)
-        module_table[i]->Interrupt(sig);
+        module_table[i]->ThreadHasTrapped(taskData);
 }

@@ -1331,7 +1331,7 @@ in
 
   in
 
-    fun XStartDisplayHandler display = Process.fork (fn () => XWindowHandler display);
+    fun XStartDisplayHandler display = (Thread.Thread.fork (fn () => XWindowHandler display, []); ());
     
     fun XOpenDisplay (s:string):Display =
     let

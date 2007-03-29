@@ -23,6 +23,6 @@
 #ifndef _SHAREDATA_H
 #define _SHAREDATA_H
 
-void ShareData(Handle root);
+void ShareData(TaskData *taskData, Handle root);
 
 #endif

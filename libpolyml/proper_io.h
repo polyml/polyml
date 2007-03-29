@@ -23,16 +23,16 @@
 #ifndef _PROPER_IO_H_DEFINED
 #define _PROPER_IO_H_DEFINED 1
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
 #endif
+
+#ifdef HAVE_STDIO_H
 #include <stdio.h>
 #endif
+
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>

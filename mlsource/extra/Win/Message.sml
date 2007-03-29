@@ -2868,7 +2868,9 @@ WM_MOUSELEAVE                   0x02A3
 			type callback = int * int * int * int -> int
 			(* *)
 			datatype tableEntry = TableEntry of {hWnd: HWND, callBack: callback}
-			val windowTable = ref [] : tableEntry list ref
+			(* Windows belong to the thread that created them so each thread has
+			   its own list of windows. *)
+			val threadWindows = Universal.tag(): tableEntry list Universal.tag
 		    val WNDPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
 			(* This is used to set the window proc.  The result is also a window proc
 			   but since we're passing it to CallWindowProc it's simpler to treat the
@@ -2881,12 +2883,17 @@ WM_MOUSELEAVE                   0x02A3
 			   use this. *)
 			val WMTESTPOLY = 0x0360
 		in
+		    fun getWindowList (): tableEntry list =
+				getOpt (Thread.Thread.getLocal threadWindows, [])
+			and setWindowList(t: tableEntry list): unit =
+				Thread.Thread.setLocal(threadWindows, t)
+			
 			fun getCallback(hw: int) =
-				List.find (fn (TableEntry{hWnd, ...}) => hw = intOfHandle hWnd) (! windowTable)
+				List.find (fn (TableEntry{hWnd, ...}) => hw = intOfHandle hWnd) (getWindowList ())
 
 			fun removeCallback(hw: HWND): unit =
-				windowTable := List.filter
-					(fn(TableEntry{hWnd, ...}) => intOfHandle hw <> intOfHandle hWnd) (!windowTable)
+				setWindowList(List.filter
+					(fn(TableEntry{hWnd, ...}) => intOfHandle hw <> intOfHandle hWnd) (getWindowList ()))
 
 			(* Update a window handle entry once we know it. *)
 			fun updateWindowHandle(hwnd: HWND): unit =
@@ -2895,7 +2902,7 @@ WM_MOUSELEAVE                   0x02A3
 				|	SOME(TableEntry{callBack, ...}) =>
 					(
 						removeCallback hwndNull;
-						windowTable := TableEntry{callBack=callBack, hWnd=hwnd} :: ! windowTable
+						setWindowList(TableEntry{callBack=callBack, hWnd=hwnd} :: getWindowList ())
 					)
 
 			(* The callback function receives its arguments as ints.  They may well
@@ -2968,8 +2975,8 @@ WM_MOUSELEAVE                   0x02A3
 						|	NONE => defProc(h, uMsg, wParam, lParam)
 					end;
 				in
-					windowTable :=
-						TableEntry{ hWnd = hWnd, callBack = callBack } :: ! windowTable
+					setWindowList(
+						TableEntry{ hWnd = hWnd, callBack = callBack } :: getWindowList ())
 				end
 
 			fun subclass(w: HWND, f: HWND * Message * 'a -> LRESULT option * 'a, init: 'a) =

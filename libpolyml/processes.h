@@ -24,145 +24,94 @@
 #ifndef _PROCESSES_H_
 #define _PROCESSES_H_
 
+#ifdef WIN32
+#include "winconfig.h"
+#else
+#include "config.h"
+#endif
+
 #include "globals.h"
 #include "rts_module.h"
+#include "save_vec.h"
 
 #include "noreturn.h"
 
-#ifndef WINDOWS_PC
-extern void process_may_block(int fd, int ioCall);
-#endif
-
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class StackObject;
+class PolyWord;
+class ScanAddress;
+class MDTaskData;
+
+#define MIN_HEAP_SIZE   4096 // Minimum and initial heap segment size (words)
+
+// This is the ML "thread identifier" object.  The fields
+// are read and set by the ML code.
+class ThreadObject: public PolyObject {
+public:
+    PolyWord    index;  // Tagged integer with the index into the taskArray
+                        // Not used by ML
+    PolyWord    flags;  // Tagged integer containing flags indicating how interrupts
+                        // are handled.  Set by ML but only by the thread itself
+    PolyWord    threadLocal; // Head of a list of thread-local store items.
+                        // Handled entirely by ML but only by the thread.
+    PolyWord    requestCopy; // A tagged integer copy of the "requests" field.
+                        // This is provided so that ML can easily test if there
+                        // is an interrupt pending.
+};
+
+// Per-thread data.
+class TaskData {
+public:
+    TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
+        stack(0), threadObject(0) {}
+    virtual ~TaskData() {}
+
+    virtual void GarbageCollect(ScanAddress *process) = 0;
+    virtual void Lock(void) = 0;
+    virtual void Unlock(void) = 0;
+    // Increment the allocation count and adjust the allocation size for
+    // the next allocation.  Doubles the allocation for next time.
+    virtual void IncrementAllocationCount(void) { allocCount++; allocSize = allocSize*2; }
+
+    MDTaskData  *mdTaskData;    // Machine-specific task data.
+    SaveVec     saveVec;
+    PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
+    PolyWord    *allocLimit;    // ... lower limit of allocation
+    POLYUNSIGNED allocSize;     // The preferred heap segment size
+    unsigned    allocCount;     // The number of allocations since the last GC
+    StackObject *stack;
+    ThreadObject *threadObject;  // Pointer to the thread object.
+    int         lastError;      // Last error from foreign code.
+};
+
 /***************************************************************************
  * 
  * Types & Definitions for PROCESSES
  *
  ***************************************************************************/
 
-/******************************************
- * Synchroniser - used in ``choice'' forks. 
- ******************************************/
-typedef enum {synch_choice, synch_par, synch_taken } SynchType;
-
-class synchroniser: public PolyObject {
-public:
-    SynchType synch_type;
-    synchroniser *synch_base; 
-};
-
 class ProcessChannel;
-
-/******************************************
- * Process base. 
- ******************************************/
-class ProcessBase: public PolyObject {
-public:
-    /* Stack for process. */
-    StackObject *stack;    
-
-    /* Processes are created by runtime system calls.
-       Runnable processes are put into a doubly-linked list. 
-        Links to front and back process in chain. */
-    ProcessBase *f_chain; 
-    ProcessBase *b_chain; 
-
-    /* Status of process. */
-    PolyWord status;    
-
-    /* Used while blocked for various values, depending on status. 
-       If status=PROCESS_BLOCKED or PROCESS_UNBLOCKED it can contain 
-       the value being transferred. If status=PROCESS_IO_BLOCK it 
-       contains the file-descriptor being waited for. */
-    PolyWord block_data;  
-
-    /* channel this process is blocked on */
-    ProcessChannel *block_channel ;
-
-    /* Chain of console processes. */
-    ProcessBase *console_link; 
-
-    /* Synchronisation semaphore. */
-    synchroniser *synchro; 
-
-    /* Added  DCJM 8/4/04.  These are used when returning from a foreign function. */
-    PolyWord lastCallResult; /* Result returned. */
-    PolyWord lastErrNo; /* Value of errno after return. */
-    #ifdef WINDOWS_PC
-    PolyWord lastErrcode; /* Value of GetLastError() after return. */
-    #endif
-    ProcessBase *callbackCaller; /* The process running when a callback was called. */
-};
-
-typedef ProcessBase process_base;
-
-/*******************************************
- * Channel.
- *******************************************/
-class ProcessChannel: public PolyObject {
-public:
-    ProcessBase *senders;
-    ProcessBase *receivers;
-};
-typedef ProcessChannel channel;
-
-/******************************************
- * CONSTANTS & MACROS for processes.
- ******************************************/
-#define PROCESS_RUNABLE         ((unsigned)0) /* Not waiting for anything. */
-#define PROCESS_IO_BLOCK        ((unsigned)1) /* Waiting for I/O */
-#define PROCESS_BLOCKED         ((unsigned)2) /* Waiting for a channel. */
-#define PROCESS_UNBLOCKED       ((unsigned)3) /* Was waiting */
-/* PROCESS_INTERRUPTABLE.  Added DCJM 23/7/00.  Indicates that the
-   process is waiting for a system call such as Posix.Process.sleep
-   and should be set to raise a syscall exception if a signal is received.
-   Used only in conjunction with PROCESS_IO_BLOCK. */
-#define PROCESS_INTERRUPTABLE   8
-
-/* Mask for these bits. */
-#define PROCESS_STATUS \
-   (PROCESS_RUNABLE | PROCESS_IO_BLOCK  | \
-    PROCESS_BLOCKED | PROCESS_UNBLOCKED | \
-    PROCESS_INTERRUPTABLE)
-
-/* 
- * An interruptible process. 
- * (CTRL+C raises an interrupt to all console processes) 
- */
-#define PROCESS_IS_CONSOLE 0x4000
-
-
-#define NO_PROCESS ((ProcessBase *)TAGGED(0).AsObjPtr())
-#define NO_SYNCH   ((synchroniser *)TAGGED(0).AsObjPtr())
-#define NO_CHANNEL ((ProcessChannel*)TAGGED(0).AsObjPtr())
 
 /**********************************************************************
  *
  * Handles for different 'objects' are of type Handle
  *
  **********************************************************************/
-typedef Handle ProcessHandle; /* Handle to (process_base *) */
-typedef Handle SynchroHandle; /* Handle to (synchroniser *) */
-typedef Handle ChanHandle;    /* Handle to (PolyWord *) */
-
-extern ProcessHandle fork_function(Handle proc, Handle arg);
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
-extern void check_current_stack_size(PolyWord *lower_limit);
+extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
 
+extern Handle switch_subshells_c(TaskData *mdTaskData);
+NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
+NORETURNFN(extern Handle install_rootc(TaskData *mdTaskData, Handle proc));
+extern Handle install_subshells_c(TaskData *mdTaskData, Handle root_function);
+extern Handle shrink_stack_c(TaskData *mdTaskData, Handle reserved_space);
 
-extern Handle switch_subshells_c(void);
-NORETURNFN(extern Handle kill_selfc(void));
-extern Handle send_on_channelc(Handle val, ChanHandle chan);
-extern Handle receive_on_channelc(ChanHandle chan);
-extern Handle fork_processc(Handle console_handle, Handle proc);
-extern Handle choice_processc(Handle proc1, Handle proc2);
-extern Handle int_processc(ProcessHandle proc);
-NORETURNFN(extern Handle install_rootc(Handle proc));
-NORETURNFN(Handle interrupt_console_processes_c(void));
-extern Handle install_subshells_c (Handle root_function);
-extern Handle shrink_stack_c (Handle reserved_space);
+Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
+Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+Handle ThreadSelf(TaskData *taskData);
+Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
 class ScanAddress;
 
@@ -172,26 +121,53 @@ class ProcessExternal
 {
 public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
-    virtual ProcessBase *CurrentProcess(void) = 0;
-    virtual void SetCurrentProcess(ProcessBase *p) = 0;
 
-    // Set up the next process in the chain to run when this returns..
-    virtual void select_next_process(void) = 0;
+    virtual TaskData *GetTaskDataForThread(void) = 0;
+    virtual void RequestThreadsEnterRTS(bool isSignal) = 0;
+    // Get all threads to exit.
+    virtual void KillAllThreads(void) = 0;
 
-    virtual void add_process(ProcessHandle p_base, unsigned state) = 0;
-    virtual void remove_process(ProcessBase *to_kill) = 0;
-    virtual void kill_process(ProcessBase *to_kill) = 0;
-    virtual void interrupt_console_processes(void) = 0;
-    virtual void interrupt_signal_processes(void) = 0;
-    virtual void set_process_list(PolyObject *rootFunction) = 0;
-    virtual NORETURNFN(void block_and_restart(int fd, int interruptable, int ioCall)) = 0;
-    virtual void block_and_restart_if_necessary(int fd, int ioCall) = 0;
+    virtual void BroadcastInterrupt(void) = 0;
+
+    virtual void BeginRootThread(PolyObject *rootFunction) = 0;
+    virtual NORETURNFN(void BlockAndRestart(TaskData *taskData, int fd,
+                    bool poisixInterruptable, int ioCall)) = 0;
+    virtual void BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall) = 0;
+    // If a thread is blocking for some time it should release its use
+    // of the ML memory.  That allows a GC. ThreadUseMLMemory returns true if
+    // a GC was in progress.
+    virtual void ThreadUseMLMemory(TaskData *taskData) = 0;
+    virtual void ThreadReleaseMLMemory(TaskData *taskData) = 0;
+    // Begin and End garbage collection or similar actions that require the
+    // whole memory.  BeginGC only returns when every other thread has
+    // released its use of the ML memory.  They will then be blocked in
+    // ThreadUseMLMemory until the GC is complete.  If another thread has
+    // requested a GC already BeginGC will block until that has completed
+    // and then return false.  A thread should not call EndGC unless BeginGC
+    // has returned true.
+    virtual bool BeginGC(TaskData *taskData) = 0;
+    virtual void EndGC(TaskData *taskData) = 0;
+
+    // Deal with any interrupt or kill requests.
+    virtual void ProcessAsynchRequests(TaskData *taskData) = 0;
+    // Process an interrupt request synchronously.
+    virtual void TestSynchronousRequests(TaskData *taskData) = 0;
+    
+    // ForkFromRTS.  Creates a new thread from within the RTS.
+    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg) = 0;
+
+    // Profiling control.
+    virtual void StartProfiling(void) = 0;
+    virtual void StopProfiling(void) = 0;
+
+    // Called if this thread has attempted to allocate some memory, has
+    // garbage-collected but still not recovered enough.  For the moment
+    // just raises an interrupt exception in this thread.
+    virtual void MemoryExhausted(TaskData *taskData) = 0;
 };
 
-extern ProcessExternal *processes;
 
-extern StackObject *poly_stack;
-extern PolyWord        *end_of_stack;
+extern ProcessExternal *processes;
 
 #define IO_SPACING 8 // This is a bit of a mess.
 

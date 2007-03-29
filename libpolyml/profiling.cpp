@@ -21,15 +21,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -101,19 +96,6 @@
 #include "memmgr.h"
 #include "scanaddrs.h"
 
-/************************************************************************
- *
- * Static variables used by Windows version
- *
- ************************************************************************/
-
-#if defined(WINDOWS_PC)
-#include "Console.h"
-
-static HANDLE hStopEvent; /* Signalled to stop all threads. */
-HANDLE profilingHd;
-#endif
-
 /******************************************************************************/
 /*                                                                            */
 /*      PROFILING SHARED DATA                                                 */
@@ -122,18 +104,11 @@ HANDLE profilingHd;
 static POLYUNSIGNED gc_count1 = 0;
 static POLYUNSIGNED gc_count2 = 0;
 static POLYUNSIGNED gc_count3 = 0;
-static POLYUNSIGNED run_time_count = 0;
 static POLYUNSIGNED total_count = 0;
-static POLYUNSIGNED foreign_code_count = 0;
 static POLYUNSIGNED unknown_count  = 0;
-bool store_profiling   = 0; /* also updated by sparc_dep.c */
-bool emulate_profiling = false; /* also updated by sparc_dep.c */
 
-/* Profiling settings. */
-#define PROF_OFF                0
-#define PROF_TIMING             1
-#define PROF_ALLOCATION         2
-#define PROF_EMULATION          3
+ProfileMode profileMode;
+
 /* If Accumulated is added to one of the above profiling is only turned off
    by the next call with PROF_ACCUMULATED+PROF_OFF.  This allows us to profile
    the compiler. */
@@ -171,7 +146,7 @@ static struct
 /*      add_count - utility function                                          */
 /*                                                                            */
 /******************************************************************************/
-void add_count(POLYCODEPTR fpc, PolyWord *sp, int incr)
+void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
 /* Adds incr to the profile count for the function */
 /* pointed at by pc or by one of its callers.      */
 {
@@ -179,21 +154,10 @@ void add_count(POLYCODEPTR fpc, PolyWord *sp, int incr)
     /* The first PC may be valid even if it's not a code pointer */
     bool is_code = true;
     PolyWord pc = PolyWord::FromCodePtr(fpc);
-    PolyWord *endStack = poly_stack->Offset(poly_stack->Length());
-    
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
+    StackObject *stack = taskData->stack;
+    PolyWord *endStack = stack->Offset(stack->Length());
     
     total_count += incr;
-    
-    if (machineDependent->InRunTimeSystem())
-    {
-        if (in_foreign_code)
-           /* We can only be in foreign code if we are
-              already in the runtime system */
-            foreign_code_count += incr;
-        else
-            run_time_count += incr;
-    }
     
     /* Now try to discover which Poly/ML function we're in. Note:
        if we're in the RTS, the pc value that we've been given may not
@@ -268,7 +232,6 @@ void add_count(POLYCODEPTR fpc, PolyWord *sp, int incr)
         }
     } /* loop "forever" */
     /*NOTREACHED*/
-#undef INRANGE
 }
 
 
@@ -402,11 +365,6 @@ static struct {
     POLYUNSIGNED length; char chars[40];
 } psMarkPhase, psCopyPhase, psUpdatePhase, psGCTotal, psUnknown;
 
-/******************************************************************************/
-/*                                                                            */
-/*      printprofile - utility function - doesn't allocate                    */
-/*                                                                            */
-/******************************************************************************/
 static void printprofile(void)
 /* Print profiling information and reset profile counts.    */
 /* Profile counts are also reset by commit so that objects  */
@@ -484,18 +442,10 @@ static void printprofile(void)
     if (total_count)
     {
         
-        printf("\nTotal: %lu (RTS: %lu); Counted: %lu; Uncounted: %lu",
-            total_count, run_time_count, P.total, total_count - P.total);
+        printf("\nTotal: %lu; Counted: %lu; Uncounted: %lu",
+            total_count, P.total, total_count - P.total);
         
         total_count = 0;
-        run_time_count = 0;
-        
-        /* Only print out the foreign_code_count if it is greater than zero */
-        if (foreign_code_count)
-        {
-            printf(" (Foreign code %lu)", foreign_code_count);
-            foreign_code_count = 0;
-        }
         putc('\n', stdout);
     }
     
@@ -503,7 +453,7 @@ static void printprofile(void)
     fflush (stdout); 
 }
 
-static void handleProfileTrap(SIGNALCONTEXT *context)
+void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
     /* If we are in the garbage-collector add the count to "gc_count"
         otherwise try to find out where we are. */
@@ -511,10 +461,13 @@ static void handleProfileTrap(SIGNALCONTEXT *context)
     {
     case 0 : 
         {
-            PolyWord *sp;
-            POLYCODEPTR pc;
-            if (machineDependent->GetPCandSPFromContext(context, sp, pc))
-                add_count(pc, sp, 1);
+            if (taskData)
+            {
+                PolyWord *sp;
+                POLYCODEPTR pc;
+                if (machineDependent->GetPCandSPFromContext(taskData, context, sp, pc))
+                    add_count(taskData, pc, sp, 1);
+            }
         }
         break;
         
@@ -538,123 +491,12 @@ static void handleProfileTrap(SIGNALCONTEXT *context)
 
 /******************************************************************************/
 /*                                                                            */
-/*      catchVTALRM - handler for alarm-clock signal                          */
-/*                                                                            */
-/******************************************************************************/
-#if !defined(WINDOWS_PC)
-static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
-{
-    ASSERT(sig == SIGVTALRM);
-    handleProfileTrap((SIGNALCONTEXT*)context);
-
-} /* catchVTALRM for UNIX  */
-
-#else /* PC */
-/* This function is running on a separate OS thread.
-   Every 20msec of its own virtual time it updates the count.
-   Unfortunately on Windows there is no way to set a timer in 
-   the virtual time of PolyML (not real time, CPU time used by PolyML).
-   It would be possible to approximate this in Windows NT by looking
-   at the CPU time used in the last real time slice and adjusting the
-   count appropriately.  That won't work in Windows 95 which doesn't
-   have a CPU time counter.
-*/
-DWORD WINAPI ProfilingTimer(LPVOID parm)
-{               
-    // Wait for 20ms or until the stop event is signalled.
-    while (WaitForSingleObject(hStopEvent, 20) == WAIT_TIMEOUT)        
-    {
-        CONTEXT context;
-        SuspendThread(hMainThread);
-        context.ContextFlags = CONTEXT_CONTROL; /* Get Eip and Esp */
-        if (GetThreadContext(hMainThread, &context))
-            handleProfileTrap(&context);
-        else
-            total_count++;
-        ResumeThread(hMainThread);
-    }
-    return 0;
-}
-#endif
-
-
-/******************************************************************************/
-/*                                                                            */
-/*      stop_profiling - utility function - doesn't allocate                  */
-/*                                                                            */
-/******************************************************************************/
-#if defined(WINDOWS_PC) /* PC version */
-void stop_profiling(int print)
-{
-    if (hStopEvent) SetEvent(hStopEvent);
-    // Wait for the thread to stop
-    if (profilingHd) WaitForSingleObject(profilingHd, 10000);
-    CloseHandle(profilingHd);
-    profilingHd = NULL;
-
-    store_profiling   = 0;
-    emulate_profiling = false;
-    if (print) printprofile();
-}
-
-#else /* UNIX version */
-void stop_profiling(int print)
-{
-    static struct itimerval stoptime = {{0, 0}, {0, 0}};
-
-    /* Stop the timer */
-    setitimer(ITIMER_VIRTUAL, & stoptime, NULL);
-
-    /* Switch off profiling. */
-    store_profiling   = 0;
-    emulate_profiling = false;
-
-    if (print) printprofile();
-}
-#endif
-
-
-/******************************************************************************/
-/*                                                                            */
-/*      start_timer - utility function - doesn't allocate                     */
-/*                                                                            */
-/******************************************************************************/
-#if defined(WINDOWS_PC) /* PC version */
-static void start_timer(void)
-{
-    DWORD threadId;
-    if (profilingHd)
-        return;
-    ResetEvent(hStopEvent);
-    profilingHd = CreateThread(NULL, 0, ProfilingTimer, NULL, 0, &threadId);
-    if (profilingHd == NULL)
-        fputs("Creating ProfilingTimer thread failed.\n", stdout); 
-    /* Give this a higher than normal priority so it pre-empts the main
-       thread.  Without this it will tend only to be run when the main
-       thread blocks for some reason. */
-    SetThreadPriority(profilingHd, THREAD_PRIORITY_ABOVE_NORMAL);
-}
-#else /* UNIX version */
-static void start_timer(void)
-{
-    setSignalHandler(SIGVTALRM, catchVTALRM);
-    /* set virtual timer to go off every 
-       20000 microseconds = 20 msec ~ 50 Hz */
-    static struct itimerval starttime = {{0,20000}, {0,20000}};
-    starttime.it_interval.tv_sec = starttime.it_value.tv_sec = 0;
-    starttime.it_interval.tv_usec = starttime.it_value.tv_usec = 20000;
-    setitimer(ITIMER_VIRTUAL,&starttime,NULL);
-}
-#endif
-
-/******************************************************************************/
-/*                                                                            */
 /*      profilerc - called from assembly.s                                    */
 /*                                                                            */
 /******************************************************************************/
 
 /* CALL_IO1(profiler, NOIND, NOIND) */
-Handle profilerc(Handle mode_handle)    /* Generate profile information */
+Handle profilerc(TaskData *taskData, Handle mode_handle)    /* Generate profile information */
 /* Profiler - generates statistical profiles of the code.
    The parameter is an integer which determines the value to be profiled.
    When profiler is called it always resets the profiling and prints out any
@@ -664,43 +506,46 @@ Handle profilerc(Handle mode_handle)    /* Generate profile information */
    if the parameter is 2 it produces store profiling.
    3 - arbitrary precision emulation traps. */
 {
-  static unsigned profile_mode = 0;
-  POLYUNSIGNED mode = get_C_ulong(DEREFWORDHANDLE(mode_handle));
-  
-  /* No change in mode = no-op */
-  if (mode == profile_mode) return gSaveVec->push(TAGGED(0));
-  
-  /* profiling 0 turns off profiling and prints results,
-     but is ignored for profile_modes > 4. To get the
-     accumulated results of these, set profiling to 4. */
-  if (mode == 0 && profile_mode > PROF_ACCUMULATED) return gSaveVec->push(TAGGED(0));
-  
-  switch (mode & ~PROF_ACCUMULATED)
-  {
-    case PROF_OFF:
-      /* Turn off old profiling mechanism and print out accumulated results */
-      stop_profiling(1);
-      break;
-  
-    case PROF_TIMING:
-      start_timer();
-      break;
+    static unsigned profile_mode = 0;
+    POLYUNSIGNED mode = get_C_ulong(taskData, DEREFWORDHANDLE(mode_handle));
     
-    case PROF_ALLOCATION:
-      store_profiling = 1;
-      break;
+    /* No change in mode = no-op */
+    if (mode == profile_mode) return taskData->saveVec.push(TAGGED(0));
     
-    case PROF_EMULATION:
-      emulate_profiling = true;
-      break;
+    /* profiling 0 turns off profiling and prints results,
+    but is ignored for profile_modes > 4. To get the
+    accumulated results of these, set profiling to 4. */
+    if (mode == 0 && profile_mode > PROF_ACCUMULATED) return taskData->saveVec.push(TAGGED(0));
     
+    switch (mode & ~PROF_ACCUMULATED)
+    {
+    case kProfileOff:
+        // Turn off old profiling mechanism and print out accumulated results 
+        profileMode = kProfileOff;
+        processes->StopProfiling();
+        printprofile();
+        break;
+        
+    case kProfileTime:
+        profileMode = kProfileTime;
+        processes->StartProfiling();
+        break;
+        
+    case kProfileStoreAllocation:
+        profileMode = kProfileStoreAllocation;
+        break;
+        
+    case kProfileEmulation:
+        profileMode = kProfileEmulation;
+        break;
+        
     default: /* do nothing */
-      break;
-  }
-  
-  profile_mode = mode;
-  
-  return gSaveVec->push(TAGGED(0));
+        break;
+    }
+    
+    profile_mode = mode;
+    
+    return taskData->saveVec.push(TAGGED(0));
 } /* profilerc */
 
 
@@ -708,7 +553,6 @@ class Profiling: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Uninit(void);
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -717,43 +561,10 @@ static Profiling profileModule;
 void Profiling::Init(void)
 {
     // Reset profiling counts.
-    store_profiling = 0;
-    emulate_profiling = false;
+    profileMode = kProfileOff;
     gc_count1 = 0;
     gc_count2 = 0;
     gc_count3 = 0;
-    run_time_count = 0;
     total_count = 0;
-    foreign_code_count = 0;
     unknown_count  = 0;
-
-#if defined(WINDOWS_PC) /* PC version */
-    // Create stop event for time profiling.
-    hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-#endif
-    return;
-}
-
-/* Release all resources.
-   This is really only needed with Windows when running as a DLL within
-   the address space of another process. */
-void Profiling::Uninit(void)
-{
-#if defined(WINDOWS_PC)
-    /* Stop the timer and profiling threads. */
-    if (hStopEvent) SetEvent(hStopEvent);
-    if (profilingHd)
-    {
-        WaitForSingleObject(profilingHd, 10000);
-        CloseHandle(profilingHd);
-        profilingHd = NULL;
-    }
-    if (hStopEvent) CloseHandle(hStopEvent);
-    hStopEvent = NULL;
-#else
-    // Make sure the timer is not running
-    struct itimerval stoptime;
-    memset(&stoptime, 0, sizeof(stoptime));
-    setitimer(ITIMER_VIRTUAL, &stoptime, NULL);
-#endif
 }

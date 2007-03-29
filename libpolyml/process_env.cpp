@@ -18,15 +18,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -76,11 +71,13 @@
 #include "save_vec.h"
 #include "process_env.h"
 #include "rts_module.h"
+#include "machine_dep.h"
+#include "processes.h"
 
 #include "poly_specific.h" // For the functions that have been moved.
 
-#define SAVE(x) gSaveVec->push(x)
-#define ALLOC(n) alloc_and_save(n)
+#define SAVE(x) mdTaskData->saveVec.push(x)
+#define ALLOC(n) alloc_and_save(mdTaskData, n)
 
 #ifdef WINDOWS_PC
 #define MAXPATHLEN MAX_PATH
@@ -97,84 +94,69 @@ static PolyWord at_exit_list = TAGGED(0);
    calls to atExit are allowed. */
 static int exiting = 0;
 
-Handle process_env_dispatch_c(Handle args, Handle code)
+Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Return the program name. */
-        return SAVE(C_string_to_Poly(userOptions.programName));
+        return SAVE(C_string_to_Poly(mdTaskData, userOptions.programName));
 
     case 1: /* Return the argument list. */
-        return convert_string_list(userOptions.user_arg_count, userOptions.user_arg_strings);
+        return convert_string_list(mdTaskData, userOptions.user_arg_count, userOptions.user_arg_strings);
 
     case 14: /* Return a string from the environment. */
         {
-#ifdef _WIN32_WCE
-			// Windows CE does not support environment variables.
-			return SAVE(ListNull);
-#else
             char buff[MAXPATHLEN], *res;
             /* Get the string. */
             int length =
                 Poly_string_to_C(DEREFWORDHANDLE(args), buff, sizeof(buff));
-            if (length >= (int)sizeof(buff)) raise_syscall("Not Found", 0);
+            if (length >= (int)sizeof(buff)) raise_syscall(mdTaskData, "Not Found", 0);
             res = getenv(buff);
-            if (res == NULL) raise_syscall("Not Found", 0);
-            else return SAVE(C_string_to_Poly(res));
-#endif
+            if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
+            else return SAVE(C_string_to_Poly(mdTaskData, res));
         }
 
     case 21: /* Return the whole environment. */
         {
-#ifdef _WIN32_WCE
-			// Windows CE does not support environment variables.
-			return SAVE(ListNull);
-#else
             extern char **environ;
             /* Count the environment strings */
             int env_count = 0;
             while (environ[env_count] != NULL) env_count++;
-            return convert_string_list(env_count, environ);
-#endif
+            return convert_string_list(mdTaskData, env_count, environ);
         }
 
     case 15: /* Return the success value. */
-        return Make_arbitrary_precision(EXIT_SUCCESS);
+        return Make_arbitrary_precision(mdTaskData, EXIT_SUCCESS);
 
     case 16: /* Return a failure value. */
-        return Make_arbitrary_precision(EXIT_FAILURE);
+        return Make_arbitrary_precision(mdTaskData, EXIT_FAILURE);
 
     case 17: /* Run command. */
         {
-#ifdef _WIN32_WCE
-			// Windows CE does not support the system function.
-			raise_syscall("Not implemented", 0);
-#else
             char buff[MAXPATHLEN];
             int res;
             /* Get the string. */
             int length =
                 Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
             if (length >= (int)sizeof(buff))
-                raise_syscall("Command too long", ENAMETOOLONG);
+                raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
             res = system(buff);
             if (res == -1)
-                raise_syscall("Function system failed", errno);
-            return Make_arbitrary_precision(res);
-#endif
+                raise_syscall(mdTaskData, "Function system failed", errno);
+            return Make_arbitrary_precision(mdTaskData, res);
         }
 
     case 18: /* Register function to run at exit. */
         {
             if (exiting == 0)
             {
-                PolyObject *cell = alloc(2);
+                PolyObject *cell = alloc(mdTaskData, 2);
                 cell->Set(0, at_exit_list);
                 cell->Set(1, DEREFWORD(args));
                 at_exit_list = cell;
             }
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(mdTaskData, 0);
         }
 
     case 19: /* Return the next function in the atExit list and set the
@@ -183,7 +165,7 @@ Handle process_env_dispatch_c(Handle args, Handle code)
             Handle res;
             exiting = 1; /* Ignore further calls to atExit. */
             if (at_exit_list == TAGGED(0))
-                raise_syscall("List is empty", 0);
+                raise_syscall(mdTaskData, "List is empty", 0);
             PolyObject *cell = at_exit_list.AsObjPtr();
             res = SAVE(cell->Get(1));
             at_exit_list = cell->Get(0);
@@ -194,13 +176,8 @@ Handle process_env_dispatch_c(Handle args, Handle code)
         {
             /* I don't like terminating without some sort of clean up
                but we'll do it this way for the moment. */
-            int i = get_C_long(DEREFWORDHANDLE(args));
-#ifdef _WIN32_WCE
-			// Windows CE does not support _exit, but then it doesn't support atexit either.
-			exit(i); /* This isn't correct but it will work for the moment. */
-#else
+            int i = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
 			_exit(i);
-#endif
         }
 
         /************ Error codes **************/
@@ -208,7 +185,7 @@ Handle process_env_dispatch_c(Handle args, Handle code)
     case 2: /* Get the name of a numeric error message. */
         {
             char buff[40];
-            int e = get_C_long(DEREFWORDHANDLE(args));
+            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
             Handle  res;
             unsigned i;
             /* First look to see if we have the name in
@@ -216,7 +193,7 @@ Handle process_env_dispatch_c(Handle args, Handle code)
                there. */
             for (i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
                 if (errortable[i].errorNum == e)
-                    return SAVE(C_string_to_Poly(errortable[i].errorString));
+                    return SAVE(C_string_to_Poly(mdTaskData, errortable[i].errorString));
             /* We get here if there's an error which isn't in the table. */
 #ifdef WINDOWS_PC
             /* In the Windows version we may have both errno values
@@ -225,21 +202,21 @@ Handle process_env_dispatch_c(Handle args, Handle code)
             if (e < 0)
             {
                 sprintf(buff, "WINERROR%0d", -e);
-                res = SAVE(C_string_to_Poly(buff));
+                res = SAVE(C_string_to_Poly(mdTaskData, buff));
                 return res;
             }
             else
 #endif
             {
                 sprintf(buff, "ERROR%0d", e);
-                res = SAVE(C_string_to_Poly(buff));
+                res = SAVE(C_string_to_Poly(mdTaskData, buff));
             }
             return res;
         }
 
     case 3: /* Get the explanatory message for an error. */
         {
-            int e = get_C_long(DEREFWORDHANDLE(args));
+            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
             Handle  res;
 #ifdef WINDOWS_PC
             /* In the Windows version we may have both errno values
@@ -257,18 +234,13 @@ Handle process_env_dispatch_c(Handle args, Handle code)
                     /* The message is returned with CRLF at the end.  Remove them. */
                     for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
                     *p = '\0';
-                    res = SAVE(C_string_to_Poly(lpMsg));
+                    res = SAVE(C_string_to_Poly(mdTaskData, lpMsg));
                     LocalFree(lpMsg);
                     return res;
                 }
             }
 #endif
-#ifdef _WIN32_WCE
-			// Windows CE doesn't support strerror.
-			res = SAVE(C_string_to_Poly("Not found"));
-#else
-            res = SAVE(C_string_to_Poly(strerror(e)));
-#endif
+            res = SAVE(C_string_to_Poly(mdTaskData, strerror(e)));
             return res;
         }
     case 4: /* Try to convert an error string to an error number. */
@@ -279,56 +251,56 @@ Handle process_env_dispatch_c(Handle args, Handle code)
             /* Look the string up in the table. */
             for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
                 if (strcmp(buff, errortable[i].errorString) == 0)
-                    return Make_arbitrary_precision(errortable[i].errorNum);
+                    return Make_arbitrary_precision(mdTaskData, errortable[i].errorNum);
             /* If we don't find it then it may have been a constructed
                error name. */
             if (strncmp(buff, "ERROR", 5) == 0)
             {
                 int i = atoi(buff+5);
-                if (i > 0) return Make_arbitrary_precision(i);
+                if (i > 0) return Make_arbitrary_precision(mdTaskData, i);
             }
 #ifdef WINDOWS_PC
             if (strncmp(buff, "WINERROR", 8) == 0)
             {
                 int i = atoi(buff+8);
-                if (i > 0) return Make_arbitrary_precision(-i);
+                if (i > 0) return Make_arbitrary_precision(mdTaskData, -i);
             }
 #endif
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(mdTaskData, 0);
         }
 
         /************ Directory/file paths **************/
 
     case 5: /* Return the string representing the current arc. */
-        return SAVE(C_string_to_Poly("."));
+        return SAVE(C_string_to_Poly(mdTaskData, "."));
 
     case 6: /* Return the string representing the parent arc. */
         /* I don't know that this exists in MacOS. */
-        return SAVE(C_string_to_Poly(".."));
+        return SAVE(C_string_to_Poly(mdTaskData, ".."));
 
     case 7: /* Return the string representing the directory separator. */
-        return SAVE(C_string_to_Poly(DEFAULTSEPARATOR));
+        return SAVE(C_string_to_Poly(mdTaskData, DEFAULTSEPARATOR));
 
     case 8: /* Test the character to see if it matches a separator. */
         {
-            int e = get_C_long(DEREFWORDHANDLE(args));
+            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
             if (ISPATHSEPARATOR(e))
-                return Make_arbitrary_precision(1);
-            else return Make_arbitrary_precision(0);
+                return Make_arbitrary_precision(mdTaskData, 1);
+            else return Make_arbitrary_precision(mdTaskData, 0);
         }
 
     case 9: /* Are names case-sensitive? */
 #ifdef WINDOWS_PC
         /* Windows - no. */
-        return Make_arbitrary_precision(0);
+        return Make_arbitrary_precision(mdTaskData, 0);
 #else
         /* Unix - yes. */
-        return Make_arbitrary_precision(1);
+        return Make_arbitrary_precision(mdTaskData, 1);
 #endif
 
     case 10: /* Are empty arcs redundant? */
         /* Unix and Windows - yes. */
-        return Make_arbitrary_precision(1);
+        return Make_arbitrary_precision(mdTaskData, 1);
 
     case 11: /* Match the volume name part of a path. */
         {
@@ -398,7 +370,7 @@ Handle process_env_dispatch_c(Handle args, Handle code)
 #endif
             /* Construct the result. */
             {
-                Handle sVol = SAVE(C_string_to_Poly(volName));
+                Handle sVol = SAVE(C_string_to_Poly(mdTaskData, volName));
                 Handle sRes = ALLOC(3);
                 DEREFWORDHANDLE(sRes)->Set(0, TAGGED(toRemove));
                 DEREFHANDLE(sRes)->Set(1, DEREFWORDHANDLE(sVol));
@@ -410,13 +382,14 @@ Handle process_env_dispatch_c(Handle args, Handle code)
     case 12: /* Construct a name from a volume and whether it is
                 absolute. */
         {
-            unsigned isAbs = get_C_ulong(DEREFHANDLE(args)->Get(1));
+            unsigned isAbs = get_C_ulong(mdTaskData, DEREFHANDLE(args)->Get(1));
             PolyWord volName = DEREFHANDLE(args)->Get(0);
             /* In Unix the volume name will always be empty. */
             if (isAbs == 0)
                 return SAVE(volName);
             /* N.B. The arguments to strconcatc are in reverse. */
-            else return strconcatc(SAVE(C_string_to_Poly(DEFAULTSEPARATOR)),
+            else return strconcatc(mdTaskData,
+                                   SAVE(C_string_to_Poly(mdTaskData, DEFAULTSEPARATOR)),
                                    SAVE(volName));
         }
 
@@ -435,7 +408,7 @@ Handle process_env_dispatch_c(Handle args, Handle code)
                    except NULL. */
                 if (ch == '\0')
 #endif
-                    return Make_arbitrary_precision(0);
+                    return Make_arbitrary_precision(mdTaskData, 0);
             }
             else
             {
@@ -449,34 +422,34 @@ Handle process_env_dispatch_c(Handle args, Handle code)
 #else
                     if (ch == '\0')
 #endif
-                        return Make_arbitrary_precision(0);
+                        return Make_arbitrary_precision(mdTaskData, 0);
                 }
             }
-            return Make_arbitrary_precision(1);
+            return Make_arbitrary_precision(mdTaskData, 1);
         }
 
         // A group of calls have now been moved to poly_specific.
         // This entry is returned for backwards compatibility.
     case 100: case 101: case 102: case 103: case 104: case 105:
-        return poly_dispatch_c(args, code);
+        return poly_dispatch_c(mdTaskData, args, code);
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown environment function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(mdTaskData, EXC_Fail, msg);
 			return 0;
         }
     }
 }
 
 /* Terminate normally with a result code. */
-Handle finishc(Handle h)
+Handle finishc(TaskData *mdTaskData, Handle h)
 {
-    int i = get_C_long(DEREFWORDHANDLE(h));
+    int i = get_C_long(mdTaskData, DEREFWORDHANDLE(h));
     finish(i);
     // Push a dummy result
-    return gSaveVec->push(TAGGED(0));
+    return mdTaskData->saveVec.push(TAGGED(0));
 }
 
 class ProcessEnvModule: public RtsModule

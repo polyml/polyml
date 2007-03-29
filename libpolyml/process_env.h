@@ -23,8 +23,9 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle process_env_dispatch_c(Handle args, Handle code);
-extern Handle finishc(Handle h);
+extern Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
+extern Handle finishc(TaskData *mdTaskData, Handle h);
 
 #endif

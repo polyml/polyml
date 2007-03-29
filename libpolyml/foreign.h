@@ -25,12 +25,11 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
 class ScanAddress;
 
-extern int in_foreign_code;
-
-extern Handle foreign_dispatch_c (Handle args, Handle fcode_h);
+extern Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h);
 
 extern void *CCallbackFunction(unsigned cbNo, void **args);
 

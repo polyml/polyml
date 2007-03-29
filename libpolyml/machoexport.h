@@ -33,9 +33,9 @@
 class MachoExport: public Exporter, public ScanAddress
 {
 public:
-    MachoExport(): relocationCount(0), symbolCount(0) {}
+    MachoExport(TaskData *td): relocationCount(0), symbolCount(0), taskData(td) {}
 public:
-    virtual void exportStore(const char *outFileName);
+    virtual void exportStore(void);
 
 private:
     // ScanAddress overrides
@@ -53,6 +53,7 @@ private:
     unsigned relocationCount;
     unsigned symbolCount;
     ExportStringTable stringTable;
+    TaskData *taskData; // Needed for exceptions.
 };
 
 #endif

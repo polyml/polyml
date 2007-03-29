@@ -31,15 +31,10 @@ implementation of "poll".
 Directory operations are also included in here.
 DCJM May 2000. 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_FCNTL_H
@@ -149,6 +144,7 @@ typedef char TCHAR;
 #include "mpoly.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "locking.h"
 
 #ifdef WINDOWS_PC
 #include "Console.h"
@@ -160,7 +156,7 @@ typedef char TCHAR;
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) taskData->saveVec.push(x)
 
 /* Points to tokens which represent the streams and the stream itself. 
    For each stream a single word token is made containing the file 
@@ -188,19 +184,16 @@ DCJM May 2000
 */
 
 PIOSTRUCT basic_io_vector;
+PLock ioLock; // Currently this just protects against two threads using the same entry
 
 #ifdef WINDOWS_PC
 
 /* Deal with the various cases to see if input is available. */
-static int isAvailable(PIOSTRUCT strm)
+static int isAvailable(TaskData *taskData, PIOSTRUCT strm)
 {
     HANDLE  hFile = (HANDLE)_get_osfhandle(strm->device.ioDesc);
     if (isPipe(strm))
     {
-#ifdef _WIN32_WCE
-		// PeekNamedPipe isn't supported in Windows CE.
-		return 1;
-#else
         DWORD dwAvail;
         int err;
         if (PeekNamedPipe(hFile, NULL, 0, NULL, &dwAvail, NULL))
@@ -213,9 +206,8 @@ static int isAvailable(PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return 1; /* At EOF - will not block. */
-        else raise_syscall("PeekNamedPipe failed", -err);
+        else raise_syscall(taskData, "PeekNamedPipe failed", -err);
         /*NOTREACHED*/
-#endif
     }
     else if (isConsole(strm)) return isConsoleInput();
     else if (isDevice(strm))
@@ -228,6 +220,31 @@ static int isAvailable(PIOSTRUCT strm)
         /* File - We may be at end-of-file but we won't block. */
         return 1;
 }
+
+#else
+// Test whether input is available and block if it is not.
+// This is also used in xwindows.cpp
+void process_may_block(TaskData *taskData, int fd, int ioCall)
+{
+#ifdef __CYGWIN__
+      static struct timeval poll = {0,1};
+#else
+      static struct timeval poll = {0,0};
+#endif
+      fd_set read_fds;
+      int selRes;
+  
+      FD_ZERO(&read_fds);
+      FD_SET((int)fd,&read_fds);
+
+      /* If there is something there we can return. */
+      selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
+      if (selRes > 0) return; /* Something waiting. */
+      else if (selRes < 0 && errno != EINTR) Crash("select failed %d\n", errno);
+      /* Have to block unless this is the only process. */
+      processes->BlockAndRestartIfNecessary(taskData, fd, ioCall);
+}
+
 #endif
 
 static unsigned max_streams;
@@ -291,50 +308,41 @@ PIOSTRUCT get_stream(PolyObject *stream_token)
 /*      make_stream_entry - utility function - allocates in Poly heap         */
 /*                                                                            */
 /******************************************************************************/
-Handle make_stream_entry(void)
+Handle make_stream_entry(TaskData *taskData)
 /* Find a free entry in the stream vector and return a token for it. The
    address of the token is preserved on the save vector so it will not be
    deleted if there is a garbage collection (Entries in the stream vector
    itself are "weak". */ 
 {
     unsigned stream_no;
-    bool have_collected = false;
 
-    do {
-        for(stream_no = 0;
-            stream_no < max_streams && basic_io_vector[stream_no].token != 0;
-            stream_no++);
-            
-        /* Check we have enough space. */
-        if (stream_no >= max_streams)
-        { /* No space. */
-           /* See if we have unreferenced streams. */
-            if (! have_collected)
-            {
-                FullGC();
-                have_collected = true;
-            }
-            else /* No space - expand vector. */
-            {
-                int oldMax = max_streams;
-                max_streams += max_streams/2;
-                basic_io_vector =
-                    (PIOSTRUCT)realloc(basic_io_vector,
-                                    max_streams*sizeof(IOSTRUCT));
-                /* Clear the new space. */
-                memset(basic_io_vector+oldMax, 0,
-                        (max_streams-oldMax)*sizeof(IOSTRUCT));
-            }
-        }
-    } while (stream_no >= max_streams);
+    ioLock.Lock();
+    // Find an unused entry.
+    for(stream_no = 0;
+        stream_no < max_streams && basic_io_vector[stream_no].token != 0;
+        stream_no++);
+    
+    /* Check we have enough space. */
+    if (stream_no >= max_streams)
+    { /* No space. */
+        int oldMax = max_streams;
+        max_streams += max_streams/2;
+        basic_io_vector =
+            (PIOSTRUCT)realloc(basic_io_vector, max_streams*sizeof(IOSTRUCT));
+        /* Clear the new space. */
+        memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
+    }
      
-    Handle str_token = alloc_and_save(1, F_BYTE_BIT);
+    Handle str_token = alloc_and_save(taskData, 1, F_BYTE_BIT);
     STREAMID(str_token) = stream_no;
 
     ASSERT(!isOpen(&basic_io_vector[stream_no]));
     /* Clear the entry then set the token. */
     memset(&basic_io_vector[stream_no], 0, sizeof(IOSTRUCT));
     basic_io_vector[stream_no].token = DEREFWORDHANDLE(str_token);
+
+    ioLock.Unlock();
+    
     return str_token;
 }
 
@@ -352,10 +360,12 @@ Handle make_stream_entry(void)
 */ 
 void free_stream_entry(unsigned stream_no)
 {
-   ASSERT(0 <= stream_no && stream_no < max_streams);
+    ASSERT(0 <= stream_no && stream_no < max_streams);
 
-   basic_io_vector[stream_no].token  = 0;
-   basic_io_vector[stream_no].ioBits = 0;
+    ioLock.Lock();
+    basic_io_vector[stream_no].token  = 0;
+    basic_io_vector[stream_no].ioBits = 0;
+    ioLock.Unlock();
 }
 
 #ifdef WINDOWS_PC
@@ -364,10 +374,6 @@ static int getFileType(int stream)
     if (stream == 0 && useConsole)
         /* If this is stdio and we're using our own console.*/
         return IO_BIT_CONSOLE;
-#ifdef _WIN32_WCE
-	// GetFileType isn't implemented in Windows CE
-	return 0;
-#else
     switch (GetFileType((HANDLE)_get_osfhandle(stream))
                 & ~FILE_TYPE_REMOTE)
     {
@@ -375,42 +381,40 @@ static int getFileType(int stream)
         case FILE_TYPE_CHAR: return IO_BIT_DEV;
         default: return 0;
     }
-#endif
 }
 #endif
 
 // Retry the call to IO dispatch.  Called if an IO call is interrupted by
 // the user pressing ^C.  This allows the code to have an exception raised in
 // it if the user has typed "f" to the prompt.
-static void retry_rts_call(void)
+static void retry_rts_call(TaskData *taskData)
 {
-    machineDependent->SetForRetry(POLY_SYS_io_dispatch);
-    execute_pending_interrupts();
-    THROW_RETRY;
+    machineDependent->SetForRetry(taskData, POLY_SYS_io_dispatch);
+    throw IOException(EXC_RETRY);
 }
 
 
 /* Copy a file name to a buffer.  Raises an exception if
    the string will not fit. */
-static void getFileName(Handle name, TCHAR *buff, POLYUNSIGNED buffSize)
+static void getFileName(TaskData *taskData, Handle name, TCHAR *buff, POLYUNSIGNED buffSize)
 {
     POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(name), buff, buffSize);
     if (length > buffSize)
-        raise_syscall("File name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
 }
 
 /* Open a file in the required mode. */
-static Handle open_file(Handle filename, int mode, int access, int isPosix)
+static Handle open_file(TaskData *taskData, Handle filename, int mode, int access, int isPosix)
 {
     TCHAR string_buffer[MAXPATHLEN];
     int stream;
 
 TryAgain:
     /* Copy the string and check the length. */
-    getFileName(filename, string_buffer, MAXPATHLEN);
+    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
 
     {
-        Handle str_token = make_stream_entry();
+        Handle str_token = make_stream_entry(taskData);
         POLYUNSIGNED stream_no    = STREAMID(str_token);
         stream = open(string_buffer, mode, access);
         if (stream >= 0)
@@ -444,19 +448,23 @@ TryAgain:
         {
         case EINTR:
             {
-                retry_rts_call();
+                retry_rts_call(taskData);
                 /*NOTREACHED*/
             }
         case EMFILE: /* too many open files */
             {
                 if (emfileFlag) /* Previously had an EMFILE error. */
-                    raise_syscall("Cannot open", EMFILE);
-                emfileFlag = 1;
-                FullGC(); /* May clear emfileFlag if we close a file. */
+                    raise_syscall(taskData, "Cannot open", EMFILE);
+                emfileFlag = 1; /* May clear emfileFlag if we close a file. */
+                if (processes->BeginGC(taskData))
+                {
+                    FullGC();
+                    processes->EndGC(taskData);
+                }
                 goto TryAgain;
             }
         default:
-            raise_syscall("Cannot open", errno);
+            raise_syscall(taskData, "Cannot open", errno);
            /*NOTREACHED*/
 			return 0;
         }
@@ -464,7 +472,7 @@ TryAgain:
 }
 
 /* Close the stream unless it is stdin or stdout or already closed. */
-static Handle close_file(Handle stream)
+static Handle close_file(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
     int stream_no = STREAMID(stream);
@@ -475,11 +483,11 @@ static Handle close_file(Handle stream)
         close_stream(strm);
     }
 
-    return Make_arbitrary_precision(0);
+    return Make_arbitrary_precision(taskData, 0);
 } /* close_file */
 
 /* Call the underlying "read" function and handle any errors. */
-static POLYUNSIGNED readToMem(PIOSTRUCT strm, byte *buff, POLYUNSIGNED count)
+static POLYUNSIGNED readToMem(TaskData *taskData, PIOSTRUCT strm, byte *buff, POLYUNSIGNED count)
 {
     POLYSIGNED haveRead;
     int fd = strm->device.ioDesc;
@@ -489,21 +497,21 @@ static POLYUNSIGNED readToMem(PIOSTRUCT strm, byte *buff, POLYUNSIGNED count)
     if (isConsole(strm))
     {
         if (! isConsoleInput())
-            processes->block_and_restart_if_necessary(-1, POLY_SYS_io_dispatch);
+            processes->BlockAndRestartIfNecessary(taskData, -1, POLY_SYS_io_dispatch);
         haveRead = getConsoleInput((char*)buff, count);
         err = errno;
     }
     else
     {
-        if (! isAvailable(strm))
-            processes->block_and_restart_if_necessary(strm->device.ioDesc, POLY_SYS_io_dispatch);
+        if (! isAvailable(taskData, strm))
+            processes->BlockAndRestartIfNecessary(taskData, strm->device.ioDesc, POLY_SYS_io_dispatch);
         haveRead = read(fd, buff, count);
         err = errno;
     }
 #else
     /* Unix. */
     {
-        process_may_block(fd, POLY_SYS_io_dispatch);
+        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
         haveRead = read(fd, buff, count);
         err = errno;
     }
@@ -515,41 +523,41 @@ static POLYUNSIGNED readToMem(PIOSTRUCT strm, byte *buff, POLYUNSIGNED count)
        says in the manual. */
     if (err == EINTR)
     {
-        retry_rts_call();
+        retry_rts_call(taskData);
         /*NOTREACHED*/
     }
-    raise_syscall("Error while reading", err);
+    raise_syscall(taskData, "Error while reading", err);
     /*NOTREACHED*/
 	return 0;
 }
 
 
 /* Read into an array. */
-static Handle readArray(Handle stream, Handle args, bool/*isText*/)
+static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     /* The isText argument is ignored in both Unix and Windows but
        is provided for future use.  Windows remembers the mode used
        when the file was opened to determine whether to translate
        CRLF into LF. */
     byte    *base = (byte*)DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-    POLYUNSIGNED offset = get_C_ulong(DEREFWORDHANDLE(args)->Get(1));
-    POLYUNSIGNED length = get_C_ulong(DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+    POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
     POLYSIGNED haveRead;
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-    haveRead = readToMem(strm, base+offset, length);
-    return Make_arbitrary_precision(haveRead);
+    haveRead = readToMem(taskData, strm, base+offset, length);
+    return Make_arbitrary_precision(taskData, haveRead);
 }
 
 /* Return input as a string. We don't actually need both readArray and
    readString but it's useful to have both to reduce unnecessary garbage.
    The IO library will construct one from the other but the higher levels
    choose the appropriate function depending on need. */
-static Handle readString(Handle stream, Handle args, bool/*isText*/)
+static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
-    POLYUNSIGNED length = get_C_ulong(DEREFWORD(args));
+    POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORD(args));
     POLYSIGNED haveRead;
     PIOSTRUCT strm = get_stream(stream->WordP());
     byte *buff;
@@ -559,25 +567,25 @@ static Handle readString(Handle stream, Handle args, bool/*isText*/)
     if (length > 1048576) length = 1048576;
     buff = (byte*)alloca(length);
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
-    haveRead = readToMem(strm, buff, length);
-    return(SAVE(Buffer_to_Poly((char*)buff, haveRead)));
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+    haveRead = readToMem(taskData, strm, buff, length);
+    return(SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead)));
 }
 
-static Handle writeArray(Handle stream, Handle args, bool/*isText*/)
+static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     /* The isText argument is ignored in both Unix and Windows but
        is provided for future use.  Windows remembers the mode used
        when the file was opened to determine whether to translate
        LF into CRLF. */
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
-    POLYUNSIGNED    offset = get_C_ulong(DEREFWORDHANDLE(args)->Get(1));
-    POLYUNSIGNED    length = get_C_ulong(DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED    offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+    POLYUNSIGNED    length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT       strm = get_stream(stream->WordP());
     POLYSIGNED      haveWritten;
     byte    ch;
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
     /* We don't actually handle cases of blocking on output. */
     /* process_may_block(strm); */
@@ -594,21 +602,21 @@ static Handle writeArray(Handle stream, Handle args, bool/*isText*/)
     }
     else toWrite = base.AsObjPtr()->AsBytePtr();
     haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
-    if (haveWritten < 0) raise_syscall("Error while writing", errno);
+    if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
 
-    return Make_arbitrary_precision(haveWritten);
+    return Make_arbitrary_precision(taskData, haveWritten);
 }
 
 
 /* Test whether we can read without blocking.  Returns 0 if it will block,
    1 if it will not. */
-static int canInput(Handle stream)
+static int canInput(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
 #ifdef WINDOWS_PC
-    return isAvailable(strm);
+    return isAvailable(taskData, strm);
 #else
     {
         /* Unix - use "select" to find out if there is input available. */
@@ -619,7 +627,7 @@ static int canInput(Handle stream)
         FD_SET(strm->device.ioDesc, &read_fds);
         sel = select(FD_SETSIZE, &read_fds, NULL, NULL, &delay);
         if (sel < 0 && errno != EINTR)
-            raise_syscall("select failed", errno);
+            raise_syscall(taskData, "select failed", errno);
         else if (sel > 0) return 1;
         else return 0;
     }
@@ -628,10 +636,10 @@ static int canInput(Handle stream)
 
 /* Test whether we can write without blocking.  Returns 0 if it will block,
    1 if it will not. */
-static int canOutput(Handle stream)
+static int canOutput(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
 #ifdef WINDOWS_PC
     /* There's no way I can see of doing this in Windows. */
@@ -648,35 +656,35 @@ static int canOutput(Handle stream)
         FD_SET(strm->device.ioDesc, &write_fds);
         sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&delay);
         if (sel < 0 && errno != EINTR)
-            raise_syscall("select failed", errno);
+            raise_syscall(taskData, "select failed", errno);
         else if (sel > 0) return 1;
         else return 0;
     }
 #endif
 }
 
-static long seekStream(PIOSTRUCT strm, long pos, int origin)
+static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
 {
     long lpos;
     lpos = lseek(strm->device.ioDesc, pos, origin);
-    if (lpos < 0) raise_syscall("Position error", errno);
+    if (lpos < 0) raise_syscall(taskData, "Position error", errno);
     return lpos;
 }
 
 /* Return the number of bytes available on the device.  Works only for
    files since it is meaningless for other devices. */
-static Handle bytesAvailable(Handle stream)
+static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
     long original, endOfStream;
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
     /* Remember our original position, seek to the end, then seek back. */
-    original = seekStream(strm, 0L, SEEK_CUR);
-    endOfStream = seekStream(strm, 0L, SEEK_END);
-    if (seekStream(strm, original, SEEK_SET) != original) 
-        raise_syscall("Position error", errno);
-    return Make_arbitrary_precision(endOfStream-original);
+    original = seekStream(taskData, strm, 0L, SEEK_CUR);
+    endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
+    if (seekStream(taskData, strm, original, SEEK_SET) != original) 
+        raise_syscall(taskData, "Position error", errno);
+    return Make_arbitrary_precision(taskData, endOfStream-original);
 }
 
 
@@ -689,47 +697,47 @@ static Handle bytesAvailable(Handle stream)
 #define FILEKIND_DEV    6
 #define FILEKIND_ERROR  (-1)
 
-static Handle fileKind(Handle stream)
+static Handle fileKind(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef WINDOWS_PC
     {
         if (isPipe(strm))
-            return Make_arbitrary_precision(FILEKIND_PIPE);
+            return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
         else if (isDevice(strm)) /* Character devices other than console. */
-            return Make_arbitrary_precision(FILEKIND_DEV);
+            return Make_arbitrary_precision(taskData, FILEKIND_DEV);
         else if (isConsole(strm))
-            return Make_arbitrary_precision(FILEKIND_TTY);
+            return Make_arbitrary_precision(taskData, FILEKIND_TTY);
         else
             /* Should we try to distinguish a file from a directory?
                At the moment we don't seem to be able to open a
                directory, at least in NT 4.0. */
-            return Make_arbitrary_precision(FILEKIND_FILE);
+            return Make_arbitrary_precision(taskData, FILEKIND_FILE);
     }
 #else
     {
         struct stat statBuff;
-        if (fstat(strm->device.ioDesc, &statBuff) < 0) raise_syscall("Stat failed", errno);
+        if (fstat(strm->device.ioDesc, &statBuff) < 0) raise_syscall(taskData, "Stat failed", errno);
         switch (statBuff.st_mode & S_IFMT)
         {
         case S_IFIFO:
-            return Make_arbitrary_precision(FILEKIND_PIPE);
+            return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
         case S_IFCHR:
         case S_IFBLK:
             if (isatty(strm->device.ioDesc))
-                return Make_arbitrary_precision(FILEKIND_TTY);
-            else return Make_arbitrary_precision(FILEKIND_DEV);
+                return Make_arbitrary_precision(taskData, FILEKIND_TTY);
+            else return Make_arbitrary_precision(taskData, FILEKIND_DEV);
         case S_IFDIR:
-            return Make_arbitrary_precision(FILEKIND_DIR);
+            return Make_arbitrary_precision(taskData, FILEKIND_DIR);
         case S_IFREG:
-            return Make_arbitrary_precision(FILEKIND_FILE);
+            return Make_arbitrary_precision(taskData, FILEKIND_FILE);
         case S_IFLNK:
-            return Make_arbitrary_precision(FILEKIND_LINK);
+            return Make_arbitrary_precision(taskData, FILEKIND_LINK);
         case S_IFSOCK:
-            return Make_arbitrary_precision(FILEKIND_SKT);
+            return Make_arbitrary_precision(taskData, FILEKIND_SKT);
         default:
-            return Make_arbitrary_precision(-1);
+            return Make_arbitrary_precision(taskData, -1);
         }
     }
 #endif
@@ -745,21 +753,21 @@ static Handle fileKind(Handle stream)
    file descriptor.  We assume that polling is allowed on all
    descriptors, either for reading or writing depending on how
    the stream was opened. */
-Handle pollTest(Handle stream)
+Handle pollTest(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     int nRes = 0;
-    if (strm == NULL) return Make_arbitrary_precision(0);
+    if (strm == NULL) return Make_arbitrary_precision(taskData, 0);
     /* Allow for the possibility of both being set in the future. */
     if (isRead(strm)) nRes |= POLL_BIT_IN;
     if (isWrite(strm)) nRes |= POLL_BIT_OUT;
         /* For the moment we don't allow POLL_BIT_PRI.  */
-    return Make_arbitrary_precision(nRes);
+    return Make_arbitrary_precision(taskData, nRes);
 }
 
 /* Do the polling.  Takes a vector of io descriptors, a vector of bits to test
    and a time to wait and returns a vector of results. */
-static Handle pollDescriptors(Handle args, int blockType)
+static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 {
     PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
     PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
@@ -781,11 +789,11 @@ static Handle pollDescriptors(Handle args, int blockType)
         
         for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
-            Handle marker = gSaveVec->mark();
+            Handle marker = taskData->saveVec.mark();
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
-            gSaveVec->reset(marker);
+            taskData->saveVec.reset(marker);
             int bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             
             if (isSocket(strm))
             {
@@ -815,7 +823,7 @@ static Handle pollDescriptors(Handle args, int blockType)
             }
             else
             {
-                if ((bits & POLL_BIT_IN) && isRead(strm) && isAvailable(strm))
+                if ((bits & POLL_BIT_IN) && isRead(strm) && isAvailable(taskData, strm))
                 {
                     haveResult = 1;
                     results[i] |= POLL_BIT_IN;
@@ -843,7 +851,7 @@ static Handle pollDescriptors(Handle args, int blockType)
                     /* The time argument is an absolute time. */
                     FILETIME ftTime, ftNow;
                     /* Get the file time. */
-                    get_C_pair(DEREFHANDLE(args)->Get(2),
+                    get_C_pair(taskData, DEREFHANDLE(args)->Get(2),
                         &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
                     GetSystemTimeAsFileTime(&ftNow);
                     /* If the timeout time is earlier than the current time
@@ -853,15 +861,15 @@ static Handle pollDescriptors(Handle args, int blockType)
                     /* else drop through and block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->block_and_restart(-1, 0, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
             }
         }
         /* Copy the results to a result vector. */
-        if (nDesc == 0) return gSaveVec->push(EmptyString()); /* Empty vector. */
-        resVec = alloc_and_save(nDesc);
+        if (nDesc == 0) return taskData->saveVec.push(EmptyString()); /* Empty vector. */
+        resVec = alloc_and_save(taskData, nDesc);
         for (POLYUNSIGNED j = 0; j < nDesc; j++)
             (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
         return resVec;
@@ -878,13 +886,13 @@ static Handle pollDescriptors(Handle args, int blockType)
         {
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             int bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (bits & POLL_BIT_IN) FD_SET(strm->device.ioDesc, &readFds);
             if (bits & POLL_BIT_OUT) FD_SET(strm->device.ioDesc, &writeFds);
         }
         /* Simply check the status without blocking. */
         if (nDesc > 0) selectRes = select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &poll);
-        if (selectRes < 0) raise_syscall("select failed", errno);
+        if (selectRes < 0) raise_syscall(taskData, "select failed", errno);
         /* What if nothing was ready? */
         if (selectRes == 0)
         {
@@ -897,31 +905,31 @@ static Handle pollDescriptors(Handle args, int blockType)
                     /* We have a value in microseconds.  We need to split
                     it into seconds and microseconds. */
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
-                    Handle hMillion = Make_arbitrary_precision(1000000);
+                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
-                        get_C_ulong(DEREFWORDHANDLE(div_longc(hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
-                        get_C_ulong(DEREFWORDHANDLE(rem_longc(hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
                         /* If the timeout time is earlier than the current time
                     we must return, otherwise we block. */
                     if (gettimeofday(&tv, &tz) != 0)
-                        raise_syscall("gettimeofday failed", errno);
+                        raise_syscall(taskData, "gettimeofday failed", errno);
                     if ((unsigned long)tv.tv_sec > secs ||
                         ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
                         break;
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->block_and_restart(-1, 0, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
             }
         }
         /* Copy the results. */
-        if (nDesc == 0) return gSaveVec->push(EmptyString());
+        if (nDesc == 0) return taskData->saveVec.push(EmptyString());
         /* Construct a result vector. */
-        Handle resVec = alloc_and_save(nDesc);
+        Handle resVec = alloc_and_save(taskData, nDesc);
         for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
             POLYUNSIGNED res = 0;
@@ -946,7 +954,7 @@ static Handle pollDescriptors(Handle args, int blockType)
         {
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             fds[i].fd = strm->device.ioDesc;
             fds[i].events = 0;
             if (bits & POLL_BIT_IN) fds[i].events |= POLLIN; /* | POLLRDNORM??*/
@@ -956,7 +964,7 @@ static Handle pollDescriptors(Handle args, int blockType)
         }
         /* Poll the descriptors. */
         if (nDesc > 0) pollRes = poll(fds, nDesc, 0);
-        if (pollRes < 0) raise_syscall("poll failed", errno);
+        if (pollRes < 0) raise_syscall(taskData, "poll failed", errno);
         /* What if nothing was ready? */
         if (pollRes == 0)
         {
@@ -969,31 +977,31 @@ static Handle pollDescriptors(Handle args, int blockType)
                     /* We have a value in microseconds.  We need to split
                     it into seconds and microseconds. */
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
-                    Handle hMillion = Make_arbitrary_precision(1000000);
+                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
-                        get_C_ulong(DEREFWORDHANDLE(div_longc(hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
-                        get_C_ulong(DEREFWORDHANDLE(rem_longc(hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
                         /* If the timeout time is earlier than the current time
                     we must return, otherwise we block. */
                     if (gettimeofday(&tv, &tz) != 0)
-                        raise_syscall("gettimeofday failed", errno);
+                        raise_syscall(taskData, "gettimeofday failed", errno);
                     if ((unsigned long)tv.tv_sec > secs ||
                         ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
                         break;
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->block_and_restart(-1, 0, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
             }
         }
         /* Copy the results. */
-        if (nDesc == 0) return gSaveVec->push(EmptyString());
+        if (nDesc == 0) return taskData->saveVec.push(EmptyString());
         /* Construct a result vector. */
-        Handle resVec = alloc_and_save(nDesc);
+        Handle resVec = alloc_and_save(taskData, nDesc);
         for (unsigned i = 0; i < nDesc; i++)
         {
             int res = 0;
@@ -1010,16 +1018,16 @@ static Handle pollDescriptors(Handle args, int blockType)
 
 /* Directory functions. */
 /* Open a directory. */
-static Handle openDirectory(Handle dirname)
+static Handle openDirectory(TaskData *taskData, Handle dirname)
 {
     TCHAR string_buffer[MAXPATHLEN+2];
 #ifndef WINDOWS_PC
 TryAgain:
 #endif
     /* Copy the string and check the length. */
-    getFileName(dirname, string_buffer, MAXPATHLEN+2);
+    getFileName(taskData, dirname, string_buffer, MAXPATHLEN+2);
     {
-        Handle str_token = make_stream_entry();
+        Handle str_token = make_stream_entry(taskData);
         int stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
 #ifdef WINDOWS_PC
@@ -1031,7 +1039,7 @@ TryAgain:
             hFind = FindFirstFile(string_buffer,
                         &strm->device.directory.lastFind);
             if (hFind == INVALID_HANDLE_VALUE)
-                raise_syscall("FindFirstFile failed", -(int)GetLastError());
+                raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
             strm->device.directory.hFind = hFind;
             /* There must be at least one file which matched. */
             strm->device.directory.fFindSucceeded = 1;
@@ -1045,19 +1053,23 @@ TryAgain:
             {
             case EINTR:
                 {
-                    retry_rts_call();
+                    retry_rts_call(taskData);
                     /*NOTREACHED*/
                 }
             case EMFILE:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */
-                        raise_syscall("Cannot open", EMFILE);
+                        raise_syscall(taskData, "Cannot open", EMFILE);
                     emfileFlag = 1;
-                    FullGC(); /* May clear emfileFlag if we close a file. */
+                    if (processes->BeginGC(taskData))
+                    {
+                        FullGC(); /* May clear emfileFlag if we close a file. */
+                        processes->EndGC(taskData);
+                    }
                     goto TryAgain;
                 }
             default:
-                raise_syscall("opendir failed", errno);
+                raise_syscall(taskData, "opendir failed", errno);
             }
         }
         strm->device.ioDir = dirp;
@@ -1069,14 +1081,14 @@ TryAgain:
 
 /* Return the next entry from the directory, ignoring current and
    parent arcs ("." and ".." in Windows and Unix) */
-Handle readDirectory(Handle stream)
+Handle readDirectory(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
 #ifdef WINDOWS_PC
     Handle result = NULL;
 #endif
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef WINDOWS_PC
     /* The next entry to read is already in the buffer. FindFirstFile
        both opens the directory and returns the first entry. If
@@ -1090,7 +1102,7 @@ Handle readDirectory(Handle stream)
             (lstrcmp(pFind->cFileName, _T(".")) == 0 ||
              lstrcmp(pFind->cFileName, _T("..")) == 0)))
         {
-            result = SAVE(C_string_to_Poly(pFind->cFileName));
+            result = SAVE(C_string_to_Poly(taskData, pFind->cFileName));
         }
         /* Get the next entry. */
         if (! FindNextFile(strm->device.directory.hFind, pFind))
@@ -1109,20 +1121,20 @@ Handle readDirectory(Handle stream)
     {
         struct dirent *dp = readdir(strm->device.ioDir);
         int len;
-        if (dp == NULL) return gSaveVec->push(EmptyString());
+        if (dp == NULL) return taskData->saveVec.push(EmptyString());
         len = NAMLEN(dp);
         if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
               (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
-            return SAVE(Buffer_to_Poly(dp->d_name, len));
+            return SAVE(Buffer_to_Poly(taskData, dp->d_name, len));
     }
 #endif
 }
 
-Handle rewindDirectory(Handle stream, Handle dirname)
+Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef WINDOWS_PC
     {
         TCHAR string_buffer[MAXPATHLEN+2];
@@ -1131,14 +1143,14 @@ Handle rewindDirectory(Handle stream, Handle dirname)
         FindClose(strm->device.directory.hFind);
         strm->ioBits = 0;
 
-        getFileName(dirname, string_buffer, MAXPATHLEN+2);
+        getFileName(taskData, dirname, string_buffer, MAXPATHLEN+2);
         /* Tack on \* to the end so that we find all files in
            the directory. */
         lstrcat(string_buffer, _T("\\*"));
         hFind = FindFirstFile(string_buffer,
                     &strm->device.directory.lastFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall("FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         strm->device.directory.hFind = hFind;
         /* There must be at least one file which matched. */
         strm->device.directory.fFindSucceeded = 1;
@@ -1147,104 +1159,98 @@ Handle rewindDirectory(Handle stream, Handle dirname)
 #else
     rewinddir(strm->device.ioDir);
 #endif
-    return Make_arbitrary_precision(0);
+    return Make_arbitrary_precision(taskData, 0);
 }
 
 /* change_dirc - this is called directly and not via the dispatch
    function. */
-Handle change_dirc(Handle name)
+Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
     TCHAR string_buffer[MAXPATHLEN];
-    getFileName(name, string_buffer, MAXPATHLEN);
-#ifdef _WIN32_WCE
-	// Windows CE does not support the "current directory" concept.
-	raise_syscall("SetCurrentDirectory not implemented", 0);
-#elif defined(WINDOWS_PC)
+    getFileName(taskData, name, string_buffer, MAXPATHLEN);
+#if defined(WINDOWS_PC)
     if (SetCurrentDirectory(string_buffer) == FALSE)
-       raise_syscall("SetCurrentDirectory failed", -(int)GetLastError());
+       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
     if (chdir(string_buffer) != 0)
-        raise_syscall("chdir failed", errno);
+        raise_syscall(taskData, "chdir failed", errno);
 #endif
     return SAVE(TAGGED(0));
 }
 
 /* Test for a directory. */
-Handle isDir(Handle name)
+Handle isDir(TaskData *taskData, Handle name)
 {
     TCHAR string_buffer[MAXPATHLEN];
-    getFileName(name, string_buffer, MAXPATHLEN);
+    getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
     {
         DWORD dwRes = GetFileAttributes(string_buffer);
         if (dwRes == 0xFFFFFFFF)
-            raise_syscall("GetFileAttributes failed", -(int)GetLastError());
+            raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
         if (dwRes & FILE_ATTRIBUTE_DIRECTORY)
-            return Make_arbitrary_precision(1);
-        else return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 1);
+        else return Make_arbitrary_precision(taskData, 0);
     }
 #else
     {
         struct stat fbuff;
         if (proper_stat(string_buffer, &fbuff) != 0)
-            raise_syscall("stat failed", errno);
+            raise_syscall(taskData, "stat failed", errno);
         if ((fbuff.st_mode & S_IFMT) == S_IFDIR)
-            return Make_arbitrary_precision(1);
-        else return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 1);
+        else return Make_arbitrary_precision(taskData, 0);
     }
 #endif
 }
 
 /* Get absolute canonical path name. */
-Handle fullPath(Handle filename)
+Handle fullPath(TaskData *taskData, Handle filename)
 {
     TCHAR string_buffer[MAXPATHLEN], resBuf[MAXPATHLEN];
-    getFileName(filename, string_buffer, MAXPATHLEN);
+    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
 
     /* Special case of an empty string. */
     if (string_buffer[0] == '\0') { string_buffer[0] = '.'; string_buffer[1] = 0;}
 
-#ifdef _WIN32_WCE
-	// Windows CE does not support the "current directory" concept.
-	raise_syscall("GetFullPathName not implemented", 0);
-#elif defined(WINDOWS_PC)
+#if defined(WINDOWS_PC)
     {
         LPTSTR lastPart;
         DWORD dwRes =
             GetFullPathName(string_buffer, MAXPATHLEN,
                 resBuf, &lastPart);
         if (dwRes > MAXPATHLEN)
-            raise_syscall("GetFullPathName failed", ENAMETOOLONG);
+            raise_syscall(taskData, "GetFullPathName failed", ENAMETOOLONG);
         if (dwRes == 0)
-            raise_syscall("GetFullPathName failed", -(int)GetLastError());
+            raise_syscall(taskData, "GetFullPathName failed", -(int)GetLastError());
         /* Check that the file exists.  GetFullPathName doesn't do that. */
         dwRes = GetFileAttributes(string_buffer);
         if (dwRes == 0xffffffff)
-            raise_syscall("File does not exist", ENOENT);
+            raise_syscall(taskData, "File does not exist", ENOENT);
     }
 #else
     {
         struct stat fbuff;
         if (realpath(string_buffer, resBuf) == NULL)
-            raise_syscall("realpath failed", errno);
+            raise_syscall(taskData, "realpath failed", errno);
         /* Some versions of Unix don't check the final component
            of a file.  To be consistent try doing a "stat" of
            the resulting string to check it exists. */
         if (proper_stat(resBuf, &fbuff) != 0)
-            raise_syscall("stat failed", errno);
+            raise_syscall(taskData, "stat failed", errno);
     }
 #endif
-    return(SAVE(C_string_to_Poly(resBuf)));
+    return(SAVE(C_string_to_Poly(taskData, resBuf)));
 }
 
 /* Get file modification time.  This returns the value in the
    time units and from the base date used by timing.c. c.f. filedatec */
-Handle modTime(Handle filename)
+Handle modTime(TaskData *taskData, Handle filename)
 {
     TCHAR string_buffer[MAXPATHLEN];
-    getFileName(filename, string_buffer, MAXPATHLEN);
+    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
 #ifdef WINDOWS_PC
     {
         /* There are two ways to get this information.
@@ -1259,30 +1265,30 @@ Handle modTime(Handle filename)
         TCHAR *p;
         for(p = string_buffer; *p; p++)
             if (*p == '*' || *p == '?')
-                raise_syscall("Invalid filename", EBADF);
+                raise_syscall(taskData, "Invalid filename", EBADF);
         hFind = FindFirstFile(string_buffer, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall("FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
-        return Make_arb_from_pair(wFind.ftLastWriteTime.dwHighDateTime,
+        return Make_arb_from_pair(taskData, wFind.ftLastWriteTime.dwHighDateTime,
                                   wFind.ftLastWriteTime.dwLowDateTime);
     }
 #else
     {
         struct stat fbuff;
         if (proper_stat(string_buffer, &fbuff) != 0)
-            raise_syscall("stat failed", errno);
+            raise_syscall(taskData, "stat failed", errno);
         /* Convert to microseconds. */
-        return Make_arb_from_pair_scaled(fbuff.st_mtime, 0, 1000000);
+        return Make_arb_from_pair_scaled(taskData, fbuff.st_mtime, 0, 1000000);
     }
 #endif
 }
 
 /* Get file size. */
-Handle fileSize(Handle filename)
+Handle fileSize(TaskData *taskData, Handle filename)
 {
     TCHAR string_buffer[MAXPATHLEN];
-    getFileName(filename, string_buffer, MAXPATHLEN);
+    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
 #ifdef WINDOWS_PC
     {
         /* Similar to modTime*/
@@ -1291,28 +1297,28 @@ Handle fileSize(Handle filename)
         TCHAR *p;
         for(p = string_buffer; *p; p++)
             if (*p == '*' || *p == '?')
-                raise_syscall("Invalid filename", EBADF);
+                raise_syscall(taskData, "Invalid filename", EBADF);
         hFind = FindFirstFile(string_buffer, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
-            raise_syscall("FindFirstFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
-        return Make_arb_from_pair(wFind.nFileSizeHigh, wFind.nFileSizeLow);
+        return Make_arb_from_pair(taskData, wFind.nFileSizeHigh, wFind.nFileSizeLow);
     }
 #else
     {
     struct stat fbuff;
     if (proper_stat(string_buffer, &fbuff) != 0)
-        raise_syscall("stat failed", errno);
-    return Make_arbitrary_precision(fbuff.st_size);
+        raise_syscall(taskData, "stat failed", errno);
+    return Make_arbitrary_precision(taskData, fbuff.st_size);
     }
 #endif
 }
 
 /* Set file modification and access times. */
-Handle setTime(Handle fileName, Handle fileTime)
+Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
 {
     TCHAR buff[MAXPATHLEN];
-    getFileName(fileName, buff, MAXPATHLEN);
+    getFileName(taskData, fileName, buff, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
     /* The only way to set the time is to open the file and
@@ -1321,20 +1327,20 @@ Handle setTime(Handle fileName, Handle fileTime)
         FILETIME ft;
         HANDLE hFile;
         /* Get the file time. */
-        get_C_pair(DEREFWORDHANDLE(fileTime),
+        get_C_pair(taskData, DEREFWORDHANDLE(fileTime),
                     &ft.dwHighDateTime, &ft.dwLowDateTime);
         /* Open an existing file with write access. We need that
            for SetFileTime. */
         hFile = CreateFile(buff, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
                     FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE)
-            raise_syscall("CreateFile failed", -(int)GetLastError());
+            raise_syscall(taskData, "CreateFile failed", -(int)GetLastError());
         /* Set the file time. */
         if (!SetFileTime(hFile, NULL, &ft, &ft))
         {
             int nErr = GetLastError();
             CloseHandle(hFile);
-            raise_syscall("SetFileTime failed", -nErr);
+            raise_syscall(taskData, "SetFileTime failed", -nErr);
         }
         CloseHandle(hFile);
     }
@@ -1344,27 +1350,27 @@ Handle setTime(Handle fileName, Handle fileTime)
         /* We have a value in microseconds.  We need to split
            it into seconds and microseconds. */
         Handle hTime = fileTime;
-        Handle hMillion = Make_arbitrary_precision(1000000);
+        Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
         /* N.B. Arguments to div_longc and rem_longc are in reverse order. */
         unsigned secs =
-            get_C_ulong(DEREFWORDHANDLE(div_longc(hMillion, hTime)));
+            get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
         unsigned usecs =
-            get_C_ulong(DEREFWORDHANDLE(rem_longc(hMillion, hTime)));
+            get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
         times[0].tv_sec = times[1].tv_sec = secs;
         times[0].tv_usec = times[1].tv_usec = usecs;
         if (utimes(buff, times) != 0)
-            raise_syscall("utimes failed", errno);
+            raise_syscall(taskData, "utimes failed", errno);
     }
 #endif
-    return Make_arbitrary_precision(0);
+    return Make_arbitrary_precision(taskData, 0);
 }
 
 /* Rename a file. */
-Handle renameFile(Handle oldFileName, Handle newFileName)
+Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 {
     TCHAR oldName[MAXPATHLEN], newName[MAXPATHLEN];
-    getFileName(oldFileName, oldName, MAXPATHLEN);
-    getFileName(newFileName, newName, MAXPATHLEN);
+    getFileName(taskData, oldFileName, oldName, MAXPATHLEN);
+    getFileName(taskData, newFileName, newName, MAXPATHLEN);
 #ifdef WINDOWS_PC
     /* This is defined to delete any existing file with the new name.
        We can do this with MoveFileEx but that isn't supported on
@@ -1377,34 +1383,29 @@ Handle renameFile(Handle oldFileName, Handle newFileName)
         DWORD dwErr;
         /* Try using MoveFile and see if that works. */
         if (MoveFile(oldName, newName))
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
         dwErr = GetLastError();
         if (dwErr != /* ERROR_FILE_EXISTS */ ERROR_ALREADY_EXISTS)
-            raise_syscall("MoveFile failed", -(int)dwErr);
+            raise_syscall(taskData, "MoveFile failed", -(int)dwErr);
         /* Failed because destination file exists. */
-#ifndef _WIN32_WCE
 		if (_osver & 0x8000)
-#endif
         {
             /* Windows 95 - must use delete. */
             if (!DeleteFile(newName))
-                raise_syscall("DeleteFile failed", -(int)GetLastError());
+                raise_syscall(taskData, "DeleteFile failed", -(int)GetLastError());
             if (!MoveFile(oldName, newName))
-                raise_syscall("MoveFile failed", -(int)GetLastError());
+                raise_syscall(taskData, "MoveFile failed", -(int)GetLastError());
         }
-#ifndef _WIN32_WCE
         else /* Windows NT.  Although it's not defined to be atomic
                 there's a better chance that it will be. */
             if (! MoveFileEx(oldName, newName, MOVEFILE_REPLACE_EXISTING))
-                raise_syscall("MoveFileEx failed", -(int)GetLastError());
-#endif
-
+                raise_syscall(taskData, "MoveFileEx failed", -(int)GetLastError());
     }
 #else
     if (rename(oldName, newName) != 0)
-        raise_syscall("rename failed", errno);
+        raise_syscall(taskData, "rename failed", errno);
 #endif
-    return Make_arbitrary_precision(0);
+    return Make_arbitrary_precision(taskData, 0);
 }
 
 /* Access right requests passed in from ML. */
@@ -1413,11 +1414,11 @@ Handle renameFile(Handle oldFileName, Handle newFileName)
 #define FILE_ACCESS_EXECUTE 4
 
 /* Get access rights to a file. */
-Handle fileAccess(Handle name, Handle rights)
+Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 {
     TCHAR string_buffer[MAXPATHLEN];
-    int rts = get_C_ulong(DEREFWORD(rights));
-    getFileName(name, string_buffer, MAXPATHLEN);
+    int rts = get_C_ulong(taskData, DEREFWORD(rights));
+    getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
     {
@@ -1430,13 +1431,13 @@ Handle fileAccess(Handle name, Handle rights)
            complicated.  Leave it for the moment. */
         DWORD dwRes = GetFileAttributes(string_buffer);
         if (dwRes == 0xffffffff)
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
         /* If we asked for write access but it is read-only we
            return false. */
         if ((dwRes & FILE_ATTRIBUTE_READONLY) &&
             (rts & FILE_ACCESS_WRITE))
-            return Make_arbitrary_precision(0);
-        else return Make_arbitrary_precision(1);
+            return Make_arbitrary_precision(taskData, 0);
+        else return Make_arbitrary_precision(taskData, 1);
     }
 #else
     {
@@ -1448,8 +1449,8 @@ Handle fileAccess(Handle name, Handle rights)
         /* Return true if access is allowed, otherwise false
            for any other error. */
         if (access(string_buffer, mode) == 0)
-            return Make_arbitrary_precision(1);
-        else return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 1);
+        else return Make_arbitrary_precision(taskData, 0);
     }
 #endif
 
@@ -1458,9 +1459,9 @@ Handle fileAccess(Handle name, Handle rights)
 
 
 /* IO_dispatchc.  Called from assembly code module. */
-Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
+Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 {
-    int c = get_C_long(DEREFWORD(code));
+    int c = get_C_long(taskData, DEREFWORD(code));
     switch (c)
     {
     case 0: /* Return standard input */
@@ -1470,41 +1471,41 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
     case 2: /* Return standard error */
         return SAVE((PolyObject*)IoEntry(POLY_SYS_stderr));
     case 3: /* Open file for text input. */
-        return open_file(args, O_RDONLY, 0666, 0);
+        return open_file(taskData, args, O_RDONLY, 0666, 0);
     case 4: /* Open file for binary input. */
-        return open_file(args, O_RDONLY | O_BINARY, 0666, 0);
+        return open_file(taskData, args, O_RDONLY | O_BINARY, 0666, 0);
     case 5: /* Open file for text output. */
-        return open_file(args, O_WRONLY | O_CREAT | O_TRUNC, 0666, 0);
+        return open_file(taskData, args, O_WRONLY | O_CREAT | O_TRUNC, 0666, 0);
     case 6: /* Open file for binary output. */
-        return open_file(args, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666, 0);
+        return open_file(taskData, args, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666, 0);
     case 7: /* Close file */
-        return close_file(strm);
+        return close_file(taskData, strm);
     case 8: /* Read text into an array. */
-        return readArray(strm, args, true);
+        return readArray(taskData, strm, args, true);
     case 9: /* Read binary into an array. */
-        return readArray(strm, args, false);
+        return readArray(taskData, strm, args, false);
     case 10: /* Get text as a string. */
-        return readString(strm, args, true);
+        return readString(taskData, strm, args, true);
     case 11: /* Write from memory into a text file. */
-        return writeArray(strm, args, true);
+        return writeArray(taskData, strm, args, true);
     case 12: /* Write from memory into a binary file. */
-        return writeArray(strm, args, false);
+        return writeArray(taskData, strm, args, false);
     case 13: /* Open text file for appending. */
         /* The IO library definition leaves it open whether this
            should use "append mode" or not.  */
-        return open_file(args, O_WRONLY | O_CREAT | O_APPEND, 0666, 0);
+        return open_file(taskData, args, O_WRONLY | O_CREAT | O_APPEND, 0666, 0);
     case 14: /* Open binary file for appending. */
-        return open_file(args, O_WRONLY | O_CREAT | O_APPEND | O_BINARY, 0666, 0);
+        return open_file(taskData, args, O_WRONLY | O_CREAT | O_APPEND | O_BINARY, 0666, 0);
     case 15: /* Return recommended buffer size. */
         /* TODO: This should try to find a sensible number based on
            the stream handle passed in. Leave it at 1k for
            the moment. */
         /* Try increasing to 4k. */
-        return Make_arbitrary_precision(/*1024*/4096);
+        return Make_arbitrary_precision(taskData, /*1024*/4096);
     case 16: /* See if we can get some input. */
-        return Make_arbitrary_precision(canInput(strm));
+        return Make_arbitrary_precision(taskData, canInput(taskData, strm));
     case 17: /* Return the number of bytes available.  */
-        return bytesAvailable(strm);
+        return bytesAvailable(taskData, strm);
 
     case 18: /* Get position on stream. */
         {
@@ -1513,66 +1514,66 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
                exception if setFilePos or endFilePos would fail. */
             long pos;
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall("Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-            pos = seekStream(str, 0L, SEEK_CUR);
-            return Make_arbitrary_precision(pos);
+            pos = seekStream(taskData, str, 0L, SEEK_CUR);
+            return Make_arbitrary_precision(taskData, pos);
         }
 
     case 19: /* Seek to position on stream. */
         {
-            long position = get_C_long(DEREFWORD(args));
+            long position = get_C_long(taskData, DEREFWORD(args));
             long newpos;
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall("Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-            newpos = seekStream(str, position, SEEK_SET);
-            return Make_arbitrary_precision(0);
+            newpos = seekStream(taskData, str, position, SEEK_SET);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 20: /* Return position at end of stream. */
         {
             long original, endOfStream;
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall("Stream is closed", EBADF);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             /* Remember our original position, seek to the end, then seek back. */
-            original = seekStream(str, 0L, SEEK_CUR);
-            endOfStream = seekStream(str, 0L, SEEK_END);
-            if (seekStream(str, original, SEEK_SET) != original) 
-                raise_syscall("Position error", errno);
-            return Make_arbitrary_precision(endOfStream);
+            original = seekStream(taskData, str, 0L, SEEK_CUR);
+            endOfStream = seekStream(taskData, str, 0L, SEEK_END);
+            if (seekStream(taskData, str, original, SEEK_SET) != original) 
+                raise_syscall(taskData, "Position error", errno);
+            return Make_arbitrary_precision(taskData, endOfStream);
         }
 
     case 21: /* Get the kind of device underlying the stream. */
-        return fileKind(strm);
+        return fileKind(taskData, strm);
     case 22: /* Return the polling options allowed on this descriptor. */
-        return pollTest(strm);
+        return pollTest(taskData, strm);
     case 23: /* Poll the descriptor, waiting forever. */
-        return pollDescriptors(args, 1);
+        return pollDescriptors(taskData, args, 1);
     case 24: /* Poll the descriptor, waiting for the time requested. */
-        return pollDescriptors(args, 0);
+        return pollDescriptors(taskData, args, 0);
     case 25: /* Poll the descriptor, returning immediately.*/
-        return pollDescriptors(args, 2);
+        return pollDescriptors(taskData, args, 2);
     case 26: /* Get binary as a vector. */
-        return readString(strm, args, false);
+        return readString(taskData, strm, args, false);
 
     case 27: /* Block until input is available. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall("Stream is closed", EBADF);
-            if (canInput(strm) == 0)
-                processes->block_and_restart(str->device.ioDesc, 0, POLY_SYS_io_dispatch);
-            return Make_arbitrary_precision(0);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (canInput(taskData, strm) == 0)
+                processes->BlockAndRestart(taskData, str->device.ioDesc, false, POLY_SYS_io_dispatch);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 28: /* Test whether output is possible. */
-        return Make_arbitrary_precision(canOutput(strm));
+        return Make_arbitrary_precision(taskData, canOutput(taskData, strm));
 
     case 29: /* Block until output is possible. */
-        if (canOutput(strm) == 0)
-            processes->block_and_restart(-1, 0, POLY_SYS_io_dispatch);
-        return Make_arbitrary_precision(0);
+        if (canOutput(taskData, strm) == 0)
+            processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
+        return Make_arbitrary_precision(taskData, 0);
 
 
         /* Functions added for Posix structure. */
@@ -1581,26 +1582,26 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
            stdIn, stdOut and stdErr. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
-            if (str == NULL) raise_syscall("Stream is closed", EBADF);
-            return Make_arbitrary_precision(str->device.ioDesc);
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            return Make_arbitrary_precision(taskData, str->device.ioDesc);
         }
 
     case 31: /* Make an entry for a given descriptor. */
         {
-            int ioDesc = get_C_long(DEREFWORD(args));
+            int ioDesc = get_C_long(taskData, DEREFWORD(args));
             PIOSTRUCT str;
             /* First see if it's already in the table. */
             for (unsigned i = 0; i < max_streams; i++)
             {
                 str = &(basic_io_vector[i]);
                 if (str->token != 0 && str->device.ioDesc == ioDesc)
-                    return gSaveVec->push(str->token);
+                    return taskData->saveVec.push(str->token);
             }
             /* Have to make a new entry. */
-            Handle str_token = make_stream_entry();
+            Handle str_token = make_stream_entry(taskData);
             unsigned stream_no    = STREAMID(str_token);
             str = &basic_io_vector[stream_no];
-            str->device.ioDesc = get_C_long(DEREFWORD(args));
+            str->device.ioDesc = get_C_long(taskData, DEREFWORD(args));
             /* We don't know whether it's open for read, write or even if
                it's open at all. */
             str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE ;
@@ -1613,72 +1614,69 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
 
     /* Directory functions. */
     case 50: /* Open a directory. */
-        return openDirectory(args);
+        return openDirectory(taskData, args);
 
     case 51: /* Read a directory entry. */
-        return readDirectory(strm);
+        return readDirectory(taskData, strm);
 
     case 52: /* Close the directory */
-        return close_file(strm);
+        return close_file(taskData, strm);
 
     case 53: /* Rewind the directory. */
-        return rewindDirectory(strm, args);
+        return rewindDirectory(taskData, strm, args);
 
     case 54: /* Get current working directory. */
         {
             char string_buffer[MAXPATHLEN+1];
-#ifdef _WIN32_WCE
-			// Windows CE does not support the "current directory" concept.
-			raise_syscall("GetCurrentDirectory not implemented", 0);
-#elif defined(WINDOWS_PC)
+#if defined(WINDOWS_PC)
             if (GetCurrentDirectory(MAXPATHLEN+1, string_buffer) == 0)
-               raise_syscall("GetCurrentDirectory failed", -(int)GetLastError());
+               raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
 #else
             if (getcwd(string_buffer, MAXPATHLEN+1) == NULL)
-               raise_syscall("getcwd failed", errno);
+               raise_syscall(taskData, "getcwd failed", errno);
 #endif
-            return SAVE(C_string_to_Poly(string_buffer));
+            return SAVE(C_string_to_Poly(taskData, string_buffer));
         }
 
     case 55: /* Create a new directory. */
         {
             TCHAR string_buffer[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
 			if (! CreateDirectory(string_buffer, NULL))
-			   raise_syscall("CreateDirectory failed", -(int)GetLastError());
+			   raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
 #else
             if (mkdir(string_buffer, 0777) != 0)
 #endif
-                raise_syscall("mkdir failed", errno);
+                raise_syscall(taskData, "mkdir failed", errno);
 
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 56: /* Delete a directory. */
         {
             TCHAR string_buffer[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
 			if (! RemoveDirectory(string_buffer))
-			   raise_syscall("RemoveDirectory failed", -(int)GetLastError());
+			   raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
 #else
             if (rmdir(string_buffer) != 0)
-                raise_syscall("rmdir failed", errno);
+                raise_syscall(taskData, "rmdir failed", errno);
 #endif
 
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 57: /* Test for directory. */
-        return isDir(args);
+        return isDir(taskData, args);
 
     case 58: /* Test for symbolic link. */
         {
             TCHAR string_buffer[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
 #ifdef WINDOWS_PC
             {
                 /* Windows does not have symbolic links.  Raise an
@@ -1686,17 +1684,17 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
                    return false.  */
                 DWORD dwRes = GetFileAttributes(string_buffer);
                 if (dwRes == 0xFFFFFFFF)
-                    raise_syscall("GetFileAttributes failed", -(int)GetLastError());
-                return Make_arbitrary_precision(0);
+                    raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
+                return Make_arbitrary_precision(taskData, 0);
             }
 #else
             {
             struct stat fbuff;
                 if (proper_lstat(string_buffer, &fbuff) != 0)
-                    raise_syscall("stat failed", errno);
+                    raise_syscall(taskData, "stat failed", errno);
                 if ((fbuff.st_mode & S_IFMT) == S_IFLNK)
-                    return Make_arbitrary_precision(1);
-                else return Make_arbitrary_precision(0);
+                    return Make_arbitrary_precision(taskData, 1);
+                else return Make_arbitrary_precision(taskData, 0);
             }
 #endif
         }
@@ -1705,72 +1703,66 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
         {
 #ifdef WINDOWS_PC
             /* Windows does not have symbolic links. Raise an exception. */
-            raise_syscall("Not implemented", 0);
-            return gSaveVec->push(TAGGED(0)); /* To keep compiler happy. */
+            raise_syscall(taskData, "Not implemented", 0);
+            return taskData->saveVec.push(TAGGED(0)); /* To keep compiler happy. */
 #else
             int nLen;
             char string_buffer[MAXPATHLEN], resBuf[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
             nLen = readlink(string_buffer, resBuf, sizeof(resBuf));
-            if (nLen < 0) raise_syscall("readlink failed", errno);
-            return(SAVE(Buffer_to_Poly(resBuf, nLen)));
+            if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
+            return(SAVE(Buffer_to_Poly(taskData, resBuf, nLen)));
 #endif
         }
 
     case 60: /* Return the full absolute path name. */
-        return fullPath(args);
+        return fullPath(taskData, args);
 
     case 61: /* Modification time. */
-        return modTime(args);
+        return modTime(taskData, args);
 
     case 62: /* File size. */
-        return fileSize(args);
+        return fileSize(taskData, args);
 
     case 63: /* Set file time. */
-        return setTime(strm, args);
+        return setTime(taskData, strm, args);
 
     case 64: /* Delete a file. */
         {
             TCHAR string_buffer[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #ifdef WINDOWS_PC
 			if (! DeleteFile(string_buffer))
-			   raise_syscall("DeleteFile failed", 0-GetLastError());
+			   raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
 #else
 			if (unlink(string_buffer) != 0)
-				raise_syscall("unlink failed", errno);
+				raise_syscall(taskData, "unlink failed", errno);
 #endif
 
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 65: /* rename a file. */
-        return renameFile(strm, args);
+        return renameFile(taskData, strm, args);
 
     case 66: /* Get access rights. */
-        return fileAccess(strm, args);
+        return fileAccess(taskData, strm, args);
 
     case 67: /* Return a temporary file name. */
         {
-#ifdef _WIN32_WCE
-			// Windows CE does not support tempnam
-			raise_syscall("Not implemented", 0);
-#else
             TCHAR buff[MAXPATHLEN];
 
 #ifdef WINDOWS_PC
             if (GetTempPath(sizeof(buff) - 14, buff) == 0)
-                raise_syscall("GetTempPath failed", -(int)(GetLastError()));
+                raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
             lstrcat(buff, _T("\\"));
-#else
-#ifdef P_tempdir
+#elif (defined(P_tempdir))
             strcpy(buff, P_tempdir);
             strcat(buff, "\\");
 #else
             strcpy(buff, "/tmp/");
-#endif
 #endif
             strcat(buff, "MLTEMPXXXXXX");
 #ifdef HAVE_MKSTEMP
@@ -1781,17 +1773,16 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
             int wasError = errno;
             (void)umask(oldMask);
             if (fd != -1) close(fd);
-            else raise_syscall("mkstemp failed", wasError);
+            else raise_syscall(taskData, "mkstemp failed", wasError);
 #else
             if (mktemp(buff) == 0)
-                raise_syscall("mktemp failed", errno);
+                raise_syscall(taskData, "mktemp failed", errno);
             int fd = open(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
             if (fd != -1) close(fd);
-            else raise_syscall("Temporary file creation failed", errno);
+            else raise_syscall(taskData, "Temporary file creation failed", errno);
 #endif
-            Handle res = SAVE(C_string_to_Poly(buff));
+            Handle res = SAVE(C_string_to_Poly(taskData, buff));
             return res;
-#endif // _WIN32_WCE
         }
 
     case 68: /* Get the file id. */
@@ -1800,41 +1791,41 @@ Handle IO_dispatch_c(Handle args, Handle strm, Handle code)
             /* This concept does not exist in Windows. */
             /* Return a negative number. This is interpreted
                as "not implemented". */
-            return Make_arbitrary_precision(-1);
+            return Make_arbitrary_precision(taskData, -1);
 #else
             struct stat fbuff;
             char string_buffer[MAXPATHLEN];
-            getFileName(args, string_buffer, MAXPATHLEN);
+            getFileName(taskData, args, string_buffer, MAXPATHLEN);
             if (proper_stat(string_buffer, &fbuff) != 0)
-                raise_syscall("stat failed", errno);
+                raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
-            return Make_arbitrary_precision(fbuff.st_ino);
+            return Make_arbitrary_precision(taskData, fbuff.st_ino);
 #endif
         }
 
     case 69: /* Return an index for a token. */
-        return Make_arbitrary_precision(STREAMID(strm));
+        return Make_arbitrary_precision(taskData, STREAMID(strm));
 
     case 70: /* Posix.FileSys.openf - open a file with given mode. */
         {
-            Handle name = gSaveVec->push(DEREFWORDHANDLE(args)->Get(0));
-            int mode = get_C_ulong(DEREFWORDHANDLE(args)->Get(1));
-            return open_file(name, mode, 0666, 1);
+            Handle name = taskData->saveVec.push(DEREFWORDHANDLE(args)->Get(0));
+            int mode = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+            return open_file(taskData, name, mode, 0666, 1);
         }
 
     case 71: /* Posix.FileSys.createf - create a file with given mode and access. */
         {
-            Handle name = gSaveVec->push(DEREFWORDHANDLE(args)->Get(0));
-            int mode = get_C_ulong(DEREFWORDHANDLE(args)->Get(1));
-            int access = get_C_ulong(DEREFWORDHANDLE(args)->Get(2));
-            return open_file(name, mode|O_CREAT, access, 1);
+            Handle name = taskData->saveVec.push(DEREFWORDHANDLE(args)->Get(0));
+            int mode = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+            int access = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+            return open_file(taskData, name, mode|O_CREAT, access, 1);
         }
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown io function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(taskData, EXC_Fail, msg);
 			return 0;
         }
     }

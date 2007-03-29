@@ -52,12 +52,15 @@
 #define ELFCLASSXX              ELFCLASS32
 #endif
 
+class TaskData;
+
 class ELFExport: public Exporter, public ScanAddress
 {
 public:
-    ELFExport(): exportFile(NULL), relocationCount(0), symbolCount(0), directReloc(0) {}
+    ELFExport(TaskData *td): relocationCount(0), symbolCount(0),
+                             directReloc(0), taskData(td) {}
 public:
-    virtual void exportStore(const char *outFileName);
+    virtual void exportStore(void);
 
 private:
     // ScanAddress overrides
@@ -73,7 +76,6 @@ private:
     void alignFile(int align);
     void createStructsRelocation(unsigned area, POLYUNSIGNED offset, POLYSIGNED addend);
 
-    FILE     *exportFile;
     unsigned relocationCount;
     unsigned symbolCount;
 
@@ -81,6 +83,7 @@ private:
     ExportStringTable symStrings, sectionStrings;
     unsigned directReloc;
     bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
+    TaskData *taskData; // Needed for exceptions.
 };
 
 #endif

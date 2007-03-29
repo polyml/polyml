@@ -225,31 +225,9 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include <Xm/WorldP.h>
 #endif
 
-/* The following are only forward so we can declare attributes */
-static void RaiseXWindows(char *s) __attribute__((noreturn));
-
-
-#define ButtonClickMask (((unsigned)1 << 31))
-
-#define XMASK(m) ((m) &~ButtonClickMask)
-
-#undef SIZEOF
-
 #include "globals.h"
 #include "sys.h"
 #include "xwindows.h"
-
-#define debug1(fmt,p1) { /*EMPTY*/ }
-#undef  debug1
-#define debug1(fmt,p1) {if (userOptions.debug & DEBUG_X) printf(fmt,p1);}
-#define debug3(fmt,p1,p2,p3) {if (userOptions.debug & DEBUG_X) printf(fmt,p1,p2,p3);}
-
-#define debugCreate(type,value)  debug1("%lx " #type " created\n",(unsigned long)(value))
-#define debugReclaim(type,value) debug1("%lx " #type " reclaimed\n",(unsigned long)(value))
-#define debugReclaimRef(type,value) debug1("%lx " #type " reference reclaimed\n",(unsigned long)(value))
-#define debugRefer(type,value) debug1("%lx " #type " referenced\n",(unsigned long)(value))
-#define debugCreateCallback(MLValue,CValue,CListCell)  debug3("%p Widget callback reference created (%p,%p)\n",CValue,CListCell,MLValue)
-#define debugReclaimCallback(MLValue,CValue,CListCell) debug3("%p Widget callback reference removed (%p,%p)\n",CValue,CListCell,MLValue)
 
 #include "run_time.h"
 #include "arb.h"
@@ -263,6 +241,31 @@ static void RaiseXWindows(char *s) __attribute__((noreturn));
 #include "polystring.h"
 #include "scanaddrs.h"
 #include "memmgr.h"
+#include "machine_dep.h"
+#include "processes.h"
+#include "basicio.h" // For process_may_block.
+
+/* The following are only forward so we can declare attributes */
+static void RaiseXWindows(TaskData *taskData, char *s) __attribute__((noreturn));
+
+
+#define ButtonClickMask (((unsigned)1 << 31))
+
+#define XMASK(m) ((m) &~ButtonClickMask)
+
+#undef SIZEOF
+
+#define debug1(fmt,p1) { /*EMPTY*/ }
+#undef  debug1
+#define debug1(fmt,p1) {if (userOptions.debug & DEBUG_X) printf(fmt,p1);}
+#define debug3(fmt,p1,p2,p3) {if (userOptions.debug & DEBUG_X) printf(fmt,p1,p2,p3);}
+
+#define debugCreate(type,value)  debug1("%lx " #type " created\n",(unsigned long)(value))
+#define debugReclaim(type,value) debug1("%lx " #type " reclaimed\n",(unsigned long)(value))
+#define debugReclaimRef(type,value) debug1("%lx " #type " reference reclaimed\n",(unsigned long)(value))
+#define debugRefer(type,value) debug1("%lx " #type " referenced\n",(unsigned long)(value))
+#define debugCreateCallback(MLValue,CValue,CListCell)  debug3("%p Widget callback reference created (%p,%p)\n",CValue,CListCell,MLValue)
+#define debugReclaimCallback(MLValue,CValue,CListCell) debug3("%p Widget callback reference removed (%p,%p)\n",CValue,CListCell,MLValue)
 
 
 /* forward declarations */
@@ -273,11 +276,11 @@ static Atom WM_DELETE_WINDOW(Display *d); /* was int SPF 6/1/94 */
 #define DEREFWINDOWHANDLE(h)  ((X_Window_Object *)DEREFHANDLE(h))
 #define DEREFXOBJECTHANDLE(h) ((X_Object *)DEREFHANDLE(h))
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) taskData->saveVec.push(x)
 
-#define Make_int(x) Make_arbitrary_precision(x)
-#define Make_string(s) SAVE(C_string_to_Poly(s))
-#define Make_bool(b) Make_unsigned((b) != 0)
+#define Make_int(x) Make_arbitrary_precision(taskData, x)
+#define Make_string(s) SAVE(C_string_to_Poly(taskData, s))
+#define Make_bool(b) Make_unsigned(taskData, (b) != 0)
 
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
@@ -302,10 +305,10 @@ typedef Handle EventHandle;
 /* consider the possibility of storing immutable objects in read-only memory    */
 /* segments (not currently implemented).    SPF 7/12/93                         */
 /********************************************************************************/
-static Handle FINISHED(Handle P)
+static Handle FINISHED(TaskData *taskData, Handle P)
 {
     PolyObject *pt = DEREFHANDLE(P);
-    assert(gSaveVec->isValidHandle(P));
+    assert(taskData->saveVec.isValidHandle(P));
     assert(pt->IsMutable());
     POLYUNSIGNED lengthW = pt->LengthWord();
     pt->SetLengthWord(lengthW & ~_OBJ_MUTABLE_BIT);
@@ -313,11 +316,11 @@ static Handle FINISHED(Handle P)
 }
 
 
-static void RaiseXWindows(char *s)
+static void RaiseXWindows(TaskData *taskData, char *s)
 {
   if (gc_phase == 0)
     {
-      raise_exception_string(EXC_XWindows,s);
+      raise_exception_string(taskData, EXC_XWindows,s);
     }
   else
     {
@@ -336,22 +339,22 @@ static void RaiseXWindows(char *s)
    int n2 = strlen(message); \
    char *mess = (char *)alloca(n1 + n2 + 1); \
    strcat(strncpy(mess,varmessage,n1),message); \
-   RaiseXWindows(mess); \
+   RaiseXWindows(taskData, mess); \
    /*NOTREACHED*/ \
 }
 
-static void RaiseRange(void)
+static void RaiseRange(TaskData *taskData)
 {
-  raise_exception0(EXC_size);
+  raise_exception0(taskData, EXC_size);
 }
 
 typedef unsigned char uchar;
 
-static uchar get_C_uchar(PolyWord a)
+static uchar get_C_uchar(TaskData *taskData, PolyWord a)
 {
-    unsigned u = get_C_ushort(a);
+    unsigned u = get_C_ushort(taskData, a);
     
-    if (u >= 256) RaiseRange();
+    if (u >= 256) RaiseRange(taskData);
     
     return u;
 }
@@ -520,23 +523,23 @@ typedef X_Window_Struct X_Window_Object;
 /*      Forward declarations                                                  */
 /*                                                                            */
 /******************************************************************************/
-static Font           GetFont(X_Object *P);
-static Cursor         GetCursor(X_Object *P);
-static Colormap       GetColormap(X_Object *P);
-static Visual        *GetVisual(X_Object *P);
-static XtTranslations GetTrans(X_Object *P);
-static XtAccelerators GetAcc(X_Object *P);
-static Pixmap         GetPixmap(X_Object *P);
-static Widget         GetNWidget(X_Object *P);
-static Window         GetWindow(X_Object *P);
-static Display       *GetDisplay(X_Object *P);
+static Font           GetFont(TaskData *taskData, X_Object *P);
+static Cursor         GetCursor(TaskData *taskData,X_Object *P);
+static Colormap       GetColormap(TaskData *taskData,X_Object *P);
+static Visual        *GetVisual(TaskData *taskData,X_Object *P);
+static XtTranslations GetTrans(TaskData *taskData,X_Object *P);
+static XtAccelerators GetAcc(TaskData *taskData,X_Object *P);
+static Pixmap         GetPixmap(TaskData *, X_Object *P);
+static Widget         GetNWidget(TaskData *, X_Object *P);
+static Window         GetWindow(TaskData *, X_Object *P);
+static Display       *GetDisplay(TaskData *, X_Object *P);
 
 static void DestroyWindow(X_Object *W);
 static void DestroySubwindows(X_Object *W);
 
 static X_GC_Object     *GCObject(X_Object *P);
 static X_Pixmap_Object *PixmapObject(X_Object *P);
-static X_Widget_Object *WidgetObject(X_Object *P);
+static X_Widget_Object *WidgetObject(TaskData *, X_Object *P);
 static X_Window_Object *WindowObject(X_Object *P);
 
 /******************************************************************************/
@@ -661,10 +664,10 @@ static X_List *findXList(unsigned long id)
 /******************************************************************************/
 // Creates a list from a vector of items.
 
-static Handle CreateList4(unsigned n, void *p, unsigned objSize, Handle (*f)(void *))
+static Handle CreateList4(TaskData *taskData, unsigned n, void *p, unsigned objSize, Handle (*f)(TaskData *, void *))
 {
 
-    Handle saved = gSaveVec->mark();
+    Handle saved = taskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
     // Process the vector in reverse order.  That way we can make the
     // cells as immutable objects rather than having to create them as
@@ -673,44 +676,46 @@ static Handle CreateList4(unsigned n, void *p, unsigned objSize, Handle (*f)(voi
     {
         n--;
         byte *objP = (byte*)p + objSize*n;
-        Handle value = (* f)(objP);
-        Handle next  = alloc_and_save(SIZEOF(ML_Cons_Cell));
+        Handle value = (* f)(taskData, objP);
+        Handle next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
         
         /* reset save vector to stop it overflowing */    
-        gSaveVec->reset(saved);
+        taskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
     }
     
     return list;
 }
 
-static Handle CreateList4I(unsigned n, void *p, unsigned objSize, Handle (*f)(void *, unsigned i))
+static Handle CreateList4I(TaskData *taskData, unsigned n, void *p, unsigned objSize,
+                           Handle (*f)(TaskData *, void *, unsigned i))
 {
 
-    Handle saved = gSaveVec->mark();
+    Handle saved = taskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
     while (n)
     {
         n--;
         byte *objP = (byte*)p + objSize*n;
-        Handle value = (* f)(objP, n);
-        Handle next  = alloc_and_save(SIZEOF(ML_Cons_Cell));
+        Handle value = (* f)(taskData, objP, n);
+        Handle next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
         
         /* reset save vector to stop it overflowing */    
-        gSaveVec->reset(saved);
+        taskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
     }
     
     return list;
 }
 
-static Handle CreateList5(POLYUNSIGNED n, void *p, POLYUNSIGNED objSize, Handle (*f)(void *, Handle), Handle a1)
+static Handle CreateList5(TaskData *taskData, POLYUNSIGNED n, void *p, POLYUNSIGNED objSize,
+                          Handle (*f)(TaskData *, void *, Handle), Handle a1)
 {
-    Handle saved = gSaveVec->mark();
+    Handle saved = taskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
     // Process the vector in reverse order.  That way we can make the
     // cells as immutable objects rather than having to create them as
@@ -719,27 +724,28 @@ static Handle CreateList5(POLYUNSIGNED n, void *p, POLYUNSIGNED objSize, Handle 
     {
         n--;
         byte *objP = (byte*)p + objSize*n;
-        Handle value = (* f)(objP, a1);
-        Handle next  = alloc_and_save(SIZEOF(ML_Cons_Cell));
+        Handle value = (* f)(taskData, objP, a1);
+        Handle next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
         
         /* reset save vector to stop it overflowing */    
-        gSaveVec->reset(saved);
+        taskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
     }
     
     return list;
 }
 
-static void GetList4(PolyWord list, void *v, unsigned bytes, void (*get)(PolyWord, void*, unsigned))
+static void GetList4(TaskData *taskData, PolyWord list, void *v, unsigned bytes,
+                     void (*get)(TaskData *, PolyWord, void*, unsigned))
 {
     unsigned i = 0;
     byte *s = (byte*)v;
     
     for(PolyWord p = list; NONNIL(p); p = ((ML_Cons_Cell*)p.AsObjPtr())->t)
     {
-        (* get)(((ML_Cons_Cell*)p.AsObjPtr())->h, s, i);
+        (* get)(taskData, ((ML_Cons_Cell*)p.AsObjPtr())->h, s, i);
         s += bytes;
         i++;
     }
@@ -855,177 +861,179 @@ static int SafeResourceExists(X_Object *P)
 
 static void DestroyXObject(X_Object *P)
 {
-  X_List **X = hashXList(P);
-  
-  switch(UNTAGGED(P->type))
-  {
+    TaskData *taskData = processes->GetTaskDataForThread();
+    
+    X_List **X = hashXList(P);
+    
+    switch(UNTAGGED(P->type))
+    {
     case X_GC:
-    {
-      X_GC_Object *G = GCObject(P);
-      
-      GC       gc = *G->gc;
-      Display *d  =  G->ds->display;
-
-      if (gc == DefaultGC(d,G->ds->screen))
         {
-          debugReclaimRef(GC,gc->gid);
+            X_GC_Object *G = GCObject(P);
+            
+            GC       gc = *G->gc;
+            Display *d  =  G->ds->display;
+            
+            if (gc == DefaultGC(d,G->ds->screen))
+            {
+                debugReclaimRef(GC,gc->gid);
+            }
+            else
+            {
+                debugReclaim(GC,gc->gid);
+                XFreeGC(d,gc); /* SAFE(?) */
+            }
+            break;
         }
-      else
-        {
-          debugReclaim(GC,gc->gid);
-          XFreeGC(d,gc); /* SAFE(?) */
-        }
-      break;
-    }
-
+        
     case X_Font:
-    {
-      Font f = GetFont(P);
-
-      if (f == None)
         {
-          debugReclaimRef(Font,f);
-        }
-      else
-        {
-          debugReclaim(Font,f);
-
+            Font f = GetFont(taskData, P);
+            
+            if (f == None)
+            {
+                debugReclaimRef(Font,f);
+            }
+            else
+            {
+                debugReclaim(Font,f);
+                
 #if NEVER
-          XUnloadFont(GetDisplay(P),f);
+                XUnloadFont(GetDisplay(taskData, P),f);
 #endif
+            }
+            break;
         }
-      break;
-    }
-
+        
     case X_Cursor:
-    {
-      Cursor cursor = GetCursor(P);
-
-      if (cursor == None)
         {
-          debugReclaimRef(Cursor,cursor);
-        }
-      else
-        {
-          debugReclaim(Cursor,cursor);
-
+            Cursor cursor = GetCursor(taskData, P);
+            
+            if (cursor == None)
+            {
+                debugReclaimRef(Cursor,cursor);
+            }
+            else
+            {
+                debugReclaim(Cursor,cursor);
+                
 #if NEVER
-          XFreeCursor(GetDisplay(P),cursor);
+                XFreeCursor(GetDisplay(taskData, P),cursor);
 #endif
+            }
+            
+            break;
         }
-
-      break;
-    }
-
+        
     case X_Window:
-    {
-      /* added 29/11/93 SPF */
-      PurgePendingWindowMessages(WindowObject(P));
-
-      if (((X_Window_Object *)P)->parent != 0) /* this clients window */
         {
-          debugReclaim(Window,GetWindow(P));
-          DestroyWindow(P);
+            /* added 29/11/93 SPF */
+            PurgePendingWindowMessages(WindowObject(P));
+            
+            if (((X_Window_Object *)P)->parent != 0) /* this clients window */
+            {
+                debugReclaim(Window,GetWindow(taskData, P));
+                DestroyWindow(P);
+            }
+            else /* None, ParentRelative, and other clients windows */
+            {
+                debugReclaimRef(Window,GetWindow(taskData, P));
+            }
+            break;
         }
-      else /* None, ParentRelative, and other clients windows */
-        {
-          debugReclaimRef(Window,GetWindow(P));
-        }
-      break;
-    }
-
+        
     case X_Pixmap:
-    {
-      Pixmap pixmap = GetPixmap(P);
-
-      if (pixmap == None)
         {
-          debugReclaimRef(Pixmap,pixmap);
-        }
-      else
-       {
-          debugReclaim(Pixmap,pixmap);
-
+            Pixmap pixmap = GetPixmap(taskData, P);
+            
+            if (pixmap == None)
+            {
+                debugReclaimRef(Pixmap,pixmap);
+            }
+            else
+            {
+                debugReclaim(Pixmap,pixmap);
+                
 #if NEVER
-        XFreePixmap(GetDisplay(P),pixmap);
+                XFreePixmap(GetDisplay(taskData, P),pixmap);
 #endif
-       }
-
-      break;
-    }
-
+            }
+            
+            break;
+        }
+        
     case X_Colormap:
-    {
-      Colormap cmap = GetColormap(P);
-
-      if (cmap == None)
         {
-          debugReclaimRef(Colormap,cmap);
-        }
-      else
-        {
-          debugReclaim(Colormap,cmap);
+            Colormap cmap = GetColormap(taskData, P);
+            
+            if (cmap == None)
+            {
+                debugReclaimRef(Colormap,cmap);
+            }
+            else
+            {
+                debugReclaim(Colormap,cmap);
 #if NEVER
-          XFreeColormap(GetDisplay(P),cmap);
+                XFreeColormap(GetDisplay(taskData, P),cmap);
 #endif
+            }
+            break;
         }
-      break;
-    }
-
+        
     case X_Visual:
-    {
-      Visual *visual = GetVisual(P);
-
-      debugReclaimRef(Visual,visual->visualid);
-      break;
-    }
-
+        {
+            Visual *visual = GetVisual(taskData, P);
+            
+            debugReclaimRef(Visual,visual->visualid);
+            break;
+        }
+        
     case X_Widget:
-    {
-      Widget widget = GetNWidget(P);
-
-      PurgePendingWidgetMessages(WidgetObject(P));
-      debugReclaimRef(Widget,widget);
-      break;
-    }
-    
+        {
+            Widget widget = GetNWidget(taskData, P);
+            
+            PurgePendingWidgetMessages(WidgetObject(taskData, P));
+            debugReclaimRef(Widget,widget);
+            break;
+        }
+        
     case X_Trans:
-    {
-      XtTranslations table = GetTrans(P);
-
-      debugReclaimRef(Trans,table);
-      break;
-    }
-    
+        {
+            XtTranslations table = GetTrans(taskData, P);
+            
+            debugReclaimRef(Trans,table);
+            break;
+        }
+        
     case X_Acc:
-    {
-      XtAccelerators acc = GetAcc((X_Object *)P);
-
-      debugReclaimRef(Acc,acc);
-      break;
-    }
-    
+        {
+            XtAccelerators acc = GetAcc(taskData, (X_Object *)P);
+            
+            debugReclaimRef(Acc,acc);
+            break;
+        }
+        
     default: Crash ("Unknown X_Object type %d",UNTAGGED(P->type));
   }
-
+  
   while(*X)
   {
-    X_List *L = *X;
-
-    if (L->object == P)
-    {
-      *X = L->next;
-      free(L);
-      return;
-    }
-    else X = &L->next;
+      X_List *L = *X;
+      
+      if (L->object == P)
+      {
+          *X = L->next;
+          free(L);
+          return;
+      }
+      else X = &L->next;
   }
   printf("DestroyXObject: destroy failed\n");
 }
 
 #define CheckExists(P,resource) \
 {\
-  if (! ResourceExists(P)) RaiseXWindows ("Non-existent " #resource); \
+  if (! ResourceExists(P)) RaiseXWindows(taskData, "Non-existent " #resource); \
 }
 
 static X_Font_Object *FontObject(X_Object *P)
@@ -1115,15 +1123,15 @@ typedef struct /* depends on XPoint datatype + ML compiler hash function */
 inline MLXPoint * Point(PolyWord p) { return (MLXPoint *) p.AsObjPtr(); }
 
 /* shouldn't these be long values? */
-inline short GetPointX(PolyWord p) { return get_C_short(Point(p)->x); }
-inline short GetPointY(PolyWord p) { return get_C_short(Point(p)->y); }
+inline short GetPointX(TaskData *taskData, PolyWord p) { return get_C_short(taskData, Point(p)->x); }
+inline short GetPointY(TaskData *taskData, PolyWord p) { return get_C_short(taskData, Point(p)->y); }
 
-inline short GetOffsetX(PolyWord p) { return get_C_ushort(Point(p)->x); }
-inline short GetOffsetY(PolyWord p) { return get_C_ushort(Point(p)->y); }
+inline short GetOffsetX(TaskData *taskData, PolyWord p) { return get_C_ushort(taskData, Point(p)->x); }
+inline short GetOffsetY(TaskData *taskData, PolyWord p) { return get_C_ushort(taskData, Point(p)->y); }
 
-static Handle CreatePoint(int x, int y)
+static Handle CreatePoint(TaskData *taskData, int x, int y)
 {
-  Handle pointHandle = alloc_and_save(SIZEOF(MLXPoint), F_MUTABLE_BIT);
+  Handle pointHandle = alloc_and_save(taskData, SIZEOF(MLXPoint), F_MUTABLE_BIT);
   
 /* Still allocating, so must use explicit DEREF for each element */
 #define point ((MLXPoint *)DEREFHANDLE(pointHandle))
@@ -1131,14 +1139,14 @@ static Handle CreatePoint(int x, int y)
   point->y = DEREFWORD(Make_int(y));
 #undef point
 
-  return FINISHED(pointHandle);
+  return FINISHED(taskData, pointHandle);
 }
 
-static void GetPoints(PolyWord p, void *v, unsigned)
+static void GetPoints(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XPoint *A = (XPoint *)v;
-    A->x = GetPointX(p);
-    A->y = GetPointY(p);
+    A->x = GetPointX(taskData, p);
+    A->y = GetPointY(taskData, p);
 }
 
 /******************************************************************************/
@@ -1157,35 +1165,35 @@ typedef struct /* depends on XRectangle datatype + ML compiler hash function */
 
 inline MLXRectangle *Rect(PolyWord R) { return (MLXRectangle *) R.AsObjPtr(); }
 
-inline short GetRectTop(PolyWord R)    { return get_C_short(Rect(R)->top); }
-inline short GetRectLeft(PolyWord R)   { return get_C_short(Rect(R)->left); }
-inline short GetRectRight(PolyWord R)  { return get_C_short(Rect(R)->right); }
-inline short GetRectBottom(PolyWord R) { return get_C_short(Rect(R)->bottom); }
+inline short GetRectTop(TaskData *taskData, PolyWord R)    { return get_C_short(taskData, Rect(R)->top); }
+inline short GetRectLeft(TaskData *taskData, PolyWord R)   { return get_C_short(taskData, Rect(R)->left); }
+inline short GetRectRight(TaskData *taskData, PolyWord R)  { return get_C_short(taskData, Rect(R)->right); }
+inline short GetRectBottom(TaskData *taskData, PolyWord R) { return get_C_short(taskData, Rect(R)->bottom); }
 
-#define GetRectX(R)  GetRectLeft(R)
-#define GetRectY(R)  GetRectTop(R)
+#define GetRectX(taskData, R)  GetRectLeft(taskData, R)
+#define GetRectY(taskData, R)  GetRectTop(taskData, R)
 
 /* functions added 29/10/93 SPF */
-static unsigned GetRectW(PolyWord R)
+static unsigned GetRectW(TaskData *taskData, PolyWord R)
 {
-  long result = GetRectRight(R) - GetRectLeft(R);
+  long result = GetRectRight(taskData, R) - GetRectLeft(taskData, R);
 
-  if (result < 0) RaiseRange();
+  if (result < 0) RaiseRange(taskData);
   return (unsigned)result;
 }
 
-static unsigned GetRectH(PolyWord R)
+static unsigned GetRectH(TaskData *taskData, PolyWord R)
 {
-  long result = GetRectBottom(R) - GetRectTop(R);
+  long result = GetRectBottom(taskData, R) - GetRectTop(taskData, R);
 
-  if (result < 0) RaiseRange();
+  if (result < 0) RaiseRange(taskData);
   return (unsigned)result;
 }
 
 /* static MLXRectangle **CreateRect(top,left,bottom,right) */
-static Handle CreateRect(int top, int left, int bottom, int right)
+static Handle CreateRect(TaskData *taskData, int top, int left, int bottom, int right)
 {
-  Handle rectHandle = alloc_and_save(SIZEOF(MLXRectangle), F_MUTABLE_BIT);
+  Handle rectHandle = alloc_and_save(taskData, SIZEOF(MLXRectangle), F_MUTABLE_BIT);
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define rect ((MLXRectangle *)DEREFHANDLE(rectHandle))
@@ -1195,31 +1203,31 @@ static Handle CreateRect(int top, int left, int bottom, int right)
   rect->bottom = DEREFWORD(Make_int(bottom));
 #undef rect
 
-  return FINISHED(rectHandle);
+  return FINISHED(taskData, rectHandle);
 }
 
-#define CreateArea(w,h) CreateRect(0,0,(int)h,(int)w)
+#define CreateArea(w,h) CreateRect(taskData, 0,0,(int)h,(int)w)
 
-static void GetRects(PolyWord p, void *v, unsigned)
+static void GetRects(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XRectangle *A = (XRectangle *)v;
-    A->x      = GetRectX(p);
-    A->y      = GetRectY(p);
-    A->width  = GetRectW(p);
-    A->height = GetRectH(p);
+    A->x      = GetRectX(taskData, p);
+    A->y      = GetRectY(taskData, p);
+    A->width  = GetRectW(taskData, p);
+    A->height = GetRectH(taskData, p);
 }
 
-static void CheckZeroRect(PolyWord R)
+static void CheckZeroRect(TaskData *taskData, PolyWord R)
 {
-  unsigned x = GetRectX(R);
-  unsigned y = GetRectY(R);
-  unsigned w = GetRectW(R);
-  unsigned h = GetRectH(R);
+  unsigned x = GetRectX(taskData, R);
+  unsigned y = GetRectY(taskData, R);
+  unsigned w = GetRectW(taskData, R);
+  unsigned h = GetRectH(taskData, R);
 
   if (x != 0 || y != 0 || 
 /*     w <= 0 || h <= 0 ||   w,h now unsigned SPF 29/10/93 */
        w == 0 || h == 0 || 
-       w > 65535 || h > 65535) RaiseRange(); 
+       w > 65535 || h > 65535) RaiseRange(taskData); 
 }
 
 
@@ -1240,18 +1248,18 @@ typedef struct
 inline MLXArc *Arc(PolyWord A) { return (MLXArc *) A.AsObjPtr(); }
 
 inline PolyWord GetArcR(PolyWord A)  { return Arc(A)->r; }
-inline short GetArcA1(PolyWord A) { return get_C_short(Arc(A)->a1); }
-inline short GetArcA2(PolyWord A) { return get_C_short(Arc(A)->a2); }
+inline short GetArcA1(TaskData *taskData, PolyWord A) { return get_C_short(taskData, Arc(A)->a1); }
+inline short GetArcA2(TaskData *taskData, PolyWord A) { return get_C_short(taskData, Arc(A)->a2); }
 
-static void GetArcs(PolyWord p, void *v, unsigned)
+static void GetArcs(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XArc *A = (XArc *)v;
-    A->x      = GetRectX(GetArcR(p));
-    A->y      = GetRectY(GetArcR(p));
-    A->width  = GetRectW(GetArcR(p));
-    A->height = GetRectH(GetArcR(p));
-    A->angle1 = GetArcA1(p);
-    A->angle2 = GetArcA2(p);
+    A->x      = GetRectX(taskData, GetArcR(p));
+    A->y      = GetRectY(taskData, GetArcR(p));
+    A->width  = GetRectW(taskData, GetArcR(p));
+    A->height = GetRectH(taskData, GetArcR(p));
+    A->angle1 = GetArcA1(taskData, p);
+    A->angle2 = GetArcA2(taskData, p);
 }
 
 
@@ -1268,7 +1276,7 @@ static X_Colormap_Object *ColormapObject(X_Object *P)
   return (X_Colormap_Object *)P;
 }
 
-static Colormap GetColormap(X_Object *P)
+static Colormap GetColormap(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Colormap);
 
@@ -1283,6 +1291,7 @@ static Colormap GetColormap(X_Object *P)
 
 static Handle EmptyColormap
 (
+  TaskData *taskData,
   Handle   dsHandle /* Handle to (X_Display_Object *) */,
   Colormap id
 )
@@ -1295,14 +1304,14 @@ static Handle EmptyColormap
   }
   else
   {
-    Handle objectHandle = alloc_and_save(SIZEOF(X_Colormap_Object), F_MUTABLE_BIT);
-    Handle cmapHandle   = alloc_and_save(1, F_MUTABLE_BIT | F_BYTE_BIT);
+    Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Colormap_Object), F_MUTABLE_BIT);
+    Handle cmapHandle   = alloc_and_save(taskData, 1, F_MUTABLE_BIT | F_BYTE_BIT);
     
     /* Must do all allocations before we do the first dereference */
     X_Colormap_Object *object = (X_Colormap_Object *)DEREFHANDLE(objectHandle);
     Colormap          *cmap   = (Colormap *)DEREFHANDLE(cmapHandle);
     
-    *cmap = id; FINISHED(cmapHandle);
+    *cmap = id; FINISHED(taskData, cmapHandle);
 
     object->type = TAGGED(X_Colormap);
     object->cmap = cmap;
@@ -1310,7 +1319,7 @@ static Handle EmptyColormap
 
     debugRefer(Colormap,id);
 
-    return AddXObject(FINISHED(objectHandle));
+    return AddXObject(FINISHED(taskData, objectHandle));
   }
 }
 
@@ -1320,7 +1329,7 @@ static Handle EmptyColormap
 /*      Visual                                                                */
 /*                                                                            */
 /******************************************************************************/
-static Visual *GetVisual(X_Object *P)
+static Visual *GetVisual(TaskData *taskData, X_Object *P)
 {
   static Visual EMPTYVISUAL = { 0 };
 
@@ -1337,6 +1346,7 @@ static Visual *GetVisual(X_Object *P)
 
 static Handle EmptyVisual
 (
+  TaskData *taskData,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
   Visual *v
 )
@@ -1350,14 +1360,14 @@ static Handle EmptyVisual
   
   /* else */
   {
-    Handle objectHandle = alloc_and_save(SIZEOF(X_Visual_Object), F_MUTABLE_BIT);
-    Handle visualHandle = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Visual_Object), F_MUTABLE_BIT);
+    Handle visualHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
     
     /* Must do all allocations before we do the first dereference */
     X_Visual_Object *object = (X_Visual_Object *)DEREFHANDLE(objectHandle);
     Visual         **visual = (Visual **)DEREFHANDLE(visualHandle);
     
-    *visual = v; FINISHED(visualHandle);
+    *visual = v; FINISHED(taskData, visualHandle);
   
     object->type   = TAGGED(X_Visual);
     object->visual = visual;
@@ -1365,7 +1375,7 @@ static Handle EmptyVisual
   
     debugRefer(Visual,(v == None) ? None : v->visualid);
       
-    return AddXObject(FINISHED(objectHandle));
+    return AddXObject(FINISHED(taskData, objectHandle));
   }
 }
 
@@ -1381,7 +1391,7 @@ static X_GC_Object *GCObject(X_Object *P)
   return (X_GC_Object *)P;
 }
 
-static GC GetGC(X_Object *P)
+static GC GetGC(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_GC);
 
@@ -1391,7 +1401,7 @@ static GC GetGC(X_Object *P)
 }
 
 
-static Handle GetDefaultGC(Handle dsHandle /* Handle to (X_Display_Object *) */)
+static Handle GetDefaultGC(TaskData *taskData, Handle dsHandle /* Handle to (X_Display_Object *) */)
 {
   GC defaultGC = 
     DefaultGC(DEREFDISPLAYHANDLE(dsHandle)->display,
@@ -1405,14 +1415,14 @@ static Handle GetDefaultGC(Handle dsHandle /* Handle to (X_Display_Object *) */)
   }
   else
   {
-    Handle objectHandle = alloc_and_save(SIZEOF(X_GC_Object), F_MUTABLE_BIT);
-    Handle GCHandle     = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_GC_Object), F_MUTABLE_BIT);
+    Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
     
     /* Must do all allocations before we do the first dereference */
     X_GC_Object *object  = (X_GC_Object *)DEREFHANDLE(objectHandle);
     GC          *gc      = (GC *)DEREFHANDLE(GCHandle);
 
-    *gc = defaultGC; FINISHED(GCHandle);
+    *gc = defaultGC; FINISHED(taskData, GCHandle);
 
     debugRefer(GC,defaultGC->gid);
 
@@ -1430,7 +1440,7 @@ static Handle GetDefaultGC(Handle dsHandle /* Handle to (X_Display_Object *) */)
   }
 }
 
-static void ChangeGC(X_GC_Object *G, unsigned n, PolyWord P)
+static void ChangeGC(TaskData *taskData, X_GC_Object *G, unsigned n, PolyWord P)
 {
   XGCValues v;
   
@@ -1438,63 +1448,64 @@ static void ChangeGC(X_GC_Object *G, unsigned n, PolyWord P)
   
   switch(mask)
   {
-    case GCFunction:          v.function           = get_C_ushort(P); break;
-    case GCPlaneMask:         v.plane_mask         = get_C_ulong (P); break;
-    case GCForeground:        v.foreground         = get_C_ulong (P); break;
-    case GCBackground:        v.background         = get_C_ulong (P); break;
-    case GCLineWidth:         v.line_width         = get_C_short (P); break;
-    case GCLineStyle:         v.line_style         = get_C_ushort(P); break;
-    case GCCapStyle:          v.cap_style          = get_C_ushort(P); break;
-    case GCJoinStyle:         v.join_style         = get_C_ushort(P); break;
-    case GCFillStyle:         v.fill_style         = get_C_ushort(P); break;
-    case GCFillRule:          v.fill_rule          = get_C_ushort(P); break;
-    case GCTileStipXOrigin:   v.ts_x_origin        = get_C_short (P); break;
-    case GCTileStipYOrigin:   v.ts_y_origin        = get_C_short (P); break;
-    case GCSubwindowMode:     v.subwindow_mode     = get_C_ushort(P); break;
-    case GCGraphicsExposures: v.graphics_exposures = get_C_ushort(P); break;
-    case GCClipXOrigin:       v.clip_x_origin      = get_C_short (P); break;
-    case GCClipYOrigin:       v.clip_y_origin      = get_C_short (P); break;
-    case GCDashOffset:        v.dash_offset        = get_C_ushort(P); break;
-    case GCDashList:          v.dashes             = get_C_uchar (P); break;
-    case GCArcMode:           v.arc_mode           = get_C_ushort(P); break;
+    case GCFunction:          v.function           = get_C_ushort(taskData, P); break;
+    case GCPlaneMask:         v.plane_mask         = get_C_ulong (taskData, P); break;
+    case GCForeground:        v.foreground         = get_C_ulong (taskData, P); break;
+    case GCBackground:        v.background         = get_C_ulong (taskData, P); break;
+    case GCLineWidth:         v.line_width         = get_C_short (taskData, P); break;
+    case GCLineStyle:         v.line_style         = get_C_ushort(taskData, P); break;
+    case GCCapStyle:          v.cap_style          = get_C_ushort(taskData, P); break;
+    case GCJoinStyle:         v.join_style         = get_C_ushort(taskData, P); break;
+    case GCFillStyle:         v.fill_style         = get_C_ushort(taskData, P); break;
+    case GCFillRule:          v.fill_rule          = get_C_ushort(taskData, P); break;
+    case GCTileStipXOrigin:   v.ts_x_origin        = get_C_short (taskData, P); break;
+    case GCTileStipYOrigin:   v.ts_y_origin        = get_C_short (taskData, P); break;
+    case GCSubwindowMode:     v.subwindow_mode     = get_C_ushort(taskData, P); break;
+    case GCGraphicsExposures: v.graphics_exposures = get_C_ushort(taskData, P); break;
+    case GCClipXOrigin:       v.clip_x_origin      = get_C_short (taskData, P); break;
+    case GCClipYOrigin:       v.clip_y_origin      = get_C_short (taskData, P); break;
+    case GCDashOffset:        v.dash_offset        = get_C_ushort(taskData, P); break;
+    case GCDashList:          v.dashes             = get_C_uchar (taskData, P); break;
+    case GCArcMode:           v.arc_mode           = get_C_ushort(taskData, P); break;
 
-    case GCFont:     v.font = GetFont((X_Object *)P.AsObjPtr());
+    case GCFont:     v.font = GetFont(taskData, (X_Object *)P.AsObjPtr());
                      G->font_object = FontObject((X_Object *)P.AsObjPtr());
                      break;
                      
-    case GCTile:     v.tile = GetPixmap((X_Object *)P.AsObjPtr());
+    case GCTile:     v.tile = GetPixmap(taskData, (X_Object *)P.AsObjPtr());
                      G->tile = PixmapObject((X_Object *)P.AsObjPtr());
                      break;
                      
-    case GCStipple:  v.stipple = GetPixmap((X_Object *)P.AsObjPtr());
+    case GCStipple:  v.stipple = GetPixmap(taskData, (X_Object *)P.AsObjPtr());
                      G->stipple = PixmapObject((X_Object *)P.AsObjPtr());
                      break;
                      
-    case GCClipMask: v.clip_mask = GetPixmap((X_Object *)P.AsObjPtr());
+    case GCClipMask: v.clip_mask = GetPixmap(taskData, (X_Object *)P.AsObjPtr());
                      G->clipMask = PixmapObject((X_Object *)P.AsObjPtr());
                      break;
 
     default: Crash ("Bad gc mask %u",mask);
   }
   
-  XChangeGC(GetDisplay((X_Object *)G),GetGC((X_Object *)G),mask,&v);
+  XChangeGC(GetDisplay(taskData, (X_Object *)G),GetGC(taskData, (X_Object *)G),mask,&v);
 }
 
 static Handle CreateGC
 (
+  TaskData *taskData,
   Handle   dsHandle /* Handle to (X_Display_Object *) */,
   Drawable w
 )
 {
-  Handle objectHandle = alloc_and_save(SIZEOF(X_GC_Object), F_MUTABLE_BIT);
-  Handle GCHandle     = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_GC_Object), F_MUTABLE_BIT);
+  Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
   /* Must do all allocations before we do the first dereference */
   X_GC_Object *object  = (X_GC_Object *)DEREFHANDLE(objectHandle);
   GC          *gc      = (GC *)DEREFHANDLE(GCHandle);
 
   *gc = XCreateGC(DEREFDISPLAYHANDLE(dsHandle)->display,w,0,0);
-  FINISHED(GCHandle);
+  FINISHED(taskData, GCHandle);
 
   debugCreate(GC,(*gc)->gid);
 
@@ -1524,13 +1535,13 @@ static X_Window_Object *WindowObject(X_Object *P)
   return (X_Window_Object *)P;
 }
 
-static Window GetWindow(X_Object *P)
+static Window GetWindow(TaskData *taskData, X_Object *P)
 {
   if (UNTAGGED(P->type) == X_Pixmap)
   {
     if (*((X_Pixmap_Object*)P)->pixmap == None) return None;
   
-    RaiseXWindows ("Not a window");
+    RaiseXWindows(taskData, "Not a window");
   }
 
   assert(UNTAGGED(P->type) == X_Window);
@@ -1542,6 +1553,7 @@ static Window GetWindow(X_Object *P)
 
 static Handle EmptyWindow
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window w
 )
@@ -1555,16 +1567,16 @@ static Handle EmptyWindow
   else
   {
   
-    Handle objectHandle    = alloc_and_save(SIZEOF(X_Window_Object), F_MUTABLE_BIT);
-    Handle eventMaskHandle = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
-    Handle drawableHandle  = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle    = alloc_and_save(taskData, SIZEOF(X_Window_Object), F_MUTABLE_BIT);
+    Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
     /* Must do all allocations before we do the first dereference */
     X_Window_Object *object    = DEREFWINDOWHANDLE(objectHandle);
     Drawable        *drawable  = (Drawable *)DEREFHANDLE(drawableHandle);
     PolyObject      *eventMask = DEREFHANDLE(eventMaskHandle);
  
-    *drawable  = w; FINISHED(drawableHandle);
+    *drawable  = w; FINISHED(taskData, drawableHandle);
     
 #ifdef nodef
     /* DCJM: This gets in the way of trying to handle ButtonPress events -
@@ -1609,7 +1621,7 @@ static X_Pixmap_Object *PixmapObject(X_Object *P)
   return (X_Pixmap_Object *)P;
 }
 
-static Pixmap GetPixmap(X_Object *P)
+static Pixmap GetPixmap(TaskData *taskData, X_Object *P)
 {
   if (UNTAGGED(P->type) == X_Window)
   {
@@ -1621,7 +1633,7 @@ static Pixmap GetPixmap(X_Object *P)
 
     if (*(((X_Window_Object*)P)->drawable) == None) return None;
   
-    RaiseXWindows ("Not a pixmap");
+    RaiseXWindows(taskData, "Not a pixmap");
   }
 
   assert(UNTAGGED(P->type) == X_Pixmap);
@@ -1642,6 +1654,7 @@ static Pixmap GetPixmap(X_Object *P)
 
 static Handle EmptyPixmap
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Pixmap id
 )
@@ -1654,14 +1667,14 @@ static Handle EmptyPixmap
   }
   else
   {
-    Handle objectHandle = alloc_and_save(SIZEOF(X_Pixmap_Object), F_MUTABLE_BIT);
-    Handle pixmapHandle = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Pixmap_Object), F_MUTABLE_BIT);
+    Handle pixmapHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
     /* Must do all allocations before we do the first dereference */
     X_Pixmap_Object *object  = (X_Pixmap_Object *)DEREFHANDLE(objectHandle);
     Pixmap          *pixmap  = (Pixmap *)DEREFHANDLE(pixmapHandle);
     
-    *pixmap = id; FINISHED(pixmapHandle);
+    *pixmap = id; FINISHED(taskData, pixmapHandle);
 
     object->type   = TAGGED(X_Pixmap);
     object->pixmap = pixmap;
@@ -1669,7 +1682,7 @@ static Handle EmptyPixmap
 
     debugCreate(Pixmap,id);
 
-    return AddXObject(FINISHED(objectHandle));
+    return AddXObject(FINISHED(taskData, objectHandle));
   }
 }
 
@@ -1680,7 +1693,7 @@ static Handle EmptyPixmap
 /*                                                                            */
 /******************************************************************************/
 
-static Drawable GetDrawable(X_Object *P)
+static Drawable GetDrawable(TaskData *taskData, X_Object *P)
 {
   CheckExists(P,drawable);
 
@@ -1699,7 +1712,7 @@ static Drawable GetDrawable(X_Object *P)
 /*      DS / Display                                                          */
 /*                                                                            */
 /******************************************************************************/
-static Handle GetDS(X_Object *P)
+static Handle GetDS(TaskData *taskData, X_Object *P)
 {
   X_Display_Object *ds;
   
@@ -1726,7 +1739,7 @@ static Handle GetDS(X_Object *P)
 }
 
 
-static Display *GetDisplay(X_Object *P)
+static Display *GetDisplay(TaskData *taskData, X_Object *P)
 {
   CheckExists(P,resource);
 
@@ -1754,7 +1767,7 @@ static Display *GetDisplay(X_Object *P)
 /*      FS / Font                                                             */
 /*                                                                            */
 /******************************************************************************/
-static Font GetFont(X_Object *P)
+static Font GetFont(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Font);
   
@@ -1770,6 +1783,7 @@ static Font GetFont(X_Object *P)
 
 static Handle EmptyFont
 (
+  TaskData     *taskData,
   Handle       dsHandle, /* Handle to (X_Display_Object *) */
   Font         id,
   XFontStruct *fs
@@ -1784,17 +1798,17 @@ static Handle EmptyFont
   else
   {
   
-    Handle objectHandle  = alloc_and_save(SIZEOF(X_Font_Object), F_MUTABLE_BIT);
-    Handle fontHandle    = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
-    Handle FSHandle      = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle  = alloc_and_save(taskData, SIZEOF(X_Font_Object), F_MUTABLE_BIT);
+    Handle fontHandle    = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle FSHandle      = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
     /* Must do all allocations before we do the first dereference */
     X_Font_Object *object = (X_Font_Object *)DEREFHANDLE(objectHandle);
     Font          *font   = (Font *)DEREFHANDLE(fontHandle);
     XFontStruct  **FS     = (XFontStruct **)DEREFHANDLE(FSHandle);
 
-    *font = id; FINISHED(fontHandle);
-    *FS   = fs; FINISHED(FSHandle);
+    *font = id; FINISHED(taskData, fontHandle);
+    *FS   = fs; FINISHED(taskData, FSHandle);
 
     object->type = TAGGED(X_Font);
     object->font = font;
@@ -1803,7 +1817,7 @@ static Handle EmptyFont
 
     debugCreate(Font,id);
 
-    return AddXObject(FINISHED(objectHandle));
+    return AddXObject(FINISHED(taskData, objectHandle));
   }
 }
 
@@ -1821,7 +1835,7 @@ static X_Cursor_Object *CursorObject(X_Object *P)
   return (X_Cursor_Object *)P;
 }
 
-static Cursor GetCursor(X_Object *P)
+static Cursor GetCursor(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Cursor);
   
@@ -1837,6 +1851,7 @@ static Cursor GetCursor(X_Object *P)
 
 static Handle EmptyCursor
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Cursor id
 )
@@ -1850,14 +1865,14 @@ static Handle EmptyCursor
   else
   {
   
-    Handle objectHandle  = alloc_and_save(SIZEOF(X_Cursor_Object), F_MUTABLE_BIT);
-    Handle cursorHandle  = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle  = alloc_and_save(taskData, SIZEOF(X_Cursor_Object), F_MUTABLE_BIT);
+    Handle cursorHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
     /* Must do all allocations before we do the first dereference */
     X_Cursor_Object *object = (X_Cursor_Object *)DEREFHANDLE(objectHandle);
     Cursor          *cursor = (Cursor *)DEREFHANDLE(cursorHandle);
     
-    *cursor = id; FINISHED(cursorHandle);
+    *cursor = id; FINISHED(taskData, cursorHandle);
 
     object->type   = TAGGED(X_Cursor);
     object->cursor = cursor;
@@ -1865,21 +1880,23 @@ static Handle EmptyCursor
 
     debugRefer(Cursor,id);
 
-    return AddXObject(FINISHED(objectHandle));
+    return AddXObject(FINISHED(taskData, objectHandle));
   }
 }
 
 static Handle CreateFontCursor
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   unsigned shape
 )
 {
-  return EmptyCursor(dsHandle,XCreateFontCursor(DEREFDISPLAYHANDLE(dsHandle)->display,shape));
+  return EmptyCursor(taskData, dsHandle,XCreateFontCursor(DEREFDISPLAYHANDLE(dsHandle)->display,shape));
 }
 
 static Handle CreateGlyphCursor
 (
+  TaskData *taskData,
   Handle    dsHandle, /* Handle to (X_Display_Object *) */
   Font      sf,
   Font      mf,
@@ -1889,11 +1906,12 @@ static Handle CreateGlyphCursor
   XColor   *background
 )
 {
-  return EmptyCursor(dsHandle,XCreateGlyphCursor(DEREFDISPLAYHANDLE(dsHandle)->display,sf,mf,sc,mc,foreground,background));
+  return EmptyCursor(taskData, dsHandle,XCreateGlyphCursor(DEREFDISPLAYHANDLE(dsHandle)->display,sf,mf,sc,mc,foreground,background));
 }
 
 static Handle CreatePixmapCursor
 (
+  TaskData *taskData,
   Handle    dsHandle, /* Handle to (X_Display_Object *) */
   Pixmap    source,
   Pixmap    mask,
@@ -1903,7 +1921,7 @@ static Handle CreatePixmapCursor
   unsigned  y
 )
 {
-  return EmptyCursor(dsHandle,XCreatePixmapCursor(DEREFDISPLAYHANDLE(dsHandle)->display,source,mask,foreground,background,x,y));
+  return EmptyCursor(taskData, dsHandle,XCreatePixmapCursor(DEREFDISPLAYHANDLE(dsHandle)->display,source,mask,foreground,background,x,y));
 }
 
 /******************************************************************************/
@@ -1911,7 +1929,7 @@ static Handle CreatePixmapCursor
 /*      Widget                                                                */
 /*                                                                            */
 /******************************************************************************/
-static Widget GetNWidget(X_Object *P)
+static Widget GetNWidget(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Widget);
   
@@ -1922,13 +1940,13 @@ static Widget GetNWidget(X_Object *P)
   return *(((X_Widget_Object *)P)->widget);
 }
 
-static Widget GetWidget(X_Object *P)
+static Widget GetWidget(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Widget);
   
   if (*(((X_Widget_Object *)P)->widget) == NULL)
     {
-      RaiseXWindows ("Not a real widget");
+      RaiseXWindows(taskData, "Not a real widget");
     }
 
   CheckExists(P,widget);
@@ -1937,7 +1955,7 @@ static Widget GetWidget(X_Object *P)
 }
 
 /* added 6/11/94 SPF */
-static Widget GetRealizedWidget(char *where, X_Object *P)
+static Widget GetRealizedWidget(TaskData *taskData, char *where, X_Object *P)
 {
   Widget w;
   
@@ -1968,7 +1986,7 @@ static X_Widget_Object *WidgetObjectToken(X_Object *P)
 }
 
 /* P is a pointer to an X_Widget_Object, which is bound to a C widget */
-static X_Widget_Object *WidgetObject(X_Object *P)
+static X_Widget_Object *WidgetObject(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Widget);
   
@@ -1980,6 +1998,7 @@ static X_Widget_Object *WidgetObject(X_Object *P)
 
 static Handle EmptyWidget
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Widget id
 )
@@ -1993,14 +2012,14 @@ static Handle EmptyWidget
   else
   {
   
-    Handle objectHandle = alloc_and_save(SIZEOF(X_Widget_Object), F_MUTABLE_BIT);
-    Handle widgetHandle = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Widget_Object), F_MUTABLE_BIT);
+    Handle widgetHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
   
     /* Must do all allocations before we do the first dereference */
     X_Widget_Object *object = (X_Widget_Object *)DEREFHANDLE(objectHandle);
     Widget          *widget = (Widget *)DEREFHANDLE(widgetHandle);
 
-    *widget = id; FINISHED(widgetHandle);
+    *widget = id; FINISHED(taskData, widgetHandle);
 
     object->type         = TAGGED(X_Widget);
     object->widget       = widget;
@@ -2016,6 +2035,7 @@ static Handle EmptyWidget
 
 static Handle NewWidget
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Widget id
 )
@@ -2024,7 +2044,7 @@ static Handle NewWidget
 
   if (E) DestroyXObject((X_Object *)E);
   
-  return EmptyWidget(dsHandle,id);
+  return EmptyWidget(taskData, dsHandle,id);
 }
 
 
@@ -2033,9 +2053,9 @@ static Handle NewWidget
 /*      Text Widgets                                                          */
 /*                                                                            */
 /******************************************************************************/
-static Widget GetTextWidget(char *funcname, X_Object *P)
+static Widget GetTextWidget(TaskData *taskData, char *funcname, X_Object *P)
 {
-  Widget w = GetWidget(P);
+  Widget w = GetWidget(taskData, P);
   
   if (XmIsText(w)) return w;
   
@@ -2052,9 +2072,9 @@ static Widget GetTextWidget(char *funcname, X_Object *P)
 /*      TextField Widgets                                                     */
 /*                                                                            */
 /******************************************************************************/
-static Widget GetTextFieldWidget(char *funcname, X_Object *P)
+static Widget GetTextFieldWidget(TaskData *taskData, char *funcname, X_Object *P)
 {
-  Widget w = GetWidget(P);
+  Widget w = GetWidget(taskData, P);
   
   if (XmIsTextField(w)) return w;
   
@@ -2067,9 +2087,9 @@ static Widget GetTextFieldWidget(char *funcname, X_Object *P)
 /*      List Widgets                                                          */
 /*                                                                            */
 /******************************************************************************/
-static Widget GetListWidget(char *funcname, X_Object *P)
+static Widget GetListWidget(TaskData *taskData, char *funcname, X_Object *P)
 {
-  Widget w = GetWidget(P);
+  Widget w = GetWidget(taskData, P);
   
   if (XmIsList(w)) return w;
   
@@ -2098,6 +2118,7 @@ static void RemoveWindowEvents(Display *d, Window w)
 
 static Handle AddWindow
 (
+  TaskData *taskData,
   Window W,
   Handle handlerHandle, /* Handle to (PolyWord *) (?)  */
   Handle stateHandle,   /* Handle to (PolyWord *) (?)  */      
@@ -2106,11 +2127,11 @@ static Handle AddWindow
 {
   XWMHints hints;
   Atom deleteWindow; /* was int SPF 6/1/94 */
-  Display *d = GetDisplay(DEREFXOBJECTHANDLE(parentHandle));
+  Display *d = GetDisplay(taskData, DEREFXOBJECTHANDLE(parentHandle));
 
-  Handle objectHandle    = alloc_and_save(SIZEOF(X_Window_Object), F_MUTABLE_BIT);
-  Handle eventMaskHandle = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
-  Handle drawableHandle  = alloc_and_save(1, F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle    = alloc_and_save(taskData, SIZEOF(X_Window_Object), F_MUTABLE_BIT);
+  Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
 
   /* Must do all allocations before we do the first dereference */
   X_Window_Object *object    = DEREFWINDOWHANDLE(objectHandle);
@@ -2118,7 +2139,7 @@ static Handle AddWindow
   PolyObject      *eventMask = DEREFHANDLE(eventMaskHandle);
 
   eventMask->Set(0, PolyWord::FromUnsigned(0)); /* eventMask must remain MUTABLE */
-  *drawable  = W; FINISHED(drawableHandle);
+  *drawable  = W; FINISHED(taskData, drawableHandle);
 
   hints.flags = InputHint;
   hints.input = True;
@@ -2152,8 +2173,9 @@ static Handle AddWindow
 
 static void DestroyWindow(X_Object *W /* Should be a Window Object! */)
 {
-  Window   w = GetWindow(W);
-  Display *d = GetDisplay(W);
+    TaskData *taskData = processes->GetTaskDataForThread();
+  Window   w = GetWindow(taskData, W);
+  Display *d = GetDisplay(taskData, W);
   
   debugReclaim(Window,w);
 
@@ -2168,6 +2190,7 @@ static void DestroyWindow(X_Object *W /* Should be a Window Object! */)
 
 static Handle CreateSimpleWindow
 (
+  TaskData *taskData,
   Handle   parent, /* Handle to (X_Window_Object *) */
   int      x,
   int      y,
@@ -2180,18 +2203,19 @@ static Handle CreateSimpleWindow
   Handle   state    /* Handle to (PolyWord *) (?) */
 )
 {
-  Window W = XCreateSimpleWindow(GetDisplay(DEREFXOBJECTHANDLE(parent)),
-                                   GetWindow(DEREFXOBJECTHANDLE(parent)),
+  Window W = XCreateSimpleWindow(GetDisplay(taskData, DEREFXOBJECTHANDLE(parent)),
+                                   GetWindow(taskData, DEREFXOBJECTHANDLE(parent)),
                                    x,y,w,h,
                                    borderWidth,border,background);
 
-  if (W == 0) RaiseXWindows ("XCreateSimpleWindow failed");
+  if (W == 0) RaiseXWindows(taskData, "XCreateSimpleWindow failed");
 
-  return AddWindow(W,handler,state,parent);
+  return AddWindow(taskData,W,handler,state,parent);
 }
 
 static Handle CreateWindow
 (
+  TaskData *taskData,
   Handle   parent, /* Handle to (X_Window_Object *) */
   int      x,
   int      y,
@@ -2207,30 +2231,31 @@ static Handle CreateWindow
 {
   Window W;
 
-  W = XCreateWindow(GetDisplay(DEREFXOBJECTHANDLE(parent)),
-                      GetWindow(DEREFXOBJECTHANDLE(parent)),
+  W = XCreateWindow(GetDisplay(taskData, DEREFXOBJECTHANDLE(parent)),
+                      GetWindow(taskData, DEREFXOBJECTHANDLE(parent)),
                       x,y,w,h,
                       borderWidth,depth,clas,visual,0,0);
 
-  if (W == 0) RaiseXWindows ("XCreateWindow failed");
+  if (W == 0) RaiseXWindows(taskData, "XCreateWindow failed");
 
-  return AddWindow(W,handler,state,parent);
+  return AddWindow(taskData,W,handler,state,parent);
 }
 
 static void DestroySubwindows(X_Object *W /* should be a Window object! */)
 {
+    TaskData *taskData = processes->GetTaskDataForThread();
   Window   root,parent,*children;
   unsigned n;
   int      s;
 
-  Window   w = GetWindow(W);
-  Display *d = GetDisplay(W);
+  Window   w = GetWindow(taskData, W);
+  Display *d = GetDisplay(taskData, W);
   
   s = XQueryTree(d,w,&root,&parent,&children,&n);
 
   if (s == 0)
   {
-    RaiseXWindows ("XDestroySubwindows failed");
+    RaiseXWindows(taskData, "XDestroySubwindows failed");
     return;
   }
   
@@ -2238,7 +2263,7 @@ static void DestroySubwindows(X_Object *W /* should be a Window object! */)
 
   if (n)
   {
-    Handle dsHandle = GetDS(W);
+    Handle dsHandle = GetDS(taskData, W);
 
     while(n--)
     {
@@ -2259,9 +2284,9 @@ static void DestroySubwindows(X_Object *W /* should be a Window object! */)
 /*      Translations / Accelerators                                           */
 /*                                                                            */
 /******************************************************************************/
-static Handle EmptyTrans(XtTranslations table)
+static Handle EmptyTrans(TaskData *taskData, XtTranslations table)
 {
-  Handle objectHandle = alloc_and_save(SIZEOF(X_Trans_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Trans_Object), F_MUTABLE_BIT|F_BYTE_BIT);
 
   /* Must do all allocations before we do the first dereference */
   X_Trans_Object *object = (X_Trans_Object *)DEREFHANDLE(objectHandle);
@@ -2272,10 +2297,10 @@ static Handle EmptyTrans(XtTranslations table)
   
   debugRefer(Trans,table);
 
-  return AddXObject(FINISHED(objectHandle));
+  return AddXObject(FINISHED(taskData, objectHandle));
 }
 
-static XtTranslations GetTrans(X_Object *P)
+static XtTranslations GetTrans(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Trans);
   
@@ -2284,10 +2309,10 @@ static XtTranslations GetTrans(X_Object *P)
   return ((X_Trans_Object *)P)->table;
 }
 
-static Handle EmptyAcc(XtTranslations acc)
+static Handle EmptyAcc(TaskData *taskData, XtTranslations acc)
 {
 
-  Handle objectHandle = alloc_and_save(SIZEOF(X_Acc_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Acc_Object), F_MUTABLE_BIT|F_BYTE_BIT);
 
   /* Must do all allocations before we do the first dereference */
   X_Acc_Object *object = (X_Acc_Object *)DEREFHANDLE(objectHandle);
@@ -2298,10 +2323,10 @@ static Handle EmptyAcc(XtTranslations acc)
 
   debugRefer(Acc,acc);
 
-  return AddXObject(FINISHED(objectHandle));
+  return AddXObject(FINISHED(taskData, objectHandle));
 }
 
-static XtAccelerators GetAcc(X_Object *P)
+static XtAccelerators GetAcc(TaskData *taskData, X_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Acc);
   
@@ -2316,9 +2341,9 @@ static XtAccelerators GetAcc(X_Object *P)
 /*                                                                            */
 /******************************************************************************/
 
-static XtGrabKind GetXtGrabKind(PolyWord P)
+static XtGrabKind GetXtGrabKind(TaskData *taskData, PolyWord P)
 {
-  int i = get_C_long(P);
+  int i = get_C_long(taskData, P);
   
   /* This encoding must be the same as that used in Motif/ml_bind.ML */
   switch (i)
@@ -2353,26 +2378,27 @@ typedef struct
 }  MLXStandardColormap;
 
 
-static void GetStandardColormap(PolyWord p, void *v, unsigned)
+static void GetStandardColormap(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     MLXStandardColormap *P = (MLXStandardColormap *)p.AsObjPtr();
     XStandardColormap *s = (XStandardColormap *)v;
-    s->colormap   = GetColormap((X_Object *)P->Colormap);
+    s->colormap   = GetColormap(taskData, (X_Object *)P->Colormap);
 
-    s->red_max    = get_C_ulong(P->redMax);
-    s->red_mult   = get_C_ulong(P->redMult);
-    s->green_max  = get_C_ulong(P->greenMax);
-    s->green_mult = get_C_ulong(P->greenMult);
-    s->blue_max   = get_C_ulong(P->blueMax);
-    s->blue_mult  = get_C_ulong(P->blueMult);
-    s->base_pixel = get_C_ulong(P->basePixel);
+    s->red_max    = get_C_ulong(taskData, P->redMax);
+    s->red_mult   = get_C_ulong(taskData, P->redMult);
+    s->green_max  = get_C_ulong(taskData, P->greenMax);
+    s->green_mult = get_C_ulong(taskData, P->greenMult);
+    s->blue_max   = get_C_ulong(taskData, P->blueMax);
+    s->blue_mult  = get_C_ulong(taskData, P->blueMult);
+    s->base_pixel = get_C_ulong(taskData, P->basePixel);
 
-    s->visualid   = GetVisual((X_Object *)P->visual)->visualid; /* UNSAFE(?) */
+    s->visualid   = GetVisual(taskData, (X_Object *)P->visual)->visualid; /* UNSAFE(?) */
     s->killid     = None;
 }
 
 static Handle CreateStandardColormap
 (
+  TaskData *taskData,
   void *v,
   Handle dsHandle /* Handle to (X_Display_Object *) */
 )
@@ -2382,7 +2408,7 @@ static Handle CreateStandardColormap
   XVisualInfo *info;
   int count;
   
-  Handle tupleHandle = alloc_and_save(SIZEOF(MLXStandardColormap), F_MUTABLE_BIT);
+  Handle tupleHandle = alloc_and_save(taskData, SIZEOF(MLXStandardColormap), F_MUTABLE_BIT);
   
   T.visualid = s->visualid;
   T.visual   = None;
@@ -2398,18 +2424,18 @@ static Handle CreateStandardColormap
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define tuple /* hack */((MLXStandardColormap *)DEREFHANDLE(tupleHandle))
-  tuple->Colormap  = (X_Colormap_Object *)DEREFHANDLE(EmptyColormap(dsHandle,s->colormap));
-  tuple->redMax    = DEREFWORD(Make_unsigned(s->red_max));
-  tuple->redMult   = DEREFWORD(Make_unsigned(s->red_mult));
-  tuple->greenMax  = DEREFWORD(Make_unsigned(s->green_max));
-  tuple->greenMult = DEREFWORD(Make_unsigned(s->green_mult));
-  tuple->blueMax   = DEREFWORD(Make_unsigned(s->blue_max));
-  tuple->blueMult  = DEREFWORD(Make_unsigned(s->blue_mult));
-  tuple->basePixel = DEREFWORD(Make_unsigned(s->base_pixel));
-  tuple->visual    = (X_Visual_Object *)DEREFHANDLE(EmptyVisual(dsHandle,T.visual));
+  tuple->Colormap  = (X_Colormap_Object *)DEREFHANDLE(EmptyColormap(taskData, dsHandle,s->colormap));
+  tuple->redMax    = DEREFWORD(Make_unsigned(taskData, s->red_max));
+  tuple->redMult   = DEREFWORD(Make_unsigned(taskData, s->red_mult));
+  tuple->greenMax  = DEREFWORD(Make_unsigned(taskData, s->green_max));
+  tuple->greenMult = DEREFWORD(Make_unsigned(taskData, s->green_mult));
+  tuple->blueMax   = DEREFWORD(Make_unsigned(taskData, s->blue_max));
+  tuple->blueMult  = DEREFWORD(Make_unsigned(taskData, s->blue_mult));
+  tuple->basePixel = DEREFWORD(Make_unsigned(taskData, s->base_pixel));
+  tuple->visual    = (X_Visual_Object *)DEREFHANDLE(EmptyVisual(taskData, dsHandle,T.visual));
 #undef tuple
   
-  return FINISHED(tupleHandle);
+  return FINISHED(taskData, tupleHandle);
 }
 
 
@@ -2428,9 +2454,9 @@ public:
 
 
 /* Polymorphic pair creation */
-static Handle CreatePair(Handle p1, Handle p2)
+static Handle CreatePair(TaskData *taskData, Handle p1, Handle p2)
 {
-  Handle pairHandle = alloc_and_save(SIZEOF(MLPair), F_MUTABLE_BIT);
+  Handle pairHandle = alloc_and_save(taskData, SIZEOF(MLPair), F_MUTABLE_BIT);
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define pair ((MLPair *)DEREFHANDLE(pairHandle))
@@ -2438,7 +2464,7 @@ static Handle CreatePair(Handle p1, Handle p2)
   pair->x1 = DEREFWORD(p2);
 #undef pair
 
-  return FINISHED(pairHandle);
+  return FINISHED(taskData, pairHandle);
 }
 
 
@@ -2460,9 +2486,9 @@ inline PolyWord FST(PolyWord P)   { return ((MLTriple*)P.AsObjPtr())->x0; }
 inline PolyWord SND(PolyWord P)   { return ((MLTriple*)P.AsObjPtr())->x1; }
 inline PolyWord THIRD(PolyWord P) { return ((MLTriple*)P.AsObjPtr())->x2; }
 
-static Handle CreateTriple(Handle p1, Handle p2, Handle p3)
+static Handle CreateTriple(TaskData *taskData, Handle p1, Handle p2, Handle p3)
 {
-  Handle tripleHandle = alloc_and_save(SIZEOF(MLTriple), F_MUTABLE_BIT);
+  Handle tripleHandle = alloc_and_save(taskData, SIZEOF(MLTriple), F_MUTABLE_BIT);
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define triple ((MLTriple *)DEREFHANDLE(tripleHandle))
@@ -2471,7 +2497,7 @@ static Handle CreateTriple(Handle p1, Handle p2, Handle p3)
   triple->x2 = DEREFWORD(p3);
 #undef triple
 
-  return FINISHED(tripleHandle);
+  return FINISHED(taskData, tripleHandle);
 }
 
 
@@ -2510,25 +2536,25 @@ static unsigned ImageBytes(XImage *image)
     return dsize;
 }
 
-static XImage *GetXImage(Display *d, PolyWord p)
+static XImage *GetXImage(TaskData *taskData, Display *d, PolyWord p)
 /* can only be called once per X opcode */
 {
     MLXImage *I = (MLXImage *)p.AsObjPtr();
   static XImage image = { 0 };
   
   PolyStringObject  *data           = GetString(I->data);
-  unsigned width          = GetRectW(I->size);
-  unsigned height         = GetRectH(I->size);
-  unsigned depth          = get_C_ulong(I->depth);
-  unsigned format         = get_C_ulong(I->format);
-  int      xoffset        = get_C_short(I->xoffset);
-  int      bitmapPad      = get_C_short(I->bitmapPad);
-  int      bytesPerLine   = get_C_long (I->bytesPerLine);
+  unsigned width          = GetRectW(taskData, I->size);
+  unsigned height         = GetRectH(taskData, I->size);
+  unsigned depth          = get_C_ulong(taskData, I->depth);
+  unsigned format         = get_C_ulong(taskData, I->format);
+  int      xoffset        = get_C_short(taskData, I->xoffset);
+  int      bitmapPad      = get_C_short(taskData, I->bitmapPad);
+  int      bytesPerLine   = get_C_long (taskData, I->bytesPerLine);
 
-  unsigned byteOrder      = get_C_ulong(I->byteOrder);
-  unsigned bitmapUnit     = get_C_ulong(I->bitmapUnit);
-  unsigned bitsPerPixel   = get_C_ulong(I->bitsPerPixel);
-  unsigned bitmapBitOrder = get_C_ulong(I->bitmapBitOrder);
+  unsigned byteOrder      = get_C_ulong(taskData, I->byteOrder);
+  unsigned bitmapUnit     = get_C_ulong(taskData, I->bitmapUnit);
+  unsigned bitsPerPixel   = get_C_ulong(taskData, I->bitsPerPixel);
+  unsigned bitmapBitOrder = get_C_ulong(taskData, I->bitmapBitOrder);
 
   format         = CImageFormat(format);
   byteOrder      = CImageOrder(byteOrder);
@@ -2546,46 +2572,47 @@ static XImage *GetXImage(Display *d, PolyWord p)
   image.depth            = depth;
   image.bytes_per_line   = bytesPerLine;
   image.bits_per_pixel   = bitsPerPixel;
-  image.red_mask         = get_C_ulong(I->visualRedMask);
-  image.green_mask       = get_C_ulong(I->visualGreenMask);
-  image.blue_mask        = get_C_ulong(I->visualBlueMask);
+  image.red_mask         = get_C_ulong(taskData, I->visualRedMask);
+  image.green_mask       = get_C_ulong(taskData, I->visualGreenMask);
+  image.blue_mask        = get_C_ulong(taskData, I->visualBlueMask);
   
-  if (ImageBytes(&image) != data->length) RaiseXWindows ("Bad image string length");
+  if (ImageBytes(&image) != data->length) RaiseXWindows(taskData, "Bad image string length");
   
   return &image;
 }
 
-static Handle CreateImage(XImage *image)
+static Handle CreateImage(TaskData *taskData, XImage *image)
 {
-  Handle XHandle = alloc_and_save(SIZEOF(MLXImage), F_MUTABLE_BIT);
+  Handle XHandle = alloc_and_save(taskData, SIZEOF(MLXImage), F_MUTABLE_BIT);
   
   int dsize = ImageBytes(image);
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define  X ((MLXImage *)DEREFHANDLE(XHandle))
-  X->data            = Buffer_to_Poly(image->data,dsize);
+  X->data            = Buffer_to_Poly(taskData, image->data,dsize);
   X->size            = DEREFWORD(CreateArea(image->width,image->height));
-  X->depth           = DEREFWORD(Make_unsigned(image->depth));
-  X->format          = DEREFWORD(Make_unsigned(MLImageFormat(image->format)));
+  X->depth           = DEREFWORD(Make_unsigned(taskData, image->depth));
+  X->format          = DEREFWORD(Make_unsigned(taskData, MLImageFormat(image->format)));
   X->xoffset         = DEREFWORD(Make_int(image->xoffset));
   X->bitmapPad       = DEREFWORD(Make_int(image->bitmap_pad));
-  X->byteOrder       = DEREFWORD(Make_unsigned(MLImageOrder(image->byte_order)));
-  X->bitmapUnit      = DEREFWORD(Make_unsigned(image->bitmap_unit));
-  X->bitsPerPixel    = DEREFWORD(Make_unsigned(image->bits_per_pixel));
+  X->byteOrder       = DEREFWORD(Make_unsigned(taskData, MLImageOrder(image->byte_order)));
+  X->bitmapUnit      = DEREFWORD(Make_unsigned(taskData, image->bitmap_unit));
+  X->bitsPerPixel    = DEREFWORD(Make_unsigned(taskData, image->bits_per_pixel));
   X->bytesPerLine    = DEREFWORD(Make_int(image->bytes_per_line));
-  X->visualRedMask   = DEREFWORD(Make_unsigned(image->red_mask));
-  X->bitmapBitOrder  = DEREFWORD(Make_unsigned(MLImageOrder(image->bitmap_bit_order)));
-  X->visualBlueMask  = DEREFWORD(Make_unsigned(image->blue_mask));
-  X->visualGreenMask = DEREFWORD(Make_unsigned(image->green_mask));
+  X->visualRedMask   = DEREFWORD(Make_unsigned(taskData, image->red_mask));
+  X->bitmapBitOrder  = DEREFWORD(Make_unsigned(taskData, MLImageOrder(image->bitmap_bit_order)));
+  X->visualBlueMask  = DEREFWORD(Make_unsigned(taskData, image->blue_mask));
+  X->visualGreenMask = DEREFWORD(Make_unsigned(taskData, image->green_mask));
 #undef X
 
   XDestroyImage(image);
   
-  return FINISHED(XHandle);
+  return FINISHED(taskData, XHandle);
 }
 
 static Handle GetImage
 (
+  TaskData *taskData,
   Display *d,
   Drawable drawable,
   int      x,
@@ -2598,13 +2625,14 @@ static Handle GetImage
 {
   XImage *image = XGetImage(d,drawable,x,y,w,h,mask,CImageFormat(format));
   
-  if (image == 0) RaiseXWindows ("XGetImage failed");
+  if (image == 0) RaiseXWindows(taskData, "XGetImage failed");
   
-  return CreateImage(image);
+  return CreateImage(taskData, image);
 }
 
 static Handle SubImage
 (
+  TaskData *taskData,
   XImage   *image,
   int      x,
   int      y,
@@ -2614,9 +2642,9 @@ static Handle SubImage
 {
   XImage *subimage = XSubImage(image,x,y,w,h);
   
-  if (subimage == 0) RaiseXWindows ("XSubImage failed");
+  if (subimage == 0) RaiseXWindows(taskData, "XSubImage failed");
   
-  return CreateImage(subimage);
+  return CreateImage(taskData, subimage);
 }
 
 
@@ -2664,13 +2692,13 @@ static void PutImage
   /* XFree((char *)image); */
 }
 
-static Handle GetPixel(XImage *image, int x, int y)
+static Handle GetPixel(TaskData *taskData, XImage *image, int x, int y)
 {
   unsigned pixel = XGetPixel(image,x,y);
   
   /* XFree((char *)image); */
   
-  return Make_unsigned(pixel);
+  return Make_unsigned(taskData, pixel);
 }
 
 static void PutPixel(XImage *image, int x, int y, unsigned pixel)
@@ -2831,7 +2859,7 @@ static void WaitDoubleClickTime(Handle dsHandle, PredicateArgs *A)
   }
 }
 
-static Handle GetKeyVector(void *k, unsigned i)
+static Handle GetKeyVector(TaskData *taskData, void *k, unsigned i)
 {
     uchar *keys = (uchar*)k;
     unsigned index = i / 8;
@@ -2839,11 +2867,11 @@ static Handle GetKeyVector(void *k, unsigned i)
     return Make_bool(keys[index] & mask);
 }
 
-static Handle QueryKeymap(Display *d)
+static Handle QueryKeymap(TaskData *taskData, Display *d)
 {
     char keys[32];
     XQueryKeymap(d, keys);
-    return CreateList4I(256,keys,0,GetKeyVector);
+    return CreateList4I(taskData, 256,keys,0,GetKeyVector);
 }
 
 /******************************************************************************/
@@ -3127,12 +3155,13 @@ public:
 
 static Handle CreateEvent
 (
+  TaskData *taskData,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
   XEvent *ev,
   Handle  W         /* Handle to (X_Window_Object *) */
 )
 {
-  Handle eventHandle = alloc_and_save(SIZEOF(ML_Event), F_MUTABLE_BIT);
+  Handle eventHandle = alloc_and_save(taskData, SIZEOF(ML_Event), F_MUTABLE_BIT);
 
   Display *d     = DEREFDISPLAYHANDLE(dsHandle)->display;
   int type       = ev->xany.type;
@@ -3147,7 +3176,7 @@ static Handle CreateEvent
   }
 
 #define event ((ML_Event *)DEREFHANDLE(eventHandle))
-  event->type      = DEREFWORD(Make_unsigned(type));
+  event->type      = DEREFWORD(Make_unsigned(taskData, type));
   event->sendEvent = DEREFWORD(Make_bool(send_event));
   event->window    = DEREFWINDOWHANDLE(W);
 
@@ -3156,19 +3185,19 @@ static Handle CreateEvent
     case KeyPress:
     case KeyRelease:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_KeyEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_KeyEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_KeyEvent_Data *)DEREFHANDLE(dataHandle))
-      data->root        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xkey.root));
-      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xkey.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(ev->xkey.time));
-      data->pointer     = (MLXPoint *)DEREFHANDLE(CreatePoint(ev->xkey.x,ev->xkey.y));
-      data->rootPointer = (MLXPoint *)DEREFHANDLE(CreatePoint(ev->xkey.x_root,ev->xkey.y_root));
-      data->modifiers   = DEREFWORD(Make_unsigned(ev->xkey.state));
-      data->keycode     = DEREFWORD(Make_unsigned(ev->xkey.keycode));
+      data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xkey.root));
+      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xkey.subwindow));
+      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xkey.time));
+      data->pointer     = (MLXPoint *)DEREFHANDLE(CreatePoint(taskData, ev->xkey.x,ev->xkey.y));
+      data->rootPointer = (MLXPoint *)DEREFHANDLE(CreatePoint(taskData, ev->xkey.x_root,ev->xkey.y_root));
+      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xkey.state));
+      data->keycode     = DEREFWORD(Make_unsigned(taskData, ev->xkey.keycode));
 #undef data
 
-      event->data = DEREFHANDLE(FINISHED(dataHandle));
+      event->data = DEREFHANDLE(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3189,39 +3218,39 @@ static Handle CreateEvent
       
         WaitDoubleClickTime(dsHandle,&A);
 
-        dataHandle = alloc_and_save(SIZEOF(ML_ButtonClick_Data), F_MUTABLE_BIT);
+        dataHandle = alloc_and_save(taskData, SIZEOF(ML_ButtonClick_Data), F_MUTABLE_BIT);
  
 #define data ((ML_ButtonClick_Data *)DEREFHANDLE(dataHandle))
-        data->root        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xbutton.root));
-        data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xbutton.subwindow));
-        data->time        = DEREFWORD(Make_unsigned(ev->xbutton.time));
-        data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xbutton.x,ev->xbutton.y));
-        data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xbutton.x_root,ev->xbutton.y_root));
-        data->modifiers   = DEREFWORD(Make_unsigned(ev->xbutton.state));
-        data->button      = DEREFWORD(Make_unsigned(ev->xbutton.button));
-        data->up          = DEREFWORD(Make_unsigned(A.up));
-        data->down        = DEREFWORD(Make_unsigned(A.down));
+        data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.root));
+        data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.subwindow));
+        data->time        = DEREFWORD(Make_unsigned(taskData, ev->xbutton.time));
+        data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x,ev->xbutton.y));
+        data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x_root,ev->xbutton.y_root));
+        data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xbutton.state));
+        data->button      = DEREFWORD(Make_unsigned(taskData, ev->xbutton.button));
+        data->up          = DEREFWORD(Make_unsigned(taskData, A.up));
+        data->down        = DEREFWORD(Make_unsigned(taskData, A.down));
 #undef data
   
-        event->type = DEREFWORD(Make_unsigned(42)); /* What's this for? */
-        event->data = DEREFWORD(FINISHED(dataHandle));
+        event->type = DEREFWORD(Make_unsigned(taskData, 42)); /* What's this for? */
+        event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       }
       else
       {
-        Handle dataHandle = alloc_and_save(SIZEOF(ML_ButtonEvent_Data), F_MUTABLE_BIT);
+        Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_ButtonEvent_Data), F_MUTABLE_BIT);
   
 #define data ((ML_ButtonEvent_Data *)DEREFHANDLE(dataHandle))
-        data->root        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xbutton.root));
-        data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xbutton.subwindow));
-        data->time        = DEREFWORD(Make_unsigned(ev->xbutton.time));
-        data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xbutton.x,ev->xbutton.y));
-        data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xbutton.x_root,ev->xbutton.y_root));
-        data->modifiers   = DEREFWORD(Make_unsigned(ev->xbutton.state));
-        data->button      = DEREFWORD(Make_unsigned(ev->xbutton.button));
+        data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.root));
+        data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.subwindow));
+        data->time        = DEREFWORD(Make_unsigned(taskData, ev->xbutton.time));
+        data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x,ev->xbutton.y));
+        data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x_root,ev->xbutton.y_root));
+        data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xbutton.state));
+        data->button      = DEREFWORD(Make_unsigned(taskData, ev->xbutton.button));
 #undef data
   
-        event->data = DEREFWORD(FINISHED(dataHandle));
+        event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       }
       
@@ -3232,19 +3261,19 @@ static Handle CreateEvent
     case MotionNotify:
     {
 
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_MotionEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_MotionEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_MotionEvent_Data *)DEREFHANDLE(dataHandle))
-      data->root        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xmotion.root));
-      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xmotion.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(ev->xmotion.time));
-      data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xmotion.x,ev->xmotion.y));
-      data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xmotion.x_root,ev->xmotion.y_root));
-      data->modifiers   = DEREFWORD(Make_unsigned(ev->xmotion.state));
-      data->isHint      = DEREFWORD(Make_unsigned(ev->xmotion.is_hint));
+      data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xmotion.root));
+      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xmotion.subwindow));
+      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xmotion.time));
+      data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xmotion.x,ev->xmotion.y));
+      data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xmotion.x_root,ev->xmotion.y_root));
+      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xmotion.state));
+      data->isHint      = DEREFWORD(Make_unsigned(taskData, ev->xmotion.is_hint));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
     
       
       break;
@@ -3253,21 +3282,21 @@ static Handle CreateEvent
     case EnterNotify:
     case LeaveNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_CrossingEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_CrossingEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_CrossingEvent_Data *)DEREFHANDLE(dataHandle))
-      data->root        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xcrossing.root));
-      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xcrossing.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(ev->xcrossing.time));
-      data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xcrossing.x,ev->xcrossing.y));
-      data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xcrossing.x_root,ev->xcrossing.y_root));
-      data->mode        = DEREFWORD(Make_unsigned(ev->xcrossing.mode));
-      data->detail      = DEREFWORD(Make_unsigned(ev->xcrossing.detail));
+      data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcrossing.root));
+      data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcrossing.subwindow));
+      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.time));
+      data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xcrossing.x,ev->xcrossing.y));
+      data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xcrossing.x_root,ev->xcrossing.y_root));
+      data->mode        = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.mode));
+      data->detail      = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.detail));
       data->focus       = DEREFWORD(Make_bool(ev->xcrossing.focus));
-      data->modifiers   = DEREFWORD(Make_unsigned(ev->xcrossing.state));
+      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.state));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
     
       break;
     }
@@ -3296,14 +3325,14 @@ static Handle CreateEvent
         bottom = max(bottom,B);
       }
       
-      dataHandle = alloc_and_save(SIZEOF(ML_ExposeEvent_Data), F_MUTABLE_BIT);
+      dataHandle = alloc_and_save(taskData, SIZEOF(ML_ExposeEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_ExposeEvent_Data *)DEREFHANDLE(dataHandle))
-      data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(top,left,bottom,right));
-      data->count  = DEREFWORD(Make_unsigned(0));
+      data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(taskData, top,left,bottom,right));
+      data->count  = DEREFWORD(Make_unsigned(taskData, 0));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3316,40 +3345,40 @@ static Handle CreateEvent
       int right  = left + ev->xgraphicsexpose.width;
       int bottom = top  + ev->xgraphicsexpose.height;
 
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_GraphicsExposeEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_GraphicsExposeEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_GraphicsExposeEvent_Data *)DEREFHANDLE(dataHandle))
-      data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(top,left,bottom,right));
-      data->count  = DEREFWORD(Make_unsigned(ev->xgraphicsexpose.count));
-      data->code   = DEREFWORD(Make_unsigned(ev->xgraphicsexpose.major_code));
+      data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(taskData, top,left,bottom,right));
+      data->count  = DEREFWORD(Make_unsigned(taskData, ev->xgraphicsexpose.count));
+      data->code   = DEREFWORD(Make_unsigned(taskData, ev->xgraphicsexpose.major_code));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
 
     case NoExpose:
     {
-      event->data = DEREFWORD(Make_unsigned(ev->xnoexpose.major_code));
+      event->data = DEREFWORD(Make_unsigned(taskData, ev->xnoexpose.major_code));
       
       break;
     }
 
     case ConfigureNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_ConfigureNotify_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_ConfigureNotify_Data), F_MUTABLE_BIT);
 
 #define data ((ML_ConfigureNotify_Data *)DEREFHANDLE(dataHandle))
-      data->window           = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xconfigure.window));
-      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xconfigure.x,ev->xconfigure.y));
+      data->window           = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xconfigure.window));
+      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xconfigure.x,ev->xconfigure.y));
       data->size             = (MLXRectangle *)   DEREFHANDLE(CreateArea(ev->xconfigure.width,ev->xconfigure.height));
       data->borderWidth      = DEREFWORD(Make_int(ev->xconfigure.border_width));
-      data->above            = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xconfigure.above));
+      data->above            = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xconfigure.above));
       data->overrideRedirect = DEREFWORD(Make_bool(ev->xconfigure.override_redirect));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3359,14 +3388,14 @@ static Handle CreateEvent
     case FocusIn:
     case FocusOut:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_FocusChangeEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_FocusChangeEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_FocusChangeEvent_Data *)DEREFHANDLE(dataHandle))
       data->mode   = DEREFWORD(Make_int(ev->xfocus.mode));
       data->detail = DEREFWORD(Make_int(ev->xfocus.detail));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
@@ -3381,17 +3410,17 @@ static Handle CreateEvent
 
     case CreateNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_CreateEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_CreateEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_CreateEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window           = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xcreatewindow.window));
-      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xcreatewindow.x,ev->xcreatewindow.y));
+      data->window           = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcreatewindow.window));
+      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xcreatewindow.x,ev->xcreatewindow.y));
       data->size             = (MLXRectangle *)   DEREFHANDLE(CreateArea(ev->xcreatewindow.width,ev->xcreatewindow.height));
       data->borderWidth      = DEREFWORD(Make_int(ev->xcreatewindow.border_width));
       data->overrideRedirect = DEREFWORD(Make_bool(ev->xcreatewindow.override_redirect));
 #undef data
 
-      event->data = DEREFHANDLE(FINISHED(dataHandle));
+      event->data = DEREFHANDLE(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3399,42 +3428,42 @@ static Handle CreateEvent
     case DestroyNotify:
     {
       debugReclaim(Window,ev->xdestroywindow.window);
-      event->data = DEREFWORD(EmptyWindow(dsHandle,ev->xdestroywindow.window));
+      event->data = DEREFWORD(EmptyWindow(taskData, dsHandle,ev->xdestroywindow.window));
       
       break;
     }
     
     case UnmapNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_UnmapEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_UnmapEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_UnmapEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window        = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xunmap.window));
+      data->window        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xunmap.window));
       data->fromConfigure = DEREFWORD(Make_bool(ev->xunmap.from_configure));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
     
     case MapNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_MapEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_MapEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_MapEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window           = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xmap.window));
+      data->window           = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xmap.window));
       data->overrideRedirect = DEREFWORD(Make_bool(ev->xmap.override_redirect));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
     
     case MapRequest:
     {
-      event->data = DEREFWORD(EmptyWindow(dsHandle,ev->xmaprequest.window));
+      event->data = DEREFWORD(EmptyWindow(taskData, dsHandle,ev->xmaprequest.window));
       
       break;
     }
@@ -3442,16 +3471,16 @@ static Handle CreateEvent
 
     case ReparentNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_ReparentEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_ReparentEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_ReparentEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window           = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xreparent.window));
-      data->parent           = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xreparent.parent));
-      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xreparent.x,ev->xreparent.y));
+      data->window           = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xreparent.window));
+      data->parent           = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xreparent.parent));
+      data->position         = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xreparent.x,ev->xreparent.y));
       data->overrideRedirect = DEREFWORD(Make_bool(ev->xreparent.override_redirect));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3459,32 +3488,32 @@ static Handle CreateEvent
 
     case ConfigureRequest:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_ConfigureRequest_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_ConfigureRequest_Data), F_MUTABLE_BIT);
 
 #define data ((ML_ConfigureRequest_Data *)DEREFHANDLE(dataHandle))
-      data->window      = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xconfigurerequest.window));
-      data->position    = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xconfigurerequest.x,ev->xconfigurerequest.y));
+      data->window      = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xconfigurerequest.window));
+      data->position    = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xconfigurerequest.x,ev->xconfigurerequest.y));
       data->size        = (MLXRectangle *)   DEREFHANDLE(CreateArea(ev->xconfigurerequest.width,ev->xconfigurerequest.height));
       data->borderWidth = DEREFWORD(Make_int(ev->xconfigurerequest.border_width));
-      data->above       = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xconfigurerequest.above));
+      data->above       = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xconfigurerequest.above));
       data->detail      = DEREFWORD(Make_int(ev->xconfigurerequest.detail));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
 
     case GravityNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_GravityEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_GravityEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_GravityEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window   = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xgravity.window));
-      data->position = (MLXPoint *)       DEREFHANDLE(CreatePoint(ev->xgravity.x,ev->xgravity.y));
+      data->window   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xgravity.window));
+      data->position = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xgravity.x,ev->xgravity.y));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
@@ -3499,43 +3528,43 @@ static Handle CreateEvent
 
     case CirculateNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_CirculateEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_CirculateEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_CirculateEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xcirculate.window));
+      data->window = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcirculate.window));
       data->place  = DEREFWORD(Make_int(ev->xcirculate.place));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
 
     case CirculateRequest:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_CirculateEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_CirculateEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_CirculateEvent_Data *)DEREFHANDLE(dataHandle))
-      data->window = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xcirculaterequest.window));
+      data->window = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcirculaterequest.window));
       data->place  = DEREFWORD(Make_int(ev->xcirculaterequest.place));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
 
     case ColormapNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_ColormapEvent_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_ColormapEvent_Data), F_MUTABLE_BIT);
 
 #define data ((ML_ColormapEvent_Data *)DEREFHANDLE(dataHandle))
-      data->colormap_object = (X_Colormap_Object *)DEREFHANDLE(EmptyColormap(dsHandle,ev->xcolormap.colormap));
+      data->colormap_object = (X_Colormap_Object *)DEREFHANDLE(EmptyColormap(taskData, dsHandle,ev->xcolormap.colormap));
       data->c_new             = DEREFWORD(Make_bool(ev->xcolormap.c_new));
       data->installed       = DEREFWORD(Make_bool(ev->xcolormap.state == ColormapInstalled));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3548,47 +3577,47 @@ static Handle CreateEvent
 
     case SelectionClear:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_SelectionClear_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_SelectionClear_Data), F_MUTABLE_BIT);
 
 #define data ((ML_SelectionClear_Data *)DEREFHANDLE(dataHandle))
-      data->selection = DEREFWORD(Make_unsigned(ev->xselectionclear.selection));
-      data->time      = DEREFWORD(Make_unsigned(ev->xselectionclear.time));
+      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselectionclear.selection));
+      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselectionclear.time));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       break;
     }
     
     case SelectionNotify:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_Selection_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_Selection_Data), F_MUTABLE_BIT);
 
 #define data ((ML_Selection_Data *)DEREFHANDLE(dataHandle))
-      data->selection = DEREFWORD(Make_unsigned(ev->xselection.selection));
-      data->target    = DEREFWORD(Make_unsigned(ev->xselection.target));
-      data->property  = DEREFWORD(Make_unsigned(ev->xselection.property));
-      data->time      = DEREFWORD(Make_unsigned(ev->xselection.time));
+      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselection.selection));
+      data->target    = DEREFWORD(Make_unsigned(taskData, ev->xselection.target));
+      data->property  = DEREFWORD(Make_unsigned(taskData, ev->xselection.property));
+      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselection.time));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
     
     case SelectionRequest:
     {
-      Handle dataHandle = alloc_and_save(SIZEOF(ML_SelectionRequest_Data), F_MUTABLE_BIT);
+      Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_SelectionRequest_Data), F_MUTABLE_BIT);
 
 #define data ((ML_SelectionRequest_Data *)DEREFHANDLE(dataHandle))
-      data->requestor = DEREFWINDOWHANDLE(EmptyWindow(dsHandle,ev->xselectionrequest.requestor));
-      data->selection = DEREFWORD(Make_unsigned(ev->xselectionrequest.selection));
-      data->target    = DEREFWORD(Make_unsigned(ev->xselectionrequest.target));
-      data->property  = DEREFWORD(Make_unsigned(ev->xselectionrequest.property));
-      data->time      = DEREFWORD(Make_unsigned(ev->xselectionrequest.time));
+      data->requestor = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xselectionrequest.requestor));
+      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.selection));
+      data->target    = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.target));
+      data->property  = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.property));
+      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.time));
 #undef data
 
-      event->data = DEREFWORD(FINISHED(dataHandle));
+      event->data = DEREFWORD(FINISHED(taskData, dataHandle));
       
       break;
     }
@@ -3604,7 +3633,7 @@ static Handle CreateEvent
            ev->xclient.format       == 32        && 
            ev->xclient.data.l[0]    == deleteWindow)
       {
-        event->type = DEREFWORD(Make_unsigned(43)); /* (?) */
+        event->type = DEREFWORD(Make_unsigned(taskData, 43)); /* (?) */
       
         break;
       }
@@ -3624,7 +3653,7 @@ static Handle CreateEvent
   event->events = GList; /* Safe, since GList is a Root */
   GList = TAGGED(0);
 
-  return FINISHED(eventHandle);
+  return FINISHED(taskData, eventHandle);
 #undef event
 }
 
@@ -3633,7 +3662,7 @@ static Handle CreateEvent
 /*      HERE                                                                  */
 /*                                                                            */
 /******************************************************************************/
-static Handle LookupString(Display *d, unsigned keycode, unsigned modifiers)
+static Handle LookupString(TaskData *taskData, Display *d, unsigned keycode, unsigned modifiers)
 {
   XKeyEvent ev;
   int n;
@@ -3648,30 +3677,31 @@ static Handle LookupString(Display *d, unsigned keycode, unsigned modifiers)
   
   buffer[n] = '\0';
   
-  return CreatePair(Make_string(buffer),Make_unsigned(keysym));
+  return CreatePair(taskData, Make_string(buffer),Make_unsigned(taskData, keysym));
 }
 
-static Handle GetScreenSaver(Display *d)
+static Handle GetScreenSaver(TaskData *taskData, Display *d)
 {
   int timeout,interval,blanking,exposures;
   Handle tuple;
   
   XGetScreenSaver(d,&timeout,&interval,&blanking,&exposures);
   
-  tuple = alloc_and_save(4, F_MUTABLE_BIT);
+  tuple = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)
   data->Set(0, DEREFWORD(Make_int(timeout)));
   data->Set(1, DEREFWORD(Make_int(interval)));
-  data->Set(2, DEREFWORD(Make_unsigned(blanking)));
-  data->Set(3, DEREFWORD(Make_unsigned(exposures)));
+  data->Set(2, DEREFWORD(Make_unsigned(taskData, blanking)));
+  data->Set(3, DEREFWORD(Make_unsigned(taskData, exposures)));
 #undef data
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
 static Handle TranslateCoordinates
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window src,
   Window dst,
@@ -3684,14 +3714,15 @@ static Handle TranslateCoordinates
   
   s = XTranslateCoordinates(DEREFDISPLAYHANDLE(dsHandle)->display,src,dst,x,y,&dx,&dy,&child);
   
-  if (s == 0) RaiseXWindows ("XTranslateCoordinates failed");
+  if (s == 0) RaiseXWindows(taskData, "XTranslateCoordinates failed");
   
-  return CreatePair(CreatePoint(dx,dy),EmptyWindow(dsHandle,child));
+  return CreatePair(taskData, CreatePoint(taskData, dx,dy),EmptyWindow(taskData, dsHandle,child));
 }
   
 
 static Handle QueryBest
 (
+ TaskData *taskData,
  int    (*f)(Display*, Drawable, unsigned, unsigned, unsigned *, unsigned *),
  Display *d,
  Drawable drawable,
@@ -3703,13 +3734,14 @@ static Handle QueryBest
     
     int s = (* f)(d,drawable,width,height,&W,&H);
     
-    if (s == 0) RaiseXWindows ("XQueryBest failed");
+    if (s == 0) RaiseXWindows(taskData, "XQueryBest failed");
     
     return CreateArea(W,H);
 }
 
 static Handle QueryPointer
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window  w
 )
@@ -3723,22 +3755,23 @@ static Handle QueryPointer
   
   s = XQueryPointer(DEREFDISPLAYHANDLE(dsHandle)->display,w,&root,&child,&rootX,&rootY,&winX,&winY,&mask);
   
-  tuple = alloc_and_save(6, F_MUTABLE_BIT);
+  tuple = alloc_and_save(taskData, 6, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)  
-  data->Set(0, DEREFWORD(Make_unsigned(s)));
-  data->Set(1, DEREFWORD(EmptyWindow(dsHandle,root)));
-  data->Set(2, DEREFWORD(EmptyWindow(dsHandle,child)));
-  data->Set(3, DEREFWORD(CreatePoint(rootX,rootY)));
-  data->Set(4, DEREFWORD(CreatePoint(winX,winY)));
-  data->Set(5, DEREFWORD(Make_unsigned(mask)));
+  data->Set(0, DEREFWORD(Make_unsigned(taskData, s)));
+  data->Set(1, DEREFWORD(EmptyWindow(taskData, dsHandle,root)));
+  data->Set(2, DEREFWORD(EmptyWindow(taskData, dsHandle,child)));
+  data->Set(3, DEREFWORD(CreatePoint(taskData, rootX,rootY)));
+  data->Set(4, DEREFWORD(CreatePoint(taskData, winX,winY)));
+  data->Set(5, DEREFWORD(Make_unsigned(taskData, mask)));
 #undef data
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
 static Handle ReadBitmap
 (
+  TaskData *taskData,
   Handle   dsHandle, /* handle to (X_Display_Object *) */
   Drawable w,
   PolyStringObject  *string
@@ -3754,28 +3787,29 @@ static Handle ReadBitmap
 
   s = XReadBitmapFile(DEREFDISPLAYHANDLE(dsHandle)->display,w,name,&width,&height,&pixmap,&xhot,&yhot);
   
-  tuple = alloc_and_save(4, F_MUTABLE_BIT);
+  tuple = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)
 
-  data->Set(0,DEREFWORD(Make_unsigned(s)));
+  data->Set(0,DEREFWORD(Make_unsigned(taskData, s)));
 
   if (s == BitmapSuccess)
   {
-    data->Set(1, DEREFWORD(EmptyPixmap(dsHandle,pixmap)));
+    data->Set(1, DEREFWORD(EmptyPixmap(taskData, dsHandle,pixmap)));
     data->Set(2, DEREFWORD(CreateArea(width,height)));
-    data->Set(3, DEREFWORD(CreatePoint(xhot,yhot)));
+    data->Set(3, DEREFWORD(CreatePoint(taskData, xhot,yhot)));
   }
   
   /******************** What if we don't succeed? Badly-formed tuple !!!! */
 
 #undef data
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
 static Handle WriteBitmapFile
 (
+  TaskData *taskData,
   PolyStringObject  *string,
   Display *d,
   Pixmap   bitmap,
@@ -3791,10 +3825,10 @@ static Handle WriteBitmapFile
 
   s = XWriteBitmapFile(d,name,bitmap,w,h,x,y);
   
-  return Make_unsigned(s);
+  return Make_unsigned(taskData, s);
 }
 
-static Handle GetDefault(Display *d, PolyStringObject *s1, PolyStringObject *s2)
+static Handle GetDefault(TaskData *taskData, Display *d, PolyStringObject *s1, PolyStringObject *s2)
 {
   char program[500]; char option[500]; char *s;
 
@@ -3803,37 +3837,37 @@ static Handle GetDefault(Display *d, PolyStringObject *s1, PolyStringObject *s2)
 
   s = XGetDefault(d,program,option);
   
-  if (s == NULL) RaiseXWindows ("XGetDefault failed");
+  if (s == NULL) RaiseXWindows(taskData, "XGetDefault failed");
   
   return Make_string(s);
 }
 
 
-static void GetWindows(PolyWord p, void *w, unsigned)
+static void GetWindows(TaskData *taskData, PolyWord p, void *w, unsigned)
 {
-    *(Window *)w = GetWindow((X_Object *)p.AsObjPtr());
+    *(Window *)w = GetWindow(taskData, (X_Object *)p.AsObjPtr());
 }
 
 
-static void GetSegments(PolyWord pp, void *w, unsigned)
+static void GetSegments(TaskData *taskData, PolyWord pp, void *w, unsigned)
 {
     XSegment *A = (XSegment *)w;
     PolyObject *p = pp.AsObjPtr();
-    A->x1 = GetPointX(p->Get(0));
-    A->y1 = GetPointY(p->Get(0));
-    A->x2 = GetPointX(p->Get(1));
-    A->y2 = GetPointY(p->Get(1));
+    A->x1 = GetPointX(taskData, p->Get(0));
+    A->y1 = GetPointY(taskData, p->Get(0));
+    A->x2 = GetPointX(taskData, p->Get(1));
+    A->y2 = GetPointY(taskData, p->Get(1));
 }
 
-static void GetChar2(PolyWord p, void *v, unsigned)
+static void GetChar2(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XChar2b *A = (XChar2b *)v;
-    unsigned u = get_C_ushort(p);
+    unsigned u = get_C_ushort(taskData, p);
     A->byte1 = u >> 8;
     A->byte2 = u &0xFF;
 }
 
-static void CopyString(PolyWord w, void *v, unsigned)
+static void CopyString(TaskData *, PolyWord w, void *v, unsigned)
 {
     char **p = (char**)v;
     PolyStringObject *s = GetString(w);
@@ -3842,36 +3876,37 @@ static void CopyString(PolyWord w, void *v, unsigned)
     Poly_string_to_C(s,*p,n);
 }
 
-static void GetText(PolyWord p, void *w, unsigned)
+static void GetText(TaskData *taskData, PolyWord p, void *w, unsigned)
 {
     XTextItem *A = (XTextItem *)w;
     PolyObject *obj = p.AsObjPtr();
-    CopyString(obj->Get(0), &A->chars, 0);
+    CopyString(taskData, obj->Get(0), &A->chars, 0);
     
     A->nchars = strlen(A->chars);
-    A->delta  = get_C_short(obj->Get(1));
-    A->font   = GetFont((X_Object *)obj->Get(2).AsObjPtr());
+    A->delta  = get_C_short(taskData, obj->Get(1));
+    A->font   = GetFont(taskData, (X_Object *)obj->Get(2).AsObjPtr());
 }
 
-static void GetText16(PolyWord p, void *v, unsigned)
+static void GetText16(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XTextItem16 *A = (XTextItem16 *)v;
     PolyObject *obj = p.AsObjPtr();
     unsigned     N = ListLength(obj->Get(0));
     XChar2b *L = (XChar2b *) malloc(N * sizeof(XChar2b));
     
-    GetList4(obj->Get(0),L,sizeof(XChar2b),GetChar2);
+    GetList4(taskData,obj->Get(0),L,sizeof(XChar2b),GetChar2);
     
     A->chars  = L;
     A->nchars = N;
-    A->delta  = get_C_short(obj->Get(1));
-    A->font   = GetFont((X_Object *)obj->Get(2).AsObjPtr());
+    A->delta  = get_C_short(taskData, obj->Get(1));
+    A->font   = GetFont(taskData, (X_Object *)obj->Get(2).AsObjPtr());
 }
 
-typedef void (*GetFunc)(PolyWord, void*, unsigned);
+typedef void (*GetFunc)(TaskData *taskData, PolyWord, void*, unsigned);
 
 static void SetClipRectangles
 (
+  TaskData *taskData,
   Display *d,
   GC       gc,
   int      x,
@@ -3889,19 +3924,20 @@ static void SetClipRectangles
     unsigned        N = ListLength(DEREFWORD(list));
     XRectangle *L = (XRectangle *) alloca(N * sizeof(XRectangle));
     
-    GetList4(DEREFWORD(list),L,sizeof(XRectangle),GetRects);
+    GetList4(taskData, DEREFWORD(list),L,sizeof(XRectangle),GetRects);
     
     XSetClipRectangles(d,gc,x,y,L,N,order);
   }
 }
 
-static void GetUChars(PolyWord p, void *u, unsigned)
+static void GetUChars(TaskData *taskData, PolyWord p, void *u, unsigned)
 {
-    *(uchar*)u = get_C_uchar(p);
+    *(uchar*)u = get_C_uchar(taskData, p);
 }
 
 static void SetDashes
 (
+ TaskData *taskData,
  Display *d,
  GC       gc,
  unsigned offset,
@@ -3913,7 +3949,7 @@ static void SetDashes
         unsigned   N = ListLength(DEREFWORD(list));
         char *D  = (char *) alloca(N);
         
-        GetList4(DEREFWORD(list),D,sizeof(uchar),GetUChars);
+        GetList4(taskData,DEREFWORD(list),D,sizeof(uchar),GetUChars);
         
         XSetDashes(d,gc,offset,D,N);
     }
@@ -3921,15 +3957,17 @@ static void SetDashes
 
 static Handle CreateDrawable
 (
+  TaskData *taskData,
   void  *p,
   Handle   dsHandle /* Handle to (X_Display_Object *) */
 )
 {
-    return EmptyWindow(dsHandle,*(Window*)p);
+    return EmptyWindow(taskData, dsHandle,*(Window*)p);
 }
 
 static Handle QueryTree
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   Window   w
 )
@@ -3940,26 +3978,26 @@ static Handle QueryTree
 
   int s = XQueryTree(DEREFDISPLAYHANDLE(dsHandle)->display,w,&root,&parent,&children,&n);
 
-  if (s == 0) RaiseXWindows ("XQueryTree failed");
+  if (s == 0) RaiseXWindows(taskData, "XQueryTree failed");
 
-  data = CreateTriple(EmptyWindow(dsHandle,root),
-                      EmptyWindow(dsHandle,parent),
-                      CreateList5(n,children,sizeof(Window),CreateDrawable,dsHandle));
+  data = CreateTriple(taskData, EmptyWindow(taskData, dsHandle,root),
+                      EmptyWindow(taskData, dsHandle,parent),
+                      CreateList5(taskData, n,children,sizeof(Window),CreateDrawable,dsHandle));
 
   if (n) XFree((char *)children);
 
   return data;
 }
 
-static void RestackWindows(Handle list /* handle to list of X_Window_Objects (?) */)
+static void RestackWindows(TaskData *taskData, Handle list /* handle to list of X_Window_Objects (?) */)
 {
   if (NONNIL(DEREFWORD(list)))
   {
     unsigned N = ListLength(DEREFWORD(list));
     Window  *W = (Window *) alloca(N * sizeof(Window));
-    Display *d = GetDisplay((X_Object *)DEREFLISTHANDLE(list)->h.AsObjPtr());
+    Display *d = GetDisplay(taskData, (X_Object *)DEREFLISTHANDLE(list)->h.AsObjPtr());
   
-    GetList4(DEREFWORD(list),W,sizeof(Window),GetWindows);
+    GetList4(taskData, DEREFWORD(list),W,sizeof(Window),GetWindows);
   
     XRestackWindows(d,W,N);
   }
@@ -3967,6 +4005,7 @@ static void RestackWindows(Handle list /* handle to list of X_Window_Objects (?)
 
 static Handle GetGeometry
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   Drawable w
 )
@@ -3978,23 +4017,24 @@ static Handle GetGeometry
 
   int s = XGetGeometry(DEREFDISPLAYHANDLE(dsHandle)->display,w,&root,&x,&y,&width,&height,&borderWidth,&depth);
   
-  if (s == 0) RaiseXWindows ("XGetGeometry failed");
+  if (s == 0) RaiseXWindows(taskData, "XGetGeometry failed");
   
-  dataHandle = alloc_and_save(5, F_MUTABLE_BIT);
+  dataHandle = alloc_and_save(taskData, 5, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(dataHandle) 
-  data->Set(0, DEREFWORD(EmptyWindow(dsHandle,root)));
-  data->Set(1, DEREFWORD(CreatePoint(x,y)));
+  data->Set(0, DEREFWORD(EmptyWindow(taskData, dsHandle,root)));
+  data->Set(1, DEREFWORD(CreatePoint(taskData, x,y)));
   data->Set(2, DEREFWORD(CreateArea(width,height)));
-  data->Set(3, DEREFWORD(Make_unsigned(borderWidth)));
-  data->Set(4, DEREFWORD(Make_unsigned(depth)));
+  data->Set(3, DEREFWORD(Make_unsigned(taskData, borderWidth)));
+  data->Set(4, DEREFWORD(Make_unsigned(taskData, depth)));
 #undef data
 
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
 static Handle GetWindowAttributes
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   Drawable w
 )
@@ -4004,37 +4044,38 @@ static Handle GetWindowAttributes
   
   int s = XGetWindowAttributes(DEREFDISPLAYHANDLE(dsHandle)->display,w,&wa);
   
-  if (s == 0) RaiseXWindows ("XGetWindowAttributes failed");
+  if (s == 0) RaiseXWindows(taskData, "XGetWindowAttributes failed");
   
-  dataHandle = alloc_and_save(20, F_MUTABLE_BIT);
+  dataHandle = alloc_and_save(taskData, 20, F_MUTABLE_BIT);
 
 /* HACKY - should define struct? */
-  DEREFHANDLE(dataHandle)->Set( 0, DEREFWORD(CreatePoint(wa.x,wa.y)));
+  DEREFHANDLE(dataHandle)->Set( 0, DEREFWORD(CreatePoint(taskData, wa.x,wa.y)));
   DEREFHANDLE(dataHandle)->Set( 1, DEREFWORD(CreateArea(wa.width,wa.height)));
   DEREFHANDLE(dataHandle)->Set( 2, DEREFWORD(Make_int(wa.border_width)));
-  DEREFHANDLE(dataHandle)->Set( 3, DEREFWORD(Make_unsigned(wa.depth)));
-  DEREFHANDLE(dataHandle)->Set( 4, DEREFWORD(EmptyVisual(dsHandle,wa.visual)));
-  DEREFHANDLE(dataHandle)->Set( 5, DEREFWORD(EmptyWindow(dsHandle,wa.root)));
-  DEREFHANDLE(dataHandle)->Set( 6, DEREFWORD(Make_unsigned(wa.c_class)));
-  DEREFHANDLE(dataHandle)->Set( 7, DEREFWORD(Make_unsigned(wa.bit_gravity)));
-  DEREFHANDLE(dataHandle)->Set( 8, DEREFWORD(Make_unsigned(wa.win_gravity)));
-  DEREFHANDLE(dataHandle)->Set( 9, DEREFWORD(Make_unsigned(wa.backing_store)));
-  DEREFHANDLE(dataHandle)->Set(10, DEREFWORD(Make_unsigned(wa.backing_planes)));
-  DEREFHANDLE(dataHandle)->Set(11, DEREFWORD(Make_unsigned(wa.backing_pixel)));
+  DEREFHANDLE(dataHandle)->Set( 3, DEREFWORD(Make_unsigned(taskData, wa.depth)));
+  DEREFHANDLE(dataHandle)->Set( 4, DEREFWORD(EmptyVisual(taskData, dsHandle,wa.visual)));
+  DEREFHANDLE(dataHandle)->Set( 5, DEREFWORD(EmptyWindow(taskData, dsHandle,wa.root)));
+  DEREFHANDLE(dataHandle)->Set( 6, DEREFWORD(Make_unsigned(taskData, wa.c_class)));
+  DEREFHANDLE(dataHandle)->Set( 7, DEREFWORD(Make_unsigned(taskData, wa.bit_gravity)));
+  DEREFHANDLE(dataHandle)->Set( 8, DEREFWORD(Make_unsigned(taskData, wa.win_gravity)));
+  DEREFHANDLE(dataHandle)->Set( 9, DEREFWORD(Make_unsigned(taskData, wa.backing_store)));
+  DEREFHANDLE(dataHandle)->Set(10, DEREFWORD(Make_unsigned(taskData, wa.backing_planes)));
+  DEREFHANDLE(dataHandle)->Set(11, DEREFWORD(Make_unsigned(taskData, wa.backing_pixel)));
   DEREFHANDLE(dataHandle)->Set(12, DEREFWORD(Make_bool(wa.save_under)));
-  DEREFHANDLE(dataHandle)->Set(13, DEREFWORD(EmptyColormap(dsHandle,wa.colormap)));
+  DEREFHANDLE(dataHandle)->Set(13, DEREFWORD(EmptyColormap(taskData, dsHandle,wa.colormap)));
   DEREFHANDLE(dataHandle)->Set(14, DEREFWORD(Make_bool(wa.map_installed)));
-  DEREFHANDLE(dataHandle)->Set(15, DEREFWORD(Make_unsigned(wa.map_state)));
-  DEREFHANDLE(dataHandle)->Set(16, DEREFWORD(Make_unsigned(wa.all_event_masks)));
-  DEREFHANDLE(dataHandle)->Set(17, DEREFWORD(Make_unsigned(wa.your_event_mask)));
-  DEREFHANDLE(dataHandle)->Set(18, DEREFWORD(Make_unsigned(wa.do_not_propagate_mask)));
+  DEREFHANDLE(dataHandle)->Set(15, DEREFWORD(Make_unsigned(taskData, wa.map_state)));
+  DEREFHANDLE(dataHandle)->Set(16, DEREFWORD(Make_unsigned(taskData, wa.all_event_masks)));
+  DEREFHANDLE(dataHandle)->Set(17, DEREFWORD(Make_unsigned(taskData, wa.your_event_mask)));
+  DEREFHANDLE(dataHandle)->Set(18, DEREFWORD(Make_unsigned(taskData, wa.do_not_propagate_mask)));
   DEREFHANDLE(dataHandle)->Set(19, DEREFWORD(Make_bool(wa.override_redirect)));
   
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
 static void ChangeWindowAttributes
 (
+  TaskData *taskData,
   X_Window_Object *W,
   unsigned         n,
   PolyWord         P
@@ -4046,49 +4087,50 @@ static void ChangeWindowAttributes
   
   switch(mask)
   {
-    case CWBitGravity:       a.bit_gravity           = get_C_ulong(P); break;
-    case CWWinGravity:       a.win_gravity           = get_C_ulong(P); break;
-    case CWBackingStore:     a.backing_store         = get_C_ulong(P); break;
-    case CWBackingPlanes:    a.backing_planes        = get_C_ulong(P); break;
-    case CWBackingPixel:     a.backing_pixel         = get_C_ulong(P); break;
-    case CWOverrideRedirect: a.override_redirect     = get_C_ulong(P); break;
-    case CWSaveUnder:        a.save_under            = get_C_ulong(P); break;
-    case CWEventMask:        a.event_mask            = get_C_ulong(P); break;
-    case CWDontPropagate:    a.do_not_propagate_mask = get_C_ulong(P); break;
+    case CWBitGravity:       a.bit_gravity           = get_C_ulong(taskData, P); break;
+    case CWWinGravity:       a.win_gravity           = get_C_ulong(taskData, P); break;
+    case CWBackingStore:     a.backing_store         = get_C_ulong(taskData, P); break;
+    case CWBackingPlanes:    a.backing_planes        = get_C_ulong(taskData, P); break;
+    case CWBackingPixel:     a.backing_pixel         = get_C_ulong(taskData, P); break;
+    case CWOverrideRedirect: a.override_redirect     = get_C_ulong(taskData, P); break;
+    case CWSaveUnder:        a.save_under            = get_C_ulong(taskData, P); break;
+    case CWEventMask:        a.event_mask            = get_C_ulong(taskData, P); break;
+    case CWDontPropagate:    a.do_not_propagate_mask = get_C_ulong(taskData, P); break;
 
-    case CWBackPixel:    a.background_pixel = get_C_ulong(P);
+    case CWBackPixel:    a.background_pixel = get_C_ulong(taskData, P);
                          W->backgroundPixmap = 0;
                          break;
                          
-    case CWBackPixmap:   a.background_pixmap = GetPixmap((X_Object *)P.AsObjPtr());
+    case CWBackPixmap:   a.background_pixmap = GetPixmap(taskData, (X_Object *)P.AsObjPtr());
                          W->backgroundPixmap = PixmapObject((X_Object *)P.AsObjPtr());
                          break;
                          
-    case CWBorderPixel:  a.border_pixel = get_C_ulong(P);
+    case CWBorderPixel:  a.border_pixel = get_C_ulong(taskData, P);
                          W->borderPixmap = 0;
                          break;
                          
-    case CWBorderPixmap: a.border_pixmap = GetPixmap((X_Object *)P.AsObjPtr());
+    case CWBorderPixmap: a.border_pixmap = GetPixmap(taskData, (X_Object *)P.AsObjPtr());
                          W->borderPixmap = PixmapObject((X_Object *)P.AsObjPtr());
                          break;
                          
-    case CWColormap:     a.colormap = GetColormap((X_Object *)P.AsObjPtr());
+    case CWColormap:     a.colormap = GetColormap(taskData, (X_Object *)P.AsObjPtr());
                          W->colormap_object = ColormapObject((X_Object *)P.AsObjPtr());
                          break;
                          
-    case CWCursor:       a.cursor = GetCursor((X_Object *)P.AsObjPtr());
+    case CWCursor:       a.cursor = GetCursor(taskData, (X_Object *)P.AsObjPtr());
                          W->cursor_object = CursorObject((X_Object *)P.AsObjPtr());
                          break;
 
     default: Crash ("Bad window mask %u",mask);
   }
   
-  XChangeWindowAttributes(GetDisplay((X_Object *)W),GetWindow((X_Object *)W),mask,&a);
+  XChangeWindowAttributes(GetDisplay(taskData, (X_Object *)W),GetWindow(taskData, (X_Object *)W),mask,&a);
 }
 
 
 static void ConfigureWindow
 (
+  TaskData *taskData,
   Display *d,
   Window   w,
   PolyWord   tup /* (P,S,w,d,s,flags) */
@@ -4097,17 +4139,17 @@ static void ConfigureWindow
     PolyObject *tuple = tup.AsObjPtr();
   XWindowChanges wc;
   
-  unsigned mask = get_C_ulong(tuple->Get(5));
+  unsigned mask = get_C_ulong(taskData, tuple->Get(5));
   
-  CheckZeroRect(tuple->Get(1));
+  CheckZeroRect(taskData, tuple->Get(1));
   
-  wc.x            = GetPointX  (tuple->Get(0));
-  wc.y            = GetPointY  (tuple->Get(0));
-  wc.width        = GetRectW   (tuple->Get(1)); 
-  wc.height       = GetRectH   (tuple->Get(1));
-  wc.border_width = get_C_ulong(tuple->Get(2));
-  wc.sibling      = GetWindow  ((X_Object *)tuple->Get(3).AsObjPtr());
-  wc.stack_mode   = get_C_ulong(tuple->Get(4));
+  wc.x            = GetPointX  (taskData,tuple->Get(0));
+  wc.y            = GetPointY  (taskData,tuple->Get(0));
+  wc.width        = GetRectW   (taskData,tuple->Get(1)); 
+  wc.height       = GetRectH   (taskData,tuple->Get(1));
+  wc.border_width = get_C_ulong(taskData, tuple->Get(2));
+  wc.sibling      = GetWindow  (taskData,(X_Object *)tuple->Get(3).AsObjPtr());
+  wc.stack_mode   = get_C_ulong(taskData, tuple->Get(4));
   
   XConfigureWindow(d,w,mask,&wc);
 }
@@ -4132,79 +4174,80 @@ static void ClearXColor(XColor *x)
   x->red = x->green = x->blue = x->pixel = x->flags = 0;
 }
 
-static Handle CreateXColor(XColor *x)
+static Handle CreateXColor(TaskData *taskData, XColor *x)
 {
-  Handle XHandle = alloc_and_save(SIZEOF(MLXColor), F_MUTABLE_BIT);
+  Handle XHandle = alloc_and_save(taskData, SIZEOF(MLXColor), F_MUTABLE_BIT);
 
 #define X ((MLXColor *)DEREFHANDLE(XHandle))
-  X->red     = DEREFWORD(Make_unsigned(x->red));
-  X->green   = DEREFWORD(Make_unsigned(x->green));
-  X->blue    = DEREFWORD(Make_unsigned(x->blue));
-  X->pixel   = DEREFWORD(Make_unsigned(x->pixel));
+  X->red     = DEREFWORD(Make_unsigned(taskData, x->red));
+  X->green   = DEREFWORD(Make_unsigned(taskData, x->green));
+  X->blue    = DEREFWORD(Make_unsigned(taskData, x->blue));
+  X->pixel   = DEREFWORD(Make_unsigned(taskData, x->pixel));
   X->doRed   = DEREFWORD(Make_bool(x->flags &DoRed));
   X->doGreen = DEREFWORD(Make_bool(x->flags &DoGreen));
   X->doBlue  = DEREFWORD(Make_bool(x->flags &DoBlue));
 #undef X
 
-  return FINISHED(XHandle);
+  return FINISHED(taskData, XHandle);
 }
 
-static Handle CreateXColorF(void *p)
+static Handle CreateXColorF(TaskData *taskData, void *p)
 {
-    return CreateXColor((XColor*)p);
+    return CreateXColor(taskData, (XColor*)p);
 }
 
 static XColor xcolor1 = { 0 };
 static XColor xcolor2 = { 0 };
 
-static void GetXColor(PolyWord p, void *v, unsigned)
+static void GetXColor(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     MLXColor *P = (MLXColor *)p.AsObjPtr();
     XColor *x = (XColor *)v;
-    x->red   = get_C_ushort(P->red);
-    x->green = get_C_ushort(P->green);
-    x->blue  = get_C_ushort(P->blue);
-    x->pixel = get_C_ulong (P->pixel);
+    x->red   = get_C_ushort(taskData, P->red);
+    x->green = get_C_ushort(taskData, P->green);
+    x->blue  = get_C_ushort(taskData, P->blue);
+    x->pixel = get_C_ulong (taskData, P->pixel);
     
-    x->flags = (DoRed   * get_C_ulong(P->doRed))
-        | (DoGreen * get_C_ulong(P->doGreen))
-        | (DoBlue  * get_C_ulong(P->doBlue));
+    x->flags = (DoRed   * get_C_ulong(taskData, P->doRed))
+        | (DoGreen * get_C_ulong(taskData, P->doGreen))
+        | (DoBlue  * get_C_ulong(taskData, P->doBlue));
 }
 
-static XColor *GetXColor1(PolyWord P)
+static XColor *GetXColor1(TaskData *taskData, PolyWord P)
 {
-    GetXColor(P, &xcolor1, 0);
+    GetXColor(taskData, P, &xcolor1, 0);
     return &xcolor1;
 }
 
-static XColor *GetXColor2(PolyWord P)
+static XColor *GetXColor2(TaskData *taskData, PolyWord P)
 {
-    GetXColor(P, &xcolor2, 0);
+    GetXColor(taskData, P, &xcolor2, 0);
     return &xcolor2;
 }
 
-static Handle AllocColor(Display *d, Colormap cmap, XColor *x)
+static Handle AllocColor(TaskData *taskData, Display *d, Colormap cmap, XColor *x)
 {
   int s = XAllocColor(d,cmap,x);
 
-  if (s == 0) RaiseXWindows ("XAllocColor failed");
+  if (s == 0) RaiseXWindows(taskData, "XAllocColor failed");
   
-  return CreateXColor(x);
+  return CreateXColor(taskData, x);
 }
 
-static Handle CreateUnsigned(void *q)
+static Handle CreateUnsigned(TaskData *taskData, void *q)
 {
     unsigned *p = (unsigned *)q;
-    return Make_unsigned(*p);
+    return Make_unsigned(taskData, *p);
 }
 
-static Handle CreateUnsignedLong(void *p)
+static Handle CreateUnsignedLong(TaskData *taskData, void *p)
 {
-    return Make_unsigned(*(unsigned long*)p);
+    return Make_unsigned(taskData, *(unsigned long*)p);
 }
 
 static Handle AllocColorCells
 (
+  TaskData *taskData,
   Display *d,
   Colormap cmap,
   unsigned contig,
@@ -4216,21 +4259,22 @@ static Handle AllocColorCells
   unsigned long *pixels; /* was unsigned SPF 6/1/94 */
   int s;
   
-  if (ncolors < 1) RaiseRange();
+  if (ncolors < 1) RaiseRange(taskData);
   
   masks  = (unsigned long *) alloca(nplanes * sizeof(unsigned long));
   pixels = (unsigned long *) alloca(ncolors * sizeof(unsigned long));
 
   s = XAllocColorCells(d,cmap,contig,masks,nplanes,pixels,ncolors);
 
-  if (s == 0) RaiseXWindows ("XAllocColorCells failed");
+  if (s == 0) RaiseXWindows (taskData, "XAllocColorCells failed");
   
-  return CreatePair(CreateList4(nplanes,masks ,sizeof(unsigned long),CreateUnsignedLong),
-                    CreateList4(ncolors,pixels,sizeof(unsigned long),CreateUnsignedLong));
+  return CreatePair(taskData, CreateList4(taskData,nplanes,masks ,sizeof(unsigned long),CreateUnsignedLong),
+                    CreateList4(taskData,ncolors,pixels,sizeof(unsigned long),CreateUnsignedLong));
 }
 
 static Handle AllocColorPlanes
 (
+  TaskData *taskData,
   Display *d,
   Colormap cmap,
   unsigned contig,
@@ -4247,27 +4291,27 @@ static Handle AllocColorPlanes
   Handle tuple;
   int s;
   
-  if (ncolors < 1) RaiseRange();
+  if (ncolors < 1) RaiseRange(taskData);
   
   pixels = (unsigned long *) alloca(ncolors * sizeof(unsigned long));
 
   s = XAllocColorPlanes(d,cmap,contig,pixels,ncolors,nreds,ngreens,nblues,&rmask,&gmask,&bmask);
 
-  if (s == 0) RaiseXWindows ("XAllocColorPlanes failed");
+  if (s == 0) RaiseXWindows (taskData, "XAllocColorPlanes failed");
   
-  tuple = alloc_and_save(4, F_MUTABLE_BIT);
+  tuple = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)
-  data->Set(0, DEREFWORD(CreateList4(ncolors,pixels,sizeof(unsigned long),CreateUnsignedLong)));
-  data->Set(1, DEREFWORD(Make_unsigned(rmask)));
-  data->Set(2, DEREFWORD(Make_unsigned(gmask)));
-  data->Set(3, DEREFWORD(Make_unsigned(bmask)));
+  data->Set(0, DEREFWORD(CreateList4(taskData,ncolors,pixels,sizeof(unsigned long),CreateUnsignedLong)));
+  data->Set(1, DEREFWORD(Make_unsigned(taskData, rmask)));
+  data->Set(2, DEREFWORD(Make_unsigned(taskData, gmask)));
+  data->Set(3, DEREFWORD(Make_unsigned(taskData, bmask)));
 #undef data
 
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
-static Handle AllocNamedColor(Display *d, Colormap cmap, PolyStringObject *string)
+static Handle AllocNamedColor(TaskData *taskData, Display *d, Colormap cmap, PolyStringObject *string)
 {
   char   name[500];
   int    s;
@@ -4281,12 +4325,12 @@ static Handle AllocNamedColor(Display *d, Colormap cmap, PolyStringObject *strin
 
   s = XAllocNamedColor(d,cmap,name,&hardware,&database);
 
-  if (s == 0) RaiseXWindows ("XAllocNamedColor failed");
+  if (s == 0) RaiseXWindows (taskData, "XAllocNamedColor failed");
   
-  return CreatePair(CreateXColor(&hardware),CreateXColor(&database));
+  return CreatePair(taskData, CreateXColor(taskData, &hardware),CreateXColor(taskData, &database));
 }
 
-static Handle LookupColor(Display *d, Colormap cmap, PolyStringObject *string)
+static Handle LookupColor(TaskData *taskData, Display *d, Colormap cmap, PolyStringObject *string)
 {
   char   name[500];
   int    s;
@@ -4300,12 +4344,12 @@ static Handle LookupColor(Display *d, Colormap cmap, PolyStringObject *string)
 
   s = XLookupColor(d,cmap,name,&database,&hardware);
 
-  if (s == 0) RaiseXWindows ("XLookupColor failed");
+  if (s == 0) RaiseXWindows (taskData, "XLookupColor failed");
   
-  return CreatePair(CreateXColor(&database),CreateXColor(&hardware));
+  return CreatePair(taskData, CreateXColor(taskData, &database),CreateXColor(taskData, &hardware));
 }
 
-static Handle ParseColor(Display *d, Colormap cmap, PolyStringObject *string)
+static Handle ParseColor(TaskData *taskData, Display *d, Colormap cmap, PolyStringObject *string)
 {
   char   name[500];
   int    s;
@@ -4317,12 +4361,12 @@ static Handle ParseColor(Display *d, Colormap cmap, PolyStringObject *string)
 
   s = XParseColor(d,cmap,name,&x);
 
-  if (s == 0) RaiseXWindows ("XParseColor failed");
+  if (s == 0) RaiseXWindows(taskData, "XParseColor failed");
   
-  return CreateXColor(&x);
+  return CreateXColor(taskData, &x);
 }
 
-static Handle QueryColor(Display *d, Colormap cmap, unsigned pixel)
+static Handle QueryColor(TaskData *taskData, Display *d, Colormap cmap, unsigned pixel)
 {
   XColor x;
   
@@ -4332,26 +4376,26 @@ static Handle QueryColor(Display *d, Colormap cmap, unsigned pixel)
   
   XQueryColor(d,cmap,&x);
 
-  return CreateXColor(&x);
+  return CreateXColor(taskData, &x);
 }
 
-static void GetXPixel(PolyWord p, void *v, unsigned)
+static void GetXPixel(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XColor *X = (XColor *)v;
     ClearXColor(X);
-    X->pixel = get_C_ulong(p);
+    X->pixel = get_C_ulong(taskData, p);
 }
 
-static Handle QueryColors(Display *d, Colormap cmap, Handle list)
+static Handle QueryColors(TaskData *taskData, Display *d, Colormap cmap, Handle list)
 {
   unsigned N = ListLength(DEREFWORD(list));
   XColor  *P = (XColor *) alloca(N * sizeof(XColor));
   
-  GetList4(DEREFWORD(list),P,sizeof(XColor),GetXPixel);
+  GetList4(taskData, DEREFWORD(list),P,sizeof(XColor),GetXPixel);
   
   XQueryColors(d,cmap,P,N);
 
-  return CreateList4(N,P,sizeof(XColor),CreateXColorF);
+  return CreateList4(taskData,N,P,sizeof(XColor),CreateXColorF);
 }
 
 static void StoreNamedColor
@@ -4374,31 +4418,32 @@ static void StoreNamedColor
   XStoreNamedColor(d,cmap,name,pixel,flags);
 }
 
-static void StoreColors(Display *d, Colormap cmap, Handle list)
+static void StoreColors(TaskData *taskData, Display *d, Colormap cmap, Handle list)
 {
   unsigned N = ListLength(DEREFWORD(list));
   XColor  *P = (XColor *) alloca(N * sizeof(XColor));
   
-  GetList4(DEREFWORD(list),P,sizeof(XColor),GetXColor);
+  GetList4(taskData, DEREFWORD(list),P,sizeof(XColor),GetXColor);
   
   XStoreColors(d,cmap,P,N);
 }
 
-static void GetUnsigned(PolyWord p, void *v, unsigned)
+static void GetUnsigned(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     unsigned *u = (unsigned *)v;
-    *u = get_C_ulong(p);
+    *u = get_C_ulong(taskData, p);
 }
 
-static void GetUnsignedLong(PolyWord p, void *v, unsigned)
+static void GetUnsignedLong(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     unsigned long *u = (unsigned long *)v;
-    *u = get_C_ulong(p);
+    *u = get_C_ulong(taskData, p);
 }
 
 
 static void FreeColors
 (
+  TaskData *taskData, 
   Display *d,
   Colormap cmap,
   Handle   list,
@@ -4408,22 +4453,24 @@ static void FreeColors
   unsigned  N = ListLength(DEREFWORD(list));
   unsigned long *P = (unsigned long *) alloca(N * sizeof(unsigned long));
   
-  GetList4(DEREFWORD(list),P,sizeof(unsigned long),GetUnsignedLong);
+  GetList4(taskData,DEREFWORD(list),P,sizeof(unsigned long),GetUnsignedLong);
   
   XFreeColors(d,cmap,P,N,planes);
 }
 
 static Handle CreateColormap
 (
+  TaskData *taskData,
   void *p,
   Handle   dsHandle /* handle to (X_Display_Object *) */
 )
 {
-  return EmptyColormap(dsHandle,*(Colormap *)p);
+  return EmptyColormap(taskData, dsHandle,*(Colormap *)p);
 }
 
 static Handle ListInstalledColormaps
 (
+  TaskData *taskData,
   Handle   dsHandle, /* handle to (X_Display_Object *) */
   Drawable drawable
 )
@@ -4434,9 +4481,9 @@ static Handle ListInstalledColormaps
   
   cmaps = XListInstalledColormaps(DEREFDISPLAYHANDLE(dsHandle)->display,drawable,&count);
   
-  if (cmaps == 0) RaiseXWindows ("XListInstalledColormaps failed");
+  if (cmaps == 0) RaiseXWindows(taskData, "XListInstalledColormaps failed");
   
-  list = CreateList5(count,cmaps,sizeof(Colormap),CreateColormap,dsHandle);
+  list = CreateList5(taskData,count,cmaps,sizeof(Colormap),CreateColormap,dsHandle);
   
   XFree((char *)cmaps);
   
@@ -4444,16 +4491,16 @@ static Handle ListInstalledColormaps
 }
 
 
-static Handle GetTimeOfDay(void)
+static Handle GetTimeOfDay(TaskData *taskData)
 {
   TimeVal now;
   
   GETTIMEOFDAY(&now);
   
-  return CreatePair(Make_unsigned(now.tv_sec),Make_unsigned(now.tv_usec));
+  return CreatePair(taskData, Make_unsigned(taskData, now.tv_sec),Make_unsigned(taskData, now.tv_usec));
 }
 
-static Handle GetState(X_Window_Object *P)
+static Handle GetState(TaskData *taskData, X_Window_Object *P)
 {
   assert(UNTAGGED(P->type) == X_Window);
 
@@ -4461,7 +4508,7 @@ static Handle GetState(X_Window_Object *P)
 
   if (ISNIL(P->handler)) Crash ("No handler set");
 
-  return CreatePair(SAVE(P->handler),SAVE(P->state));
+  return CreatePair(taskData, SAVE(P->handler),SAVE(P->state));
 }
 
 static void SetState(X_Window_Object *W, PolyWord handler, PolyWord state)
@@ -4498,6 +4545,7 @@ static void CheckTimerQueue(void)
 
 static void InsertTimeout
 (
+  TaskData *taskData,
   X_Window_Object *window_object,
   unsigned        ms,
   PolyWord        alpha,
@@ -4513,7 +4561,7 @@ static void InsertTimeout
   
   if (ISNIL(window_object->handler)) Crash ("No handler set");
   
-  if (window_object->handler != handler) RaiseXWindows ("Handler mismatch");
+  if (window_object->handler != handler) RaiseXWindows(taskData, "Handler mismatch");
   
   { /* find insertion point in list */
     TimeVal dt;
@@ -4571,10 +4619,10 @@ static void DestroyWidgetCallback
 #define CheckRealized(Widget,Where)\
 { \
   if (XtIsRealized(Widget) == False) \
-    RaiseXWindows(#Where ": widget is not realized"); \
+    RaiseXWindows(taskData, #Where ": widget is not realized"); \
 }
 
-static Window WindowOfWidget(Widget widget)
+static Window WindowOfWidget(TaskData *taskData, Widget widget)
 {
   CheckRealized(widget,WindowOfWidget);
   return XtWindowOfObject(widget);
@@ -4590,6 +4638,7 @@ static Window WindowOfWidget(Widget widget)
 
 static void InsertWidgetTimeout
 (
+ TaskData *taskData,
  X_Widget_Object *widget_object,
  unsigned         ms,
  PolyWord         alpha,
@@ -4603,7 +4652,7 @@ static void InsertWidgetTimeout
     assert(widget_object->type == TAGGED(X_Widget));
     CheckExists((X_Object *)widget_object,widget);
 #if NEVER
-    CheckRealized(GetWidget((X_Object *)widget_object),InsertWidgetTimeout);
+    CheckRealized(GetWidget(taskData, (X_Object *)widget_object),InsertWidgetTimeout);
 #endif
     
     /* check that handler occurs in widget's callback list */
@@ -4614,7 +4663,7 @@ static void InsertWidgetTimeout
             MLPair *q = (MLPair *)((ML_Cons_Cell*)p.AsObjPtr())->h.AsObjPtr();
             if (SND(q) == handler) break;
         }
-        if (ISNIL(p)) RaiseXWindows ("Handler mismatch");
+        if (ISNIL(p)) RaiseXWindows(taskData, "Handler mismatch");
     }
     
     
@@ -4650,7 +4699,7 @@ static void InsertWidgetTimeout
     *tail = newp;
 }
 
-static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
+static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Display_Object *) */)
 {
     for (;;)
     {
@@ -4661,10 +4710,10 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
         {
             T_List *next = TList->next;
             
-            EventHandle E = alloc_and_save(SIZEOF(ML_Event), F_MUTABLE_BIT);
+            EventHandle E = alloc_and_save(taskData, SIZEOF(ML_Event), F_MUTABLE_BIT);
             
 #define event ((ML_Event *)DEREFHANDLE(E))
-            event->type       = DEREFWORD(Make_unsigned(99));
+            event->type       = DEREFWORD(Make_unsigned(taskData, 99));
             event->sendEvent  = DEREFWORD(Make_bool(True));
             event->data       = TList->alpha;
             
@@ -4684,17 +4733,17 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
                 assert(TList->widget_object != 0);
                 
                 {
-                    Window w        = WindowOfWidget(GetWidget((X_Object *)TList->widget_object));
-                    event->window   = DEREFWINDOWHANDLE(EmptyWindow(GetDS((X_Object *)TList->widget_object),w));
+                    Window w        = WindowOfWidget(GetWidget(taskData, (X_Object *)TList->widget_object));
+                    event->window   = DEREFWINDOWHANDLE(EmptyWindow(taskData, GetDS(taskData, (X_Object *)TList->widget_object),w));
                 }
                 
                 { /* create callback list - allocates storage */
                     Handle tailHandle    = SAVE(ListNull);
                     Handle widgetHandle  = SAVE(TList->widget_object);
                     Handle handlerHandle = SAVE(TList->handler);
-                    Handle pairHandle    = CreatePair(widgetHandle,handlerHandle);
+                    Handle pairHandle    = CreatePair(taskData, widgetHandle,handlerHandle);
                     
-                    event->callbacks     = DEREFLISTHANDLE(CreatePair(pairHandle,tailHandle));
+                    event->callbacks     = DEREFLISTHANDLE(CreatePair(taskData, pairHandle,tailHandle));
                     event->events        = ListNull;
                 }
             }
@@ -4704,7 +4753,7 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
             
             TList = next;
             
-            return FINISHED(E);
+            return FINISHED(taskData, E);
         }
         else /* ! (TList && TList->expired) */ if (DEREFDISPLAYHANDLE(dsHandle)->app_context == 0)
                 /* use XNextEvent to get next event */
@@ -4714,7 +4763,7 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
             
             if (pending == 0)
             {
-                process_may_block(display->fd, POLY_SYS_XWindows);
+                process_may_block(taskData, display->fd, POLY_SYS_XWindows);
             }
             else /* X Event arrived */
             {
@@ -4726,7 +4775,7 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
                 
                 if (W && NONNIL(W->handler))
                 {
-                    EventHandle E = CreateEvent(dsHandle,&ev,SAVE(W));
+                    EventHandle E = CreateEvent(taskData, dsHandle,&ev,SAVE(W));
                     if (E) return E;
                 }
             }
@@ -4738,7 +4787,7 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
             
             if (pending == 0)
             {
-                process_may_block(DEREFDISPLAYHANDLE(dsHandle)->display->fd,
+                process_may_block(taskData, DEREFDISPLAYHANDLE(dsHandle)->display->fd,
                     POLY_SYS_XWindows);
             }
             else
@@ -4753,10 +4802,10 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
                     
                     if (FList != TAGGED(0))
                     {
-                        EventHandle E = alloc_and_save(SIZEOF(ML_Event), F_MUTABLE_BIT);
+                        EventHandle E = alloc_and_save(taskData, SIZEOF(ML_Event), F_MUTABLE_BIT);
                         
 #define event ((ML_Event *)DEREFHANDLE(E))
-                        event->type      = DEREFWORD(Make_unsigned(100));
+                        event->type      = DEREFWORD(Make_unsigned(taskData, 100));
                         event->sendEvent = DEREFWORD(Make_bool(True));
                         event->window    = TAGGED(0);
                         event->data      = TAGGED(0);
@@ -4765,7 +4814,7 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
 #undef event
                         FList = TAGGED(0);
                         GList = TAGGED(0);
-                        return FINISHED(E);
+                        return FINISHED(taskData, E);
                     }
                 }
                 else /* Xt Event arrived */
@@ -4789,13 +4838,13 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
                         
                         if (W && NONNIL(W->handler))
                         {
-                            EventHandle E = CreateEvent(dsHandle,&ev,SAVE(W));
+                            EventHandle E = CreateEvent(taskData, dsHandle,&ev,SAVE(W));
                             if (E) return E;
                         }
                     }
                     else if (! FList.IsTagged() || ! GList.IsTagged())
                     {
-                        EventHandle E = CreateEvent(dsHandle,&ev,EmptyWindow(dsHandle,ev.xany.window));
+                        EventHandle E = CreateEvent(taskData, dsHandle,&ev,EmptyWindow(taskData, dsHandle,ev.xany.window));
                         if (E) return E;
                     }
                 }
@@ -4804,14 +4853,14 @@ static Handle NextEvent(Handle dsHandle /* handle to (X_Display_Object *) */)
     }
 }
 
-static Handle GetInputFocus(Handle dsHandle /* handle to (X_Display_Object *) */)
+static Handle GetInputFocus(TaskData *taskData, Handle dsHandle /* handle to (X_Display_Object *) */)
 {
   Window focus;
   int revertTo;
   
   XGetInputFocus(DEREFDISPLAYHANDLE(dsHandle)->display,&focus,&revertTo);
   
-  return CreatePair(EmptyWindow(dsHandle,focus),Make_unsigned(revertTo));
+  return CreatePair(taskData, EmptyWindow(taskData, dsHandle,focus),Make_unsigned(taskData, revertTo));
 }
 
 static void SetSelectionOwner
@@ -4880,6 +4929,7 @@ static void SendSelectionNotify
 
 static Handle InternAtom
 (
+  TaskData *taskData,
   Display *d,
   PolyStringObject  *string,
   Bool     only_if_exists
@@ -4889,16 +4939,16 @@ static Handle InternAtom
 
   Poly_string_to_C(string,name,sizeof(name));
 
-  return Make_unsigned(XInternAtom(d,name,only_if_exists));
+  return Make_unsigned(taskData, XInternAtom(d,name,only_if_exists));
 }
 
-static Handle GetAtomName(Display *d, unsigned atom)
+static Handle GetAtomName(TaskData *taskData, Display *d, unsigned atom)
 {
   Handle s;
   
   char *name = XGetAtomName(d,atom);
   
-  if (name == NULL) RaiseXWindows ("XGetAtomName failed");
+  if (name == NULL) RaiseXWindows(taskData, "XGetAtomName failed");
   
   s = Make_string(name);
   
@@ -4918,10 +4968,10 @@ typedef struct
     PolyWord attributes; /* ML int */
 } MLXCharStruct;
 
-static Handle CreateCharStruct(void *v)
+static Handle CreateCharStruct(TaskData *taskData, void *v)
 {
     XCharStruct *cs = (XCharStruct *)v;
-  Handle dataHandle = alloc_and_save(SIZEOF(MLXCharStruct), F_MUTABLE_BIT);
+  Handle dataHandle = alloc_and_save(taskData, SIZEOF(MLXCharStruct), F_MUTABLE_BIT);
   
 #define data ((MLXCharStruct *)DEREFHANDLE(dataHandle))
   data->width      = DEREFWORD(Make_int(cs->width));
@@ -4929,10 +4979,10 @@ static Handle CreateCharStruct(void *v)
   data->descent    = DEREFWORD(Make_int(cs->descent));
   data->lbearing   = DEREFWORD(Make_int(cs->lbearing));
   data->rbearing   = DEREFWORD(Make_int(cs->rbearing));
-  data->attributes = DEREFWORD(Make_unsigned(cs->attributes));
+  data->attributes = DEREFWORD(Make_unsigned(taskData, cs->attributes));
 #undef data
   
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
 /* The order of these depends on the XFontStruct datatype */
@@ -4955,60 +5005,61 @@ typedef struct
 
 static Handle CreateFontStruct
 (
+  TaskData *taskData,
   void *v,
   Handle       dsHandle /* Handle to (X_Display_Object *) */
 )
 {
   XFontStruct *fs = (XFontStruct *)v;
-  Handle dataHandle = alloc_and_save(SIZEOF(MLXFontStruct), F_MUTABLE_BIT);
+  Handle dataHandle = alloc_and_save(taskData, SIZEOF(MLXFontStruct), F_MUTABLE_BIT);
 
   int n = fs->max_char_or_byte2 - fs->min_char_or_byte2 + 1;
   
   if (fs->per_char == 0) n = 0;
 
 #define data ((MLXFontStruct *)DEREFHANDLE(dataHandle))
-  data->font_object   = (X_Font_Object *)DEREFHANDLE(EmptyFont(dsHandle,fs->fid,fs));
+  data->font_object   = (X_Font_Object *)DEREFHANDLE(EmptyFont(taskData, dsHandle,fs->fid,fs));
   data->ascent        = DEREFWORD(Make_int(fs->ascent));
   data->descent       = DEREFWORD(Make_int(fs->descent));
-  data->maxChar       = DEREFWORD(Make_unsigned(fs->max_char_or_byte2));
-  data->minChar       = DEREFWORD(Make_unsigned(fs->min_char_or_byte2));
-  data->perChar       = DEREFHANDLE(CreateList4(n,fs->per_char,sizeof(XCharStruct),CreateCharStruct));
-  data->maxByte1      = DEREFWORD(Make_unsigned(fs->max_byte1));
-  data->minByte1      = DEREFWORD(Make_unsigned(fs->min_byte1));
-  data->direction     = DEREFWORD(Make_unsigned((fs->direction == FontLeftToRight) ? 1 : 2));
-  data->maxBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(&fs->max_bounds));
-  data->minBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(&fs->min_bounds));
-  data->defaultChar   = DEREFWORD(Make_unsigned(fs->default_char));
+  data->maxChar       = DEREFWORD(Make_unsigned(taskData, fs->max_char_or_byte2));
+  data->minChar       = DEREFWORD(Make_unsigned(taskData, fs->min_char_or_byte2));
+  data->perChar       = DEREFHANDLE(CreateList4(taskData,n,fs->per_char,sizeof(XCharStruct),CreateCharStruct));
+  data->maxByte1      = DEREFWORD(Make_unsigned(taskData, fs->max_byte1));
+  data->minByte1      = DEREFWORD(Make_unsigned(taskData, fs->min_byte1));
+  data->direction     = DEREFWORD(Make_unsigned(taskData, (fs->direction == FontLeftToRight) ? 1 : 2));
+  data->maxBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(taskData, &fs->max_bounds));
+  data->minBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(taskData, &fs->min_bounds));
+  data->defaultChar   = DEREFWORD(Make_unsigned(taskData, fs->default_char));
   data->allCharsExist = DEREFWORD(Make_bool(fs->all_chars_exist));
 #undef data
   
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
-static XFontStruct *GetFS(X_Font_Object *P)
+static XFontStruct *GetFS(TaskData *taskData, X_Font_Object *P)
 {
   
   assert(UNTAGGED(P->type) == X_Font);
 
-  if (*(P->fs) == NULL) RaiseXWindows ("Not a real XFontStruct");
+  if (*(P->fs) == NULL) RaiseXWindows(taskData, "Not a real XFontStruct");
 
   CheckExists((X_Object *)P,font);
 
   return *(P->fs);
 }
 
-static XFontStruct *GetFontStruct(PolyWord p)
+static XFontStruct *GetFontStruct(TaskData *taskData,PolyWord p)
 {
     MLXFontStruct *P = (MLXFontStruct *)p.AsObjPtr();
-    return GetFS(P->font_object);
+    return GetFS(taskData,P->font_object);
 }
 
-static Handle CreateString(void *s)
+static Handle CreateString(TaskData *taskData, void *s)
 {
     return Make_string(*(char **)s);
 }
 
-static Handle GetFontPath(Display *d)
+static Handle GetFontPath(TaskData *taskData, Display *d)
 {
   Handle list;
   char **names;
@@ -5016,9 +5067,9 @@ static Handle GetFontPath(Display *d)
 
   names = XGetFontPath(d,&count);
 
-  if (names == 0) RaiseXWindows ("XGetFontPath failed");
+  if (names == 0) RaiseXWindows(taskData, "XGetFontPath failed");
 
-  list = CreateList4(count,names,sizeof(char *),CreateString);
+  list = CreateList4(taskData,count,names,sizeof(char *),CreateString);
   
   XFreeFontNames(names);
   
@@ -5031,14 +5082,14 @@ static void FreeStrings(char **s, int n)
   return;
 }
 
-static void SetFontPath(Display *d, Handle list)
+static void SetFontPath(TaskData *taskData, Display *d, Handle list)
 {
   if (NONNIL(DEREFWORD(list)))
   {
     unsigned   N = ListLength(DEREFWORD(list));
     char **D = (char **) alloca(N * sizeof(char *));
   
-    GetList4(DEREFWORD(list),D,sizeof(char *),CopyString);
+    GetList4(taskData, DEREFWORD(list),D,sizeof(char *),CopyString);
     
     XSetFontPath(d,D,N);
     
@@ -5047,7 +5098,7 @@ static void SetFontPath(Display *d, Handle list)
   return;
 }
 
-static Handle ListFonts(Display *d, PolyStringObject *string, unsigned maxnames)
+static Handle ListFonts(TaskData *taskData,Display *d, PolyStringObject *string, unsigned maxnames)
 {
   char name[500];
   Handle list; 
@@ -5058,9 +5109,9 @@ static Handle ListFonts(Display *d, PolyStringObject *string, unsigned maxnames)
 
   names = XListFonts(d,name,maxnames,&count);
 
-  if (names == 0) RaiseXWindows ("XListFonts failed");
+  if (names == 0) RaiseXWindows(taskData, "XListFonts failed");
 
-  list = CreateList4(count,names,sizeof(char *),CreateString);
+  list = CreateList4(taskData,count,names,sizeof(char *),CreateString);
   
   XFreeFontNames(names);
   
@@ -5069,6 +5120,7 @@ static Handle ListFonts(Display *d, PolyStringObject *string, unsigned maxnames)
 
 static Handle ListFontsWithInfo
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   PolyStringObject  *string,
   unsigned maxnames
@@ -5084,10 +5136,10 @@ static Handle ListFontsWithInfo
 
   names = XListFontsWithInfo(DEREFDISPLAYHANDLE(dsHandle)->display,name,maxnames,&count,&info);
 
-  if (names == 0) RaiseXWindows ("XListFontsWithInfo failed");
+  if (names == 0) RaiseXWindows(taskData, "XListFontsWithInfo failed");
 
-  pair = CreatePair(CreateList4(count,names,sizeof(char *),CreateString),
-                    CreateList5(count,info,sizeof(XFontStruct),CreateFontStruct,dsHandle));
+  pair = CreatePair(taskData, CreateList4(taskData,count,names,sizeof(char *),CreateString),
+                    CreateList5(taskData,count,info,sizeof(XFontStruct),CreateFontStruct,dsHandle));
   
   XFree((char *)info);
   XFreeFontNames(names);
@@ -5097,6 +5149,7 @@ static Handle ListFontsWithInfo
 
 static Handle LoadFont
 (
+  TaskData *taskData,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
   PolyStringObject *string
 )
@@ -5107,13 +5160,14 @@ static Handle LoadFont
 
   font = XLoadFont(DEREFDISPLAYHANDLE(dsHandle)->display,name);
 
-  if (font == 0) RaiseXWindows("XLoadFont failed");
+  if (font == 0) RaiseXWindows(taskData, "XLoadFont failed");
 
-  return EmptyFont(dsHandle,font,(XFontStruct *)NULL);
+  return EmptyFont(taskData, dsHandle,font,(XFontStruct *)NULL);
 }
 
 static Handle LoadQueryFont
 (
+  TaskData *taskData,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
   PolyStringObject *string
 )
@@ -5124,13 +5178,14 @@ static Handle LoadQueryFont
 
   fs = XLoadQueryFont(DEREFDISPLAYHANDLE(dsHandle)->display,name);
 
-  if (fs == 0) RaiseXWindows ("XLoadQueryFont failed");
+  if (fs == 0) RaiseXWindows(taskData, "XLoadQueryFont failed");
   
-  return CreateFontStruct(fs,dsHandle);
+  return CreateFontStruct(taskData,fs,dsHandle);
 }
 
 static Handle QueryFont
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Font   font
 )
@@ -5139,102 +5194,102 @@ static Handle QueryFont
 
   fs = XQueryFont(DEREFDISPLAYHANDLE(dsHandle)->display,font);
 
-  if (fs == 0) RaiseXWindows ("XQueryFont failed");
+  if (fs == 0) RaiseXWindows(taskData, "XQueryFont failed");
   
-  return CreateFontStruct(fs,dsHandle);
+  return CreateFontStruct(taskData,fs,dsHandle);
 }
 
-static Handle TextExtents(XFontStruct *fs, PolyStringObject *s)
+static Handle TextExtents(TaskData *taskData, XFontStruct *fs, PolyStringObject *s)
 {
-  Handle dataHandle = alloc_and_save(4, F_MUTABLE_BIT);
+  Handle dataHandle = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
   
   int direction,ascent,descent; XCharStruct overall;
 
   XTextExtents(fs,s->chars,s->length,&direction,&ascent,&descent,&overall);
 
 #define data DEREFHANDLE(dataHandle)  
-  data->Set(0, DEREFWORD(Make_unsigned((direction == FontLeftToRight) ? 1 : 2)));
+  data->Set(0, DEREFWORD(Make_unsigned(taskData, (direction == FontLeftToRight) ? 1 : 2)));
   data->Set(1, DEREFWORD(Make_int(ascent)));
   data->Set(2, DEREFWORD(Make_int(descent)));
-  data->Set(3, DEREFWORD(CreateCharStruct(&overall)));
+  data->Set(3, DEREFWORD(CreateCharStruct(taskData, &overall)));
 #undef data
   
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
-static Handle TextExtents16(XFontStruct *fs, Handle list)
+static Handle TextExtents16(TaskData *taskData, XFontStruct *fs, Handle list)
 {
-  Handle dataHandle = alloc_and_save(4, F_MUTABLE_BIT);
+  Handle dataHandle = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
   
   int direction,ascent,descent; XCharStruct overall;
   
   unsigned     N = ListLength(DEREFWORD(list));
   XChar2b *L = (XChar2b *) alloca(N * sizeof(XChar2b));
 
-  GetList4(DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
+  GetList4(taskData,DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
 
   XTextExtents16(fs,L,N,&direction,&ascent,&descent,&overall);
   
 #define data DEREFHANDLE(dataHandle)  
-  data->Set(0, DEREFWORD(Make_unsigned((direction == FontLeftToRight) ? 1 : 2)));
+  data->Set(0, DEREFWORD(Make_unsigned(taskData, (direction == FontLeftToRight) ? 1 : 2)));
   data->Set(1, DEREFWORD(Make_int(ascent)));
   data->Set(2, DEREFWORD(Make_int(descent)));
-  data->Set(3, DEREFWORD(CreateCharStruct(&overall)));
+  data->Set(3, DEREFWORD(CreateCharStruct(taskData, &overall)));
 #undef data
   
-  return FINISHED(dataHandle);
+  return FINISHED(taskData, dataHandle);
 }
 
-static Handle TextWidth(XFontStruct *fs, PolyStringObject *s)
+static Handle TextWidth(TaskData *taskData, XFontStruct *fs, PolyStringObject *s)
 {
   if (fs->per_char == 0) return Make_int(s->length * fs->max_bounds.width);
   
   return Make_int(XTextWidth(fs,s->chars,s->length));
 }
 
-static Handle TextWidth16(XFontStruct *fs, Handle list)
+static Handle TextWidth16(TaskData *taskData, XFontStruct *fs, Handle list)
 {
   unsigned     N = ListLength(DEREFWORD(list));
   XChar2b *L = (XChar2b *) alloca(N * sizeof(XChar2b));
 
-  GetList4(DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
+  GetList4(taskData, DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
 
   return Make_int(XTextWidth16(fs,L,N));
 }
 
-static Handle GetTextProperty(Display *d, Window w, unsigned property)
+static Handle GetTextProperty(TaskData *taskData, Display *d, Window w, unsigned property)
 {
   XTextProperty T;
   Handle tuple;
   
   int s = XGetTextProperty(d,w,&T,property);
   
-  if (s == 0) RaiseXWindows ("XGetTextProperty failed");
+  if (s == 0) RaiseXWindows(taskData, "XGetTextProperty failed");
   
-  tuple = alloc_and_save(4, F_MUTABLE_BIT);
+  tuple = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)
-  data->Set(0, Buffer_to_Poly((char *)T.value,T.nitems * T.format / 8));
-  data->Set(1, DEREFWORD(Make_unsigned(T.encoding)));
+  data->Set(0, Buffer_to_Poly(taskData, (char *)T.value,T.nitems * T.format / 8));
+  data->Set(1, DEREFWORD(Make_unsigned(taskData, T.encoding)));
   data->Set(2, DEREFWORD(Make_int(T.format)));
-  data->Set(3, DEREFWORD(Make_unsigned(T.nitems)));
+  data->Set(3, DEREFWORD(Make_unsigned(taskData, T.nitems)));
 #undef data
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
-static void GetXWMHints(PolyWord p, void *v, unsigned)
+static void GetXWMHints(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     PolyObject *P = p.AsObjPtr();
     XWMHints *H = (XWMHints *)v;
-    H->input         = get_C_ulong(P->Get(0));
-    H->initial_state = get_C_ulong(P->Get(1));
-    H->icon_pixmap   = GetPixmap((X_Object *)P->Get(2).AsObjPtr());
-    H->icon_window   = GetWindow((X_Object *)P->Get(3).AsObjPtr());
-    H->icon_x        = GetPointX(P->Get(4));
-    H->icon_y        = GetPointY(P->Get(4));
-    H->icon_mask     = GetPixmap((X_Object *)P->Get(5).AsObjPtr());
-    H->flags         = get_C_ulong(P->Get(6));
+    H->input         = get_C_ulong(taskData, P->Get(0));
+    H->initial_state = get_C_ulong(taskData, P->Get(1));
+    H->icon_pixmap   = GetPixmap(taskData, (X_Object *)P->Get(2).AsObjPtr());
+    H->icon_window   = GetWindow(taskData, (X_Object *)P->Get(3).AsObjPtr());
+    H->icon_x        = GetPointX(taskData, P->Get(4));
+    H->icon_y        = GetPointY(taskData, P->Get(4));
+    H->icon_mask     = GetPixmap(taskData, (X_Object *)P->Get(5).AsObjPtr());
+    H->flags         = get_C_ulong(taskData, P->Get(6));
     H->window_group  = 0;
 }
 
@@ -5253,95 +5308,96 @@ typedef struct
     PolyWord    x8;
 } MLXWMSizeHintsTuple;
 
-static void GetXWMSizeHints(PolyWord p, void *v, unsigned)
+static void GetXWMSizeHints(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     MLXWMSizeHintsTuple *P = (MLXWMSizeHintsTuple *)p.AsObjPtr();
     XSizeHints *H = (XSizeHints *)v;
-    CheckZeroRect(P->x1);
-    CheckZeroRect(P->x2);
-    CheckZeroRect(P->x3);
-    CheckZeroRect(P->x4);
-    CheckZeroRect(P->x6);
+    CheckZeroRect(taskData, P->x1);
+    CheckZeroRect(taskData, P->x2);
+    CheckZeroRect(taskData, P->x3);
+    CheckZeroRect(taskData, P->x4);
+    CheckZeroRect(taskData, P->x6);
 
-    H->x            = GetPointX(P->x0);
-    H->y            = GetPointY(P->x0);
-    H->width        = GetRectW(P->x1);
-    H->height       = GetRectH(P->x1);
-    H->min_width    = GetRectW(P->x2);
-    H->min_height   = GetRectH(P->x2);
-    H->max_width    = GetRectW(P->x3);
-    H->max_height   = GetRectH(P->x3);
-    H->width_inc    = GetRectW(P->x4);
-    H->height_inc   = GetRectH(P->x4);
-    H->min_aspect.x = GetPointX(FST(P->x5));
-    H->min_aspect.y = GetPointY(FST(P->x5));
-    H->max_aspect.x = GetPointX(SND(P->x5));
-    H->max_aspect.y = GetPointY(SND(P->x5));
-    H->base_width   = GetRectW(P->x6);
-    H->base_height  = GetRectH(P->x6);
-    H->win_gravity  = get_C_ulong(P -> x7);
-    H->flags        = get_C_ulong(P -> x8);
+    H->x            = GetPointX(taskData, P->x0);
+    H->y            = GetPointY(taskData, P->x0);
+    H->width        = GetRectW(taskData, P->x1);
+    H->height       = GetRectH(taskData, P->x1);
+    H->min_width    = GetRectW(taskData, P->x2);
+    H->min_height   = GetRectH(taskData, P->x2);
+    H->max_width    = GetRectW(taskData, P->x3);
+    H->max_height   = GetRectH(taskData, P->x3);
+    H->width_inc    = GetRectW(taskData, P->x4);
+    H->height_inc   = GetRectH(taskData, P->x4);
+    H->min_aspect.x = GetPointX(taskData, FST(P->x5));
+    H->min_aspect.y = GetPointY(taskData, FST(P->x5));
+    H->max_aspect.x = GetPointX(taskData, SND(P->x5));
+    H->max_aspect.y = GetPointY(taskData, SND(P->x5));
+    H->base_width   = GetRectW(taskData, P->x6);
+    H->base_height  = GetRectH(taskData, P->x6);
+    H->win_gravity  = get_C_ulong(taskData, P -> x7);
+    H->flags        = get_C_ulong(taskData, P -> x8);
 }
 
-static void GetIconSize(PolyWord p, void *v, unsigned)
+static void GetIconSize(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     MLTriple *P = (MLTriple *)p.AsObjPtr();
     XIconSize *s = (XIconSize *)v;
-    CheckZeroRect(FST(P));
-    CheckZeroRect(SND(P));
-    CheckZeroRect(THIRD(P));
+    CheckZeroRect(taskData, FST(P));
+    CheckZeroRect(taskData, SND(P));
+    CheckZeroRect(taskData, THIRD(P));
     
-    s->min_width = GetRectW(FST(P));
-    s->min_height = GetRectH(FST(P));
-    s->max_width = GetRectW(SND(P));
-    s->max_height = GetRectH(SND(P));
-    s->width_inc = GetRectW(THIRD(P));
-    s->height_inc = GetRectH(THIRD(P));
+    s->min_width = GetRectW(taskData, FST(P));
+    s->min_height = GetRectH(taskData, FST(P));
+    s->max_width = GetRectW(taskData, SND(P));
+    s->max_height = GetRectH(taskData, SND(P));
+    s->width_inc = GetRectW(taskData, THIRD(P));
+    s->height_inc = GetRectH(taskData, THIRD(P));
 }
 
-static void GetSigned(PolyWord p, void *i, unsigned)
+static void GetSigned(TaskData *taskData, PolyWord p, void *i, unsigned)
 {
-    *(int*)i = get_C_long(p);
+    *(int*)i = get_C_long(taskData, p);
 }
 
-static void GetPixmaps(PolyWord pp, void *m, unsigned)
-{
-    X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(Pixmap *)m = GetPixmap(p);
-}
-
-static void GetColormaps(PolyWord pp, void *v, unsigned)
+static void GetPixmaps(TaskData *taskData, PolyWord pp, void *m, unsigned)
 {
     X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(Colormap *)v = GetColormap(p);
+    *(Pixmap *)m = GetPixmap(taskData, p);
 }
 
-static void GetCursors(PolyWord pp, void *c, unsigned)
+static void GetColormaps(TaskData *taskData, PolyWord pp, void *v, unsigned)
 {
     X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(Cursor *)c = GetCursor(p);
+    *(Colormap *)v = GetColormap(taskData, p);
 }
 
-static void GetDrawables(PolyWord pp, void *d, unsigned)
+static void GetCursors(TaskData *taskData, PolyWord pp, void *c, unsigned)
 {
     X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(Drawable *)d = GetDrawable(p);
+    *(Cursor *)c = GetCursor(taskData, p);
 }
 
-static void GetFonts(PolyWord pp, void *f, unsigned)
+static void GetDrawables(TaskData *taskData, PolyWord pp, void *d, unsigned)
 {
     X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(Font *)f = GetFont(p);
+    *(Drawable *)d = GetDrawable(taskData, p);
 }
 
-static void GetVisualIds(PolyWord pp, void *u, unsigned)
+static void GetFonts(TaskData *taskData, PolyWord pp, void *f, unsigned)
 {
     X_Object *p = (X_Object *)pp.AsObjPtr();
-    *(unsigned *)u = GetVisual(p)->visualid;
+    *(Font *)f = GetFont(taskData, p);
+}
+
+static void GetVisualIds(TaskData *taskData, PolyWord pp, void *u, unsigned)
+{
+    X_Object *p = (X_Object *)pp.AsObjPtr();
+    *(unsigned *)u = GetVisual(taskData, p)->visualid;
 }
 
 static void SetProperty
 (
+  TaskData *taskData,
   Display *d,
   Window   w,
   unsigned property,
@@ -5396,7 +5452,7 @@ static void SetProperty
         
         bytes  = length * size;
         value  = (uchar *) alloca(bytes);
-        GetList4(DEREFWORD(list),value,(int)size,get);
+        GetList4(taskData, DEREFWORD(list),value,(int)size,get);
     }
     
     {
@@ -5413,11 +5469,12 @@ static void SetProperty
 
 static Handle GetWMHints
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window w
 )
 {
-  Handle tuple = alloc_and_save(7, F_MUTABLE_BIT);
+  Handle tuple = alloc_and_save(taskData, 7, F_MUTABLE_BIT);
   
   XWMHints *H = XGetWMHints(DEREFDISPLAYHANDLE(dsHandle)->display,w);
   
@@ -5425,13 +5482,13 @@ static Handle GetWMHints
   {
   
 #define data DEREFHANDLE(tuple)  
-    data->Set(0, DEREFWORD(Make_unsigned(H->input)));
-    data->Set(1, DEREFWORD(Make_unsigned(H->initial_state)));
-    data->Set(2, DEREFWORD(EmptyPixmap(dsHandle,H->icon_pixmap)));
-    data->Set(3, DEREFWORD(EmptyWindow(dsHandle,H->icon_window)));
-    data->Set(4, DEREFWORD(CreatePoint(H->icon_x,H->icon_y)));
-    data->Set(5, DEREFWORD(EmptyPixmap(dsHandle,H->icon_mask)));
-    data->Set(6, DEREFWORD(Make_unsigned(H->flags)));
+    data->Set(0, DEREFWORD(Make_unsigned(taskData, H->input)));
+    data->Set(1, DEREFWORD(Make_unsigned(taskData, H->initial_state)));
+    data->Set(2, DEREFWORD(EmptyPixmap(taskData, dsHandle,H->icon_pixmap)));
+    data->Set(3, DEREFWORD(EmptyWindow(taskData, dsHandle,H->icon_window)));
+    data->Set(4, DEREFWORD(CreatePoint(taskData, H->icon_x,H->icon_y)));
+    data->Set(5, DEREFWORD(EmptyPixmap(taskData, dsHandle,H->icon_mask)));
+    data->Set(6, DEREFWORD(Make_unsigned(taskData, H->flags)));
 #undef data
 
     XFree((char *)H);
@@ -5439,11 +5496,12 @@ static Handle GetWMHints
   
   /* else what (?) */
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
 static Handle GetWMSizeHints
 (
+  TaskData *taskData,
   Display *d,
   Window   w,
   unsigned property
@@ -5452,31 +5510,31 @@ static Handle GetWMSizeHints
   XSizeHints H;
   long supplied; /* was unsigned SPF 6/1/94 */
   
-  Handle tuple = alloc_and_save(9, F_MUTABLE_BIT);
+  Handle tuple = alloc_and_save(taskData, 9, F_MUTABLE_BIT);
   
   int s = XGetWMSizeHints(d,w,&H,&supplied,property);
   
   if (s)
   {
-    Handle p1 = CreatePoint(H.min_aspect.x,H.min_aspect.y);
-    Handle p2 = CreatePoint(H.max_aspect.x,H.max_aspect.y);
+    Handle p1 = CreatePoint(taskData, H.min_aspect.x,H.min_aspect.y);
+    Handle p2 = CreatePoint(taskData, H.max_aspect.x,H.max_aspect.y);
 
 #define data DEREFHANDLE(tuple)   
-    data->Set(0, DEREFWORD(CreatePoint(H.x,H.y)));
+    data->Set(0, DEREFWORD(CreatePoint(taskData, H.x,H.y)));
     data->Set(1, DEREFWORD(CreateArea(H.width,H.height)));
     data->Set(2, DEREFWORD(CreateArea(H.min_width,H.min_height)));
     data->Set(3, DEREFWORD(CreateArea(H.max_width,H.max_height)));
     data->Set(4, DEREFWORD(CreateArea(H.width_inc,H.height_inc)));
-    data->Set(5, DEREFWORD(CreatePair(p1,p2)));
+    data->Set(5, DEREFWORD(CreatePair(taskData, p1,p2)));
     data->Set(6, DEREFWORD(CreateArea(H.base_width,H.base_height)));
-    data->Set(7, DEREFWORD(Make_unsigned(H.win_gravity)));
-    data->Set(8, DEREFWORD(Make_unsigned(H.flags)));
+    data->Set(7, DEREFWORD(Make_unsigned(taskData, H.win_gravity)));
+    data->Set(8, DEREFWORD(Make_unsigned(taskData, H.flags)));
 #undef data
   }
   
   /* else (?) */
   
-  return FINISHED(tuple);
+  return FINISHED(taskData, tuple);
 }
 
 #if 0
@@ -5490,6 +5548,7 @@ PolyWord     x2; /* ML int */
 
 static Handle WMGeometry
 (
+  TaskData *taskData,
   Handle        dsHandle, /* Handle to (X_Display_Object *) */
   PolyStringObject        *user,
   PolyStringObject        *def,
@@ -5501,7 +5560,7 @@ static Handle WMGeometry
   
   char userGeometry[500],defaultGeometry[500];
   
-  GetXWMSizeHints(P, &H, 0);
+  GetXWMSizeHints(taskData, P, &H, 0);
   
   Poly_string_to_C(user,userGeometry   ,sizeof(userGeometry));
   Poly_string_to_C(def ,defaultGeometry,sizeof(defaultGeometry));
@@ -5513,18 +5572,18 @@ static Handle WMGeometry
                        borderWidth,
                        &H,&x,&y,&width,&height,&gravity);
   
-  return CreateTriple(CreatePoint(x,y),CreateArea(width,height),Make_unsigned(gravity));
+  return CreateTriple(taskData, CreatePoint(taskData, x,y),CreateArea(width,height),Make_unsigned(taskData, gravity));
 }
 
-static Handle CreateIconSize(void *v)
+static Handle CreateIconSize(TaskData *taskData, void *v)
 {
     XIconSize *s = (XIconSize *)v;
-    return CreateTriple(CreateArea(s->min_width,s->min_height),
+    return CreateTriple(taskData, CreateArea(s->min_width,s->min_height),
                         CreateArea(s->max_width,s->max_height),
                         CreateArea(s->width_inc,s->height_inc));
 }
 
-static Handle GetIconSizes(Display *d, Window w)
+static Handle GetIconSizes(TaskData *taskData, Display *d, Window w)
 {
     XIconSize *sizes; 
     int count;
@@ -5533,7 +5592,7 @@ static Handle GetIconSizes(Display *d, Window w)
     
     if (s)
     {
-        Handle list = CreateList4(count,sizes,sizeof(XIconSize),CreateIconSize);
+        Handle list = CreateList4(taskData,count,sizes,sizeof(XIconSize),CreateIconSize);
         
         XFree((char *)sizes);
         
@@ -5545,6 +5604,7 @@ static Handle GetIconSizes(Display *d, Window w)
 
 static Handle GetTransientForHint
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window w
 )
@@ -5553,13 +5613,14 @@ static Handle GetTransientForHint
   
   int s = XGetTransientForHint(DEREFDISPLAYHANDLE(dsHandle)->display,w,&p);
   
-  if (s == 0) RaiseXWindows ("XGetTransientForHint failed");
+  if (s == 0) RaiseXWindows(taskData, "XGetTransientForHint failed");
   
-  return EmptyWindow(dsHandle,p);
+  return EmptyWindow(taskData, dsHandle,p);
 }
 
 static Handle GetWMColormapWindows
 (
+  TaskData *taskData,
   Handle dsHandle, /* Handle to (X_Display_Object *) */
   Window parent
 )
@@ -5571,7 +5632,7 @@ static Handle GetWMColormapWindows
   
   if (s)
   {
-    Handle list = CreateList5(count,windows,sizeof(Window),CreateDrawable,dsHandle);
+    Handle list = CreateList5(taskData,count,windows,sizeof(Window),CreateDrawable,dsHandle);
 
     XFree((char *)windows);
     
@@ -5584,6 +5645,7 @@ static Handle GetWMColormapWindows
 
 static Handle GetRGBColormaps
 (
+  TaskData *taskData,
   Handle   dsHandle, /* Handle to (X_Display_Object *) */
   Window   w,
   unsigned property
@@ -5596,7 +5658,7 @@ static Handle GetRGBColormaps
   
   if (s)
   {
-    Handle list = CreateList5(count,maps,sizeof(XStandardColormap),CreateStandardColormap,dsHandle);
+    Handle list = CreateList5(taskData,count,maps,sizeof(XStandardColormap),CreateStandardColormap,dsHandle);
 
     XFree((char *)maps);
     
@@ -5606,23 +5668,23 @@ static Handle GetRGBColormaps
   return SAVE(ListNull);
 }
 
-static Handle GetID(X_Object *P)
+static Handle GetID(TaskData *taskData, X_Object *P)
 {
     switch(UNTAGGED(P->type))
     {
-    case X_GC:       return Make_unsigned(GetGC(P)->gid);           /* GCID       */
-    case X_Font:     return Make_unsigned(GetFont(P));              /* FontID     */
-    case X_Cursor:   return Make_unsigned(GetCursor(P));            /* CursorId   */
-    case X_Window:   return Make_unsigned(GetWindow(P));            /* DrawableID */
-    case X_Pixmap:   return Make_unsigned(GetPixmap(P));            /* DrawableID */
-    case X_Colormap: return Make_unsigned(GetColormap(P));          /* ColormapID */
-    case X_Visual:   return Make_unsigned(GetVisual(P)->visualid);  /* VisualID   */
-    case X_Widget:   return Make_unsigned((unsigned long)GetNWidget(P)); /* Widget -- SAFE(?) */
+    case X_GC:       return Make_unsigned(taskData, GetGC(taskData, P)->gid);           /* GCID       */
+    case X_Font:     return Make_unsigned(taskData, GetFont(taskData, P));              /* FontID     */
+    case X_Cursor:   return Make_unsigned(taskData, GetCursor(taskData, P));            /* CursorId   */
+    case X_Window:   return Make_unsigned(taskData, GetWindow(taskData, P));            /* DrawableID */
+    case X_Pixmap:   return Make_unsigned(taskData, GetPixmap(taskData, P));            /* DrawableID */
+    case X_Colormap: return Make_unsigned(taskData, GetColormap(taskData, P));          /* ColormapID */
+    case X_Visual:   return Make_unsigned(taskData, GetVisual(taskData, P)->visualid);  /* VisualID   */
+    case X_Widget:   return Make_unsigned(taskData, (unsigned long)GetNWidget(taskData, P)); /* Widget -- SAFE(?) */
     default:         Crash ("Bad X_Object type (%d) in GetID",UNTAGGED(P->type)) /*NOTREACHED*/;
     }
 }
 
-static Handle OpenDisplay(PolyStringObject *string)
+static Handle OpenDisplay(TaskData *taskData, PolyStringObject *string)
 {
     char               name[500];
     Display           *display;
@@ -5630,16 +5692,16 @@ static Handle OpenDisplay(PolyStringObject *string)
     
     Poly_string_to_C(string,name,sizeof(name));
     
-    if (userOptions.noDisplay) RaiseXWindows ("XOpenDisplay failed");
+    if (userOptions.noDisplay) RaiseXWindows(taskData, "XOpenDisplay failed");
     
     display = XOpenDisplay(name);
     
-    if (display == 0) RaiseXWindows ("XOpenDisplay failed");
+    if (display == 0) RaiseXWindows(taskData, "XOpenDisplay failed");
     
     /* I don't think this is needed.  DCJM 26/5/2000. */
     /* add_file_descr(display->fd); */
     
-    dsHandle = alloc_and_save(SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
     
     debug1 ("%s display opened\n",DisplayString(display));
     
@@ -5653,7 +5715,7 @@ static Handle OpenDisplay(PolyStringObject *string)
     ds->app_context = 0;
 #undef ds
     
-    return AddXObject(FINISHED(dsHandle));
+    return AddXObject(FINISHED(taskData, dsHandle));
 }
 
 /* indirection removed SPF 11/11/93 */
@@ -5764,16 +5826,16 @@ typedef struct
 } ArgType;
 
 
-static void GetXmString(PolyWord w, void *v, unsigned )
+static void GetXmString(TaskData *taskData, PolyWord w, void *v, unsigned )
 {
     XmString *p = (XmString *)v;
     char *s;
-    CopyString(w, &s, 0);
+    CopyString(taskData, w, &s, 0);
     *p = XmStringCreateLtoR(s,XmSTRING_DEFAULT_CHARSET);
     free(s);
 }
 
-static void GetXmStrings(PolyWord list, ArgType *T)
+static void GetXmStrings(TaskData *taskData, PolyWord list, ArgType *T)
 {
     T->N   = 0;
     T->u.X = 0;
@@ -5783,11 +5845,11 @@ static void GetXmStrings(PolyWord list, ArgType *T)
         T->N   = ListLength(list);
         T->u.X = (XmString *) malloc(T->N * sizeof(XmString));
         
-        GetList4(list,T->u.X,sizeof(XmString),GetXmString);
+        GetList4(taskData, list,T->u.X,sizeof(XmString),GetXmString);
     }
 }
 
-static void GetStrings(PolyWord list, ArgType *T)
+static void GetStrings(TaskData *taskData, PolyWord list, ArgType *T)
 {
     T->N   = 0;
     T->u.S = 0;
@@ -5797,7 +5859,7 @@ static void GetStrings(PolyWord list, ArgType *T)
         T->N   = ListLength(list);
         T->u.S = (char **) malloc(T->N * sizeof(char *));
         
-        GetList4(list,T->u.S,sizeof(char *),CopyString);
+        GetList4(taskData, list,T->u.S,sizeof(char *),CopyString);
     }
 }
 
@@ -5808,7 +5870,7 @@ static void FreeXmStrings(ArgType *T)
     free(T->u.X);
 }
 
-static void GetITable(PolyWord list, ArgType *T)
+static void GetITable(TaskData *taskData, PolyWord list, ArgType *T)
 {
     T->N   = 0;
     T->u.I = 0;
@@ -5818,11 +5880,11 @@ static void GetITable(PolyWord list, ArgType *T)
         T->N   = ListLength(list);
         T->u.I = (int *) malloc(T->N * sizeof(int));
         
-        GetList4(list,T->u.I,sizeof(int),GetUnsigned);
+        GetList4(taskData, list,T->u.I,sizeof(int),GetUnsigned);
     }
 }
 
-static void GetUTable(PolyWord list, ArgType *T)
+static void GetUTable(TaskData *taskData, PolyWord list, ArgType *T)
 {
     T->N   = 0;
     T->u.U = 0;
@@ -5832,7 +5894,7 @@ static void GetUTable(PolyWord list, ArgType *T)
         T->N   = ListLength(list);
         T->u.U = (uchar *)malloc(T->N * sizeof(uchar));
         
-        GetList4(list,T->u.U,sizeof(uchar),GetUChars);
+        GetList4(taskData, list,T->u.U,sizeof(uchar),GetUChars);
     }
 }
 
@@ -5890,7 +5952,7 @@ datatype Exn = EXN of unit ref * string * unit;
 */
 
 /* (string,(v,tag)) */
-static void SetArgTypeP(PolyWord fst, PolyWord snd, ArgType *T)
+static void SetArgTypeP(TaskData *taskData, PolyWord fst, PolyWord snd, ArgType *T)
 {
   PolyWord v = FST(snd);
   
@@ -5898,42 +5960,42 @@ static void SetArgTypeP(PolyWord fst, PolyWord snd, ArgType *T)
   T->N   = 0;
   T->u.i = 0;
 
-  CopyString(fst, &T->name, 0);
+  CopyString(taskData, fst, &T->name, 0);
   
   switch(T->tag)
   {
-    case CAccelerators:  T->u.acc    = GetAcc       ((X_Object *)v.AsObjPtr()); break;
-    case CBool:          T->u.boolean   = get_C_ulong  (v); break;
-    case CColormap:      T->u.cmap   = GetColormap  ((X_Object *)v.AsObjPtr()); break;
-    case CCursor:        T->u.cursor = GetCursor    ((X_Object *)v.AsObjPtr()); break;
-    case CDimension:     T->u.dim    = get_C_ushort (v); break;
+    case CAccelerators:  T->u.acc    = GetAcc       (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CBool:          T->u.boolean   = get_C_ulong  (taskData, v); break;
+    case CColormap:      T->u.cmap   = GetColormap  (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CCursor:        T->u.cursor = GetCursor    (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CDimension:     T->u.dim    = get_C_ushort (taskData, v); break;
     case CFontList:      T->u.F      = GetXmFontList(v); break;
-    case CInt:           T->u.i      = get_C_long   (v); break;
-    case CKeySym:        T->u.keysym = get_C_ulong  (v); break;
-    case CPixmap:        T->u.pixmap = GetPixmap    ((X_Object *)v.AsObjPtr()); break;
-    case CPosition:      T->u.posn   = get_C_short  (v); break;
-    case CTrans:         T->u.trans  = GetTrans     ((X_Object *)v.AsObjPtr()); break;
-    case CUnsignedChar:  T->u.u      = get_C_uchar  (v); break;
-    case CVisual:        T->u.visual = GetVisual    ((X_Object *)v.AsObjPtr()); break;
-    case CWidget:        T->u.widget = GetNWidget   ((X_Object *)v.AsObjPtr()); break;
+    case CInt:           T->u.i      = get_C_long   (taskData, v); break;
+    case CKeySym:        T->u.keysym = get_C_ulong  (taskData, v); break;
+    case CPixmap:        T->u.pixmap = GetPixmap    (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CPosition:      T->u.posn   = get_C_short  (taskData, v); break;
+    case CTrans:         T->u.trans  = GetTrans     (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CUnsignedChar:  T->u.u      = get_C_uchar  (taskData, v); break;
+    case CVisual:        T->u.visual = GetVisual    (taskData, (X_Object *)v.AsObjPtr()); break;
+    case CWidget:        T->u.widget = GetNWidget   (taskData, (X_Object *)v.AsObjPtr()); break;
 
     /* The following types allocate memory, but only in the C heap */
     
-    case CIntTable:      GetITable   (v,T); break;
-    case CUnsignedTable: GetUTable   (v,T); break;
-    case CString:        CopyString  (v, &T->u.string, 0); break;
-    case CStringTable:   GetStrings  (v,T); break;
-    case CXmString:      GetXmString (v, &T->u.xmString, 0); break;
-    case CXmStringTable: GetXmStrings(v,T); break;
+    case CIntTable:      GetITable   (taskData, v,T); break;
+    case CUnsignedTable: GetUTable   (taskData, v,T); break;
+    case CString:        CopyString  (taskData, v, &T->u.string, 0); break;
+    case CStringTable:   GetStrings  (taskData, v,T); break;
+    case CXmString:      GetXmString (taskData, v, &T->u.xmString, 0); break;
+    case CXmStringTable: GetXmStrings(taskData, v,T); break;
     
     default: Crash ("Bad arg type %x",T->tag);
   }
 }
 
-static void SetArgType(PolyWord p, void *v, unsigned)
+static void SetArgType(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     ArgType *T = (ArgType *)v;
-    SetArgTypeP(FST(p), SND(p), T);
+    SetArgTypeP(taskData, FST(p), SND(p), T);
 }
 
 static void SetArgs(Arg *A, ArgType *T, unsigned N)
@@ -5976,26 +6038,28 @@ static void SetArgs(Arg *A, ArgType *T, unsigned N)
 /* add current callback to (pending?) FList */
 static void RunWidgetCallback(Widget w, XtPointer closure, XtPointer call_data)
 {
-  C_List *C = (C_List *)closure;
-
-  if (callbacks_enabled)
-  {
-    Handle tailHandle     = SAVE(FList);
-    Handle widgetHandle   = SAVE(C->widget_object);
-    Handle functionHandle = SAVE(C->function);
-    Handle pairHandle     = CreatePair(widgetHandle,functionHandle);
+    C_List *C = (C_List *)closure;
     
-    FList = DEREFWORD(CreatePair(pairHandle,tailHandle));
-  }
+    if (callbacks_enabled)
+    {
+        // Only synchronous callbacks are handled.
+        TaskData *taskData = processes->GetTaskDataForThread();
+        Handle tailHandle     = SAVE(FList);
+        Handle widgetHandle   = SAVE(C->widget_object);
+        Handle functionHandle = SAVE(C->function);
+        Handle pairHandle     = CreatePair(taskData, widgetHandle,functionHandle);
+        
+        FList = DEREFWORD(CreatePair(taskData, pairHandle,tailHandle));
+    }
 #if 0
-  else printf("Ignoring event for widget %p\n",C->widget_object);
+    else printf("Ignoring event for widget %p\n",C->widget_object);
 #endif
 }
 
-static void SetCallbacks(X_Widget_Object *W, PolyWord list, PolyWord initial)
+static void SetCallbacks(TaskData *taskData, X_Widget_Object *W, PolyWord list, PolyWord initial)
 {
     char name[100];
-    Widget w = GetWidget((X_Object *)W);
+    Widget w = GetWidget(taskData, (X_Object *)W);
     
     assert(w != NULL); /* SPF */
     assert(w != (Widget)1); /* SPF */
@@ -6055,19 +6119,20 @@ static void RunWidgetEventhandler (Widget w, XtPointer p, XEvent *ev, Boolean *c
     C_List *C = (C_List *)p;
     if ( callbacks_enabled )
     {
+        TaskData *taskData = processes->GetTaskDataForThread();
         Handle tailHandle     = SAVE(GList);
         Handle widgetHandle   = SAVE(C->widget_object);
         Handle functionHandle = SAVE(C->function);
-        Handle pairHandle     = CreatePair(widgetHandle,functionHandle);
+        Handle pairHandle     = CreatePair(taskData, widgetHandle,functionHandle);
         
-        GList = (ML_Cons_Cell *)DEREFHANDLE(CreatePair(pairHandle,tailHandle));
+        GList = (ML_Cons_Cell *)DEREFHANDLE(CreatePair(taskData, pairHandle,tailHandle));
     }
 }
 
 static void AddEventhandler (
-   X_Widget_Object *W, EventMask EventM, Boolean nonmask, Handle p)
+   TaskData *taskData, X_Widget_Object *W, EventMask EventM, Boolean nonmask, Handle p)
 {
-  Widget w = GetWidget((X_Object *)W) ;
+  Widget w = GetWidget(taskData, (X_Object *)W) ;
   C_List *C = (C_List *) malloc ( sizeof(C_List) ) ;
   /* Add the function to the callback list, so that it
      will not be G.C'ed away. */
@@ -6082,6 +6147,7 @@ static void AddEventhandler (
 
 static Handle AppInitialise
 (
+ TaskData *taskData,
  PolyWord s1,
  PolyWord s2,
  PolyWord s3,
@@ -6107,16 +6173,16 @@ static Handle AppInitialise
     Poly_string_to_C(s2,appName     ,sizeof(appName));
     Poly_string_to_C(s3,appClass    ,sizeof(appClass));
     
-    if (userOptions.noDisplay) RaiseXWindows ("XtAppInitialise failed (-noDisplay specified)");
+    if (userOptions.noDisplay) RaiseXWindows(taskData, "XtAppInitialise failed (-noDisplay specified)");
     
     app_context = XtCreateApplicationContext();
     
-    GetList4(DEREFWORD(fallbackHead),S,sizeof(char *),CopyString);
+    GetList4(taskData, DEREFWORD(fallbackHead),S,sizeof(char *),CopyString);
     S[F-1] = NULL;   /* list must be NULL terminated */
     XtAppSetFallbackResources(app_context,S);
     
     display = XtOpenDisplay(app_context,displayName,appName,appClass,NULL,0,&argc,0);
-    if (display == 0) RaiseXWindows ("XtAppInitialise failed (can't open display)");
+    if (display == 0) RaiseXWindows(taskData, "XtAppInitialise failed (can't open display)");
     
     /* I don't think this is needed.  DCJM 26/5/2000 */
     /* add_file_descr(display->fd); */
@@ -6125,28 +6191,29 @@ static Handle AppInitialise
     debug1 ("%x display fd\n",display->fd);
     
     /* ok to store C values because this is a BYTE object */
-    dsHandle = alloc_and_save(SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
     DEREFDISPLAYHANDLE(dsHandle)->type        = TAGGED(X_Display);
     DEREFDISPLAYHANDLE(dsHandle)->display     = display;
     DEREFDISPLAYHANDLE(dsHandle)->screen      = DefaultScreen(display);
     DEREFDISPLAYHANDLE(dsHandle)->app_context = app_context; 
-    AddXObject(FINISHED(dsHandle));
+    AddXObject(FINISHED(taskData, dsHandle));
     
-    GetList4(DEREFWORD(argHead),T,sizeof(ArgType),SetArgType);
+    GetList4(taskData, DEREFWORD(argHead),T,sizeof(ArgType),SetArgType);
     SetArgs(R,T,N);
     shell = XtAppCreateShell(appName,appClass,applicationShellWidgetClass,display,R,N);
     FreeArgs(T,N);
     
-    if (shell == 0) RaiseXWindows ("XtAppInitialise failed  (can't create application shell)");
+    if (shell == 0) RaiseXWindows(taskData, "XtAppInitialise failed  (can't create application shell)");
     
     /* added 7/12/94 SPF */
     XtAddCallback(shell,XtNdestroyCallback,DestroyWidgetCallback,NULL);
     
-    return NewWidget(dsHandle,shell);
+    return NewWidget(taskData, dsHandle,shell);
 }
 
 static Handle CreatePopupShell
 (
+  TaskData *taskData,
   PolyStringObject  *s,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
   Widget  parent,
@@ -6159,7 +6226,7 @@ static Handle CreatePopupShell
   Arg     *A = (Arg     *) alloca(N * sizeof(Arg));
   ArgType *T = (ArgType *) alloca(N * sizeof(ArgType));
 
-  GetList4(DEREFWORD(list),T,sizeof(ArgType),SetArgType);
+  GetList4(taskData, DEREFWORD(list),T,sizeof(ArgType),SetArgType);
   SetArgs(A,T,N);
   
   Poly_string_to_C(s,name,sizeof(name));
@@ -6168,16 +6235,17 @@ static Handle CreatePopupShell
   
   FreeArgs(T,N);
 
-  if (shell == 0) RaiseXWindows ("XtCreatePopupShell failed");
+  if (shell == 0) RaiseXWindows(taskData, "XtCreatePopupShell failed");
   
   /* added 7/12/94 SPF */
   XtAddCallback(shell,XtNdestroyCallback,DestroyWidgetCallback,NULL);
 
-  return NewWidget(dsHandle,shell);
+  return NewWidget(taskData, dsHandle,shell);
 }
 
 static Handle CreateXm
 (
+  TaskData *taskData,
   Widget (*create)(Widget, String, ArgList, Cardinal),
   char   *failed,
   Handle  dsHandle, /* Handle to (X_Display_Object *) */
@@ -6193,7 +6261,7 @@ static Handle CreateXm
   Arg     *A = (Arg     *) alloca(N * sizeof(Arg));
   ArgType *T = (ArgType *) alloca(N * sizeof(ArgType));
 
-  GetList4(DEREFWORD(list),T,sizeof(ArgType),SetArgType);
+  GetList4(taskData, DEREFWORD(list),T,sizeof(ArgType),SetArgType);
   SetArgs(A,T,N);
 
   Poly_string_to_C(s,name,sizeof(name));
@@ -6202,20 +6270,20 @@ static Handle CreateXm
   
   FreeArgs(T,N);
 
-  if (w == 0) RaiseXWindows(failed);
+  if (w == 0) RaiseXWindows(taskData, failed);
 
   XtAddCallback(w,XtNdestroyCallback,DestroyWidgetCallback,NULL);
 
-  return NewWidget(dsHandle,w);
+  return NewWidget(taskData, dsHandle,w);
 }
 
-static void SetValues(Widget w, Handle list)
+static void SetValues(TaskData *taskData, Widget w, Handle list)
 {
   unsigned     N = ListLength(DEREFWORD(list));
   Arg     *A = (Arg     *) alloca(N * sizeof(Arg));
   ArgType *T = (ArgType *) alloca(N * sizeof(ArgType));
 
-  GetList4(DEREFWORD(list),T,sizeof(ArgType),SetArgType);
+  GetList4(taskData, DEREFWORD(list),T,sizeof(ArgType),SetArgType);
   SetArgs(A,T,N);
   
   XtSetValues(w,A,N);
@@ -6253,6 +6321,7 @@ static StringPair listTypes[] =
 /* (string,(v,tag)) - ML (string*Ctype) */
 static void GetArgType
 (
+  TaskData *taskData,
   PolyWord p,
   ArgType *T,
   int      i, /* not used; needed to keep function type right */
@@ -6263,7 +6332,7 @@ static void GetArgType
     T->N   = 0;
     T->u.i = 0;
     
-    CopyString(FST(p), &T->name, 0);
+    CopyString(taskData, FST(p), &T->name, 0);
     
     if (T->tag == CIntTable      ||
         T->tag == CUnsignedTable ||
@@ -6294,12 +6363,12 @@ static void GetArgType
     }
 }
 
-static Handle CreateWidget(void *p, Handle dsHandle /* Handle to (X_Display_Object *) */)
+static Handle CreateWidget(TaskData *taskData, void *p, Handle dsHandle /* Handle to (X_Display_Object *) */)
 {
-    return EmptyWidget(dsHandle, *(Widget*)p);
+    return EmptyWidget(taskData, dsHandle, *(Widget*)p);
 }
 
-static Handle CreateXmString(void *t)
+static Handle CreateXmString(TaskData *taskData, void *t)
 {
     char  *s;
     Handle S;
@@ -6315,6 +6384,7 @@ static Handle CreateXmString(void *t)
 
 static Handle CreateFontList
 (
+ TaskData *taskData,
  Handle     dsHandle, /* Handle to (X_Display_Object *) */
  XmFontList F
  )
@@ -6332,64 +6402,64 @@ static Handle CreateFontList
     
     while (XmFontListGetNextFont(C,&charset,&fs))
     {
-        Handle L = alloc_and_save(SIZEOF(ML_Cons_Cell), F_MUTABLE_BIT);
+        Handle L = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell), F_MUTABLE_BIT);
         
         if (list == 0) list = L; // This is the first.
         
         if (tail != 0)
         { 
             DEREFLISTHANDLE(tail)->t = DEREFWORD(L);
-            FINISHED(tail);
+            FINISHED(taskData, tail);
         }
 
         tail = L;
         /* the new list element is joined on, but not filled in */
-        DEREFLISTHANDLE(tail)->h = DEREFWORD(CreatePair(CreateFontStruct(fs,dsHandle),Make_string(charset))); 
+        DEREFLISTHANDLE(tail)->h = DEREFWORD(CreatePair(taskData, CreateFontStruct(taskData,fs,dsHandle),Make_string(charset))); 
         DEREFLISTHANDLE(tail)->t = ListNull;
     }
     
     XmFontListFreeFontContext(C);
     
-    if (tail != 0) FINISHED(tail);
+    if (tail != 0) FINISHED(taskData, tail);
     
     return list;
 }
 
-static Handle CreateUChar(void *p)
+static Handle CreateUChar(TaskData *taskData, void *p)
 {
-  return Make_unsigned(*(uchar *)p);
+  return Make_unsigned(taskData, *(uchar *)p);
 }
 
-static Handle CreateArg(void *v, Handle   dsHandle /* Handle to (X_Display_Object *) */)
+static Handle CreateArg(TaskData *taskData, void *v, Handle   dsHandle /* Handle to (X_Display_Object *) */)
 {
     ArgType *T = (ArgType *)v;
     Handle value;
     
     switch(T->tag)
     {
-    case CAccelerators:  value = EmptyAcc      (T->u.acc);       break;
+    case CAccelerators:  value = EmptyAcc      (taskData, T->u.acc);       break;
     case CBool:          value = Make_bool     (T->u.boolean);      break;
-    case CColormap:      value = EmptyColormap (dsHandle,T->u.cmap);   break;
-    case CCursor:        value = EmptyCursor   (dsHandle,T->u.cursor); break;
+    case CColormap:      value = EmptyColormap (taskData, dsHandle,T->u.cmap);   break;
+    case CCursor:        value = EmptyCursor   (taskData, dsHandle,T->u.cursor); break;
     case CDimension:     value = Make_int      (T->u.dim);       break;
-    case CFontList:      value = CreateFontList(dsHandle,T->u.F);      break;
+    case CFontList:      value = CreateFontList(taskData, dsHandle,T->u.F);      break;
     case CInt:           value = Make_int      (T->u.i);         break;
-    case CKeySym:        value = Make_unsigned (T->u.keysym);    break;
-    case CPixmap:        value = EmptyPixmap   (dsHandle,T->u.pixmap); break;
+    case CKeySym:        value = Make_unsigned (taskData, T->u.keysym);    break;
+    case CPixmap:        value = EmptyPixmap   (taskData, dsHandle,T->u.pixmap); break;
     case CPosition:      value = Make_int      (T->u.posn);      break;
     case CString:        value = Make_string   (T->u.string);    break;
-    case CTrans:         value = EmptyTrans    (T->u.trans);     break;
-    case CUnsignedChar:  value = Make_unsigned (T->u.u);         break;
-    case CVisual:        value = EmptyVisual   (dsHandle,T->u.visual); break;
-    case CWidget:        value = EmptyWidget   (dsHandle,T->u.widget); break;
+    case CTrans:         value = EmptyTrans    (taskData, T->u.trans);     break;
+    case CUnsignedChar:  value = Make_unsigned (taskData, T->u.u);         break;
+    case CVisual:        value = EmptyVisual   (taskData, dsHandle,T->u.visual); break;
+    case CWidget:        value = EmptyWidget   (taskData, dsHandle,T->u.widget); break;
         
-    case CXmString:      value = CreateXmString(&T->u.xmString); break;
+    case CXmString:      value = CreateXmString(taskData, &T->u.xmString); break;
         
-    case CIntTable:      value = CreateList4(T->N,T->u.I,sizeof(int),     CreateUnsigned);        break;
-    case CUnsignedTable: value = CreateList4(T->N,T->u.U,sizeof(uchar),   CreateUChar);           break;
-    case CStringTable:   value = CreateList4(T->N,T->u.S,sizeof(char *),  CreateString);          break;
-    case CWidgetList:    value = CreateList5(T->N,T->u.W,sizeof(Widget),  CreateWidget,dsHandle); break;
-    case CXmStringTable: value = CreateList4(T->N,T->u.X,sizeof(XmString),CreateXmString);        break;
+    case CIntTable:      value = CreateList4(taskData, T->N,T->u.I,sizeof(int),     CreateUnsigned);        break;
+    case CUnsignedTable: value = CreateList4(taskData, T->N,T->u.U,sizeof(uchar),   CreateUChar);           break;
+    case CStringTable:   value = CreateList4(taskData, T->N,T->u.S,sizeof(char *),  CreateString);          break;
+    case CWidgetList:    value = CreateList5(taskData,T->N,T->u.W,sizeof(Widget),  CreateWidget,dsHandle); break;
+    case CXmStringTable: value = CreateList4(taskData, T->N,T->u.X,sizeof(XmString),CreateXmString);        break;
         
     default: Crash ("Bad arg type %x",T->tag); /*NOTREACHED*/
     }
@@ -6399,6 +6469,7 @@ static Handle CreateArg(void *v, Handle   dsHandle /* Handle to (X_Display_Objec
 
 static Handle GetValue
 (
+ TaskData *taskData,
  Handle  dsHandle, /* Handle to (X_Display_Object *) */
  Widget  w,
  PolyWord pair /* ML (string*Ctype) */
@@ -6409,7 +6480,7 @@ static Handle GetValue
     XmString *X = (XmString *) 0x55555555;
     XmString *Y = (XmString *) 0xAAAAAAAA;
     
-    GetArgType(pair,&T,0,w);
+    GetArgType(taskData,pair,&T,0,w);
     
     A.name  = T.name;
     A.value = (XtArgVal) &T.u;
@@ -6432,16 +6503,17 @@ static Handle GetValue
             
             sprintf(buffer,"XtGetValues (%s) failed",T.name);
             
-            RaiseXWindows(buffer);
+            RaiseXWindows(taskData, buffer);
         }
     }
     
-    return CreateArg(&T,dsHandle);
+    return CreateArg(taskData, &T,dsHandle);
 }
 
 /* What is the real ML type of p? (string*Ctype*string*string*string*Ctype) */
 static void GetResource
 (
+ TaskData *taskData,
  PolyWord      pp,
  XtResource *R,
  int         i,
@@ -6451,16 +6523,16 @@ static void GetResource
  )
 {
     PolyObject *p = pp.AsObjPtr();
-    GetArgType(pp,&T[i],0,w); /* HACK !!! */
+    GetArgType(taskData,pp,&T[i],0,w); /* HACK !!! */
     
-    CopyString(p->Get(0), &R->resource_name, 0);
-    CopyString(p->Get(2), &R->resource_class, 0);
-    CopyString(p->Get(3), &R->resource_type, 0);
+    CopyString(taskData, p->Get(0), &R->resource_name, 0);
+    CopyString(taskData, p->Get(2), &R->resource_class, 0);
+    CopyString(taskData, p->Get(3), &R->resource_type, 0);
     
     R->resource_size   = 4;
     R->resource_offset = (byte*)(&T[i].u) - (byte*)(T);
     
-    SetArgTypeP(p->Get(4), p->Get(5), &D[i]); /* This was a hack.  I hope I converted it correctly.  DCJM */
+    SetArgTypeP(taskData, p->Get(4), p->Get(5), &D[i]); /* This was a hack.  I hope I converted it correctly.  DCJM */
     
     R->default_type = D[i].name;
     
@@ -6472,6 +6544,7 @@ static void GetResource
 
 static Handle GetSubresources
 (
+ TaskData *taskData,
  Handle  dsHandle, /* Handle to (X_Display_Object *) */
  Widget  w,
  PolyStringObject *s1,
@@ -6492,7 +6565,7 @@ static Handle GetSubresources
         
         for(PolyWord p = DEREFWORD(list); NONNIL(p); p = ((ML_Cons_Cell *)p.AsObjPtr())->t)
         {
-            GetResource(((ML_Cons_Cell *)p.AsObjPtr())->h,&R[i],i,T,D,w);
+            GetResource(taskData,((ML_Cons_Cell *)p.AsObjPtr())->h,&R[i],i,T,D,w);
             i++;
         }
     }
@@ -6502,10 +6575,10 @@ static Handle GetSubresources
     
     XtGetSubresources(w,T,name,clas,R,N,NULL,0);
     
-    return CreateList5(N,T,sizeof(ArgType),CreateArg,dsHandle);
+    return CreateList5(taskData,N,T,sizeof(ArgType),CreateArg,dsHandle);
 }
 
-static Handle GetApplicationResources (
+static Handle GetApplicationResources (TaskData *taskData,
                                        Handle  dsHandle, /* Handle to (X_Display_Object *) */
                                        Widget  w,
                                        Handle  list
@@ -6520,45 +6593,45 @@ static Handle GetApplicationResources (
         unsigned i = 0;
         for(PolyWord p = DEREFWORD(list); NONNIL(p); p = ((ML_Cons_Cell *)p.AsObjPtr())->t)
         {
-            GetResource(((ML_Cons_Cell *)p.AsObjPtr())->h,&R[i],i,T,D,w);
+            GetResource(taskData,((ML_Cons_Cell *)p.AsObjPtr())->h,&R[i],i,T,D,w);
             i++;
         }
     }
     
     XtGetApplicationResources ( w,T,R,N,NULL,0 ) ;
     
-    return CreateList5 ( N,T,sizeof(ArgType),CreateArg,dsHandle ) ;
+    return CreateList5 (taskData, N,T,sizeof(ArgType),CreateArg,dsHandle ) ;
 }
 
-static void GetChild(PolyWord p, void *v, unsigned)
+static void GetChild(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     Widget *w = (Widget *)v;
-    *w = GetWidget((X_Object *)p.AsObjPtr());
+    *w = GetWidget(taskData, (X_Object *)p.AsObjPtr());
     
-    if (XtParent(*w) == NULL) RaiseXWindows ("not a child"); 
+    if (XtParent(*w) == NULL) RaiseXWindows(taskData, "not a child"); 
 }
 
-static void ManageChildren(Handle list)
+static void ManageChildren(TaskData *taskData, Handle list)
 {
     unsigned    N = ListLength(DEREFWORD(list));
     Widget *W = (Widget *) alloca(N * sizeof(Widget));
     
-    GetList4(DEREFWORD(list),W,sizeof(Widget),GetChild);
+    GetList4(taskData, DEREFWORD(list),W,sizeof(Widget),GetChild);
     
     XtManageChildren(W,N);
 }
 
-static void UnmanageChildren(Handle list)
+static void UnmanageChildren(TaskData *taskData, Handle list)
 {
     unsigned    N = ListLength(DEREFWORD(list));
     Widget *W = (Widget *) alloca(N * sizeof(Widget));
     
-    GetList4(DEREFWORD(list),W,sizeof(Widget),GetChild);
+    GetList4(taskData, DEREFWORD(list),W,sizeof(Widget),GetChild);
     
     XtUnmanageChildren(W,N);
 }
 
-static Handle ParseTranslationTable(PolyStringObject *s)
+static Handle ParseTranslationTable(TaskData *taskData, PolyStringObject *s)
 {
     XtTranslations table;
     
@@ -6568,21 +6641,21 @@ static Handle ParseTranslationTable(PolyStringObject *s)
     Poly_string_to_C(s,buffer,size);
     table = XtParseTranslationTable(buffer);
     
-    return EmptyTrans(table);
+    return EmptyTrans(taskData, table);
 }
 
-static void CommandError(Widget w, PolyWord s)
+static void CommandError(TaskData *taskData, Widget w, PolyWord s)
 {
     XmString p;
-    GetXmString(s, &p, 0);
+    GetXmString(taskData, s, &p, 0);
     XmCommandError(w,p);
     XmStringFree (p);
 }
 
-static void FileSelectionDoSearch(Widget w, PolyWord s)
+static void FileSelectionDoSearch(TaskData *taskData, Widget w, PolyWord s)
 {
     XmString p;
-    GetXmString(s, &p, 0);
+    GetXmString(taskData, s, &p, 0);
     XmFileSelectionDoSearch(w,p);
     XmStringFree (p);
 }
@@ -6599,7 +6672,7 @@ static void MenuPosition (Widget w, int x, int y)
     XmMenuPosition (w, &ev);
 }
 
-static Handle XmIsSomething(unsigned is_code, Widget widget)
+static Handle XmIsSomething(TaskData *taskData, unsigned is_code, Widget widget)
 {
   unsigned i;
   
@@ -6647,7 +6720,7 @@ static Handle XmIsSomething(unsigned is_code, Widget widget)
     case 36: i = XmIsSeparatorGadget    (widget); break;
 #ifdef LESSTIF_VERSION
 /* This is not supported in LessTif, at least not 0.89. */
-    case 37: RaiseXWindows("XmIsShellExt: not implemented");
+    case 37: RaiseXWindows(taskData, "XmIsShellExt: not implemented");
 #else
     case 37: i = XmIsShellExt           (widget); break; /* ok - SPF 9/8/94 */
 #endif
@@ -6680,13 +6753,14 @@ static Handle XmIsSomething(unsigned is_code, Widget widget)
 /* widget -> unit */
 static void WidgetAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w = getWidget(func_name,arg1);
+  Widget w = getWidget(taskData,func_name,arg1);
   applyFunc(w); 
 }
 
@@ -6695,61 +6769,65 @@ static void WidgetAction
 /* widget -> bool -> unit */
 static void WidgetBoolAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, Boolean),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w  = getWidget(func_name,arg1);
-  Boolean b = (get_C_short(arg2) != 0);
+  Widget w  = getWidget(taskData,func_name,arg1);
+  Boolean b = (get_C_short(taskData, arg2) != 0);
   applyFunc(w,b);
 }
 
 /* widget -> int -> unit */
 static void WidgetIntAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, int),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w = getWidget(func_name,arg1);
-  int i    = get_C_long(arg2);
+  Widget w = getWidget(taskData,func_name,arg1);
+  int i    = get_C_long(taskData, arg2);
   applyFunc(w,i);
 }
 
 /* widget -> int -> unit */
 static void WidgetLongAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, long),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w = getWidget(func_name,arg1);
-  long i   = get_C_long(arg2);
+  Widget w = getWidget(taskData,func_name,arg1);
+  long i   = get_C_long(taskData, arg2);
   applyFunc(w,i);
 }
 
 /* widget -> string -> unit */
 static void WidgetXmstringAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, XmString),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
-  GetXmString(arg2, &s, 0);
+  GetXmString(taskData, arg2, &s, 0);
   applyFunc(w,s);
   XmStringFree(s);
 }
@@ -6758,17 +6836,18 @@ static void WidgetXmstringAction
 /* widget -> string list -> unit */
 static void WidgetXmstringlistAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, XmString *, int),
   X_Object *arg1,
   ML_Cons_Cell *arg2
 )
 {
-  Widget w          = getWidget(func_name,arg1);
+  Widget w          = getWidget(taskData,func_name,arg1);
   unsigned n             = ListLength(arg2);
   XmString *strings = (XmString *)alloca(n * sizeof(XmString));
-  GetList4(arg2,strings,sizeof(XmString),GetXmString);
+  GetList4(taskData, arg2,strings,sizeof(XmString),GetXmString);
   applyFunc(w,strings,n);
   for (unsigned i = 0; i < n; i ++) XmStringFree(strings[i]);
 }
@@ -6778,53 +6857,56 @@ static void WidgetXmstringlistAction
 /* widget -> int -> bool -> unit */
 static void WidgetIntBoolAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, int, Boolean),
   X_Object *arg1,
   PolyWord arg2,
   PolyWord arg3
 )
 { 
-  Widget w  = getWidget(func_name,arg1);
-  int i     = get_C_long(arg2);
-  Boolean b = (get_C_ushort(arg3) != 0);
+  Widget w  = getWidget(taskData,func_name,arg1);
+  int i     = get_C_long(taskData, arg2);
+  Boolean b = (get_C_ushort(taskData, arg3) != 0);
   applyFunc(w,i,b);
 }
 
 /* widget -> int -> int -> unit */
 static void WidgetIntIntAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, int, int),
   X_Object *arg1,
   PolyWord arg2,
   PolyWord arg3
 )
 { 
-  Widget w  = getWidget(func_name,arg1);
-  int x     = get_C_long(arg2);
-  int y     = get_C_long(arg3);
+  Widget w  = getWidget(taskData,func_name,arg1);
+  int x     = get_C_long(taskData, arg2);
+  int y     = get_C_long(taskData, arg3);
   applyFunc(w,x,y);
 }
 
 /* widget -> string -> bool -> unit */
 static void WidgetXmstringBoolAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, XmString, Boolean),
   X_Object *arg1,
   PolyWord arg2,
   PolyWord arg3
 )
 {
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
-  Boolean b    = (get_C_ushort(arg3) != 0);
+  Boolean b    = (get_C_ushort(taskData, arg3) != 0);
   
-  GetXmString(arg2, &s, 0);
+  GetXmString(taskData, arg2, &s, 0);
   applyFunc(w,s,b);
   XmStringFree(s);
 }
@@ -6833,18 +6915,19 @@ static void WidgetXmstringBoolAction
 /* widget -> string -> int -> unit */
 static void WidgetXmstringIntAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, XmString, int),
   X_Object *arg1,
   PolyWord arg2,
   PolyWord arg3
 )
 {
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
-  int i        = get_C_long(arg3);
-  GetXmString(arg2, &s, 0);
+  int i        = get_C_long(taskData, arg3);
+  GetXmString(taskData, arg2, &s, 0);
   applyFunc(w,s,i);
   XmStringFree(s);
 }
@@ -6852,84 +6935,89 @@ static void WidgetXmstringIntAction
 /* widget -> string list -> int -> unit */
 static void WidgetXmstringlistIntAction
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   void applyFunc(Widget, XmString *, int, int),
   X_Object *arg1,
   ML_Cons_Cell *arg2,
   PolyWord arg3
 )
 {
-  Widget w          = getWidget(func_name,arg1);
+  Widget w          = getWidget(taskData,func_name,arg1);
   unsigned n             = ListLength(arg2);
-  int i             = get_C_long(arg3);
+  int i             = get_C_long(taskData, arg3);
   XmString *strings = (XmString *)alloca(n * sizeof(XmString));
 
-  GetList4(arg2,strings,sizeof(XmString),GetXmString);
+  GetList4(taskData, arg2,strings,sizeof(XmString),GetXmString);
   applyFunc(w,strings,n,i);
   for (unsigned i = 0; i < n; i ++) XmStringFree(strings[i]);
 }
 
 /************************* n parameters, some result **************************/
-static Handle int_ptr_to_arb(void *p)
+static Handle int_ptr_to_arb(TaskData *taskData, void *p)
 {
-    return Make_arbitrary_precision(*(int *)p);
+    return Make_arbitrary_precision(taskData, *(int *)p);
 }
 
 /* widget -> int */
 static Handle WidgetToInt
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   int applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w = getWidget(func_name,arg1);
+  Widget w = getWidget(taskData, func_name,arg1);
   int res  = applyFunc(w);
-  return(Make_arbitrary_precision(res));
+  return(Make_arbitrary_precision(taskData, res));
 }
 
 /* widget -> int */
 static Handle WidgetToLong
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *taskData, char *, X_Object *),
   long applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w = getWidget(func_name,arg1);
+  Widget w = getWidget(taskData, func_name,arg1);
   long res  = applyFunc(w);
-  return(Make_unsigned(res));
+  return(Make_unsigned(taskData, res));
 }
 
 #if 0
 /* widget -> int */
 static Handle WidgetToUnsigned
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   unsigned applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w = getWidget(func_name,arg1);
+  Widget w = getWidget(taskData, func_name,arg1);
   unsigned res  = applyFunc(w);
-  return(Make_unsigned(res));
+  return(Make_unsigned(taskData, res));
 }
 #endif
 
 /* widget -> bool */
 static Handle WidgetToBool
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   Boolean applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w = getWidget(func_name,arg1);
+  Widget w = getWidget(taskData, func_name,arg1);
   Boolean res  = applyFunc(w);
   return(Make_bool(res));
 }
@@ -6937,13 +7025,14 @@ static Handle WidgetToBool
 /* widget -> string */
 static Handle WidgetToString
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   char *applyFunc(Widget),
   X_Object *arg1
 )
 {
-  Widget w   = getWidget(func_name,arg1);
+  Widget w   = getWidget(taskData, func_name,arg1);
   char *s    = applyFunc(w);
   Handle res = Make_string(s); /* safe, even if C pointer is NULL */
   XtFree(s);
@@ -6953,15 +7042,16 @@ static Handle WidgetToString
 /* widget -> int list */
 static Handle WidgetToIntlist
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   Boolean applyFunc(Widget, int**, int *),
   X_Object *arg1
 )
 {
   int item_count, *items;
   Boolean non_empty;
-  Widget w  = getWidget(func_name,arg1);
+  Widget w  = getWidget(taskData,func_name,arg1);
 
   non_empty = applyFunc(w, &items, &item_count);
   
@@ -6974,7 +7064,7 @@ static Handle WidgetToIntlist
   else
     /* copy the list into the ML heap, then free it */
     {
-      Handle res = CreateList4(item_count,items,sizeof(int),int_ptr_to_arb);
+      Handle res = CreateList4(taskData, item_count,items,sizeof(int),int_ptr_to_arb);
       XtFree((char *)items);
       return res;
     }
@@ -6983,8 +7073,9 @@ static Handle WidgetToIntlist
 /* widget -> string -> int list */
 static Handle WidgetXmstringToIntlist
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   Boolean applyFunc(Widget, XmString, int**, int *),
   X_Object *arg1,
   PolyWord arg2
@@ -6992,10 +7083,10 @@ static Handle WidgetXmstringToIntlist
 {
   int item_count, *items;
   Boolean non_empty;
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
   
-  GetXmString(arg2, &s, 0);
+  GetXmString(taskData, arg2, &s, 0);
   non_empty = applyFunc(w, s, &items, &item_count);
   XmStringFree(s);
   
@@ -7007,7 +7098,7 @@ static Handle WidgetXmstringToIntlist
   else
     /* copy the list into the ML heap, then free it */
     {
-      Handle res = CreateList4(item_count,items,sizeof(int),int_ptr_to_arb);
+      Handle res = CreateList4(taskData, item_count,items,sizeof(int),int_ptr_to_arb);
       XtFree((char *)items);
       return res;
     }
@@ -7016,18 +7107,19 @@ static Handle WidgetXmstringToIntlist
 /* widget -> string -> int */
 static Handle WidgetXmstringToInt
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   int applyFunc(Widget, XmString),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
   int res;
   
-  GetXmString(arg2, &s, 0);
+  GetXmString(taskData, arg2, &s, 0);
   res = applyFunc(w, s);
   XmStringFree(s);
   
@@ -7037,18 +7129,19 @@ static Handle WidgetXmstringToInt
 /* widget -> string -> bool */
 static Handle WidgetXmstringToBool
 (
+  TaskData *taskData,
   char *func_name,
-  Widget getWidget(char *, X_Object *),
+  Widget getWidget(TaskData *, char *, X_Object *),
   Boolean applyFunc(Widget, XmString),
   X_Object *arg1,
   PolyWord arg2
 )
 {
-  Widget w     = getWidget(func_name,arg1);
+  Widget w     = getWidget(taskData,func_name,arg1);
   XmString s;
   Boolean res;
 
-  GetXmString(arg2, &s, 0);
+  GetXmString(taskData, arg2, &s, 0);
   res = applyFunc(w, s);
   XmStringFree(s);
 
@@ -7089,6 +7182,7 @@ static bool isPossibleString(PolyObject *P)
 /* Prints out the contents of a PolyWord in the X interface tuple */
 static void DebugPrintWord(PolyWord P /* was X_Object *P */)
 {
+    TaskData *taskData = processes->GetTaskDataForThread();
     if (IS_INT((P))) 
     {
         printf("Short %d", (int)UNTAGGED(P));
@@ -7133,58 +7227,58 @@ static void DebugPrintWord(PolyWord P /* was X_Object *P */)
         switch(UNTAGGED(XP->type))
         {
         case X_GC:       (ResourceExists(XP)
-                             ? printf("GC %lx", GetGC(XP)->gid)
+                             ? printf("GC %lx", GetGC(taskData, XP)->gid)
                              : printf("Old GC <%lx>",P.AsUnsigned()));
             return;
             
         case X_Font:     (ResourceExists(XP)
-                             ? printf("Font %lx",GetFont(XP))
+                             ? printf("Font %lx",GetFont(taskData, XP))
                              : printf("Old Font <%x>",(int)P.AsUnsigned()));
             return;
             
         case X_Cursor:   (ResourceExists(XP)
-                             ? printf("Cursor %lx",GetCursor(XP))
+                             ? printf("Cursor %lx",GetCursor(taskData, XP))
                              : printf("Old Cursor <%x>",(int)P.AsUnsigned()));
             return;
             
         case X_Window:   (ResourceExists(XP)
-                             ? printf("Window %lx",GetWindow(XP))
+                             ? printf("Window %lx",GetWindow(taskData, XP))
                              : printf("Old Window <%p>",P.AsAddress()));
             return;
             
         case X_Pixmap:   (ResourceExists(XP)
-                             ? printf("Pixmap %lx",GetPixmap(XP))
+                             ? printf("Pixmap %lx",GetPixmap(taskData, XP))
                              : printf("Old Pixmap <%p>",P.AsAddress()));
             return;
             
         case X_Colormap: (ResourceExists(XP)
-                             ? printf("Colormap %lx",GetColormap(XP))
+                             ? printf("Colormap %lx",GetColormap(taskData, XP))
                              : printf("Old Colormap <%p>",P.AsAddress()));
             return;
             
         case X_Visual:   (ResourceExists(XP)
-                             ? printf("Visual %lx",GetVisual(XP)->visualid)
+                             ? printf("Visual %lx",GetVisual(taskData, XP)->visualid)
                              : printf("Old Visual <%p>",P.AsAddress()));
             return;
             
         case X_Widget:   (ResourceExists(XP)
-                             ? printf("Widget %p",GetNWidget(XP))
+                             ? printf("Widget %p",GetNWidget(taskData, XP))
                              : printf("Old Widget <%p>",P.AsAddress()));
             return;
             
         case X_Trans:    (ResourceExists(XP)
-                             ? printf("Trans %p",GetTrans(XP))
+                             ? printf("Trans %p",GetTrans(taskData, XP))
                              : printf("Old Trans <%p>",P.AsAddress()));
             return;
             
         case X_Acc:      (ResourceExists(XP)
-                             ? printf("Acc %p",GetAcc(XP))
+                             ? printf("Acc %p",GetAcc(taskData, XP))
                              : printf("Old Acc <%p>",P.AsAddress()));
             return;
             
         case X_Display:  (ResourceExists(XP)
-                             ? printf("Display %s", DisplayString(GetDisplay(XP)))
-                             + printf(":%x", GetDisplay(XP)->fd)
+                             ? printf("Display %s", DisplayString(GetDisplay(taskData, XP)))
+                             + printf(":%x", GetDisplay(taskData, XP)->fd)
                              : printf("Old Display <%p>",P.AsAddress()));
             return;
             
@@ -7240,227 +7334,227 @@ static void DebugPrintCode(PolyObject *pt)
 /* Xwindows_c gets passed the address of an object in save_vec, */
 /* which is itself a pointer to a tuple in the Poly heap.       */
 
-Handle XWindows_c(Handle params)
+Handle XWindows_c(TaskData *taskData, Handle params)
 {
-    int code = get_C_short(P0);
+    int code = get_C_short(taskData, P0);
     
     if ((userOptions.debug & DEBUG_X)) DebugPrintCode(DEREFHANDLE(params));
     
     switch(code)
     {
     case XCALL_Not:
-        return Make_unsigned(~ get_C_ulong(P1));
+        return Make_unsigned(taskData, ~ get_C_ulong(taskData, P1));
         
     case XCALL_And:
-        return Make_unsigned(get_C_ulong(P1) & get_C_ulong(P2));
+        return Make_unsigned(taskData, get_C_ulong(taskData, P1) & get_C_ulong(taskData, P2));
         
     case XCALL_Or:
-        return Make_unsigned(get_C_ulong(P1) | get_C_ulong(P2));
+        return Make_unsigned(taskData, get_C_ulong(taskData, P1) | get_C_ulong(taskData, P2));
         
     case XCALL_Xor:
-        return Make_unsigned(get_C_ulong(P1) ^ get_C_ulong(P2));
+        return Make_unsigned(taskData, get_C_ulong(taskData, P1) ^ get_C_ulong(taskData, P2));
         
     case XCALL_DownShift:
-        return Make_unsigned(get_C_ulong(P1) >> get_C_ulong(P2));
+        return Make_unsigned(taskData, get_C_ulong(taskData, P1) >> get_C_ulong(taskData, P2));
         
     case XCALL_UpShift:
-        return Make_unsigned(get_C_ulong(P1) << get_C_ulong(P2));
+        return Make_unsigned(taskData, get_C_ulong(taskData, P1) << get_C_ulong(taskData, P2));
         
     case XCALL_NoDrawable:
-        return EmptyPixmap(SAVE(ListNull),(Pixmap)get_C_ulong(P1));
+        return EmptyPixmap(taskData, SAVE(ListNull),(Pixmap)get_C_ulong(taskData, P1));
         
     case XCALL_NoCursor:
-        return EmptyCursor(SAVE(ListNull),(Cursor)None);
+        return EmptyCursor(taskData, SAVE(ListNull),(Cursor)None);
         
     case XCALL_NoFont:
-        return EmptyFont(SAVE(ListNull),(Font)None,(XFontStruct *)NULL);
+        return EmptyFont(taskData, SAVE(ListNull),(Font)None,(XFontStruct *)NULL);
         
     case XCALL_NoColormap:
-        return EmptyColormap(SAVE(ListNull),(Colormap) None);
+        return EmptyColormap(taskData, SAVE(ListNull),(Colormap) None);
         
     case XCALL_NoVisual:
-        return EmptyVisual(SAVE(ListNull),(Visual *)None);
+        return EmptyVisual(taskData, SAVE(ListNull),(Visual *)None);
         
     case XCALL_GetTimeOfDay:
-        return GetTimeOfDay();
+        return GetTimeOfDay(taskData);
         
         /* Colorcells 100 */
     case XCALL_XAllocColor:
-        return AllocColor(GetDisplay(XP1),GetColormap(XP1),GetXColor1(P2));
+        return AllocColor(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),GetXColor1(taskData, P2));
         
     case XCALL_XAllocColorCells:
-        return AllocColorCells(GetDisplay(XP1),
-            GetColormap(XP1),
-            get_C_ulong(P2),
-            get_C_ulong(P3),
-            get_C_ulong(P4));
+        return AllocColorCells(taskData, GetDisplay(taskData, XP1),
+            GetColormap(taskData, XP1),
+            get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3),
+            get_C_ulong(taskData, P4));
         
     case XCALL_XAllocColorPlanes:
-        return AllocColorPlanes(GetDisplay(XP1),
-            GetColormap(XP1),
-            get_C_ulong(P2),
-            get_C_ulong(P3),
-            get_C_ulong(P4),
-            get_C_ulong(P5),
-            get_C_ulong(P6));
+        return AllocColorPlanes(taskData, GetDisplay(taskData, XP1),
+            GetColormap(taskData, XP1),
+            get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3),
+            get_C_ulong(taskData, P4),
+            get_C_ulong(taskData, P5),
+            get_C_ulong(taskData, P6));
         
     case XCALL_XAllocNamedColor:
-        return AllocNamedColor(GetDisplay(XP1),GetColormap(XP1),GetString(P2));
+        return AllocNamedColor(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),GetString(P2));
         
     case XCALL_XFreeColors:
-        FreeColors(GetDisplay(XP1),GetColormap(XP1),SAVE(P2),get_C_ulong(P3));
+        FreeColors(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),SAVE(P2),get_C_ulong(taskData, P3));
         break;
         
     case XCALL_XLookupColor:
-        return LookupColor(GetDisplay(XP1),GetColormap(XP1),GetString(P2));
+        return LookupColor(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),GetString(P2));
         
     case XCALL_XParseColor:
-        return ParseColor(GetDisplay(XP1),GetColormap(XP1),GetString(P2));
+        return ParseColor(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),GetString(P2));
         
     case XCALL_XQueryColor:
-        return QueryColor(GetDisplay(XP1),GetColormap(XP1),get_C_ulong(P2));
+        return QueryColor(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),get_C_ulong(taskData, P2));
         
     case XCALL_XQueryColors:
-        return QueryColors(GetDisplay(XP1),GetColormap(XP1),SAVE(P2));
+        return QueryColors(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),SAVE(P2));
         
     case XCALL_XStoreColor:
-        XStoreColor(GetDisplay(XP1),GetColormap(XP1),GetXColor1(P2));
+        XStoreColor(GetDisplay(taskData, XP1),GetColormap(taskData, XP1),GetXColor1(taskData, P2));
         break;
         
     case XCALL_XStoreColors:
-        StoreColors(GetDisplay(XP1),GetColormap(XP1),SAVE(P2));
+        StoreColors(taskData, GetDisplay(taskData, XP1),GetColormap(taskData, XP1),SAVE(P2));
         break;
         
     case XCALL_XStoreNamedColor:
-        StoreNamedColor(GetDisplay(XP1),
-            GetColormap(XP1),
+        StoreNamedColor(GetDisplay(taskData, XP1),
+            GetColormap(taskData, XP1),
             GetString(P2),
-            get_C_ulong(P3),
-            get_C_ulong(P4),
-            get_C_ulong(P5),
-            get_C_ulong(P6));
+            get_C_ulong(taskData, P3),
+            get_C_ulong(taskData, P4),
+            get_C_ulong(taskData, P5),
+            get_C_ulong(taskData, P6));
         break;
         
     case XCALL_BlackPixel:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1); 
-        return Make_unsigned(BlackPixel(DEREFDISPLAYHANDLE(dsHandle)->display,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1); 
+        return Make_unsigned(taskData, BlackPixel(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)); }
         
     case XCALL_WhitePixel:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return Make_unsigned(WhitePixel(DEREFDISPLAYHANDLE(dsHandle)->display,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return Make_unsigned(taskData, WhitePixel(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)); }
         
         /* Colormaps 150 */
     case XCALL_XCopyColormapAndFree:
-        return EmptyColormap(GetDS(XP1),XCopyColormapAndFree(GetDisplay(XP1),GetColormap(XP1)));
+        return EmptyColormap(taskData, GetDS(taskData, XP1),XCopyColormapAndFree(GetDisplay(taskData, XP1),GetColormap(taskData, XP1)));
         
     case XCALL_XCreateColormap:
-        return EmptyColormap(GetDS(XP1),XCreateColormap(GetDisplay(XP1),GetDrawable(XP1),GetVisual(XP2),get_C_ulong(P3)));
+        return EmptyColormap(taskData, GetDS(taskData, XP1),XCreateColormap(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetVisual(taskData, XP2),get_C_ulong(taskData, P3)));
         
     case XCALL_XInstallColormap:
-        XInstallColormap(GetDisplay(XP1),GetColormap(XP1)); break;
+        XInstallColormap(GetDisplay(taskData, XP1),GetColormap(taskData, XP1)); break;
         
     case XCALL_XListInstalledColormaps:
-        return ListInstalledColormaps(GetDS(XP1),GetDrawable(XP1));
+        return ListInstalledColormaps(taskData, GetDS(taskData, XP1),GetDrawable(taskData, XP1));
         
     case XCALL_XUninstallColormap:
-        XUninstallColormap(GetDisplay(XP1),GetColormap(XP1)); break;
+        XUninstallColormap(GetDisplay(taskData, XP1),GetColormap(taskData, XP1)); break;
         
     case XCALL_DefaultColormap:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return EmptyColormap(dsHandle,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return EmptyColormap(taskData, dsHandle,
             DefaultColormap(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen));
         }
         
     case XCALL_DefaultVisual:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return EmptyVisual(dsHandle,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return EmptyVisual(taskData, dsHandle,
             DefaultVisual(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen));
         }
         
     case XCALL_DisplayCells:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1); 
-        return Make_unsigned(DisplayCells(DEREFDISPLAYHANDLE(dsHandle)->display,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1); 
+        return Make_unsigned(taskData, DisplayCells(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen));
         }
         
     case XCALL_VisualClass:
-        return Make_unsigned(GetVisual(XP1)->c_class);
+        return Make_unsigned(taskData, GetVisual(taskData, XP1)->c_class);
         
     case XCALL_VisualRedMask:
-        return Make_unsigned(GetVisual(XP1)->red_mask);
+        return Make_unsigned(taskData, GetVisual(taskData, XP1)->red_mask);
         
     case XCALL_VisualGreenMask:
-        return Make_unsigned(GetVisual(XP1)->green_mask);
+        return Make_unsigned(taskData, GetVisual(taskData, XP1)->green_mask);
         
     case XCALL_VisualBlueMask:
-        return Make_unsigned(GetVisual(XP1)->blue_mask);
+        return Make_unsigned(taskData, GetVisual(taskData, XP1)->blue_mask);
         
         /* Cursors 200 */
     case XCALL_XCreateFontCursor:
-        return CreateFontCursor(GetDS(XP1),get_C_ulong(P2));
+        return CreateFontCursor(taskData, GetDS(taskData, XP1),get_C_ulong(taskData, P2));
         
     case XCALL_XCreateGlyphCursor:
-        return CreateGlyphCursor(GetDS(XP1),
-            GetFont(XP1),
-            GetFont(XP2),
-            get_C_ulong(P3),
-            get_C_ulong(P4),
-            GetXColor1(P5),
-            GetXColor2(P6));
+        return CreateGlyphCursor(taskData, GetDS(taskData, XP1),
+            GetFont(taskData, XP1),
+            GetFont(taskData, XP2),
+            get_C_ulong(taskData, P3),
+            get_C_ulong(taskData, P4),
+            GetXColor1(taskData, P5),
+            GetXColor2(taskData, P6));
         
     case XCALL_XCreatePixmapCursor:
-        return CreatePixmapCursor(GetDS(XP1),
-            GetPixmap(XP1),  /* source     */
-            GetPixmap(XP2),  /* mask       */
-            GetXColor1(P3), /* foreground */
-            GetXColor2(P4), /* background */
-            GetOffsetX(P5), /* x          */
-            GetOffsetY(P5)  /* y          */);
+        return CreatePixmapCursor(taskData, GetDS(taskData, XP1),
+            GetPixmap(taskData, XP1),  /* source     */
+            GetPixmap(taskData, XP2),  /* mask       */
+            GetXColor1(taskData, P3), /* foreground */
+            GetXColor2(taskData, P4), /* background */
+            GetOffsetX(taskData, P5), /* x          */
+            GetOffsetY(taskData, P5)  /* y          */);
         
     case XCALL_XDefineCursor:
-        XDefineCursor(GetDisplay(XP1),GetWindow(XP1),GetCursor(XP2));
+        XDefineCursor(GetDisplay(taskData, XP1),GetWindow(taskData, XP1),GetCursor(taskData, XP2));
         WindowObject(XP1)->cursor_object = CursorObject(XP2);
         break;
         
     case XCALL_XQueryBestCursor:
-        CheckZeroRect(P2);
-        return QueryBest(XQueryBestCursor,
-            GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetRectW(P2),
-            GetRectH(P2));
+        CheckZeroRect(taskData, P2);
+        return QueryBest(taskData, XQueryBestCursor,
+            GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2));
         
     case XCALL_XRecolorCursor:
-        XRecolorCursor(GetDisplay(XP1),
-            GetCursor(XP1),
-            GetXColor1(P2),
-            GetXColor2(P3));
+        XRecolorCursor(GetDisplay(taskData, XP1),
+            GetCursor(taskData, XP1),
+            GetXColor1(taskData, P2),
+            GetXColor2(taskData, P3));
         break;
         
     case XCALL_XUndefineCursor:
-        XUndefineCursor(GetDisplay(XP1),GetWindow(XP1));
+        XUndefineCursor(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         WindowObject(XP1)->cursor_object = 0;
         break;
         
         /* Display Specifications 250 */
         
     case XCALL_XOpenDisplay:
-        return OpenDisplay(GetString(XP1)); 
+        return OpenDisplay(taskData, GetString(XP1)); 
         
 #define DODISPLAYOP(op) \
         {\
-        Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);\
-        return Make_unsigned(op(DEREFDISPLAYHANDLE(dsHandle)->display,\
+        Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);\
+        return Make_unsigned(taskData, op(DEREFDISPLAYHANDLE(dsHandle)->display,\
         DEREFDISPLAYHANDLE(dsHandle)->screen));\
         }
         
     case XCALL_CellsOfScreen:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return Make_unsigned(CellsOfScreen(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return Make_unsigned(taskData, CellsOfScreen(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)));
         }
         
@@ -7477,7 +7571,7 @@ Handle XWindows_c(Handle params)
         DODISPLAYOP(DisplayPlanes)
             
     case XCALL_DisplayString:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
         return Make_string(DisplayString(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
@@ -7491,8 +7585,8 @@ Handle XWindows_c(Handle params)
             
 #define DODISPLAYSCREENOP(op) \
         {\
-        Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);\
-        return Make_unsigned(op(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,\
+        Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);\
+        return Make_unsigned(taskData, op(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,\
         DEREFDISPLAYHANDLE(dsHandle)->screen)));\
         }
             
@@ -7513,77 +7607,77 @@ Handle XWindows_c(Handle params)
 #undef DODISPLAYSCREENOP
             
     case XCALL_ProtocolRevision:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return Make_unsigned(ProtocolRevision(DEREFDISPLAYHANDLE(dsHandle)->display));
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return Make_unsigned(taskData, ProtocolRevision(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
     case XCALL_ProtocolVersion:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return Make_unsigned(ProtocolVersion(DEREFDISPLAYHANDLE(dsHandle)->display));
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return Make_unsigned(taskData, ProtocolVersion(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
     case XCALL_ServerVendor:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
         return Make_string  (ServerVendor(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
     case XCALL_VendorRelease:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return Make_unsigned(VendorRelease(DEREFDISPLAYHANDLE(dsHandle)->display));
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return Make_unsigned(taskData, VendorRelease(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
         /* Drawing Primitives 300 */
     case XCALL_XClearArea:
-        XClearArea(GetDisplay(XP1),
-            GetWindow(XP1),
-            GetRectX(P2),
-            GetRectY(P2),
-            GetRectW(P2),
-            GetRectH(P2),
-            get_C_ulong(P3));
+        XClearArea(GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetRectX(taskData, P2),
+            GetRectY(taskData, P2),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2),
+            get_C_ulong(taskData, P3));
         break;
         
     case XCALL_XClearWindow:
-        XClearWindow(GetDisplay(XP1),GetWindow(XP1));
+        XClearWindow(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XCopyArea:
-        XCopyArea(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetDrawable(XP2),
-            GetGC(XP3),
-            GetPointX(P4),
-            GetPointY(P4),
-            GetRectW(P5),
-            GetRectH(P5),
-            GetRectX(P5),
-            GetRectY(P5));
+        XCopyArea(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetDrawable(taskData, XP2),
+            GetGC(taskData, XP3),
+            GetPointX(taskData, P4),
+            GetPointY(taskData, P4),
+            GetRectW(taskData, P5),
+            GetRectH(taskData, P5),
+            GetRectX(taskData, P5),
+            GetRectY(taskData, P5));
         break;
         
     case XCALL_XCopyPlane:
-        XCopyPlane(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetDrawable(XP2),
-            GetGC(XP3),
-            GetPointX(P4),
-            GetPointY(P4),
-            GetRectW(P5),
-            GetRectH(P5),
-            GetRectX(P5),
-            GetRectY(P5),
-            get_C_ulong(P6));
+        XCopyPlane(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetDrawable(taskData, XP2),
+            GetGC(taskData, XP3),
+            GetPointX(taskData, P4),
+            GetPointY(taskData, P4),
+            GetRectW(taskData, P5),
+            GetRectH(taskData, P5),
+            GetRectX(taskData, P5),
+            GetRectY(taskData, P5),
+            get_C_ulong(taskData, P6));
         break;
         
     case XCALL_XDrawArc:
-        XDrawArc(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetRectX(GetArcR(P3)),
-            GetRectY(GetArcR(P3)),
-            GetRectW(GetArcR(P3)),
-            GetRectH(GetArcR(P3)),
-            GetArcA1(P3),
-            GetArcA2(P3));
+        XDrawArc(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetRectX(taskData, GetArcR(P3)),
+            GetRectY(taskData, GetArcR(P3)),
+            GetRectW(taskData, GetArcR(P3)),
+            GetRectH(taskData, GetArcR(P3)),
+            GetArcA1(taskData, P3),
+            GetArcA2(taskData, P3));
         break;
         
     case XCALL_XDrawArcs:
@@ -7593,18 +7687,18 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XArc *L = (XArc *)alloca(N * sizeof(XArc));
-                GetList4(DEREFWORD(list), L, sizeof(XArc), GetArcs);
-                XDrawArcs(GetDisplay(XP1), GetDrawable(XP1), GetGC(XP2), L, N);
+                GetList4(taskData, DEREFWORD(list), L, sizeof(XArc), GetArcs);
+                XDrawArcs(GetDisplay(taskData, XP1), GetDrawable(taskData, XP1), GetGC(taskData, XP2), L, N);
             }
         }
         break;
         
     case XCALL_XDrawImageString:
-        XDrawImageString(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetPointX(P3),
-            GetPointY(P3),
+        XDrawImageString(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3),
             GetString(P4)->chars,
             GetString(P4)->length);
         break;
@@ -7616,15 +7710,15 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XChar2b *L = (XChar2b *)alloca(N * sizeof(XChar2b));
-                GetList4(DEREFWORD(list),L, sizeof(XChar2b), GetChar2);
-                XDrawImageString16(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),GetPointX(P3),GetPointY(P3),L,N);
+                GetList4(taskData, DEREFWORD(list),L, sizeof(XChar2b), GetChar2);
+                XDrawImageString16(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),GetPointX(taskData, P3),GetPointY(taskData, P3),L,N);
             }
         }
         break;
         
     case XCALL_XDrawLine:
-        XDrawLine(GetDisplay(XP1), GetDrawable(XP1), GetGC(XP2), GetPointX(P3), GetPointY(P3),
-            GetPointX(P4), GetPointY(P4));
+        XDrawLine(GetDisplay(taskData, XP1), GetDrawable(taskData, XP1), GetGC(taskData, XP2), GetPointX(taskData, P3), GetPointY(taskData, P3),
+            GetPointX(taskData, P4), GetPointY(taskData, P4));
         break;
         
     case XCALL_XDrawLines:
@@ -7634,18 +7728,18 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XPoint *L = (XPoint *)alloca(N * sizeof(XPoint));
-                GetList4(DEREFWORD(list), L, sizeof(XPoint), GetPoints);
-                XDrawLines(GetDisplay(XP1), GetDrawable(XP1), GetGC(XP2), L, N, get_C_ulong(P4));
+                GetList4(taskData, DEREFWORD(list), L, sizeof(XPoint), GetPoints);
+                XDrawLines(GetDisplay(taskData, XP1), GetDrawable(taskData, XP1), GetGC(taskData, XP2), L, N, get_C_ulong(taskData, P4));
             }
         }
         break;
         
     case XCALL_XDrawPoint:
-        XDrawPoint(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetPointX(P3),
-            GetPointY(P3));
+        XDrawPoint(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3));
         break;
         
     case XCALL_XDrawPoints:
@@ -7655,20 +7749,20 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XPoint *L = (XPoint *)alloca(N * sizeof(XPoint));
-                GetList4(DEREFWORD(list),L,sizeof(XPoint),GetPoints);
-                XDrawPoints(GetDisplay(XP1), GetDrawable(XP1), GetGC(XP2), L, N, get_C_ulong(P4));
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XPoint),GetPoints);
+                XDrawPoints(GetDisplay(taskData, XP1), GetDrawable(taskData, XP1), GetGC(taskData, XP2), L, N, get_C_ulong(taskData, P4));
             }
         }
         break;
         
     case XCALL_XDrawRectangle:
-        XDrawRectangle(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetRectX(P3),
-            GetRectY(P3),
-            GetRectW(P3),
-            GetRectH(P3));
+        XDrawRectangle(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetRectX(taskData, P3),
+            GetRectY(taskData, P3),
+            GetRectW(taskData, P3),
+            GetRectH(taskData, P3));
         break;
         
     case XCALL_XDrawRectangles:
@@ -7678,8 +7772,8 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XRectangle *L = (XRectangle *)alloca(N * sizeof(XRectangle));
-                GetList4(DEREFWORD(list),L,sizeof(XRectangle),GetRects);
-                XDrawRectangles(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),L,N);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XRectangle),GetRects);
+                XDrawRectangles(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),L,N);
             }
         }
         break;
@@ -7691,18 +7785,18 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XSegment *L = (XSegment *)alloca(N * sizeof(XSegment));
-                GetList4(DEREFWORD(list),L,sizeof(XSegment),GetSegments);
-                XDrawSegments(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),L,N);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XSegment),GetSegments);
+                XDrawSegments(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),L,N);
             }
         }
         break;
         
     case XCALL_XDrawString:
-        XDrawString(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetPointX(P3),
-            GetPointY(P3),
+        XDrawString(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3),
             GetString(P4)->chars,
             GetString(P4)->length);
         break;
@@ -7715,9 +7809,9 @@ Handle XWindows_c(Handle params)
                 unsigned  N = ListLength(DEREFWORD(list));
                 XChar2b *L = (XChar2b *)alloca(N * sizeof(XChar2b));
         
-                GetList4(DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XChar2b),GetChar2);
         
-                XDrawString16(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),GetPointX(P3),GetPointY(P3),L,N);
+                XDrawString16(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),GetPointX(taskData, P3),GetPointY(taskData, P3),L,N);
             }
         }
         break;
@@ -7730,8 +7824,8 @@ Handle XWindows_c(Handle params)
                 unsigned  N = ListLength(DEREFWORD(list));
                 XTextItem *L = (XTextItem *)alloca(N * sizeof(XTextItem));
         
-                GetList4(DEREFWORD(list),L,sizeof(XTextItem),GetText);
-                XDrawText(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),GetPointX(P3),GetPointY(P3),L,N);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XTextItem),GetText);
+                XDrawText(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),GetPointX(taskData, P3),GetPointY(taskData, P3),L,N);
 
                 while (N--) { free(L->chars); L++; }
             }
@@ -7745,8 +7839,8 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XTextItem16 *L = (XTextItem16 *)alloca(N * sizeof(XTextItem16));
-                GetList4(DEREFWORD(list),L,sizeof(XTextItem16), GetText16);
-                XDrawText16(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),GetPointX(P3),GetPointY(P3),L,N);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XTextItem16), GetText16);
+                XDrawText16(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),GetPointX(taskData, P3),GetPointY(taskData, P3),L,N);
         
                 while (N--) { free(L->chars); L++; }
             }
@@ -7754,15 +7848,15 @@ Handle XWindows_c(Handle params)
         break;
         
     case XCALL_XFillArc:
-        XFillArc(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetRectX(GetArcR(P3)),
-            GetRectY(GetArcR(P3)),
-            GetRectW(GetArcR(P3)),
-            GetRectH(GetArcR(P3)),
-            GetArcA1(P3),
-            GetArcA2(P3));
+        XFillArc(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetRectX(taskData, GetArcR(P3)),
+            GetRectY(taskData, GetArcR(P3)),
+            GetRectW(taskData, GetArcR(P3)),
+            GetRectH(taskData, GetArcR(P3)),
+            GetArcA1(taskData, P3),
+            GetArcA2(taskData, P3));
         break;
         
     case XCALL_XFillArcs:
@@ -7773,9 +7867,9 @@ Handle XWindows_c(Handle params)
                 unsigned  N = ListLength(DEREFWORD(list));
                 XArc *L = (XArc *)alloca(N * sizeof(XArc));
         
-                GetList4(DEREFWORD(list),L,sizeof(XArc),GetArcs);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XArc),GetArcs);
         
-                XFillArcs(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),L,N);
+                XFillArcs(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),L,N);
             }
         }
         break;
@@ -7788,21 +7882,21 @@ Handle XWindows_c(Handle params)
                 unsigned  N = ListLength(DEREFWORD(list));
                 XPoint *L = (XPoint *)alloca(N * sizeof(XPoint));
         
-                GetList4(DEREFWORD(list),L,sizeof(XPoint),GetPoints);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XPoint),GetPoints);
         
-                XFillPolygon(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),L,N,get_C_ulong(P4),get_C_ulong(P5));
+                XFillPolygon(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),L,N,get_C_ulong(taskData, P4),get_C_ulong(taskData, P5));
             }
         }
         break;
         
     case XCALL_XFillRectangle:
-        XFillRectangle(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetRectX(P3),
-            GetRectY(P3),
-            GetRectW(P3),
-            GetRectH(P3));
+        XFillRectangle(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetRectX(taskData, P3),
+            GetRectY(taskData, P3),
+            GetRectW(taskData, P3),
+            GetRectH(taskData, P3));
         break;
         
     case XCALL_XFillRectangles:
@@ -7812,8 +7906,8 @@ Handle XWindows_c(Handle params)
             {
                 unsigned  N = ListLength(DEREFWORD(list));
                 XRectangle *L = (XRectangle *)alloca(N * sizeof(XRectangle));
-                GetList4(DEREFWORD(list),L,sizeof(XRectangle),GetRects);
-                XFillRectangles(GetDisplay(XP1),GetDrawable(XP1),GetGC(XP2),L,N);
+                GetList4(taskData, DEREFWORD(list),L,sizeof(XRectangle),GetRects);
+                XFillRectangles(GetDisplay(taskData, XP1),GetDrawable(taskData, XP1),GetGC(taskData, XP2),L,N);
             }
         }
         break;
@@ -7821,95 +7915,95 @@ Handle XWindows_c(Handle params)
         /* Events 350 */
         
     case XCALL_XSelectInput:
-        (WindowObject(XP1))->eventMask->Set(0, PolyWord::FromUnsigned(get_C_ulong(P2)));
-        XSelectInput(GetDisplay(XP1),GetWindow(XP1),XMASK((WindowObject(XP1))->eventMask->Get(0).AsUnsigned()));
+        (WindowObject(XP1))->eventMask->Set(0, PolyWord::FromUnsigned(get_C_ulong(taskData, P2)));
+        XSelectInput(GetDisplay(taskData, XP1),GetWindow(taskData, XP1),XMASK((WindowObject(XP1))->eventMask->Get(0).AsUnsigned()));
         break;
         
     case XCALL_XSynchronize:
-        XSynchronize(GetDisplay(XP1),get_C_ulong(P2));
+        XSynchronize(GetDisplay(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_GetState:
-        return GetState(WindowObject(XP1)); /* WindowObject added SPF */
+        return GetState(taskData, WindowObject(XP1)); /* WindowObject added SPF */
         
     case XCALL_SetState:
         SetState(WindowObject(XP1),P2,P3); /* WindowObject added SPF */
         break;
         
     case XCALL_NextEvent:
-        return NextEvent(GetDS(XP1));
+        return NextEvent(taskData, GetDS(taskData, XP1));
         
     case XCALL_InsertTimeout:
-        InsertTimeout(WindowObject(XP1),get_C_ulong(P2),P3,P4); /* WindowObject added SPF */
+        InsertTimeout(taskData, WindowObject(XP1),get_C_ulong(taskData, P2),P3,P4); /* WindowObject added SPF */
         break;
         
     case XCALL_XSetInputFocus:
-        XSetInputFocus(GetDisplay(XP1),GetWindow(XP2),get_C_ulong(P3),get_C_ulong(P4));
+        XSetInputFocus(GetDisplay(taskData, XP1),GetWindow(taskData, XP2),get_C_ulong(taskData, P3),get_C_ulong(taskData, P4));
         break;
         
     case XCALL_XGetInputFocus:
-        return GetInputFocus(GetDS(XP1));
+        return GetInputFocus(taskData, GetDS(taskData, XP1));
         
     case XCALL_XSetSelectionOwner:
-        SetSelectionOwner(GetDS(XP1),get_C_ulong(P2),GetWindow(XP3),get_C_ulong(P4));
+        SetSelectionOwner(GetDS(taskData, XP1),get_C_ulong(taskData, P2),GetWindow(taskData, XP3),get_C_ulong(taskData, P4));
         break;
         
     case XCALL_XGetSelectionOwner:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return EmptyWindow(dsHandle,XGetSelectionOwner(DEREFDISPLAYHANDLE(dsHandle)->display,
-            get_C_ulong(P2)));
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return EmptyWindow(taskData, dsHandle,XGetSelectionOwner(DEREFDISPLAYHANDLE(dsHandle)->display,
+            get_C_ulong(taskData, P2)));
         }
         
     case XCALL_XConvertSelection:
-        XConvertSelection(GetDisplay(XP4),
-            get_C_ulong(P1),
-            get_C_ulong(P2),
-            get_C_ulong(P3),
-            GetWindow(XP4),
-            get_C_ulong(P5));
+        XConvertSelection(GetDisplay(taskData, XP4),
+            get_C_ulong(taskData, P1),
+            get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3),
+            GetWindow(taskData, XP4),
+            get_C_ulong(taskData, P5));
         break;
         
     case XCALL_XSendSelectionNotify:
-        SendSelectionNotify(GetDisplay(XP4),
-            get_C_ulong(P1),
-            get_C_ulong(P2),
-            get_C_ulong(P3),
-            GetWindow(XP4),
-            get_C_ulong(P5));
+        SendSelectionNotify(GetDisplay(taskData, XP4),
+            get_C_ulong(taskData, P1),
+            get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3),
+            GetWindow(taskData, XP4),
+            get_C_ulong(taskData, P5));
         break;
         
     case XCALL_XDeleteProperty:
-        XDeleteProperty(GetDisplay(XP1),GetWindow(XP1),get_C_ulong(P2));
+        XDeleteProperty(GetDisplay(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_XInternAtom:
-        return InternAtom(GetDisplay(XP1),GetString(P2),get_C_long(P3));
+        return InternAtom(taskData, GetDisplay(taskData, XP1),GetString(P2),get_C_long(taskData, P3));
         
     case XCALL_XGetAtomName:
-        return GetAtomName(GetDisplay(XP1),get_C_ulong(P2));
+        return GetAtomName(taskData, GetDisplay(taskData, XP1),get_C_ulong(taskData, P2));
         
         /* Fonts 400 */
         
     case XCALL_XGetFontPath:
-        return GetFontPath(GetDisplay(XP1));
+        return GetFontPath(taskData, GetDisplay(taskData, XP1));
         
     case XCALL_XListFonts:
-        return ListFonts(GetDisplay(XP1),GetString(P2),get_C_ulong(P3));
+        return ListFonts(taskData, GetDisplay(taskData, XP1),GetString(P2),get_C_ulong(taskData, P3));
         
     case XCALL_XListFontsWithInfo:
-        return ListFontsWithInfo(GetDS(XP1),GetString(P2),get_C_ulong(P3));
+        return ListFontsWithInfo(taskData, GetDS(taskData, XP1),GetString(P2),get_C_ulong(taskData, P3));
         
     case XCALL_XLoadFont:
-        return LoadFont(GetDS(XP1),GetString(P2));
+        return LoadFont(taskData, GetDS(taskData, XP1),GetString(P2));
         
     case XCALL_XLoadQueryFont:
-        return LoadQueryFont(GetDS(XP1),GetString(P2));
+        return LoadQueryFont(taskData, GetDS(taskData, XP1),GetString(P2));
         
     case XCALL_XQueryFont:
-        return QueryFont(GetDS(XP1),GetFont(XP1));
+        return QueryFont(taskData, GetDS(taskData, XP1),GetFont(taskData, XP1));
         
     case XCALL_XSetFontPath:
-        SetFontPath(GetDisplay(XP1),SAVE(P2));
+        SetFontPath(taskData, GetDisplay(taskData, XP1),SAVE(P2));
         break;
         
         /* Grabbing 450 */
@@ -7917,142 +8011,142 @@ Handle XWindows_c(Handle params)
         /* Graphics Context 500 */
         
     case XCALL_DefaultGC:
-        return GetDefaultGC(GetDS(XP1));
+        return GetDefaultGC(taskData, GetDS(taskData, XP1));
         
     case XCALL_UpdateGC:
-        ChangeGC(GCObject(XP1),get_C_ulong(P2),P3);
+        ChangeGC(taskData, GCObject(XP1),get_C_ulong(taskData, P2),P3);
         break;
         
     case XCALL_XCreateGC:
-        return CreateGC(GetDS(XP1),GetDrawable(XP1));
+        return CreateGC(taskData, GetDS(taskData, XP1),GetDrawable(taskData, XP1));
         
     case XCALL_XSetClipRectangles:
-        SetClipRectangles(GetDisplay(XP1),
-            GetGC(XP1),
-            GetPointX(P2),
-            GetPointY(P2),
+        SetClipRectangles(taskData, GetDisplay(taskData, XP1),
+            GetGC(taskData, XP1),
+            GetPointX(taskData, P2),
+            GetPointY(taskData, P2),
             SAVE(P3),
-            get_C_ulong(P4));
+            get_C_ulong(taskData, P4));
         break;
         
     case XCALL_XSetDashes:
-        SetDashes(GetDisplay(XP1),
-            GetGC(XP1),
-            get_C_ulong(P2),
+        SetDashes(taskData, GetDisplay(taskData, XP1),
+            GetGC(taskData, XP1),
+            get_C_ulong(taskData, P2),
             SAVE(P3));
         break;
         
         /* Images 550 */
         
     case XCALL_XAddPixel:
-        AddPixel(GetXImage(GetDisplay(XP1),P2),get_C_ulong(P3));
+        AddPixel(GetXImage(taskData, GetDisplay(taskData, XP1),P2),get_C_ulong(taskData, P3));
         break;
         
     case XCALL_XGetImage:
-        return GetImage(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetRectX(P2),
-            GetRectY(P2),
-            GetRectW(P2),
-            GetRectH(P2),
-            get_C_ulong(P3),
-            get_C_long(P4)); 
+        return GetImage(taskData, GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetRectX(taskData, P2),
+            GetRectY(taskData, P2),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2),
+            get_C_ulong(taskData, P3),
+            get_C_long(taskData, P4)); 
         
     case XCALL_XGetPixel:
-        return GetPixel(GetXImage(GetDisplay(XP1),P2),
-            GetPointX(P3),
-            GetPointY(P3));
+        return GetPixel(taskData, GetXImage(taskData, GetDisplay(taskData, XP1),P2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3));
         
     case XCALL_XGetSubImage:
-        GetSubImage(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetRectX(P2),
-            GetRectY(P2),
-            GetRectW(P2),
-            GetRectH(P2),
-            get_C_ulong(P3),
-            get_C_long(P4),
-            GetXImage(GetDisplay(XP1),P5),
-            GetPointX(P6),
-            GetPointY(P6));
+        GetSubImage(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetRectX(taskData, P2),
+            GetRectY(taskData, P2),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2),
+            get_C_ulong(taskData, P3),
+            get_C_long(taskData, P4),
+            GetXImage(taskData, GetDisplay(taskData, XP1),P5),
+            GetPointX(taskData, P6),
+            GetPointY(taskData, P6));
         break;
         
     case XCALL_XPutImage:
-        PutImage(GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetGC(XP2),
-            GetXImage(GetDisplay(XP1),P3),
-            GetPointX(P4),
-            GetPointY(P4),
-            GetRectX(P5),
-            GetRectY(P5),
-            GetRectW(P5),
-            GetRectH(P5));
+        PutImage(GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetGC(taskData, XP2),
+            GetXImage(taskData, GetDisplay(taskData, XP1),P3),
+            GetPointX(taskData, P4),
+            GetPointY(taskData, P4),
+            GetRectX(taskData, P5),
+            GetRectY(taskData, P5),
+            GetRectW(taskData, P5),
+            GetRectH(taskData, P5));
         break;
         
     case XCALL_XPutPixel:
-        PutPixel(GetXImage(GetDisplay(XP1),P2),
-            GetPointX(P3),
-            GetPointY(P3),
-            get_C_ulong(P4));
+        PutPixel(GetXImage(taskData, GetDisplay(taskData, XP1),P2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3),
+            get_C_ulong(taskData, P4));
         break;
         
     case XCALL_XSubImage:
-        return SubImage(GetXImage(GetDisplay(XP1),P2),
-            GetRectX(P3),
-            GetRectY(P3),
-            GetRectW(P3),
-            GetRectH(P3));
+        return SubImage(taskData, GetXImage(taskData, GetDisplay(taskData, XP1),P2),
+            GetRectX(taskData, P3),
+            GetRectY(taskData, P3),
+            GetRectW(taskData, P3),
+            GetRectH(taskData, P3));
         
     case XCALL_BitmapBitOrder:
-        return Make_unsigned(MLImageOrder(BitmapBitOrder(GetDisplay(XP1))));
+        return Make_unsigned(taskData, MLImageOrder(BitmapBitOrder(GetDisplay(taskData, XP1))));
         
     case XCALL_BitmapPad:
-        return Make_unsigned(BitmapPad(GetDisplay(XP1)));
+        return Make_unsigned(taskData, BitmapPad(GetDisplay(taskData, XP1)));
         
     case XCALL_BitmapUnit:
-        return Make_unsigned(BitmapUnit(GetDisplay(XP1)));
+        return Make_unsigned(taskData, BitmapUnit(GetDisplay(taskData, XP1)));
         
     case XCALL_ByteOrder:
-        return Make_unsigned(MLImageOrder(ImageByteOrder(GetDisplay(XP1))));
+        return Make_unsigned(taskData, MLImageOrder(ImageByteOrder(GetDisplay(taskData, XP1))));
         
         /* Keyboard 600 */
     case XCALL_XLookupString:
-        return LookupString(GetDisplay(XP1),get_C_ulong(P2),get_C_ulong(P3));
+        return LookupString(taskData, GetDisplay(taskData, XP1),get_C_ulong(taskData, P2),get_C_ulong(taskData, P3));
         
     case XCALL_XQueryKeymap:
-        return QueryKeymap(GetDisplay(XP1));
+        return QueryKeymap(taskData, GetDisplay(taskData, XP1));
         
     case XCALL_IsCursorKey:
-        return Make_bool(IsCursorKey(get_C_ulong(P1)));
+        return Make_bool(IsCursorKey(get_C_ulong(taskData, P1)));
         
     case XCALL_IsFunctionKey:
-        return Make_bool(IsFunctionKey(get_C_ulong(P1)));
+        return Make_bool(IsFunctionKey(get_C_ulong(taskData, P1)));
         
     case XCALL_IsKeypadKey:
-        return Make_bool(IsKeypadKey(get_C_ulong(P1)));
+        return Make_bool(IsKeypadKey(get_C_ulong(taskData, P1)));
         
     case XCALL_IsMiscFunctionKey:
-        return Make_bool(IsMiscFunctionKey(get_C_ulong(P1)));
+        return Make_bool(IsMiscFunctionKey(get_C_ulong(taskData, P1)));
         
     case XCALL_IsModifierKey:
-        return Make_bool(IsModifierKey(get_C_ulong(P1)));
+        return Make_bool(IsModifierKey(get_C_ulong(taskData, P1)));
         
     case XCALL_IsPFKey:
-        return Make_bool(IsPFKey(get_C_ulong(P1)));
+        return Make_bool(IsPFKey(get_C_ulong(taskData, P1)));
         
         /* Output Buffer 650 */
     case XCALL_XFlush:
-        XFlush(GetDisplay(XP1));
+        XFlush(GetDisplay(taskData, XP1));
         break;
         
     case XCALL_XSync:
-        XSync(GetDisplay(XP1),get_C_ulong(P2));
+        XSync(GetDisplay(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
         /* Pointers 700 */
     case XCALL_XQueryPointer:
-        return QueryPointer(GetDS(XP1),GetWindow(XP1));
+        return QueryPointer(taskData, GetDS(taskData, XP1),GetWindow(taskData, XP1));
         
         /* Regions 750*/
         
@@ -8060,234 +8154,234 @@ Handle XWindows_c(Handle params)
         
         /* Screen Saver 850 */
     case XCALL_XActivateScreenSaver:
-        XActivateScreenSaver(GetDisplay(XP1));
+        XActivateScreenSaver(GetDisplay(taskData, XP1));
         break;
         
     case XCALL_XForceScreenSaver:
-        XForceScreenSaver(GetDisplay(XP1),get_C_ulong(P2));
+        XForceScreenSaver(GetDisplay(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_XGetScreenSaver:
-        return GetScreenSaver(GetDisplay(XP1));
+        return GetScreenSaver(taskData, GetDisplay(taskData, XP1));
         
     case XCALL_XResetScreenSaver:
-        XResetScreenSaver(GetDisplay(XP1));
+        XResetScreenSaver(GetDisplay(taskData, XP1));
         break;
         
     case XCALL_XSetScreenSaver:
-        XSetScreenSaver(GetDisplay(XP1),
-            get_C_long(P2),
-            get_C_long(P3),
-            get_C_ulong(P4),
-            get_C_ulong(P5));
+        XSetScreenSaver(GetDisplay(taskData, XP1),
+            get_C_long(taskData, P2),
+            get_C_long(taskData, P3),
+            get_C_ulong(taskData, P4),
+            get_C_ulong(taskData, P5));
         break;
         
         /* Standard Geometry 900 */
     case XCALL_XTranslateCoordinates:
-        return TranslateCoordinates(GetDS(XP1),
-            GetWindow(XP1),
-            GetWindow(XP2),
-            GetPointX(P3),
-            GetPointY(P3));
+        return TranslateCoordinates(taskData, GetDS(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetWindow(taskData, XP2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3));
         
         /* Text 950 */
     case XCALL_XTextExtents:
-        return TextExtents(GetFontStruct(P1),GetString(P2));
+        return TextExtents(taskData, GetFontStruct(taskData, P1),GetString(P2));
         
     case XCALL_XTextExtents16:
-        return TextExtents16(GetFontStruct(P1),SAVE(P2));
+        return TextExtents16(taskData, GetFontStruct(taskData, P1),SAVE(P2));
         
     case XCALL_XTextWidth:
-        return TextWidth(GetFontStruct(P1),GetString(P2));
+        return TextWidth(taskData, GetFontStruct(taskData, P1),GetString(P2));
         
     case XCALL_XTextWidth16:
-        return TextWidth16(GetFontStruct(P1),SAVE(P2));
+        return TextWidth16(taskData, GetFontStruct(taskData, P1),SAVE(P2));
         
         /* Tiles, Pixmaps, Stipples and Bitmaps 1000 */
     case XCALL_XCreateBitmapFromData:
         {
-            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-            CheckZeroRect(P3);
-            return EmptyPixmap(dsHandle,
+            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+            CheckZeroRect(taskData, P3);
+            return EmptyPixmap(taskData, dsHandle,
                 XCreateBitmapFromData(
                 DEREFDISPLAYHANDLE(dsHandle)->display,
-                GetDrawable(XP1),     /* drawable */
+                GetDrawable(taskData, XP1),     /* drawable */
                 GetString(P2)->chars, /* data     */
-                GetRectW(P3),         /* width    */
-                GetRectH(P3)));       /* height   */
+                GetRectW(taskData, P3),         /* width    */
+                GetRectH(taskData, P3)));       /* height   */
         }
         
     case XCALL_XCreatePixmap:
         {
-            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-            CheckZeroRect(P2);
-            return EmptyPixmap(dsHandle,
+            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+            CheckZeroRect(taskData, P2);
+            return EmptyPixmap(taskData, dsHandle,
                 XCreatePixmap(
                 DEREFDISPLAYHANDLE(dsHandle)->display,
-                GetDrawable(XP1),  /* drawable */
-                GetRectW(P2),      /* width    */
-                GetRectH(P2),      /* height   */
-                get_C_ulong(P3))); /* depth    */
+                GetDrawable(taskData, XP1),  /* drawable */
+                GetRectW(taskData, P2),      /* width    */
+                GetRectH(taskData, P2),      /* height   */
+                get_C_ulong(taskData, P3))); /* depth    */
         }
         
     case XCALL_XCreatePixmapFromBitmapData:
         {
-            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-            CheckZeroRect(P3);
+            Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+            CheckZeroRect(taskData, P3);
             
-            return EmptyPixmap(dsHandle,
+            return EmptyPixmap(taskData, dsHandle,
                 XCreatePixmapFromBitmapData(
                 DEREFDISPLAYHANDLE(dsHandle)->display,
-                GetDrawable(XP1),     /* drawable */
+                GetDrawable(taskData, XP1),     /* drawable */
                 GetString(P2)->chars, /* data     */
-                GetRectW(P3),         /* width    */
-                GetRectH(P3),         /* height   */
-                get_C_ulong(P4),      /* foreground */
-                get_C_ulong(P5),      /* background */
-                get_C_ulong(P6)));    /* depth    */
+                GetRectW(taskData, P3),         /* width    */
+                GetRectH(taskData, P3),         /* height   */
+                get_C_ulong(taskData, P4),      /* foreground */
+                get_C_ulong(taskData, P5),      /* background */
+                get_C_ulong(taskData, P6)));    /* depth    */
         }
         
     case XCALL_XQueryBestStipple:
-        CheckZeroRect(P2);
-        return QueryBest(XQueryBestStipple,
-            GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetRectW(P2),
-            GetRectH(P2));
+        CheckZeroRect(taskData, P2);
+        return QueryBest(taskData, XQueryBestStipple,
+            GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2));
         
     case XCALL_XQueryBestTile:
-        CheckZeroRect(P2);
-        return QueryBest(XQueryBestTile,
-            GetDisplay(XP1),
-            GetDrawable(XP1),
-            GetRectW(P2),
-            GetRectH(P2));
+        CheckZeroRect(taskData, P2);
+        return QueryBest(taskData, XQueryBestTile,
+            GetDisplay(taskData, XP1),
+            GetDrawable(taskData, XP1),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2));
         
     case XCALL_XReadBitmapFile:
-        return ReadBitmap(GetDS(XP1),GetDrawable(XP1),GetString(P2));
+        return ReadBitmap(taskData, GetDS(taskData, XP1),GetDrawable(taskData, XP1),GetString(P2));
         
     case XCALL_XWriteBitmapFile:
-        CheckZeroRect(P3);
-        return WriteBitmapFile(GetString(XP1),
-            GetDisplay(XP2),
-            GetPixmap(XP2),
-            GetRectW(P3),
-            GetRectH(P3),
-            GetPointX(P4),
-            GetPointY(P4));
+        CheckZeroRect(taskData, P3);
+        return WriteBitmapFile(taskData, GetString(XP1),
+            GetDisplay(taskData, XP2),
+            GetPixmap(taskData, XP2),
+            GetRectW(taskData, P3),
+            GetRectH(taskData, P3),
+            GetPointX(taskData, P4),
+            GetPointY(taskData, P4));
         
         /* User Preferences 1050 */
     case XCALL_XAutoRepeatOff:
-        XAutoRepeatOff(GetDisplay(XP1));
+        XAutoRepeatOff(GetDisplay(taskData, XP1));
         break;
         
     case XCALL_XAutoRepeatOn:
-        XAutoRepeatOn (GetDisplay(XP1));
+        XAutoRepeatOn (GetDisplay(taskData, XP1));
         break;
         
     case XCALL_XBell:
-        XBell(GetDisplay(XP1),get_C_short(P2));
+        XBell(GetDisplay(taskData, XP1),get_C_short(taskData, P2));
         break;
         
     case XCALL_XGetDefault:
-        return GetDefault(GetDisplay(XP1),GetString(P2),GetString(P3));
+        return GetDefault(taskData, GetDisplay(taskData, XP1),GetString(P2),GetString(P3));
         
         /* Window Attributes 1100 */
     case XCALL_ChangeWindow:
-        ChangeWindowAttributes(WindowObject(XP1),get_C_ulong(P2),P3);
+        ChangeWindowAttributes(taskData, WindowObject(XP1),get_C_ulong(taskData, P2),P3);
         break;
         
     case XCALL_XGetGeometry:
-        return GetGeometry(GetDS(XP1),GetDrawable(XP1));
+        return GetGeometry(taskData, GetDS(taskData, XP1),GetDrawable(taskData, XP1));
         
     case XCALL_XGetWindowAttributes:
-        return GetWindowAttributes(GetDS(XP1),GetDrawable(XP1));
+        return GetWindowAttributes(taskData, GetDS(taskData, XP1),GetDrawable(taskData, XP1));
         
     case XCALL_XSetWindowBorderWidth:
-        XSetWindowBorderWidth(GetDisplay(XP1),GetWindow(XP1),get_C_ulong(P2));
+        XSetWindowBorderWidth(GetDisplay(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
         /* Window Configuration 1150 */
     case XCALL_XCirculateSubwindows:
-        XCirculateSubwindows(GetDisplay(XP1),GetWindow(XP1),get_C_ulong(P2));
+        XCirculateSubwindows(GetDisplay(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_XConfigureWindow:
-        ConfigureWindow(GetDisplay(XP1),GetWindow(XP1), P2);
+        ConfigureWindow(taskData, GetDisplay(taskData, XP1),GetWindow(taskData, XP1), P2);
         break;
         
     case XCALL_XLowerWindow:
-        XLowerWindow(GetDisplay(XP1),GetWindow(XP1));
+        XLowerWindow(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XMapRaised:
-        XMapRaised(GetDisplay(XP1),GetWindow(XP1));
+        XMapRaised(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XMapSubwindows:
-        XMapSubwindows(GetDisplay(XP1),GetWindow(XP1));
+        XMapSubwindows(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XMapWindow:
-        XMapWindow(GetDisplay(XP1),GetWindow(XP1));
+        XMapWindow(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XMoveResizeWindow:
-        CheckZeroRect(P3);
-        XMoveResizeWindow(GetDisplay(XP1),
-            GetWindow(XP1),
-            GetPointX(P2),
-            GetPointY(P2), 
-            GetRectW(P3),
-            GetRectH(P3));
+        CheckZeroRect(taskData, P3);
+        XMoveResizeWindow(GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetPointX(taskData, P2),
+            GetPointY(taskData, P2), 
+            GetRectW(taskData, P3),
+            GetRectH(taskData, P3));
         break;
         
     case XCALL_XMoveWindow:
-        XMoveWindow(GetDisplay(XP1),
-            GetWindow(XP1),
-            GetPointX(P2),
-            GetPointY(P2));
+        XMoveWindow(GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetPointX(taskData, P2),
+            GetPointY(taskData, P2));
         break;
         
     case XCALL_XQueryTree:
-        return QueryTree(GetDS(XP1),GetWindow(XP1));
+        return QueryTree(taskData,GetDS(taskData, XP1),GetWindow(taskData, XP1));
         
     case XCALL_XRaiseWindow:
-        XRaiseWindow(GetDisplay(XP1),GetWindow(XP1));
+        XRaiseWindow(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XReparentWindow:
-        XReparentWindow(GetDisplay(XP1),
-            GetWindow(XP1),
-            GetWindow(XP2),
-            GetPointX(P3),
-            GetPointY(P3));
+        XReparentWindow(GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetWindow(taskData, XP2),
+            GetPointX(taskData, P3),
+            GetPointY(taskData, P3));
         break;
         
     case XCALL_XResizeWindow:
-        CheckZeroRect(P2);
-        XResizeWindow(GetDisplay(XP1),
-            GetWindow(XP1),
-            GetRectW(P2),
-            GetRectH(P2));
+        CheckZeroRect(taskData, P2);
+        XResizeWindow(GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            GetRectW(taskData, P2),
+            GetRectH(taskData, P2));
         break;
         
     case XCALL_XRestackWindows:
-        RestackWindows(SAVE(P1));
+        RestackWindows(taskData, SAVE(P1));
         break;
         
     case XCALL_XUnmapSubwindows:
-        XUnmapSubwindows(GetDisplay(XP1),GetWindow(XP1));
+        XUnmapSubwindows(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
     case XCALL_XUnmapWindow:
-        XUnmapWindow(GetDisplay(XP1),GetWindow(XP1));
+        XUnmapWindow(GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         break;
         
         /* Window Existence 1200 */
     case XCALL_RootWindow:
-        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(XP1);
-        return EmptyWindow(dsHandle,
+        { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
+        return EmptyWindow(taskData, dsHandle,
             RootWindow(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen));
         }
@@ -8301,79 +8395,81 @@ Handle XWindows_c(Handle params)
         break;
         
     case XCALL_XCreateSimpleWindow:
-        CheckZeroRect(P3);
-        return CreateSimpleWindow(SAVE(XP1),       /* parent      */
-            GetPointX(P2),   /* x           */
-            GetPointY(P2),   /* y           */
-            GetRectW(P3),    /* w           */
-            GetRectH(P3),    /* h           */
-            get_C_ulong(P4), /* borderWidth */
-            get_C_ulong(P5), /* border      */
-            get_C_ulong(P6), /* background  */
+        CheckZeroRect(taskData, P3);
+        return CreateSimpleWindow(taskData,
+            SAVE(XP1),       /* parent      */
+            GetPointX(taskData, P2),   /* x           */
+            GetPointY(taskData, P2),   /* y           */
+            GetRectW(taskData, P3),    /* w           */
+            GetRectH(taskData, P3),    /* h           */
+            get_C_ulong(taskData, P4), /* borderWidth */
+            get_C_ulong(taskData, P5), /* border      */
+            get_C_ulong(taskData, P6), /* background  */
             SAVE(P7),        /* handler     */
             SAVE(P8));       /* state       */
         
     case XCALL_XCreateWindow:
-        CheckZeroRect(P3);
-        return CreateWindow(SAVE(XP1),       /* parent      */
-            GetPointX(P2),   /* x           */
-            GetPointY(P2),   /* y           */
-            GetRectW(P3),    /* w           */
-            GetRectH(P3),    /* h           */
-            get_C_ulong(P4), /* borderWidth */
-            get_C_ulong(P5), /* depth       */
-            get_C_ulong(P6), /* class       */
-            GetVisual(XP7),  /* visual      */
+        CheckZeroRect(taskData, P3);
+        return CreateWindow(taskData,
+            SAVE(XP1),       /* parent      */
+            GetPointX(taskData, P2),   /* x           */
+            GetPointY(taskData, P2),   /* y           */
+            GetRectW(taskData, P3),    /* w           */
+            GetRectH(taskData, P3),    /* h           */
+            get_C_ulong(taskData, P4), /* borderWidth */
+            get_C_ulong(taskData, P5), /* depth       */
+            get_C_ulong(taskData, P6), /* class       */
+            GetVisual(taskData, XP7),  /* visual      */
             SAVE(P8),        /* handler     */
             SAVE(P9));       /* state       */
         
         /* Window Manager 1250 */
     case XCALL_XSetProperty:
-        SetProperty(GetDisplay(XP1),
-            GetWindow(XP1),
-            get_C_ulong(P2),
-            get_C_ulong(P3),
+        SetProperty(taskData, GetDisplay(taskData, XP1),
+            GetWindow(taskData, XP1),
+            get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3),
             SAVE(P4),
-            get_C_ulong(P5));
+            get_C_ulong(taskData, P5));
         break;
         
     case XCALL_XGetTextProperty:
-        return GetTextProperty(GetDisplay(XP1),GetWindow(XP1),get_C_ulong(P2));
+        return GetTextProperty(taskData, GetDisplay(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         
     case XCALL_XGetWMHints:
-        return GetWMHints(GetDS(XP1),GetWindow(XP1));
+        return GetWMHints(taskData, GetDS(taskData, XP1),GetWindow(taskData, XP1));
         
     case XCALL_XGetWMSizeHints:
-        return GetWMSizeHints(GetDisplay(XP1),GetWindow(XP1),get_C_ulong(P2));
+        return GetWMSizeHints(taskData, GetDisplay(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         
     case XCALL_XGetIconSizes:
-        return GetIconSizes(GetDisplay(XP1),GetWindow(XP1));
+        return GetIconSizes(taskData, GetDisplay(taskData, XP1),GetWindow(taskData, XP1));
         
     case XCALL_XGetTransientForHint:
-        return GetTransientForHint(GetDS(XP1),GetWindow(XP1));
+        return GetTransientForHint(taskData, GetDS(taskData, XP1),GetWindow(taskData, XP1));
         
     case XCALL_XGetWMColormapWindows:
-        return GetWMColormapWindows(GetDS(XP1),GetWindow(XP1));
+        return GetWMColormapWindows(taskData, GetDS(taskData, XP1),GetWindow(taskData, XP1));
         
     case XCALL_XGetRGBColormaps:
-        return GetRGBColormaps(GetDS(XP1),GetWindow(XP1),get_C_ulong(P2));
+        return GetRGBColormaps(taskData, GetDS(taskData, XP1),GetWindow(taskData, XP1),get_C_ulong(taskData, P2));
         
     case XCALL_XWMGeometry:
-        return WMGeometry(GetDS(XP1),
+        return WMGeometry(taskData, GetDS(taskData, XP1),
             GetString(P2),
             GetString(P3),
-            get_C_ulong(P4),
+            get_C_ulong(taskData, P4),
             P5);
         
         /* Miscellaneous 1300 */
     case XCALL_GetID:
-        return GetID(XP1);
+        return GetID(taskData, XP1);
         
     case XCALL_ResourceExists:
         return Make_bool(ResourceExists(XP1));
         
     case XCALL_GetDisplay:
-        return GetDS(XP1);
+        return GetDS(taskData, XP1);
         
         /******************************************************************************/
         /*                                                                            */
@@ -8381,30 +8477,30 @@ Handle XWindows_c(Handle params)
         /*                                                                            */
         /******************************************************************************/
     case XCALL_NoWidget:
-        return EmptyWidget(SAVE(ListNull), (Widget)NULL);
+        return EmptyWidget(taskData, SAVE(ListNull), (Widget)NULL);
         
     case XCALL_AppInitialise:
-        return AppInitialise(P1, /* display name      */
+        return AppInitialise(taskData, P1, /* display name      */
             P2, /* application name  */
             P3, /* application class */
             SAVE(P4),     /* Fallback list     */
             SAVE(P5)      /* Arg list          */);
         
     case XCALL_XtRealizeWidget:
-        XtRealizeWidget(GetWidget(XP1));
+        XtRealizeWidget(GetWidget(taskData, XP1));
         break;
         
     case XCALL_XtManageChildren:
-        ManageChildren(SAVE(P1));
+        ManageChildren(taskData, SAVE(P1));
         break;
         
     case XCALL_XtUnmanageChildren:
-        UnmanageChildren(SAVE(P1));
+        UnmanageChildren(taskData, SAVE(P1));
         break;
         
     case XCALL_XtDestroyWidget:
         {
-            Widget w = GetWidget(XP1);
+            Widget w = GetWidget(taskData, XP1);
             XtDestroyWidget(w);
             /* The following test seems necessary - sometimes the callback from  */
             /* the above call destroys the widget, sometimes it doesn't. I think */
@@ -8419,53 +8515,53 @@ Handle XWindows_c(Handle params)
         }
         
     case XCALL_SetCallbacks:
-        SetCallbacks (WidgetObject(XP1),P2,P3);
+        SetCallbacks (taskData, WidgetObject(taskData, XP1),P2,P3);
         break; /* WidgetObject added SPF */
         
     case XCALL_XtSetValues:
-        SetValues(GetWidget(XP1),SAVE(P2));
+        SetValues(taskData, GetWidget(taskData, XP1),SAVE(P2));
         break;
         
     case XCALL_GetValue:
-        return GetValue(GetDS(XP1),GetWidget(XP1),P2);
+        return GetValue(taskData, GetDS(taskData, XP1),GetWidget(taskData, XP1),P2);
         
     case XCALL_XtParent:
-        return EmptyWidget(GetDS(XP1),XtParent(GetWidget(XP1)));
+        return EmptyWidget(taskData, GetDS(taskData, XP1),XtParent(GetWidget(taskData, XP1)));
         
     case XCALL_XtWindow:
-        return EmptyWindow(GetDS(XP1),WindowOfWidget(GetWidget(XP1)));
+        return EmptyWindow(taskData, GetDS(taskData, XP1),WindowOfWidget(GetWidget(taskData, XP1)));
         
     case XCALL_XtDisplay:
-        return GetDS(XP1);
+        return GetDS(taskData, XP1);
         
     case XCALL_XtUnrealizeWidget:
-        XtUnrealizeWidget(GetWidget(XP1)); break;
+        XtUnrealizeWidget(GetWidget(taskData, XP1)); break;
         
     case XCALL_XtName:
-        return Make_string(XtName(GetWidget(XP1)));
+        return Make_string(XtName(GetWidget(taskData, XP1)));
         
     case XCALL_XtParseTranslationTable:
-        return ParseTranslationTable(GetString(XP1));
+        return ParseTranslationTable(taskData, GetString(XP1));
         
     case XCALL_XtOverrideTranslations:
-        XtOverrideTranslations(GetWidget(XP1),GetTrans(XP2));
+        XtOverrideTranslations(GetWidget(taskData, XP1),GetTrans(taskData, XP2));
         break;
         
     case XCALL_XtAugmentTranslations:
-        XtAugmentTranslations(GetWidget(XP1),GetTrans(XP2));
+        XtAugmentTranslations(GetWidget(taskData, XP1),GetTrans(taskData, XP2));
         break;
         
-    case XCALL_XtUninstallTranslations: XtUninstallTranslations(GetWidget(XP1)); break;
+    case XCALL_XtUninstallTranslations: XtUninstallTranslations(GetWidget(taskData, XP1)); break;
         
     /*
-    case XCALL_XtTranslateTablePrint: _XtTranslateTablePrint(GetTrans(XP1)); break;
+    case XCALL_XtTranslateTablePrint: _XtTranslateTablePrint(GetTrans(taskData, XP1)); break;
         */
         
     case XCALL_XtCreatePopupShell:
-        return CreatePopupShell(GetString(XP1),GetDS(XP2),GetWidget(XP2),SAVE(P3));
+        return CreatePopupShell(taskData, GetString(XP1),GetDS(taskData, XP2),GetWidget(taskData, XP2),SAVE(P3));
         
     case XCALL_InsertWidgetTimeout:
-        InsertWidgetTimeout(WidgetObject(XP1),get_C_ulong(P2),P3,P4);
+        InsertWidgetTimeout(taskData, WidgetObject(taskData, XP1),get_C_ulong(taskData, P2),P3,P4);
         break; /* WidgetObject added SPF */
         
     case XCALL_GetWidgetState:
@@ -8476,15 +8572,15 @@ Handle XWindows_c(Handle params)
         break;  /* was WidgetObject(XP1) (SPF) */
         
     case XCALL_XtSetSensitive:
-        XtSetSensitive(GetWidget(XP1),get_C_ulong(P2));
+        XtSetSensitive(GetWidget(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_XtIsSensitive:
-        return Make_bool(XtIsSensitive(GetWidget(XP1)));
+        return Make_bool(XtIsSensitive(GetWidget(taskData, XP1)));
         
     case XCALL_GetSubresources:
-        return GetSubresources(GetDS(XP1),
-            GetWidget(XP1),
+        return GetSubresources(taskData, GetDS(taskData, XP1),
+            GetWidget(taskData, XP1),
             GetString(P2),
             GetString(P3),
             SAVE(P4));
@@ -8493,34 +8589,34 @@ Handle XWindows_c(Handle params)
         return SAVE(P1);
         
     case XCALL_XtPopup:
-        XtPopup(GetWidget(XP1),GetXtGrabKind(P2));
+        XtPopup(GetWidget(taskData, XP1),GetXtGrabKind(taskData, P2));
         break;
         
     case XCALL_XtPopdown:
-        XtPopdown(GetWidget(XP1));
+        XtPopdown(GetWidget(taskData, XP1));
         break;
         
     case XCALL_XtMapWidget:
-        XtMapWidget(GetRealizedWidget("XtMapWidget",XP1));
+        XtMapWidget(GetRealizedWidget(taskData, "XtMapWidget",XP1));
         break;
         
     case XCALL_XtUnmapWidget:
-        XtUnmapWidget(GetRealizedWidget("XtUnmapWidget",XP1));
+        XtUnmapWidget(GetRealizedWidget(taskData, "XtUnmapWidget",XP1));
         break;
         
     case XCALL_XtIsManaged:
-        return Make_bool(XtIsManaged(GetWidget(XP1)));
+        return Make_bool(XtIsManaged(GetWidget(taskData, XP1)));
         
     case XCALL_XtIsRealized:
-        return Make_bool(XtIsRealized(GetWidget(XP1)));
+        return Make_bool(XtIsRealized(GetWidget(taskData, XP1)));
         
         /* Added DCJM. */
     case XCALL_XtGetApplicationResources:
-        return GetApplicationResources ( GetDS(XP1),GetWidget(XP1),SAVE(P2) ) ;
+        return GetApplicationResources (taskData, GetDS(taskData, XP1),GetWidget(taskData, XP1),SAVE(P2) ) ;
         
     case XCALL_XtAddEventHandler:
-        AddEventhandler (WidgetObject(XP1), get_C_ulong(P2),
-            get_C_ulong(P3), SAVE(P4)); break;
+        AddEventhandler (taskData, WidgetObject(taskData, XP1), get_C_ulong(taskData, P2),
+            get_C_ulong(taskData, P3), SAVE(P4)); break;
         
         
         /******************************************************************************/
@@ -8531,10 +8627,10 @@ Handle XWindows_c(Handle params)
         /* Motif 4000 */
         
 #define XMCREATE(number,name) \
-    case number: return CreateXm(name, \
+    case number: return CreateXm(taskData, name, \
 #name " failed", \
-    GetDS(XP1), \
-    GetWidget(XP1), \
+    GetDS(taskData, XP1), \
+    GetWidget(taskData, XP1), \
     GetString(P2), \
         SAVE(P3))
         
@@ -8604,72 +8700,72 @@ Handle XWindows_c(Handle params)
         /*                                                                            */
         /******************************************************************************/
     case XCALL_XmCascadeButtonHighlight:
-        XmCascadeButtonHighlight(GetWidget(XP1),get_C_ulong(P2));
+        XmCascadeButtonHighlight(GetWidget(taskData, XP1),get_C_ulong(taskData, P2));
         break;
         
     case XCALL_XmCommandError:
-        CommandError(GetWidget(XP1),P2);
+        CommandError(taskData, GetWidget(taskData, XP1),P2);
         break;
         
     case XCALL_XmCommandGetChild:
-        return EmptyWidget(GetDS(XP1),
-            XmCommandGetChild(GetWidget(XP1),get_C_ulong(P2)));
+        return EmptyWidget(taskData, GetDS(taskData, XP1),
+            XmCommandGetChild(GetWidget(taskData, XP1),get_C_ulong(taskData, P2)));
         
     case XCALL_XmFileSelectionBoxGetChild:
-        return EmptyWidget(GetDS(XP1),
-            XmFileSelectionBoxGetChild(GetWidget(XP1),get_C_ulong(P2)));
+        return EmptyWidget(taskData, GetDS(taskData, XP1),
+            XmFileSelectionBoxGetChild(GetWidget(taskData, XP1),get_C_ulong(taskData, P2)));
         
     case XCALL_XmFileSelectionDoSearch:
-        FileSelectionDoSearch(GetWidget(XP1),P2);
+        FileSelectionDoSearch(taskData, GetWidget(taskData, XP1),P2);
         break;
         
     case XCALL_XmIsSomething:
-        return XmIsSomething(get_C_ulong(P1),GetWidget(XP2));
+        return XmIsSomething(taskData, get_C_ulong(taskData, P1),GetWidget(taskData, XP2));
         
     case XCALL_XmMainWindowSetAreas:
-        XmMainWindowSetAreas(GetWidget(XP1),
-            GetNWidget(XP2),
-            GetNWidget(XP3),
-            GetNWidget(XP4),
-            GetNWidget(XP5),
-            GetNWidget(XP6));
+        XmMainWindowSetAreas(GetWidget(taskData, XP1),
+            GetNWidget(taskData, XP2),
+            GetNWidget(taskData, XP3),
+            GetNWidget(taskData, XP4),
+            GetNWidget(taskData, XP5),
+            GetNWidget(taskData, XP6));
         break;
         
     case XCALL_XmMainWindowSepX:
-        switch(get_C_ulong(P2))
+        switch(get_C_ulong(taskData, P2))
         {
         case 1:
-            return EmptyWidget(GetDS(XP1),XmMainWindowSep1(GetWidget(XP1)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),XmMainWindowSep1(GetWidget(taskData, XP1)));
             
         case 2:
-            return EmptyWidget(GetDS(XP1),XmMainWindowSep2(GetWidget(XP1)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),XmMainWindowSep2(GetWidget(taskData, XP1)));
             
         default:
-            return EmptyWidget(GetDS(XP1),XmMainWindowSep3(GetWidget(XP1)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),XmMainWindowSep3(GetWidget(taskData, XP1)));
         }
         
         case XCALL_XmMessageBoxGetChild:
-            return EmptyWidget(GetDS(XP1),
-                XmMessageBoxGetChild(GetWidget(XP1),get_C_ulong(P2)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),
+                XmMessageBoxGetChild(GetWidget(taskData, XP1),get_C_ulong(taskData, P2)));
             
         case XCALL_XmOptionButtonGadget:
-            return EmptyWidget(GetDS(XP1),XmOptionButtonGadget(GetWidget(XP1)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),XmOptionButtonGadget(GetWidget(taskData, XP1)));
             
         case XCALL_XmOptionLabelGadget:
-            return EmptyWidget(GetDS(XP1),XmOptionLabelGadget (GetWidget(XP1)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),XmOptionLabelGadget (GetWidget(taskData, XP1)));
             
         case XCALL_XmSelectionBoxGetChild:
-            return EmptyWidget(GetDS(XP1),
-                XmSelectionBoxGetChild(GetWidget(XP1),get_C_ulong(P2)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),
+                XmSelectionBoxGetChild(GetWidget(taskData, XP1),get_C_ulong(taskData, P2)));
             
         case XCALL_XmSetMenuCursor:
-            XmSetMenuCursor(GetDisplay(XP1),GetCursor(XP2)); break;
+            XmSetMenuCursor(GetDisplay(taskData, XP1),GetCursor(taskData, XP2)); break;
             
         case XCALL_XmScrolledWindowSetAreas:
-            XmScrolledWindowSetAreas(GetWidget(XP1),
-                GetNWidget(XP2),
-                GetNWidget(XP3),
-                GetNWidget(XP4));
+            XmScrolledWindowSetAreas(GetWidget(taskData, XP1),
+                GetNWidget(taskData, XP2),
+                GetNWidget(taskData, XP3),
+                GetNWidget(taskData, XP4));
             break;
             
             
@@ -8681,33 +8777,33 @@ Handle XWindows_c(Handle params)
             
 #define TextWidgetToLong(func) \
         case XCALL_ ## func : \
-            return(WidgetToLong(#func,GetTextWidget,func,XP1))
+            return(WidgetToLong(taskData,#func,GetTextWidget,func,XP1))
             
 #define TextWidgetToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetToInt(#func,GetTextWidget,func,XP1))
+            return(WidgetToInt(taskData,#func,GetTextWidget,func,XP1))
             
 #define TextWidgetToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetToBool(#func,GetTextWidget,func,XP1))
+            return(WidgetToBool(taskData,#func,GetTextWidget,func,XP1))
             
 #define TextWidgetToString(func) \
         case XCALL_ ## func : \
-            return(WidgetToString(#func,GetTextWidget,func,XP1))
+            return(WidgetToString(taskData,#func,GetTextWidget,func,XP1))
             
 #define TextWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(#func,GetTextWidget,func,XP1,P2); \
+        WidgetIntAction(taskData,#func,GetTextWidget,func,XP1,P2); \
             break
             
 #define TextWidgetLongAction(func) \
         case XCALL_ ## func : \
-        WidgetLongAction(#func,GetTextWidget,func,XP1,P2); \
+        WidgetLongAction(taskData,#func,GetTextWidget,func,XP1,P2); \
             break
             
 #define TextWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(#func,GetTextWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData,#func,GetTextWidget,func,XP1,P2); \
             break
             
             
@@ -8717,7 +8813,7 @@ Handle XWindows_c(Handle params)
 #ifdef LESSTIF_VERSION
             /* This is not supported in LessTif, at least not 0.89. */
         case XCALL_XmTextGetAddMode:
-            RaiseXWindows("XmTextGetAddMode: not implemented");
+            RaiseXWindows(taskData, "XmTextGetAddMode: not implemented");
 #else
             TextWidgetToBool(XmTextGetAddMode);
 #endif
@@ -8735,9 +8831,9 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextInsert:
             {
-                Widget w = GetTextWidget("XmTextInsert",XP1);
+                Widget w = GetTextWidget(taskData, "XmTextInsert",XP1);
                 {
-                    unsigned pos = get_C_ulong(P2);
+                    unsigned pos = get_C_ulong(taskData, P2);
                     PolyStringObject *s    = GetString(P3);
                     int   size   = s->length + 1;
                     char *buffer = (char *)alloca(size);
@@ -8754,10 +8850,10 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextReplace:
             {
-                Widget w = GetTextWidget("XmTextReplace",XP1);
+                Widget w = GetTextWidget(taskData, "XmTextReplace",XP1);
                 {
-                    unsigned from_pos = get_C_ulong(P2);
-                    unsigned to_pos   = get_C_ulong(P3);
+                    unsigned from_pos = get_C_ulong(taskData, P2);
+                    unsigned to_pos   = get_C_ulong(taskData, P3);
                     PolyStringObject *s    = GetString(P4);
                     int   size   = s->length + 1;
                     char *buffer = (char *)alloca(size);
@@ -8782,7 +8878,7 @@ Handle XWindows_c(Handle params)
             /* inlined SPF 15/2/94 */
         case XCALL_XmTextSetString:
             {
-                Widget w = GetTextWidget("XmTextSetString",XP1);
+                Widget w = GetTextWidget(taskData, "XmTextSetString",XP1);
                 {
                     PolyStringObject *s    = GetString(P2);
                     int   size   = s->length + 1;
@@ -8799,10 +8895,10 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextXYToPos:
             {
-                Widget w = GetTextWidget("XmTextXYToPos",XP1);
+                Widget w = GetTextWidget(taskData, "XmTextXYToPos",XP1);
                 {
-                    int x = get_C_long(P2);
-                    int y = get_C_long(P3);
+                    int x = get_C_long(taskData, P2);
+                    int y = get_C_long(taskData, P3);
                     return Make_int(XmTextXYToPos(w,x,y));
                 }
             }
@@ -8822,34 +8918,34 @@ Handle XWindows_c(Handle params)
             
 #define TextFieldWidgetToLong(func) \
         case XCALL_ ## func : \
-            return(WidgetToLong(#func,GetTextFieldWidget,func,XP1))
+            return(WidgetToLong(taskData, #func,GetTextFieldWidget,func,XP1))
             
             
 #define TextFieldWidgetToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetToInt(#func,GetTextFieldWidget,func,XP1))
+            return(WidgetToInt(taskData, #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetToBool(#func,GetTextFieldWidget,func,XP1))
+            return(WidgetToBool(taskData, #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetToString(func) \
         case XCALL_ ## func : \
-            return(WidgetToString(#func,GetTextFieldWidget,func,XP1))
+            return(WidgetToString(taskData, #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(#func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetIntAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
 #define TextFieldWidgetLongAction(func) \
         case XCALL_ ## func : \
-        WidgetLongAction(#func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetLongAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
 #define TextFieldWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(#func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
             
@@ -8859,7 +8955,7 @@ Handle XWindows_c(Handle params)
 #ifdef LESSTIF_VERSION
             /* This is not supported in LessTif, at least not 0.89. */
         case XCALL_XmTextFieldGetAddMode:
-            RaiseXWindows("XmTextFieldGetAddMode: not implemented");
+            RaiseXWindows(taskData, "XmTextFieldGetAddMode: not implemented");
 #else
             TextFieldWidgetToBool(XmTextFieldGetAddMode);
 #endif
@@ -8876,9 +8972,9 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextFieldInsert:
             {
-                Widget w = GetTextFieldWidget("XmTextFieldInsert",XP1);
+                Widget w = GetTextFieldWidget(taskData, "XmTextFieldInsert",XP1);
                 {
-                    unsigned pos = get_C_ulong(P2);
+                    unsigned pos = get_C_ulong(taskData, P2);
                     PolyStringObject *s    = GetString(P3);
                     int   size   = s->length + 1;
                     char *buffer = (char *)alloca(size);
@@ -8895,10 +8991,10 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextFieldReplace:
             {
-                Widget w = GetTextFieldWidget("XmTextFieldReplace",XP1);
+                Widget w = GetTextFieldWidget(taskData, "XmTextFieldReplace",XP1);
                 {
-                    unsigned from_pos = get_C_ulong(P2);
-                    unsigned to_pos   = get_C_ulong(P3);
+                    unsigned from_pos = get_C_ulong(taskData, P2);
+                    unsigned to_pos   = get_C_ulong(taskData, P3);
                     PolyStringObject *s    = GetString(P4);
                     int   size   = s->length + 1;
                     char *buffer = (char *)alloca(size);
@@ -8921,7 +9017,7 @@ Handle XWindows_c(Handle params)
             /* inlined SPF 15/2/94 */
         case XCALL_XmTextFieldSetString:
             {
-                Widget w = GetTextFieldWidget("XmTextFieldSetString",XP1);
+                Widget w = GetTextFieldWidget(taskData, "XmTextFieldSetString",XP1);
                 {
                     PolyStringObject *s    = GetString(P2);
                     int   size   = s->length + 1;
@@ -8937,20 +9033,20 @@ Handle XWindows_c(Handle params)
             
         case XCALL_XmTextFieldXYToPos:
             {
-                Widget w = GetTextFieldWidget("XmTextFieldXYToPos",XP1);
+                Widget w = GetTextFieldWidget(taskData, "XmTextFieldXYToPos",XP1);
                 {
-                    int x = get_C_long(P2);
-                    int y = get_C_long(P3);
+                    int x = get_C_long(taskData, P2);
+                    int y = get_C_long(taskData, P3);
                     return Make_int(XmTextFieldXYToPos(w,x,y));
                 }
             }
             
         case XCALL_XmTrackingLocate:
-            return EmptyWidget(GetDS(XP1),
-                XmTrackingLocate(GetWidget(XP1),GetCursor(XP2),get_C_ulong(P3)));
+            return EmptyWidget(taskData, GetDS(taskData, XP1),
+                XmTrackingLocate(GetWidget(taskData, XP1),GetCursor(taskData, XP2),get_C_ulong(taskData, P3)));
             
         case XCALL_XmUpdateDisplay:
-            XmUpdateDisplay(GetWidget(XP1));
+            XmUpdateDisplay(GetWidget(taskData, XP1));
             break;
             
 #undef TextFieldWidgetToLong
@@ -8969,69 +9065,69 @@ Handle XWindows_c(Handle params)
             
 #define ListWidgetAction(func) \
         case XCALL_ ## func : \
-        WidgetAction(#func,GetListWidget,func,XP1); \
+        WidgetAction(taskData, #func,GetListWidget,func,XP1); \
             break
             
 #define ListWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(#func,GetListWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData, #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetXmstringAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringAction(#func,GetListWidget,func,XP1,P2); \
+        WidgetXmstringAction(taskData, #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetXmstringlistAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringlistAction(#func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2); \
+        WidgetXmstringlistAction(taskData, #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2); \
             break
             
 #define ListWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(#func,GetListWidget,func,XP1,P2); \
+        WidgetIntAction(taskData, #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetIntIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntIntAction(#func,GetListWidget,func,XP1,P2,P3); \
+        WidgetIntIntAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringIntAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringIntAction(#func,GetListWidget,func,XP1,P2,P3); \
+        WidgetXmstringIntAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetIntBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetIntBoolAction(#func,GetListWidget,func,XP1,P2,P3); \
+        WidgetIntBoolAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringBoolAction(#func,GetListWidget,func,XP1,P2,P3); \
+        WidgetXmstringBoolAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringlistIntAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringlistIntAction(#func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2,P3); \
+        WidgetXmstringlistIntAction(taskData, #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2,P3); \
             break
             
 #define ListWidgetXmstringToIntlist(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToIntlist(#func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToIntlist(taskData, #func,GetListWidget,func,XP1,P2))
             
 #define ListWidgetToIntlist(func) \
         case XCALL_ ## func : \
-            return(WidgetToIntlist(#func,GetListWidget,func,XP1))
+            return(WidgetToIntlist(taskData, #func,GetListWidget,func,XP1))
             
 #define ListWidgetXmstringToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToBool(#func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToBool(taskData, #func,GetListWidget,func,XP1,P2))
             
 #define ListWidgetXmstringToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToInt(#func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToInt(taskData, #func,GetListWidget,func,XP1,P2))
             
             /************************* Adding Items to List *******************************/
             ListWidgetXmstringIntAction(XmListAddItem);
@@ -9061,21 +9157,21 @@ Handle XWindows_c(Handle params)
     case XCALL_XmListReplaceItems: 
         /* Unpairing the strings is done in the ML, because it's easier there. */
         {
-            Widget w = GetListWidget("XmListReplaceItems",XP1);
+            Widget w = GetListWidget(taskData, "XmListReplaceItems",XP1);
             unsigned n    = ListLength(P2);
             unsigned n2   = ListLength(P3);
             
             if (n != n2) 
             {
-                RaiseXWindows("XmListReplaceItems: strings lists are different lengths");
+                RaiseXWindows(taskData, "XmListReplaceItems: strings lists are different lengths");
             }
             else
             {
                 XmString *oldstrings = (XmString *)alloca(n * sizeof(XmString));
                 XmString *newstrings = (XmString *)alloca(n * sizeof(XmString));
                 
-                GetList4(P2,oldstrings,sizeof(XmString),GetXmString);
-                GetList4(P3,newstrings,sizeof(XmString),GetXmString);
+                GetList4(taskData, P2,oldstrings,sizeof(XmString),GetXmString);
+                GetList4(taskData, P3,newstrings,sizeof(XmString),GetXmString);
                 XmListReplaceItems(w,oldstrings,n,newstrings);
                 for (unsigned i = 0; i < n; i ++) XmStringFree(oldstrings[i]);
                 for (unsigned i = 0; i < n; i ++) XmStringFree(newstrings[i]);
@@ -9116,7 +9212,7 @@ Handle XWindows_c(Handle params)
         
         /* Calls added by DCJM. */
     case XCALL_XmMenuPosition:
-        MenuPosition( GetWidget(XP1), get_C_ulong(P2), get_C_ulong(P3)); break; 
+        MenuPosition( GetWidget(taskData, XP1), get_C_ulong(taskData, P2), get_C_ulong(taskData, P3)); break; 
         /******************************************************************************/
         /*                                                                            */
         /*      Default case                                                          */
@@ -9314,7 +9410,7 @@ static int XWindowsError(Display *display, XErrorEvent *error)
 
 #if NEVER
   /* Raise exception if we are running in synchronous mode */
-  if (display->private15) RaiseXWindows(buffer);
+  if (display->private15) RaiseXWindows(taskData, buffer);
 #endif
 
   return 0; /* DUMMY value - SPF 6/1/94 */
@@ -9448,15 +9544,17 @@ void XWinModule::Init(void)
 #include "run_time.h"
 #include "sys.h"
 #include "save_vec.h"
+#include "machine_dep.h"
+#include "processes.h"
 
 #include "xwindows.h"
 
-Handle XWindows_c(Handle/*params*/)
+Handle XWindows_c(TaskData *taskData, Handle/*params*/)
 {
-    raise_exception_string(EXC_XWindows, "Not implemented");
+    raise_exception_string(taskData, EXC_XWindows, "Not implemented");
 
     /*NOTREACHED*/
-    return gSaveVec->push(TAGGED(0)); /* just to keep lint happy */
+    return taskData->saveVec.push(TAGGED(0)); /* just to keep lint happy */
 }
 
 #endif

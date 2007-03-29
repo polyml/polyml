@@ -163,7 +163,7 @@ void PECOFFExport::alignFile(int align)
 }
 
 
-void PECOFFExport::exportStore(const char *outFileName)
+void PECOFFExport::exportStore(void)
 {
     PolyWord    *p;
     IMAGE_FILE_HEADER fhdr;
@@ -174,10 +174,6 @@ void PECOFFExport::exportStore(const char *outFileName)
     exportDescription exports;
     time_t now;
     time(&now);
-
-    exportFile = fopen(outFileName, "wb");
-    if (exportFile == NULL)
-        raise_syscall("Cannot open export file", errno);
 
     sections = new IMAGE_SECTION_HEADER [memTableEntries+1]; // Plus one for the tables.
 

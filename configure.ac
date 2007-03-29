@@ -53,6 +53,7 @@ AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
 AC_CHECK_LIB(dl, dlopen)
 AC_CHECK_LIB(m, floor)
+AC_CHECK_LIB(pthread, pthread_create)
 # Solaris needs -lsocket and -lnsl
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
@@ -113,7 +114,7 @@ AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h sys/termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
-AC_CHECK_HEADERS([windows.h tchar.h])
+AC_CHECK_HEADERS([windows.h tchar.h pthread.h])
 
 # Suppress the check for the X headers if the user said --without-x.
 # That will disable the x-windows module.

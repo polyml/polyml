@@ -41,9 +41,9 @@ start of objects.
 
 %g3 points to the top exception handler,
 %g4 is the stack pointer,
-%g5 is the stack limit,
+%g5 is the heap limit - previously stack  limit register,
 %g6 is the heap pointer,
-%g7 is the heap limit.
+%g7 is unused - used by pthread library
 
 %g1 and %g2 are available as work regs, as are the %l registers.
 
@@ -212,17 +212,13 @@ gbl(SparcAsmSwitchToPoly):
     st      %i0,[%sp+188]               ! This is the conventional location for the first parameter
 
     ld      MR_POLYSTACK,%i3
-    ld      MR_STACKLIMIT,%g5     ! Set up stack limit reg
     ld      P_SP(%i3),%g4         ! sp
     ld      P_HR(%i3),%g3         ! hr
     /* Now rsp, rhr and rsl have been loaded we can clear inRTS */
     st      %g0,MR_INRTS
-    /* We now load the stack limit register again.  There is a small chance that
-       InterruptCodeUsingContext could have been called during the last few instructions. */
-    ld      MR_STACKLIMIT,%g5
 
     ld      MR_HEAPPOINTER,%g6    ! Local pointer
-    ld      MR_HEAPSPACET,%g7     ! Set to space available - maxint
+    ld      MR_HEAPSPACET,%g5     ! Set to space available - maxint
 
     ld      P_REG(0,%i3),%g1
     ld      P_REG(1,%i3),%g2
@@ -303,17 +299,14 @@ gbla(name): \
     CALL_IO(Real_ln, POLY_SYS_ln_real)
     CALL_IO(Real_repr, POLY_SYS_Repr_real)
     CALL_IO(Real_conv, POLY_SYS_conv_real)
-    CALL_IO(fork_process, POLY_SYS_fork_process)
-    CALL_IO(choice_process, POLY_SYS_choice_process)
-    CALL_IO(int_process, POLY_SYS_int_process)
+    CALL_IO(atomic_incr, POLY_SYS_atomic_incr)
+    CALL_IO(atomic_decr, POLY_SYS_atomic_decr)
+    CALL_IO(thread_self, POLY_SYS_thread_self)
+    CALL_IO(thread_dispatch, POLY_SYS_thread_dispatch)
     CALL_IO(kill_self, POLY_SYS_kill_self)
-    CALL_IO(send_on_channel, POLY_SYS_send_on_channel)
-    CALL_IO(receive_on_channel, POLY_SYS_receive_on_channel)
-
     CALL_IO(objsize_, POLY_SYS_objsize)                     ! MJC 27/04/88
     CALL_IO(showsize_, POLY_SYS_showsize)                    ! MJC 09/03/89
     CALL_IO(timing_dispatch_,POLY_SYS_timing_dispatch)          ! DCJM 10/4/00
-    CALL_IO(interrupt_console_processes_,POLY_SYS_interrupt_console_processes)    ! MJC 01/08/90
 
     CALL_IO(install_subshells_, POLY_SYS_install_subshells)     ! MJC 12/09/90
 
@@ -1305,10 +1298,10 @@ globldec(registerMaskVector)
     .long   Mask_all                /* 67 is unused */
     .long   Mask_all                /* 68 is unused */
     .long   Mask_all                /* 69 is unused */
-    .long   Mask_all                /* 70 is unused */
-    .long   Mask_all                /* 71 is unused */
-    .long   Mask_all                /* 72 is unused */
-    .long   Mask_all                /* 73 is unused */
+    .long   Mask_atomic_incr        /* 70 */
+    .long   Mask_atomic_decr        /* 71 */
+    .long   Mask_thread_self        /* 72 */
+    .long   Mask_thread_dispatch    /* 73 */
     .long   Mask_all                /* 74 is unused */
     .long   Mask_all                /* 75 is unused */
     .long   Mask_all                /* 76 is unused */
@@ -1317,12 +1310,12 @@ globldec(registerMaskVector)
     .long   Mask_all                /* 79 is unused */
     .long   Mask_all                /* Mask_version_number_1 = 80 */
     .long   Mask_all          /* 81 - now unused */
-    .long   Mask_fork_process        /* 82 */
-    .long   Mask_choice_process      /* 83 */
+    .long   Mask_all                 /* 82 - now unused */
+    .long   Mask_all                 /* 83 - now unused */
     .long   Mask_kill_self           /* 84 */
-    .long   Mask_int_process         /* 85 */
-    .long   Mask_send_on_channel     /* 86 */
-    .long   Mask_receive_on_channel  /* 87 */
+    .long   Mask_all                 /* 85 - now unused */
+    .long   Mask_all                 /* 86 - now unused */
+    .long   Mask_all                 /* 87 - now unused */
     .long   Mask_profiler            /* 88 */
     .long   Mask_all                /* 89 is unused */
     .long   Mask_all                /* 90 is unused */
@@ -1338,7 +1331,7 @@ globldec(registerMaskVector)
     .long   Mask_showsize_           /* 100 */
     .long   Mask_all                /* 101 is unused */
     .long   Mask_all                /* 102 is unused */
-    .long   Mask_interrupt_console_processes_ /* 103 */
+    .long   Mask_all                 /* 103 - now unused */
     .long   Mask_all                /* 104 is unused */
     .long   Mask_is_short            /* 105 */
     .long   Mask_aplus               /* 106 */

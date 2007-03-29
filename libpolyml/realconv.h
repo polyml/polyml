@@ -23,14 +23,10 @@
 #ifndef REALCONV_H
 #define REALCONV_H
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef __cplusplus

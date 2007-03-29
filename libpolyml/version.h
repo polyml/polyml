@@ -24,8 +24,8 @@
 #define VERSION_H_INCLUDED
 
 // Poly/ML system interface level
-#define POLY_version_number    500 
-#define TextVersion             "5.0"
+#define POLY_version_number    510 
+#define TextVersion             "5.1"
 
 extern char *poly_runtime_system_version;
 extern char *poly_runtime_system_copyright;

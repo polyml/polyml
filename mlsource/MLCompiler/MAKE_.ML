@@ -244,13 +244,7 @@ sig
   val shellProc   : (dbEnv * string ref * string ref) -> 
     {
      shell:      unit -> unit,    (* The command processor *)
-	 debugger:	 (string -> values) * (unit->bool) -> unit,
-     startLog:   string -> unit,  (* Starts logging commands to a file *)
-     restartLog: string -> unit,  (* Appends logging commands to a file *)
-     stopLog:    unit -> unit,    (* Stops logging *)
-     writeLog:   string -> unit,  (* Writes a string to the log file *)
-     logName:    unit -> string,  (* Get the log name *)
-     isLogging:  unit -> bool     (* true if logging, otherwise false *)
+	 debugger:	 (string -> values) * (unit->bool) -> unit
     };
     
   val forgetMakeInfo  : dbEnv -> string -> unit;
@@ -314,62 +308,93 @@ struct
    secondary shell (if that hasn't been removed!) *)
   local
     open UNIVERSALTABLE
+	open Thread.Thread
+	open Thread.Mutex
   in
-    abstype dbEnv = DbEnv of univTable list
+    abstype dbEnv = DbEnv of mutex * univTable list
     with
       (* turn a univTable into an environment *)
-      fun makeDbEnv (utab : univTable) : dbEnv = DbEnv ([utab]); 
+      fun makeDbEnv (utab : univTable) : dbEnv = DbEnv (mutex(), [utab]); 
+
+		(* Lock the mutex during any lookup or entry.  This is primarily to
+		   avoid the underlying hash table from being rehashed by different
+		   threads at the same time.  This code should be in a library.
+
+		   This isn't completely right.  If an asynchronous interrupt
+		   arrives while we've set the thread to handle interrupts
+		   synchronously we won't see the interrupt at least not
+		   until we next go into the RTS. *)
+	  	fun protect mutx f =
+		let
+		    (* Set this to handle interrupts synchronously while we have
+			   the lock.  An asynchronous interrupt could arrive at the
+			   wrong moment. *)
+		    val oldAttrs = getAttributes()
+			val () = setAttributes[InterruptState InterruptSynch]
+	  		val () = lock mutx
+			val result = f()
+				handle exn => (unlock mutx; setAttributes oldAttrs; raise exn)
+		in
+			unlock mutx;
+			setAttributes oldAttrs;
+			result
+		end
         
       (* copy an environment, adding an extra level for new definitions *)
-      fun makeSubshellDbEnv ((DbEnv dbl) : dbEnv) : dbEnv =
+      fun makeSubshellDbEnv (DbEnv(mutx, dbl) : dbEnv) : dbEnv =
       let
         val utab = makeUnivTable ();
       in
-        DbEnv (utab :: dbl)
+        DbEnv (mutx, utab :: dbl)
       end;
         
       (* enter a value into an environment *)
-      fun dbEnvEnter (DbEnv db, t : 'a tag, s : string, v : 'a) : unit =
-        case db of
-          [] => raise InternalError "Environment initialisation error"
-        | (thisLevel :: _) => univEnter (thisLevel, t, s, v);
-        
-  
+      fun dbEnvEnter (DbEnv(mutx, db), t : 'a tag, s : string, v : 'a) : unit =
+	  	protect mutx
+			(fn () =>
+		         case db of
+		            [] => raise InternalError "Environment initialisation error"
+		          | (thisLevel :: _) => univEnter (thisLevel, t, s, v)
+			)
+
       (* find a value in an environment *)
-      fun dbEnvLookup (DbEnv db, t : 'a tag, s : string) : 'a =
-      let
-        fun lookupList []                         = raise ValueMissing s
-          | lookupList (thisLevel :: otherLevels) =
-             univLookup (thisLevel, t, s)
-               handle ValueMissing _ => lookupList otherLevels;
-      in
-        lookupList db
-      end;
+		fun dbEnvLookup (DbEnv(mutx, db), t : 'a tag, s : string) : 'a =
+		let
+			fun lookupList []                         = raise ValueMissing s
+			| lookupList (thisLevel :: otherLevels) =
+				univLookup (thisLevel, t, s)
+					handle ValueMissing _ => lookupList otherLevels;
+      	in
+			protect mutx(fn () => lookupList db)
+      	end;
   
       (* delete an entry, but only from the top-level table *)
       (* This may raise ValueMissing *)
-      fun dbEnvForget (DbEnv db, s : string, t : 'a tag) : unit =
-        case db of
-          [] => raise InternalError "Environment initialisation error"
-        | (thisLevel :: _) => univDelete (thisLevel, t, s)
+      fun dbEnvForget (DbEnv(mutx, db), s : string, t : 'a tag) : unit =
+	      protect mutx
+		  	(fn () =>
+		        case db of
+		             [] => raise InternalError "Environment initialisation error"
+		          | (thisLevel :: _) => univDelete (thisLevel, t, s)
+			)
 
 	  (* This previously returned only the names in the current database.
 	     Now expanded to include parents so that it really shows everything.
 		 We should remove duplicates since there may be entries in parent
 		 databases with the same names as items in the children. *)
-      fun dbEnvContents (DbEnv db, t : 'a tag) : string list =
+      fun dbEnvContents (DbEnv(mutx, db), t : 'a tag) : string list =
 	  let
 	  	 fun eachLevel(u: univTable, s: string list): string list =
 		 	s @ mapIterator (fn (n : string, v : 'a) => n) (univOverSpecific (u, t))
 	  in
-	  	 List.foldl eachLevel [] db
+	  	 protect mutx (fn () => List.foldl eachLevel [] db)
 	  end
 
 	  (* In order to print out an exception packet we have to be able to find the
 	     type of the exception.  It may be in the top-level environment or it may
 		 be in a structure.  We need to search through the name space in order to
 		 find it. *)
-	  fun dbEnvFindException (DbEnv db) (w: COMPILERBODY.word) : values option =
+	  fun dbEnvFindException (DbEnv(mutx, db)) (w: COMPILERBODY.word) : values option =
 	  let
 	  	  open UNIVERSAL
 		  open STRUCTVALS
@@ -380,7 +405,8 @@ struct
 					NONE => searchList f tl
 				|	result => result
 	  in
-	  	  searchList (fn u => VALUE_OPS.findException u w) db
+	  	protect mutx (fn () => 
+	  	  searchList (fn u => VALUE_OPS.findException u w) db)
 	  end
     end;
   end;
@@ -1386,103 +1412,8 @@ fun shellProc (globalEnv : dbEnv,
                secondPrompt: string ref) :
   {
     shell:      unit -> unit,    (* The command processor *)
-	debugger:	(string->values) * (unit->bool) -> unit,
-    startLog:   string -> unit,  (* Starts logging commands to a file *)
-    restartLog: string -> unit,  (* Appends logging commands to a file *)
-    stopLog:    unit -> unit,    (* Stops logging *)
-    writeLog:   string -> unit,  (* Writes a string to the log file *)
-    logName:    unit -> string,  (* Get the log name *)
-    isLogging:  unit -> bool     (* true if logging, otherwise false *)            } =
+	debugger:	(string->values) * (unit->bool) -> unit} =
 let
-
-(*****************************************************************************)
-(*                  logging commands                                         *)
-(*****************************************************************************)
-   datatype 'a option = None | Some of 'a;
-
-   val logging : (string * TextIO.outstream) option ref  = ref None;
-   val notReplaced = ref true;
-
-   fun fileExists (name: string) : bool =
-   	(OS.FileSys.isDir name; true) handle _ => false;
-   
-   fun isLogging () : bool =
-     case !logging of
-       None   => false
-     | Some _ => true;
-    
-   (* Starts logging commands to a file *)
-   fun startLog (name: string) : unit =
-     case !logging of
-       Some _  => raise Fail "Already logging"
-     | None    =>
-         if fileExists name then
-           raise Fail "File already exists"
-            
-         else let
-           val logFile = TextIO.openOut name;
-         in
-           logging     := Some (name,logFile);
-           notReplaced := false
-         end;
-   
-   (* Appends logging commands to a file *)
-   fun restartLog (name: string) : unit =
-     case !logging of
-       Some _  => raise Fail "Already logging"
-     | None    =>
-        let
-          val logFile = TextIO.openAppend name;
-        in
-          logging     := Some (name,logFile);
-          notReplaced := false
-        end;
-
-   (* Stops logging *)
-   fun stopLog () =
-     case !logging of
-       None => raise Fail "Not logging"
-     | Some (_,logFile) =>
-         (
-           TextIO.closeOut logFile;
-           logging := None
-         );
-   
-   (* Get log name *)
-   fun logName () : string =
-     case !logging of
-       None => raise Fail "Not logging"
-     | Some (name,_) => name;
-   
-   (* Writes a string to the log file *)
-   fun writeLog (command: string) : unit =
-     case !logging of
-       None => ()
-     | Some (_,logFile) => 
-       (
-          notReplaced := false;
-          TextIO.output (logFile,command);
-          TextIO.flushOut logFile
-        );
-   
-   (* Removes leading and trailing spaces and newlines,
-      and then enters the result in the log file. *)
-   fun trimAndEnter (command: string, start: int, finish: int) : unit =
-     if 1 <= start andalso start <= finish andalso finish <= size command
-     then let
-       val firstCh = String.str(String.sub(command, start-1));
-     in
-       if firstCh = " " orelse firstCh = "\n" orelse firstCh = "\^D"
-       then trimAndEnter (command, start+1, finish)
-       else let
-         val lastCh = String.str(String.sub(command, finish-1));
-       in
-         if lastCh = " " orelse lastCh = "\n"
-         then trimAndEnter (command, start, finish - 1)
-         else writeLog (String.substring(command, start-1, finish - start + 1) ^ "\n")
-       end
-     end
-     else ();
 
 (*****************************************************************************)
 (*                  shellEnv                                                 *)
@@ -1653,41 +1584,21 @@ let
 		  textPtr := 0;
 		  
 		  let
-		    val code : unit -> unit = COMPILERBODY.compiler (lex, shellEnv debugEnv, dbEnvFindException globalEnv);
+		    val code : unit -> unit =
+			   COMPILERBODY.compiler (lex, shellEnv debugEnv, dbEnvFindException globalEnv);
 		  in  
-		    let
-		       (* If it compiled correctly do the command and log it. *)
-		    in
-		      notReplaced := true;
-		      code ();
-		      if !notReplaced
-		      then trimAndEnter (!thisCommand, 1, !textPtr)
-		      else ()
-		    end
+		    code ()
 		      handle Failure s =>
-		      (* 
-			 Catch any exceptions it may have raised. It should still
-			 be entered in the history file, if we are not logging. 
-		      *)
-			(
-			   if not (isLogging())
-			   then trimAndEnter (!thisCommand, 1, !textPtr)
-			   else ();
-			   (!printString)(s ^ "\n");
-			   flushin()
-			)
+			      (* Catch any exceptions it may have raised. *)
+			    (
+				   (!printString)(s ^ "\n");
+				   flushin()
+				)
 		  end
 		    handle Failure s =>
-		    (*
-		       If the command fails to compile it should still be entered
-		       in the history file, if we are not logging.
-		    *)
 		      (
-			 if not (isLogging())
-			 then trimAndEnter (!thisCommand, 1, !textPtr)
-			 else ();
-			 (!printString)(s ^ "\n");
-			 flushin()
+                 (!printString)(s ^ "\n");
+                 flushin()
 		      );
 		  
 		  loop ()
@@ -1727,13 +1638,7 @@ let
 in
   {
     shell      = shell,
-    debugger   = topLevel true,
-    startLog   = startLog,
-    restartLog = restartLog,
-    stopLog    = stopLog,
-    writeLog   = writeLog,
-    logName    = logName,
-    isLogging  = isLogging
+    debugger   = topLevel true
    }
 end; (* scope of shellProc *)
 

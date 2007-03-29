@@ -153,6 +153,10 @@ IMULL       MACRO   f,t
             imul    t,f
             ENDM
 
+LOCKXADDL   MACRO   f,t
+            lock xadd t,f
+            ENDM
+
 MULL         TEXTEQU <mul>
 
 NEGL         TEXTEQU <neg>
@@ -232,6 +236,7 @@ IFDEF X86_64
 #define POPFL        popfq
 #define PUSHAL       pushaq
 #define POPAL        popaq
+#define LOCKXADDL    lock xaddq
 
 ELSE
 #define MOVL         movl
@@ -256,6 +261,7 @@ ELSE
 #define POPFL        popfl
 #define PUSHAL       pushal
 #define POPAL        popal
+#define LOCKXADDL    lock xaddl
 
 ENDIF
 
@@ -423,6 +429,8 @@ PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
 IOEntryPoint        EQU     48  ;# IO call
 RaiseDiv            EQU     52  ;# Call to raise the Div exception
+ArbEmulation		EQU		56  ;# Arbitrary precision emulation
+ThreadId			EQU		60	;# My thread id
 ELSE
 HandlerRegister     EQU     8
 LocalMbottom        EQU     16
@@ -440,6 +448,7 @@ RaiseExEntry        EQU     88  ;# Raise exception
 IOEntryPoint        EQU     96  ;# IO call
 RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
+ThreadId			EQU		120	;# My thread id
 ENDIF
 
 ELSE
@@ -454,6 +463,8 @@ IFNDEF X86_64
 .set    SavedSp,28
 .set    IOEntryPoint,48
 .set    RaiseDiv,52
+.set    ArbEmulation,56
+.set    ThreadId,60
 ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
@@ -470,6 +481,7 @@ ELSE
 .set    IOEntryPoint,96
 .set    RaiseDiv,104
 .set    ArbEmulation,112
+.set    ThreadId,120
 ENDIF
 
 ENDIF
@@ -1812,6 +1824,36 @@ CALLMACRO   INLINE_ROUTINE  word_lss
     jmp     RetFalse
 CALLMACRO   RegMask word_lss,(M_Reax)
 
+;# Atomically increment the value at the address of the arg and return the
+;# updated value.  Since the xadd instruction returns the original value
+;# we have to increment it.
+CALLMACRO   INLINE_ROUTINE  atomic_increment
+    MOVL	CONST 2,Rebx
+	LOCKXADDL Rebx,[Reax]
+	ADDL	CONST 2,Rebx
+	MOVL	Rebx,Reax
+	ret
+
+CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
+
+;# Atomically decrement the value at the address of the arg and return the
+;# updated value.  Since the xadd instruction returns the original value
+;# we have to decrement it.
+CALLMACRO   INLINE_ROUTINE  atomic_decrement
+    MOVL	CONST -2,Rebx
+	LOCKXADDL Rebx,[Reax]
+	MOVL	Rebx,Reax
+	SUBL	CONST 2,Reax
+	ret
+
+CALLMACRO   RegMask atomic_decr,(M_Reax OR M_Rebx)
+
+;# Return the thread id object for the current thread
+CALLMACRO   INLINE_ROUTINE  thread_self
+	MOVL    ThreadId[Rebp],Reax
+	ret
+CALLMACRO   RegMask thread_self,(M_Reax)
+
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
 ;# by the function.  It is an untagged bitmap with the registers
@@ -1830,23 +1872,23 @@ EXTNAME(registerMaskVector):
 #define dd  .long
     dd  Mask_all                ;# 0 is unused
 ENDIF
-    dd  Mask_all             ;# 1
-    dd  Mask_all       ;# 2
+    dd  Mask_all				;# 1
+    dd  Mask_all				;# 2
     dd  Mask_all                ;# 3 is unused
     dd  Mask_all                ;# 4 is unused
     dd  Mask_all                ;# 5 is unused
-    dd  Mask_all          ;# 6
+    dd  Mask_all				;# 6
     dd  Mask_all                ;# 7 is unused
     dd  Mask_all                ;# 8 is unused
-    dd  Mask_all         ;# 9
+    dd  Mask_all				;# 9
     dd  Mask_all                ;# 10 is unused
-    dd  Mask_alloc_store         ;# 11
-    dd  Mask_all           ;# 12
-    dd  Mask_all                 ;# return = 13
-    dd  Mask_all                 ;# raisex = 14
-    dd  Mask_get_length          ;# 15
+    dd  Mask_alloc_store        ;# 11
+    dd  Mask_all				;# 12
+    dd  Mask_all                ;# return = 13
+    dd  Mask_all                ;# raisex = 14
+    dd  Mask_get_length         ;# 15
     dd  Mask_all                ;# 16 is unused
-    dd  Mask_all          ;# 17
+    dd  Mask_all				;# 17
     dd  Mask_all                ;# 18 is no longer used
     dd  Mask_all                ;# 19 is no longer used
     dd  Mask_all                ;# 20 is no longer used
@@ -1869,19 +1911,19 @@ ENDIF
     dd  Mask_all                 ;# 37 is unused
     dd  Mask_all                 ;# 38 is unused
     dd  Mask_all                 ;# 39 is unused
-    dd  Mask_all              ;# 40
+    dd  Mask_all				;# 40
     dd  Mask_all                 ;# 41 is unused
-    dd  Mask_all        ;# 42
-    dd  Mask_all        ;# 43
+    dd  Mask_all				;# 42
+    dd  Mask_all				;# 43
     dd  Mask_all                 ;# 44 is no longer used
     dd  Mask_all                 ;# 45 is no longer used
-    dd  Mask_all             ;# 46
+    dd  Mask_all				;# 46
     dd  Mask_lockseg             ;# 47
     dd  Mask_all                 ;# nullorzero = 48
     dd  Mask_all                 ;# 49 is no longer used
     dd  Mask_all                 ;# 50 is no longer used
-    dd  Mask_all       ;# 51
-    dd  Mask_all   ;# 52
+    dd  Mask_all				;# 51
+    dd  Mask_all				;# 52
     dd  Mask_all                ;# 53 is unused
     dd  Mask_all                ;# 54 is unused
     dd  Mask_all                ;# version_number = 55
@@ -1890,8 +1932,8 @@ ENDIF
     dd  Mask_all                ;# 58 is unused
     dd  Mask_all                ;# 59 is unused
     dd  Mask_all                ;# 60 is unused
-    dd  Mask_all        ;# 61
-    dd  Mask_all      ;# 62
+    dd  Mask_all				;# 61
+    dd  Mask_all				;# 62
     dd  Mask_all                ;# 63 is unused
     dd  Mask_all                ;# 64 is unused
     dd  Mask_all                ;# 65 is unused
@@ -1899,10 +1941,10 @@ ENDIF
     dd  Mask_all                ;# 67 is unused
     dd  Mask_all                ;# 68 is unused
     dd  Mask_all                ;# 69 is unused
-    dd  Mask_all                ;# 70 is unused
-    dd  Mask_all                ;# 71 is unused
-    dd  Mask_all                ;# 72 is unused
-    dd  Mask_all                ;# 73 is unused
+    dd  Mask_atomic_incr        ;# 70
+    dd  Mask_atomic_decr        ;# 71
+    dd  Mask_thread_self        ;# 72
+    dd  Mask_all                ;# 73
     dd  Mask_all                ;# 74 is unused
     dd  Mask_all                ;# 75 is unused
     dd  Mask_all                ;# 76 is unused
@@ -1910,14 +1952,14 @@ ENDIF
     dd  Mask_all                ;# 78 is unused
     dd  Mask_all                ;# 79 is unused
     dd  Mask_all                ;# Mask_version_number_1 = 80
-    dd  Mask_all                 ;# 81 is now unused
-    dd  Mask_all        ;# 82
-    dd  Mask_all      ;# 83
-    dd  Mask_all           ;# 84
-    dd  Mask_all         ;# 85
-    dd  Mask_all     ;# 86
-    dd  Mask_all  ;# 87
-    dd  Mask_all            ;# 88
+    dd  Mask_all                ;# 81 is now unused
+    dd  Mask_all				;# 82 is now unused
+    dd  Mask_all				;# 83 is now unused
+    dd  Mask_all				;# 84
+    dd  Mask_all				;# 85 is now unused
+    dd  Mask_all				;# 86 is now unused
+    dd  Mask_all				;# 87 is now unused
+    dd  Mask_all				;# 88
     dd  Mask_all                ;# 89 is unused
     dd  Mask_all                ;# 90 is unused
     dd  Mask_all                ;# 91 is unused

@@ -24,8 +24,9 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle Sig_dispatch_c(Handle handler, Handle sig);
+extern Handle Sig_dispatch_c(TaskData *taskData, Handle handler, Handle sig);
 
 extern void addSigCount(int sig);
 extern void markSignalInuse(int sig);
@@ -33,7 +34,6 @@ extern void markSignalInuse(int sig);
 #ifdef WINDOWS_PC
 extern void handleINT(void);
 extern void RequestConsoleInterrupt(void);
-extern void SetResetCC(const int enable);
 #else
 
 #ifdef HAVE_SIGNAL_H

@@ -34,7 +34,7 @@ class PECOFFExport: public Exporter, public ScanAddress
 public:
     PECOFFExport(): relocationCount(0), symbolCount(0) {}
 public:
-    virtual void exportStore(const char *outFileName);
+    virtual void exportStore(void);
 
 private:
     // ScanAddress overrides

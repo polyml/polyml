@@ -28,6 +28,7 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
 // Exceptions thrown by C++ code.  Indicates that the caller should not return normally.
 // They can be thrown in one of two different situations:
@@ -46,48 +47,48 @@ public:
     enum EXCEPTION_REASON m_reason;
 };
 
-#ifdef _WIN32_WCE
-#define THROW_EXCEPTION     longjmp(exception_jump, 2)
-#define THROW_RETRY         longjmp(exception_jump, 2)
-#else
-#define THROW_EXCEPTION     throw IOException(EXC_EXCEPTION)
-#define THROW_RETRY         throw IOException(EXC_RETRY)
-#endif
+// This exception is used in the exporter and sharedata code.  It is
+// converted into an ML exception at the outer level.
+class MemoryException {
+public:
+    MemoryException() {}
+};
 
 /* storage allocation functions */
 
-extern PolyObject *alloc(POLYUNSIGNED words, unsigned flags = 0);
-extern Handle alloc_and_save(POLYUNSIGNED words, unsigned flags = 0);
+// Find space for an object.  Returns a pointer to the start.  "words" must include
+// the length word and the result points at where the length word will go.
+extern PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
-extern Handle ex_tracec(Handle exc_data, Handle handler_handle);
+extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
+extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 
-extern int interrupted;
+extern Handle ex_tracec(TaskData *taskData, Handle exc_data, Handle handler_handle);
 
 /* exceptions and interrupts */
-NORETURNFN(extern void raise_exception(int id, Handle arg));
-NORETURNFN(extern void raise_exception0(int id));
-NORETURNFN(extern void raise_exception_string(int id, char *str));
-NORETURNFN(extern void raise_syscall(char *errmsg, int err));
-Handle create_syscall_exception(char *errmsg, int err);
+NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
+NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));
+NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, char *str));
+NORETURNFN(extern void raise_syscall(TaskData *taskData, char *errmsg, int err));
+Handle create_syscall_exception(TaskData *taskData, char *errmsg, int err);
 
 typedef void (*InterruptFunc)(int signum);
 extern void register_interrupt_proc(InterruptFunc int_proc);
-extern void execute_pending_interrupts(void);
 
 extern void re_init_run_time_system(void);
 extern void init_run_time_system(void);
-extern Handle EnterPolyCode(void);
+extern Handle EnterPolyCode(TaskData *taskData);
 
-extern void give_stack_trace(PolyWord *stackPtr, PolyWord *finish);
+extern void give_stack_trace(TaskData *taskData, PolyWord *stackPtr, PolyWord *finish);
 
 extern void uninit_run_time_system(void);
 
-Handle make_exn(int id, Handle arg);
+Handle make_exn(TaskData *taskData, int id, Handle arg);
 
 extern bool trace_allowed;
 
 extern void add_word_to_io_area(unsigned sysop, PolyWord val);
 
-Handle CodeSegmentFlags(Handle flags_handle, Handle addr_handle);
+Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle);
 
 #endif /* _RUNTIME_H_DEFINED */

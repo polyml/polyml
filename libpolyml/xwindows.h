@@ -27,7 +27,8 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle XWindows_c(Handle params);
+extern Handle XWindows_c(TaskData *taskData, Handle params);
 
 #endif

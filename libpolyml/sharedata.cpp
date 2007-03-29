@@ -21,16 +21,10 @@
 
 */
 
-
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
-
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -61,6 +55,7 @@
 #include "gc.h"
 #include "rts_module.h"
 #include "memmgr.h"
+#include "processes.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the the
@@ -169,7 +164,7 @@ Vector * Vector::AddDepth(POLYUNSIGNED depth)
 
     v = new Vector(depth);
     if (v == 0) // Should throw an exception, but just in case...
-        raise_exception_string(EXC_Fail, "Insufficient memory");
+        throw MemoryException();
     v->next = *L;
     *L = v;
     return v;
@@ -195,9 +190,7 @@ static void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
         Item *new_vector = (Item *)realloc (v->vector, new_vsize*sizeof(Item));
 
         if (new_vector == 0)
-        {
-            raise_exception_string(EXC_Fail, "Insufficient memory");
-        }
+            throw MemoryException();
         
         v->vector = new_vector;
         v->vsize  = new_vsize;
@@ -458,7 +451,7 @@ static void RestoreLengthWords(Vector *vec)
 static unsigned verbose = 0;
 
 // ShareData.  This is the main entry point.
-void ShareData(Handle root)
+void ShareData(TaskData *taskData, Handle root)
 {
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
@@ -468,98 +461,110 @@ void ShareData(Handle root)
     if (! root->Word().IsDataPtr())
         return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
 
-    // Build the vectors from the immutable objects.
-    ProcessAddToVector addToVector;
+    // We're manipulating the heap in ways that could mess up other threads.
+    // Pause them until we finish.
+    while (! processes->BeginGC(taskData)) {}
+
     try {
-        (void)addToVector.ScanObjectAddress(root->Word().AsObjPtr());
-    }
-    catch (IOException exc)
-    {
-        // If we run out of memory and raise an exception we have to clean up.
-        while (vectors)
+        // Build the vectors from the immutable objects.
+        ProcessAddToVector addToVector;
+        try {
+            (void)addToVector.ScanObjectAddress(root->Word().AsObjPtr());
+        }
+        catch (MemoryException)
         {
-            Vector *v = vectors;
-            vectors = v->next;
+            // If we run out of memory and raise an exception we have to clean up.
+            while (vectors)
+            {
+                Vector *v = vectors;
+                vectors = v->next;
+                delete(v);
+            }
+            raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+        }
+
+        ProcessFixupAddress fixup;
+
+        Vector *vec = vectors;
+
+        if (vec && vec->depth == 0) // Skip the level zero objects.
+             vec = vec->next; // We fix them up when we've done all the rest.
+
+        while (vec)
+        {
+            fixup.FixupItems(vec);
+            qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
+        
+            POLYUNSIGNED n = MergeSameItems (vec);
+        
+            if (n && verbose)
+            {
+                printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
+            }
+        
+            totalObjects += vec->nitems;
+            totalShared  += n;
+        
+            vec = vec->next; // Get the next vector (if any)
+        }  
+
+      /* 
+       At this stage, we have fixed up most but not all of the forwarding
+       pointers. The ones that we haven't fixed up arise from situations
+       such as the following:
+   
+               X -> Y <-> Z
+           
+       i.e. Y and Z form a loop, and X is isomorphic to Z. When we assigned
+       the depths, we have to arbitrarily break the loop between Y and Z.
+       Suppose Y is assigned to level 1, and Z is assigned to level 2.
+       When we process level 1 and fixup Y, there's nothing to do, since
+       Z is still an ordinary object. However when we process level 2, 
+       we find that X and Z are isomorphic so we arbitrarily choose one
+       of them and turn it into a "tombstone" pointing at the other. If
+       we change Z into the tombstone, then Y now contains a pointer
+       that needs fixing up. That's why we need the second fixup pass.
+   
+       Note also that if we had broken the loop the other way, we would have
+       assigned Z to level 1, Y to level 2 and X to level 3, so we would
+       have missed the chance to share Z and X. Perhaps that's why running
+       the program repeatedly sometimes finds extra things to share? 
+
+      SPF 26/1/95
+    */
+
+
+        /* We have updated the addresses in objects with non-zero level so they point to
+           the single occurrence but we need to do the same with level 0 objects
+           (mutables, stacks and code). */
+        vec = vectors;
+        if (vec && vec->depth == 0)
+        {
+            Vector *v = vec;
+            RestoreLengthWords(v);
+            fixup.FixupItems(v);
+            vec = vec->next;
+            delete(v); // Free all the data
+        }
+
+        /* Previously we made a complete scan over the memory updating any addresses so
+           that if we have shared two substructures within our root we would also
+           share any external pointers.  This has been removed but we have to
+           reinstate the length words we've overwritten with forwarding pointers because
+           there may be references to unshared objects from outside. */
+        while (vec != 0)
+        {
+            Vector *v = vec;
+            RestoreLengthWords(v);
+            vec = vec->next;
             delete(v);
         }
-        throw exc;
+        processes->EndGC(taskData);
     }
-
-    ProcessFixupAddress fixup;
-
-    Vector *vec = vectors;
-
-    if (vec && vec->depth == 0) // Skip the level zero objects.
-         vec = vec->next; // We fix them up when we've done all the rest.
-
-    while (vec)
+    catch (...)
     {
-        fixup.FixupItems(vec);
-        qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
-        
-        POLYUNSIGNED n = MergeSameItems (vec);
-        
-        if (n && verbose)
-        {
-            printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
-        }
-        
-        totalObjects += vec->nitems;
-        totalShared  += n;
-        
-        vec = vec->next; // Get the next vector (if any)
-    }  
-
-  /* 
-   At this stage, we have fixed up most but not all of the forwarding
-   pointers. The ones that we haven't fixed up arise from situations
-   such as the following:
-   
-           X -> Y <-> Z
-           
-   i.e. Y and Z form a loop, and X is isomorphic to Z. When we assigned
-   the depths, we have to arbitrarily break the loop between Y and Z.
-   Suppose Y is assigned to level 1, and Z is assigned to level 2.
-   When we process level 1 and fixup Y, there's nothing to do, since
-   Z is still an ordinary object. However when we process level 2, 
-   we find that X and Z are isomorphic so we arbitrarily choose one
-   of them and turn it into a "tombstone" pointing at the other. If
-   we change Z into the tombstone, then Y now contains a pointer
-   that needs fixing up. That's why we need the second fixup pass.
-   
-   Note also that if we had broken the loop the other way, we would have
-   assigned Z to level 1, Y to level 2 and X to level 3, so we would
-   have missed the chance to share Z and X. Perhaps that's why running
-   the program repeatedly sometimes finds extra things to share? 
-
-  SPF 26/1/95
-*/
-
-
-    /* We have updated the addresses in objects with non-zero level so they point to
-       the single occurrence but we need to do the same with level 0 objects
-       (mutables, stacks and code). */
-    vec = vectors;
-    if (vec && vec->depth == 0)
-    {
-        Vector *v = vec;
-        RestoreLengthWords(v);
-        fixup.FixupItems(v);
-        vec = vec->next;
-        delete(v); // Free all the data
-    }
-
-    /* Previously we made a complete scan over the memory updating any addresses so
-       that if we have shared two substructures within our root we would also
-       share any external pointers.  This has been removed but we have to
-       reinstate the length words we've overwritten with forwarding pointers because
-       there may be references to unshared objects from outside. */
-    while (vec != 0)
-    {
-        Vector *v = vec;
-        RestoreLengthWords(v);
-        vec = vec->next;
-        delete(v);
+        processes->EndGC(taskData);
+        throw;
     }
 
     if (verbose)

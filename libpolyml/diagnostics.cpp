@@ -19,15 +19,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -105,11 +100,7 @@ void SysError(const char *msg, ...)
     printf("\n");
     fflush(stdout);
     sprintf(buff,"Error number %i",er);
-#ifdef _WIN32_WCE
-	fputs(buff, stdout);
-#else
 	perror(buff);
-#endif
     fflush(stderr);
 #if defined(WINDOWS_PC) /* PC version */
   if (useConsole)

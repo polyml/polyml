@@ -25,10 +25,11 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
 /* time functions etc */
 
-extern Handle timing_dispatch_c(Handle args, Handle code);
+extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
 /* Called by the garbage collector at the beginning and
    end of garbage collection. */

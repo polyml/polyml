@@ -26,33 +26,34 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern double real_arg(Handle x);
-extern Handle real_result(double x);
+extern double real_arg(Handle x); // Also used in "foreign.cpp"
+extern Handle real_result(TaskData *mdTaskData, double x); // Also used in "foreign.cpp"
 
-extern Handle Real_addc (Handle, Handle);
-extern Handle Real_subc (Handle, Handle);
-extern Handle Real_mulc (Handle, Handle);
-extern Handle Real_divc (Handle, Handle);
-extern Handle Real_negc (Handle);
-extern Handle Real_convc (Handle);
-extern Handle Real_intc (Handle);
-extern Handle Real_floatc (Handle);
-extern Handle Real_sqrtc (Handle);
-extern Handle Real_sinc (Handle);
-extern Handle Real_cosc (Handle);
-extern Handle Real_arctanc (Handle);
-extern Handle Real_expc (Handle);
-extern Handle Real_lnc (Handle);
-extern Handle Real_reprc (Handle);
-extern Handle Real_strc(Handle hDigits, Handle hMode, Handle arg);
-extern Handle Real_geqc(Handle y, Handle x);
-extern Handle Real_leqc(Handle y, Handle x);
-extern Handle Real_gtrc(Handle y, Handle x);
-extern Handle Real_lssc(Handle y, Handle x);
-extern Handle Real_eqc(Handle y, Handle x);
-extern Handle Real_neqc(Handle y, Handle x);
+extern Handle Real_addc (TaskData *mdTaskData, Handle, Handle);
+extern Handle Real_subc (TaskData *mdTaskData, Handle, Handle);
+extern Handle Real_mulc (TaskData *mdTaskData, Handle, Handle);
+extern Handle Real_divc (TaskData *mdTaskData, Handle, Handle);
+extern Handle Real_negc (TaskData *mdTaskData, Handle);
+extern Handle Real_convc (TaskData *mdTaskData, Handle);
+extern Handle Real_intc (TaskData *mdTaskData, Handle);
+extern Handle Real_floatc (TaskData *mdTaskData, Handle);
+extern Handle Real_sqrtc (TaskData *mdTaskData, Handle);
+extern Handle Real_sinc (TaskData *mdTaskData, Handle);
+extern Handle Real_cosc (TaskData *mdTaskData, Handle);
+extern Handle Real_arctanc (TaskData *mdTaskData, Handle);
+extern Handle Real_expc (TaskData *mdTaskData, Handle);
+extern Handle Real_lnc (TaskData *mdTaskData, Handle);
+extern Handle Real_reprc (TaskData *mdTaskData, Handle);
+extern Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
+extern Handle Real_geqc(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle Real_leqc(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle Real_gtrc(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle Real_lssc(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle Real_eqc(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x);
 
-extern Handle Real_dispatchc(Handle args, Handle code);
+extern Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code);
 
 #endif

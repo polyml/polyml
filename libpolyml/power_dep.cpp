@@ -53,19 +53,16 @@
 // Linux
 #define NIP(scp)    (scp)->uc_mcontext.regs->nip
 #define GPR27(scp)  (scp)->uc_mcontext.regs->gpr[PT_R27]
-#define GPR28(scp)  (scp)->uc_mcontext.regs->gpr[PT_R28]
 
 #elif defined(HAVE_STRUCT_PPC_THREAD_STATE)
 /* Mac OS X 10.2 and, hopefully, later. */
 #define NIP(scp)    scp->uc_mcontext->ss.srr0
 #define GPR27(scp)  scp->uc_mcontext->ss.r27
-#define GPR28(scp)  scp->uc_mcontext->ss.r28
 
 #elif defined(HAVE_MCONTEXT_T_GREGS)
 // Linux (new)
 #define NIP(scp)    (scp)->uc_mcontext.uc_regs->gregs[PT_NIP]
 #define GPR27(scp)  (scp)->uc_mcontext.uc_regs->gregs[PT_R27]
-#define GPR28(scp)  (scp)->uc_mcontext.uc_regs->gregs[PT_R28]
 
 #else
 
@@ -73,12 +70,10 @@
 // This may need testing
 #define NIP(scp)    scp->sc_ir
 #define GPR27(scp)  (((int*)(scp)->sc_regs)[27+2])
-#define GPR28(scp)  (((int*)(scp)->sc_regs)[28+2])
 #endif
 
-// R27 is used as the ML stack pointer and R28 as the ML stack limit register.
+// R27 is used as the ML stack pointer
 #define GPSP(scp)   GPR27(scp)
-#define GPSL(scp)   GPR28(scp)
 
 #include "globals.h"
 #include "gc.h"
@@ -108,7 +103,7 @@ enum RETURN_REASON {
     RETURN_ARB_EMULATION
 };
 
-// Registers saved in poly_stack.
+// Registers saved in taskData->stack.
 #define NUMCHECKED      21  // Number of checked registers.
 #define NUMUNCHECKED    3   // Number of unchecked registers
 
@@ -160,9 +155,9 @@ enum RETURN_REASON {
 
 
 // This vector is pointed to by r13 
-static struct MemRegisters {
+typedef struct MemRegisters {
     int inRTS;
-        /* This is set when poly_stack->p_pc and poly_stack->p_sp are set */
+        /* This is set when taskData->stack->p_pc and taskData->stack->p_sp are set */
     int requestCode;
     int returnReason;
 
@@ -178,51 +173,64 @@ static struct MemRegisters {
     byte        *raiseDiv;
     byte        *arbEmulation;
     PolyWord    *stackTop; // Used in "raisex"
-} memRegisters;
+} MemRegisters;
+
+class PowerPCTaskData: public MDTaskData {
+public:
+    PowerPCTaskData(): allocWords(0)
+    {
+    memRegisters.inRTS = 1; // We start off in the RTS.
+    }
+    POLYUNSIGNED allocWords; // The words to allocate.
+    MemRegisters memRegisters;
+};
 
 class PowerPCDependent: public MachineDependent {
 public:
-    PowerPCDependent(): allocSpace(0), allocWords(0) {}
-    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg);
+    PowerPCDependent() {}
+
+    // Create a task data object.
+    virtual MDTaskData *CreateTaskData(void) { return new PowerPCTaskData(); }
+
+    virtual void InitStackFrame(TaskData *taskData, Handle stack, Handle proc, Handle arg);
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
-    virtual int SwitchToPoly(void);
-    virtual void SetForRetry(int ioCall);
+    virtual int SwitchToPoly(TaskData *taskData);
+    virtual void SetForRetry(TaskData *taskData, int ioCall);
     virtual void InitInterfaceVector(void);
-    virtual void SetException(StackObject *stack,poly_exn *exc);
+    virtual void SetException(TaskData *taskData, poly_exn *exc);
     virtual void ResetSignals(void);
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
-    virtual void InterruptCodeUsingContext(SIGNALCONTEXT *context);
-    virtual void InterruptCode(void) { assert(false); } // We should always use InterruptCodeUsingContext.
+    virtual void InterruptCode(TaskData *taskData);
     virtual int  GetIOFunctionRegisterMask(int ioCall);
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
-    virtual bool InRunTimeSystem(void) { return memRegisters.inRTS != 0; }
-    virtual void CallIO0(Handle(*ioFun)(void));
-    virtual void CallIO1(Handle(*ioFun)(Handle));
-    virtual void CallIO2(Handle(*ioFun)(Handle, Handle));
-    virtual void CallIO3(Handle(*ioFun)(Handle, Handle, Handle));
-    virtual void CallIO4(Handle(*ioFun)(Handle, Handle, Handle, Handle));
-    virtual void CallIO5(Handle(*ioFun)(Handle, Handle, Handle, Handle, Handle));
-    virtual Handle CallBackResult(void);
-    virtual void SetExceptionTrace(void);
-    virtual void CallCodeTupled(void);
-    virtual void SetCodeConstant(Handle data, Handle constant, Handle offseth, Handle base);
+    virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
+    virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
+    virtual void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
+    virtual void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle));
+    virtual void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle));
+    virtual void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
+    virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
+    virtual Handle CallBackResult(TaskData *taskData);
+    virtual void SetExceptionTrace(TaskData *taskData);
+    virtual void CallCodeTupled(TaskData *taskData);
+    virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes);
     virtual Architectures MachineArchitecture(void) { return MA_PPC; } 
 
 private:
 
-    void StartIOCall(void);
-    void SetMemRegisters(void);
-    void HeapOverflowTrap(void);
-    void ArbitraryPrecisionTrap(void);
+    void StartIOCall(TaskData *taskData);
+    void SetMemRegisters(TaskData *taskData);
+    void HeapOverflowTrap(TaskData *taskData);
+    void ArbitraryPrecisionTrap(TaskData *taskData);
 
-    Handle BuildCodeSegment(const byte *code, unsigned codeWords, char functionName);
-    Handle BuildKillSelfCode(void);
+    Handle BuildCodeSegment(TaskData *taskData, const byte *code, unsigned codeWords, char functionName);
+    Handle BuildKillSelfCode(TaskData *taskData);
 
-    LocalMemSpace *allocSpace;
-    POLYUNSIGNED allocWords;
 };
 
+
+// Entry code sequences - copied to memRegisters before entering ML.
+static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmulation;
 
 // Functions in the assembly code segment.
 extern "C" {
@@ -326,7 +334,7 @@ r24        is the closure pointer or static link pointer
 r25 (rr)   is used as the compiler-visible link register
 r26        is an RTS scratch register (unsaved).
 r27 (rsp)  is the ML stack pointer,
-r28 (rsl)  is the stack limit,
+r28        is no longer used (formerly the stack limit reg)
 r29 (rhp)  is the heap pointer,
 r30 (rhl)  is the heap limit,
 r31 (rhr)  points to the top exception handler.
@@ -373,7 +381,7 @@ and normal RTS calls, and it is also used to implement tail-calls.
 #define NOTIFYGC 0
 
 // InitStackFrame.  Set up a stack frame for a new thread (process).
-void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
+void PowerPCDependent::InitStackFrame(TaskData *taskData, Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
     StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
@@ -390,7 +398,7 @@ void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
     // Set the default handler and return address to point to this code.
     // We have to offset the addresses by two bytes because the code to enter and a handler
     // or return from a function always subtracts two.
-    Handle killCode = BuildKillSelfCode();
+    Handle killCode = BuildKillSelfCode(taskData);
     PolyWord killJump = PolyWord::FromUnsigned(killCode->Word().AsUnsigned() | HANDLEROFFSET);
     stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
 
@@ -417,42 +425,41 @@ void PowerPCDependent::InitStackFrame(Handle stackh, Handle proc, Handle arg)
 // the memory was checked.
 byte *lastPC;
 int lastRequest, lastReason;
-PolyWord *lastBase;
 
 // SwitchToPoly - start running Poly code.  
-int PowerPCDependent::SwitchToPoly(void)
+int PowerPCDependent::SwitchToPoly(TaskData *taskData)
 /* (Re)-enter the Poly code from C. */
 {
+    PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
     while (1)
     {
         CheckMemory(); // Do any memory checking.
 
         // Remember the position after the last time we checked
         // the memory.
-        lastPC = poly_stack->p_pc;
-        lastRequest = memRegisters.requestCode;
-        lastReason = memRegisters.returnReason;
-        if (allocSpace) lastBase = allocSpace->pointer;
+        lastPC = taskData->stack->p_pc;
+        lastRequest = mdTask->memRegisters.requestCode;
+        lastReason = mdTask->memRegisters.returnReason;
         
-        SetMemRegisters();
+        SetMemRegisters(taskData);
 
-        PPCAsmSwitchToPoly(&memRegisters); // Load registers.  Returns as a result of an RTS call.
-        allocSpace->pointer = memRegisters.heapPointer; // Get updated limit pointer.
-        allocWords = 0;
+        PPCAsmSwitchToPoly(&mdTask->memRegisters); // Load registers.  Returns as a result of an RTS call.
+        taskData->allocPointer = mdTask->memRegisters.heapPointer; // Get updated limit pointer.
+        mdTask->allocWords = 0;
 
-        switch (memRegisters.returnReason)
+        switch (mdTask->memRegisters.returnReason)
         {
         case RETURN_IO_CALL:
             // The ML code wants an IO call.
-            return memRegisters.requestCode;
+            return mdTask->memRegisters.requestCode;
 
         case RETURN_HEAP_OVERFLOW:
             try {
                 // The heap has overflowed.  Put the return address into the program counter.
                 // It may well not be a valid code address anyway.
-                poly_stack->p_pc = (byte*)poly_stack->PS_LR.AsUnsigned();
-                poly_stack->PS_LR = TAGGED(0); // Clobber this
-                HeapOverflowTrap();
+                taskData->stack->p_pc = (byte*)taskData->stack->PS_LR.AsUnsigned();
+                taskData->stack->PS_LR = TAGGED(0); // Clobber this
+                HeapOverflowTrap(taskData);
             }
             catch (IOException) {
                 // We may get an exception while handling this if we run out of store
@@ -464,11 +471,11 @@ int PowerPCDependent::SwitchToPoly(void)
                 // The stack check has failed.  This may either be because we really have
                 // overflowed the stack or because the stack limit value has been adjusted
                 // to result in a call here.
-                poly_stack->p_pc = (byte*)poly_stack->PS_LR.AsUnsigned();
+                taskData->stack->p_pc = (byte*)taskData->stack->PS_LR.AsUnsigned();
                 // Restore the original value from the link register (with the
                 // +2 byte tagging).  This enables the link register caching to work.
-                poly_stack->PS_LR = poly_stack->PS_R25;
-                check_current_stack_size(poly_stack->p_sp);
+                taskData->stack->PS_LR = taskData->stack->PS_R25;
+                CheckAndGrowStack(taskData, taskData->stack->p_sp);
             }
             catch (IOException) {
                // We may get an exception while handling this if we run out of store
@@ -479,10 +486,10 @@ int PowerPCDependent::SwitchToPoly(void)
             try {
                 // Stack limit overflow.  If the required stack space is larger than
                 // the fixed overflow size the code will calculate the limit in rtemp1
-                PolyWord *stackP = poly_stack->PS_R11.AsStackAddr();
-                poly_stack->p_pc = (byte*)poly_stack->PS_LR.AsUnsigned();
-                poly_stack->PS_LR = poly_stack->PS_R25; // Restore LR
-                check_current_stack_size(stackP);
+                PolyWord *stackP = taskData->stack->PS_R11.AsStackAddr();
+                taskData->stack->p_pc = (byte*)taskData->stack->PS_LR.AsUnsigned();
+                taskData->stack->PS_LR = taskData->stack->PS_R25; // Restore LR
+                CheckAndGrowStack(taskData, stackP);
             }
             catch (IOException) {
                // We may get an exception while handling this if we run out of store
@@ -495,14 +502,14 @@ int PowerPCDependent::SwitchToPoly(void)
                 // is either ignored, for Word operations, or results in a call to
                 // the abitrary precision emulation code.  This is the exception
                 // (no pun intended).
-                poly_stack->p_pc = (byte*)poly_stack->PS_LR.AsUnsigned();
-                poly_stack->PS_LR = TAGGED(0);
+                taskData->stack->p_pc = (byte*)taskData->stack->PS_LR.AsUnsigned();
+                taskData->stack->PS_LR = TAGGED(0);
                 // Set all the registers to a safe value here.  We will almost certainly
                 // have shifted a value in one of the registers before testing it for zero.
                 // This may not actually be needed on the PPC
-                for (POLYUNSIGNED i = 0; i < poly_stack->p_nreg; i++)
-                    poly_stack->p_reg[i] = TAGGED(0);
-                raise_exception0(EXC_divide);
+                for (POLYUNSIGNED i = 0; i < taskData->stack->p_nreg; i++)
+                    taskData->stack->p_reg[i] = TAGGED(0);
+                raise_exception0(taskData, EXC_divide);
             }
             catch (IOException) {
                 // Handle the C++ exception.
@@ -511,9 +518,9 @@ int PowerPCDependent::SwitchToPoly(void)
 
         case RETURN_ARB_EMULATION:
             try {
-                poly_stack->p_pc = (byte*)poly_stack->PS_LR.AsUnsigned();
-                poly_stack->PS_LR = TAGGED(0);
-                ArbitraryPrecisionTrap();
+                taskData->stack->p_pc = (byte*)taskData->stack->PS_LR.AsUnsigned();
+                taskData->stack->PS_LR = TAGGED(0);
+                ArbitraryPrecisionTrap(taskData);
             }
             catch (IOException) {
                 // We may get an exception in the trap handler e.g. if we run out of store.
@@ -523,48 +530,69 @@ int PowerPCDependent::SwitchToPoly(void)
     }
 }
 
-void PowerPCDependent::SetMemRegisters(void)
+void PowerPCDependent::SetMemRegisters(TaskData *taskData)
 {
-    memRegisters.requestCode = 0;
-    memRegisters.returnReason = RETURN_IO_CALL;
-    
-    memRegisters.polyStack = poly_stack;
-    memRegisters.stackTop = poly_stack->Offset(poly_stack->Length());
-    
-    if (poly_stack->p_pc == PC_RETRY_SPECIAL)
+    PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
+    mdTask->memRegisters.requestCode = 0;
+    mdTask->memRegisters.returnReason = RETURN_IO_CALL;
+
+    // If we haven't yet set the allocation area or we don't have enough we need
+    // to create one (or a new one).
+    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords ||
+        (userOptions.debug & DEBUG_FORCEGC))
     {
-        // We need to retry the call.  The entry point should be the
-        // first word of the closure which is in r24.
-        poly_stack->p_pc = poly_stack->PS_R24.AsObjPtr()->Get(0).AsCodePtr();
+        if (taskData->allocPointer < taskData->allocLimit)
+            Crash ("Bad length in heap overflow trap");
+
+        // Find some space to allocate in.  Updates taskData->allocPointer and
+        // returns a pointer to the newly allocated space (if allocWords != 0)
+        PolyWord *space =
+            FindAllocationSpace(taskData, mdTask->allocWords, true);
+        if (space == 0)
+        {
+            fprintf(stderr,"Run out of store - interrupting threads\n");
+            processes->MemoryExhausted(taskData);
+        }
     }
-    // Set up heap pointers.
-    allocSpace = gMem.GetLargestSpace();
+    else if (mdTask->allocWords != 0) // May just be store profiling.
+        taskData->allocPointer -= mdTask->allocWords;
 
-    // If we have had a heap trap we actually do the allocation here.
-    // We will have already garbage collected and recovered sufficient space.
-    allocSpace->pointer -= allocWords;
-    ASSERT(allocSpace->pointer >= allocSpace->bottom);
-    allocWords = 0;
+    mdTask->memRegisters.polyStack = taskData->stack;
+    mdTask->memRegisters.stackTop = taskData->stack->Offset(taskData->stack->Length());
 
-    memRegisters.heapPointer = allocSpace->pointer;
+    // Set the raiseException entry to point to the assembly code.
+    mdTask->memRegisters.raiseException = (byte*)raisex;
+    // Entry point to save the state for an IO call.  This is the common entry
+    // point for all the return and IO-call cases.
+    mdTask->memRegisters.ioEntry = (byte*)PPCSaveStateAndReturn;
+    
+    mdTask->memRegisters.heapOverflow = heapOverflow;
+    mdTask->memRegisters.stackOverflow = stackOverflow;
+    mdTask->memRegisters.stackOverflowEx = stackOverflowEx;
+    mdTask->memRegisters.raiseDiv = raiseDiv;
+    mdTask->memRegisters.arbEmulation = arbEmulation;
+
+    mdTask->memRegisters.heapPointer = taskData->allocPointer;
     // If we want heap profiling set the size to zero otherwise to the free space.
     // Setting this to zero may result in the heap size register becoming negative.
     // The code to allocate memory generated by the code generator tests for space,
     // traps if it is negative and afterwards subtracts the allocated space from
     // the space available.  If we set it to zero here it will then become negative.
-    if (store_profiling || (userOptions.debug & DEBUG_REGION_CHECK))
-        memRegisters.heapBase = allocSpace->pointer;
+    if (profileMode == kProfileStoreAllocation || (userOptions.debug & DEBUG_REGION_CHECK))
+        mdTask->memRegisters.heapBase = taskData->allocPointer;
     else
-        memRegisters.heapBase = allocSpace->bottom;
+        mdTask->memRegisters.heapBase = taskData->allocLimit;
     
-    if (interrupted)
-        memRegisters.stackLimit = memRegisters.stackTop;
-    else
-        memRegisters.stackLimit = poly_stack->Offset(poly_stack->p_space);
+    mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+
+    if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
+        // We need to retry the call.  The entry point should be the
+        // first word of the closure which is in r24.
+        taskData->stack->p_pc = taskData->stack->PS_R24.AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // Called as part of the call of an IO function.
-void PowerPCDependent::StartIOCall(void)
+void PowerPCDependent::StartIOCall(TaskData *taskData)
 {
     // Set the return address to be the contents of the link register.
     // This is a real return address which is safe for the p_pc field but
@@ -572,17 +600,17 @@ void PowerPCDependent::StartIOCall(void)
     // return offset there.  Because this may be a retry of the call we may
     // already have put in the offset in which case we have to remove it before we
     // put it into the pc.
-    poly_stack->p_pc = (byte*)(poly_stack->PS_LR.AsUnsigned() & ~RETURNOFFSET);
-    poly_stack->PS_LR = PolyWord::FromUnsigned(poly_stack->PS_LR.AsUnsigned() | RETURNOFFSET);
+    taskData->stack->p_pc = (byte*)(taskData->stack->PS_LR.AsUnsigned() & ~RETURNOFFSET);
+    taskData->stack->PS_LR = PolyWord::FromUnsigned(taskData->stack->PS_LR.AsUnsigned() | RETURNOFFSET);
 }
 
 // IO Functions called indirectly from assembly code.
-void PowerPCDependent::CallIO0(Handle (*ioFun)(void))
+void PowerPCDependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
-    StartIOCall();
+    StartIOCall(taskData);
     try {
-        Handle result = (*ioFun)();
-        poly_stack->PS_R3 = result->Word();
+        Handle result = (*ioFun)(taskData);
+        taskData->stack->PS_R3 = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -595,13 +623,13 @@ void PowerPCDependent::CallIO0(Handle (*ioFun)(void))
     }
 }
 
-void PowerPCDependent::CallIO1(Handle (*ioFun)(Handle))
+void PowerPCDependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
 {
-    StartIOCall();
-    Handle saved1 = gSaveVec->push(poly_stack->PS_R3);
+    StartIOCall(taskData);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->PS_R3);
     try {
-        Handle result = (*ioFun)(saved1);
-        poly_stack->PS_R3 = result->Word();
+        Handle result = (*ioFun)(taskData, saved1);
+        taskData->stack->PS_R3 = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -614,14 +642,14 @@ void PowerPCDependent::CallIO1(Handle (*ioFun)(Handle))
     }
 }
 
-void PowerPCDependent::CallIO2(Handle (*ioFun)(Handle, Handle))
+void PowerPCDependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
 {
-    StartIOCall();
-    Handle saved1 = gSaveVec->push(poly_stack->PS_R3);
-    Handle saved2 = gSaveVec->push(poly_stack->PS_R4);
+    StartIOCall(taskData);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->PS_R3);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->PS_R4);
     try {
-        Handle result = (*ioFun)(saved2, saved1);
-        poly_stack->PS_R3 = result->Word();
+        Handle result = (*ioFun)(taskData, saved2, saved1);
+        taskData->stack->PS_R3 = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -634,15 +662,15 @@ void PowerPCDependent::CallIO2(Handle (*ioFun)(Handle, Handle))
     }
 }
 
-void PowerPCDependent::CallIO3(Handle (*ioFun)(Handle, Handle, Handle))
+void PowerPCDependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
 {
-    StartIOCall();
-    Handle saved1 = gSaveVec->push(poly_stack->PS_R3);
-    Handle saved2 = gSaveVec->push(poly_stack->PS_R4);
-    Handle saved3 = gSaveVec->push(poly_stack->PS_R5);
+    StartIOCall(taskData);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->PS_R3);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->PS_R4);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->PS_R5);
     try {
-        Handle result = (*ioFun)(saved3, saved2, saved1);
-        poly_stack->PS_R3 = result->Word();
+        Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
+        taskData->stack->PS_R3 = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -655,16 +683,16 @@ void PowerPCDependent::CallIO3(Handle (*ioFun)(Handle, Handle, Handle))
     }
 }
 
-void PowerPCDependent::CallIO4(Handle (*ioFun)(Handle, Handle, Handle, Handle))
+void PowerPCDependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
-    StartIOCall();
-    Handle saved1 = gSaveVec->push(poly_stack->PS_R3);
-    Handle saved2 = gSaveVec->push(poly_stack->PS_R4);
-    Handle saved3 = gSaveVec->push(poly_stack->PS_R5);
-    Handle saved4 = gSaveVec->push(poly_stack->PS_R6);
+    StartIOCall(taskData);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->PS_R3);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->PS_R4);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->PS_R5);
+    Handle saved4 = taskData->saveVec.push(taskData->stack->PS_R6);
     try {
-        Handle result = (*ioFun)(saved4, saved3, saved2, saved1);
-        poly_stack->PS_R3 = result->Word();
+        Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
+        taskData->stack->PS_R3 = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -678,18 +706,18 @@ void PowerPCDependent::CallIO4(Handle (*ioFun)(Handle, Handle, Handle, Handle))
 }
 
 // The only functions with 5 args are move_bytes/word_long
-void PowerPCDependent::CallIO5(Handle (*ioFun)(Handle, Handle, Handle, Handle, Handle))
+void PowerPCDependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
-    StartIOCall();
-    Handle saved1 = gSaveVec->push(poly_stack->PS_R3);
-    Handle saved2 = gSaveVec->push(poly_stack->PS_R4);
-    Handle saved3 = gSaveVec->push(poly_stack->PS_R5);
-    Handle saved4 = gSaveVec->push(poly_stack->PS_R6);
-    Handle saved5 = gSaveVec->push(poly_stack->p_sp[0]);
+    StartIOCall(taskData);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->PS_R3);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->PS_R4);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->PS_R5);
+    Handle saved4 = taskData->saveVec.push(taskData->stack->PS_R6);
+    Handle saved5 = taskData->saveVec.push(taskData->stack->p_sp[0]);
     try {
-        Handle result = (*ioFun)(saved5, saved4, saved3, saved2, saved1);
-        poly_stack->PS_R3 = result->Word();
-        poly_stack->p_sp++; // Pop the final argument now we're returning.
+        Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
+        taskData->stack->PS_R3 = result->Word();
+        taskData->stack->p_sp++; // Pop the final argument now we're returning.
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -703,17 +731,18 @@ void PowerPCDependent::CallIO5(Handle (*ioFun)(Handle, Handle, Handle, Handle, H
 }
 
 // Return the callback result.  The current ML process (thread) terminates.
-Handle PowerPCDependent::CallBackResult(void)
+Handle PowerPCDependent::CallBackResult(TaskData *taskData)
 {
-    return gSaveVec->push(poly_stack->PS_R3); // Argument to return is in r3.
+    return taskData->saveVec.push(taskData->stack->PS_R3); // Argument to return is in r3.
 }
 
-bool PowerPCDependent::GetPCandSPFromContext(SIGNALCONTEXT *scp, PolyWord *&sp, POLYCODEPTR &pc)
+bool PowerPCDependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *scp, PolyWord *&sp, POLYCODEPTR &pc)
 {
-    if (memRegisters.inRTS)
+    PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
+    if (mdTask->memRegisters.inRTS)
     {
-        sp = poly_stack->p_sp;
-        pc = poly_stack->p_pc;
+        sp = taskData->stack->p_sp;
+        pc = taskData->stack->p_pc;
         return true;
     }
     else {
@@ -723,108 +752,87 @@ bool PowerPCDependent::GetPCandSPFromContext(SIGNALCONTEXT *scp, PolyWord *&sp, 
     }
 }
 
-void PowerPCDependent::InterruptCodeUsingContext(SIGNALCONTEXT *context)
+void PowerPCDependent::InterruptCode(TaskData *taskData)
 {
-    /* Note: to force an interrupt, we set the stack limit register to
-       point at the "end of the stack".*/
-
-    // SetMemRegisters sets memRegisters.stackLimit and this is loaded
-    // into the stack limit register in PPCAsmSwitchToPoly.  Once this is
-    // loaded "inRTS" is set to false and the register itself can be
-    // modified.  We could get an interrupt between setting stackLimit
-    // and clearing inRTS so we set stackLimit here to be sure.
-    if (poly_stack != 0) // We may get an interrupt before we've started properly.
-    {
-        memRegisters.stackLimit = poly_stack->Offset(poly_stack->Length()-1); 
-
-        if (! memRegisters.inRTS) /* only if in Poly code */
-        {
-            PolyWord **sl = (PolyWord **)&(GPSL(context));
-            PolyWord *limit  = *sl;
-            PolyWord *top    = poly_stack->Offset(poly_stack->Length()-1);
-            PolyWord *bottom = (PolyWord*)poly_stack + poly_stack->p_space;
-
-            if (limit == top) /* already set for interrupt */
-                return;
-            else if (limit == bottom)
-                *sl = top;
-            else
-                Crash("Unable to interrupt code: bottom = %p, limit = %p, top = %p",
-                    bottom, limit, top);
-        }
-    }
+    PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
+    // Set the stack limit pointer to the top of the stack to cause
+    // a trap when we next check for stack overflow.
+    // SetMemRegisters actually does this anyway if "interrupted" is set but
+    // it's safe to do this repeatedly.
+    if (taskData->stack != 0) 
+        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1); 
 }
 
-void PowerPCDependent::SetForRetry(int ioCall)
+void PowerPCDependent::SetForRetry(TaskData *taskData, int ioCall)
 {
-    poly_stack->p_pc = PC_RETRY_SPECIAL; /* This value is treated specially. */
+    taskData->stack->p_pc = PC_RETRY_SPECIAL; /* This value is treated specially. */
 }
 
-static PolyWord *get_reg(int rno)
+static PolyWord *get_reg(TaskData *taskData, int rno)
 /* Returns a pointer to the register given by the 5 bit value rno. */
 {
     /* Registers r0, r1, r2, r26, ML_SL, ML_HL and ML_HP should not be
        needed by the emulation code. */
     switch (rno)
     {
-    case 3: return &poly_stack->PS_R3;
-    case 4: return &poly_stack->PS_R4;
-    case 5: return &poly_stack->PS_R5;
-    case 6: return &poly_stack->PS_R6;
-    case 7: return &poly_stack->PS_R7;
-    case 8: return &poly_stack->PS_R8;
-    case 9: return &poly_stack->PS_R9;
-    case 10: return &poly_stack->PS_R10;
-    case 11: return &poly_stack->PS_R11;
-    case 12: return &poly_stack->PS_R12;
-    case 14: return &poly_stack->PS_R14;
-    case 15: return &poly_stack->PS_R15;
-    case 16: return &poly_stack->PS_R16;
-    case 17: return &poly_stack->PS_R17;
-    case 18: return &poly_stack->PS_R18;
-    case 19: return &poly_stack->PS_R19;
-    case 20: return &poly_stack->PS_R20;
-    case 21: return &poly_stack->PS_R21;
-    case 22: return &poly_stack->PS_R22;
-    case 23: return &poly_stack->PS_R23;
-    case 24: return &poly_stack->PS_R24;
-    case 25: return &poly_stack->PS_R25;
-    case ML_SP: return (PolyWord*)&poly_stack->p_sp;
-    case ML_HR: return (PolyWord*)&poly_stack->p_hr;
+    case 3: return &taskData->stack->PS_R3;
+    case 4: return &taskData->stack->PS_R4;
+    case 5: return &taskData->stack->PS_R5;
+    case 6: return &taskData->stack->PS_R6;
+    case 7: return &taskData->stack->PS_R7;
+    case 8: return &taskData->stack->PS_R8;
+    case 9: return &taskData->stack->PS_R9;
+    case 10: return &taskData->stack->PS_R10;
+    case 11: return &taskData->stack->PS_R11;
+    case 12: return &taskData->stack->PS_R12;
+    case 14: return &taskData->stack->PS_R14;
+    case 15: return &taskData->stack->PS_R15;
+    case 16: return &taskData->stack->PS_R16;
+    case 17: return &taskData->stack->PS_R17;
+    case 18: return &taskData->stack->PS_R18;
+    case 19: return &taskData->stack->PS_R19;
+    case 20: return &taskData->stack->PS_R20;
+    case 21: return &taskData->stack->PS_R21;
+    case 22: return &taskData->stack->PS_R22;
+    case 23: return &taskData->stack->PS_R23;
+    case 24: return &taskData->stack->PS_R24;
+    case 25: return &taskData->stack->PS_R25;
+    case ML_SP: return (PolyWord*)&taskData->stack->p_sp;
+    case ML_HR: return (PolyWord*)&taskData->stack->p_hr;
     default:
-        Crash("Unknown register %d at 0x%8x\n", rno, (int)(poly_stack->p_pc));
+        Crash("Unknown register %d at 0x%8x\n", rno, (int)(taskData->stack->p_pc));
     }
 }
 
-static void set_CR0(int CR0)
+static void set_CR0(TaskData *taskData, int CR0)
 {
     /* insert CR0 into condition register */
-    poly_stack->PS_CR0 =
+    taskData->stack->PS_CR0 =
       PolyWord::FromUnsigned(
-        (poly_stack->PS_CR0.AsUnsigned() & 0x0fffffff) | (CR0 << 28));
+        (taskData->stack->PS_CR0.AsUnsigned() & 0x0fffffff) | (CR0 << 28));
 }
 
 // Get the next instruction in the sequence, skipping over any
 // branch-forwarding jumps that the code-generator may have inserted.
-static POLYUNSIGNED getNextInstr(void)
+static POLYUNSIGNED getNextInstr(TaskData *taskData)
 {
     while (1) {
-        POLYUNSIGNED instr = *(POLYUNSIGNED*)poly_stack->p_pc;
+        POLYUNSIGNED instr = *(POLYUNSIGNED*)taskData->stack->p_pc;
         if ((instr & 0xfc000000) == 0x48000000)
         {
             POLYUNSIGNED offset = (instr >> 2) & 0xffffff;
             ASSERT((offset & 0x800000) == 0); // Shouldn't be a jump back.
-            poly_stack->p_pc += offset*sizeof(PolyWord);
+            taskData->stack->p_pc += offset*sizeof(PolyWord);
         }
         else
         {
-            poly_stack->p_pc += sizeof(PolyWord); // Skip this instr
+            taskData->stack->p_pc += sizeof(PolyWord); // Skip this instr
             return instr;
         }
     }
 }
 
-static void emulate_trap(POLYUNSIGNED instr)
+static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
 /* Emulate an "addo.", "subfco.", "cmpw" or "cmpwi" instruction */
 {
     
@@ -833,9 +841,9 @@ static void emulate_trap(POLYUNSIGNED instr)
     unsigned RA       = (instr >> 16) & 0x1f;  /*  5 bits */
     
     /* added 19/12/95 SPF */
-    if (emulate_profiling)
+    if (profileMode == kProfileEmulation)
     {
-        add_count(poly_stack->p_pc, poly_stack->p_sp, 1);
+        add_count(taskData, taskData->stack->p_pc, taskData->stack->p_sp, 1);
     }
     
 #define OPCODE2_addodot   ((1 << 10) | (266 << 1) | 1)   
@@ -854,26 +862,26 @@ static void emulate_trap(POLYUNSIGNED instr)
         int exp2_16 = 1 << 16;
         int SI = (UI < exp2_15) ? UI : UI - exp2_16;
         
-        gSaveVec->init();
-        Handle arg1 = gSaveVec->push(*get_reg(RA));
-        Handle arg2 = gSaveVec->push(PolyWord::FromSigned(SI));
+        taskData->saveVec.init();
+        Handle arg1 = taskData->saveVec.push(*get_reg(taskData, RA));
+        Handle arg2 = taskData->saveVec.push(PolyWord::FromSigned(SI));
         
         {
             /* arguments to comp_longc are backwards */
-            int res = compareLong(arg2,arg1);
+            int res = compareLong(taskData, arg2,arg1);
             
             switch (res)
             {
             case 1: /* arg1 > arg2 */
-                set_CR0(0x4); /* not LT; GT; not EQ; not SO */
+                set_CR0(taskData, 0x4); /* not LT; GT; not EQ; not SO */
                 break;
                 
             case 0: /* arg1 = arg2 */
-                set_CR0(0x2); /* not LT; not GT; EQ; not SO */
+                set_CR0(taskData, 0x2); /* not LT; not GT; EQ; not SO */
                 break;
                 
             case -1: /* arg1 < arg2 */
-                set_CR0(0x8); /* LT; not GT; not EQ; not SO */
+                set_CR0(taskData, 0x8); /* LT; not GT; not EQ; not SO */
                 break;
                 
             default:
@@ -889,12 +897,12 @@ static void emulate_trap(POLYUNSIGNED instr)
         unsigned RB       = (instr >> 11) & 0x1f;  /*  5 bits */
         unsigned opcode2  = instr & 0x7ff;         /* 11 bits */
         
-        gSaveVec->init();
+        taskData->saveVec.init();
         
         if (opcode2 == OPCODE2_addodot)
         {
-            PolyWord a1 = *get_reg(RA);
-            PolyWord a2 = *get_reg(RB);
+            PolyWord a1 = *get_reg(taskData, RA);
+            PolyWord a2 = *get_reg(taskData, RB);
             /* We may have trapped either because one of the arguments
                was long or because of overflow.  In the latter case
                we may well have modified the destination register already.
@@ -907,12 +915,12 @@ static void emulate_trap(POLYUNSIGNED instr)
                 /* Must have been overflow.  May have to undo the addition. */
                 if (RT == RA) a1 = PolyWord::FromUnsigned(a1.AsUnsigned() - (a2.AsUnsigned()-1));
             }
-            Handle arg1 = gSaveVec->push(a1);
-            Handle arg2 = gSaveVec->push(a2);
-            Handle res = add_longc(arg2, arg1);
+            Handle arg1 = taskData->saveVec.push(a1);
+            Handle arg2 = taskData->saveVec.push(a2);
+            Handle res = add_longc(taskData, arg2, arg1);
             
             /* store result in RT */
-            *(get_reg(RT)) = DEREFWORD(res);
+            *(get_reg(taskData, RT)) = DEREFWORD(res);
             
             /* we don't emulate the condition codes properly,
             but we MUST ensure that we reset the SO flag,
@@ -921,7 +929,7 @@ static void emulate_trap(POLYUNSIGNED instr)
             back to re-emulate the instruction, giving us an
             endless succession of traps. SPF 11/8/95
             */
-            set_CR0(0x0); /* not LT; not GT; not EQ; not SO */
+            set_CR0(taskData, 0x0); /* not LT; not GT; not EQ; not SO */
         }
         
         else if (opcode2 == OPCODE2_subfcodot)
@@ -930,8 +938,8 @@ static void emulate_trap(POLYUNSIGNED instr)
                was long or because of overflow.  In the latter case
                we may well have modified the destination register already.
                That's fine unless RT == RA or RT == RB. */
-            PolyWord a1 = *get_reg(RA);
-            PolyWord a2 = *get_reg(RB);
+            PolyWord a1 = *get_reg(taskData, RA);
+            PolyWord a2 = *get_reg(taskData, RB);
             /* printf("Emulating subtraction rt=%d, ra=%d, rb=%d\n", RT, RA, RB); */
             if (RA == 12) a1 = PolyWord::FromUnsigned(a1.AsUnsigned() + 1);
             else if (RB == 12) a2 = PolyWord::FromUnsigned(a2.AsUnsigned() - 1);
@@ -946,44 +954,44 @@ static void emulate_trap(POLYUNSIGNED instr)
                     a1 = PolyWord::FromUnsigned((a2.AsUnsigned()+1) - a1.AsUnsigned());
             }
             
-            Handle arg1 = gSaveVec->push(a1);
-            Handle arg2 = gSaveVec->push(a2);
+            Handle arg1 = taskData->saveVec.push(a1);
+            Handle arg2 = taskData->saveVec.push(a2);
             /* subf is *reversed* subtraction, but sub_longc
             (currently) expects reversed arguments, so the
             following call ought to be correct. */
-            Handle res = sub_longc(arg1, arg2);
+            Handle res = sub_longc(taskData, arg1, arg2);
             
             /* store result in RT */
-            *(get_reg(RT)) = DEREFWORD(res);
+            *(get_reg(taskData, RT)) = DEREFWORD(res);
             
             /* we don't emulate the condition codes properly,
             but we MUST ensure that we reset the SO flag.
             */
-            set_CR0(0x0); /* not LT; not GT; not EQ; not SO */
+            set_CR0(taskData, 0x0); /* not LT; not GT; not EQ; not SO */
         }
         
         /* We emulate comparisons only if they use CR field 0 */
         else if (opcode2 == OPCODE2_cmp && RT == 0)
         {
             /* arguments to comp_longc are backwards */
-            PolyWord a1 = *get_reg(RA);
-            PolyWord a2 = *get_reg(RB);
-            Handle arg1 = gSaveVec->push(a1);
-            Handle arg2 = gSaveVec->push(a2);
-            int res = compareLong(arg2,arg1);
+            PolyWord a1 = *get_reg(taskData, RA);
+            PolyWord a2 = *get_reg(taskData, RB);
+            Handle arg1 = taskData->saveVec.push(a1);
+            Handle arg2 = taskData->saveVec.push(a2);
+            int res = compareLong(taskData, arg2,arg1);
             
             switch (res)
             {
             case 1: /* arg1 > arg2 */
-                set_CR0(0x4); /* not LT; GT; not EQ; not SO */
+                set_CR0(taskData, 0x4); /* not LT; GT; not EQ; not SO */
                 break;
                 
             case 0: /* arg1 = arg2 */
-                set_CR0(0x2); /* not LT; not GT; EQ; not SO */
+                set_CR0(taskData, 0x2); /* not LT; not GT; EQ; not SO */
                 break;
                 
             case -1: /* arg1 < arg2 */
-                set_CR0(0x8); /* LT; not GT; not EQ; not SO */
+                set_CR0(taskData, 0x8); /* LT; not GT; not EQ; not SO */
                 break;
                 
             default:
@@ -993,20 +1001,20 @@ static void emulate_trap(POLYUNSIGNED instr)
         }
         else if (opcode2 == OPCODE2_srawi)
         {
-            /* Start of multiply sequence.  poly_stack->p_pc now
+            /* Start of multiply sequence.  taskData->stack->p_pc now
                 points at the multiply. */
-            PolyWord a1 = *get_reg(RT); /* srawi has regs reversed. */
-            PolyWord a2 = *get_reg(12); /* The second arg is in regtemp2. */
-            POLYUNSIGNED mullwInstr = getNextInstr();
+            PolyWord a1 = *get_reg(taskData, RT); /* srawi has regs reversed. */
+            PolyWord a2 = *get_reg(taskData, 12); /* The second arg is in regtemp2. */
+            POLYUNSIGNED mullwInstr = getNextInstr(taskData);
             assert(RA == 11); /* destination of srawi. */
             /* Should be mullwo. rt,r12,r11 */
             assert((mullwInstr & 0xfc1fffff) == 0x7C0C5DD7);
             RT = (mullwInstr >> 21) & 0x1f;
-            Handle arg1 = gSaveVec->push(a1);
-            Handle arg2 = gSaveVec->push(PolyWord::FromUnsigned(a2.AsUnsigned()+1)); /* This has been untagged. */
-            Handle res = mult_longc(arg2, arg1);
-            *(get_reg(RT)) = PolyWord::FromUnsigned(DEREFWORD(res).AsUnsigned() - 1); /* Next instr will tag it. */
-            set_CR0(0x0); /* Clear overflow bit. */
+            Handle arg1 = taskData->saveVec.push(a1);
+            Handle arg2 = taskData->saveVec.push(PolyWord::FromUnsigned(a2.AsUnsigned()+1)); /* This has been untagged. */
+            Handle res = mult_longc(taskData, arg2, arg1);
+            *(get_reg(taskData, RT)) = PolyWord::FromUnsigned(DEREFWORD(res).AsUnsigned() - 1); /* Next instr will tag it. */
+            set_CR0(taskData, 0x0); /* Clear overflow bit. */
         }
         
         else
@@ -1023,46 +1031,30 @@ static void emulate_trap(POLYUNSIGNED instr)
     
 }
 
-void PowerPCDependent::ArbitraryPrecisionTrap(void)
+void PowerPCDependent::ArbitraryPrecisionTrap(TaskData *taskData)
 {
-    emulate_trap(getNextInstr());
+    emulate_trap(taskData, getNextInstr(taskData));
 }
 
-void PowerPCDependent::HeapOverflowTrap(void)
+void PowerPCDependent::HeapOverflowTrap(TaskData *taskData)
 {
+    PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
     // When we come here we have attempted to allocate some memory by
     // decrementing the heap pointer register.  We have compared it against
     // the heap base and found there is insufficient space.  That may be a
     // fake trap for heap profiling or it may be a real trap.
     // R12 should contain the length word.
-    POLYUNSIGNED lengthWord = poly_stack->PS_R12.AsUnsigned();
+    POLYUNSIGNED lengthWord = taskData->stack->PS_R12.AsUnsigned();
     // We need one extra word for the length word itself.
     POLYUNSIGNED wordsNeeded = OBJ_OBJECT_LENGTH(lengthWord) + 1;
     
-    if (store_profiling)
-        add_count(poly_stack->p_pc, poly_stack->p_sp, wordsNeeded);
-    else if (allocSpace->pointer >= allocSpace->bottom && ! (userOptions.debug & DEBUG_REGION_CHECK)) 
+    if (profileMode == kProfileStoreAllocation)
+        add_count(taskData, taskData->stack->p_pc, taskData->stack->p_sp, wordsNeeded);
+    else if (taskData->allocPointer >= taskData->allocLimit && ! (userOptions.debug & DEBUG_REGION_CHECK)) 
         Crash ("Spurious heap-limit trap");
     
-    // Do we have a genuine out-of-heap problem, or did we only
-    // interrupt to profile the heap?
-    if (allocSpace->pointer < allocSpace->bottom)
-    {
-        allocSpace->pointer += wordsNeeded; // Adjust the heap pointer back
-        ASSERT(allocSpace->pointer >= allocSpace->bottom); // It should previously have been right.
-        // See if we have another space to satisfy the request.
-        allocSpace = gMem.GetAllocSpace(wordsNeeded);
-        if (allocSpace == 0)
-        {
-            if (! QuickGC(wordsNeeded)) /* Garbage-collect. */
-            {
-                fprintf(stderr,"Run out of store - interrupting console processes\n");
-                processes->interrupt_console_processes();
-                throw IOException(EXC_RETRY);
-            }
-        }
-        allocWords = wordsNeeded; // Actually allocate it in SetMemRegisters.
-    }
+    taskData->allocPointer += wordsNeeded; // Adjust the heap pointer back
+    mdTask->allocWords = wordsNeeded; // Actually allocate it in SetMemRegisters.
 }
 
 // This is the number of words in the call sequence
@@ -1147,9 +1139,7 @@ static void add_function_to_io_area(int x, int (*y)())
 }
 
 void PowerPCDependent::InitInterfaceVector(void)
-{
-    memRegisters.inRTS = 1; // We start off in the RTS
-     
+{     
     unsigned char *codeAddr;
     
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_exit, codeAddr);
@@ -1247,16 +1237,14 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_ln_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_io_operation, codeAddr);
     add_word_to_io_area(POLY_SYS_io_operation, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_fork_process, codeAddr);
-    add_word_to_io_area(POLY_SYS_fork_process, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_choice_process, codeAddr);
-    add_word_to_io_area(POLY_SYS_choice_process, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_int_process, codeAddr);
-    add_word_to_io_area(POLY_SYS_int_process, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_send_on_channel, codeAddr);
-    add_word_to_io_area(POLY_SYS_send_on_channel, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_receive_on_channel, codeAddr);
-    add_word_to_io_area(POLY_SYS_receive_on_channel, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_atomic_incr, codeAddr);
+    add_word_to_io_area(POLY_SYS_atomic_incr, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_atomic_decr, codeAddr);
+    add_word_to_io_area(POLY_SYS_atomic_decr, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_thread_self, codeAddr);
+    add_word_to_io_area(POLY_SYS_thread_self, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_thread_dispatch, codeAddr);
+    add_word_to_io_area(POLY_SYS_thread_dispatch, PolyWord::FromCodePtr(codeAddr));
 
     add_function_to_io_area(POLY_SYS_offset_address, offset_address);
     add_function_to_io_area(POLY_SYS_shift_right_word, shift_right_word);
@@ -1292,10 +1280,7 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_showsize, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_timing_dispatch, codeAddr);
     add_word_to_io_area(POLY_SYS_timing_dispatch, PolyWord::FromCodePtr(codeAddr));
-    
-    
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_interrupt_console_processes, codeAddr);
-    add_word_to_io_area(POLY_SYS_interrupt_console_processes, PolyWord::FromCodePtr(codeAddr));
+
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_install_subshells, codeAddr);
     add_word_to_io_area(POLY_SYS_install_subshells, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_XWindows, codeAddr);
@@ -1353,26 +1338,18 @@ void PowerPCDependent::InitInterfaceVector(void)
 
     // Entries for special cases.  These are generally, but not always, called from
     // compiled code.
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_HEAP_OVERFLOW, memRegisters.heapOverflow);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOW, memRegisters.stackOverflow);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOWEX, memRegisters.stackOverflowEx);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_RAISE_DIV, memRegisters.raiseDiv);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_ARB_EMULATION, memRegisters.arbEmulation);
-    
-    // Set the raiseException entry to point to the assembly code.
-    memRegisters.raiseException = (byte*)raisex;
-
-    // Entry point to save the state for an IO call.  This is the common entry
-    // point for all the return and IO-call cases.
-    memRegisters.ioEntry = (byte*)PPCSaveStateAndReturn;
-    
+    MAKE_EXTRA_CALL_SEQUENCE(RETURN_HEAP_OVERFLOW, heapOverflow);
+    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOW, stackOverflow);
+    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOWEX, stackOverflowEx);
+    MAKE_EXTRA_CALL_SEQUENCE(RETURN_RAISE_DIV, raiseDiv);
+    MAKE_EXTRA_CALL_SEQUENCE(RETURN_ARB_EMULATION, arbEmulation);
 }
 
 // Build an ML code segment on the heap to hold a copy of a piece of code
-Handle PowerPCDependent::BuildCodeSegment(const byte *code, unsigned codeWords, char functionName)
+Handle PowerPCDependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsigned codeWords, char functionName)
 {
     POLYUNSIGNED words = codeWords + 6;
-    Handle codeHandle = alloc_and_save(words, F_CODE_BIT);
+    Handle codeHandle = alloc_and_save(taskData, words, F_CODE_BIT);
     byte *cp = codeHandle->Word().AsCodePtr();
     memcpy(cp, code, codeWords*sizeof(PolyWord));
     codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(0)); // Marker word
@@ -1387,21 +1364,21 @@ Handle PowerPCDependent::BuildCodeSegment(const byte *code, unsigned codeWords, 
 }
 
 // We need the kill-self code in a little function.
-Handle PowerPCDependent::BuildKillSelfCode(void)
+Handle PowerPCDependent::BuildKillSelfCode(TaskData *taskData)
 {
     byte *codeAddr;
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_kill_self, codeAddr);
-    return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_WORDS, 'K');
+    return BuildCodeSegment(taskData, codeAddr, MAKE_CALL_SEQUENCE_WORDS, 'K');
 }
 
-void PowerPCDependent::SetException(StackObject *stack, poly_exn *exc)
+void PowerPCDependent::SetException(TaskData *taskData, poly_exn *exc)
 /* Set up the stack of a process to raise an exception. */
 {
     // This IO entry has changed from being the code to being a closure
     // like all the other entries.
-    stack->PS_R24 = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    stack->p_pc   = PC_RETRY_SPECIAL;
-    stack->PS_R3  = (PolyWord)exc; /* r3 to exception data */
+    taskData->stack->PS_R24 = (PolyObject*)IoEntry(POLY_SYS_raisex);
+    taskData->stack->p_pc   = PC_RETRY_SPECIAL;
+    taskData->stack->PS_R3  = (PolyWord)exc; /* r3 to exception data */
 }
 
 void PowerPCDependent::ResetSignals(void)
@@ -1422,14 +1399,14 @@ void PowerPCDependent::ResetSignals(void)
 
 // Call a piece of compiled code.  Note: this doesn't come via CallIO1
 // so StartIOCall has not been called.
-void PowerPCDependent::CallCodeTupled(void)
+void PowerPCDependent::CallCodeTupled(TaskData *taskData)
 {
     // The eventual return address is in the link register - leave it there
     // but call StartIOCall to make sure it's tagged before any possible G.C.
-    StartIOCall();
-    PolyObject *argTuple = poly_stack->PS_R3.AsObjPtr();
-    Handle closure = gSaveVec->push(argTuple->Get(0));
-    Handle argvec = gSaveVec->push(argTuple->Get(1));
+    StartIOCall(taskData);
+    PolyObject *argTuple = taskData->stack->PS_R3.AsObjPtr();
+    Handle closure = taskData->saveVec.push(argTuple->Get(0));
+    Handle argvec = taskData->saveVec.push(argTuple->Get(1));
 
     if (! IS_INT(DEREFWORD(argvec))) // May be nil if there are no args.
     {
@@ -1440,7 +1417,7 @@ void PowerPCDependent::CallCodeTupled(void)
             // Check we have space for the arguments.  This may result in a GC which
             // in turn may throw a C++ exception.
             try {
-                check_current_stack_size(poly_stack->p_sp - (argCount - 4));
+                CheckAndGrowStack(taskData, taskData->stack->p_sp - (argCount - 4));
             }
             catch (IOException exc)
             {
@@ -1449,37 +1426,37 @@ void PowerPCDependent::CallCodeTupled(void)
             }
         }
         // First argument is in r3
-        poly_stack->PS_R3 = argv->Get(0);
+        taskData->stack->PS_R3 = argv->Get(0);
         // Second arg, if there is one, goes into r4 etc.
         if (argCount > 1)
-            poly_stack->PS_R4 = argv->Get(1);
+            taskData->stack->PS_R4 = argv->Get(1);
         if (argCount > 2)
-            poly_stack->PS_R5 = argv->Get(2);
+            taskData->stack->PS_R5 = argv->Get(2);
         if (argCount > 3)
-            poly_stack->PS_R6 = argv->Get(3);
+            taskData->stack->PS_R6 = argv->Get(3);
         // Remaining args go on the stack.
         for (POLYUNSIGNED i = 4; i < argCount; i++)
-            *(--poly_stack->p_sp) = argv->Get(i+2);
+            *(--taskData->stack->p_sp) = argv->Get(i+2);
     }
     // The closure goes into the closure reg.
-    poly_stack->PS_R24 = DEREFWORD(closure);
+    taskData->stack->PS_R24 = DEREFWORD(closure);
     // First word of closure is entry point.
-    poly_stack->p_pc = DEREFHANDLE(closure)->Get(0).AsCodePtr(); // pc points to the start of the code
+    taskData->stack->p_pc = DEREFHANDLE(closure)->Get(0).AsCodePtr(); // pc points to the start of the code
 }
 
 // Set up a special handler that will trace any uncaught exception within a function.
-void PowerPCDependent::SetExceptionTrace(void)
+void PowerPCDependent::SetExceptionTrace(TaskData *taskData)
 {
     // Save the return address for when we've called the function.
-    *(--poly_stack->p_sp) =
-        PolyWord::FromUnsigned(poly_stack->PS_LR.AsUnsigned() | RETURNOFFSET);
-    *(--poly_stack->p_sp) = PolyWord::FromStackAddr(poly_stack->p_hr); // Save previous handler.
-    *(--poly_stack->p_sp) = TAGGED(0); // Push special handler address.
-    *(--poly_stack->p_sp) = TAGGED(0); // Push "catch all" exception id.
-    poly_stack->p_hr = poly_stack->p_sp; // This is the new handler.
-    Handle fun = gSaveVec->push(poly_stack->PS_R3); // Argument - function to call and trace
-    poly_stack->PS_R24 = DEREFWORD(fun); // r24 must contain the closure
-    poly_stack->p_pc = DEREFHANDLE(fun)->Get(0).AsCodePtr(); // pc points to the start of the code
+    *(--taskData->stack->p_sp) =
+        PolyWord::FromUnsigned(taskData->stack->PS_LR.AsUnsigned() | RETURNOFFSET);
+    *(--taskData->stack->p_sp) = PolyWord::FromStackAddr(taskData->stack->p_hr); // Save previous handler.
+    *(--taskData->stack->p_sp) = TAGGED(0); // Push special handler address.
+    *(--taskData->stack->p_sp) = TAGGED(0); // Push "catch all" exception id.
+    taskData->stack->p_hr = taskData->stack->p_sp; // This is the new handler.
+    Handle fun = taskData->saveVec.push(taskData->stack->PS_R3); // Argument - function to call and trace
+    taskData->stack->PS_R24 = DEREFWORD(fun); // r24 must contain the closure
+    taskData->stack->p_pc = DEREFHANDLE(fun)->Get(0).AsCodePtr(); // pc points to the start of the code
 
     // We have to use a special entry here that can be recognised by the exception
     // unwinding code because we want to know the stack pointer that is in effect
@@ -1511,12 +1488,12 @@ void PowerPCDependent::SetExceptionTrace(void)
     :"=m"(codeAddr)
     );
 #endif
-    Handle retCode = BuildCodeSegment(codeAddr, 5 /* Code is 5 words */, 'R');
+    Handle retCode = BuildCodeSegment(taskData, codeAddr, 5 /* Code is 5 words */, 'R');
 
     // Set the link register so that if the traced function returns normally (i.e. without
     // raising an exception) it will enter the "return" code which will remove this handler.
-    poly_stack->PS_LR = PolyWord::FromUnsigned(retCode->Word().AsUnsigned() | RETURNOFFSET);
-    poly_stack->PS_R3 = TAGGED(0); // Give the function we're calling a unit argument.
+    taskData->stack->PS_LR = PolyWord::FromUnsigned(retCode->Word().AsUnsigned() | RETURNOFFSET);
+    taskData->stack->PS_R3 = TAGGED(0); // Give the function we're calling a unit argument.
 }
 
 void PowerPCDependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject */*old*/,
@@ -1555,10 +1532,10 @@ void PowerPCDependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject */*o
    the code generator.  It needs to be built into the RTS because we
    have to split the value in order to store it into two instructions.
    Separately the two values might well be invalid addresses. */
-void PowerPCDependent::SetCodeConstant(Handle/*data*/, Handle constant, Handle offseth, Handle base)
+void PowerPCDependent::SetCodeConstant(TaskData *taskData, Handle/*data*/, Handle constant, Handle offseth, Handle base)
 {
     /* The offset is a byte count. */
-    POLYUNSIGNED offset = get_C_ulong(DEREFWORD(offseth));
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORD(offseth));
     PolyWord *pointer = DEREFHANDLE(base)->Offset(offset/sizeof(PolyWord));
     POLYUNSIGNED c = DEREFWORD(constant).AsUnsigned(); // N.B.  This may well really be an address.
     unsigned hi = c >> 16, lo = c & 0xffff;

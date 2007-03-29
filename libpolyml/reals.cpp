@@ -21,15 +21,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_IEEEFP_H
@@ -84,6 +79,8 @@
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "machine_dep.h"
+#include "processes.h"
 
 /*
     The Standard Basis Library assumes IEEE representation for reals.  Among other
@@ -123,51 +120,51 @@ double real_arg(Handle x)
     return r_arg_x.dble;
 }
 
-Handle real_result(double x)
+Handle real_result(TaskData *mdTaskData, double x)
 {
     union db argx;
     
     argx.dble = x;
     
-    PolyObject *v = alloc(DBLE/sizeof(PolyWord), F_BYTE_BIT);
+    PolyObject *v = alloc(mdTaskData, DBLE/sizeof(PolyWord), F_BYTE_BIT);
     /* Copy as words in case the alignment is wrong. */
     for(unsigned i = 0; i < DBLE; i++)
     {
         v->AsBytePtr()[i] = argx.bytes[i];
     }
-    return gSaveVec->push(v);
+    return mdTaskData->saveVec.push(v);
 }
 
 /* CALL_IO2(Real_add, REF, REF, NOIND) */
-Handle Real_addc(Handle y, Handle x)
+Handle Real_addc(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return real_result(real_arg(x)+real_arg(y));
+    return real_result(mdTaskData, real_arg(x)+real_arg(y));
 }
 
 /* CALL_IO2(Real_sub, REF, REF, NOIND) */
-Handle Real_subc(Handle y, Handle x)
+Handle Real_subc(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return real_result(real_arg(x)-real_arg(y));
+    return real_result(mdTaskData, real_arg(x)-real_arg(y));
 }
 
 /* CALL_IO2(Real_mul, REF, REF, NOIND) */
-Handle Real_mulc(Handle y, Handle x)
+Handle Real_mulc(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return real_result(real_arg(x)*real_arg(y));
+    return real_result(mdTaskData, real_arg(x)*real_arg(y));
 }
 
 /* CALL_IO2(Real_div, REF, REF, NOIND) */
-Handle Real_divc(Handle y, Handle x)
+Handle Real_divc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x);
     double dy = real_arg(y);
-    return real_result(dx/dy);
+    return real_result(mdTaskData, dx/dy);
 }
 
 /* CALL_IO1(Real_neg, REF, NOIND) */
-Handle Real_negc(Handle x)
+Handle Real_negc(TaskData *mdTaskData, Handle x)
 {
-    return real_result(-real_arg(x));
+    return real_result(mdTaskData, -real_arg(x));
 }
 
 /* The old Real_comp function isn't right for IEEE arithmetic. These
@@ -175,57 +172,57 @@ Handle Real_negc(Handle x)
    On Windows, at any rate, the comparison operations do not necessarily
    return false on unordered arguments so we have to explicitly test for NaN.
  */
-Handle Real_geqc(Handle y, Handle x)
+Handle Real_geqc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx >= dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx >= dy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle Real_leqc(Handle y, Handle x)
+Handle Real_leqc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx <= dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx <= dy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle Real_gtrc(Handle y, Handle x)
+Handle Real_gtrc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx > dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx > dy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle Real_lssc(Handle y, Handle x)
+Handle Real_lssc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx < dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx < dy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle Real_eqc(Handle y, Handle x)
+Handle Real_eqc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx == dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx == dy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle Real_neqc(Handle y, Handle x)
+Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(dx != dy ? TAGGED(1) : TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    return mdTaskData->saveVec.push(dx != dy ? TAGGED(1) : TAGGED(0));
 }
 
 /* CALL_IO1(Real_float, REF, NOIND) */
-Handle Real_floatc(Handle x) /* SHORT int to real */
+Handle Real_floatc(TaskData *mdTaskData, Handle x) /* SHORT int to real */
 {
     POLYSIGNED n = UNTAGGED(DEREFWORDHANDLE(x));
-    return real_result((double)n);
+    return real_result(mdTaskData, (double)n);
 }
 
 /* CALL_IO1(Real_int, REF, NOIND) */
-Handle Real_intc(Handle x) /* real to SHORT int */
+Handle Real_intc(TaskData *mdTaskData, Handle x) /* real to SHORT int */
 {
     double dx = real_arg(x);
     double di = floor(dx); /* Get the largest integer <= dx */
@@ -233,58 +230,58 @@ Handle Real_intc(Handle x) /* real to SHORT int */
     /* Bug fix thanks to Mike Crawley at Brunel. */
     if (di > (double)MAXTAGGED || di < -(double)MAXTAGGED -1)
     {
-       raise_exception0(EXC_size);
+       raise_exception0(mdTaskData, EXC_size);
     }
-    return gSaveVec->push(TAGGED(i));
+    return mdTaskData->saveVec.push(TAGGED(i));
 }
 
 /* CALL_IO1(Real_sqrt, REF, NOIND) */
-Handle Real_sqrtc(Handle arg)
+Handle Real_sqrtc(TaskData *mdTaskData, Handle arg)
 {
     double dx = real_arg(arg);
-    return real_result(sqrt(dx));
+    return real_result(mdTaskData, sqrt(dx));
 }
 
 /* CALL_IO1(Real_sin, REF, NOIND) */
-Handle Real_sinc(Handle arg)
+Handle Real_sinc(TaskData *mdTaskData, Handle arg)
 {
-    return real_result(sin(real_arg(arg)));
+    return real_result(mdTaskData, sin(real_arg(arg)));
 }
 
 /* CALL_IO1(Real_cos, REF, NOIND) */
-Handle Real_cosc(Handle arg)
+Handle Real_cosc(TaskData *mdTaskData, Handle arg)
 {
-    return real_result(cos(real_arg(arg)));
+    return real_result(mdTaskData, cos(real_arg(arg)));
 }
 
 /* CALL_IO1(Real_arctan, REF, NOIND) */
-Handle Real_arctanc(Handle arg)
+Handle Real_arctanc(TaskData *mdTaskData, Handle arg)
 {
-    return real_result(atan(real_arg(arg)));
+    return real_result(mdTaskData, atan(real_arg(arg)));
 }
 
 /* CALL_IO1(Real_exp, REF, NOIND) */
-Handle Real_expc(Handle arg)
+Handle Real_expc(TaskData *mdTaskData, Handle arg)
 {
-    return real_result(exp(real_arg(arg)));
+    return real_result(mdTaskData, exp(real_arg(arg)));
 }
 
 /* CALL_IO1(Real_ln, REF, NOIND) */
-Handle Real_lnc(Handle arg)
+Handle Real_lnc(TaskData *mdTaskData, Handle arg)
 {
     double x = real_arg(arg);
     /* Make sure the result conforms to the definition. */
     if (x < 0.0)
-        return real_result(notANumber); /* Nan. */
+        return real_result(mdTaskData, notANumber); /* Nan. */
     else if (x == 0.0) /* x may be +0.0 or -0.0 */
-        return real_result(negInf); /* -infinity. */
-    else return real_result(log(x));
+        return real_result(mdTaskData, negInf); /* -infinity. */
+    else return real_result(mdTaskData, log(x));
 }
 
 /* Real_Rep and Real_reprc are redundant.  This is now dealt with by a function within the
    basis library.  DCJM June 2002.*/
 
-static void Real_Rep(double val, char *string_buffer)
+static void Real_Rep(TaskData *mdTaskData, double val, char *string_buffer)
 /* Puts the string representation into ``string_buffer'' and edits it into
    the Poly representation. i.e. replacing '-' by '~' and removing '+', and
    putting in a ".0" if the number does not have an E or a decimal point. */
@@ -342,15 +339,15 @@ static void Real_Rep(double val, char *string_buffer)
 } /* Real_Rep */
 
 /* CALL_IO1(Real_repr, REF, NOIND) */
-Handle Real_reprc(Handle val) /* real to string */
+Handle Real_reprc(TaskData *mdTaskData, Handle val) /* real to string */
 {
     char string_buffer[30];
-    Real_Rep(real_arg(val), string_buffer);
-    return gSaveVec->push(C_string_to_Poly(string_buffer));
+    Real_Rep(mdTaskData, real_arg(val), string_buffer);
+    return mdTaskData->saveVec.push(C_string_to_Poly(mdTaskData, string_buffer));
 } /* Real_reprc */
 
 /* CALL_IO1(Real_conv, REF, NOIND) */
-Handle Real_convc(Handle str) /* string to real */
+Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 {
     double result;
     int i;
@@ -372,10 +369,10 @@ Handle Real_convc(Handle str) /* string to real */
     result = strtod(string_buffer, &finish);
     if (*finish != '\0' || errno != 0)
     {
-       raise_exception_string(EXC_conversion, "");
+       raise_exception_string(mdTaskData, EXC_conversion, "");
     }
     
-    return real_result(result);
+    return real_result(mdTaskData, result);
 }/* Real_conv */
 
 static double real_arg1(Handle x)
@@ -398,7 +395,7 @@ static double real_arg2(Handle x)
     return r_arg_x.dble;
 }
 
-static Handle powerOf(Handle args)
+static Handle powerOf(TaskData *mdTaskData, Handle args)
 {
     double x = real_arg1(args), y = real_arg2(args);
     /* Some of the special cases are defined and don't seem to match
@@ -406,10 +403,10 @@ static Handle powerOf(Handle args)
     /* Maybe handle all this in ML? */
     if (isnan(x))
     {
-        if (y == 0.0) return real_result(1.0);
-        else return real_result(notANumber);
+        if (y == 0.0) return real_result(mdTaskData, 1.0);
+        else return real_result(mdTaskData, notANumber);
     }
-    else if (isnan(y)) return real_result(y); /* i.e. nan. */
+    else if (isnan(y)) return real_result(mdTaskData, y); /* i.e. nan. */
     else if (x == 0.0 && y < 0.0)
     {
         /* This case is not handled correctly in Solaris. It always
@@ -417,17 +414,17 @@ static Handle powerOf(Handle args)
         int iy = (int)floor(y);
         /* If x is -0.0 and y is an odd integer the result is -infinity. */
         if (copysign(1.0, x) < 0.0 && (double)iy == y && (iy & 1))
-            return real_result(negInf); /* -infinity. */
-        else return real_result(posInf); /* +infinity. */
+            return real_result(mdTaskData, negInf); /* -infinity. */
+        else return real_result(mdTaskData, posInf); /* +infinity. */
     }
-    return real_result(pow(x, y));
+    return real_result(mdTaskData, pow(x, y));
 }
 
 // It would be nice to be able to use autoconf to test for these as functions
 // but they are frequently inlined 
 #if defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *)
 {
     switch (fegetround())
     {
@@ -439,9 +436,9 @@ static PolyWord getrounding(void)
     return TAGGED(0); // Keep the compiler happy
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *taskData, Handle args)
 {
-    switch (get_C_long(DEREFWORDHANDLE(args)))
+    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
     case 0: fesetround(FE_TONEAREST); break; // Choose nearest
     case 1: fesetround(FE_DOWNWARD); break; // Towards negative infinity
@@ -452,7 +449,7 @@ static void setrounding(Handle args)
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *)
 {
     switch (fpgetround())
     {
@@ -464,9 +461,9 @@ static PolyWord getrounding(void)
     }
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *taskData, Handle args)
 {
-    switch (get_C_long(DEREFWORDHANDLE(args)))
+    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
     case 0: fpsetround(FP_RN); break; /* Choose nearest */
     case 1: fpsetround(FP_RM); break; /* Towards negative infinity */
@@ -477,7 +474,7 @@ static void setrounding(Handle args)
 
 #elif defined(WINDOWS_PC)
 // Windows version
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *)
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
@@ -489,9 +486,9 @@ static PolyWord getrounding(void)
     return TAGGED(0); // Keep the compiler happy
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *mdTaskData, Handle args)
 {
-    switch (get_C_long(DEREFWORDHANDLE(args)))
+    switch (get_C_long(mdTaskData, DEREFWORDHANDLE(args)))
     {
     case 0: _controlfp(_RC_NEAR, _MCW_RC); break; // Choose nearest
     case 1: _controlfp(_RC_DOWN, _MCW_RC); break; // Towards negative infinity
@@ -502,7 +499,7 @@ static void setrounding(Handle args)
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -516,12 +513,12 @@ static PolyWord getrounding(void)
     return TAGGED(0); /* Never reached but this avoids warning message. */
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *taskData, Handle args)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
     ctrl &= ~_FPU_RC_ZERO; /* Mask off any existing rounding. */
-    switch (get_C_long(DEREFWORDHANDLE(args)))
+    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
     case 0: ctrl |= _FPU_RC_NEAREST;
     case 1: ctrl |= _FPU_RC_DOWN;
@@ -540,7 +537,7 @@ static void getround(union db *res)
     __asm__ ("stfd f0,0(r3)");
 }
 
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *)
 {
     union db roundingRes;
     getround(&roundingRes);
@@ -554,9 +551,9 @@ static PolyWord getrounding(void)
     return TAGGED(0); /* Never reached but this avoids warning message. */
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *taskData, Handle args)
 {
-    switch (get_C_long(DEREFWORDHANDLE(args)))
+    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
     case 0: __asm__("mtfsfi 7,0"); break; /* Choose nearest */
     case 1: __asm__("mtfsfi 7,3"); break; /* Towards negative infinity */
@@ -566,109 +563,109 @@ static void setrounding(Handle args)
 }
 #else
 // Give up.
-static PolyWord getrounding(void)
+static PolyWord getrounding(TaskData *mdTaskData)
 {
-    raise_exception_string(EXC_Fail, "Unable to get flaoting point rounding control");
+    raise_exception_string(mdTaskData, EXC_Fail, "Unable to get flaoting point rounding control");
 }
 
-static void setrounding(Handle args)
+static void setrounding(TaskData *mdTaskData, Handle)
 {
-    raise_exception_string(EXC_Fail, "Unable to set flaoting point rounding control");
+    raise_exception_string(mdTaskData, EXC_Fail, "Unable to set flaoting point rounding control");
 }
 #endif
 
-Handle Real_strc(Handle hDigits, Handle hMode, Handle arg)
+Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 {
     double  dx = real_arg(arg);
     int     decpt, sign;
-    int     mode = get_C_long(DEREFWORDHANDLE(hMode));
-    int     digits = get_C_long(DEREFWORDHANDLE(hDigits));
+    int     mode = get_C_long(mdTaskData, DEREFWORDHANDLE(hMode));
+    int     digits = get_C_long(mdTaskData, DEREFWORDHANDLE(hDigits));
     /* Compute the shortest string which gives the required value. */
     /* N.B. dtoa uses static buffers and is NOT thread-safe. */
     char *chars = dtoa(dx, mode, digits, &decpt, &sign, NULL);
     /* We have to be careful in case an allocation causes a
        garbage collection. */
-    PolyWord pStr = C_string_to_Poly(chars);
-    Handle ppStr = gSaveVec->push(pStr);
+    PolyWord pStr = C_string_to_Poly(mdTaskData, chars);
+    Handle ppStr = mdTaskData->saveVec.push(pStr);
     /* Allocate a triple for the results. */
-    PolyObject *result = alloc(3);
+    PolyObject *result = alloc(mdTaskData, 3);
     result->Set(0, DEREFWORDHANDLE(ppStr));
     result->Set(1, TAGGED(decpt));
     result->Set(2, TAGGED(sign));
-    return gSaveVec->push(result);
+    return mdTaskData->saveVec.push(result);
 }
 
 /* Functions added for Standard Basis Library are all indirected through here. */
-Handle Real_dispatchc(Handle args, Handle code)
+Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
-    case 0: /* tan */ return real_result(tan(real_arg(args)));
+    case 0: /* tan */ return real_result(mdTaskData, tan(real_arg(args)));
     case 1: /* asin */
         {
             double x = real_arg(args);
             if (x < -1.0 || x > 1.0)
-                return real_result(notANumber);
-            else return real_result(asin(x));
+                return real_result(mdTaskData, notANumber);
+            else return real_result(mdTaskData, asin(x));
         }
     case 2: /* acos */
         {
             double x = real_arg(args);
             if (x < -1.0 || x > 1.0)
-                return real_result(notANumber);
-            else return real_result(acos(x));
+                return real_result(mdTaskData, notANumber);
+            else return real_result(mdTaskData, acos(x));
         }
-    case 3: /* atan2 */ return real_result(atan2(real_arg1(args), real_arg2(args)));
-    case 4: /* pow */ return powerOf(args);
+    case 3: /* atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
+    case 4: /* pow */ return powerOf(mdTaskData, args);
     case 5: /* log10 */
         {
             double x = real_arg(args);
             /* Make sure the result conforms to the definition. */
             if (x < 0.0)
-                return real_result(notANumber); /* Nan. */
+                return real_result(mdTaskData, notANumber); /* Nan. */
             else if (x == 0.0) /* x may be +0.0 or -0.0 */
-                return real_result(negInf); /* -infinity. */
-            else return real_result(log10(x));
+                return real_result(mdTaskData, negInf); /* -infinity. */
+            else return real_result(mdTaskData, log10(x));
         }
-    case 6: /* sinh */ return real_result(sinh(real_arg(args)));
-    case 7: /* cosh */ return real_result(cosh(real_arg(args)));
-    case 8: /* tanh */ return real_result(tanh(real_arg(args)));
+    case 6: /* sinh */ return real_result(mdTaskData, sinh(real_arg(args)));
+    case 7: /* cosh */ return real_result(mdTaskData, cosh(real_arg(args)));
+    case 8: /* tanh */ return real_result(mdTaskData, tanh(real_arg(args)));
     case 9: /* setroundingmode */
-        setrounding(args);
-        return gSaveVec->push(TAGGED(0)); /* Unit */
+        setrounding(mdTaskData, args);
+        return mdTaskData->saveVec.push(TAGGED(0)); /* Unit */
     case 10: /* getroundingmode */
-        return gSaveVec->push(getrounding());
+        return mdTaskData->saveVec.push(getrounding(mdTaskData));
     /* Floating point representation queries. */
 #ifdef _DBL_RADIX
-    case 11: /* Value of radix */ return gSaveVec->push(TAGGED(_DBL_RADIX));
+    case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
 #else
-    case 11: /* Value of radix */ return gSaveVec->push(TAGGED(FLT_RADIX));
+    case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(FLT_RADIX));
 #endif
-    case 12: /* Value of precision */ return gSaveVec->push(TAGGED(DBL_MANT_DIG));
-    case 13: /* Maximum number */ return real_result(DBL_MAX);
+    case 12: /* Value of precision */ return mdTaskData->saveVec.push(TAGGED(DBL_MANT_DIG));
+    case 13: /* Maximum number */ return real_result(mdTaskData, DBL_MAX);
     /* float.h describes DBL_MIN as the minimum positive number.
        In fact this is the minimum NORMALISED number.  The smallest
        number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
-        return real_result(DBL_MIN);
+        return real_result(mdTaskData, DBL_MIN);
     case 15: /* Is finite */
-        return gSaveVec->push(finite(real_arg(args)) ? TAGGED(1) : TAGGED(0));
+        return mdTaskData->saveVec.push(finite(real_arg(args)) ? TAGGED(1) : TAGGED(0));
     case 16: /* Is Nan */
-        return gSaveVec->push(isnan(real_arg(args)) ? TAGGED(1) : TAGGED(0));
+        return mdTaskData->saveVec.push(isnan(real_arg(args)) ? TAGGED(1) : TAGGED(0));
     case 17: /* Get sign bit.  There may be better ways to find this. */
-        return gSaveVec->push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
+        return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
     case 18: /* Copy sign. */
-        return real_result(copysign(real_arg1(args), real_arg2(args)));
+        return real_result(mdTaskData, copysign(real_arg1(args), real_arg2(args)));
     case 19: /* Return largest integral value (as a real) <= x. */
-        return real_result(floor(real_arg(args)));
+        return real_result(mdTaskData, floor(real_arg(args)));
     case 20: /* Return smallest integral value (as a real) >= x  */
-        return real_result(ceil(real_arg(args)));
+        return real_result(mdTaskData, ceil(real_arg(args)));
     case 21:
         { /* Truncate towards zero */
             double dx = real_arg(args);
-            if (dx >= 0.0) return real_result(floor(dx));
-            else return real_result(ceil(dx));
+            if (dx >= 0.0) return real_result(mdTaskData, floor(dx));
+            else return real_result(mdTaskData, ceil(dx));
         }
     case 22: /* Round to nearest integral value. */
         {
@@ -677,24 +674,24 @@ Handle Real_dispatchc(Handle args, Handle code)
             if (drem == 0.5 || drem == -1.5)
                 /* If the value was exactly positive even + 0.5 or
                    negative odd -0.5 round it down, otherwise round it up. */
-                return real_result(ceil(dx-0.5));
-            else return real_result(floor(dx+0.5));
+                return real_result(mdTaskData, ceil(dx-0.5));
+            else return real_result(mdTaskData, floor(dx+0.5));
         }
     case 23: /* Compute ldexp */
         {
-            int exp = get_C_long(DEREFHANDLE(args)->Get(1));
-            return real_result(ldexp(real_arg1(args), exp));
+            int exp = get_C_long(mdTaskData, DEREFHANDLE(args)->Get(1));
+            return real_result(mdTaskData, ldexp(real_arg1(args), exp));
         }
     case 24: /* Get mantissa. */
         {
             int exp;
-            return real_result(frexp(real_arg(args), &exp));
+            return real_result(mdTaskData, frexp(real_arg(args), &exp));
         }
     case 25: /* Get exponent. */
         {
             int exp;
             (void)frexp(real_arg(args), &exp);
-            return gSaveVec->push(TAGGED(exp));
+            return mdTaskData->saveVec.push(TAGGED(exp));
         }
     case 26: /* Return the mantissa from a Nan as a real number. */
         {
@@ -711,7 +708,7 @@ Handle Real_dispatchc(Handle args, Handle code)
             {
                 r_arg_x.bytes[i] = (barg[i] & ~r_arg_x.bytes[i]) | r_arg_y.bytes[i];
             }
-            return real_result(r_arg_x.dble);
+            return real_result(mdTaskData, r_arg_x.dble);
         }
     case 27: /* Construct a Nan from a given mantissa. */
         {
@@ -723,16 +720,16 @@ Handle Real_dispatchc(Handle args, Handle code)
             {
                 r_arg.bytes[i] = r_arg.bytes[i] | barg[i];
             }
-            return real_result(r_arg.dble);
+            return real_result(mdTaskData, r_arg.dble);
         }
     case 28: /* Return the number of bytes for a real.  */
-        return gSaveVec->push(TAGGED(sizeof(double)));
+        return mdTaskData->saveVec.push(TAGGED(sizeof(double)));
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown real arithmetic function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(mdTaskData, EXC_Fail, msg);
             return 0;
         }
     }

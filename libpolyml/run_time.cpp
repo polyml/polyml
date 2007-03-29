@@ -24,22 +24,10 @@
 /* Contains most of the routines in the interface_map vector. Others are
    in their own modules e.g. arb.c, reals.c and persistence.c */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
-#endif
-
-
-#ifndef __GNUC__
-#ifndef __attribute__
-#define __attribute__(attribute) /* attribute */
-#endif
 #endif
 
 /************************************************************************
@@ -153,7 +141,7 @@
 #include "rts_module.h"
 #include "memmgr.h"
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 // used heavily by MD_init_interface_vector in machine_dep.c
@@ -170,47 +158,108 @@ void add_word_to_io_area (unsigned sysop, PolyWord val)
 /*                                                                            */
 /******************************************************************************/
 
-/* Storage Allocator for the run-time system. 
-   The addresses of objects allocated are saved in 
-   this vector in case they are garbage-collected. */
+// Find space for an object.  Returns a pointer to the start.  "words" must include
+// the length word and the result points at where the length word will go.
+PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg)
+{
+    if (userOptions.debug & DEBUG_FORCEGC)
+    {
+        if (processes->BeginGC(taskData))
+        {
+            QuickGC(words);
+            processes->EndGC(taskData);
+        }
+    }
 
-PolyObject *alloc(POLYUNSIGNED data_words, unsigned flags)
+    while (1)
+    {
+        // After a GC allocPointer and allocLimit are zero and when allocating the
+        // heap segment we request a minimum of zero words.
+        if (taskData->allocPointer != 0 && taskData->allocPointer >= taskData->allocLimit + words)
+        {
+            // There's space in the current segment,
+            taskData->allocPointer -= words;
+            return taskData->allocPointer;
+        }
+        else // Insufficient space in this area. 
+        {
+            if (words > taskData->allocSize && ! alwaysInSeg)
+            {
+                // If the object we want is larger than the heap segment size
+                // we allocate it separately rather than in the segment.
+                PolyWord *foundSpace = gMem.AllocHeapSpace(words);
+                if (foundSpace) return foundSpace;
+            }
+            else
+            {
+                // Fill in any unused space in the existing segment
+                if (taskData->allocPointer > taskData->allocLimit)
+                {
+                    PolyObject *dummy = (PolyObject *)(taskData->allocLimit+1);
+                    POLYUNSIGNED space = taskData->allocPointer-taskData->allocLimit-1;
+                    // Make this a byte object so it's always skipped.
+                    dummy->SetLengthWord(space, F_BYTE_BIT);
+                }
+                // Get another heap segment with enough space for this object.
+                POLYUNSIGNED spaceSize = taskData->allocSize+words;
+                // Get the space and update spaceSize with the actual size.
+                PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
+                if (space)
+                {
+                    // Double the allocation size for the next time.
+                    taskData->IncrementAllocationCount();
+                    taskData->allocLimit = space;
+                    taskData->allocPointer = space+spaceSize;
+                    // Actually allocate the object
+                    taskData->allocPointer -= words;
+                    return taskData->allocPointer;
+                }
+            }
+
+            // Garbage collect.  If another thread has requested a GC we will
+            // wait until that completes.  We don't need to start one ourselves 
+            if (processes->BeginGC(taskData))
+            {
+                bool gcResult = QuickGC(words);
+                processes->EndGC(taskData);
+                if (! gcResult)
+                    return 0;
+            }
+            // Try again.  There should be space now.
+        }
+    }
+}
+
+// This is the storage allocator for allocating heap objects in the RTS.
+PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
 /* Allocate a number of words. */
 {
     POLYUNSIGNED words = data_words + 1;
     
-    if (store_profiling)
-        add_count(poly_stack->p_pc, poly_stack->p_sp, words);
-
-    LocalMemSpace *allocSpace = 0;
-
-    // See if we have space in some local mutable area.
-    if (! (userOptions.debug & DEBUG_FORCEGC))
-        allocSpace = gMem.GetAllocSpace(words);
-
-    if (allocSpace == 0) // Space not available (or force GC)
+    if (profileMode == kProfileStoreAllocation)
     {
-        if (! QuickGC (words))
-        {
-            fprintf(stderr,"Run out of store - interrupting console processes\n");
-            processes->interrupt_console_processes();
-            THROW_RETRY;
-        }
-        // Try again.  There should be space.
-        allocSpace = gMem.GetAllocSpace(words);
+        StackObject *stack = taskData->stack;
+        add_count(taskData, stack->p_pc, stack->p_sp, words);
     }
-    ASSERT(allocSpace != 0);
-    // There should be space now.
-    allocSpace->pointer -= words;
-    
-    PolyWord *pt = allocSpace->pointer + 1;
-    PolyObject *pObj = (PolyObject*)pt;
+
+    PolyWord *foundSpace = FindAllocationSpace(taskData, words, false);
+    if (foundSpace == 0)
+    {
+        fprintf(stderr,"Run out of store - interrupting thread\n");
+        // Raise interrupt in this thread even if it is deferring interrupts.
+        processes->MemoryExhausted(taskData);
+        throw IOException(EXC_EXCEPTION);
+    }
+
+    PolyObject *pObj = (PolyObject*)(foundSpace + 1);
     pObj->SetLengthWord(data_words, flags);
     
-    /* Must initialise object here, because GC no longer cleans store. */
+    // Must initialise object here, because GC doesn't clean store.
     // N.B.  This sets the store to zero NOT TAGGED(0).
-    // We do this even for byte segments because we rely on unused bytes having a
-    // defined value when we do structure equality.
+    // This is particularly important for byte segments (e.g. strings) since the
+    // ML code may leave bytes at the end uninitialised.  Structure equality
+    // checks all the bytes so for it to work properly we need to be sure that
+    // they always have the same value.
     for (POLYUNSIGNED i = 0; i < data_words; i++) pObj->Set(i, PolyWord::FromUnsigned(0));
     return pObj;
 }
@@ -220,10 +269,10 @@ PolyObject *alloc(POLYUNSIGNED data_words, unsigned flags)
 /*      alloc_and_save - called by run-time system                            */
 /*                                                                            */
 /******************************************************************************/
-Handle alloc_and_save(POLYUNSIGNED size, unsigned flags)
+Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
 /* Allocate and save the result on the vector. */
 {
-    return SAVE(alloc(size, flags));
+    return SAVE(alloc(taskData, size, flags));
 }
 
 /******************************************************************************/
@@ -232,9 +281,13 @@ Handle alloc_and_save(POLYUNSIGNED size, unsigned flags)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO0(full_gc_, NOIND) */
-Handle full_gc_c(void)
+Handle full_gc_c(TaskData *taskData)
 {
-    FullGC();
+    if (processes->BeginGC(taskData))
+    {
+        FullGC();
+        processes->EndGC(taskData);
+    }
     return SAVE(TAGGED(0));
 }
 
@@ -244,12 +297,7 @@ Handle full_gc_c(void)
 /*                                                                            */
 /******************************************************************************/
 
-/******************************************************************************/
-/*                                                                            */
-/*      make_exn - utility function - allocates in Poly heap                  */
-/*                                                                            */
-/******************************************************************************/
-Handle make_exn(int id, Handle arg)
+Handle make_exn(TaskData *taskData, int id, Handle arg)
 {
     const char *exName;
     switch (id) {
@@ -264,13 +312,14 @@ Handle make_exn(int id, Handle arg)
     case EXC_subscript: exName = "Subscript"; break;
     case EXC_foreign: exName = "Foreign"; break;
     case EXC_Fail: exName = "Fail"; break;
+    case EXC_thread: exName = "Thread"; break;
     default: ASSERT(0); exName = "Unknown"; // Shouldn't happen.
     }
    
 
-    Handle pushed_name = SAVE(C_string_to_Poly(exName));
+    Handle pushed_name = SAVE(C_string_to_Poly(taskData, exName));
     
-    Handle exnHandle = alloc_and_save(SIZEOF(poly_exn));
+    Handle exnHandle = alloc_and_save(taskData, SIZEOF(poly_exn));
     
     DEREFEXNHANDLE(exnHandle)->ex_id   = TAGGED(id);
     DEREFEXNHANDLE(exnHandle)->ex_name = DEREFWORD(pushed_name);
@@ -284,15 +333,15 @@ Handle make_exn(int id, Handle arg)
 /*      raise_exception - called by run-time system                           */
 /*                                                                            */
 /******************************************************************************/
-void raise_exception(int id, Handle arg)
+void raise_exception(TaskData *taskData, int id, Handle arg)
 /* Raise an exception with no arguments. */
 {
-    Handle exn = make_exn(id,arg);
+    Handle exn = make_exn(taskData, id, arg);
     /* N.B.  We must create the packet first BEFORE dereferencing the
        process handle just in case a GC while creating the packet
        moves the process and/or the stack. */
-    machineDependent->SetException(processes->CurrentProcess()->stack, DEREFEXNHANDLE(exn));
-    THROW_EXCEPTION; /* Return to Poly code immediately. */
+    machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
+    throw IOException(EXC_EXCEPTION); /* Return to Poly code immediately. */
     /*NOTREACHED*/
 }
 
@@ -302,11 +351,11 @@ void raise_exception(int id, Handle arg)
 /*      raise_exception0 - called by run-time system                          */
 /*                                                                            */
 /******************************************************************************/
-void raise_exception0(int id)
+void raise_exception0(TaskData *taskData, int id)
 /* Raise an exception with no arguments. */
 {
-  raise_exception(id, SAVE(TAGGED(0)));
-  /*NOTREACHED*/
+    raise_exception(taskData, id, SAVE(TAGGED(0)));
+    /*NOTREACHED*/
 }
 
 /******************************************************************************/
@@ -314,11 +363,11 @@ void raise_exception0(int id)
 /*      raise_exception_string - called by run-time system                    */
 /*                                                                            */
 /******************************************************************************/
-void raise_exception_string(int id, char *str)
+void raise_exception_string(TaskData *taskData, int id, char *str)
 /* Raise an exception with a C string as the argument. */
 {
-  raise_exception(id, SAVE(C_string_to_Poly(str)));
-  /*NOTREACHED*/
+    raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)));
+    /*NOTREACHED*/
 }
 
 /******************************************************************************/
@@ -326,9 +375,8 @@ void raise_exception_string(int id, char *str)
 /*      create_syscall_exception - called by run-time system                  */
 /*                                                                            */
 /******************************************************************************/
-/* Create a syscall exception packet.  Used both directly in raise_syscall and
-   also in interrupt_signal_processes. */
-Handle create_syscall_exception(char *errmsg, int err)
+// Create a syscall exception packet.
+Handle create_syscall_exception(TaskData *taskData, char *errmsg, int err)
 {
     /* exception SysErr of (string * syserror Option.option) */
     /* If the argument is zero we don't have a suitable error number
@@ -338,12 +386,12 @@ Handle create_syscall_exception(char *errmsg, int err)
     if (err == 0) pushed_option = SAVE(NONE_VALUE); /* NONE */
     else
     {   /* SOME err */
-        Handle errornum = Make_arbitrary_precision(err);
-        pushed_option = alloc_and_save(1);
+        Handle errornum = Make_arbitrary_precision(taskData, err);
+        pushed_option = alloc_and_save(taskData, 1);
         DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum));
     }
-    pushed_name = SAVE(C_string_to_Poly(errmsg));
-    pair = alloc_and_save(2);
+    pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
+    pair = alloc_and_save(taskData, 2);
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
     return pair;
@@ -356,26 +404,9 @@ Handle create_syscall_exception(char *errmsg, int err)
 /*                                                                            */
 /******************************************************************************/
 /* Raises a Syserr exception. */
-void raise_syscall(char *errmsg, int err)
+void raise_syscall(TaskData *taskData, char *errmsg, int err)
 {
-    raise_exception(EXC_syserr, create_syscall_exception(errmsg, err));
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      execute_pending_interrupts - utility function - shouldn't allocate   */
-/*                                                                            */
-/******************************************************************************/
-void execute_pending_interrupts(void)
-/* Called when we are in a safe state to execute this. */
-{
-    while (interrupted)
-    {
-        /* We may get interrupts while processing others. */ 
-        int sig = interrupted;
-        interrupted = 0;
-        InterruptModules(sig);
-    }
+    raise_exception(taskData, EXC_syserr, create_syscall_exception(taskData, errmsg, err));
 }
 
 /******************************************************************************/
@@ -391,7 +422,7 @@ bool trace_allowed = false; // Allows ^C to abort a trace.
 /*      give_stack_trace - utility function - doesn't allocate                */
 /*                                                                            */
 /******************************************************************************/
-void give_stack_trace(PolyWord *sp, PolyWord *finish)
+void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 {
     /* Now search for the return addresses on the stack.
        The values we find on the stack which are not PolyWord aligned may be
@@ -403,15 +434,17 @@ void give_stack_trace(PolyWord *sp, PolyWord *finish)
     // handlers which would otherwise look like return addresses.
     // Since we don't pass that in we may find it is actually out of
     // date if we are producing a trace as a result of pressing ^C.
-    PolyWord *exceptions = poly_stack->p_hr;
+    StackObject *stack = taskData->stack;
+    PolyWord *exceptions = stack->p_hr;
+    PolyWord *endStack = stack->Offset(stack->Length());
     
 #ifdef DEBUG    
     printf("starting trace: sp = %p, finish = %p, end_of_stack = %p\n",
-        sp, finish, end_of_stack);
+        sp, finish, endStack);
     fflush(stdout);
 #endif
     
-    if (finish > end_of_stack) finish = end_of_stack;
+    if (finish > endStack) finish = endStack;
     
     for(; trace_allowed && sp < finish-1; sp++)
     {
@@ -425,7 +458,7 @@ void give_stack_trace(PolyWord *sp, PolyWord *finish)
                 stack. */
             while (sp < finish) {
                 exceptions = (*sp).AsStackAddr();
-                if (exceptions >= sp && exceptions <= end_of_stack)
+                if (exceptions >= sp && exceptions <= endStack)
                     break;
                 sp++;
             }
@@ -461,9 +494,11 @@ void give_stack_trace(PolyWord *sp, PolyWord *finish)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO0(stack_trace_, NOIND) */
-Handle stack_trace_c(void)
+static Handle stack_trace_c(TaskData *taskData)
 {
-    give_stack_trace (poly_stack->p_sp, end_of_stack);
+    StackObject *stack = taskData->stack;
+    PolyWord *endStack = stack->Offset(stack->Length());
+    give_stack_trace (taskData, stack->p_sp, endStack);
     return SAVE(TAGGED(0));
 }
 
@@ -473,7 +508,7 @@ Handle stack_trace_c(void)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO2(ex_trace, REF, REF, NOIND) */
-Handle ex_tracec(Handle exnHandle, Handle handler_handle)
+Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
 {
     PolyWord *handler = DEREFWORD(handler_handle).AsStackAddr();
     
@@ -482,20 +517,20 @@ Handle ex_tracec(Handle exnHandle, Handle handler_handle)
     putc('\n',stdout);
     
     /* Trace down as far as the dummy handler on the stack. */
-    give_stack_trace(poly_stack->p_sp, handler);
+    StackObject *stack = taskData->stack;
+    give_stack_trace(taskData, stack->p_sp, handler);
     fputs("End of trace\n\n",stdout);
     fflush(stdout);
     
     /* Set up the next handler so we don't come back here when we raise
        the exception again. */
-    processes->CurrentProcess()->stack->p_hr = (PolyWord*)(handler->AsStackAddr());
+    taskData->stack->p_hr = (PolyWord*)(handler->AsStackAddr());
     
     /* Set the exception data back again. */
-    machineDependent->SetException(processes->CurrentProcess()->stack,(poly_exn *)DEREFHANDLE(exnHandle));
+    machineDependent->SetException(taskData, (poly_exn *)DEREFHANDLE(exnHandle));
     
-    THROW_EXCEPTION; /* Reraise the exception. */
+    throw IOException(EXC_EXCEPTION); /* Reraise the exception. */
     /*NOTREACHED*/
-	return 0;
 }
 
 /******************************************************************************/
@@ -526,11 +561,7 @@ static DWORD WINAPI CrowBarFn(LPVOID lpParameter)
    badly screwed up. */
 {
     Sleep(10000);
-#ifdef _WIN32_WCE
-	exit(exitCode);
-#else
     ExitProcess(exitCode);
-#endif
     return 0;
 }
 
@@ -543,15 +574,11 @@ void RequestFinish(int n)
        we do a stack check. */
     exitCode = n;
     exitRequest = 1;
-    machineDependent->InterruptCode();
+    processes->KillAllThreads();
     hCrowBar = CreateThread(NULL, 0, CrowBarFn, 0, 0, &dwId);
 	if (! hCrowBar)
 	{
-#ifdef _WIN32_WCE
-		exit(n);
-#else
 		ExitProcess(n);
-#endif
 	}
     CloseHandle(hCrowBar);
 }
@@ -560,11 +587,11 @@ void RequestFinish(int n)
 /* end of interrupt handling */
 
 // Return the address of the iovec entry for a given index.
-Handle io_operation_c(Handle entry)
+Handle io_operation_c(TaskData *taskData, Handle entry)
 {
-    POLYUNSIGNED entryNo = get_C_ulong(DEREFWORD(entry));
+    POLYUNSIGNED entryNo = get_C_ulong(taskData, DEREFWORD(entry));
     if (entryNo >= POLY_SYS_vecsize)
-        raise_exception0(EXC_subscript);
+        raise_exception0(taskData, EXC_subscript);
     return SAVE((PolyObject*)IoEntry(entryNo));
 }
 
@@ -585,8 +612,6 @@ void re_init_run_time_system(void)
     ReinitModules();
 }
 
-int interrupted = 0;
-
 /******************************************************************************/
 /*                                                                            */
 /*      init_run_time_system - called from mpoly.c                            */
@@ -594,8 +619,6 @@ int interrupted = 0;
 /******************************************************************************/
 void init_run_time_system(void)
 {
-    interrupted = 0;
-    gSaveVec->init(); // initialise interface save vector
     InitModules(); // Initialise other modules.
 }
 
@@ -624,7 +647,7 @@ void uninit_run_time_system(void)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO1(get_flags_,REF,NOIND) */
-Handle get_flags_c(Handle addr_handle)
+static Handle get_flags_c(TaskData *taskData, Handle addr_handle)
 {
     PolyObject *pt = DEREFWORDHANDLE(addr_handle);
     PolyWord *addr = (PolyWord*)pt;
@@ -651,16 +674,16 @@ Handle get_flags_c(Handle addr_handle)
 // two calls is that we first have to make sure we have a validly formatted code
 // segment with the "number of constants" value set before we can make it a code
 // segment and actually store the constants in it.
-Handle CodeSegmentFlags(Handle flags_handle, Handle addr_handle)
+Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle)
 {
     PolyObject *pt = DEREFWORDHANDLE(addr_handle);
-    unsigned short newFlags = get_C_ushort(DEREFWORD(flags_handle));
+    unsigned short newFlags = get_C_ushort(taskData, DEREFWORD(flags_handle));
 
     if (newFlags >= 256)
-        raise_exception_string(EXC_Fail, "FreezeCodeSegment flags must be less than 256");
+        raise_exception_string(taskData, EXC_Fail, "FreezeCodeSegment flags must be less than 256");
 
     if (! pt->IsMutable())
-        raise_exception_string(EXC_Fail, "FreezeCodeSegment must be applied to a mutable segment");
+        raise_exception_string(taskData, EXC_Fail, "FreezeCodeSegment must be applied to a mutable segment");
 
     const POLYUNSIGNED objLength = pt->Length();
     pt->SetLengthWord(objLength, (byte)newFlags);
@@ -677,131 +700,119 @@ Handle CodeSegmentFlags(Handle flags_handle, Handle addr_handle)
 /*      BadOpCode_c - called from machine_assembly.s                          */
 /*                                                                            */
 /******************************************************************************/
-Handle BadOpCode_c(void)
+Handle BadOpCode_c(TaskData *taskData)
 {
-    raise_exception_string(EXC_Fail, "Bad RunTime OpCode");
+    raise_exception_string(taskData, EXC_Fail, "Bad RunTime OpCode");
     return SAVE(TAGGED(1));
 }
 
-
-// This is (was?) used to raise an exception from the assembly code section.
-// It simplified the process by allowing the assembly code stub to pass an integer
-// representing the exception to be raised and this created the exception packet.
-Handle raise_exc(Handle id_handle)
-/* Called from the assembly-code segment. */
-{
-   PolyWord id = DEREFWORD(id_handle);
-   raise_exception0(UNTAGGED(id));
-   return SAVE(TAGGED(0)); // Doesn't actually return
-}
-
 /* CALL_IO3(assign_byte_long_, REF, REF, REF, NOIND) */
-Handle assign_byte_long_c(Handle value_handle, Handle byte_no, Handle vector)
+static Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_no, Handle vector)
 {
     PolyWord value = DEREFHANDLE(value_handle);
-    POLYUNSIGNED  offset  = get_C_ulong(DEREFWORDHANDLE(byte_no));  /* SPF 31/10/93 */
+    POLYUNSIGNED  offset  = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));  /* SPF 31/10/93 */
     byte *pointer = DEREFBYTEHANDLE(vector);    
     byte v = (byte)UNTAGGED(value);
     pointer[offset] = v;
-    return gSaveVec->push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(0));
 }
 
 /* CALL_IO3(assign_word_long_, REF, REF, REF, NOIND) */
-Handle assign_word_long_c(Handle value_handle, Handle word_no, Handle vector)
+static Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle word_no, Handle vector)
 {
     PolyWord value      = DEREFHANDLE(value_handle);
-    POLYUNSIGNED offset = get_C_ulong(DEREFWORDHANDLE(word_no)); /* SPF 31/10/93 */
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no)); /* SPF 31/10/93 */
     PolyObject *pointer   = DEREFWORDHANDLE(vector);
     pointer->Set(offset, value);
-    return gSaveVec->push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(0));
 }
 
 /* CALL_IO5(move_bytes_long_, REF, REF, REF, REF, REF, NOIND) */
 /* Move a segment of bytes, typically a string.  */
-Handle move_bytes_long_c(Handle len, Handle dest_offset_handle, Handle dest_handle,
+static Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
-    unsigned src_offset = get_C_ulong(DEREFWORDHANDLE(src_offset_handle));
+    unsigned src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
     byte *source = DEREFBYTEHANDLE(src_handle) + src_offset;
-    unsigned dest_offset = get_C_ulong(DEREFWORDHANDLE(dest_offset_handle));
+    unsigned dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
     byte *destination = DEREFBYTEHANDLE(dest_handle);
     byte *dest = destination + dest_offset;
-    unsigned bytes = get_C_ulong(DEREFWORDHANDLE(len));
+    unsigned bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
     PolyObject *obj = DEREFHANDLE(dest_handle);
     ASSERT(obj->IsByteObject());
 
     memmove(dest, source, bytes);  /* must work for overlapping segments. */
-    return gSaveVec->push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(0));
 }
 
 /* CALL_IO5(move_words_long_, REF, REF, REF, REF, REF, NOIND) */
 /* Move a segment of words.   Similar to move_bytes_long_ except that
    it is used for PolyWord segments. */
-Handle move_words_long_c(Handle len, Handle dest_offset_handle, Handle dest_handle,
+static Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
-    POLYUNSIGNED src_offset = get_C_ulong(DEREFWORDHANDLE(src_offset_handle));
+    POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
     PolyObject *sourceObj = DEREFWORDHANDLE(src_handle);
     PolyWord *source = sourceObj->Offset(src_offset);
 
-    POLYUNSIGNED dest_offset = get_C_ulong(DEREFWORDHANDLE(dest_offset_handle));
+    POLYUNSIGNED dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
 
     PolyObject *destObject = DEREFWORDHANDLE(dest_handle);
     PolyWord *dest = destObject->Offset(dest_offset);
 
-    POLYUNSIGNED words = get_C_ulong(DEREFWORDHANDLE(len));
+    POLYUNSIGNED words = get_C_ulong(taskData, DEREFWORDHANDLE(len));
 
     ASSERT(! destObject->IsByteObject());
 
     memmove(dest, source, words*sizeof(PolyWord));  /* must work for overlapping segments. */
-    return gSaveVec->push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(0));
 }
 
-static Handle vec_length_c(Handle vector)    /* Length of a vector */
+static Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector */
 {
     POLYUNSIGNED length = vector->WordP()->Length();
-    return Make_arbitrary_precision (length);
+    return Make_arbitrary_precision(taskData, length);
 }
 
-static Handle load_byte_long_c(Handle byte_no /* offset in BYTES */, Handle addr)
+static Handle load_byte_long_c(TaskData *taskData, Handle byte_no /* offset in BYTES */, Handle addr)
 {
-    POLYUNSIGNED offset = get_C_ulong(DEREFWORDHANDLE(byte_no));
-    return gSaveVec->push(TAGGED(DEREFBYTEHANDLE(addr)[offset]));
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));
+    return taskData->saveVec.push(TAGGED(DEREFBYTEHANDLE(addr)[offset]));
 }
 
-static Handle load_word_long_c(Handle word_no /* offset in WORDS */, Handle addr)
+static Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in WORDS */, Handle addr)
 {
-    POLYUNSIGNED offset = get_C_ulong(DEREFWORDHANDLE(word_no));
-    return gSaveVec->push(addr->Word().AsObjPtr()->Get(offset));
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no));
+    return taskData->saveVec.push(addr->Word().AsObjPtr()->Get(offset));
 }
 
 // In most cases the assembly coded version of this will handle the
 // allocation.  The function can be called by the assembly code
 // when it finds it has run out.  Using it avoids us having a
 // return address into the assembly code.
-static Handle alloc_store_long_c(Handle initial, Handle flags_handle, Handle size )
+static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
 {
-    POLYUNSIGNED flags = get_C_ulong(DEREFWORD(flags_handle));
-    POLYUNSIGNED usize = get_C_ulong(DEREFWORD(size));
+    POLYUNSIGNED flags = get_C_ulong(taskData, DEREFWORD(flags_handle));
+    POLYUNSIGNED usize = get_C_ulong(taskData, DEREFWORD(size));
     
     if (usize == 0) usize = 1;
-    if (usize >= MAX_OBJECT_SIZE) raise_exception0(EXC_size);
+    if (usize >= MAX_OBJECT_SIZE) raise_exception0(taskData, EXC_size);
     
-    PolyObject *vector = alloc(usize, flags| F_MUTABLE_BIT);
+    PolyObject *vector = alloc(taskData, usize, flags| F_MUTABLE_BIT);
     
     PolyWord value = DEREFWORD(initial);
     
     if (vector->IsByteObject()) {
         // Byte segments are supposed to be initialised only with zero
         if (value != TAGGED(0))
-            raise_exception_string(EXC_Fail, "non-zero byte segment");
+            raise_exception_string(taskData, EXC_Fail, "non-zero byte segment");
     }
     else if (value != PolyWord::FromUnsigned(0))  {
         for (POLYUNSIGNED i = 0; i < usize; i++)
             vector->Set(i, value);
     }
     
-    return gSaveVec->push(vector);
+    return taskData->saveVec.push(vector);
 }
 
 /* Word functions. These functions assume that their arguments are tagged
@@ -809,121 +820,121 @@ static Handle alloc_store_long_c(Handle initial, Handle flags_handle, Handle siz
    These functions will almost always be implemented directly in the code
    generator with back-up versions in the machine-dependent assembly code
    section.  They are included here for completeness. */
-static Handle mul_word_c(Handle y, Handle x)
+static Handle mul_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx*wy));
+    return taskData->saveVec.push(TAGGED(wx*wy));
 }
 
-static Handle plus_word_c(Handle y, Handle x)
+static Handle plus_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx+wy));
+    return taskData->saveVec.push(TAGGED(wx+wy));
 }
 
-static Handle minus_word_c(Handle y, Handle x)
+static Handle minus_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx-wy));
+    return taskData->saveVec.push(TAGGED(wx-wy));
 }
 
-static Handle div_word_c(Handle y, Handle x)
+static Handle div_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    if (wy == 0) raise_exception0(EXC_divide);
-    return gSaveVec->push(TAGGED(wx/wy));
+    if (wy == 0) raise_exception0(taskData, EXC_divide);
+    return taskData->saveVec.push(TAGGED(wx/wy));
 }
 
-static Handle mod_word_c(Handle y, Handle x)
+static Handle mod_word_c(TaskData *taskData, Handle y, Handle x)
 {
     // In most cases it doesn't matter whether we use UNTAGGED or UNTAGGED_UNSIGNED
     // but in mod we will get the wrong answer if we use UNTAGGED here.
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    if (wy == 0) raise_exception0(EXC_divide);
-    return gSaveVec->push(TAGGED(wx%wy));
+    if (wy == 0) raise_exception0(taskData, EXC_divide);
+    return taskData->saveVec.push(TAGGED(wx%wy));
 }
 
-static Handle word_eq_c(Handle y, Handle x)
+static Handle word_eq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx==wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_neq_c(Handle y, Handle x)
+static Handle word_neq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx!=wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_geq_c(Handle y, Handle x)
+static Handle word_geq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx>=wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_leq_c(Handle y, Handle x)
+static Handle word_leq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx<=wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_gtr_c(Handle y, Handle x)
+static Handle word_gtr_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx>wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_lss_c(Handle y, Handle x)
+static Handle word_lss_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(wx<wy ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle and_word_c(Handle y, Handle x)
+static Handle and_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them
        back on again.  We leave this code as it is just in case some
        architecture does it differently. */
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx & wy));
+    return taskData->saveVec.push(TAGGED(wx & wy));
 }
 
-static Handle or_word_c(Handle y, Handle x)
+static Handle or_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them
        back on again.  We leave this code as it is just in case some
        architecture does it differently. */
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx | wy));
+    return taskData->saveVec.push(TAGGED(wx | wy));
 }
 
-static Handle xor_word_c(Handle y, Handle x)
+static Handle xor_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return gSaveVec->push(TAGGED(wx ^ wy));
+    return taskData->saveVec.push(TAGGED(wx ^ wy));
 }
 
 
-static Handle not_bool_c(Handle x)
+static Handle not_bool_c(TaskData *taskData, Handle x)
 {
-    return gSaveVec->push(DEREFWORD(x) == TAGGED(0) ? TAGGED(1) : TAGGED(0));
+    return taskData->saveVec.push(DEREFWORD(x) == TAGGED(0) ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle shift_left_word_c(Handle y, Handle x)
+static Handle shift_left_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -931,11 +942,11 @@ static Handle shift_left_word_c(Handle y, Handle x)
        number of bits in the PolyWord.  The shift instructions on many
        architectures don't get that right. */
     if (wy > sizeof(PolyWord)*8)
-        return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(TAGGED(wx<<wy));
+        return taskData->saveVec.push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(wx<<wy));
 }
 
-static Handle shift_right_word_c(Handle y, Handle x)
+static Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -943,11 +954,11 @@ static Handle shift_right_word_c(Handle y, Handle x)
        number of bits in the word.  The shift instructions on many
        architectures don't get that right. */
     if (wy > sizeof(PolyWord)*8)
-        return gSaveVec->push(TAGGED(0));
-    return gSaveVec->push(TAGGED(wx>>wy));
+        return taskData->saveVec.push(TAGGED(0));
+    return taskData->saveVec.push(TAGGED(wx>>wy));
 }
 
-static Handle shift_right_arith_word_c(Handle y, Handle x)
+static Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x)); /* Treat as a signed quantity. */
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -955,408 +966,396 @@ static Handle shift_right_arith_word_c(Handle y, Handle x)
        number of bits in the word.  The shift instructions on many
        architectures don't get that right. */
     if (wy > sizeof(PolyWord)*8)
-        return gSaveVec->push(wx < 0 ? TAGGED(-1) : TAGGED(0));
-    return gSaveVec->push(TAGGED(wx>>wy));
+        return taskData->saveVec.push(wx < 0 ? TAGGED(-1) : TAGGED(0));
+    return taskData->saveVec.push(TAGGED(wx>>wy));
 }
 
-static Handle set_code_constant(Handle data, Handle constant, Handle offseth, Handle base)
+static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
 {
-    machineDependent->SetCodeConstant(data, constant, offseth, base);
-    return gSaveVec->push(TAGGED(0));
+    machineDependent->SetCodeConstant(taskData, data, constant, offseth, base);
+    return taskData->saveVec.push(TAGGED(0));
 }
 
-Handle EnterPolyCode(void)
+Handle EnterPolyCode(TaskData *taskData)
 /* Called from "main" to enter the code. */
 {
-    /* Select the first process. */
-    processes->select_next_process(); 
-
     while (1)
     {
+        // Process any asynchronous events i.e. interrupts or kill
+        processes->ProcessAsynchRequests(taskData);
+        // Release and re-acquire use of the ML memory to allow another thread
+        // to GC.
+        processes->ThreadReleaseMLMemory(taskData);
+        processes->ThreadUseMLMemory(taskData);
         // Run the ML code and return with the function to call.
-        int ioFunction = machineDependent->SwitchToPoly();
-        gSaveVec->init(); // Set this up for the IO calls.
-#ifdef _WIN32_WCE
-		jmp_buf tbuf;
-		memcpy(&tbuf, &exception_jump, sizeof(jmp_buf));
-		if (setjmp(exception_jump) == 0) {
-#else
+        int ioFunction = machineDependent->SwitchToPoly(taskData);
+        taskData->saveVec.init(); // Set this up for the IO calls.
 	    try {
-#endif
             switch (ioFunction)
             {
             case -1:
-                execute_pending_interrupts();
                 break;
 
             case -2: // A callback has returned.
-                return machineDependent->CallBackResult();
+                return machineDependent->CallBackResult(taskData);
 
             case POLY_SYS_exit:
-                machineDependent->CallIO1(&finishc);
+                machineDependent->CallIO1(taskData, &finishc);
                 break;
 
             case POLY_SYS_install_root:
-                machineDependent->CallIO1(&install_rootc);
+                machineDependent->CallIO1(taskData, &install_rootc);
                 break;
 
             case POLY_SYS_strconcat:
-                machineDependent->CallIO2(&strconcatc);
+                machineDependent->CallIO2(taskData, &strconcatc);
                 break;
 
             case POLY_SYS_alloc_store:
-                machineDependent->CallIO3(&alloc_store_long_c);
+                machineDependent->CallIO3(taskData, &alloc_store_long_c);
                 break;
 
             case POLY_SYS_chdir:
-                machineDependent->CallIO1(&change_dirc);
+                machineDependent->CallIO1(taskData, &change_dirc);
                 break;
 
             case POLY_SYS_get_length:
-                machineDependent->CallIO1(&vec_length_c);
+                machineDependent->CallIO1(taskData, &vec_length_c);
                 break;
 
             case POLY_SYS_get_flags:
-                machineDependent->CallIO1(&get_flags_c);
+                machineDependent->CallIO1(taskData, &get_flags_c);
                 break;
 
             case POLY_SYS_str_compare:
-                machineDependent->CallIO2(compareStrings);
+                machineDependent->CallIO2(taskData, compareStrings);
                 break;
 
             case POLY_SYS_teststreq:
-                machineDependent->CallIO2(&testStringEqual);
+                machineDependent->CallIO2(taskData, &testStringEqual);
                 break;
 
             case POLY_SYS_teststrneq:
-                machineDependent->CallIO2(&testStringNotEqual);
+                machineDependent->CallIO2(taskData, &testStringNotEqual);
                 break;
 
             case POLY_SYS_teststrgtr:
-                machineDependent->CallIO2(&testStringGreater);
+                machineDependent->CallIO2(taskData, &testStringGreater);
                 break;
 
             case POLY_SYS_teststrlss:
-                machineDependent->CallIO2(&testStringLess);
+                machineDependent->CallIO2(taskData, &testStringLess);
                 break;
 
             case POLY_SYS_teststrgeq:
-                machineDependent->CallIO2(&testStringGreaterOrEqual);
+                machineDependent->CallIO2(taskData, &testStringGreaterOrEqual);
                 break;
 
             case POLY_SYS_teststrleq:
-                machineDependent->CallIO2(&testStringLessOrEqual);
+                machineDependent->CallIO2(taskData, &testStringLessOrEqual);
                 break;
 
             case POLY_SYS_exception_trace: // Special case.
-                machineDependent->SetExceptionTrace();
+                machineDependent->SetExceptionTrace(taskData);
                 break;
 
-    //        case POLY_SYS_lockseg: machineDependent->CallIO1(&locksegc); break;
+    //        case POLY_SYS_lockseg: machineDependent->CallIO1(taskData, &locksegc); break;
 
             case POLY_SYS_profiler:
-                machineDependent->CallIO1(&profilerc);
+                machineDependent->CallIO1(taskData, &profilerc);
                 break;
 
-    //        case POLY_SYS_is_short: machineDependent->CallIO1(&is_shortc); break;
+    //        case POLY_SYS_is_short: machineDependent->CallIO1(taskData, &is_shortc); break;
 
             case POLY_SYS_aplus:
-                machineDependent->CallIO2(&add_longc);
+                machineDependent->CallIO2(taskData, &add_longc);
                 break;
 
             case POLY_SYS_aminus:
-                machineDependent->CallIO2(&sub_longc);
+                machineDependent->CallIO2(taskData, &sub_longc);
                 break;
 
             case POLY_SYS_amul:
-                machineDependent->CallIO2(&mult_longc);
+                machineDependent->CallIO2(taskData, &mult_longc);
                 break;
 
             case POLY_SYS_adiv:
-                machineDependent->CallIO2(&div_longc);
+                machineDependent->CallIO2(taskData, &div_longc);
                 break;
 
             case POLY_SYS_amod:
-                machineDependent->CallIO2(&rem_longc);
+                machineDependent->CallIO2(taskData, &rem_longc);
                 break;
 
             case POLY_SYS_aneg:
-                machineDependent->CallIO1(&neg_longc);
+                machineDependent->CallIO1(taskData, &neg_longc);
                 break;
 
             case POLY_SYS_equala:
-                machineDependent->CallIO2(&equal_longc);
+                machineDependent->CallIO2(taskData, &equal_longc);
                 break;
 
             case POLY_SYS_ora:
-                machineDependent->CallIO2(&or_longc);
+                machineDependent->CallIO2(taskData, &or_longc);
                 break;
 
             case POLY_SYS_anda:
-                machineDependent->CallIO2(&and_longc);
+                machineDependent->CallIO2(taskData, &and_longc);
                 break;
 
             case POLY_SYS_xora:
-                machineDependent->CallIO2(&xor_longc);
+                machineDependent->CallIO2(taskData, &xor_longc);
                 break;
 
             case POLY_SYS_Real_str:
-                machineDependent->CallIO3(&Real_strc);
+                machineDependent->CallIO3(taskData, &Real_strc);
                 break;
 
             case POLY_SYS_Real_geq:
-                machineDependent->CallIO2(&Real_geqc);
+                machineDependent->CallIO2(taskData, &Real_geqc);
                 break;
 
             case POLY_SYS_Real_leq:
-                machineDependent->CallIO2(&Real_leqc);
+                machineDependent->CallIO2(taskData, &Real_leqc);
                 break;
 
             case POLY_SYS_Real_gtr:
-                machineDependent->CallIO2(&Real_gtrc);
+                machineDependent->CallIO2(taskData, &Real_gtrc);
                 break;
 
             case POLY_SYS_Real_lss:
-                machineDependent->CallIO2(&Real_lssc);
+                machineDependent->CallIO2(taskData, &Real_lssc);
                 break;
 
             case POLY_SYS_Real_eq:
-                machineDependent->CallIO2(&Real_eqc);
+                machineDependent->CallIO2(taskData, &Real_eqc);
                 break;
 
             case POLY_SYS_Real_neq:
-                machineDependent->CallIO2(&Real_neqc);
+                machineDependent->CallIO2(taskData, &Real_neqc);
                 break;
 
             case POLY_SYS_Real_Dispatch:
-                machineDependent->CallIO2(&Real_dispatchc);
+                machineDependent->CallIO2(taskData, &Real_dispatchc);
                 break;
 
             case POLY_SYS_Add_real:
-                machineDependent->CallIO2(&Real_addc);
+                machineDependent->CallIO2(taskData, &Real_addc);
                 break;
 
             case POLY_SYS_Sub_real:
-                machineDependent->CallIO2(&Real_subc);
+                machineDependent->CallIO2(taskData, &Real_subc);
                 break;
 
             case POLY_SYS_Mul_real:
-                machineDependent->CallIO2(&Real_mulc);
+                machineDependent->CallIO2(taskData, &Real_mulc);
                 break;
 
             case POLY_SYS_Div_real:
-                machineDependent->CallIO2(&Real_divc);
+                machineDependent->CallIO2(taskData, &Real_divc);
                 break;
 
             case POLY_SYS_Neg_real:
-                machineDependent->CallIO1(&Real_negc);
+                machineDependent->CallIO1(taskData, &Real_negc);
                 break;
 
             case POLY_SYS_Repr_real:
-                machineDependent->CallIO1(&Real_reprc);
+                machineDependent->CallIO1(taskData, &Real_reprc);
                 break;
 
             case POLY_SYS_conv_real:
-                machineDependent->CallIO1(&Real_convc);
+                machineDependent->CallIO1(taskData, &Real_convc);
                 break;
 
             case POLY_SYS_real_to_int:
-                machineDependent->CallIO1(&Real_intc);
+                machineDependent->CallIO1(taskData, &Real_intc);
                 break;
 
             case POLY_SYS_int_to_real:
-                machineDependent->CallIO1(&Real_floatc);
+                machineDependent->CallIO1(taskData, &Real_floatc);
                 break;
 
             case POLY_SYS_sqrt_real:
-                machineDependent->CallIO1(&Real_sqrtc);
+                machineDependent->CallIO1(taskData, &Real_sqrtc);
                 break;
 
             case POLY_SYS_sin_real:
-                machineDependent->CallIO1(&Real_sinc);
+                machineDependent->CallIO1(taskData, &Real_sinc);
                 break;
 
             case POLY_SYS_cos_real:
-                machineDependent->CallIO1(&Real_cosc);
+                machineDependent->CallIO1(taskData, &Real_cosc);
                 break;
 
             case POLY_SYS_arctan_real:
-                machineDependent->CallIO1(&Real_arctanc);
+                machineDependent->CallIO1(taskData, &Real_arctanc);
                 break;
 
             case POLY_SYS_exp_real:
-                machineDependent->CallIO1(&Real_expc);
+                machineDependent->CallIO1(taskData, &Real_expc);
                 break;
 
             case POLY_SYS_ln_real:
-                machineDependent->CallIO1(&Real_lnc);
+                machineDependent->CallIO1(taskData, &Real_lnc);
                 break;
 
             case POLY_SYS_io_operation:
-                machineDependent->CallIO1(&io_operation_c);
+                machineDependent->CallIO1(taskData, &io_operation_c);
                 break;
 
-            case POLY_SYS_fork_process:
-                machineDependent->CallIO2(&fork_processc);
+            case POLY_SYS_atomic_incr:
+                machineDependent->CallIO1(taskData, &AtomicIncrement);
                 break;
 
-            case POLY_SYS_choice_process:
-                machineDependent->CallIO2(&choice_processc);
+            case POLY_SYS_atomic_decr:
+                machineDependent->CallIO1(taskData, &AtomicDecrement);
                 break;
 
-            case POLY_SYS_int_process:
-                machineDependent->CallIO1(&int_processc);
+            case POLY_SYS_thread_self:
+                machineDependent->CallIO0(taskData, &ThreadSelf);
                 break;
 
-            case POLY_SYS_send_on_channel:
-                machineDependent->CallIO2(&send_on_channelc);
+            case POLY_SYS_thread_dispatch:
+                machineDependent->CallIO2(taskData, &ThreadDispatch);
                 break;
 
-            case POLY_SYS_receive_on_channel:
-                machineDependent->CallIO1(&receive_on_channelc);
-                break;
-
-//            case POLY_SYS_offset_address: machineDependent->CallIO2(&offset_addressc); break;
+//            case POLY_SYS_offset_address: machineDependent->CallIO2(taskData, &offset_addressc); break;
 
             case POLY_SYS_shift_right_word:
-                machineDependent->CallIO2(&shift_right_word_c);
+                machineDependent->CallIO2(taskData, &shift_right_word_c);
                 break;
     
             case POLY_SYS_word_neq:
-                machineDependent->CallIO2(&word_neq_c);
+                machineDependent->CallIO2(taskData, &word_neq_c);
                 break;
     
             case POLY_SYS_not_bool:
-                machineDependent->CallIO1(&not_bool_c);
+                machineDependent->CallIO1(taskData, &not_bool_c);
                 break;
 
             case POLY_SYS_string_length:
-                machineDependent->CallIO1(&string_length_c);
+                machineDependent->CallIO1(taskData, &string_length_c);
                 break;
 
             case POLY_SYS_int_eq:
-                machineDependent->CallIO2(&equal_longc);
+                machineDependent->CallIO2(taskData, &equal_longc);
                 break;
 
             case POLY_SYS_int_neq:
-                machineDependent->CallIO2(&not_equal_longc);
+                machineDependent->CallIO2(taskData, &not_equal_longc);
                 break;
 
             case POLY_SYS_int_geq:
-                machineDependent->CallIO2(&ge_longc);
+                machineDependent->CallIO2(taskData, &ge_longc);
                 break;
 
             case POLY_SYS_int_leq:
-                machineDependent->CallIO2(&le_longc);
+                machineDependent->CallIO2(taskData, &le_longc);
                 break;
 
             case POLY_SYS_int_gtr:
-                machineDependent->CallIO2(&gt_longc);
+                machineDependent->CallIO2(taskData, &gt_longc);
                 break;
 
             case POLY_SYS_int_lss:
-                machineDependent->CallIO2(&ls_longc);
+                machineDependent->CallIO2(taskData, &ls_longc);
                 break;
 
             case POLY_SYS_string_sub:
-                machineDependent->CallIO2(&string_subc);
+                machineDependent->CallIO2(taskData, &string_subc);
                 break;
 
             case POLY_SYS_or_word:
-                machineDependent->CallIO2(&or_word_c);
+                machineDependent->CallIO2(taskData, &or_word_c);
                 break;
 
             case POLY_SYS_and_word:
-                machineDependent->CallIO2(&and_word_c);
+                machineDependent->CallIO2(taskData, &and_word_c);
                 break;
 
             case POLY_SYS_xor_word:
-                machineDependent->CallIO2(&xor_word_c);
+                machineDependent->CallIO2(taskData, &xor_word_c);
                 break;
 
             case POLY_SYS_shift_left_word:
-                machineDependent->CallIO2(&shift_left_word_c);
+                machineDependent->CallIO2(taskData, &shift_left_word_c);
                 break;
 
             case POLY_SYS_word_eq:
-                machineDependent->CallIO2(&word_eq_c);
+                machineDependent->CallIO2(taskData, &word_eq_c);
                 break;
 
             case POLY_SYS_load_byte:
-                machineDependent->CallIO2(&load_byte_long_c);
+                machineDependent->CallIO2(taskData, &load_byte_long_c);
                 break;
 
             case POLY_SYS_load_word:
-                machineDependent->CallIO2(&load_word_long_c);
+                machineDependent->CallIO2(taskData, &load_word_long_c);
                 break;
 
-    //        case POLY_SYS_is_big_endian: machineDependent->CallIO0(&is_big_endianc); break;
-    //        case POLY_SYS_bytes_per_word: machineDependent->CallIO0(&bytes_per_wordc); break;
+    //        case POLY_SYS_is_big_endian: machineDependent->CallIO0(taskData, &is_big_endianc); break;
+    //        case POLY_SYS_bytes_per_word: machineDependent->CallIO0(taskData, &bytes_per_wordc); break;
 
             case POLY_SYS_assign_byte:
-                machineDependent->CallIO3(&assign_byte_long_c);
+                machineDependent->CallIO3(taskData, &assign_byte_long_c);
                 break;
 
             case POLY_SYS_assign_word:
-                machineDependent->CallIO3(&assign_word_long_c);
+                machineDependent->CallIO3(taskData, &assign_word_long_c);
                 break;
 
             // ObjSize and ShowSize are now in the poly_specific functions and
             // probably should be removed from here.
             case POLY_SYS_objsize:
-                machineDependent->CallIO1(&ObjSize);
+                machineDependent->CallIO1(taskData, &ObjSize);
                 break;
 
             case POLY_SYS_showsize:
-                machineDependent->CallIO1(&ShowSize);
+                machineDependent->CallIO1(taskData, &ShowSize);
                 break;
 
             case POLY_SYS_timing_dispatch:
-                machineDependent->CallIO2(&timing_dispatch_c);
+                machineDependent->CallIO2(taskData, &timing_dispatch_c);
                 break;
 
-            case POLY_SYS_interrupt_console_processes:
-                machineDependent->CallIO0(&interrupt_console_processes_c);
-                break; 
-
             case POLY_SYS_install_subshells:
-                machineDependent->CallIO1(&install_subshells_c);
+                machineDependent->CallIO1(taskData, &install_subshells_c);
                 break;
 
             case POLY_SYS_XWindows:
-                machineDependent->CallIO1(&XWindows_c);
+                machineDependent->CallIO1(taskData, &XWindows_c);
                 break;
 
             case POLY_SYS_full_gc:
-                machineDependent->CallIO0(&full_gc_c);
+                machineDependent->CallIO0(taskData, &full_gc_c);
                 break;
 
             case POLY_SYS_stack_trace:
-                machineDependent->CallIO0(& stack_trace_c);
+                machineDependent->CallIO0(taskData, & stack_trace_c);
                 break;
 
             case POLY_SYS_foreign_dispatch:
-                machineDependent->CallIO2(&foreign_dispatch_c);
+                machineDependent->CallIO2(taskData, &foreign_dispatch_c);
                 break;
 
             case POLY_SYS_callcode_tupled:
-                machineDependent->CallCodeTupled();
+                machineDependent->CallCodeTupled(taskData);
                 break;
 
-            case POLY_SYS_process_env: machineDependent->CallIO2(&process_env_dispatch_c); break;
+            case POLY_SYS_process_env: machineDependent->CallIO2(taskData, &process_env_dispatch_c); break;
 
-    //        case POLY_SYS_set_string_length: machineDependent->CallIO2(&set_string_length_c); break;
+    //        case POLY_SYS_set_string_length: machineDependent->CallIO2(taskData, &set_string_length_c); break;
 
             case POLY_SYS_shrink_stack:
-                machineDependent->CallIO1(&shrink_stack_c);
+                machineDependent->CallIO1(taskData, &shrink_stack_c);
                 break;
 
             case POLY_SYS_code_flags:
-                machineDependent->CallIO2(&CodeSegmentFlags);
+                machineDependent->CallIO2(taskData, &CodeSegmentFlags);
                 break;
 
             case POLY_SYS_shift_right_arith_word:
-                machineDependent->CallIO2(&shift_right_arith_word_c);
+                machineDependent->CallIO2(taskData, &shift_right_arith_word_c);
                 break;
 
             case POLY_SYS_get_first_long_word:
@@ -1366,100 +1365,92 @@ Handle EnterPolyCode(void)
                 // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
                 // long argument and can be implemented very easily in the code-generator, at
                 // least on a little-endian machine.
-                machineDependent->CallIO1(&int_to_word_c);
+                machineDependent->CallIO1(taskData, &int_to_word_c);
                 break;
 
             case POLY_SYS_poly_specific:
-                machineDependent->CallIO2(&poly_dispatch_c);
+                machineDependent->CallIO2(taskData, &poly_dispatch_c);
                 break;
 
             case POLY_SYS_set_code_constant:
-                machineDependent->CallIO4(&set_code_constant);
+                machineDependent->CallIO4(taskData, &set_code_constant);
                 break;
 
             case POLY_SYS_move_bytes:
-                machineDependent->CallIO5(&move_bytes_long_c);
+                machineDependent->CallIO5(taskData, &move_bytes_long_c);
                 break;
 
             case POLY_SYS_move_words:
-                machineDependent->CallIO5(&move_words_long_c);
+                machineDependent->CallIO5(taskData, &move_words_long_c);
                 break;
 
             case POLY_SYS_mul_word:
-                machineDependent->CallIO2(&mul_word_c);
+                machineDependent->CallIO2(taskData, &mul_word_c);
                 break;
 
             case POLY_SYS_plus_word:
-                machineDependent->CallIO2(&plus_word_c);
+                machineDependent->CallIO2(taskData, &plus_word_c);
                 break;
 
             case POLY_SYS_minus_word:
-                machineDependent->CallIO2(&minus_word_c);
+                machineDependent->CallIO2(taskData, &minus_word_c);
                 break;
 
             case POLY_SYS_div_word:
-                machineDependent->CallIO2(&div_word_c);
+                machineDependent->CallIO2(taskData, &div_word_c);
                 break;
 
             case POLY_SYS_mod_word:
-                machineDependent->CallIO2(&mod_word_c);
+                machineDependent->CallIO2(taskData, &mod_word_c);
                 break;
 
             case POLY_SYS_word_geq:
-                machineDependent->CallIO2(&word_geq_c);
+                machineDependent->CallIO2(taskData, &word_geq_c);
                 break;
 
             case POLY_SYS_word_leq:
-                machineDependent->CallIO2(&word_leq_c);
+                machineDependent->CallIO2(taskData, &word_leq_c);
                 break;
 
             case POLY_SYS_word_gtr:
-                machineDependent->CallIO2(&word_gtr_c);
+                machineDependent->CallIO2(taskData, &word_gtr_c);
                 break;
 
             case POLY_SYS_word_lss:
-                machineDependent->CallIO2(&word_lss_c);
+                machineDependent->CallIO2(taskData, &word_lss_c);
                 break;
 
             case POLY_SYS_io_dispatch:
-                machineDependent->CallIO3(&IO_dispatch_c);
+                machineDependent->CallIO3(taskData, &IO_dispatch_c);
                 break;
 
             case POLY_SYS_network:
-                machineDependent->CallIO2(&Net_dispatch_c);
+                machineDependent->CallIO2(taskData, &Net_dispatch_c);
                 break;
 
             case POLY_SYS_os_specific:
-                machineDependent->CallIO2(&OS_spec_dispatch_c);
+                machineDependent->CallIO2(taskData, &OS_spec_dispatch_c);
                 break;
 
             case POLY_SYS_signal_handler:
-                machineDependent->CallIO2(&Sig_dispatch_c);
+                machineDependent->CallIO2(taskData, &Sig_dispatch_c);
                 break;
 
             case POLY_SYS_kill_self:
-                machineDependent->CallIO0(kill_selfc);
+                machineDependent->CallIO0(taskData, exitThread);
                 break;
 
             // This is called from assembly code and doesn't actually have an entry in the
             // io vector.
             case POLY_SYS_give_ex_trace:
-                machineDependent->CallIO2(ex_tracec);
+                machineDependent->CallIO2(taskData, ex_tracec);
                 break;
 
             default:
                 Crash("Unknown io operation %d\n", ioFunction);
             }
-#ifdef _WIN32_WCE
-			memcpy(&exception_jump, &tbuf, sizeof(jmp_buf));
-		}
-		else
-		{
-			memcpy(&exception_jump, &tbuf, sizeof(jmp_buf));
-#else
 		}
 		catch (IOException) {
-#endif
         }
 
     }
@@ -1468,19 +1459,13 @@ Handle EnterPolyCode(void)
 class RunTime: public RtsModule
 {
 public:
-    void GarbageCollect(ScanAddress *process);
-    virtual void Interrupt(int sig);
+    virtual void ThreadHasTrapped(TaskData *taskData);
 };
 
 // Declare this.  It will be automatically added to the table.
 static RunTime runtimeModule;
 
-void RunTime::GarbageCollect(ScanAddress *process)
-{
-    gSaveVec->gcScan(process);
-}
-
-void RunTime::Interrupt(int /*signum*/)
+void RunTime::ThreadHasTrapped(TaskData * /*taskData*/)
 /* Called from execute_pending_interrupts some time after a signal such as
    SIGALRM, SIGINT etc. 
    If the signal was SIGALRM it selects the next process (a more
@@ -1489,7 +1474,5 @@ void RunTime::Interrupt(int /*signum*/)
 #ifdef WINDOWS_PC
     if (exitRequest) finish(exitCode);
 #endif
-    /* There is never any harm in switching processes. */
-    if (processes->CurrentProcess() != NO_PROCESS)
-        processes->select_next_process();
 }
+

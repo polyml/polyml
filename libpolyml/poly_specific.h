@@ -27,8 +27,9 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle poly_dispatch_c(Handle args, Handle code);
+extern Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 
 #endif
 

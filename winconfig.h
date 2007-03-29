@@ -117,6 +117,12 @@
 #undef HAVE_GETHOSTNAME
 #define HAVE_GETHOSTNAME 1
 
+/* Define to 1 if you have the `getnetbyaddr' function. */
+#undef HAVE_GETNETBYADDR
+
+/* Define to 1 if you have the `getnetbyname' function. */
+#undef HAVE_GETNETBYNAME
+
 /* Define to 1 if you have the `getpagesize' function. */
 #undef HAVE_GETPAGESIZE
 
@@ -129,15 +135,12 @@
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
 
-/* Define to 1 if the system has the type `IMAGE_FILE_HEADER'. */
-#undef HAVE_IMAGE_FILE_HEADER
-#define HAVE_IMAGE_FILE_HEADER 1
-
 /* Define to 1 if you have the <ieeefp.h> header file. */
 #undef HAVE_IEEEFP_H
 
 /* Define to 1 if the system has the type `IMAGE_FILE_HEADER'. */
 #undef HAVE_IMAGE_FILE_HEADER
+#define HAVE_IMAGE_FILE_HEADER 1
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -149,8 +152,23 @@
 /* Define to 1 if you have the `dl' library (-ldl). */
 #undef HAVE_LIBDL
 
+/* Define to 1 if you have the `gcc' library (-lgcc). */
+#undef HAVE_LIBGCC
+
+/* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
+#undef HAVE_LIBGCC_S
+
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
+
+/* Define to 1 if you have the `nsl' library (-lnsl). */
+#undef HAVE_LIBNSL
+
+/* Define to 1 if you have the `pthread' library (-lpthread). */
+#undef HAVE_LIBPTHREAD
+
+/* Define to 1 if you have the `socket' library (-lsocket). */
+#undef HAVE_LIBSOCKET
 
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
@@ -192,6 +210,15 @@
 #undef HAVE_MATH_H
 #define HAVE_MATH_H 1
 
+/* Define to 1 if `gregs' is member of `mcontext_t'. */
+#undef HAVE_MCONTEXT_T_GREGS
+
+/* Define to 1 if `mc_esp' is member of `mcontext_t'. */
+#undef HAVE_MCONTEXT_T_MC_ESP
+
+/* Define to 1 if `regs' is member of `mcontext_t'. */
+#undef HAVE_MCONTEXT_T_REGS
+
 /* Define to 1 if you have the `memmove' function. */
 #undef HAVE_MEMMOVE
 #define HAVE_MEMMOVE 1
@@ -210,8 +237,14 @@
 /* Define to 1 if you have the `mkfifo' function. */
 #undef HAVE_MKFIFO
 
+/* Define to 1 if you have the `mkstemp' function. */
+#undef HAVE_MKSTEMP
+
 /* Define to 1 if you have a working `mmap' system call. */
 #undef HAVE_MMAP
+
+/* Define to 1 if you have the `mprotect' function. */
+#undef HAVE_MPROTECT
 
 /* Define to 1 if you have the `munmap' function. */
 #undef HAVE_MUNMAP
@@ -241,6 +274,9 @@
 /* Define to 1 if you have the `pow' function. */
 #undef HAVE_POW
 
+/* Define to 1 if you have the <pthread.h> header file. */
+#undef HAVE_PTHREAD_H
+
 /* Define to 1 if you have the <pwd.h> header file. */
 #undef HAVE_PWD_H
 
@@ -258,13 +294,18 @@
 #undef HAVE_SELECT
 #define HAVE_SELECT 1
 
-/* Define to 1 if you have the <setjmp.h> header file. */
-#undef HAVE_SETJMP_H
-#define HAVE_SETJMP_H 1
-
 /* Define to 1 if you have the `setlocale' function. */
 #undef HAVE_SETLOCALE
 #define HAVE_SETLOCALE 1
+
+/* Define to 1 if you have the `sigaction' function. */
+#undef HAVE_SIGACTION
+
+/* Define to 1 if you have the `sigaltstack' function. */
+#undef HAVE_SIGALTSTACK
+
+/* Define to 1 if the system has the type `sighandler_t'. */
+#undef HAVE_SIGHANDLER_T
 
 /* Define to 1 if you have the <siginfo.h> header file. */
 #undef HAVE_SIGINFO_H
@@ -273,12 +314,15 @@
 #undef HAVE_SIGNAL_H
 #define HAVE_SIGNAL_H 1
 
-/* Define to 1 if you have the `sigsetmask' function. */
-#undef HAVE_SIGSETMASK
+/* Define to 1 if the system has the type `sig_t'. */
+#undef HAVE_SIG_T
 
 /* Define to 1 if you have the `socket' function. */
 #undef HAVE_SOCKET
 #define HAVE_SOCKET 1
+
+/* Define to 1 if the system has the type `socklen_t'. */
+#undef HAVE_SOCKLEN_T
 
 /* Define to 1 if you have the `sqrt' function. */
 #undef HAVE_SQRT
@@ -334,6 +378,9 @@
 /* Define to 1 if you have the `strtod' function. */
 #undef HAVE_STRTOD
 #define HAVE_STRTOD 1
+
+/* Define to 1 if the system has the type `struct ppc_thread_state'. */
+#undef HAVE_STRUCT_PPC_THREAD_STATE
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
@@ -484,6 +531,9 @@
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
 
+/* Name of package */
+#undef PACKAGE
+
 /* Define to the address where bug reports for this package should be sent. */
 #undef PACKAGE_BUGREPORT
 
@@ -519,17 +569,17 @@
    release 3. */
 #undef SETVBUF_REVERSED
 
-/* The size of a `long', as computed by sizeof. */
+/* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
 #define SIZEOF_LONG 4
 
-/* The size of a `void*', as computed by sizeof. */
+/* The size of `void*', as computed by sizeof. */
 #undef SIZEOF_VOIDP
 #define SIZEOF_VOIDP 4
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
-   automatically deduced at run-time.
+   automatically deduced at runtime.
     STACK_DIRECTION > 0 => grows toward higher addresses
     STACK_DIRECTION < 0 => grows toward lower addresses
     STACK_DIRECTION = 0 => direction of growth unknown */
@@ -543,6 +593,9 @@
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 #undef TM_IN_SYS_TIME
+
+/* Version number of package */
+#undef VERSION
 
 /* Define like PROTOTYPES; this can be used by system headers. */
 #undef __PROTOTYPES

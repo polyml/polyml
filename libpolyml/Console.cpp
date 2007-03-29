@@ -19,14 +19,7 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#include <commctrl.h>
-#include <commdlg.h>
-#else
 #include "winconfig.h"
-#endif
 
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
@@ -104,14 +97,9 @@ static char *lpszServiceName;
 
 static LPTSTR   lpArgs[100]; // Argument list.
 static int      nArgs;
-#ifdef _WIN32_WCE
-static HWND hCmdBar;
-#else
 static int initDDEControl(char *lpszName);
 static void uninitDDEControl(void);
 static DWORD dwDDEInstance;
-#endif
-
 
 // Default DDE service name.
 #define POLYMLSERVICE   "PolyML"
@@ -283,8 +271,6 @@ static void CheckForBufferSpace(int nChars)
                 nAvailable <= nNextPosn || nAvailable >= nReadPosn);
 }
 
-#ifndef _WIN32_WCE
-
 /* DDE requests.  DDE uses an internal window for communication and so all
    DDE operations on a particular instance handle have to be performed by
    the same thread.  That thread also has to check and process the message
@@ -360,7 +346,6 @@ LRESULT CALLBACK DDEWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
 }
-#endif // _WIN32_WCE
 
 /* In order to be able to handle all the keys we need to
    sub-class the edit control.  */ 
@@ -521,11 +506,7 @@ static BOOL CALLBACK AboutProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
     }
 }
 
-#ifdef _WIN32_WCE
-#define CF_TEXTFORMAT	CF_UNICODETEXT
-#else
 #define CF_TEXTFORMAT	CF_TEXT
-#endif
 
 /* This is the main window procedure. */
 LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -534,11 +515,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     { 
         case WM_CREATE:
             {
-#ifdef _WIN32_WCE
-		        hCmdBar = CommandBar_Create (hApplicationInstance, hwnd, 1);
-		        CommandBar_InsertMenubar(hCmdBar, hApplicationInstance, IDR_MENU, 0);
-		        CommandBar_AddAdornments(hCmdBar, 0, 0);
-#endif
                 hEditWnd = CreateWindow(_T("EDIT"), NULL,
                     WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
                     ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 
@@ -561,7 +537,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 #endif
                 fAtEnd = TRUE;
 
-#ifndef _WIN32_WCE
                 // Get a 10 point Courier fount.
                 HDC hDC = GetDC(hEditWnd);
                 int nHeight = -MulDiv(10, GetDeviceCaps(hDC, LOGPIXELSY), 72);
@@ -572,7 +547,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                     DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN,
                                     "Courier");
                 if (hFont) SendMessage(hEditWnd, WM_SETFONT, (WPARAM)hFont, 0);
-#endif
  
                 SendMessage(hEditWnd, WM_SETTEXT, 0, (LPARAM) "");
                 return 0; /* Succeeded */
@@ -587,12 +561,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_SIZE:
             {
                 LONG offset = 0;
-#ifdef _WIN32_WCE
-                RECT rect;
-                // Deduct the size of the command bar.
-                if (GetWindowRect(hCmdBar, &rect)) offset = rect.bottom - rect.top;
-                SendMessage(hCmdBar, TB_AUTOSIZE, 0L, 0L);
-#endif
                 // Make the edit control the size of the window's client area.
                 MoveWindow(hEditWnd, 0, offset, LOWORD(lParam), HIWORD(lParam)-offset, TRUE);
             }
@@ -618,11 +586,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     LPCTSTR lpszText;
                     OpenClipboard(hEditWnd);
                     hClip = GetClipboardData(CF_TEXTFORMAT);
-#ifdef _WIN32_WCE
-					lpszText = (LPCTSTR)hClip;
-#else
 					lpszText = (LPCTSTR)GlobalLock(hClip);
-#endif
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
@@ -652,9 +616,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     }
                     if (nAvailable != nReadPosn) SetEvent(hInputEvent);
                     LeaveCriticalSection(&csIOInterlock);
-#ifndef _WIN32_WCE
 					GlobalUnlock(hClip);
-#endif
                     CloseClipboard();
                 }
                 return 0; 
@@ -718,13 +680,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     } 
 } 
  
-#ifdef _WIN32_WCE
-void writeToConsole(LPCTSTR text)
-{
-	SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)text);
-}
-
-#else
 static DWORD WINAPI InThrdProc(LPVOID lpParameter)
 // This thread deals with input from the ML process.
 {
@@ -738,19 +693,13 @@ static DWORD WINAPI InThrdProc(LPVOID lpParameter)
         SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)buff);
     }
 }
-#endif
 
 static DWORD WINAPI MainThrdProc(LPVOID lpParameter)
 // This thread simply continues with the rest of the ML
 // initialistion.
 {
     exportDescription *exports = (exportDescription *)lpParameter;
-#ifdef _WIN32_WCE
-	// We would need to convert the args from Unicode.  Don't bother at the moment.
-    return polymain(0, 0, exports);
-#else
     return polymain(nArgs, lpArgs, exports);
-#endif
 }
 
 int PolyWinMain(
@@ -769,34 +718,20 @@ int PolyWinMain(
     hInputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     hApplicationInstance = hInstance;
 
-#ifdef _WIN32_WCE
-    INITCOMMONCONTROLSEX icEx;
-    memset(&icEx, 0, sizeof(icEx));
-    icEx.dwSize = sizeof(icEx);
-    icEx.dwICC = ICC_BAR_CLASSES;
-    icEx.dwICC = ICC_WIN95_CLASSES;
-    InitCommonControlsEx(&icEx);
-#endif
-
     // If we already have standard input and standard output we
     // don't replace them, otherwise we create a window and pipes
     // to connect it.  We use _get_osfhandle here because that
     // checks for handles passed in in the STARTUPINFO as well as
     // those inherited as standard handles.
-#ifndef _WIN32_WCE
     if (_get_osfhandle(fileno(stdin)) == -1 ||
         _get_osfhandle(fileno(stdout)) == -1)
     {
         WNDCLASSEX wndClass;
-#else
-        WNDCLASS wndClass;
-#endif
         ATOM atClass;
         // Allocate initial buffer space to maintain the invariants.
         nBuffLen = 80;
         pchInputBuffer = (char*)malloc(nBuffLen);
 
-#ifndef _WIN32_WCE
         if (!CreatePipe(&hReadFromML, &hWriteToScreen, NULL, 0)) {
             return 1;
         }
@@ -846,7 +781,6 @@ int PolyWinMain(
         HANDLE hInThread = CreateThread(NULL, 0, InThrdProc, 0, 0, &dwInId);
         CloseHandle(hInThread);
         wndClass.cbSize = sizeof(wndClass);
-#endif
         wndClass.style = 0;
         wndClass.lpfnWndProc = WndProc; 
         wndClass.cbClsExtra = 0;
@@ -856,17 +790,11 @@ int PolyWinMain(
         wndClass.hCursor = NULL; // For the moment 
         wndClass.hbrBackground = NULL; // For the moment
         wndClass.lpszClassName = _T("PolyMLWindowClass");
-#ifndef _WIN32_WCE
         wndClass.lpszMenuName = MAKEINTRESOURCE(IDR_MENU); 
 		wndClass.hIconSm = NULL; // For the moment
 		DWORD dwStyle = WS_OVERLAPPEDWINDOW;
 
         if ((atClass = RegisterClassEx(&wndClass)) == 0)
-#else
-		DWORD dwStyle = WS_VISIBLE;
-		wndClass.lpszMenuName = NULL; // Not supported in WCE
-		if ((atClass = RegisterClass(&wndClass)) == 0)
-#endif
         {
             return 1;
         }
@@ -891,13 +819,7 @@ int PolyWinMain(
         }
 
         ShowWindow(hMainWindow, nCmdShow);
-#ifdef _WIN32_WCE
-	    UpdateWindow(hMainWindow);
-	    if (hCmdBar)
-		    CommandBar_Show(hCmdBar, TRUE);
-#endif
         useConsole = 1;
-#ifndef _WIN32_WCE
     }
     else {
         // If we're not creating a window it's possible that we could still
@@ -973,7 +895,6 @@ int PolyWinMain(
     }
 
     initDDEControl(lpszServiceName);
-#endif
 
     // Call the main program to do the rest of the initialisation.
     hMainThread = CreateThread(NULL, 0, MainThrdProc, exports, 0, &dwInId);
@@ -995,17 +916,12 @@ int PolyWinMain(
 
     if (! GetExitCodeThread(hMainThread, &dwRes)) dwRes = 0;
 
-    CloseHandle(hMainThread);
-#ifndef _WIN32_WCE
     uninitDDEControl();
-#endif
     DestroyWindow(hDDEWindow);
     DeleteCriticalSection(&csIOInterlock);
     if (hInputEvent) CloseHandle(hInputEvent);
     return dwRes;
 }
-
-#ifndef _WIN32_WCE
 
 HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
                               HSZ hsz1, HSZ hsz2, HDDEDATA hdata,
@@ -1072,5 +988,3 @@ static void uninitDDEControl(void)
     // Unitialise DDE.
     DdeUninitialize(dwDDEInstance);
 }
-
-#endif

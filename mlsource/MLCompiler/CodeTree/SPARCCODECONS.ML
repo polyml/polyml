@@ -52,9 +52,9 @@ so that it is distinguishable from other addresses which point at the
 start of objects. 
 %g3 points to the top exception handler,
 %g4 is the stack pointer,
-%g5 is the stack limit,
+%g5 is the heap limit - previously the stack limit register,
 %g6 is the heap pointer,
-%g7 is the heap limit.
+%g7 is unused. This is used by the pthread library.
 
 %g1 and %g2 are available as work regs, as are the %l registers.
 
@@ -695,8 +695,10 @@ struct
   val codeSize = 8; (* Words. Initial size of segment. *)
   
   (* %i0 points to a structure that interfaces to the RTS.  These are
-     offsets into that structure.  Currently only raiseException is used. *)
+     offsets into that structure.  Currently only raiseException and
+     the stack limit value (used to interrupt code) are used. *)
   val MemRegRaiseException = 32
+  val MemRegStackLimit     = 24
 
 
   (* Test for identity of the code segments by testing whether
@@ -915,10 +917,7 @@ struct
     val i4M  = mReg i4;
     val i5M  = mReg i5;
     val pspM = mReg psp;
-    val g5M  = mReg g5;
     val g6M  = mReg g6;
-    val g7M  = mReg g7;
-    val g2M  = mReg g2
 
     val immed13_0  = immed13 0;
     val immed13_4  = immed13 4;
@@ -2449,8 +2448,10 @@ Calling conventions:
              must ensure that the instruction immediately before the
              trap is a comparison.  To do that we must make sure we don't
              move the comparison into a delay slot. *)
+          (* That may no longer be a problem now we have to load a reg first. *)
+          genLoad (MemRegStackLimit, i0, i3, cvec);
           reallyFixup cvec;
-          genCmp (psp, g5M, cvec);
+          genCmp (psp, i3M, cvec);
           genTrapls cvec
          )
       else ();
@@ -2477,9 +2478,9 @@ Calling conventions:
 	val imm = genImmedData (cvec, bytes); (* may generate code *)
       in
 	(* Decrement the store available (-maxint) and trap if it overflows. *)
-	(* sub %g6,bytes,%g6; tsubcctv %g7,bytes,%g7 *)
+	(* sub %g6,bytes,%g6; tsubcctv %g5,bytes,%g5 *)
 	genSub (g6, imm, g6, cvec);
-	genTsubcctv (g7, imm, g7, cvec) (* special case of tsubcctv *)
+        genTsubcctv (g5, imm, g5, cvec) (* special case of tsubcctv *)
       end;
      
       (* Set the size field of a newly allocated piece of store
@@ -3436,8 +3437,9 @@ itself. The worst-case code for the prelude would be:
    L3: or    %o7,2,%o7      (It's OK to fall through and do this again)
    L4: sethi yhi,%i5
        add   %i5,ylo,%i5
+       ld    [24+%i0],%i3
        sub   %psp,%i5,%psp
-       cmp   %i5,%g5
+       cmp   %i5,%i3
        tlu   16
       
 This assumes that both immediates (the offset of the constants section and
@@ -3450,8 +3452,9 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       
    L4: sethi yhi,%i5
        add   %i5,ylo,%i5
+       ld    [24+%i0],%i3
        sub   %psp,%i5,%psp
-       cmp   %i5,%g5
+       cmp   %i5,%i3
        tlu   16
 
 *****************************************************************************)    
@@ -3468,13 +3471,14 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val stackCheckCode =
         if stackRequired >= minStackCheck
         then let (* We need to check the stack. *)
+          val loadSL = format3_3 (LD, i0, immed13 MemRegStackLimit, i3)
           val (cl,loc) = immedCodeData (stackRequired * wordSize)
         in 
           (* get the "minimum" sp into i5 and trap if it is less 
              than the stack limit register. *)
-          cl @
+          loadSL :: cl @
           [format3_2 (SUB, psp, loc, i5), (* N.B. not "ADD" SPF 13/10/94 *)
-           format3_2 (SUBcc, i5, g5M, g0),
+           format3_2 (SUBcc, i5, i3M, g0),
            tlu16]
         end
            
@@ -3494,8 +3498,8 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
               This check is necessary because user interupts (^C)
               adjust the limit register precisely so this check will
               cause a trap is a "safe" state. *)
-           (* cmp g5,psp; tlu 16 *)
-           format3_2 (SUBcc, psp, g5M, g0),
+           format3_3 (LD, i0, immed13 MemRegStackLimit, i3),
+           format3_2 (SUBcc, psp, i3M, g0),
            tlu16
            ]
            

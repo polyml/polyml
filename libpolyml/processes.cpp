@@ -1,9 +1,8 @@
 /*
-    Title:      Lightweight process library
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
+    Title:      Thread functions
+    Author:     David C.J. Matthews
 
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
+    Copyright (c) 2007 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,15 +20,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -76,7 +70,7 @@
 #endif
 
 #ifdef HAVE_UNISTD_H
-#include <unistd.h>
+#include <unistd.h> // Want unistd for _SC_NPROCESSORS_ONLN at least
 #endif
 
 #ifdef HAVE_SYS_SELECT_H
@@ -85,6 +79,11 @@
 
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
+#endif
+
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#define HAVE_PTHREAD 1
+#include <pthread.h>
 #endif
 
 /************************************************************************
@@ -108,472 +107,590 @@
 #include "rts_module.h"
 #include "noreturn.h"
 #include "memmgr.h"
+#include "locking.h"
+#include "profiling.h"
+
+#ifdef WINDOWS_PC
+#include "Console.h"
+#endif
 
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-#define DEREFCHANHANDLE(_x)      ((ProcessChannel*)(_x)->WordP())
-#define DEREFSYNCHROHANDLE(_x)   ((synchroniser*)(_x)->WordP())
+// These values are stored in the second word of thread id object as
+// a tagged integer.  They may be set and read by the thread in the ML
+// code.  
+#define PFLAG_BROADCAST     1   // If set, accepts a broadcast
+// How to handle interrrupts
+#define PFLAG_IGNORE        0   // Ignore interrupts completely
+#define PFLAG_SYNCH         2   // Handle synchronously
+#define PFLAG_ASYNCH        4   // Handle asynchronously
+#define PFLAG_ASYNCH_ONCE   6   // First handle asynchronously then switch to synch.
+#define PFLAG_INTMASK       6   // Mask of the above bits
 
-/*******************************************************************
- *
- * The initial size of a stack frame. It can expand from this 
- * and need not be a power of 2. However it must be larger than 
- * 40 + the size of the base area in each stack frame, which is 
- * machine dependent. The figure 40 comes from 2*min_stack_check 
- * in the Poly code-generator. 
- *
- *******************************************************************/
 
-#define EMPTYSTRING (PolyObject*)IoEntry(POLY_SYS_emptystring)
+// Other threads may make requests to a thread.
+typedef enum {
+    kRequestNone = 0, // Increasing severity
+    kRequestInterrupt = 1,
+    kRequestKill = 2
+} ThreadRequests;
 
-#define ISZEROHANDLE(handle) ((int)DEREFHANDLE(handle) == TAGGED(0))
+class ProcessTaskData: public TaskData
+{
+public:
+    ProcessTaskData();
+    ~ProcessTaskData();
 
-#define MUTABLE(x) (OBJ_MUTABLE_BIT | (x))
+    virtual void Lock(void) {}
+    virtual void Unlock(void) {}
 
-#define NEWSTACK(len) ((StackObject *)alloc(len, F_MUTABLE_BIT|F_STACK_BIT))
-#define NEWSTACKHANDLE(len) (alloc_and_save(len, F_MUTABLE_BIT|F_STACK_BIT))
-#define NEWPROCESSHANDLE()   (alloc_and_save(sizeof(ProcessBase)/sizeof(PolyWord), F_MUTABLE_BIT))
-#define NEWSYNCHROHANDLE()   (alloc_and_save(sizeof(synchroniser)/sizeof(PolyWord), F_MUTABLE_BIT))
+    virtual void GarbageCollect(ScanAddress *process);
 
+    // If a thread has to block it will block on this.
+    PCondVar threadLock;
+    // External requests made are stored here until they
+    // can be actioned.
+    ThreadRequests requests;
+    // Pointer to the mutex when blocked. Set to NULL when it doesn't apply.
+    PolyObject *blockMutex;
+    // This is set to false when a thread blocks or enters foreign code,
+    // While it is true the thread can manipulate ML memory so no other
+    // thread can garbage collect.
+    bool inMLHeap;
+
+    // In Linux, at least, we need to run a separate timer in each thread
+    bool runningProfileTimer;
+
+#ifdef WINDOWS_PC
+    LONGLONG lastCPUTime; // Used for profiling
+#endif
+#ifdef HAVE_PTHREAD
+    pthread_t pthreadId;
+#elif (defined(HAVE_WINDOWS_H))
+    HANDLE threadHandle;
+#endif
+};
 
 class Processes: public ProcessExternal, public RtsModule
 {
 public:
-    Processes(): process_list(0), console_chain(0), alt_process_list(0), alt_console_chain(0),
-        no_of_processes(0), no_waiting(0), timerRunning(false), interrupt_exn(0) {}
+    Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0), wantGC(false), requestRTSState(krequestRTSNone) {}
     virtual void Init(void);
     virtual void Uninit(void);
     virtual void Reinit(void);
     void GarbageCollect(ScanAddress *process);
-private:
-    void GCProcessList(ScanAddress *process, ProcessBase * &plist);
 public:
-    ProcessBase *CurrentProcess(void) { return process_list; }
-    void SetCurrentProcess(ProcessBase *p) { process_list = p; }
-    unsigned RunQueueSize(void) { return no_of_processes+no_waiting; }
-
-    // Set up the next process in the chain to run when this returns..
-    void select_next_process(void);
-
-    // The current process has blocked. Find something else to do.
-    void select_a_new_process(void);
-
-    void StartStopInterruptTimer(void);
-    ProcessHandle fork_proc(Handle proc, SynchroHandle synchro, bool isConsole, Handle arg);
-    ProcessHandle make_new_root_proc(Handle proc);
-    void add_process(ProcessHandle p_base, unsigned state);
-    void remove_process(ProcessBase *to_kill);
-    void kill_process(ProcessBase *to_kill);
-    void interrupt_console_processes(void);
-    void interrupt_signal_processes(void);
-    void set_process_list(PolyObject *rootFunction);
-    void block_and_restart(int fd, int interruptable, int ioCall);
-    void block_and_restart_if_necessary(int fd, int ioCall);
-    ProcessHandle synchronise(ProcessBase **wchain, ProcessBase **pchain, int ioCall);
+    void BroadcastInterrupt(void);
+    void BeginRootThread(PolyObject *rootFunction);
+    void BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall);
+    void BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall);
     void SwitchSubShells(void);
+    // Return the task data for the current thread.
+    virtual TaskData *GetTaskDataForThread(void);
+    // Get all threads into the RTS.  Sets requestEnterRTS if schedLock is held
+    // otherwise interrupts the threads.
+    virtual void RequestThreadsEnterRTS(bool isSignal);
+    void RequestThreadsEnterRTSInternal(bool isSignal);
+    // Get all threads to exit.
+    virtual void KillAllThreads(void);
+    // ForkFromRTS.  Creates a new thread from within the RTS.
+    virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
+    // Create a new thread.  The "args" argument is only used for threads
+    // created in the RTS by the signal handler.
+    Handle ForkThread(ProcessTaskData *taskData, Handle threadFunction,
+                    Handle args, PolyWord flags);
+    // Process general RTS requests from ML.
+    Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
-    void killAll(void);
-private:
+    virtual void ThreadUseMLMemory(TaskData *taskData); 
+    virtual void ThreadReleaseMLMemory(TaskData *taskData);
+    // Storage allocation.  This is in here because we need to synchronise the threads
+    // if we want to garbage-collect.
+    PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
-    bool process_can_do_transfer(ProcessBase *proc);
-    void accept_this_choice(ProcessBase *proc);
-    bool separate_choices(ProcessBase *x, ProcessBase *y);
+    // If the schedule lock is already held we need to use these functions.
+    void ThreadUseMLMemoryWithSchedLock(TaskData *taskData);
+    void ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData);
+    // Begin and End garbage collection or similar actions that require the
+    // whole memory.  BeginGC only returns when every other thread has
+    // released its use of the ML memory.  They will then be blocked in
+    // ThreadUseMLMemory until the GC is complete.  If another thread has
+    // requested a GC already BeginGC will block until that has completed
+    // and then return false.  A thread should not call EndGC unless BeginGC
+    // has returned true.
+    virtual bool BeginGC(TaskData *taskData);
+    virtual void EndGC(TaskData *taskData);
 
-    ProcessBase *process_list;
-    ProcessBase *console_chain;
-    ProcessBase *alt_process_list;
-    ProcessBase *alt_console_chain;
+    // Deal with any interrupt or kill requests.
+    virtual void ProcessAsynchRequests(TaskData *taskData);
+    // Process an interrupt request synchronously.
+    virtual void TestSynchronousRequests(TaskData *taskData);
 
-    unsigned  no_of_processes;     // Number of processes.
-    unsigned  no_waiting;          // Number of those processes waiting for IO.
-    bool      timerRunning;
+    // Set a thread to be interrupted or killed.  Wakes up the
+    // thread if necessary.  MUST be called with taskArrayLock held.
+    void MakeRequest(ProcessTaskData *p, ThreadRequests request);
+
+    // Called when a thread has completed - doesn't return.
+    NORETURNFN(void ThreadExit(TaskData *taskData));
+
+    // Profiling control.
+    virtual void StartProfiling(void);
+    virtual void StopProfiling(void);
+
+#ifdef WINDOWS_PC
+    // Windows: Called every millisecond while profiling is on.
+    void ProfileInterrupt(void);
+#else
+    // Unix: Start a profile timer for a thread.
+    void StartProfilingTimer(void);
+#endif
+
+    // Called if this thread has attempted to allocate some memory, has
+    // garbage-collected but still not recovered enough.
+    virtual void MemoryExhausted(TaskData *taskData);
+
+    // Find a task that matches the specified identifier and returns
+    // it if it exists.  MUST be called with taskArrayLock held.
+    ProcessTaskData *TaskForIdentifier(Handle taskId);
+
+    // Each thread has an entry in this array.
+    ProcessTaskData **taskArray;
+    unsigned taskArraySize; // Current size of the array.
+
+    /* schedLock: This lock must be held when making scheduling decisions.
+       It must also be held before adding items to taskArray, removing
+       them or scanning the array.
+       It must also be held before deleting a TaskData object
+       or using it in a thread other than the "owner"  */
+    PLock schedLock;
+#ifdef HAVE_PTHREAD
+    pthread_key_t tlsId;
+#elif defined(HAVE_WINDOWS_H)
+    DWORD tlsId;
+#endif
 
 #ifdef HAVE_WINDOWS_H
-public:
-    HANDLE hStopEvent; /* Signalled to stop all threads. */
-private:
-    HANDLE hInterruptTimer; /* Interrupt timer thread. */
-#endif
-#ifndef WINDOWS_PC
-    /* The file descriptors currently active are held in the bits in this word.
-       Apart from processes waiting for IO streams the window system also needs to
-       be aware of window activity.
-       We don't use this for Windows because the task of determining which
-       devices have become available is just too complicated.  We rely on timing
-       out in that case.
-    */
-    fd_set file_desc;
+    HANDLE hWakeupEvent; // Pulsed to wake up any threads waiting for IO.
 #endif
 
-public:
+    // We make an exception packet for Interrupt and store it here.
+    // This exception can be raised if we run out of store so we need to
+    // make sure we have the packet before we do.
     poly_exn *interrupt_exn;
 
-    friend Handle install_subshells_c(Handle root_function);
-    friend Handle switch_subshells_c(void);
+    bool    wantGC;
+    PCondVar gcBegin; // One thread blocks on here until all the others have stopped.
+    PCondVar gcComplete; // All the threads block on here until the GC has completed.
+
+    // If we've had a signal we need to get a thread to enter the RTS.  Because a
+    // signal can arrive at any time we have to be careful how we deal with it.
+    enum {
+        krequestRTSNone,           // No outstanding request
+        krequestRTSInterrupted,    // The threads have been requested to trap
+        krequestRTSToInterrupt     // The lock was held and we need to requst a trap
+    } requestRTSState;
+
+#if defined(WINDOWS_PC)
+    // Used in profiling
+    HANDLE hStopEvent; /* Signalled to stop all threads. */
+    HANDLE profilingHd;
+#endif
 };
 
 // Global process data.
-Processes static processesModule;
+static Processes processesModule;
 ProcessExternal *processes = &processesModule;
 
-// These need to be globals since they're widely used.
-StackObject *poly_stack   = 0;    /* Stack of current process. */
-PolyWord    *end_of_stack = 0;  /* Address of the end of poly_stack. */
-
-inline POLYUNSIGNED GET_PROCESS_STATUS(ProcessBase *p) { return UNTAGGED(p->status) & PROCESS_STATUS; }
-
-static void SET_PROCESS_STATUS(ProcessBase *p, unsigned s)
+// Get the attribute flags.
+static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 {
-    if (GET_PROCESS_STATUS(p) == s) return;
-    POLYUNSIGNED oldStatus = GET_PROCESS_STATUS(p);
-    
-    p->status = TAGGED((oldStatus & ~PROCESS_STATUS) | s);
+    return UNTAGGED_UNSIGNED(taskData->threadObject->Get(1));
 }
 
+// As far as possible we want locking and unlocking an ML mutex to be fast so
+// we try to implement the code in the assembly code using appropriate
+// interlocked instructions.  That does mean that if we need to lock and
+// unlock an ML mutex in this code we have to use the same, machine-dependent,
+// code to do it.  These are defaults that are used where there is no
+// machine-specific code.
 
-/******************************************************************************/
-/*                                                                            */
-/*      send_on_channelc - called from sparc_assembly.s                       */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO2(send_on_channel, REF, REF, NOIND) */
-Handle send_on_channelc(Handle val, ChanHandle chan)
-/* Send a value on a channel. */
+// Increment the value contained in the first word of the mutex.
+// On most platforms this code will be done with a piece of assembly code.
+PLock mutexLock;
+
+Handle MachineDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
 {
-    ProcessHandle receiver;
-    
-    /* Save the value and channel in case we block. */
-    processesModule.CurrentProcess()->block_data = DEREFWORD(val);
-    processesModule.CurrentProcess()->block_channel = DEREFCHANHANDLE(chan);
-    
-    /* See if we can match up a receiver - if we cannot we do not return. */
-    receiver = processesModule.synchronise(&(DEREFCHANHANDLE(chan)->receivers),
-                           &(DEREFCHANHANDLE(chan)->senders),
-                           POLY_SYS_send_on_channel);
-    
-    /* Transfer the value. */
-    DEREFPROCHANDLE(receiver)->block_data = DEREFWORD(val);
-    
-    processesModule.CurrentProcess()->block_data = TAGGED(0);
-    processesModule.CurrentProcess()->block_channel = NO_CHANNEL;
-    return SAVE(TAGGED(0));
+    mutexLock.Lock();
+    PolyObject *p = DEREFHANDLE(mutexp);
+    // A thread can only call this once so the values will be short
+    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
+    p->Set(0, newValue);
+    mutexLock.Unlock();
+    return SAVE(newValue);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      receive_on_channelc - called from sparc_assembly.s                    */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO1(receive_on_channel, REF, NOIND) */
-Handle receive_on_channelc(ChanHandle chan)
+// Decrement the value contained in the first word of the mutex.
+Handle MachineDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
 {
-    ProcessHandle sender;
-    
-    /* Save the channel in case we block. */
-    processesModule.CurrentProcess()->block_channel = DEREFCHANHANDLE(chan);
-    
-    /* See if we can match up a sender - if we cannot we do not return. */
-    sender = processesModule.synchronise(&(DEREFCHANHANDLE(chan)->senders),
-                         &(DEREFCHANHANDLE(chan)->receivers),
-                         POLY_SYS_receive_on_channel);
-    return SAVE(DEREFPROCHANDLE(sender)->block_data); /* Get the value. */
+    mutexLock.Lock();
+    PolyObject *p = DEREFHANDLE(mutexp);
+    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
+    p->Set(0, newValue);
+    mutexLock.Unlock();
+    return SAVE(newValue);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      fork_proc - utility function - allocates in Poly heap                 */
-/*                                                                            */
-/******************************************************************************/
-ProcessHandle Processes::fork_proc(Handle proc, SynchroHandle synchro, bool isConsole, Handle arg)
-/* Fork a new process.  "arg" is either nil or a function argument. */
+// Called from interface vector.  Generally the assembly code will be
+// used instead of this.
+Handle AtomicIncrement(TaskData *taskData, Handle mutexp)
 {
-    /* Load the closure and make the pc local. */
-    ProcessHandle p_base = NEWPROCESSHANDLE();
-    Handle stack = NEWSTACKHANDLE(machineDependent->InitialStackSize());
-    machineDependent->InitStackFrame(stack, proc, arg);
-    DEREFPROCHANDLE(p_base)->stack = (StackObject*)DEREFWORDHANDLE(stack);
-    
-    POLYUNSIGNED status = PROCESS_RUNABLE; //  Ready to run. */
+    return machineDependent->AtomicIncrement(taskData, mutexp);
+}
 
-    DEREFPROCHANDLE(p_base)->block_data    = TAGGED(0);
-    DEREFPROCHANDLE(p_base)->block_channel = NO_CHANNEL;
-    
-    if (isConsole)
+// Called from interface vector.  Generally the assembly code will be
+// used instead of this.
+Handle AtomicDecrement(TaskData *taskData, Handle mutexp)
+{
+    return machineDependent->AtomicDecrement(taskData, mutexp);
+}
+
+// Return the thread object for the current thread.
+// On most platforms this will be done with a piece of assembly code.
+Handle ThreadSelf(TaskData *taskData)
+{
+    return SAVE(taskData->threadObject);
+}
+
+// Called from interface vector.  This is the normal entry point for
+// the thread functions.
+Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
+{
+    return processesModule.ThreadDispatch(taskData, args, code);
+}
+
+Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
+{
+    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    switch (c)
     {
-        status |= PROCESS_IS_CONSOLE;
-        DEREFPROCHANDLE(p_base)->console_link  = console_chain;
-        console_chain = DEREFPROCHANDLE(p_base);
-    }
-    else (DEREFPROCHANDLE(p_base))->console_link = NO_PROCESS;
+    case 1: /* A mutex was locked i.e. the count was ~1 or less.  We will have set it to
+               ~1. This code blocks if the count is still ~1.  It does actually return
+               if another thread tries to lock the mutex and hasn't yet set the value
+               to ~1 but that doesn't matter since whenever we return we simply try to
+               get the lock again. */
+        {
+            schedLock.Lock();
+            // We have to check the value again with schedLock held rather than
+            // simply waiting because otherwise the unlocking thread could have
+            // set the variable back to 1 (unlocked) and signalled any waiters
+            // before we actually got to wait.  
+            if (UNTAGGED(DEREFHANDLE(args)->Get(0)) < 0)
+            {
+                // Set this so we can see what we're blocked on.
+                ptaskData->blockMutex = DEREFHANDLE(args);
+                // Now release the ML memory.  A GC can start.
+                ThreadReleaseMLMemoryWithSchedLock(ptaskData);
+                // Wait until we're woken up.  We mustn't block if we have been
+                // interrupted, and are processing interrupts asynchronously, or
+                // we've been killed.
+                switch (ptaskData->requests)
+                {
+                case kRequestKill:
+                    // We've been killed.  Handle this later.
+                    break;
+                case kRequestInterrupt:
+                    {
+                        // We've been interrupted.  
+                        POLYUNSIGNED attrs = ThreadAttrs(ptaskData) & PFLAG_INTMASK;
+                        if (attrs == PFLAG_ASYNCH || attrs == PFLAG_ASYNCH_ONCE)
+                            break;
+                        // If we're ignoring interrupts or handling them synchronously
+                        // we don't do anything here.
+                    }
+                case kRequestNone:
+                    ptaskData->threadLock.Wait(&schedLock);
+                }
+                ptaskData->blockMutex = 0; // No longer blocked.
+                ThreadUseMLMemoryWithSchedLock(ptaskData);
+            }
+            // Return and try and get the lock again.
+            schedLock.Unlock();
+            // Test to see if we have been interrupted and if this thread
+            // processes interrupts asynchronously we should raise an exception
+            // immediately.  Perhaps we do that whenever we exit from the RTS.
+            return SAVE(TAGGED(0));
+       }
 
-    DEREFPROCHANDLE(p_base)->status = TAGGED(status);
-    
-    DEREFPROCHANDLE(p_base)->synchro = (synchro == 0 ? NO_SYNCH : DEREFSYNCHROHANDLE(synchro));
-    add_process(p_base, PROCESS_RUNABLE); /* allocates */
-    return p_base; 
-}
+    case 2: /* Unlock a mutex.  Called after incrementing the count and discovering
+               that at least one other thread has tried to lock it.  We may need
+               to wake up threads that are blocked. */
+        {
+            // The caller has already set the variable to 1 (unlocked).
+            // We need to acquire schedLock so that we can
+            // be sure that any thread that is trying to lock sees either
+            // the updated value (and so doesn't wait) or has successfully
+            // waited on its threadLock (and so will be woken up).
+            schedLock.Lock();
+            // Unlock any waiters.
+            for (unsigned i = 0; i < taskArraySize; i++)
+            {
+                ProcessTaskData *p = taskArray[i];
+                // If the thread is blocked on this mutex we can signal the thread.
+                if (p && p->blockMutex == DEREFHANDLE(args))
+                    p->threadLock.Signal();
+            }
+            schedLock.Unlock();
+            return SAVE(TAGGED(0));
+       }
 
-/******************************************************************************/
-/*                                                                            */
-/*      make_new_root_proc - utility function - allocates in Poly heap        */
-/*                                                                            */
-/******************************************************************************/
-ProcessHandle Processes::make_new_root_proc(Handle proc)
-// Create an initial root process.
-{
-    ProcessHandle p_base = NEWPROCESSHANDLE();
-    Handle stack = NEWSTACKHANDLE(machineDependent->InitialStackSize());
-    machineDependent->InitStackFrame(stack, proc, 0);
-      
-    DEREFPROCHANDLE(p_base)->stack = (StackObject*)DEREFWORDHANDLE(stack);
-    DEREFPROCHANDLE(p_base)->status        = TAGGED(PROCESS_RUNABLE|PROCESS_IS_CONSOLE); /* Ready to run. */
-    DEREFPROCHANDLE(p_base)->block_data    = TAGGED(0);
-    DEREFPROCHANDLE(p_base)->block_channel = NO_CHANNEL;
-    DEREFPROCHANDLE(p_base)->console_link  = NO_PROCESS;
-    DEREFPROCHANDLE(p_base)->synchro       = NO_SYNCH;
-    DEREFPROCHANDLE(p_base)->f_chain       = DEREFPROCHANDLE(p_base);
-    DEREFPROCHANDLE(p_base)->b_chain       = DEREFPROCHANDLE(p_base);
-    
-    return p_base; 
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      PROCESSES                                                             */
-/*                                                                            */
-/******************************************************************************/
-
-// Set up the next process in the chain to run when this returns.
-void Processes::select_next_process(void)
-{
-    process_list = process_list->f_chain;
-    int status = GET_PROCESS_STATUS(process_list);
-
-    if (status == PROCESS_IO_BLOCK || status == (PROCESS_IO_BLOCK | PROCESS_INTERRUPTABLE))
-    {
-        /* Try running it. If IO is not possible it will block immediately
-           by calling process_may_block. (Unless a console interrupt has
-           happened). */
-#ifndef WINDOWS_PC
-        int fd = UNTAGGED(process_list->block_data);
-        if (fd >= 0) FD_CLR(fd, &file_desc);
+    case 3: // Atomically drop a mutex and wait for a wake up.  
+        {
+            // The argument is a pair of a mutex and the time to wake up.  The time
+            // may be zero to indicate an infinite wait.  The return value is unit.
+            // It WILL NOT RAISE AN EXCEPTION unless it is set to handle exceptions
+            // asynchronously (which it shouldn't do if the ML caller code is correct).
+            // It may return as a result of any of the following:
+            //      an explicit wake up.
+            //      an interrupt, either direct or broadcast
+            //      a trap i.e. a request to handle an asynchronous event.
+            schedLock.Lock();
+            Handle mutexH = SAVE(args->WordP()->Get(0));
+            Handle wakeTime = SAVE(args->WordP()->Get(1));
+            // Atomically release the mutex.  This is atomic because we hold schedLock
+            // so no other thread can call signal or broadcast.
+            Handle decrResult = machineDependent->AtomicDecrement(taskData, mutexH);
+            if (UNTAGGED(decrResult->Word()) != 1)
+            {
+                DEREFHANDLE(mutexH)->Set(0, TAGGED(1)); // Set this to released.
+                // The mutex was locked so we have to release any waiters.
+                // Unlock any waiters.
+                for (unsigned i = 0; i < taskArraySize; i++)
+                {
+                    ProcessTaskData *p = taskArray[i];
+                    // If the thread is blocked on this mutex we can signal the thread.
+                    if (p && p->blockMutex == DEREFHANDLE(args))
+                        p->threadLock.Signal();
+                }
+            }
+            // Wait until we're woken up.  Don't block if we have been interrupted
+            // or killed.
+            if (ptaskData->requests == kRequestNone)
+            {
+                // Now release the ML memory.  A GC can start.
+                ThreadReleaseMLMemoryWithSchedLock(ptaskData);
+                // We pass zero as the wake time to represent infinity.
+                if (compareLong(taskData, wakeTime, SAVE(TAGGED(0))) == 0)
+                    ptaskData->threadLock.Wait(&schedLock);
+                else
+                {
+#ifdef HAVE_PTHREAD
+                    struct timespec tWake;
+                    // On Unix we represent times as a number of microseconds.
+                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
+                    tWake.tv_sec =
+                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, wakeTime)));
+                    tWake.tv_nsec =
+                        1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
+                    ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
+#elif defined(HAVE_WINDOWS_H)
+                    // On Windows it is the number of 100ns units since the epoch
+                    FILETIME tWake;
+                    get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
+                        (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
+                    ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
 #endif
-        no_waiting--;
-        SET_PROCESS_STATUS(process_list,PROCESS_RUNABLE);
-        StartStopInterruptTimer();
+                    // get_C_ulong and get_C_pair could possibly raise exceptions.
+                }
+                // We want to use the memory again.
+                ThreadUseMLMemoryWithSchedLock(ptaskData);
+            }
+            schedLock.Unlock();
+            return SAVE(TAGGED(0));
+        }
+
+    case 4: // Wake up the specified thread.  Returns false (0) if the thread has
+        // already been interrupted and is not ignoring interrupts or if the thread
+        // does not exist (i.e. it's been killed while waiting).  Returns true
+        // if it successfully woke up the thread.  The thread may subsequently
+        // receive an interrupt but we need to know whether we woke the thread
+        // up before that happened.
+        {
+            int result = 0; // Default to failed.
+            // Acquire the schedLock first.  This ensures that this is
+            // atomic with respect to waiting.
+            schedLock.Lock();
+            ProcessTaskData *p = TaskForIdentifier(args);
+            if (p && p->threadObject == args->WordP())
+            {
+                POLYUNSIGNED attrs = ThreadAttrs(p) & PFLAG_INTMASK;
+                if (p->requests == kRequestNone ||
+                    (p->requests == kRequestInterrupt && attrs == PFLAG_IGNORE))
+                {
+                    p->threadLock.Signal();
+                    result = 1;
+                }
+            }
+            schedLock.Unlock();
+            return SAVE(TAGGED(result));
+        }
+
+        // 5 and 6 are no longer used.
+
+    case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
+            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
+                        (Handle)0, args->WordP()->Get(1));
+
+    case 8: // Test if a thread is active
+        {
+            schedLock.Lock();
+            ProcessTaskData *p = TaskForIdentifier(args);
+            schedLock.Unlock();
+            return SAVE(TAGGED(p != 0));
+        }
+
+    case 9: // Send an interrupt to a specific thread
+        {
+            schedLock.Lock();
+            ProcessTaskData *p = TaskForIdentifier(args);
+            if (p) MakeRequest(p, kRequestInterrupt);
+            schedLock.Unlock();
+            if (p == 0)
+                raise_exception_string(taskData, EXC_thread, "Thread does not exist");
+            return SAVE(TAGGED(0));
+        }
+
+    case 10: // Broadcast an interrupt to all threads that are interested.
+        BroadcastInterrupt();
+        return SAVE(TAGGED(0));
+
+    case 11: // Interrupt this thread now if it has been interrupted
+        TestSynchronousRequests(taskData);
+        return SAVE(TAGGED(0));
+
+    case 12: // Kill a specific thread
+        {
+            schedLock.Lock();
+            ProcessTaskData *p = TaskForIdentifier(args);
+            if (p) MakeRequest(p, kRequestKill);
+            schedLock.Unlock();
+            if (p == 0)
+                raise_exception_string(taskData, EXC_thread, "Thread does not exist");
+            return SAVE(TAGGED(0));
+        }
+
+    case 13: // Return the number of processors.
+        // Returns 1 if there is any problem.
+        {
+#ifdef WIN32
+            SYSTEM_INFO info;
+            memset(&info, 0, sizeof(info));
+            GetSystemInfo(&info);
+            if (info.dwNumberOfProcessors == 0) // Just in case
+                info.dwNumberOfProcessors = 1;
+            return Make_unsigned(taskData, info.dwNumberOfProcessors);
+#elif(defined(_SC_NPROCESSORS_ONLN))
+            long res = sysconf(_SC_NPROCESSORS_ONLN);
+            if (res <= 0) res = 1;
+            return Make_arbitrary_precision(taskData, res);
+#elif(defined(HAVE_SYSCTL) && defined(CTL_HW) && defined(HW_NCP))
+            static int mib[2] = { CTL_HW, HW_NCP };
+            int nCPU = 1;
+            size_t len = sizeof(nCPU);
+            if (sysctl(mib, 2, &nCPU, &len, NULL, 0) == 0 && len == sizeof(nCPU))
+                 return Make_unsigned(taskData, nCPU);
+            else return Make_unsigned(taskData, 1);
+#else
+            // Can't determine.
+            return Make_unsigned(taskData, 1);
+#endif
+        }
+
+    default:
+        {
+            char msg[100];
+            sprintf(msg, "Unknown thread function: %d", c);
+            raise_exception_string(taskData, EXC_Fail, msg);
+			return 0;
+        }
     }
-    poly_stack   = process_list->stack;
-    end_of_stack = (PolyWord*)poly_stack + OBJECT_LENGTH(poly_stack);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      add_process - utility function - allocates                            */
-/*                                                                            */
-/******************************************************************************/
-void Processes::add_process(ProcessHandle p_base, unsigned state)
-/* Add a process to the runnable set. */
+ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
+        runningProfileTimer(false)
 {
-    SET_PROCESS_STATUS(DEREFPROCHANDLE(p_base),state); /* Either runable or unblocked. */
-    
-    if (process_list == NO_PROCESS)
-    { /* First process. */
-    /* Put THIS(p_base) process in.
-       The processes are on a doubly linked list. 
-  
-           BEFORE : -> PROCESSES  ---> NO_PROCESS 
-                    -- #########   
-
-                                                          (1)             (2)
-            AFTER : -> PROCESSES  --->  THIS  --\ 
-                                -- #########   /--  ####  <-/  
-                                                           \--->(3)               
-     */
-        process_list = DEREFPROCHANDLE(p_base);
-        DEREFPROCHANDLE(p_base)->f_chain = DEREFPROCHANDLE(p_base);
-        DEREFPROCHANDLE(p_base)->b_chain = DEREFPROCHANDLE(p_base);
-    }
-    else
-    { 
-    /* Put THIS(p_base) process in after the current one.
-       The processes are on a doubly linked list. 
-  
-           BEFORE : -> PROCESSES  --->  CURRENT -- 
-                    -- #########  <---  ####### <-
-
-                                                          (1)             (2)
-            AFTER : -> PROCESSES  --->  THIS  --->  CURRENT -- 
-                                -- #########  <---  ####  <---  ####### <-
-                                                           (3)             (4)
-     */
-        DEREFPROCHANDLE(p_base)->b_chain = process_list;
-        DEREFPROCHANDLE(p_base)->f_chain = process_list->f_chain;
-        process_list->f_chain = DEREFPROCHANDLE(p_base);
-        DEREFPROCHANDLE(p_base)->f_chain->b_chain = DEREFPROCHANDLE(p_base);
-    }
-    
-    no_of_processes++;
-    StartStopInterruptTimer();
+#ifdef WINDOWS_PC
+    lastCPUTime = 0;
+#endif
+#ifdef HAVE_PTHREAD
+    pthreadId = 0;
+#elif (defined(HAVE_WINDOWS_H))
+    threadHandle = 0;
+#endif
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      remove_process - utility function - doesn't allocate                  */
-/*                                                                            */
-/******************************************************************************/
-void Processes::remove_process(ProcessBase *to_kill)
-/* Remove a process from the runable set. May be because it has been killed
-   or because it is waiting for an event. */
+ProcessTaskData::~ProcessTaskData()
 {
-    /* Select a different process if this is the active one. */
-    if (to_kill == process_list)
-        process_list = to_kill->b_chain;
-    
-    /* Select this process if it is waiting for an event.
-    -> ->                       ---->
-    BEFORE : O  O  O     AFTER : O  ?  O
-    <-     <-                           <----
-    */
-    /* May already be waiting for an event. */
-    if (to_kill->f_chain != NO_PROCESS && to_kill->b_chain != NO_PROCESS)
+#if(!defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
+    if (threadHandle) CloseHandle(threadHandle);
+#endif
+}
+
+
+// Find a task that matches the specified identifier and returns
+// it if it exists.  MUST be called with taskArrayLock held.
+ProcessTaskData *Processes::TaskForIdentifier(Handle taskId)
+{
+    // The index is in the first word of the thread object.
+    unsigned index = UNTAGGED_UNSIGNED(taskId->WordP()->Get(0));
+    // Check the index is valid and matches the object stored in the table.
+    if (index < taskArraySize)
     {
-        /* Else - remove it from the chain. */
-        to_kill->f_chain->b_chain = to_kill->b_chain;
-        to_kill->b_chain->f_chain = to_kill->f_chain;
-        no_of_processes--;
-        
-        if (no_of_processes == 0)
-            process_list = NO_PROCESS;
-        StartStopInterruptTimer();
+        ProcessTaskData *p = taskArray[index];
+        if (p && p->threadObject == taskId->WordP())
+            return p;
     }
+    return 0;
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      fork_processc - called from sparc_assembly.s - allocates              */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO2(fork_process, REF, REF, IND) */
-ProcessHandle fork_processc(Handle console_handle, Handle proc) /* Handle to (ProcessBase *) */
-/* Fork a new process. Returns a reference to the process base. */
-{
-    bool console = get_C_long(DEREFWORDHANDLE(console_handle)) != 0;
-    
-    SynchroHandle synchro = SAVE(processesModule.CurrentProcess()->synchro);
-    
-    if (DEREFSYNCHROHANDLE(synchro) != NO_SYNCH &&
-        DEREFSYNCHROHANDLE(synchro)->synch_type != synch_par)
-        
-    {
-        SynchroHandle new_sync = NEWSYNCHROHANDLE();
-        
-        DEREFSYNCHROHANDLE(new_sync)->synch_type = synch_par;
-        DEREFSYNCHROHANDLE(new_sync)->synch_base = DEREFSYNCHROHANDLE(synchro);
-        
-        processesModule.CurrentProcess()->synchro = DEREFSYNCHROHANDLE(new_sync);
-        synchro = new_sync;
-    }
-    
-    return processesModule.fork_proc(proc, synchro, console, 0);
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      choice_processc - called from sparc_assembly.s                        */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO2(choice_process, REF, REF, NOIND) */
-Handle choice_processc(Handle proc1, Handle proc2)
-/* Fork two new processes, but only allow them to run until the first
-   successful read or write. The parent is not affected. */
-{
-    SynchroHandle synchro = SAVE(processesModule.CurrentProcess()->synchro);
-    SynchroHandle new_sync;
-    
-    /* If this is already a choice we have to run the new processes in parallel,
-    with the parent. */
-    
-    if (DEREFSYNCHROHANDLE(synchro) != NO_SYNCH &&
-        DEREFSYNCHROHANDLE(synchro)->synch_type != synch_par)
-    {
-        new_sync = NEWSYNCHROHANDLE();
-        DEREFSYNCHROHANDLE(new_sync)->synch_type = synch_par;
-        DEREFSYNCHROHANDLE(new_sync)->synch_base = DEREFSYNCHROHANDLE(synchro);
-        
-        processesModule.CurrentProcess()->synchro = DEREFSYNCHROHANDLE(new_sync);
-        synchro = new_sync;
-    }
-    
-    /* Now the synchroniser for the new processes. */
-    new_sync = NEWSYNCHROHANDLE();
-    
-    DEREFSYNCHROHANDLE(new_sync)->synch_type = synch_choice;
-    DEREFSYNCHROHANDLE(new_sync)->synch_base = DEREFSYNCHROHANDLE(synchro);
-    processesModule.fork_proc(proc1, new_sync, false, 0);
-    processesModule.fork_proc(proc2, new_sync, false, 0);
-    
-    return SAVE(TAGGED(0));
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      check_current_stack_size - utility function- allocates in Poly heap   */
-/*                                                                            */
-/******************************************************************************/
-void check_current_stack_size(PolyWord *lower_limit)
+void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
 /* Expands the current stack if it has grown. We cannot shrink a stack segment
    when it grows smaller because the frame is checked only at the beginning of
    a procedure to ensure that there is enough space for the maximum that can
    be allocated. */
 {
-    POLYUNSIGNED old_len; /* Current size of stack segment. */
-    POLYUNSIGNED new_len; /* New size */
-    POLYUNSIGNED min_size; /* This is the minimum space required on the stack. */
-    StackObject *new_stack;
-
     /* Get current size of new stack segment. */
-    old_len = OBJECT_LENGTH(poly_stack);
+    POLYUNSIGNED old_len = OBJECT_LENGTH(taskData->stack);
  
     /* The minimum size must include the reserved space for the registers. */
-    min_size = end_of_stack - lower_limit + poly_stack->p_space;
+    POLYUNSIGNED min_size = ((PolyWord*)taskData->stack) + old_len - lower_limit + taskData->stack->p_space;
     
     if (old_len >= min_size) return; /* Ok with present size. */
 
-    /* If it is too small double its size. */
-    /* BUT, the maximum size is 2^24 - 1 words. */
+    // If it is too small double its size.
+    // BUT, the maximum size is 2^24-1 words (on 32 bit) or 2^56-1 on 64 bit.
 
     if (old_len == MAX_OBJECT_SIZE)
     {
         /* Cannot expand the stack any further. */
         fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
-        machineDependent->SetException(poly_stack, processesModule.interrupt_exn);
+        // We really should do this only if the thread is handling interrupts
+        // asynchronously.  On the other hand what else do we do?
+        machineDependent->SetException(taskData, processesModule.interrupt_exn);
         return;
     }
 
+    POLYUNSIGNED new_len; /* New size */
     for (new_len = old_len; new_len < min_size; new_len *= 2);
     if (new_len > MAX_OBJECT_SIZE) new_len = MAX_OBJECT_SIZE;
 
     /* Must make a new frame and copy the data over. */
-    new_stack = NEWSTACK(new_len); // N.B.  May throw a C++ exception.
-    CopyStackFrame(poly_stack,new_stack);
-    /* Now change the frame into a byte segment. The reason for this is
-       that if the frame was read from persistent store it will be written
-       back when the database is committed even though it has been superceded
-       by a new frame. This will result in all the values accessible from the
-       old stack being written back even though they may not be required any
-       longer. Changing it into a byte segment will cause the garbage collector
-       and the persistent store system to ignore the contents. The stack
-       will be written back but not the values referred to from it.
-       NB - must remain a mutable segment. If it is the first item in a
-       persistent storage segment the mutable bit is used to see if the
-       segment should be removed from the mutable map after committing. */ 
-    poly_stack->SetLengthWord(OBJECT_LENGTH(poly_stack), F_BYTE_BIT|F_MUTABLE_BIT);
-    poly_stack = new_stack;
-    end_of_stack = (PolyWord*)new_stack + new_len;
-    
-    processesModule.CurrentProcess()->stack = poly_stack;
+    StackObject *new_stack = // N.B.  May throw a C++ exception.
+        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+    CopyStackFrame(taskData->stack, new_stack);
+    taskData->stack = new_stack;
 }
 
 /******************************************************************************/
@@ -581,10 +698,10 @@ void check_current_stack_size(PolyWord *lower_limit)
 /*      shrink_stack - called from sparc_assembly.s - allocates               */
 /*                                                                            */
 /******************************************************************************/
-Handle shrink_stack_c(Handle reserved_space)
+Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 /* Shrinks the current stack. */
 {
-    int reserved = get_C_long(DEREFWORDHANDLE(reserved_space));
+    int reserved = get_C_long(taskData, DEREFWORDHANDLE(reserved_space));
 
     int old_len; /* Current size of stack segment. */
     int new_len; /* New size */
@@ -593,350 +710,267 @@ Handle shrink_stack_c(Handle reserved_space)
 
     if (reserved < 0)
     {
-       raise_exception0(EXC_size);
+       raise_exception0(taskData, EXC_size);
     }
 
     /* Get current size of new stack segment. */
-    old_len = OBJECT_LENGTH(poly_stack);
+    old_len = OBJECT_LENGTH(taskData->stack);
  
     /* The minimum size must include the reserved space for the registers. */
-    min_size = (end_of_stack - (PolyWord*)poly_stack->p_sp) + poly_stack->p_space + reserved;
+    min_size = (((PolyWord*)taskData->stack) + old_len - (PolyWord*)taskData->stack->p_sp) + taskData->stack->p_space + reserved;
     
     for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
 
     if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
 
     /* Must make a new frame and copy the data over. */
-    new_stack = NEWSTACK(new_len);
-    CopyStackFrame(poly_stack,new_stack);
-    /* Now change the frame into a byte segment. The reason for this is
-       that if the frame was read from persistent store it will be written
-       back when the database is committed even though it has been superceded
-       by a new frame. This will result in all the values accessible from the
-       old stack being written back even though they may not be required any
-       longer. Changing it into a byte segment will cause the garbage collector
-       and the persistent store system to ignore the contents. The stack
-       will be written back but not the values referred to from it.
-       NB - must remain a mutable segment. If it is the first item in a
-       persistent storage segment the mutable bit is used to see if the
-       segment should be removed from the mutable map after committing. */ 
-    // The above probably doesn't apply any longer.  We don't export stacks.
-    poly_stack->SetLengthWord(OBJECT_LENGTH(poly_stack), F_BYTE_BIT|F_MUTABLE_BIT);
-    poly_stack = new_stack;
-    end_of_stack = (PolyWord*)new_stack + new_len;
-    
-    processesModule.CurrentProcess()->stack = poly_stack;
+    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+    CopyStackFrame(taskData->stack, new_stack);
+    taskData->stack = new_stack;    
     return SAVE(TAGGED(0));
 }
 
-// Raise a console interrupt in a specified process.  Also used in
-// interrupt_console_processes_c to raise interrupts in all console processes.
-Handle int_processc(ProcessHandle proc)
-{
-    if (GET_PROCESS_STATUS(DEREFPROCHANDLE(proc)) == PROCESS_BLOCKED) /* blocked on channel */
-    {
-        ProcessBase **p; /* NOT a handle */
-        
-        /* Remove this process from this senders and receivers for that channel */
-        
-        for (p = &(DEREFPROCHANDLE(proc)->block_channel->senders);
-             *p != NO_PROCESS;
-             p = &((*p)->b_chain))
-        {
-            if (*p == DEREFPROCHANDLE(proc))
-            {
-                *p = (*p)->b_chain;
-                break;
-            }
-        }
-        
-        for (p = & DEREFPROCHANDLE(proc)->block_channel->receivers;
-             *p != NO_PROCESS;
-             p = & (*p)->b_chain)
-        {
-            if (*p == DEREFPROCHANDLE(proc))
-            {
-                *p = (*p)->b_chain;
-                break;
-            }
-        }
-        
-        processesModule.add_process(proc, PROCESS_RUNABLE); /* allocates */
-    }
-    
-    machineDependent->SetException(DEREFPROCHANDLE(proc)->stack, processesModule.interrupt_exn);
-    
-    return SAVE(TAGGED(0));
-}
-
-/* CALL_IO0(interrupt_console_processes_,NOIND) */
-/* int interrupt_console_processes_c() */
-Handle interrupt_console_processes_c(void)
-{
-    processesModule.interrupt_console_processes();
-    THROW_RETRY; // Actually we've raised an exception
-	/*NOTREACHED*/
-#ifdef _WIN32_WCE
-	return 0;
-#endif
-}
-
-void Processes::killAll(void)
-{
-    process_list = NO_PROCESS;
-    console_chain = NO_PROCESS;
-    no_waiting = 0;
-    no_of_processes = 0;
-    StartStopInterruptTimer();
-}
-
-/* CALL_IO1(install_root, REF, NOIND) */
-Handle install_rootc(Handle proc)
+// This is only ever used when compiling the compiler in an
+// interactive session.
+Handle install_rootc(TaskData *, Handle proc)
 /* Installs a new procedure as the root. This involves killing all the processes
    and starting a new process with this root. */
 {
-    processesModule.killAll();
-    processesModule.fork_proc(proc, (SynchroHandle)0, true, 0);
-    processesModule.select_a_new_process();
-    THROW_RETRY; // Because the current process has been killed
-    /*NOTREACHED*/
-#ifdef _WIN32_WCE
-	return 0;
+    processesModule.BeginRootThread(DEREFHANDLE(proc)); // Should never return.
+    finish(0); // If it does.
+}
+
+// Broadcast an interrupt to all relevant threads.
+void Processes::BroadcastInterrupt(void)
+{
+    // If a thread is set to accept broadcast interrupts set it to
+    // "interrupted".
+    schedLock.Lock();
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        ProcessTaskData *p = taskArray[i];
+        if (p)
+        {
+            POLYUNSIGNED attrs = ThreadAttrs(p);
+            if (attrs & PFLAG_BROADCAST)
+                MakeRequest(p, kRequestInterrupt);
+        }
+    }
+    schedLock.Unlock();
+}
+
+// There is no memory to satisfy the request from this thread. Just raises
+// an exception in this thread.
+void Processes::MemoryExhausted(TaskData *taskData)
+{
+    // This may raise an exception in a thread that isn't expecting
+    // asynchronous exceptions.  Since this is really a last ditch
+    // attempt it's probably the easiest way to deal with it.
+    machineDependent->SetException(taskData, interrupt_exn);
+}
+
+// Set the asynchronous request variable for the thread.  Must be called
+// with the schedLock held.  Tries to wake the thread up if possible.
+void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
+{
+    // We don't override a request to kill by an interrupt request.
+    if (p->requests < request)
+    {
+        p->requests = request;
+        machineDependent->InterruptCode(p);
+        p->threadLock.Signal();
+        // Set the value in the ML object as well so the ML code can see it
+        p->threadObject->Set(3, TAGGED(request));
+    }
+#ifdef HAVE_WINDOWS_H
+    // Wake any threads waiting for IO
+    PulseEvent(hWakeupEvent);
 #endif
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      kill_process - utility function - doesn't allocate                    */
-/*                                                                            */
-/******************************************************************************/
-void Processes::kill_process(ProcessBase *to_kill)
-/* Kill a process. Used when a process dies or when it tries to do a transfer
-   after a different choice has already been taken. There is no mechanism
-   for one process to kill another. */
+void Processes::ThreadExit(TaskData *taskData)
 {
-    /* Remove process to_kill from the process chain. */
-    remove_process(to_kill);
-    
-    if (UNTAGGED(to_kill->status) & PROCESS_IS_CONSOLE)
-    {
-        /* Remove it from the console chain. */
-        ProcessBase **consoles /* NOT a handle */ = &console_chain;
-        
-        while(*consoles != NO_PROCESS && *consoles != to_kill)
-        {
-            consoles = &(*consoles)->console_link;
-        }
-        
-        if (*consoles != NO_PROCESS)
-            *consoles = (*consoles)->console_link;
-    }
+    schedLock.Lock();
+    ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
+    // Remove this from the taskArray
+    unsigned index = UNTAGGED(taskData->threadObject->Get(0));
+    if (index < taskArraySize && taskArray[index] == taskData)
+        taskArray[index] = 0;
+    delete(taskData);
+    schedLock.Unlock();
+#ifdef HAVE_PTHREAD
+    pthread_exit(0);
+#elif defined(HAVE_WINDOWS_H)
+    ExitThread(0);
+#else
+    finish(0);
+#endif
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      interrupt_console_processes - utility function - allocates            */
-/*                                                                            */
-/******************************************************************************/
-void Processes::interrupt_console_processes(void)
+// These two functions are used for calls from outside where
+// the lock has not yet been acquired.
+void Processes::ThreadUseMLMemory(TaskData *taskData)
 {
-    /* changed 8/11/93 SPF - now uses handles for safety */
-    Handle saved = gSaveVec->mark();
-    ProcessHandle p = SAVE(console_chain);
-    while (DEREFPROCHANDLE(p) != NO_PROCESS) {
-        int_processc(p); /* allocates! */
-        gSaveVec->reset(saved);
-        p = SAVE(DEREFPROCHANDLE(p)->console_link);
-    }
+    // Trying to acquire the lock here may block if a GC is in progress
+    schedLock.Lock();
+    ThreadUseMLMemoryWithSchedLock(taskData);
+    schedLock.Unlock();
+    if (requestRTSState == krequestRTSToInterrupt) // The lock was held when we did this before.
+        RequestThreadsEnterRTS(true);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      interrupt_signal_processes - utility function - allocates             */
-/*                                                                            */
-/******************************************************************************/
-/* When a signal is received any process which is waiting for a Posix system
-   call should instead be interrupted as though the call had failed with
-   EINTR.  At the moment this is limited to a few special cases. */
-void Processes::interrupt_signal_processes(void)
+void Processes::ThreadReleaseMLMemory(TaskData *taskData)
 {
-    Handle exc =
-        make_exn(EXC_syserr, create_syscall_exception("Call interrupted by signal", EINTR));
-    ASSERT(no_of_processes > 0);
-
-    Handle saved = gSaveVec->mark();
-    ProcessHandle p = SAVE(process_list);
-    do 
-    {
-        if ((GET_PROCESS_STATUS(DEREFPROCHANDLE(p)) & PROCESS_INTERRUPTABLE) ==
-            PROCESS_INTERRUPTABLE)
-        {
-            SET_PROCESS_STATUS(DEREFPROCHANDLE(p), PROCESS_RUNABLE);
-            machineDependent->SetException(DEREFPROCHANDLE(p)->stack,
-                DEREFEXNHANDLE(exc));
-            no_waiting--;
-        }
-        gSaveVec->reset(saved);
-        p = SAVE(DEREFPROCHANDLE(p)->f_chain);
-    } while (DEREFPROCHANDLE(p) != process_list);
-    StartStopInterruptTimer();
+    schedLock.Lock();
+    ThreadReleaseMLMemoryWithSchedLock(taskData);
+    schedLock.Unlock();
 }
 
-// The current process has blocked. Find something else to do.
-void Processes::select_a_new_process(void)
+void Processes::ThreadUseMLMemoryWithSchedLock(TaskData *taskData)
 {
-    /* Deal with any pending interrupts. */
-    execute_pending_interrupts();
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    while (wantGC)
+    {
+        // Allow the GC to happen.  Waiting here on gcComplete ensures that
+        // the GC thread has actually been allowed to run.  If it has it
+        // will have taken schedLock and we won't have got this far but if
+        // we call ThreadReleaseMLMemoryWithSchedLock and then call
+        // ThreadUseMLMemoryWithSchedLock shortly afterwards there may not
+        // have been enough time for the signal to get through.
+        gcBegin.Signal();
+        gcComplete.Wait(&schedLock);
+    }
+    ASSERT(! ptaskData->inMLHeap);
+    ptaskData->inMLHeap = true;
+}
 
-    /* Should we block the Unix process? */
-    if (no_of_processes == 0)
-    { /* No processes able to run. */
-        if (console_chain == NO_PROCESS) finish(0);
+void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
+{
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    ASSERT(ptaskData->inMLHeap);
+    ptaskData->inMLHeap = false;
+    // Put a dummy object in any unused space.  This maintains the
+    // invariant that the allocated area is filled with valid objects.
+    if (ptaskData->allocPointer > ptaskData->allocLimit)
+    {
+        PolyObject *dummy = (PolyObject *)(ptaskData->allocLimit+1);
+        POLYUNSIGNED space = ptaskData->allocPointer-ptaskData->allocLimit-1;
+        // Make this a byte object so it's always skipped.
+        dummy->SetLengthWord(space, F_BYTE_BIT);
+    }
+    if (wantGC) // A thread is waiting to do a GC.  Wake it up because it may now be able to run.
+        gcBegin.Signal();
+}
 
-        fputs("Processes have deadlocked. Interrupting console processes.\n",stdout);
-        interrupt_console_processes();
+bool Processes::BeginGC(TaskData *taskData)
+{
+    schedLock.Lock();
+    bool wasGC = wantGC; // Does another thread want to do a GC?
+    // Allow another thread to GC if it wants to.
+    ThreadReleaseMLMemoryWithSchedLock(taskData);
+    ThreadUseMLMemoryWithSchedLock(taskData);
+    // If another thread has just done a GC we may now be able
+    // to satisfy our memory needs.  Don't start another GC here.
+    if (wasGC)
+    {
+        schedLock.Unlock(); // Unlock the lock before returning.
+        return false;
     }
 
-    if (no_waiting == no_of_processes)
+    // We want to do a garbage collection.
+    // We already have schedLock.
+    wantGC = true;
+    bool allStopped = false;
+
+    while (! allStopped)
     {
-        /* All our processes are waiting for input or timers. We need
-           to block the OS process.  Ideally we would wait until one of
-           the events was ready and then return.  Once we return
-           select_next_process will schedule the next process in the
-           chain.  If that is not ready for IO now or its timer has
-           not yet expired we'll come back here, possibly block again,
-           and then schedule another process.  We can do that approximately
-           in Unix when we are reading by passing in the file descriptors.
-           We use "select" to check all the file descriptors for processes
-           which have blocked on reading.  select_next_process removes the
-           file descriptor from the set before retrying a process.  If the
-           process we start isn't the one that's ready select will return
-           immediately when we come here and we'll ripple through the processes
-           until we come to the right one.  It's only approximate because
-           we ignore blocking on writing, reading high-priority data from
-           sockets, blocking in "poll", blocking on a timer or the possibility
-           that there might be two processes both trying to read from the
-           same stream.  We deal with all of these by having a timer and
-           retrying whenever the timer goes off.  */
-#ifdef WINDOWS_PC
-        /* It's too complicated in Windows to try and wait for input.
-           We simply wait for half a second or until some input arrives.
-           If the stop event is signalled we exit. */
-
+        allStopped = true;
+        for (unsigned i = 0; i < taskArraySize; i++)
         {
-            /* We seem to need to reset the queue before calling
-               MsgWaitForMultipleObjects otherwise it frequently returns
-               immediately, often saying there is a message with a message ID
-               of 0x118 which doesn't correspond to any listed message.
-               While calling PeekMessage afterwards might be better this doesn't
-               seem to work properly.  We need to use MsgWaitForMultipleObjects
-               here so that we get a reasonable response with the Windows GUI. */
-            MSG msg;
-            // N.B.  It seems that calling PeekMessage may result in a callback
-            // to a window proc directly without a call to DispatchMessage.  That
-            // could result in a recursive call here if we have installed an ML
-            // window proc.
-            PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
-
-            switch (MsgWaitForMultipleObjects(1, &hStopEvent, FALSE, 500, QS_ALLINPUT))
+            ProcessTaskData *p = taskArray[i];
+            if (p && p != taskData && p->inMLHeap)
             {
-            case WAIT_OBJECT_0: /* stopEvent has been signalled. */ ExitThread(0);
-            case WAIT_OBJECT_0 + 1: /* new input is available. */
-                break;
+                allStopped = false;
+                // It must be running - interrupt it.
+                machineDependent->InterruptCode(p);
             }
         }
-#else
-        fd_set read_fds, write_fds, except_fds;
-        struct timeval toWait = { 0, 500000 }; /* Half a second. */
-
-        /* copy file_desc because select modifies its arguments */
-        read_fds = file_desc;
-        FD_ZERO(&write_fds);
-        FD_ZERO(&except_fds);
-        select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait);
-        /* select may also return if our timer goes off or if we've had ctrl-C. */
-#endif
+        // Wait until they are all stopped.
+        if (! allStopped)
+            gcBegin.Wait(&schedLock);
     }
-
-    /* Do another process. */
-    select_next_process();
+    return true; // Everything else is now stopped.
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      kill_selfc - called from sparc_assembly.s                             */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO0(kill_self, NOIND) */
-Handle kill_selfc(void)
-/* A call to this is put on the stack of a new process so when the procedure
-   returns the process goes away. */  
+void Processes::EndGC(TaskData *taskData)
 {
-    processesModule.kill_process(processesModule.CurrentProcess());
-    processesModule.select_a_new_process();
-    THROW_RETRY; // Current process has been killed so can't return.
-   /*NOTREACHED*/
-#ifdef _WIN32_WCE
-	return 0;
-#endif
+    wantGC = false;
+    gcComplete.Signal(); // Wake up any waiting threads.
+    schedLock.Unlock();
 }
 
-
-#ifndef WINDOWS_PC
-void process_may_block(int fd, int ioCall)
-/* A process is about to read from a file descriptor which may cause it to
-   block. It returns only if the process will not block. Otherwise it waits
-   for a signal such as SIGALRM. */
+Handle exitThread(TaskData *taskData)
+/* A call to this is put on the stack of a new thread so when the
+   thread function returns the thread goes away. */  
 {
-#ifdef __CYGWIN__
-      static struct timeval poll = {0,1};
-#else
-      static struct timeval poll = {0,0};
-#endif
-      fd_set read_fds;
-      int selRes;
-  
-      FD_ZERO(&read_fds);
-      FD_SET((int)fd,&read_fds);
-
-      /* If there is something there we can return. */
-      selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
-      if (selRes > 0) return; /* Something waiting. */
-      else if (selRes < 0 && errno != EINTR) Crash("select failed %d\n", errno);
-      /* Have to block unless this is the only process. */
-      processesModule.block_and_restart_if_necessary(fd, ioCall);
+    processesModule.ThreadExit(taskData);
 }
 
-#endif
 
-void Processes::block_and_restart(int fd, int interruptable, int ioCall)
+void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
 /* The process is waiting for IO or for a timer.  Suspend it and
    then restart it later.  fd may be negative if the file descriptor
    value is not relevant.
    If this is interruptable (currently only used for Posix functions)
    the process will be set to raise an exception if a signal is handled. */
 {
-    int status = PROCESS_IO_BLOCK;
-    if (interruptable) status |= PROCESS_INTERRUPTABLE;
+    machineDependent->SetForRetry(taskData, ioCall);
+    TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
+    ThreadReleaseMLMemory(taskData);
+#ifdef WINDOWS_PC
+    /* It's too complicated in Windows to try and wait for a stream.
+       We simply wait for half a second or until a Windows message
+       arrives. */
 
-    SET_PROCESS_STATUS(process_list, status);
-    process_list->block_data = TAGGED((int)fd);
-    
-    /* Suspend this process for the moment. */
-    machineDependent->SetForRetry(ioCall);
-    no_waiting++;
-    StartStopInterruptTimer();
-#ifndef WINDOWS_PC
-    /* Add the file descriptor to the set.  fd may be < 0 if the reason
-       we blocked was other than for reading. */
-    if (fd >= 0) FD_SET(fd,&file_desc);
+    /* We seem to need to reset the queue before calling
+       MsgWaitForMultipleObjects otherwise it frequently returns
+       immediately, often saying there is a message with a message ID
+       of 0x118 which doesn't correspond to any listed message.
+       While calling PeekMessage afterwards might be better this doesn't
+       seem to work properly.  We need to use MsgWaitForMultipleObjects
+       here so that we get a reasonable response with the Windows GUI. */
+    MSG msg;
+    // N.B.  It seems that calling PeekMessage may result in a callback
+    // to a window proc directly without a call to DispatchMessage.  That
+    // could result in a recursive call here if we have installed an ML
+    // window proc.
+    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
+
+    // Wait until we get input or we're woken up.
+    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, 500, QS_ALLINPUT);
+#else
+    fd_set read_fds, write_fds, except_fds;
+    struct timeval toWait = { 0, 500000 }; /* Half a second. */
+
+    FD_ZERO(&read_fds);
+    if (fd >= 0) FD_SET(fd, &read_fds);
+    FD_ZERO(&write_fds);
+    FD_ZERO(&except_fds);
+    if (select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait) < 0 &&
+            errno == EINTR && posixInterruptable)
+    {
+        ThreadUseMLMemory(taskData);
+        raise_syscall(taskData, "Call interrupted by signal", EINTR);
+    }
 #endif
-    select_a_new_process();
-    THROW_RETRY;
+    ThreadUseMLMemory(taskData);
+    TestSynchronousRequests(taskData); // Check if we've been interrupted.
+
+    throw IOException(EXC_EXCEPTION);
     /* NOTREACHED */
 }
 
-void Processes::block_and_restart_if_necessary(int fd, int ioCall)
+void Processes::BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall)
 /* Similar to block_and_restart except that this can return if there
    is only one process.  It can be called before a system call, e.g.
    "read", so that we can block if there is nothing else to do. */
@@ -958,487 +992,643 @@ void Processes::block_and_restart_if_necessary(int fd, int ioCall)
     */
     /* if (no_of_processes == 1) return; */
 
-    block_and_restart(fd, 0, ioCall);
+    BlockAndRestart(taskData, fd, false, ioCall);
     /* NOTREACHED */
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      process_can_do_transfer - utility function - doesn't allocate         */
-/*                                                                            */
-/******************************************************************************/
-bool Processes::process_can_do_transfer(ProcessBase *proc)
-/* Can a process do a read or a write? */
+// Get the task data for the current thread.  This is held in
+// thread-local storage.  Normally this is passed in taskData but
+// in a few cases this isn't available.
+TaskData *Processes::GetTaskDataForThread(void)
 {
-    synchroniser *synchr;
-    for (synchr = proc->synchro; synchr != NO_SYNCH; synchr = synchr->synch_base)
-    {
-        if (synchr->synch_type == synch_taken) return false; /* Must kill it. */
-    }
-    return true; /* Ok. */
+#ifdef HAVE_PTHREAD
+    return (TaskData *)pthread_getspecific(tlsId);
+#elif defined(HAVE_WINDOWS_H)
+    return (TaskData *)TlsGetValue(tlsId);
+#else
+    // If there's no threading.
+    return taskArray[0];
+#endif
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      accept_this_choice - utility function - doesn't allocate              */
-/*                                                                            */
-/******************************************************************************/
-void Processes::accept_this_choice(ProcessBase *proc)
-/* Decide to accept this choice. Set all "choices" to "taken", and set
-   all the links to zero so that "pars" in this choice can continue. */
+// This function is run when a new thread has been forked.  The
+// parameter is the taskData value for the new thread.  This function
+// is also called directly for the main thread.
+#ifdef HAVE_PTHREAD
+static void *NewThreadFunction(void *parameter)
 {
-    synchroniser *synchro, *next_sync;
-    
-    for (synchro = proc->synchro; synchro != NO_SYNCH; synchro = next_sync)
+    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    pthread_setspecific(processesModule.tlsId, taskData);
+    processes->ThreadUseMLMemory(taskData);
+    (void)EnterPolyCode(taskData); // Will normally (always?) call finish directly
+    return 0;
+}
+#elif defined(HAVE_WINDOWS_H)
+static DWORD WINAPI NewThreadFunction(void *parameter)
+{
+    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    TlsSetValue(processesModule.tlsId, taskData);
+    processes->ThreadUseMLMemory(taskData);
+    (void)EnterPolyCode(taskData);
+    return 0;
+}
+#else
+static void NewThreadFunction(void *parameter)
+{
+    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    processes->ThreadUseMLMemory(taskData);
+    (void)EnterPolyCode(taskData);
+}
+#endif
+
+// Sets up the initial thread from the root function.  This is run on
+// the initial thread of the process so it will work if we don't
+// have pthreads.
+void Processes::BeginRootThread(PolyObject *rootFunction)
+{
+    if (taskArraySize < 1)
     {
-        if (synchro->synch_type == synch_choice)
-            synchro->synch_type = synch_taken;
-        next_sync = synchro->synch_base;
-        synchro->synch_base = NO_SYNCH;
+        taskArray = (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *));
+        taskArraySize = 1;
     }
-    /* This process can continue without further problems. */
-    proc->synchro = NO_SYNCH;
+    // The root thread has to be handled differently from the other
+    // threads because we don't have a taskData object before we start
+    ProcessTaskData *taskData = new ProcessTaskData;
+    taskData->mdTaskData = machineDependent->CreateTaskData();
+    taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
+    taskData->threadObject->index = TAGGED(0); // Index 0
+    // The initial thread is set to accept broadcast interrupt requests
+    // and handle them synchronously.  This is for backwards compatibility.
+    taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
+    taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+    taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+#ifdef HAVE_PTHREAD
+    taskData->pthreadId = pthread_self();
+#elif defined(HAVE_WINDOWS_H)
+    taskData->threadHandle = hMainThread;
+#endif
+    taskArray[0] = taskData;
+
+    Handle stack =
+        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_BIT);
+    taskData->stack = (StackObject *)DEREFHANDLE(stack);
+    machineDependent->InitStackFrame(taskData, stack,
+            taskData->saveVec.push(rootFunction), (Handle)0);
+
+    // Create a packet for the Interrupt exception once so that we don't have to
+    // allocate when we need to raise it.
+    // We can only do this once the taskData object has been created.
+    if (interrupt_exn == 0)
+        interrupt_exn =
+            DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
+
+    // Enter the code as if this were a new thread.
+    NewThreadFunction(taskData);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      separate_choices - utility function - doesn't allocate                */
-/*                                                                            */
-/******************************************************************************/
-bool Processes::separate_choices(ProcessBase *x, ProcessBase *y)
-/* If we have two process wanting to exchange information we cannot do it
-   if they are alternative choices. */ 
+// Create a new thread.  Returns the ML thread identifier object if it succeeds.
+// May raise an exception.
+Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
+                           Handle args, PolyWord flags)
 {
-    synchroniser *sx, *sy;
-    
-    for(sx = x->synchro; sx != NO_SYNCH; sx = sx->synch_base)
-    {
-        for(sy = y->synchro; sy != NO_SYNCH; sy = sy->synch_base)
-        {
-            if (sx == sy) /* Found the common element. */
-                return (sx->synch_type == synch_par); /* Ok if parallel. */
-        }
-    }
-    return true; /* Nothing in common - ok */
-} 
+#if (!defined(HAVE_PTHREAD) && ! defined(HAVE_WINDOWS_H))
+    raise_exception_string(taskData, EXC_thread, "Threads not available on this platform");
+#else
+    // Create a taskData object for the new thread
+    ProcessTaskData *newTaskData = new ProcessTaskData;
+    newTaskData->mdTaskData = machineDependent->CreateTaskData();
+    // We allocate the thread object in the PARENT's space
+    Handle threadId = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
+    newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
+    newTaskData->threadObject->index = TAGGED(0);
+    newTaskData->threadObject->flags = flags; // Flags
+    newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+    newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
 
+    unsigned thrdIndex;
+    schedLock.Lock();
+    // See if there's a spare entry in the array.
+    for (thrdIndex = 0;
+         thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
+         thrdIndex++);
 
-/******************************************************************************/
-/*                                                                            */
-/*      synchronise - utility function - allocates                            */
-/*                                                                            */
-/******************************************************************************/
-ProcessHandle Processes::synchronise(ProcessBase **wchain, ProcessBase **pchain, int ioCall)
-/* Tries to find a process to match with this one, and adds the current process
-   to the waiting list if it can't find one. Normally if there is a process on
-   the "wchain" it will be the one that will be chosen, however it may be that
-   this process depends on a choice which has been taken by another process, in
-   which case the process is removed. Alternatively it may be that the current
-   process is an alternative choice to it so must not be allowed to match
-   i.e. we may have    choice(send X..., receive X ...). */
-/* wchain is the chain to search for a match. */
-/* pchain is the chain to add to if there isn't a match. */
-
-/* N.B. wchain and pchain are NOT handles, they are merely the addresses      */
-/* of a couple of (ProcessBase *) pointers, which may themselves be embedded */
-/* inside a Poly/ML heap object. The extra level of indirection is because    */
-/* we are doing imperative list processing.                                   */
-{
-    ProcessBase *this_process;
-    
-    /* If there is no process waiting to receive the data we must block until
-    someone wants it. This means that some time later will be restarted
-    and re-enter this procedure. We need to distinguish the cases. */
-    if (GET_PROCESS_STATUS(process_list) == PROCESS_UNBLOCKED)
+    if (thrdIndex == taskArraySize) // Need to expand the array
     {
-        SET_PROCESS_STATUS(process_list,PROCESS_RUNABLE);
-        return SAVE(process_list);
-    }
-    
-    /* Can we do send or receive? - start a new process if it cannot */
-    if (!process_can_do_transfer(process_list))
-    {
-        kill_process(process_list); /* Choice has been taken already. */
-        select_a_new_process();
-        THROW_RETRY; // Current process has been killed
-        /*NOTREACHED*/
-    }
-    
-    /* Find a receiver/sender on the wait chain which is not in common with the
-    current process. */
-    while (*wchain != NO_PROCESS /* Until the end of the list or we return */)
-    {
-        if (!(process_can_do_transfer(*wchain)))
+        ProcessTaskData **newArray =
+            (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
+        if (newArray)
         {
-            /* Remove it if an alternative has already been chosen. */
-            ProcessBase *next = (*wchain)->b_chain; /* Save because kill unchains it. */
-            kill_process(*wchain);
-            *wchain = next;
-        }
-        else if (!(separate_choices(process_list, *wchain)))
-        {
-            /* These are alternative choices - cannot match. */
-            wchain = &((*wchain)->b_chain);
+            taskArray = newArray;
+            taskArraySize++;
         }
         else
         {
-            ProcessHandle part = SAVE(*wchain);
-            
-            /* Remove it from the chain. */
-            *wchain = (*wchain)->b_chain;
-            DEREFPROCHANDLE(part)->b_chain = NO_PROCESS;
-            DEREFPROCHANDLE(part)->f_chain = NO_PROCESS;
-            
-            /* This choice is taken for both sides. */
-            accept_this_choice(process_list);
-            accept_this_choice(DEREFPROCHANDLE(part));
-            
-            /* Unblock and put back onto chain. */
-            add_process(part,PROCESS_UNBLOCKED); /* allocates */
-            return part; /* Exit with the process we have found. */
+            delete(newTaskData);
+            schedLock.Unlock();
+            raise_exception_string(taskData, EXC_thread, "Too many threads");
         }
     }
-    
-    /* No-one waiting. Schedule something else.  - does not return. */
-    this_process = process_list;
-    SET_PROCESS_STATUS(this_process, PROCESS_BLOCKED);
-    machineDependent->SetForRetry(ioCall);
-    remove_process(this_process);
-    
-    /* Add to the end of the chain of senders/receivers. While we are chaining
-       down we remove any that can no longer run. */
-    while(*pchain != NO_PROCESS)
+    // Add into the new entry
+    taskArray[thrdIndex] = newTaskData;
+    newTaskData->threadObject->Set(0, TAGGED(thrdIndex)); // Set to the index
+    schedLock.Unlock();
+
+    Handle stack = // Allocate the stack in the parent's heap.
+        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_BIT);
+    newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
+    machineDependent->InitStackFrame(newTaskData, stack, threadFunction, args);
+
+    // Now actually fork the thread.
+    bool success = 0;
+    schedLock.Lock();
+#ifdef HAVE_PTHREAD
+    // Create a thread that isn't joinable since we don't want to wait
+    // for it to finish.
+    pthread_attr_t attrs;
+    pthread_attr_init(&attrs);
+    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    success = pthread_create(&newTaskData->pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
+    pthread_attr_destroy(&attrs);
+#elif defined(HAVE_WINDOWS_H)
+    DWORD dwThrdId; // Have to provide this although we don't use it.
+    newTaskData->threadHandle =
+        CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, &dwThrdId);
+    success = newTaskData->threadHandle != NULL;
+#endif
+    if (success)
     {
-        if (process_can_do_transfer(*pchain))
-        {
-            pchain = &((*pchain)->b_chain);
-        }
-        else
-        { /* Get the next process and kill this one. */
-            
-            ProcessBase *next = (*pchain)->b_chain;
-            kill_process(*pchain);
-            *pchain = next;
-        }
+        schedLock.Unlock();
+        return threadId;
     }
-    
-    *pchain = this_process;
-    this_process->f_chain = NO_PROCESS;
-    this_process->b_chain = NO_PROCESS;
-    select_a_new_process();
-    THROW_RETRY; // Current process has been suspended
-    /* NOTREACHED */
-	return 0;
+    // Thread creation failed.
+    taskArray[thrdIndex] = 0;
+    delete(newTaskData);
+    schedLock.Unlock();
+    raise_exception_string(taskData, EXC_thread, "Thread creation failed");
+#endif
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      set_process_list - called from mpoly.c - allocates                    */
-/*                                                                            */
-/******************************************************************************/
-// Sets up the initial process from the root function.
-
-void Processes::set_process_list(PolyObject *rootFunction)
-/* Sets the initial process list when the system is entered. */
+// ForkFromRTS.  Creates a new thread from within the RTS.  This is currently used
+// only to run a signal function.
+bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
 {
-    no_waiting = 0;
-    no_of_processes = 0;
-    process_list = NO_PROCESS;
-    console_chain = NO_PROCESS;
-    no_waiting = 0;
-    no_of_processes = 0;
-    fork_proc(gSaveVec->push(rootFunction), (SynchroHandle)0, true, 0);
+    try {
+        (void)ForkThread((ProcessTaskData*)taskData, proc, arg, TAGGED(PFLAG_SYNCH));
+        return true;
+    } catch (IOException)
+    {
+        // If it failed
+        return false;
+    }
+}
+
+// Deal with any interrupt or kill requests.
+void Processes::ProcessAsynchRequests(TaskData *taskData)
+{
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+
+    schedLock.Lock();
+    // Make any calls to the RTS interrupt functions.
+    while (requestRTSState != krequestRTSNone)
+    {
+        // We may get another trap request while processing the last.
+        requestRTSState = krequestRTSNone;
+        schedLock.Unlock();
+        InterruptModules(taskData);
+        schedLock.Lock();
+    }
+
+    switch (ptaskData->requests)
+    {
+    case kRequestNone:
+        schedLock.Unlock();
+        break;
+
+    case kRequestInterrupt:
+        {
+            // Handle asynchronous interrupts only.
+            // We've been interrupted.  
+            POLYUNSIGNED attrs = ThreadAttrs(ptaskData);
+            POLYUNSIGNED intBits = attrs & PFLAG_INTMASK;
+            if (intBits == PFLAG_ASYNCH || intBits == PFLAG_ASYNCH_ONCE)
+            {
+                if (intBits == PFLAG_ASYNCH_ONCE)
+                {
+                    // Set this so from now on it's synchronous.
+                    // This word is only ever set by the thread itself so
+                    // we don't need to synchronise.
+                    attrs = (attrs & (~PFLAG_INTMASK)) | PFLAG_SYNCH;
+                    ptaskData->threadObject->Set(1, TAGGED(attrs));
+                }
+                ptaskData->requests = kRequestNone; // Clear this
+                ptaskData->threadObject->Set(3, TAGGED(0)); // And in the ML copy
+                schedLock.Unlock();
+                // Don't actually throw the exception here.
+                machineDependent->SetException(taskData, interrupt_exn);
+            }
+            else schedLock.Unlock();
+        }
+        break;
+
+    case kRequestKill: // The thread has been asked to stop.
+        schedLock.Unlock();
+        ThreadExit(taskData);
+        // Doesn't return.
+    }
+    if (requestRTSState == krequestRTSToInterrupt) // The lock was held before
+        RequestThreadsEnterRTS(true);
 
 #ifndef WINDOWS_PC
-    FD_ZERO(&file_desc);
-#endif
-}
-
-/* we must copy database stacks to local store since updates to them occur inline */
-
-StackObject *copy_mapped_stack (StackObject *old)
-{
-    StackObject *newp;
-    PolyWord        *addr = (PolyWord *)(old);
-    
-    ASSERT(old->IsStackObject());
-    
-    /* SPF 15/11/94 - make sure we reserve enough space
-       for the C exception data */
-    if (! gMem.IsLocalMutable(addr)/* || (old->p_space < OVERFLOW_STACK_SIZE)*/)
+    // Start the profile timer if needed.
+    if (profileMode == kProfileTime)
     {
-        /* SPF 3/7/95 We MUST NOT shrink the stack (MJC's code tried to do this)
-           because the suspended process may just have done a stack check that
-           asked for a MUCH bigger stack than it is apparently using. */
-/*        POLYUNSIGNED res_space = 
-            (old->p_space >= OVERFLOW_STACK_SIZE) ? old->p_space : OVERFLOW_STACK_SIZE;*/
-        POLYUNSIGNED res_space = old->p_space;
-        POLYUNSIGNED extra_space = res_space - old->p_space;
-        POLYUNSIGNED oldL = addr[-1].AsUnsigned();
-        POLYUNSIGNED minimum = extra_space + OBJ_OBJECT_LENGTH(oldL);
-        POLYUNSIGNED len;
-        
-        /* make a power of two (why? SPF) */
-        for (len = 1; len < minimum; len *= 2)
+        if (! ptaskData->runningProfileTimer)
         {
-            /* do nothing */
+            ptaskData->runningProfileTimer = true;
+            StartProfilingTimer();
         }
-        
-        /* allocate the newp stack, then copy the contents */
-        newp = (StackObject *) alloc(len, F_MUTABLE_BIT | F_STACK_BIT);
-        CopyStackFrame (old,newp);
-        
-        /* SPF 15/11/94 - make sure we reserve enough space for the C exception data */
-        ASSERT(newp->p_space <= res_space);
-        newp->p_space = res_space;
-#ifdef EXTRA_DEBUG
-        fprintf(stderr, "copied stack frame from %p to %p, length %x, reserved %x\n",
-            old, newp, len, newp->p_space);
-#endif    
-        return newp;
     }
-#ifdef EXTRA_DEBUG
-    else fprintf(stderr, "Not bothering to copy local mutable stack from %p\n",old);
+    else ptaskData->runningProfileTimer = false;
+    // The timer will be stopped next time it goes off.
 #endif
-    
-    return old;
 }
 
-
-/******************************************************************************/
-/*                                                                            */
-/*      install_subshells_c - called from sparc_assembly.s                    */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO1(install_subshells_, REF, NOIND) */
-Handle install_subshells_c(Handle root_function)
+// If this thread is processing interrupts synchronously and has been
+// interrupted clear the interrupt and raise the exception.  This is
+// called from IO routines which may block.
+void Processes::TestSynchronousRequests(TaskData *taskData)
 {
-    if ((PolyWord)DEREFHANDLE(root_function) == TAGGED(0))
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    schedLock.Lock();
+    switch (ptaskData->requests)
     {
-        /* kill existing alternate subshell processes */
-        processesModule.alt_process_list = 0;
-        processesModule.alt_console_chain = 0;
+    case kRequestNone:
+        schedLock.Unlock();
+        break;
+
+    case kRequestInterrupt:
+        {
+            // Handle synchronous interrupts only.
+            // We've been interrupted.  
+            POLYUNSIGNED attrs = ThreadAttrs(ptaskData);
+            POLYUNSIGNED intBits = attrs & PFLAG_INTMASK;
+            if (intBits == PFLAG_SYNCH)
+            {
+                ptaskData->requests = kRequestNone; // Clear this
+                ptaskData->threadObject->Set(3, TAGGED(0));
+                schedLock.Unlock();
+                machineDependent->SetException(taskData, interrupt_exn);
+                throw IOException(EXC_EXCEPTION);
+            }
+            else schedLock.Unlock();
+        }
+        break;
+
+    case kRequestKill: // The thread has been asked to stop.
+        schedLock.Unlock();
+        ThreadExit(taskData);
+        // Doesn't return.
     }
-    else
-    {
-        /* Create new process and install it as alternate subshell */
-        ProcessHandle root_process = processesModule.make_new_root_proc(root_function);
-        processesModule.alt_process_list = DEREFPROCHANDLE(root_process);
-        processesModule.alt_console_chain = DEREFPROCHANDLE(root_process);
-    }
-    
+}
+
+/* CALL_IO1(install_subshells_, REF, NOIND) */
+Handle install_subshells_c(TaskData *taskData, Handle root_function)
+{
     return SAVE(TAGGED(0));
 }
 
-void Processes::SwitchSubShells(void)
-{
-    // Swap the process list
-    ProcessBase *t;
-    t = process_list;
-    process_list = alt_process_list;
-    alt_process_list = t;
-    // Swap the console chain.
-    t = console_chain;
-    console_chain = alt_console_chain;
-    alt_console_chain = t;
-
-    no_waiting = 0;
-    no_of_processes = 0;
-
-    ProcessBase *proc = process_list;
-    // Count the processes in the new process list.
-    do {
-        no_of_processes++;
-        // Make them all runnable.
-        SET_PROCESS_STATUS(proc, PROCESS_RUNABLE);
-        proc = proc->f_chain;
-    } while (proc != process_list);
-
-    StartStopInterruptTimer();
-
-    select_a_new_process();
-    THROW_RETRY; // Current process has been suspended
-    /*NOTREACHED*/
-}
-
 /* CALL_IO0(switch_subshells_,NOIND) */
-Handle switch_subshells_c(void)
+Handle switch_subshells_c(TaskData *taskData)
 {
-    if (processesModule.alt_process_list == (PolyObject*)0)        /* right test? */
+    return SAVE(TAGGED(0));
+}
+
+void Processes::RequestThreadsEnterRTSInternal(bool isSignal)
+{
+    requestRTSState = krequestRTSInterrupted;
+    for (unsigned i = 0; i < taskArraySize; i++)
     {
-        fputs("Subshells have not been installed\n",stdout);
-        return SAVE(TAGGED(0));
-    }
-    processesModule.SwitchSubShells();
-    /*NOTREACHED*/
-	return 0;
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      fork_function                                                         */
-/*                                                                            */
-/******************************************************************************/
-/* fork_function.  Creates a new process from within the RTS. */
-ProcessHandle fork_function(Handle proc, Handle arg)
-{
-    return processesModule.fork_proc(proc, (SynchroHandle)0, false, arg);
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      catchALRM - utility function - doesn't allocate                       */
-/*        called when time-slice expired (1Hz) - signal sigALRM               */
-/*                                                                            */
-/******************************************************************************/
-
-#if defined(HAVE_WINDOWS_H)
-/* This thread interrupts the ML code periodically.  It is used in Windows
-   in place of SIGALRM.  Cygwin seems to have problems with SIGALRM so we
-   use this in Cygwin as well. */
-DWORD WINAPI ProcessTimeOut(LPVOID parm)
-{
-    // Go round this loop every timeslice until the stop event is signalled.
-    while (WaitForSingleObject(processesModule.hStopEvent, userOptions.timeslice) == WAIT_TIMEOUT)
-    {
-        interrupted=-1; /* Temporary to get run_time_interrupts called */
-        machineDependent->InterruptCode();
-    }
-    return 0;
-} /* handleALRM on PC */
-
-#else /* UNIX */
-
-static void catchALRM(SIG_HANDLER_ARGS(sig, context))
-// Called to request a call to the entries in int_procs some time later.
-{
-    SIGNALCONTEXT *scp = (SIGNALCONTEXT *)context;
-    ASSERT(sig == SIGALRM);
-    interrupted = sig;
-    machineDependent->InterruptCodeUsingContext(scp);
-}
-
-#endif /* UNIX */
-
-void Processes::StartStopInterruptTimer(void)
-/* Start or stop the interrupt timer.                                */
-/* It is used to ensure that processes get a fair share of the machine. */
-{
-#if ! defined(HAVE_WINDOWS_H) /* UNIX version */
-    /* We currently run this all the time.  It is needed because
-       addSigCount in sighandler doesn't actually call InterruptCode
-       (there's a similar situation with ^C followed by "f") and so
-       an interrupt handler won't be called. */
-    if (1 || no_of_processes > no_waiting+1)
-    { // We have more than one process able to run
-        if (! timerRunning && userOptions.timeslice != 0)
+        ProcessTaskData *taskData = taskArray[i];
+        if (taskData)
         {
-            /* The interrupt frequency can now be set by the user */
-            int seconds      = userOptions.timeslice / 1000;
-            int microseconds = (userOptions.timeslice % 1000) * 1000;
-
-            struct itimerval per_sec;
-            per_sec.it_interval.tv_sec = seconds;
-            per_sec.it_interval.tv_usec = microseconds;
-            per_sec.it_value.tv_sec = seconds;
-            per_sec.it_value.tv_usec = microseconds;
-    
-            setitimer(ITIMER_REAL, &per_sec, NULL);
-            timerRunning = true;
+            // Do this with the lock held.
+            machineDependent->InterruptCode(taskData);
+#ifdef HAVE_PTHREAD
+            if (isSignal)
+                pthread_kill(taskData->pthreadId, SIGALRM);
+#endif
         }
     }
-    else if (timerRunning)
-    { // Stop the timer.
-        struct itimerval cancelTimer;
-        memset(&cancelTimer, 0, sizeof(cancelTimer));
-        setitimer(ITIMER_REAL, &cancelTimer, 0);
-        timerRunning = false;
+#ifdef HAVE_WINDOWS_H
+    // Wake any threads waiting for IO
+    PulseEvent(hWakeupEvent);
+#endif
+}
+
+#if (! defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
+DWORD WINAPI CallRequestEnterRTS(LPVOID)
+{
+    processesModule.schedLock.Lock();
+    processesModule.RequestThreadsEnterRTSInternal(false);
+    processesModule.schedLock.Unlock();
+    return 0;
+}
+#endif
+
+// May be called at any time in any state.  In particular schedLock may be held
+// at the moment.  In Unix we test the lock and set a flag if the lock is currently
+// taken.  Since we must be in the RTS to take the lock we should test the flag
+// soon.  In Windows we fork a thread to take the lock and deal with this.
+void Processes::RequestThreadsEnterRTS(bool isSignal)
+{
+#if (! defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
+    // TryLock doesn't work properly in Windows.  Instead we fork off
+    // a function to call this when we can get the lock.
+    DWORD dwThrdId;
+    HANDLE hThread = CreateThread(NULL, 0, CallRequestEnterRTS, 0, 0, &dwThrdId);
+    if (hThread) CloseHandle(hThread); // Don't want this.
+    else requestRTSState = krequestRTSToInterrupt;
+#else
+    if (schedLock.Trylock())
+    {
+        RequestThreadsEnterRTSInternal(isSignal);
+        schedLock.Unlock();
     }
+    else // schedLock is currently held.
+        requestRTSState = krequestRTSToInterrupt;
+#endif
+}
+
+// Set all threads to exit.
+void Processes::KillAllThreads(void)
+{
+    schedLock.Lock();
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        ProcessTaskData *taskData = taskArray[i];
+        if (taskData)
+            MakeRequest(taskData, kRequestKill);
+    }
+    schedLock.Unlock();
+}
+
+#ifdef HAVE_PTHREAD
+static void catchALRM(SIG_HANDLER_ARGS(sig, context))
+// This doesn't need to do anything.
+{
+    (void)sig;
+    (void)context;
+}
+#endif
+/******************************************************************************/
+/*                                                                            */
+/*      catchVTALRM - handler for alarm-clock signal                          */
+/*                                                                            */
+/******************************************************************************/
+#if !defined(WINDOWS_PC)
+static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
+{
+    ASSERT(sig == SIGVTALRM);
+    if (profileMode != kProfileTime)
+    {
+        // We stop the timer for this thread on the next signal after we end profile
+        static struct itimerval stoptime = {{0, 0}, {0, 0}};
+        /* Stop the timer */
+        setitimer(ITIMER_VIRTUAL, & stoptime, NULL);
+    }
+    else {
+        TaskData *taskData = processes->GetTaskDataForThread();
+        handleProfileTrap(taskData, (SIGNALCONTEXT*)context);
+    }
+}
+
+#else /* PC */
+/* This function is running on a separate OS thread.
+   Every 20msec of its own virtual time it updates the count.
+   Unfortunately on Windows there is no way to set a timer in 
+   the virtual time of PolyML (not real time, CPU time used by PolyML).
+   It would be possible to approximate this in Windows NT by looking
+   at the CPU time used in the last real time slice and adjusting the
+   count appropriately.  That won't work in Windows 95 which doesn't
+   have a CPU time counter.
+*/
+void Processes::ProfileInterrupt(void)
+{               
+    // Wait for millisecond or until the stop event is signalled.
+    while (WaitForSingleObject(hStopEvent, 1) == WAIT_TIMEOUT)        
+    {
+        schedLock.Lock();
+        for (unsigned i = 0; i < taskArraySize; i++)
+        {
+            ProcessTaskData *p = taskArray[i];
+            if (p && p->threadHandle)
+            {
+                FILETIME cTime, eTime, kTime, uTime;
+                bool includeThread = false;
+                // Try to get the thread CPU time if possible.  This isn't supported
+                // in Windows 95/98 so if it fails we just include this thread anyway.
+                if (GetThreadTimes(p->threadHandle, &cTime, &eTime, &kTime, &uTime))
+                {
+                    LONGLONG totalTime = 0;
+                    LARGE_INTEGER li;
+                    li.LowPart = kTime.dwLowDateTime;
+                    li.HighPart = kTime.dwHighDateTime;
+                    totalTime += li.QuadPart;
+                    li.LowPart = uTime.dwLowDateTime;
+                    li.HighPart = uTime.dwHighDateTime;
+                    totalTime += li.QuadPart;
+                    if (totalTime - p->lastCPUTime >= 10000)
+                    {
+                        includeThread = true;
+                        p->lastCPUTime = totalTime;
+                    }
+                }
+                else includeThread = true; // Failed to get thread time, maybe Win95.
+                if (includeThread)
+                {
+                    CONTEXT context;
+                    SuspendThread(p->threadHandle);
+                    context.ContextFlags = CONTEXT_CONTROL; /* Get Eip and Esp */
+                    if (GetThreadContext(p->threadHandle, &context))
+                    {
+                        handleProfileTrap(p, &context);
+                    }
+                    ResumeThread(p->threadHandle);
+                }
+            }
+        }
+        schedLock.Unlock();
+    }
+}
+
+DWORD WINAPI ProfilingTimer(LPVOID parm)
+{
+    processesModule.ProfileInterrupt();
+    return 0;
+}
+
+#endif
+
+    // Profiling control.
+void Processes::StartProfiling(void)
+{
+#ifdef WINDOWS_PC
+    DWORD threadId;
+    if (profilingHd)
+        return;
+    ResetEvent(hStopEvent);
+    profilingHd = CreateThread(NULL, 0, ProfilingTimer, NULL, 0, &threadId);
+    if (profilingHd == NULL)
+        fputs("Creating ProfilingTimer thread failed.\n", stdout); 
+    /* Give this a higher than normal priority so it pre-empts the main
+       thread.  Without this it will tend only to be run when the main
+       thread blocks for some reason. */
+    SetThreadPriority(profilingHd, THREAD_PRIORITY_ABOVE_NORMAL);
+#else
+    // In Linux, at least, we need to run a timer in each thread.
+    RequestThreadsEnterRTS(false);
+#endif
+}
+
+void Processes::StopProfiling(void)
+{
+#ifdef WINDOWS_PC
+    if (hStopEvent) SetEvent(hStopEvent);
+    // Wait for the thread to stop
+    if (profilingHd) WaitForSingleObject(profilingHd, 10000);
+    CloseHandle(profilingHd);
+    profilingHd = NULL;
+#else
 #endif
 }
 
 void Processes::Init(void)
 {
-    poly_stack = 0;
-    end_of_stack = 0;
 #ifdef HAVE_WINDOWS_H
     /* Create event to stop timeslice interrupts. */
-    hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-
-    DWORD dwId;
-    hInterruptTimer = CreateThread(NULL, 0, ProcessTimeOut, NULL, 0, &dwId);
-    if (hInterruptTimer == NULL)
-    {
-        fputs("Creating Interrupt Timer thread failed.\n", stdout); 
-    }
-
-#else /* Unix */
-    /* Set up a handler for SIGALRM. SIGALRM
-       is sent periodically when there are several processes running to ensure
-       that each process gets a fair share of the machine. */
+    hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+#endif
+#ifdef HAVE_PTHREAD
+    // We send a thread an alarm signal to wake it up if
+    // it is blocking on an IO function.
     markSignalInuse(SIGALRM);
     setSignalHandler(SIGALRM, catchALRM);
 #endif
+
+#ifdef HAVE_PTHREAD
+    pthread_key_create(&tlsId, NULL);
+#elif defined(HAVE_WINDOWS_H)
+    tlsId = TlsAlloc();
+#endif
+
+#if defined(WINDOWS_PC) /* PC version */
+    // Create stop event for time profiling.
+    hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+#else
+    // Set up a signal handler.  This will be the same for all threads.
+    setSignalHandler(SIGVTALRM, catchVTALRM);
+#endif
 }
+
+#ifndef WINDOWS_PC
+// On Linux, at least, each thread needs to run this.
+void Processes::StartProfilingTimer(void)
+{
+    // set virtual timer to go off every millisecond
+    struct itimerval starttime;
+    starttime.it_interval.tv_sec = starttime.it_value.tv_sec = 0;
+    starttime.it_interval.tv_usec = starttime.it_value.tv_usec = 1000;
+    setitimer(ITIMER_VIRTUAL,&starttime,NULL);
+}
+#endif
 
 void Processes::Reinit(void)
 {
-    interrupt_exn = DEREFEXNHANDLE(make_exn(EXC_interrupt, SAVE(TAGGED(0))));
 }
 
 void Processes::Uninit(void)
 {
+    // Wait for threads to terminate?
 #ifdef HAVE_WINDOWS_H
-    /* Stop the timer thread. */
-    if (hStopEvent) SetEvent(hStopEvent);
-    if (hInterruptTimer)
-    {
-        WaitForSingleObject(hInterruptTimer, 10000);
-        CloseHandle(hInterruptTimer);
-        hInterruptTimer = NULL;
-    }
+    if (hWakeupEvent) SetEvent(hWakeupEvent);
 
+    if (hWakeupEvent) CloseHandle(hWakeupEvent);
+    hWakeupEvent = NULL;
+#else
+#endif
+
+#ifdef HAVE_PTHREAD
+    pthread_key_delete(tlsId);
+#elif defined(HAVE_WINDOWS_H)
+    TlsFree(tlsId);
+#endif
+
+#if defined(WINDOWS_PC)
+    /* Stop the timer and profiling threads. */
+    if (hStopEvent) SetEvent(hStopEvent);
+    if (profilingHd)
+    {
+        WaitForSingleObject(profilingHd, 10000);
+        CloseHandle(profilingHd);
+        profilingHd = NULL;
+    }
     if (hStopEvent) CloseHandle(hStopEvent);
     hStopEvent = NULL;
 #else
-    // Stop the timer.  We mustn't get any interrupts from now on.
-    struct itimerval cancelTimer;
-    memset(&cancelTimer, 0, sizeof(cancelTimer));
-    setitimer(ITIMER_REAL, &cancelTimer, 0);
+    profileMode = kProfileOff;
+    // Make sure the timer is not running
+    struct itimerval stoptime;
+    memset(&stoptime, 0, sizeof(stoptime));
+    setitimer(ITIMER_VIRTUAL, &stoptime, NULL);
 #endif
-}
-
-void Processes::GCProcessList(ScanAddress *process, ProcessBase *&plist)
-{
-    if (plist != 0)
-    {
-        PolyObject *p = plist;
-        process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
-        plist = (ProcessBase*)p;
-    }
 }
 
 void Processes::GarbageCollect(ScanAddress *process)
 /* Ensures that all the objects are retained and their addresses updated. */
-{
-    /* Processes */
-    GCProcessList(process, process_list);
-    GCProcessList(process, console_chain);
-    GCProcessList(process, alt_process_list);
-    GCProcessList(process, alt_console_chain);
-
-    if (poly_stack != 0)
-    {
-        PolyObject *p = poly_stack;
-        process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
-        poly_stack = (StackObject*)p;
-        end_of_stack = (PolyWord*)poly_stack + OBJECT_LENGTH(poly_stack);
-    }
-    
+{   
     /* The interrupt exn */
     if (interrupt_exn != 0) {
         PolyObject *p = interrupt_exn;
         process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
         interrupt_exn = (PolyException*)p;
+    }
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        if (taskArray[i])
+            taskArray[i]->GarbageCollect(process);
+    }
+}
+
+void ProcessTaskData::GarbageCollect(ScanAddress *process)
+{
+    saveVec.gcScan(process);
+    if (stack != 0)
+    {
+        PolyObject *p = stack;
+        process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
+        stack = (StackObject*)p;
+    }
+    if (threadObject != 0)
+    {
+        PolyObject *p = threadObject;
+        process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
+        threadObject = (ThreadObject*)p;
+    }
+    if (blockMutex != 0)
+        process->ScanRuntimeAddress(&blockMutex, ScanAddress::STRENGTH_STRONG);
+    // The allocation spaces are no longer valid.
+    allocPointer = 0;
+    allocLimit = 0;
+    // Divide the allocation size by four. If we have made a single allocation
+    // since the last GC the size will have been doubled after the allocation.
+    // On average for each thread, apart from the one that ran out of space
+    // and requested the GC, half of the space will be unused so reducing by
+    // four should give a good estimate for next time.
+    if (allocCount != 0)
+    { // Do this only once for each GC.
+        allocCount = 0;
+        allocSize = allocSize/4;
+        if (allocSize < MIN_HEAP_SIZE)
+            allocSize = MIN_HEAP_SIZE;
     }
 }

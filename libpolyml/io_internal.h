@@ -91,6 +91,7 @@ typedef struct basic_io_struct
                               the old IO functions. */
 } IOSTRUCT, *PIOSTRUCT;
 
+class TaskData;
 
 #define isOpen(s)   ((s)->ioBits & IO_BIT_OPEN)
 #define isRead(s)   ((s)->ioBits & IO_BIT_READ)
@@ -106,7 +107,7 @@ typedef struct basic_io_struct
 
 extern PIOSTRUCT get_stream(PolyObject *obj);
 
-extern Handle make_stream_entry(void);
+extern Handle make_stream_entry(TaskData *mdTaskData);
 extern void free_stream_entry(unsigned stream_no);
 extern void close_stream(PIOSTRUCT str);
 

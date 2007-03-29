@@ -19,14 +19,10 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -323,16 +319,11 @@ void PExport::ScanConstant(byte *addr, ScanRelocationKind code)
     fprintf(exportFile, " ");
 }
 
-void PExport::exportStore(const char *outFileName)
+void PExport::exportStore(void)
 {
-//    PolyWord    *p;
     unsigned i;
     time_t now;
     time(&now);
-
-    exportFile = fopen(outFileName, "w");
-    if (exportFile == NULL)
-        raise_syscall("Cannot open export file", errno);
 
     // Calculate a first guess for the map size based on the space size
     totalBytes = 0;
@@ -352,14 +343,14 @@ void PExport::exportStore(const char *outFileName)
     pMap = (PolyObject **)malloc(sizeof(PolyObject*)*nMapSize);
 
     if (pMap == 0)
-        raise_syscall("Insufficient memory", ENOMEM);
+        throw MemoryException();
 
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
     indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries-1);
     if (indexOrder == 0)
-        raise_syscall("Insufficient memory", ENOMEM);
+        throw MemoryException();
 
     unsigned items = 0;
     for (i = 0; i < memTableEntries; i++)
@@ -394,7 +385,7 @@ void PExport::exportStore(const char *outFileName)
                 PolyObject **newMap =
                     (PolyObject **)realloc(pMap, (nMapSize + nMapSize/2)*sizeof(PolyObject*));
                 if (newMap == 0)
-                    raise_syscall("Insufficient memory", ENOMEM);
+                    throw MemoryException();
                 pMap = newMap;
 
             }

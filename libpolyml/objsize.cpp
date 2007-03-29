@@ -19,15 +19,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -350,19 +345,19 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
 }
 
 
-Handle ObjSize(Handle obj)
+Handle ObjSize(TaskData *taskData, Handle obj)
 {
     ProcessVisitAddresses process(false);
     process.ScanObjectAddress(obj->WordP());
-    return Make_arbitrary_precision(process.total_length);
+    return Make_arbitrary_precision(taskData, process.total_length);
 }
 
-Handle ShowSize(Handle obj)
+Handle ShowSize(TaskData *taskData, Handle obj)
 {
     ProcessVisitAddresses process(true);
     process.ScanObjectAddress(obj->WordP());
     fflush(stdout); /* We need this for Windows at least. */
-    return Make_arbitrary_precision(process.total_length);
+    return Make_arbitrary_precision(taskData, process.total_length);
 }
 
 static void printfprof(unsigned *counts)
@@ -379,7 +374,7 @@ static void printfprof(unsigned *counts)
     }
 }
 
-Handle ObjProfile(Handle obj)
+Handle ObjProfile(TaskData *taskData, Handle obj)
 {
     ProcessVisitAddresses process(false);
     process.ScanObjectAddress(obj->WordP());
@@ -388,5 +383,5 @@ Handle ObjProfile(Handle obj)
     printf("\nMutable object sizes and counts\n");
     printfprof(process.mprofile);
     fflush(stdout); /* We need this for Windows at least. */
-    return Make_arbitrary_precision(process.total_length);
+    return Make_arbitrary_precision(taskData, process.total_length);
 }

@@ -10,10 +10,11 @@ PolyML.Inner.use "mlsource/prelude/prelude2";
 
 PolyML.use "mlsource/prelude/Signal";
 PolyML.use "mlsource/prelude/Universal";
-PolyML.use "mlsource/prelude/processes";
 
 (* Build the main basis library. *)
 PolyML.use "basis/build";
+(* Build the Process structure for backwards compatibility. *)
+PolyML.use "mlsource/prelude/processes";
 
 PolyML.use "mlsource/prelude/Address";
 PolyML.make "mlsource/extra/CInterface";

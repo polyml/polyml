@@ -27,11 +27,7 @@ This header contains the structures used in saved state created by "export".
 
 #ifdef WIN32
 #include <windows.h>
-#ifdef _WIN32_WCE
-typedef unsigned long UNSIGNEDADDR;
-#else
 typedef UINT_PTR UNSIGNEDADDR;
-#endif
 #else
 typedef unsigned long UNSIGNEDADDR;
 #endif

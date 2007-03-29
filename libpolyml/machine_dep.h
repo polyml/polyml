@@ -20,20 +20,8 @@
 
 */
 
-/* created 27/10/93 SPF */
-
 #ifndef _MACHINE_DEP_H
 #define _MACHINE_DEP_H
-
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
-#ifdef WIN32
-#include "winconfig.h"
-#else
-#include "config.h"
-#endif
-#endif
 
 #ifdef HAVE_SIGNAL_H
 #include <signal.h>
@@ -47,7 +35,7 @@
 #define SIGNALCONTEXT ucontext_t
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
 #define SIGNALCONTEXT struct sigcontext
-#elif defined(WIN32)
+#elif defined(HAVE_WINDOWS_H)
 #include <windows.h>
 #define SIGNALCONTEXT CONTEXT // This is the thread context.
 #else
@@ -55,10 +43,14 @@
 #endif
 
 class ScanAddress;
-class StackObject;
-
+class TaskData;
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+
+class MDTaskData {
+public:
+    virtual ~MDTaskData() {}
+};
 
 // Machine architecture values.
 typedef enum {
@@ -69,17 +61,17 @@ typedef enum {
     MA_X86_64
 } Architectures;
 
+// Machine-dependent module.
 class MachineDependent {
 public:
     virtual ~MachineDependent() {} // Keep the compiler happy
-    virtual void InitStackFrame(Handle stack, Handle proc, Handle arg) = 0;
+
+    // Create the machine-specific task data object.
+    virtual MDTaskData *CreateTaskData(void) = 0;
+
     virtual unsigned InitialStackSize(void) { return 128; } // Initial size of a stack 
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
-    // Switch to Poly and return with the io function to call.
-    virtual int SwitchToPoly(void) = 0;
-    virtual void SetForRetry(int ioCall) = 0;
     virtual void InitInterfaceVector(void) = 0;
-    virtual void SetException(StackObject *stack,poly_exn *exc) = 0;
     virtual void ResetSignals(void) {}
 
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
@@ -87,35 +79,47 @@ public:
     void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
         { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
 
-    virtual void InterruptCode(void) = 0;
-    virtual void InterruptCodeUsingContext(SIGNALCONTEXT *context) { InterruptCode(); }
     virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
-    virtual bool InRunTimeSystem(void) = 0;
     virtual Architectures MachineArchitecture(void) = 0; 
 
+    // This is machine-dependent but not always required.  It is used in the code-generator.
+    virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base) {}
+
+    virtual unsigned char *BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove) { return 0; }
+    virtual void GetCallbackArg(void **args, void *argLoc, int nSize) {}
+
+    // Switch to Poly and return with the io function to call.
+    virtual int SwitchToPoly(TaskData *taskData) = 0;
+
+    virtual void SetForRetry(TaskData *taskData, int ioCall) = 0;
+    virtual void InterruptCode(TaskData *taskData) = 0;
+    virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
+    // Initialise the stack for a new thread.  Because this is called from the parent thread
+    // the task data object passed in is that of the parent.
+    virtual void InitStackFrame(TaskData *parentTaskData, Handle stack, Handle proc, Handle arg) = 0;
+    virtual void SetException(TaskData *taskData, poly_exn *exc) = 0;
     // General RTS functions.
-    virtual void CallIO0(Handle(*ioFun)(void)) = 0;
-    virtual void CallIO1(Handle(*ioFun)(Handle)) = 0;
-    virtual void CallIO2(Handle(*ioFun)(Handle, Handle)) = 0;
-    virtual void CallIO3(Handle(*ioFun)(Handle, Handle, Handle)) = 0;
-    virtual void CallIO4(Handle(*ioFun)(Handle, Handle, Handle, Handle)) = 0;
-    virtual void CallIO5(Handle(*ioFun)(Handle, Handle, Handle, Handle, Handle)) = 0;
+    virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *)) = 0;
+    virtual void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle)) = 0;
+    virtual void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle)) = 0;
+    virtual void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle)) = 0;
+    virtual void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle)) = 0;
+    virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle)) = 0;
     // These next two are sufficiently different that they need to be implemented
     // as special cases.
-    virtual void SetExceptionTrace(void) = 0;
-    virtual void CallCodeTupled(void) = 0;
+    virtual void SetExceptionTrace(TaskData *taskData) = 0;
+    virtual void CallCodeTupled(TaskData *taskData) = 0;
     // This is used to get the argument to the callback_result function.
-    virtual Handle CallBackResult(void) = 0;
-    // This is machine-dependent but not always required.  It is used in the code-generator.
-    virtual void SetCodeConstant(Handle data, Handle constant, Handle offseth, Handle base) {}
-
+    virtual Handle CallBackResult(TaskData *taskData) = 0;
     // If a foreign function calls back to ML we need to set up the call to the
     // ML callback function.
-    virtual void SetCallbackFunction(Handle func, Handle args) {}
-    virtual unsigned char *BuildCallback(int cbEntryNo, Handle cResultType, int nArgsToRemove) { return 0; }
-    virtual void GetCallbackArg(void **args, void *argLoc, int nSize) {}
+    virtual void SetCallbackFunction(TaskData *taskData, Handle func, Handle args) {}
+
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
+    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
 };
 
 extern MachineDependent *machineDependent;

@@ -357,7 +357,7 @@ static struct { const char *name; unsigned procType, relocation; bool useRela; }
     { "amd64",  EM_X86_64,  R_X86_64_64,    false }
 };
 
-void ELFExport::exportStore(const char *outFileName)
+void ELFExport::exportStore(void)
 {
     PolyWord    *p;
     ElfXX_Ehdr fhdr;
@@ -367,10 +367,6 @@ void ELFExport::exportStore(const char *outFileName)
     // Both the string tables have an initial null entry.
     symStrings.makeEntry("");
     sectionStrings.makeEntry("");
-
-    exportFile = fopen(outFileName, "wb");
-    if (exportFile == NULL)
-        raise_syscall("Cannot open export file", errno);
 
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
@@ -400,7 +396,7 @@ void ELFExport::exportStore(const char *outFileName)
         {
             struct utsname name;
             if (uname(&name) < 0)
-                raise_syscall("Unable to determine processor type", errno);
+                raise_syscall(taskData, "Unable to determine processor type", errno);
             for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
             {
                 if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
@@ -412,7 +408,7 @@ void ELFExport::exportStore(const char *outFileName)
                 }
             }
             if (i == sizeof(archTable)/sizeof(archTable[0]))
-                raise_exception_string(EXC_Fail, "Unable to determine processor type");
+                raise_exception_string(taskData, EXC_Fail, "Unable to determine processor type");
             break;
         }
     case MA_I386:

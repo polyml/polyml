@@ -41,6 +41,7 @@ structure iv = IntArray
 structure rv = RealArray
 structure rl = Real (* Depends on IEEEReal*)
 structure d = Date (* Depends on Time, Int, String, Char ... *)
+structure th = Thread (* Non-standard. May not actually need to include explicitly. *)
 structure t = Timer
 structure c = CommandLine
 structure o = OS (* Depends on Time *)

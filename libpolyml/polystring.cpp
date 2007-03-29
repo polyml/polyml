@@ -19,15 +19,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -53,8 +48,9 @@
 #include "sys.h"
 #include "arb.h"
 #include "save_vec.h"
+#include "processes.h"
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) mdTaskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 // Return empty string.
@@ -63,7 +59,7 @@ PolyWord EmptyString(void)
     return (PolyObject*)IoEntry(POLY_SYS_emptystring);
 }
 
-PolyWord Buffer_to_Poly(const char *buffer, unsigned length) 
+PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, unsigned length) 
 /* Returns a string as a Poly string. */
 {
     /* Return the null string if it's empty. */
@@ -74,7 +70,7 @@ PolyWord Buffer_to_Poly(const char *buffer, unsigned length)
     
     /* Get the number of words required, plus 1 for length word,
        plus flag bit. */
-    PolyStringObject *result = (PolyStringObject *)(alloc(WORDS(length) + 1, F_BYTE_BIT));
+    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(length) + 1, F_BYTE_BIT));
     
     /* Set length of string, then copy the characters. */
     result->length = length;
@@ -87,12 +83,12 @@ PolyWord Buffer_to_Poly(const char *buffer, unsigned length)
 } /* Buffer_to_Poly */
 
 
-PolyWord C_string_to_Poly(const char *buffer)
+PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer)
 /* Returns a C string as a Poly string. */
 {
     if (buffer == NULL) return EmptyString();
     
-    return Buffer_to_Poly(buffer, strlen(buffer));
+    return Buffer_to_Poly(mdTaskData, buffer, strlen(buffer));
 } /* C_string_to_Poly */
 
 POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen)
@@ -201,9 +197,9 @@ WCHAR *Poly_string_to_U_alloc(PolyWord ps)
 #endif
 
 /* convert_string_list return a list of strings. */
-Handle convert_string_list(int count, char **strings)
+Handle convert_string_list(TaskData *mdTaskData, int count, char **strings)
 {
-    Handle saved = gSaveVec->mark();
+    Handle saved = mdTaskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
     
     /* It's simplest to process the strings in reverse order */
@@ -215,14 +211,14 @@ Handle convert_string_list(int count, char **strings)
         safe if we promise to initialise it fully before the next
         ML heap allocation. SPF 29/11/96
         */
-        Handle value = SAVE(C_string_to_Poly(strings[i]));
-        Handle next  = alloc_and_save(SIZEOF(ML_Cons_Cell));
+        Handle value = SAVE(C_string_to_Poly(mdTaskData, strings[i]));
+        Handle next  = alloc_and_save(mdTaskData, SIZEOF(ML_Cons_Cell));
         
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
         
         /* reset save vector to stop it overflowing */    
-        gSaveVec->reset(saved);
+        mdTaskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
     }
     
@@ -258,11 +254,9 @@ void freeStringVector(char **vec)
     free(vec);
 }
 
-#define NEWSTRINGHANDLE(len) (alloc_and_save((len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_BIT))
-
 // Concatenate two strings.  Used internally in the RTS.  Currently only used in
 // ML during the bootstrap before the basis library has been compiled.
-Handle strconcatc(Handle y, Handle x)
+Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
 /* Note: arguments are in the reverse order from Poly */
 {
     Handle result;
@@ -288,7 +282,7 @@ Handle strconcatc(Handle y, Handle x)
     
     /* Get store for combined string. Include rounding up to next word and
     room for the length word and add in the flag. */
-    result = NEWSTRINGHANDLE(len);
+    result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_BIT);
     
     DEREFSTRINGHANDLE(result)->length = len;
     
@@ -329,33 +323,33 @@ void print_string(PolyWord s)
     }
 }
 
-Handle string_length_c(Handle string)    /* Length of a string */
+Handle string_length_c(TaskData *mdTaskData, Handle string)    /* Length of a string */
 {
     PolyWord str = string->Word();
     if (str.IsTagged()) // Short form
-        return Make_arbitrary_precision(1);
+        return Make_arbitrary_precision(mdTaskData, 1);
     
     POLYUNSIGNED length = ((PolyStringObject *)str.AsObjPtr())->length;
-    return Make_arbitrary_precision (length);
+    return Make_arbitrary_precision(mdTaskData, length);
 }
 
 // This is used only during bootstrapping and that should be removed,
 // N.B.  The index counts from 1 not from zero.
-Handle string_subc(Handle y, Handle x)
+Handle string_subc(TaskData *mdTaskData, Handle y, Handle x)
 {
-    POLYSIGNED index = get_C_long(DEREFWORD(y));
+    POLYSIGNED index = get_C_long(mdTaskData, DEREFWORD(y));
     if (IS_INT(DEREFWORD(x)))
     {
         if (index != 1)
-            raise_exception0(EXC_subscript);
+            raise_exception0(mdTaskData, EXC_subscript);
         else return x;
     }
     else
     {
         PolyStringObject* str = (PolyStringObject*)DEREFHANDLE(x);
         if (index > 0 && (POLYUNSIGNED)index <= str->length)
-            return gSaveVec->push(TAGGED(str->chars[index-1]));
-        else raise_exception0(EXC_subscript);
+            return mdTaskData->saveVec.push(TAGGED(str->chars[index-1]));
+        else raise_exception0(mdTaskData, EXC_subscript);
     }
 	return 0; // Actually never reached.
 }
@@ -405,37 +399,37 @@ static int string_test(PolyWord x, PolyWord y)
         return 0; /* They must be equal. */
 }
 
-Handle compareStrings(Handle y, Handle x)
+Handle compareStrings(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(TAGGED(string_test(DEREFWORD(x), DEREFWORD(y))));
+    return mdTaskData->saveVec.push(TAGGED(string_test(DEREFWORD(x), DEREFWORD(y))));
 }
 
-Handle testStringEqual(Handle y, Handle x)
+Handle testStringEqual(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) == 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) == 0 ? TAGGED(1) : TAGGED(0));
 }
 
-Handle testStringNotEqual(Handle y, Handle x)
+Handle testStringNotEqual(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) != 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) != 0 ? TAGGED(1) : TAGGED(0));
 }
 
-Handle testStringGreater(Handle y, Handle x)
+Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) > 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) > 0 ? TAGGED(1) : TAGGED(0));
 }
 
-Handle testStringLess(Handle y, Handle x)
+Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) < 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) < 0 ? TAGGED(1) : TAGGED(0));
 }
 
-Handle testStringGreaterOrEqual(Handle y, Handle x)
+Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) >= 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) >= 0 ? TAGGED(1) : TAGGED(0));
 }
 
-Handle testStringLessOrEqual(Handle y, Handle x)
+Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x)
 {
-    return gSaveVec->push(string_test(DEREFWORD(x), DEREFWORD(y)) <= 0 ? TAGGED(1) : TAGGED(0));
+    return mdTaskData->saveVec.push(string_test(DEREFWORD(x), DEREFWORD(y)) <= 0 ? TAGGED(1) : TAGGED(0));
 }

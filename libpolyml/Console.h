@@ -33,18 +33,12 @@ extern HWND hMainWindow; /* Handle to main window - NULL if none. */
 extern int useConsole; /* non-zero if we should use the console for input. */
 extern HINSTANCE hApplicationInstance; /* Application instance */
 
-#ifndef _WIN32_WCE
 /* DDE requests. */
 extern HCONV StartDDEConversation(char *serviceName, char *topicName);
 extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
-#endif
 
 extern HANDLE hMainThread; /* Handle to main thread. */
 void RequestFinish(int n);
-
-#ifdef _WIN32_WCE
-void writeToConsole(LPCTSTR text);
-#endif
 
 #endif

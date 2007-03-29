@@ -18,15 +18,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -129,14 +124,15 @@ typedef int socklen_t;
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "machine_dep.h"
 
 #ifndef MAXHOSTNAMELEN
 #define MAXHOSTNAMELEN 256
 #endif
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
-#define SAVE(x) gSaveVec->push(x)
-#define ALLOC(n) alloc_and_save(n)
+#define SAVE(x) taskData->saveVec.push(x)
+#define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 #ifdef WINDOWS_PC
@@ -289,18 +285,18 @@ struct sk_tab_struct {
     { "SEQPACKET",      SOCK_SEQPACKET }
 };
 
-static Handle makeHostEntry(struct hostent *host);
-static Handle makeProtoEntry(struct protoent *proto);
-static Handle makeServEntry(struct servent *proto);
-static Handle makeNetEntry(struct netent *net);
-static Handle makeList(int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(void*, char*));
-static Handle mkAftab(void*, char *p);
-static Handle mkSktab(void*, char *p);
-static Handle setSocketOption(Handle args, int level, int opt);
-static Handle getSocketOption(Handle args, int level, int opt);
-static Handle getSocketInt(Handle args, int level, int opt);
-static Handle selectCall(Handle args, int blockType);
+static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
+static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
+static Handle makeServEntry(TaskData *taskData, struct servent *proto);
+static Handle makeNetEntry(TaskData *taskData, struct netent *net);
+static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
+                       Handle (mkEntry)(TaskData *, void*, char*));
+static Handle mkAftab(TaskData *taskData, void*, char *p);
+static Handle mkSktab(TaskData *taskData, void*, char *p);
+static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
+static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt);
+static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
+static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
 #ifdef WINDOWS_PC
 /* To allow for portable code we map Windows socket errors to
@@ -378,9 +374,9 @@ static int GetError()
 #endif
 
 
-Handle Net_dispatch_c(Handle args, Handle code)
+Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
 TryAgain:
     switch (c)
     {
@@ -388,8 +384,8 @@ TryAgain:
         { /* Get the current host name. */
             char hostName[MAXHOSTNAMELEN];
             if (gethostname(hostName, MAXHOSTNAMELEN) != 0)
-                raise_syscall("gethostname failed", GETERROR);
-            return (SAVE(C_string_to_Poly(hostName)));
+                raise_syscall(taskData, "gethostname failed", GETERROR);
+            return (SAVE(C_string_to_Poly(taskData, hostName)));
         }
 
     case 1:
@@ -401,29 +397,28 @@ TryAgain:
             length = Poly_string_to_C(DEREFWORD(args),
                         hostName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Host name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Host name too long", ENAMETOOLONG);
             host = gethostbyname(hostName);
             if (host == NULL)
-                raise_syscall("gethostbyname failed", GETERROR);
-            return makeHostEntry(host);
+                raise_syscall(taskData, "gethostbyname failed", GETERROR);
+            return makeHostEntry(taskData, host);
         }
 
     case 2:
         {
             /* Look up entry by address. */
             unsigned long addr =
-                htonl(get_C_ulong(DEREFWORDHANDLE(args)));
+                htonl(get_C_ulong(taskData, DEREFWORDHANDLE(args)));
             struct hostent *host;
             /* Look up a host name given an address. */
             host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
             if (host == NULL)
-                raise_syscall("gethostbyaddr failed", GETERROR);
-            return makeHostEntry(host);
+                raise_syscall(taskData, "gethostbyaddr failed", GETERROR);
+            return makeHostEntry(taskData, host);
         }
 
     case 3:
         {
-#ifndef _WIN32_WCE
             /* Look up protocol entry. */
             char protoName[MAXHOSTNAMELEN];
             int length;
@@ -431,34 +426,26 @@ TryAgain:
             length = Poly_string_to_C(DEREFWORD(args),
                         protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Protocol name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
             proto = getprotobyname(protoName);
             if (proto == NULL)
-                raise_syscall("getprotobyname failed", GETERROR);
-            return makeProtoEntry(proto);
-#else
-            raise_syscall("getprotobyname not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getprotobyname failed", GETERROR);
+            return makeProtoEntry(taskData, proto);
         }
 
     case 4:
         {
-#ifndef _WIN32_WCE
             /* Look up protocol entry. */
             struct protoent *proto;
-            int pNum = get_C_ulong(DEREFWORDHANDLE(args));
+            int pNum = get_C_ulong(taskData, DEREFWORDHANDLE(args));
             proto = getprotobynumber(pNum);
             if (proto == NULL)
-                raise_syscall("getprotobynumber failed", GETERROR);
-            return makeProtoEntry(proto);
-#else
-            raise_syscall("getprotobynumber not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getprotobynumber failed", GETERROR);
+            return makeProtoEntry(taskData, proto);
         }
 
     case 5:
         {
-#ifndef _WIN32_WCE
             /* Get service given service name only. */
             char servName[MAXHOSTNAMELEN];
             int length;
@@ -466,71 +453,56 @@ TryAgain:
             length = Poly_string_to_C(DEREFWORD(args),
                         servName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Service name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
             serv = getservbyname (servName, NULL);
             if (serv == NULL)
-                raise_syscall("getservbyname failed", GETERROR);
-            return makeServEntry(serv);
-#else
-            raise_syscall("getservbyname not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getservbyname failed", GETERROR);
+            return makeServEntry(taskData, serv);
         }
 
     case 6:
         {
-#ifndef _WIN32_WCE
             /* Get service given service name and protocol name. */
             char servName[MAXHOSTNAMELEN], protoName[MAXHOSTNAMELEN];
             int length;
             struct servent *serv; 
             length = Poly_string_to_C(args->WordP()->Get(0), servName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Service name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
             length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Protocol name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
             serv = getservbyname (servName, protoName);
             if (serv == NULL)
-                raise_syscall("getservbyname failed", GETERROR);
-            return makeServEntry(serv);
-#else
-            raise_syscall("getservbyname not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getservbyname failed", GETERROR);
+            return makeServEntry(taskData, serv);
         }
 
     case 7:
         {
-#ifndef _WIN32_WCE
             /* Get service given port number only. */
             struct servent *serv;
-            long port = htons(get_C_ushort(DEREFWORDHANDLE(args)));
+            long port = htons(get_C_ushort(taskData, DEREFWORDHANDLE(args)));
             serv = getservbyport(port, NULL);
             if (serv == NULL)
-                raise_syscall("getservbyport failed", GETERROR);
-            return makeServEntry(serv);
-#else
-            raise_syscall("getservbyport not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getservbyport failed", GETERROR);
+            return makeServEntry(taskData, serv);
         }
 
     case 8:
         {
-#ifndef _WIN32_WCE
             /* Get service given port number and protocol name. */
             char protoName[MAXHOSTNAMELEN];
             int length;
             struct servent *serv;
-            long port = htons(get_C_ushort(DEREFHANDLE(args)->Get(0)));
+            long port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
             length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Protocol name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
             serv = getservbyport (port, protoName);
             if (serv == NULL)
-                raise_syscall("getservbyport failed", GETERROR);
-            return makeServEntry(serv);
-#else
-            raise_syscall("getservbyport not implemented in Windows CE", 0);
-#endif
+                raise_syscall(taskData, "getservbyport failed", GETERROR);
+            return makeServEntry(taskData, serv);
         }
 
     case 9:
@@ -542,14 +514,14 @@ TryAgain:
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args),
                         netName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
-                raise_syscall("Network name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Network name too long", ENAMETOOLONG);
             /* Winsock2 does not have getnetbyname.
                Just return failure. */
             net = getnetbyname(netName);
 #endif
             if (net == NULL)
-                raise_syscall("getnetbyname failed", GETERROR);
-            return makeNetEntry(net);
+                raise_syscall(taskData, "getnetbyname failed", GETERROR);
+            return makeNetEntry(taskData, net);
         }
 
     case 10:
@@ -557,21 +529,21 @@ TryAgain:
             /* Look up network entry from a number. */
             struct netent *net = NULL;
 #ifdef HAVE_GETNETBYADDR
-            unsigned long netNum = htonl(get_C_ulong(DEREFHANDLE(args)->Get(0)));
-            long af = get_C_ulong(DEREFHANDLE(args)->Get(1));
+            unsigned long netNum = htonl(get_C_ulong(taskData, DEREFHANDLE(args)->Get(0)));
+            long af = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1));
             /* Winsock2 does not have getnetbyaddr.
                Just return failure. */
             net = getnetbyaddr(netNum, af);
 #endif
             if (net == NULL)
-                raise_syscall("getnetbyaddr failed", GETERROR);
-            return makeNetEntry(net);
+                raise_syscall(taskData, "getnetbyaddr failed", GETERROR);
+            return makeNetEntry(taskData, net);
         }
 
     case 11:
         {
             /* Return a list of known address families. */
-            return makeList(sizeof(af_table)/sizeof(af_table[0]),
+            return makeList(taskData, sizeof(af_table)/sizeof(af_table[0]),
                             (char*)af_table, sizeof(af_table[0]),
                             0, mkAftab);
         }
@@ -579,22 +551,22 @@ TryAgain:
     case 12:
         {
             /* Return a list of known socket types. */
-            return makeList(sizeof(sk_table)/sizeof(sk_table[0]),
+            return makeList(taskData, sizeof(sk_table)/sizeof(sk_table[0]),
                             (char*)sk_table, sizeof(sk_table[0]),
                             0, mkSktab);
         }
 
     case 13: /* Return the "any" internet address. */
-        return Make_unsigned(INADDR_ANY);
+        return Make_unsigned(taskData, INADDR_ANY);
 
     case 14: /* Create a socket */
         {
-            Handle str_token = make_stream_entry();
+            Handle str_token = make_stream_entry(taskData);
             PIOSTRUCT strm;
             int stream_no = STREAMID(str_token);
-            int af = get_C_long(DEREFHANDLE(args)->Get(0));
-            int type = get_C_long(DEREFHANDLE(args)->Get(1));
-            int proto = get_C_long(DEREFHANDLE(args)->Get(2));
+            int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+            int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
             unsigned long onOff = 1;
             SOCKET skt = socket(af, type, proto);
             if (skt == INVALID_SOCKET)
@@ -605,13 +577,17 @@ TryAgain:
                 case EMFILE: /* too many open files */
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall("socket failed", EMFILE);
+                            raise_syscall(taskData, "socket failed", EMFILE);
                         emfileFlag = 1;
-                        FullGC(); /* May clear emfileFlag if we close a file. */
+                        if (processes->BeginGC(taskData))
+                        {
+                            FullGC(); /* May clear emfileFlag if we close a file. */
+                            processes->EndGC(taskData);
+                        }
                         goto TryAgain;
                     }
                 case EINTR: goto TryAgain;
-                default: raise_syscall("socket failed", GETERROR);
+                default: raise_syscall(taskData, "socket failed", GETERROR);
                 }
             }
             /* Set the socket to non-blocking mode. */
@@ -627,7 +603,7 @@ TryAgain:
 #else
                 close(skt);
 #endif
-                raise_syscall("ioctl failed", GETERROR);
+                raise_syscall(taskData, "ioctl failed", GETERROR);
             }
             strm = &basic_io_vector[stream_no];
             strm->device.sock = skt;
@@ -637,70 +613,70 @@ TryAgain:
         }
 
     case 15: /* Set TCP No-delay option. */
-        return setSocketOption(args, IPPROTO_TCP, TCP_NODELAY);
+        return setSocketOption(taskData, args, IPPROTO_TCP, TCP_NODELAY);
 
     case 16: /* Get TCP No-delay option. */
-        return getSocketOption(args, IPPROTO_TCP, TCP_NODELAY);
+        return getSocketOption(taskData, args, IPPROTO_TCP, TCP_NODELAY);
 
     case 17: /* Set Debug option. */
-        return setSocketOption(args, SOL_SOCKET, SO_DEBUG);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_DEBUG);
 
     case 18: /* Get Debug option. */
-        return getSocketOption(args, SOL_SOCKET, SO_DEBUG);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_DEBUG);
 
     case 19: /* Set REUSEADDR option. */
-        return setSocketOption(args, SOL_SOCKET, SO_REUSEADDR);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_REUSEADDR);
 
     case 20: /* Get REUSEADDR option. */
-        return getSocketOption(args, SOL_SOCKET, SO_REUSEADDR);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_REUSEADDR);
 
     case 21: /* Set KEEPALIVE option. */
-        return setSocketOption(args, SOL_SOCKET, SO_KEEPALIVE);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_KEEPALIVE);
 
     case 22: /* Get KEEPALIVE option. */
-        return getSocketOption(args, SOL_SOCKET, SO_KEEPALIVE);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_KEEPALIVE);
 
     case 23: /* Set DONTROUTE option. */
-        return setSocketOption(args, SOL_SOCKET, SO_DONTROUTE);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_DONTROUTE);
 
     case 24: /* Get DONTROUTE option. */
-        return getSocketOption(args, SOL_SOCKET, SO_DONTROUTE);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_DONTROUTE);
 
     case 25: /* Set BROADCAST option. */
-        return setSocketOption(args, SOL_SOCKET, SO_BROADCAST);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_BROADCAST);
 
     case 26: /* Get BROADCAST option. */
-        return getSocketOption(args, SOL_SOCKET, SO_BROADCAST);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_BROADCAST);
 
     case 27: /* Set OOBINLINE option. */
-        return setSocketOption(args, SOL_SOCKET, SO_OOBINLINE);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_OOBINLINE);
 
     case 28: /* Get OOBINLINE option. */
-        return getSocketOption(args, SOL_SOCKET, SO_OOBINLINE);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_OOBINLINE);
 
     case 29: /* Set SNDBUF size. */
-        return setSocketOption(args, SOL_SOCKET, SO_SNDBUF);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_SNDBUF);
 
     case 30: /* Get SNDBUF size. */
-        return getSocketInt(args, SOL_SOCKET, SO_SNDBUF);
+        return getSocketInt(taskData, args, SOL_SOCKET, SO_SNDBUF);
 
     case 31: /* Set RCVBUF size. */
-        return setSocketOption(args, SOL_SOCKET, SO_RCVBUF);
+        return setSocketOption(taskData, args, SOL_SOCKET, SO_RCVBUF);
 
     case 32: /* Get RCVBUF size. */
-        return getSocketInt(args, SOL_SOCKET, SO_RCVBUF);
+        return getSocketInt(taskData, args, SOL_SOCKET, SO_RCVBUF);
 
     case 33: /* Get socket type e.g. SOCK_STREAM. */
-        return getSocketInt(args, SOL_SOCKET, SO_TYPE);
+        return getSocketInt(taskData, args, SOL_SOCKET, SO_TYPE);
 
     case 34: /* Get error status and clear it. */
-        return getSocketOption(args, SOL_SOCKET, SO_ERROR);
+        return getSocketOption(taskData, args, SOL_SOCKET, SO_ERROR);
 
     case 35: /* Set Linger time. */
         {
             struct linger linger;
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            int lTime = get_C_long(DEREFHANDLE(args)->Get(1));
+            int lTime = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             /* We pass in a negative value to turn the option off,
                zero or positive to turn it on. */
             if (lTime < 0)
@@ -713,11 +689,11 @@ TryAgain:
                 linger.l_onoff = 1;
                 linger.l_linger = lTime;
             }
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (setsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, sizeof(linger)) != 0)
-                raise_syscall("setsockopt failed", GETERROR);
-            return Make_arbitrary_precision(0);
+                raise_syscall(taskData, "setsockopt failed", GETERROR);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 36: /* Get Linger time. */
@@ -726,14 +702,14 @@ TryAgain:
             PIOSTRUCT strm = get_stream(args->WordP());
             socklen_t size = sizeof(linger);
             int lTime = 0;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (getsockopt(strm->device.sock, SOL_SOCKET, SO_LINGER,
                 (char*)&linger, &size) != 0)
-                raise_syscall("getsockopt failed", GETERROR);
+                raise_syscall(taskData, "getsockopt failed", GETERROR);
             /* If the option is off return a negative. */
             if (linger.l_onoff == 0) lTime = -1;
             else lTime = linger.l_linger;
-            return Make_arbitrary_precision(lTime);
+            return Make_arbitrary_precision(taskData, lTime);
         }
 
     case 37: /* Get peer name. */
@@ -741,11 +717,11 @@ TryAgain:
             PIOSTRUCT strm = get_stream(args->WordP());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (getpeername(strm->device.sock, &sockA, &size) != 0)
-                raise_syscall("getpeername failed", GETERROR);
+                raise_syscall(taskData, "getpeername failed", GETERROR);
             /* Addresses are treated as strings. */
-            return(SAVE(Buffer_to_Poly((char*)&sockA, size)));
+            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 38: /* Get socket name. */
@@ -753,17 +729,17 @@ TryAgain:
             PIOSTRUCT strm = get_stream(args->WordP());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (getsockname(strm->device.sock, &sockA, &size) != 0)
-                raise_syscall("getsockname failed", GETERROR);
-            return(SAVE(Buffer_to_Poly((char*)&sockA, size)));
+                raise_syscall(taskData, "getsockname failed", GETERROR);
+            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 39: /* Return the address family from an address. */
         {
             PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            return Make_unsigned(psock->sa_family);
+            return Make_unsigned(taskData, psock->sa_family);
         }
 
     case 40: /* Create a socket address from a port number and
@@ -772,10 +748,10 @@ TryAgain:
             struct sockaddr_in sockaddr;
             memset(&sockaddr, 0, sizeof(sockaddr));
             sockaddr.sin_family = AF_INET;
-            sockaddr.sin_port = htons(get_C_ushort(DEREFHANDLE(args)->Get(0)));
+            sockaddr.sin_port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
             sockaddr.sin_addr.s_addr =
-                htonl(get_C_ulong(DEREFHANDLE(args)->Get(1)));
-            return(SAVE(Buffer_to_Poly((char*)&sockaddr, sizeof(sockaddr))));
+                htonl(get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)));
+            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
         }
 
     case 41: /* Return port number from an internet socket address.
@@ -784,7 +760,7 @@ TryAgain:
             PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_in *psock =
                 (struct sockaddr_in *)&psAddr->chars;
-            return Make_unsigned(ntohs(psock->sin_port));
+            return Make_unsigned(taskData, ntohs(psock->sin_port));
         }
 
     case 42: /* Return internet address from an internet socket address.
@@ -793,7 +769,7 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_in *psock =
                 (struct sockaddr_in *)&psAddr->chars;
-            return Make_unsigned(ntohl(psock->sin_addr.s_addr));
+            return Make_unsigned(taskData, ntohl(psock->sin_addr.s_addr));
         }
 
         /* 43 - Set non-blocking mode.  Now removed. */
@@ -802,37 +778,37 @@ TryAgain:
         {
             PIOSTRUCT strm = get_stream(args->WordP());
             unsigned long readable;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef WINDOWS_PC
             if (ioctlsocket(strm->device.sock, FIONREAD, &readable) != 0)
-                raise_syscall("ioctlsocket failed", GETERROR);
+                raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
             if (ioctl(strm->device.sock, FIONREAD, &readable) < 0)
-                raise_syscall("ioctl failed", GETERROR);
+                raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
-            return Make_arbitrary_precision(readable);
+            return Make_arbitrary_precision(taskData, readable);
         }
 
     case 45: /* Find out if we are at the mark. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
             unsigned long atMark;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef WINDOWS_PC
             if (ioctlsocket(strm->device.sock, SIOCATMARK, &atMark) != 0)
-                raise_syscall("ioctlsocket failed", GETERROR);
+                raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
             if (ioctl(strm->device.sock, SIOCATMARK, &atMark) < 0)
-                raise_syscall("ioctl failed", GETERROR);
+                raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
-            return Make_arbitrary_precision(atMark == 0 ? 0 : 1);
+            return Make_arbitrary_precision(taskData, atMark == 0 ? 0 : 1);
         }
 
     case 46: /* Accept a connection. */
     case 58: /* Non-blocking accept. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             else {
                 SOCKET sock = strm->device.sock, result;
                 struct sockaddr resultAddr;
@@ -843,7 +819,7 @@ TryAgain:
                 PIOSTRUCT newStrm;
                 /* Get a token for the new socket - may raise an
                    exception if it fails. */
-                str_token = make_stream_entry();
+                str_token = make_stream_entry(taskData);
                 stream_no = STREAMID(str_token);
                 addrLen = sizeof(resultAddr);
                 result = accept(sock, &resultAddr, &addrLen);
@@ -859,9 +835,13 @@ TryAgain:
                     case EMFILE: /* Too many files. */
                         {
                             if (emfileFlag) /* Previously had an EMFILE error. */
-                                raise_syscall("accept failed", EMFILE);
+                                raise_syscall(taskData, "accept failed", EMFILE);
                             emfileFlag = 1;
-                            FullGC(); /* May clear emfileFlag if we close a file. */
+                            if (processes->BeginGC(taskData))
+                            {
+                                FullGC(); /* May clear emfileFlag if we close a file. */
+                                processes->EndGC(taskData);
+                            }
                             goto TryAgain;
                         }
                     case EWOULDBLOCK:
@@ -869,14 +849,14 @@ TryAgain:
                            this back to the caller.  If it is blocking we
                            suspend this process and try again later. */
                         if (c == 46 /* blocking version. */)
-                            processes->block_and_restart(strm->device.sock, 0, POLY_SYS_network);
+                            processes->BlockAndRestart(taskData, strm->device.sock, false, POLY_SYS_network);
                         /* else drop through. */
                     default:
-                        raise_syscall("accept failed", GETERROR);
+                        raise_syscall(taskData, "accept failed", GETERROR);
                     }
                 }
 
-                addrHandle = SAVE(Buffer_to_Poly((char*)&resultAddr, addrLen));
+                addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
                 newStrm = &basic_io_vector[stream_no];
                 newStrm->device.sock = result;
                 newStrm->ioBits =
@@ -894,10 +874,10 @@ TryAgain:
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (bind(strm->device.sock, psock, psAddr->length) != 0)
-                raise_syscall("bind failed", GETERROR);
-            return Make_arbitrary_precision(0);
+                raise_syscall(taskData, "bind failed", GETERROR);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 48: /* Connect to an address. */
@@ -907,7 +887,7 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
             int res;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             /* In Windows, and possibly also in Unix, if we have
                received a previous EWOULDBLOCK we have to use "select"
                to tell us whether the connection actually succeeded. */
@@ -933,13 +913,13 @@ TryAgain:
                     {
                         int err = GETERROR;
                         if (err != EINTR)
-                            raise_syscall("select failed", err);
+                            raise_syscall(taskData, "select failed", err);
                         /* else continue */
                     }
                     else if (sel == 0)
                     {
                         /* Nothing yet */
-                        processes->block_and_restart(-1, 0, POLY_SYS_network);
+                        processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
                             /* -1 => not for reading. */
                     }
                     else /* Definite result. */
@@ -949,26 +929,26 @@ TryAgain:
                         strm->ioBits &= ~IO_BIT_INPROGRESS; /* No longer in progress. */
                         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0
                             || result != 0)
-                            raise_syscall("connect failed", MAPERROR(result));
-                        return Make_arbitrary_precision(0); /* Success. */
+                            raise_syscall(taskData, "connect failed", MAPERROR(result));
+                        return Make_arbitrary_precision(taskData, 0); /* Success. */
                     }
                 }
                 else
                 {
                     int err;
                     res = connect(strm->device.sock, psock, psAddr->length);
-                    if (res == 0) return Make_arbitrary_precision(0); /* OK */
+                    if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
                     /* It isn't clear that EINTR can ever occur with
                        connect, but just to be safe, we retry. */
                     err = GETERROR;
                     if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
                     {
                         strm->ioBits |= IO_BIT_INPROGRESS;
-                        processes->block_and_restart(-1, 0, POLY_SYS_network);
+                        processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
                             /* -1 => not for reading. */
                     }
                     else if (err != EINTR)
-                        raise_syscall("connect failed", err);
+                        raise_syscall(taskData, "connect failed", err);
                     /* else try again. */
                 }
             }
@@ -977,27 +957,27 @@ TryAgain:
     case 49: /* Put socket into listening mode. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            int backlog = get_C_ulong(DEREFHANDLE(args)->Get(1));
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            int backlog = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1));
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (listen(strm->device.sock, backlog) != 0)
-                raise_syscall("listen failed", GETERROR);
-            return Make_arbitrary_precision(0);
+                raise_syscall(taskData, "listen failed", GETERROR);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 50: /* Shutdown the socket. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             int mode = 0;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
-            switch (get_C_ulong(DEREFHANDLE(args)->Get(1)))
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            switch (get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)))
             {
             case 1: mode = SHUT_RD; break;
             case 2: mode = SHUT_WR; break;
             case 3: mode = SHUT_RDWR;
             }
             if (shutdown(strm->device.sock, mode) != 0)
-                raise_syscall("shutdown failed", GETERROR);
-            return Make_arbitrary_precision(0);
+                raise_syscall(taskData, "shutdown failed", GETERROR);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 51: /* Send data on a socket. */
@@ -1006,14 +986,14 @@ TryAgain:
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
-            unsigned int offset = get_C_ulong(DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(DEREFHANDLE(args)->Get(3));
-            unsigned int dontRoute = get_C_ulong(DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int dontRoute = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, sent;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -1032,16 +1012,16 @@ TryAgain:
                    send but just to be safe we deal with that case and
                    retry the send. */
                 if (sent != SOCKET_ERROR) /* OK. */
-                    return Make_arbitrary_precision(sent);
+                    return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 51 /* blocking */)
                 {
-                    processes->block_and_restart(-1, 0, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
                         /* -1 => not for reading */
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
-                    raise_syscall("send failed", err);
+                    raise_syscall(taskData, "send failed", err);
                 /* else try again */
             }
         }
@@ -1053,14 +1033,14 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
-            unsigned int offset = get_C_ulong(DEREFHANDLE(args)->Get(3));
-            unsigned int length = get_C_ulong(DEREFHANDLE(args)->Get(4));
-            unsigned int dontRoute = get_C_ulong(DEREFHANDLE(args)->Get(5));
-            unsigned int outOfBand = get_C_ulong(DEREFHANDLE(args)->Get(6));
+            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int dontRoute = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
+            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(6));
             int flags = 0, sent;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (IS_INT(pBase)) {
                 /* Handle the special case where we are sending a single
                    byte vector and the "address" is the tagged byte itself. */
@@ -1080,15 +1060,15 @@ TryAgain:
                    send but just to be safe we deal with that case and
                    retry the send. */
                 if (sent != SOCKET_ERROR) /* OK. */
-                    return Make_arbitrary_precision(sent);
+                    return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 52 /* blocking */)
                 {
-                    processes->block_and_restart(-1, 0, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
-                    raise_syscall("sendto failed", err);
+                    raise_syscall(taskData, "sendto failed", err);
                 /* else try again */
             }
         }
@@ -1098,14 +1078,14 @@ TryAgain:
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_ulong(DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(DEREFHANDLE(args)->Get(3));
-            unsigned int peek = get_C_ulong(DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int peek = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             while (1) {
                 int err;
@@ -1115,17 +1095,17 @@ TryAgain:
                     /* It appears that recv may return the length of the
                        message if that is longer than the buffer. */
                     if (recvd > (int)length) recvd = length;
-                    return Make_arbitrary_precision(recvd);
+                    return Make_arbitrary_precision(taskData, recvd);
                 }
                 if (err == EWOULDBLOCK && c == 53 /* blocking */)
                 {
                     /* Block until something arrives. */
-                    processes->block_and_restart(outOfBand ? -1 : strm->device.sock,
-                        0, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, outOfBand ? -1 : strm->device.sock,
+                        false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
-                    raise_syscall("recv failed", err);
+                    raise_syscall(taskData, "recv failed", err);
                 /* else try again */
             }
         }
@@ -1137,17 +1117,17 @@ TryAgain:
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_ulong(DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(DEREFHANDLE(args)->Get(3));
-            unsigned int peek = get_C_ulong(DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int peek = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
             socklen_t addrLen;
             struct sockaddr resultAddr;
 
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
-            if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             while (1) {
                 int err;
@@ -1158,8 +1138,8 @@ TryAgain:
                 if (recvd != SOCKET_ERROR) { /* OK. */
                     Handle addrHandle, lengthHandle, pair;
                     if (recvd > (int)length) recvd = length;
-                    lengthHandle = Make_arbitrary_precision(recvd);
-                    addrHandle = SAVE(Buffer_to_Poly((char*)&resultAddr, addrLen));
+                    lengthHandle = Make_arbitrary_precision(taskData, recvd);
+                    addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
                     pair = ALLOC(2);
                     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(lengthHandle));
                     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
@@ -1167,12 +1147,12 @@ TryAgain:
                 }
                 if (err == EWOULDBLOCK && c == 54 /* blocking */)
                 {
-                    processes->block_and_restart(outOfBand ? -1 : strm->device.sock,
-                        0, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, outOfBand ? -1 : strm->device.sock,
+                        false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
-                    raise_syscall("recvfrom failed", err);
+                    raise_syscall(taskData, "recvfrom failed", err);
                 /* else try again */
             }
         }
@@ -1180,18 +1160,18 @@ TryAgain:
     case 55: /* Create a socket pair. */
 #ifdef WINDOWS_PC
         /* Not implemented. */
-        raise_syscall("socketpair not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "socketpair not implemented", -WSAEAFNOSUPPORT);
 #else
         {
-            Handle str_token1 = make_stream_entry();
-            Handle str_token2 = make_stream_entry();
+            Handle str_token1 = make_stream_entry(taskData);
+            Handle str_token2 = make_stream_entry(taskData);
             Handle pair;
             PIOSTRUCT strm1, strm2;
             int stream_no1 = STREAMID(str_token1);
             int stream_no2 = STREAMID(str_token2);
-            int af = get_C_long(DEREFHANDLE(args)->Get(0));
-            int type = get_C_long(DEREFHANDLE(args)->Get(1));
-            int proto = get_C_long(DEREFHANDLE(args)->Get(2));
+            int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+            int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
             int onOff = 1;
             SOCKET skt[2];
             if (socketpair(af, type, proto, skt) != 0)
@@ -1203,13 +1183,17 @@ TryAgain:
                 case EMFILE: /* too many open files */
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
-                            raise_syscall("socket failed", EMFILE);
+                            raise_syscall(taskData, "socket failed", EMFILE);
                         emfileFlag = 1;
-                        FullGC(); /* May clear emfileFlag if we close a file. */
+                        if (processes->BeginGC(taskData))
+                        {
+                            FullGC(); /* May clear emfileFlag if we close a file. */
+                            processes->EndGC(taskData);
+                        }
                         goto TryAgain;
                     }
                 case EINTR: goto TryAgain;
-                default: raise_syscall("socketpair failed", GETERROR);
+                default: raise_syscall(taskData, "socketpair failed", GETERROR);
                 }
             }
             /* Set the sockets to non-blocking mode. */
@@ -1220,7 +1204,7 @@ TryAgain:
                 free_stream_entry(stream_no2);
                 close(skt[0]);
                 close(skt[1]);
-                raise_syscall("ioctl failed", GETERROR);
+                raise_syscall(taskData, "ioctl failed", GETERROR);
             }
             strm1 = &basic_io_vector[stream_no1];
             strm1->device.sock = skt[0];
@@ -1241,7 +1225,7 @@ TryAgain:
     case 56: /* Create a Unix socket address from a string. */
 #ifdef WINDOWS_PC
         /* Not implemented. */
-        raise_syscall("Unix addresses not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
 #else
         {
             struct sockaddr_un addr;
@@ -1254,48 +1238,48 @@ TryAgain:
             length = Poly_string_to_C(DEREFWORD(args),
                         addr.sun_path, sizeof(addr.sun_path));
             if (length > (int)sizeof(addr.sun_path))
-                raise_syscall("Address too long", ENAMETOOLONG);
-            return SAVE(Buffer_to_Poly((char*)&addr, sizeof(addr)));
+                raise_syscall(taskData, "Address too long", ENAMETOOLONG);
+            return SAVE(Buffer_to_Poly(taskData, (char*)&addr, sizeof(addr)));
         }
 #endif
 
     case 57: /* Get the file name from a Unix socket address. */
 #ifdef WINDOWS_PC
         /* Not implemented. */
-        raise_syscall("Unix addresses not implemented", -WSAEAFNOSUPPORT);
+        raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
 #else
         {
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_un *psock = (struct sockaddr_un *)&psAddr->chars;
-            return SAVE(C_string_to_Poly(psock->sun_path));
+            return SAVE(C_string_to_Poly(taskData, psock->sun_path));
         }
 #endif
 
     case 64: /* Blocking select call. Infinite timeout. */
-        return selectCall(args, 1);
+        return selectCall(taskData, args, 1);
 
     case 65: /* Polling select call. Zero timeout. */
-        return selectCall(args, 2);
+        return selectCall(taskData, args, 2);
 
     case 66: /* Select call with non-zero timeout. */
-        return selectCall(args, 0);
+        return selectCall(taskData, args, 0);
 
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown net function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(taskData, EXC_Fail, msg);
 			return 0;
         }
     }
 }
 
 /* "Polymorphic" function to generate a list. */
-static Handle makeList(int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(void*, char*))
+static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
+                       Handle (mkEntry)(TaskData *, void*, char*))
 {
-    Handle saved = gSaveVec->mark();
+    Handle saved = taskData->saveVec.mark();
     Handle list = SAVE(ListNull);
     /* Start from the end of the list. */
     p += count*size;
@@ -1303,20 +1287,20 @@ static Handle makeList(int count, char *p, int size, void *arg,
     {
         Handle value, next;
         p -= size; /* Back up to the last entry. */
-        value = mkEntry(arg, p);
+        value = mkEntry(taskData, arg, p);
         next  = ALLOC(SIZEOF(ML_Cons_Cell));
 
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
 
-        gSaveVec->reset(saved);
+        taskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
         count--;
     }
     return list;
 }
 
-static Handle mkAddr(void *arg, char *p)
+static Handle mkAddr(TaskData *taskData, void *arg, char *p)
 {
     int j;
     struct hostent *host = (struct hostent *)arg;
@@ -1326,11 +1310,11 @@ static Handle mkAddr(void *arg, char *p)
        just use ntohl. */
     for (j = 0; j < host->h_length; j++)
         addr = (addr << 8) | ((*(char**)p)[j] & 255);
-    return Make_unsigned(addr);
+    return Make_unsigned(taskData, addr);
 }
 
 /* Convert a host entry into a tuple for ML. */
-static Handle makeHostEntry(struct hostent *host)
+static Handle makeHostEntry(TaskData *taskData, struct hostent *host)
 {
     /* We need to do all this in the right order.  We cannot
        construct the result tuple until all the values are
@@ -1342,19 +1326,19 @@ static Handle makeHostEntry(struct hostent *host)
     Handle addrList = SAVE(ListNull);
 
     /* Canonical name. */
-    name = SAVE(C_string_to_Poly(host->h_name));
+    name = SAVE(C_string_to_Poly(taskData, host->h_name));
 
     /* Aliases. */
     for (i=0, p = host->h_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(i, host->h_aliases);
+    aliases = convert_string_list(taskData, i, host->h_aliases);
 
     /* Address type. */
-    addrType = Make_unsigned(host->h_addrtype);
+    addrType = Make_unsigned(taskData, host->h_addrtype);
 
     /* Addresses. */
     /* Count them first and then work from the end back. */
     for (i=0, p = host->h_addr_list; *p != NULL; p++, i++);
-    addrList = makeList(i, (char*)host->h_addr_list, sizeof(char*), host, mkAddr);
+    addrList = makeList(taskData, i, (char*)host->h_addr_list, sizeof(char*), host, mkAddr);
 
     /* Make the result structure. */
     result = ALLOC(4);
@@ -1365,21 +1349,21 @@ static Handle makeHostEntry(struct hostent *host)
     return result;
 }
 
-static Handle makeProtoEntry(struct protoent *proto)
+static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
 {
     int i;
     char **p;
     Handle aliases, name, protocol, result;
 
     /* Canonical name. */
-    name = SAVE(C_string_to_Poly(proto->p_name));
+    name = SAVE(C_string_to_Poly(taskData, proto->p_name));
 
     /* Aliases. */
     for (i=0, p = proto->p_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(i, proto->p_aliases);
+    aliases = convert_string_list(taskData, i, proto->p_aliases);
 
     /* Protocol number. */
-    protocol = Make_unsigned(proto->p_proto);
+    protocol = Make_unsigned(taskData, proto->p_proto);
 
     /* Make the result structure. */
     result = ALLOC(3);
@@ -1389,24 +1373,24 @@ static Handle makeProtoEntry(struct protoent *proto)
     return result;
 }
 
-static Handle makeServEntry(struct servent *serv)
+static Handle makeServEntry(TaskData *taskData, struct servent *serv)
 {
     int i;
     char **p;
     Handle aliases, name, protocol, result, port;
 
     /* Canonical name. */
-    name = SAVE(C_string_to_Poly(serv->s_name));
+    name = SAVE(C_string_to_Poly(taskData, serv->s_name));
 
     /* Aliases. */
     for (i=0, p = serv->s_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(i, serv->s_aliases);
+    aliases = convert_string_list(taskData, i, serv->s_aliases);
 
     /* Port number. */
-    port = Make_unsigned(ntohs(serv->s_port));
+    port = Make_unsigned(taskData, ntohs(serv->s_port));
 
     /* Protocol name. */
-    protocol = SAVE(C_string_to_Poly(serv->s_proto));
+    protocol = SAVE(C_string_to_Poly(taskData, serv->s_proto));
 
     /* Make the result structure. */
     result = ALLOC(4);
@@ -1417,24 +1401,24 @@ static Handle makeServEntry(struct servent *serv)
     return result;
 }
 
-static Handle makeNetEntry(struct netent *net)
+static Handle makeNetEntry(TaskData *taskData, struct netent *net)
 {
     int i;
     char **p;
     Handle aliases, name, addrType, result, network;
 
     /* Canonical name. */
-    name = SAVE(C_string_to_Poly(net->n_name));
+    name = SAVE(C_string_to_Poly(taskData, net->n_name));
 
     /* Aliases. */
     for (i=0, p = net->n_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(i, net->n_aliases);
+    aliases = convert_string_list(taskData, i, net->n_aliases);
 
     /* Address type. */
-    addrType = Make_unsigned(net->n_addrtype);
+    addrType = Make_unsigned(taskData, net->n_addrtype);
 
     /* Protocol name. */
-    network = Make_unsigned(ntohl(net->n_net));
+    network = Make_unsigned(taskData, ntohl(net->n_net));
 
     /* Make the result structure. */
     result = ALLOC(4);
@@ -1445,26 +1429,26 @@ static Handle makeNetEntry(struct netent *net)
     return result;
 }
 
-static Handle mkAftab(void *arg, char *p)
+static Handle mkAftab(TaskData *taskData, void *arg, char *p)
 {
     struct af_tab_struct *af = (struct af_tab_struct *)p;
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
-    name = SAVE(C_string_to_Poly(af->af_name));
-    num = Make_unsigned(af->af_num);
+    name = SAVE(C_string_to_Poly(taskData, af->af_name));
+    num = Make_unsigned(taskData, af->af_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));
     return result;
 }
 
-static Handle mkSktab(void *arg, char *p)
+static Handle mkSktab(TaskData *taskData, void *arg, char *p)
 {
     struct sk_tab_struct *sk = (struct sk_tab_struct *)p;
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
-    name = SAVE(C_string_to_Poly(sk->sk_name));
-    num = Make_unsigned(sk->sk_num);
+    name = SAVE(C_string_to_Poly(taskData, sk->sk_name));
+    num = Make_unsigned(taskData, sk->sk_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));
@@ -1472,45 +1456,45 @@ static Handle mkSktab(void *arg, char *p)
 }
 
 /* This sets an option and can also be used to set an integer. */
-static Handle setSocketOption(Handle args, int level, int opt)
+static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-    int onOff = get_C_long(DEREFHANDLE(args)->Get(1));
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    int onOff = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     if (setsockopt(strm->device.sock, level, opt,
         (char*)&onOff, sizeof(int)) != 0)
-        raise_syscall("setsockopt failed", GETERROR);
-    return Make_arbitrary_precision(0);
+        raise_syscall(taskData, "setsockopt failed", GETERROR);
+    return Make_arbitrary_precision(taskData, 0);
 }
 
 /* Get a socket option as a boolean */
-static Handle getSocketOption(Handle args, int level, int opt)
+static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
     PIOSTRUCT strm = get_stream(args->WordP());
     int onOff = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     if (getsockopt(strm->device.sock, level, opt,
         (char*)&onOff, &size) != 0)
-        raise_syscall("getsockopt failed", GETERROR);
-    return Make_arbitrary_precision(onOff == 0 ? 0 : 1);
+        raise_syscall(taskData, "getsockopt failed", GETERROR);
+    return Make_arbitrary_precision(taskData, onOff == 0 ? 0 : 1);
 }
 
 /* Get a socket option as an integer */
-static Handle getSocketInt(Handle args, int level, int opt)
+static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
 {
     PIOSTRUCT strm = get_stream(args->WordP());
     int optVal = 0;
     socklen_t size = sizeof(int);
-    if (strm == NULL) raise_syscall("Stream is closed", EBADF);
+    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     if (getsockopt(strm->device.sock, level, opt,
         (char*)&optVal, &size) != 0)
-        raise_syscall("getsockopt failed", GETERROR);
-    return Make_arbitrary_precision(optVal);
+        raise_syscall(taskData, "getsockopt failed", GETERROR);
+    return Make_arbitrary_precision(taskData, optVal);
 }
 
 /* Helper function for selectCall.  Creates the result vector of active sockets. */
-static Handle getSelectResult(Handle args, int offset, fd_set *pFds)
+static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_set *pFds)
 {
     /* Construct the result vectors. */
     PolyObject *inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr();
@@ -1539,7 +1523,7 @@ static Handle getSelectResult(Handle args, int offset, fd_set *pFds)
 /* Wrapper for "select" call.  The arguments are arrays of socket ids.  These arrays are
    updated so that "active" sockets are left unchanged and inactive sockets are set to
    minus one.  */
-static Handle selectCall(Handle args, int blockType)
+static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 {
     fd_set readers, writers, excepts;
     struct timeval timeout;
@@ -1555,25 +1539,25 @@ static Handle selectCall(Handle args, int blockType)
     nVec = OBJECT_LENGTH(readVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(readVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall("Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
         FD_SET(strm->device.sock, &readers);
     }
     nVec = OBJECT_LENGTH(writeVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(writeVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall("Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
         FD_SET(strm->device.sock, &writers);
     }
     nVec = OBJECT_LENGTH(excVec);
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(excVec->Get(i).AsObjPtr());
-        if (strm == NULL) raise_syscall("Stream is closed", EBADF); 
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF); 
         FD_SET(strm->device.sock, &excepts);
     }
     /* Whatever the timeout specified we simply poll here. */
     memset(&timeout, 0, sizeof(timeout));
     selectRes = select(FD_SETSIZE, &readers, &writers, &excepts, &timeout);
-    if (selectRes < 0) raise_syscall("select failed", GETERROR);
+    if (selectRes < 0) raise_syscall(taskData, "select failed", GETERROR);
 
     if (selectRes == 0) { /* Timed out.  Have to look at the timeout value. */
         switch (blockType)
@@ -1584,7 +1568,7 @@ static Handle selectCall(Handle args, int blockType)
 #ifdef WINDOWS_PC
             FILETIME ftTime, ftNow;
             /* Get the file time. */
-            get_C_pair(DEREFHANDLE(args)->Get(3),
+            get_C_pair(taskData, DEREFHANDLE(args)->Get(3),
                 &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
 			GetSystemTimeAsFileTime(&ftNow);
             /* If the timeout time is earlier than the current time
@@ -1598,15 +1582,15 @@ static Handle selectCall(Handle args, int blockType)
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
-            Handle hMillion = Make_arbitrary_precision(1000000);
+            Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
             unsigned long secs =
-                get_C_ulong(DEREFWORDHANDLE(div_longc(hMillion, hTime)));
+                get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs =
-                get_C_ulong(DEREFWORDHANDLE(rem_longc(hMillion, hTime)));
+                get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (gettimeofday(&tv, &tz) != 0)
-                raise_syscall("gettimeofday failed", errno);
+                raise_syscall(taskData, "gettimeofday failed", errno);
             if ((unsigned long)tv.tv_sec > secs ||
                 ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
                 break;
@@ -1614,7 +1598,7 @@ static Handle selectCall(Handle args, int blockType)
 #endif
         }
         case 1: /* Block until one of the descriptors is ready. */
-            processes->block_and_restart(-1, 0, POLY_SYS_network);
+            processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
             /*NOTREACHED*/
         case 2: /* Just a simple poll - drop through. */
             break;
@@ -1622,9 +1606,9 @@ static Handle selectCall(Handle args, int blockType)
     }
 
     /* Construct the result vectors. */
-    rdResult = getSelectResult(args, 0, &readers);
-    wrResult = getSelectResult(args, 1, &writers);
-    exResult = getSelectResult(args, 2, &excepts);
+    rdResult = getSelectResult(taskData, args, 0, &readers);
+    wrResult = getSelectResult(taskData, args, 1, &writers);
+    exResult = getSelectResult(taskData, args, 2, &excepts);
 
     result = ALLOC(3);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(rdResult));

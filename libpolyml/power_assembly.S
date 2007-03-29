@@ -33,7 +33,7 @@ r24        is the closure pointer or static link pointer (like SPARC %o5)
 rr (rr)   is used as the compiler-visible link register (like SPARC %o7)
 r26        RTS scratch register
 r27 (rsp)  is the ML stack pointer,
-r28 (rsl)  is the stack limit,
+r28        is no longer used (previously the stack limit register)
 r29 (rhp)  is the heap pointer,
 r30 (rhl)  is the heap limit,
 r31 (rhr)  points to the top exception handler.
@@ -150,7 +150,6 @@ there any a possibility of a garbage collection.
     
     /* dedicated ML registers */
 #define rsp r27
-#define rsl r28
 #define rhp r29
 #define rhl r30
 #define rhr r31
@@ -193,8 +192,8 @@ there any a possibility of a garbage collection.
     
     /* dedicated ML registers */
     .set rsp,27
-    .set rsl,28
     .set rhp,29
+    .set r28,28
     .set rhl,30
     .set rhr,31
 #endif
@@ -404,7 +403,7 @@ globldec(PPCAsmSwitchToPoly)
 
     lwz     rtemp3,20(r13)              /* rt3 =  poly_stack */
     
-    lwz     rsl,24(r13)                 /* set up stack limit register */
+    lwz     r28,24(r13)                 /* Load the old stack limit reg for backwards compat. */
     
     /* Load rsp and rhr now in case of profile trap */
     lwz     rsp,8(rtemp3)
@@ -413,10 +412,6 @@ globldec(PPCAsmSwitchToPoly)
     /* Now rsp, rhr and rsl have been loaded we can clear inRTS */
     li      r0,0
     stw     r0,0(r13)             /* clear "in_run_time_system" */
-
-    /* We now load the stack limit register again.  There is a small chance that
-       InterruptCodeUsingContext could have been called during the last few instructions. */
-    lwz     rsl,24(r13)
 
     lwz     rhp,12(r13)           /* Load rhp from heapPointer */
     lwz     rhl,16(r13)           /* Set rhl to the number of free bytes */

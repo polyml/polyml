@@ -21,15 +21,10 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDLIB_H
@@ -111,6 +106,7 @@
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "processes.h"
 
 #ifdef WINDOWS_PC
 /* Windows file times are 64-bit numbers representing times in
@@ -148,33 +144,33 @@ static void subTimes(struct timeval *result, struct timeval *x);
 #endif
 
 
-Handle timing_dispatch_c(Handle args, Handle code)
+Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Get ticks per microsecond. */
-        return Make_arbitrary_precision(TICKS_PER_MICROSECOND);
+        return Make_arbitrary_precision(taskData, TICKS_PER_MICROSECOND);
     case 1: /* Return time since the time base. */
         {
 #ifdef WINDOWS_PC
             FILETIME ft;
 			GetSystemTimeAsFileTime(&ft);
-            return Make_arb_from_pair(ft.dwHighDateTime, ft.dwLowDateTime);
+            return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
             struct timezone tz;
             if (gettimeofday(&tv, &tz) != 0)
-                raise_syscall("gettimeofday failed", errno);
-            return Make_arb_from_pair_scaled(tv.tv_sec, tv.tv_usec, 1000000);
+                raise_syscall(taskData, "gettimeofday failed", errno);
+            return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
 #endif
         }
     case 2: /* Return the base year.  This is the year which corresponds to
                zero in the timing sequence. */
 #ifdef WINDOWS_PC
-        return Make_arbitrary_precision(1601);
+        return Make_arbitrary_precision(taskData, 1601);
 #else
-        return Make_arbitrary_precision(1970);
+        return Make_arbitrary_precision(taskData, 1970);
 #endif
 
     case 3: /* In both Windows and Unix the time base is 1st of January
@@ -182,7 +178,7 @@ Handle timing_dispatch_c(Handle args, Handle code)
                we are running on a system with a different base.  It
                returns the number of seconds after 1st January of the
                base year that corresponds to zero of the time base. */
-        return Make_arbitrary_precision(0);
+        return Make_arbitrary_precision(taskData, 0);
 
     case 4: /* Return the time offset which applied/will apply at the
                specified time (in seconds). */
@@ -192,33 +188,19 @@ Handle timing_dispatch_c(Handle args, Handle code)
 #ifdef WINDOWS_PC
             /* Although the offset is in seconds it is since 1601. */
             LARGE_INTEGER   liTime;
-            get_C_pair(DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
+            get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
             theTime = (long)(liTime.QuadPart - 11644473600);
 #else
-            theTime = get_C_long(DEREFWORDHANDLE(args)); /* May raise exception. */
+            theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
-#ifdef _WIN32_WCE
-			TIME_ZONE_INFORMATION timeZoneInfo;
-			/* WCE doesn't provide gmtime and localtime so we have to use the underlying
-			   calls. */
-			memset(&timeZoneInfo, 0, sizeof(timeZoneInfo)); // In case of error.
-			DWORD dwT = GetTimeZoneInformation(&timeZoneInfo);
-			localoff = timeZoneInfo.Bias;
-			// THIS IS WRONG.  It tells us whether Summer time applies now not whether it
-			// applied in the past.  It will do for the moment.
-			if (dwT == TIME_ZONE_ID_DAYLIGHT) localoff += timeZoneInfo.DaylightBias;
-			else if (dwT == TIME_ZONE_ID_STANDARD) localoff += timeZoneInfo.StandardBias;
-			localoff *= 60; // Because these were in minutes.
-#else
             struct tm *loctime = gmtime(&theTime);
-            if (loctime == NULL) raise_exception0(EXC_size);
+            if (loctime == NULL) raise_exception0(taskData, EXC_size);
             localoff = (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
 
             loctime = localtime(&theTime);
-            if (loctime == NULL) raise_exception0(EXC_size);
+            if (loctime == NULL) raise_exception0(taskData, EXC_size);
             localoff -= (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
-#endif
-            return Make_arbitrary_precision(localoff);
+            return Make_arbitrary_precision(taskData, localoff);
         }
 
     case 5: /* Find out if Summer Time (daylight saving) was/will be in effect. */
@@ -227,31 +209,19 @@ Handle timing_dispatch_c(Handle args, Handle code)
 #ifdef WINDOWS_PC
             /* Although the offset is in seconds it is since 1601. */
             LARGE_INTEGER   liTime;
-            get_C_pair(DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
+            get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
             theTime = (long)(liTime.QuadPart - 11644473600);
 #else
-            theTime = get_C_long(DEREFWORDHANDLE(args)); /* May raise exception. */
+            theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
-#ifdef _WIN32_WCE
-			TIME_ZONE_INFORMATION timeZoneInfo;
-			// THIS IS WRONG.  It tells us whether Summer time applies now not whether it
-			// applied in the past.  It will do for the moment.
-			if (GetTimeZoneInformation(&timeZoneInfo) == TIME_ZONE_ID_DAYLIGHT)
-				return Make_arbitrary_precision(1);
-			else return Make_arbitrary_precision(0);
-#else
 			struct tm *loctime = localtime(&theTime);
-			if (loctime == NULL) raise_exception0(EXC_size);
-			return Make_arbitrary_precision(loctime->tm_isdst);
-#endif
+			if (loctime == NULL) raise_exception0(taskData, EXC_size);
+			return Make_arbitrary_precision(taskData, loctime->tm_isdst);
         }
 
     case 6: /* Call strftime.  It would be possible to do much of this in
                ML except that it requires the current locale. */
         {
-#ifdef _WIN32_WCE
-			raise_syscall("Not implemented", 0);
-#else
             struct  tm time;
             char    *format, buff[2048];
             Handle  resString;
@@ -259,15 +229,15 @@ Handle timing_dispatch_c(Handle args, Handle code)
             format = Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0));
 
             /* Copy the time information. */
-            time.tm_year = get_C_long(DEREFHANDLE(args)->Get(1)) - 1900;
-            time.tm_mon = get_C_long(DEREFHANDLE(args)->Get(2));
-            time.tm_mday = get_C_long(DEREFHANDLE(args)->Get(3));
-            time.tm_hour = get_C_long(DEREFHANDLE(args)->Get(4));
-            time.tm_min = get_C_long(DEREFHANDLE(args)->Get(5));
-            time.tm_sec = get_C_long(DEREFHANDLE(args)->Get(6));
-            time.tm_wday = get_C_long(DEREFHANDLE(args)->Get(7));
-            time.tm_yday = get_C_long(DEREFHANDLE(args)->Get(8));
-            time.tm_isdst = get_C_long(DEREFHANDLE(args)->Get(9));
+            time.tm_year = get_C_long(taskData, DEREFHANDLE(args)->Get(1)) - 1900;
+            time.tm_mon = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
+            time.tm_mday = get_C_long(taskData, DEREFHANDLE(args)->Get(3));
+            time.tm_hour = get_C_long(taskData, DEREFHANDLE(args)->Get(4));
+            time.tm_min = get_C_long(taskData, DEREFHANDLE(args)->Get(5));
+            time.tm_sec = get_C_long(taskData, DEREFHANDLE(args)->Get(6));
+            time.tm_wday = get_C_long(taskData, DEREFHANDLE(args)->Get(7));
+            time.tm_yday = get_C_long(taskData, DEREFHANDLE(args)->Get(8));
+            time.tm_isdst = get_C_long(taskData, DEREFHANDLE(args)->Get(9));
 #ifdef WINDOWS_PC
             _tzset(); /* Make sure we set the current locale. */
 #else
@@ -280,23 +250,19 @@ Handle timing_dispatch_c(Handle args, Handle code)
             {
                 /* Error */
                 free(format);
-                raise_exception0(EXC_size);
+                raise_exception0(taskData, EXC_size);
             }
-            resString = gSaveVec->push(C_string_to_Poly(buff));
+            resString = taskData->saveVec.push(C_string_to_Poly(taskData, buff));
             free(format);
             return resString;
-#endif
         }
 
     case 7: /* Return User CPU time since the start. */
         {
 #ifdef WINDOWS_PC
-            FILETIME ut;
-#ifndef _WIN32_WCE
-            FILETIME ct, et, kt;
+            FILETIME ut, ct, et, kt;
             if (GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                return Make_arb_from_pair(ut.dwHighDateTime, ut.dwLowDateTime);
-#endif
+                return Make_arb_from_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
             /* GetProcessTimes failed, assume because this is not NT.
                Have to use real time. */
 			GetSystemTimeAsFileTime(&ut);
@@ -306,12 +272,12 @@ Handle timing_dispatch_c(Handle args, Handle code)
             lj.LowPart = startTime.dwLowDateTime;
             lj.HighPart = startTime.dwHighDateTime;
             li.QuadPart -= lj.QuadPart;
-            return Make_arb_from_pair(li.HighPart, li.LowPart);
+            return Make_arb_from_pair(taskData, li.HighPart, li.LowPart);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
-                raise_syscall("getrusage failed", errno);
-            return Make_arb_from_pair_scaled(rusage.ru_utime.tv_sec,
+                raise_syscall(taskData, "getrusage failed", errno);
+            return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
                         rusage.ru_utime.tv_usec, 1000000);
 #endif
         }
@@ -319,27 +285,25 @@ Handle timing_dispatch_c(Handle args, Handle code)
     case 8: /* Return System CPU time since the start. */
         {
 #ifdef WINDOWS_PC
-#ifndef _WIN32_WCE
             FILETIME ct, et, kt, ut;
             if (GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                return Make_arb_from_pair(kt.dwHighDateTime, kt.dwLowDateTime);
+                return Make_arb_from_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
             /* If GetProcessTimes fails just return 0. */
-#endif
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
-                raise_syscall("getrusage failed", errno);
-            return Make_arb_from_pair_scaled(rusage.ru_stime.tv_sec,
+                raise_syscall(taskData, "getrusage failed", errno);
+            return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
                         rusage.ru_stime.tv_usec, 1000000);
 #endif
         }
 
     case 9: /* Return GC time since the start. */
 #ifdef WINDOWS_PC
-        return Make_arb_from_pair(gcUTime.HighPart, gcUTime.LowPart);
+        return Make_arb_from_pair(taskData, gcUTime.HighPart, gcUTime.LowPart);
 #else
-        return Make_arb_from_pair_scaled(gcUTime.tv_sec, gcUTime.tv_usec, 1000000);
+        return Make_arb_from_pair_scaled(taskData, gcUTime.tv_sec, gcUTime.tv_usec, 1000000);
 #endif
 
     case 10: /* Return real time since the start. */
@@ -353,14 +317,14 @@ Handle timing_dispatch_c(Handle args, Handle code)
             lj.LowPart = startTime.dwLowDateTime;
             lj.HighPart = startTime.dwHighDateTime;
             li.QuadPart -= lj.QuadPart;
-            return Make_arb_from_pair(li.HighPart, li.LowPart);
+            return Make_arb_from_pair(taskData, li.HighPart, li.LowPart);
 #else
             struct timeval tv;
             struct timezone tz;
             if (gettimeofday(&tv, &tz) != 0)
-                raise_syscall("gettimeofday failed", errno);
+                raise_syscall(taskData, "gettimeofday failed", errno);
             subTimes(&tv, &startTime);
-            return Make_arb_from_pair_scaled(tv.tv_sec, tv.tv_usec, 1000000);
+            return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
 #endif
         }
 
@@ -368,12 +332,12 @@ Handle timing_dispatch_c(Handle args, Handle code)
     case 11: /* Return User CPU time used by child processes. */
         {
 #ifdef WINDOWS_PC
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_CHILDREN, &rusage) != 0)
-                raise_syscall("getrusage failed", errno);
-            return Make_arb_from_pair_scaled(rusage.ru_utime.tv_sec,
+                raise_syscall(taskData, "getrusage failed", errno);
+            return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
                         rusage.ru_utime.tv_usec, 1000000);
 #endif
         }
@@ -381,12 +345,12 @@ Handle timing_dispatch_c(Handle args, Handle code)
     case 12: /* Return System CPU time used by child processes. */
         {
 #ifdef WINDOWS_PC
-            return Make_arbitrary_precision(0);
+            return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_CHILDREN, &rusage) != 0)
-                raise_syscall("getrusage failed", errno);
-            return Make_arb_from_pair_scaled(rusage.ru_stime.tv_sec,
+                raise_syscall(taskData, "getrusage failed", errno);
+            return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
                         rusage.ru_stime.tv_usec, 1000000);
 #endif
         }
@@ -394,16 +358,16 @@ Handle timing_dispatch_c(Handle args, Handle code)
     case 13: /* Return GC system time since the start. */
         /* This function was added in Gansner & Reppy. */
 #ifdef WINDOWS_PC
-        return Make_arb_from_pair(gcSTime.HighPart, gcSTime.LowPart);
+        return Make_arb_from_pair(taskData, gcSTime.HighPart, gcSTime.LowPart);
 #else
-        return Make_arb_from_pair_scaled(gcSTime.tv_sec, gcSTime.tv_usec, 1000000);
+        return Make_arb_from_pair_scaled(taskData, gcSTime.tv_sec, gcSTime.tv_usec, 1000000);
 #endif
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown timing function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(taskData, EXC_Fail, msg);
 			return 0;
         }
     }
@@ -418,10 +382,8 @@ void record_gc_time(int isEnd)
 {
 #ifdef WINDOWS_PC
     FILETIME kt, ut;
-#ifndef _WIN32_WCE
     FILETIME ct, et;
     if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-#endif
     {
         /* GetProcessTimes failed, assume because this is not NT.
            Have to use real time. */

@@ -19,18 +19,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#include "wincelib.h"
-/* The only "signal" we handle in CE is SIGINT. */
-#define SIGINT 2
-#define NSIG 3
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
-#endif
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -92,7 +84,7 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "Console.h"
 #endif
 
-#define SAVE(x) gSaveVec->push(x)
+#define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
 #define DEFAULT_SIG     0
@@ -112,6 +104,11 @@ static bool already_handling = false;
 static bool setSimpleSignalHandler(int sig, void (*)(int));
 
 
+// This function is called under slightly different circumstances in
+// Windows and Unix.  In Unix it is a signal handler and is called from
+// one of the threads when the signal is delivered.  In Windows it is
+// called from SigHandler::ThreadHasTrapped some time after the console
+// thread has requested a trap.
 #ifdef WINDOWS_PC
 void handleINT(void)
 #else
@@ -153,16 +150,12 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
 #ifdef WINDOWS_PC
        {
            int nChars;
-#ifdef _WIN32_WCE
-           while ((nChars = getConsoleInput(&comch, 1)) < 0);
-#else
            if (useConsole)
            {
                /* Use our console.  Ignore extra control-Cs. */
                while ((nChars = getConsoleInput(&comch, 1)) < 0);
            }
            else nChars = read(fileno(stdin), &comch, 1);
-#endif
            if (nChars != 1)
            {
                comch = 'c';
@@ -183,38 +176,47 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
            fputs("Type q(uit - Exit from system)\n", stdout);
            fputs("     c(ontinue running)\n", stdout);
            fputs("     f(ail - Raise an exception)\n", stdout);
-           fputs("     s(witch - Switch shells)\n", stdout);
            fputs("or   t(race - Get a trace of calls)\n", stdout);
        }
        else if (comch == 't')
        {
-           if (gc_phase)
-           {
-               /* Actually, it might be safe to give a trace in the mark phase? */
-               printf("Garbage collecting; stack trace unavailable\n");
-               fflush(stdout);
-           }
-           else
-           {
+            if (gc_phase)
+            {
+                /* Actually, it might be safe to give a trace in the mark phase? */
+                printf("Garbage collecting; stack trace unavailable\n");
+                fflush(stdout);
+            }
+            else
+            {
+                // It's possible that this could be delivered on a thread
+                // other than an ML thread.
+                TaskData *taskData = processes->GetTaskDataForThread();
+                if (taskData == 0)
+                    printf("Unable to get trace information at this point\n");
+                else
+                {
+                    StackObject *stack = taskData->stack;
+                    PolyWord *endStack = stack->Offset(stack->Length());
 #ifdef WINDOWS_PC
-               // In Windows we only come here once we have saved the state onto the
-               // stack.
-               give_stack_trace(poly_stack->p_sp, end_of_stack);
+                    // In Windows we only come here once we have saved the state onto the
+                    // stack.
+                    give_stack_trace(taskData, stack->p_sp, endStack);
 #else
-               // The signal can be delivered at any time; possibly while we are
-               // in the run-time system, in which case poly_stack->p_sp will have been
-               // saved on entry and will be valid, and possibly while executing ML
-               // code.  In the latter case we need to try to get the SP value from the
-               // signal context.
-               PolyWord *sp;
-               POLYCODEPTR pc;
-               if (machineDependent->GetPCandSPFromContext(scp, sp, pc))
-                   give_stack_trace(sp, end_of_stack);
-               else printf("Unable to get trace information at this point\n");
+                    // The signal can be delivered at any time; possibly while we are
+                    // in the run-time system, in which case poly_stack->p_sp will have been
+                    // saved on entry and will be valid, and possibly while executing ML
+                    // code.  In the latter case we need to try to get the SP value from the
+                    // signal context.
+                    PolyWord *sp;
+                    POLYCODEPTR pc;
+                    if (machineDependent->GetPCandSPFromContext(taskData, scp, sp, pc))
+                       give_stack_trace(taskData, sp, endStack);
+                    else printf("Unable to get trace information at this point\n");
 #endif
-           }
-       }
-    } while (comch != 'q' && comch != 'c' && comch != 'f' && comch != 's');
+                }
+            }
+        }
+    } while (comch != 'q' && comch != 'c' && comch != 'f');
     
     already_handling = false; /* About to leave */
 
@@ -228,33 +230,13 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
 #endif
     }
 
-    if (comch == 's')
-    {
-        consoleCode = 's'; /* Switch shells later. */
-        fflush(stdin);
-        interrupted = sig;
-        
-#if defined(WINDOWS_PC)
-        machineDependent->InterruptCode(); /* Set up interrupt */
-#else
-        machineDependent->InterruptCodeUsingContext(scp);
-#endif
-   }
-
     if (comch == 'f') 
     { 
         consoleCode = 'f'; /* Raise an exception later. */
 #ifndef WINDOWS_PC
         fflush(stdin);
 #endif
-        interrupted = sig;
-        
-#if defined(WINDOWS_PC)
-        machineDependent->InterruptCode(); /* Set up interrupt */
-#else
-        machineDependent->InterruptCodeUsingContext(scp);
-#endif
-
+        processes->RequestThreadsEnterRTS(true);
         /* The exception is not raised yet. Instead we set up the current
            process so that it will give an interrupt in due course. It will
            eventually enter select_next_process which will look at
@@ -265,33 +247,10 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
 } /* catchINT */
 
 #ifdef WINDOWS_PC
-
-#ifndef _WIN32_WCE
-static BOOL WINAPI catchINT(DWORD event)
-{
-    /* default handling for other events */
-    if (event != CTRL_C_EVENT) return FALSE;
-    RequestConsoleInterrupt();
-    return TRUE; /* control-C successfully handled */
-}
-#endif
-
-static int enableInterrupt = 1;
-
 // Request an interrupt.
 void RequestConsoleInterrupt(void)
 {
     addSigCount(SIGINT);
-}
-
-/* Disable interrupts during commit.  This isn't really needed because
-   we don't actually do anything until the our interrupt handler is called. */
-void SetResetCC(const int enable)
-{
-#ifndef _WIN32_WCE
-    /* N.B. This only works in Windows NT. */
-    SetConsoleCtrlHandler(NULL, enable ? TRUE : FALSE);
-#endif
 }
 #endif
 
@@ -302,6 +261,7 @@ void SetResetCC(const int enable)
 void addSigCount(int sig)
 {
     sigData[sig].sigCount++;
+    processes->RequestThreadsEnterRTS(true);
 }
 
 /* Called whenever a signal handler is installed other than in this
@@ -326,14 +286,14 @@ static PolyWord findHandler(int sig)
    to the previous handler.  It is complicated because we want to be able
    to inherit handlers from parent databases. 
    I've used a general dispatch function here to allow for future expansion. */
-Handle Sig_dispatch_c(Handle args, Handle code)
+Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(DEREFWORDHANDLE(code));
+    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Set up signal handler. */
         {
-            int sign = get_C_long(DEREFHANDLE(args)->Get(0));
+            int sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int action;
             Handle oldaction;
             /* Decode the action if it is Ignore or Default. */
@@ -341,7 +301,7 @@ Handle Sig_dispatch_c(Handle args, Handle code)
                 action = UNTAGGED(DEREFHANDLE(args)->Get(1));
             else action = 2; /* Set the handler. */
             if (sign <= 0 || sign >= NSIG)
-                raise_syscall("Invalid signal value", EINVAL);
+                raise_syscall(taskData, "Invalid signal value", EINVAL);
 
             /* Get the old action before updating the vector. */
             oldaction = SAVE(findHandler(sign));
@@ -355,18 +315,12 @@ Handle Sig_dispatch_c(Handle args, Handle code)
 #ifdef WINDOWS_PC
                 if (sign == SIGINT)
                 {
-                    if (action == IGNORE_SIG) enableInterrupt = 0;
-                    else enableInterrupt = 1;
                 }
                 else if (action == IGNORE_SIG)
                 {
-#ifdef _WIN32_WCE
-					raise_syscall("signal not implemented", 0);
-#else
                     if (signal(sign, (action == IGNORE_SIG) ? SIG_IGN: addSigCount)
                             == SIG_ERR)
-                        raise_syscall("signal failed", errno);
-#endif
+                        raise_syscall(taskData, "signal failed", errno);
                 }
 #else
                 bool fOK = true;
@@ -382,7 +336,7 @@ Handle Sig_dispatch_c(Handle args, Handle code)
                 }
                 else fOK = setSimpleSignalHandler(sign, addSigCount);
                 if (! fOK)
-                    raise_syscall("sigaction failed", errno);
+                    raise_syscall(taskData, "sigaction failed", errno);
 #endif
             }
             return oldaction;
@@ -392,7 +346,7 @@ Handle Sig_dispatch_c(Handle args, Handle code)
         {
             char msg[100];
             sprintf(msg, "Unknown signal function: %d", c);
-            raise_exception_string(EXC_Fail, msg);
+            raise_exception_string(taskData, EXC_Fail, msg);
 			return 0;
         }
     }
@@ -504,7 +458,7 @@ class SigHandler: public RtsModule
 public:
     virtual void Init(void);
     virtual void Reinit(void);
-    virtual void Interrupt(int sig);
+    virtual void ThreadHasTrapped(TaskData *taskData);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 };
 
@@ -566,15 +520,13 @@ void SigHandler::Reinit(void)
    time after an interrupt.
    We can then fork any processes needed to handle the interrupts.
 */
-void SigHandler::Interrupt(int/*signum*/)
+void SigHandler::ThreadHasTrapped(TaskData *taskData)
 {
     int i;
-    int haveSignalled = 0;
     for (i = 0; i < NSIG; i++)
     {
         while (sigData[i].sigCount > 0)
         {
-            haveSignalled = 1;
             sigData[i].sigCount--;
             PolyWord hand = findHandler(i);
             if (!IS_INT(hand)) /* If it's not DEFAULT or IGNORE. */
@@ -582,11 +534,11 @@ void SigHandler::Interrupt(int/*signum*/)
                 /* We may go round this loop an indeterminate number of
                    times.  To prevent the save vec from overflowing we
                    mark it and reset it. */
-                Handle saved = gSaveVec->mark();
-                /* Create a new process to run the handler. */
+                Handle saved = taskData->saveVec.mark();
+                // Create a new thread to run the handler.
                 Handle h = SAVE(hand);
-                (void)fork_function(h, SAVE(TAGGED(i)));
-                gSaveVec->reset(saved);
+                processes->ForkFromRTS(taskData, h, SAVE(TAGGED(i)));
+                taskData->saveVec.reset(saved);
             }
 #ifdef WINDOWS_PC
             /* 
@@ -612,19 +564,11 @@ void SigHandler::Interrupt(int/*signum*/)
 #endif
         }
     }
-    if (consoleCode == 's')
-    {
-        consoleCode = 0;
-        switch_subshells_c();
-    }
     if (consoleCode == 'f')
     {
         consoleCode = 0;
-        processes->interrupt_console_processes();
-        processes->interrupt_signal_processes();
+        processes->BroadcastInterrupt();
     }
-    else if (haveSignalled)
-        processes->interrupt_signal_processes();
 }
 
 void SigHandler::GarbageCollect(ScanAddress *process)

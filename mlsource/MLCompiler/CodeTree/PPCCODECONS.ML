@@ -173,24 +173,6 @@ structure MISC :
     exception InternalError of string
   end
 
-(*****************************************************************************)
-(*                  CODECONS sharing constraints                             *)
-(*****************************************************************************)
-
-(* removed SPF 24/9/94 ...
-sharing type
-  ADDRESS.word
-= CODESEG.word
-       
-sharing type
-  ADDRESS.short
-= CODESEG.short
-       
-sharing type
-  ADDRESS.address
-= CODESEG.address
-... *)
-
 ) :
 
 (*****************************************************************************)
@@ -938,7 +920,7 @@ struct
     val regReturn   = Reg 25; (* return address *)
     val regTemp3    = Reg 26; (* Unsaved temporary. *)
     val regStackPtr = Reg 27; (* current ML stack pointer *)
-    val regStackLim = Reg 28; (* lower limit of stack (pointer) *)
+    (* r28 is no longer used *)
     val regHeapPtr  = Reg 29; (* current heap allocation pointer *)
     val regHeapLim  = Reg 30; (* number of available heap bytes (words?) *)
     val regHandler  = Reg 31; (* pointer into the stack *)
@@ -1670,11 +1652,14 @@ struct
 
   
  (* Offsets in the memRegisters structure.  This is pointed at by r13 *)
+ val MemRegisterStackLimit      = 24 (* This contains the current base of the stack.  Also
+                                        used by the RTS to cause an interrupt by being set
+                                        to the end of the stack. *)
  val MemRegisterHeapOverflow    = 28 (* Called when the heap limit is reached. *)
  val MemRegisterStackOverflow   = 32 (* Called when the stack limit is reached. *)
  val MemRegisterStackOverflowEx = 36 (* Called when the stack limit is reached. *)
  val MemRegisterRaiseException  = 40 (* Called to raise an exception with an exception packet. *)
- val MemRegisterIOEntry        = 44 (* Called to make an IO call.  Not currently used by the code-generator. *)
+ val MemRegisterIOEntry         = 44 (* Called to make an IO call.  Not currently used by the code-generator. *)
  val MemRegisterRaiseDiv        = 48 (* Called to raise a divide exception. *)
  val MemRegisterArbEmulation    = 52 (* Called to emulate an arbitrary precision instruction. *)
 
@@ -3609,7 +3594,8 @@ Calling conventions:
       if stackCheck
       then
          let
-            val U: unit = genCmpl(regStackPtr, regStackLim, cvec);
+            val () = genLoad(MemRegisterStackLimit, regMemRegs, regZero, cvec);
+            val () = genCmpl(regStackPtr, regZero, cvec);
             val skipTrap = putConditional (GeInv, cvec)
          in
             genLoad(MemRegisterStackOverflow, regMemRegs, regZero, cvec);
@@ -4675,8 +4661,9 @@ not be decremented.
           *)
           loadImmed (regTemp1, stackBytes) @
           [
+            lwz(regZero, regMemRegs, int16 MemRegisterStackLimit),
             sub (regTemp1, regStackPtr, regTemp1),
-            cmpl (regTemp1, regStackLim),
+            cmpl (regTemp1, regZero),
             condBranch(GeInv, int14 4),
             (* Call the "extended" entry. *)
             lwz(regZero, regMemRegs, int16 MemRegisterStackOverflowEx),
@@ -4692,7 +4679,8 @@ not be decremented.
               This check is necessary because user interupts (^C)
               adjust the limit register precisely so this check will
               cause a trap is a "safe" state. *)
-            cmpl (regStackPtr, regStackLim),
+            lwz(regZero, regMemRegs, int16 MemRegisterStackLimit),
+            cmpl (regStackPtr, regZero),
             condBranch(GeInv, int14 4),
             (* Call the "normal" entry. *)
             lwz(regZero, regMemRegs, int16 MemRegisterStackOverflow),

@@ -20,14 +20,13 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
 #ifdef WIN32
 #include "winconfig.h"
 #else
 #include "config.h"
 #endif
+
+#ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
 
@@ -45,7 +44,6 @@
 // DCJM 11/5/06 - Do we really need this "fix" for a bug ten years ago in an OS that's
 // probably never used now?
 
-#ifndef _WIN32_WCE
 int proper_stat(char *filename, struct stat *fbp)
 {
 	int res = stat(filename, fbp);
@@ -65,7 +63,6 @@ int proper_stat(char *filename, struct stat *fbp)
 	};
 	return res;
 }
-#endif
 
 #ifndef WINDOWS_PC
 /* I don't know whether the same applies to lstat but we'll define

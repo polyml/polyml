@@ -23,6 +23,7 @@
 #define MEMMGR_H
 
 #include "bitmap.h"
+#include "locking.h"
 
 class ScanAddress;
 
@@ -105,11 +106,14 @@ public:
     // Delete a local space
     bool DeleteLocalSpace(LocalMemSpace *sp);
 
-    // Return a mutable local space with at least enough room to satisfy
-    // the request or 0 if there isn't one.
-    LocalMemSpace *GetAllocSpace(POLYUNSIGNED words);
-    // Get the largest mutable local space with at least enough room
-    LocalMemSpace *GetLargestSpace(POLYUNSIGNED words=0);
+    // Allocate an area of the heap of at least minWords and at most maxWords.
+    // This is used both when allocating single objects (when minWords and maxWords
+    // are the same) and when allocating heap segments.  If there is insufficient
+    // space to satisfy the minimum it will return 0.  Updates "maxWords" with
+    // the space actually allocated
+    PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords);
+    PolyWord *AllocHeapSpace(POLYUNSIGNED words)
+        { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
     // Create and delete export spaces
     ExportMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut);
@@ -158,6 +162,9 @@ public:
 
     // Used for quick check for local addresses.
     PolyWord *minLocal, *maxLocal;
+
+    // Storage manager lock.
+    PLock allocLock;
 };
 
 extern MemMgr gMem;

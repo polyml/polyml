@@ -252,8 +252,11 @@ struct
 	datatype baseInstream =
 		Underlying of ImpIO.instream
 	  | Direct of textInstream
+	  
+	open Thread.Thread
+	open Thread.Mutex
 
-	type instream = baseInstream ref
+	datatype instream = InStream of baseInstream ref * mutex
 
 	type outstream = ImpIO.outstream
 	val output = ImpIO.output
@@ -373,8 +376,10 @@ struct
 				handle exn => raise mapToIo(exn, s, "TextIO.openIn")
 		val buffsize = sys_get_buffsize f handle _ => 1024
 	in
-		ref (Direct{descr=f, name=s, buffer=CharArray.array(buffsize, #" "),
-					bufp=ref 0, buflimit=ref ~1})
+	    InStream(
+    		ref (Direct{descr=f, name=s, buffer=CharArray.array(buffsize, #" "),
+    					bufp=ref 0, buflimit=ref ~1}),
+			mutex())
 	end
 
 	(* Get the entries for standard input, standard output and standard error. *)
@@ -382,9 +387,11 @@ struct
 		let
 		val buffsize = sys_get_buffsize stdInDesc handle _ => 1024
 		in
-		ref (Direct{descr=stdInDesc, name="stdIn",
-				buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
-				buflimit=ref ~1})
+	    InStream(
+    		ref (Direct{descr=stdInDesc, name="stdIn",
+    				buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
+    				buflimit=ref ~1}),
+			mutex())
 		end
 
 
@@ -422,6 +429,22 @@ struct
 			false)
 	end
 
+	(* Lock the mutex during any lookup or entry. This code should be in a library. *)
+  	fun protect f (InStream(r, m)) =
+	let
+	    (* Set this to handle interrupts synchronously while we have
+		   the lock.  An asynchronous interrupt could arrive at the
+		   wrong moment. *)
+	    val oldAttrs = getAttributes()
+		val () = setAttributes[InterruptState InterruptSynch]
+  		val () = lock m
+		val result = f r
+			handle exn => (unlock m; setAttributes oldAttrs; raise exn)
+	in
+		unlock m;
+		setAttributes oldAttrs;
+		result
+	end
 
 	(* Read something into the buffer. *)
 	fun fillBuffer({buffer=Array(length, addr), bufp, buflimit, descr, name, ...}: textInstream) : unit =
@@ -437,177 +460,204 @@ struct
 	(* If we make a text stream from the lower level we always wrap it
 	   up.  It might be possible to get the underlying file descriptor. *)
 	fun mkInstream (s : StreamIO.instream) : instream =
-		ref(Underlying(ImpIO.mkInstream s))
+		InStream(ref(Underlying(ImpIO.mkInstream s)), mutex())
 
-	fun getInstream(ref(Underlying strm)) = ImpIO.getInstream strm
-	|	getInstream(instr as ref(Direct{descr, buffer, bufp, buflimit, name})) =
-		let
-			(* We have to wrap the stream at this point and pass it the
-			   remains of the buffer. *)
-			val unprocessed =
-				if !buflimit < 0
-				then ""
-				else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
-			val strm = wrapInFileDescr(descr, name, unprocessed)
-		in
-			instr := Underlying(ImpIO.mkInstream strm);
-			strm
-		end
+    local
+    	fun getInstream'(ref(Underlying strm)) = ImpIO.getInstream strm
+    	|	getInstream'(instr as ref(Direct{descr, buffer, bufp, buflimit, name})) =
+    		let
+    			(* We have to wrap the stream at this point and pass it the
+    			   remains of the buffer. *)
+    			val unprocessed =
+    				if !buflimit < 0
+    				then ""
+    				else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
+    			val strm = wrapInFileDescr(descr, name, unprocessed)
+    		in
+    			instr := Underlying(ImpIO.mkInstream strm);
+    			strm
+    		end
+	in
+	    val getInstream = protect getInstream'
+	end
 
-	fun setInstream(ref(Underlying strm), s) = ImpIO.setInstream(strm, s)
-	|	setInstream(instr as ref(Direct _), s) =
-			(* Should we close the existing stream or just discard it?
-			   We can't have previously called getInstream because that
-			   would have turned the "Direct" into an "Underlying" so
-			   there can't be any other reference to this stream.
-			   Leave it for the moment. *)
-			instr := Underlying(ImpIO.mkInstream s)
+    local
+    	fun setInstream' s (ref(Underlying strm)) = ImpIO.setInstream(strm, s)
+    	|	setInstream' s (instr as ref(Direct _)) =
+    			(* Should we close the existing stream or just discard it?
+    			   We can't have previously called getInstream because that
+    			   would have turned the "Direct" into an "Underlying" so
+    			   there can't be any other reference to this stream.
+    			   Leave it for the moment. *)
+    			instr := Underlying(ImpIO.mkInstream s)
+	in
+	    fun setInstream(r, s) = protect (setInstream' s) r
+	end
+	
 
-	(* Read the next natural unit of the stream. *)
-	fun input(ref(Underlying strm)) = ImpIO.input strm
-	|   input(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
-		if !buflimit = 0
-		then (* Last read returned end-of-file.  Clear the EOF state once
-				we return this empty string. *)
-		   (buflimit := ~1; "")
-		else 
-			(
-			(* If we have exhausted the buffer or never read before we
-			   have to try reading now. *)
-			if !bufp >= !buflimit
-			then fillBuffer strm else ();
-			if !buflimit = 0 then
-				(* Now reached eof. Since we're returning an empty string we
-				   need to set buflimit to ~1 to indicate that we should try
-				   reading again. *)
-				(buflimit := ~1; "")
-			else
-			let
-				(* Return the rest of the buffer. *)
-				val resString =
-					CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
-			in
-				bufp := !buflimit;
-				resString
-			end
-			)
+    local
+    	(* Read the next natural unit of the stream. *)
+    	fun input'(ref(Underlying strm)) = ImpIO.input strm
+    	|   input'(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
+    		if !buflimit = 0
+    		then (* Last read returned end-of-file.  Clear the EOF state once
+    				we return this empty string. *)
+    		   (buflimit := ~1; "")
+    		else 
+    			(
+    			(* If we have exhausted the buffer or never read before we
+    			   have to try reading now. *)
+    			if !bufp >= !buflimit
+    			then fillBuffer strm else ();
+    			if !buflimit = 0 then
+    				(* Now reached eof. Since we're returning an empty string we
+    				   need to set buflimit to ~1 to indicate that we should try
+    				   reading again. *)
+    				(buflimit := ~1; "")
+    			else
+    			let
+    				(* Return the rest of the buffer. *)
+    				val resString =
+    					CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
+    			in
+    				bufp := !buflimit;
+    				resString
+    			end
+    			)
+	in
+	    val input = protect input'
+	end
 
-	fun input1(ref(Underlying strm)) = ImpIO.input1 strm
-	|   input1(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
-		if !buflimit = 0
-		then (* Last read returned end-of-file.  Clear the EOF state once
-				we return NONE. *)
-			(buflimit := ~1; NONE)
-		else
-			(
-			(* If we have exhausted the buffer or never read before we
-			   have to try reading now. *)
-			if !bufp >= !buflimit
-			then fillBuffer strm else ();
-			if !buflimit = 0
-			then (* We must only return a single end-of-file for this read.
-					We set the limit to ~1 so that we will read again. *)
-				(buflimit := ~1; NONE)
-			else
-			let
-				val resCh = CharArray.sub(buffer, !bufp)
-			in
-				bufp := !bufp + 1;
-				SOME resCh
-			end
-			)
+    local
+    	fun input1'(ref(Underlying strm)) = ImpIO.input1 strm
+    	|   input1'(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
+    		if !buflimit = 0
+    		then (* Last read returned end-of-file.  Clear the EOF state once
+    				we return NONE. *)
+    			(buflimit := ~1; NONE)
+    		else
+    			(
+    			(* If we have exhausted the buffer or never read before we
+    			   have to try reading now. *)
+    			if !bufp >= !buflimit
+    			then fillBuffer strm else ();
+    			if !buflimit = 0
+    			then (* We must only return a single end-of-file for this read.
+    					We set the limit to ~1 so that we will read again. *)
+    				(buflimit := ~1; NONE)
+    			else
+    			let
+    				val resCh = CharArray.sub(buffer, !bufp)
+    			in
+    				bufp := !bufp + 1;
+    				SOME resCh
+    			end
+    			)
+	in
+	    val input1 = protect input1'
+	end
 
-	fun inputN(ref(Underlying strm), n) = ImpIO.inputN(strm, n)
-	|   inputN(ref(Direct(strm as {buffer, bufp, buflimit, ...})), n) =
-		if n < 0 orelse n > CharVector.maxLen
-		then raise Size
-		else if !buflimit = 0
-		then (* Last read returned end-of-file.  Clear the EOF state once
-				we return this empty string. *)
-			(buflimit := ~1; "")
-		else 
-		let
-			fun readN toRead =
-				if !bufp + toRead <= !buflimit
-				then (* Can satisfy the request from the buffer. *)
-				let
-					val resString =
-						CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME toRead));
-				in
-					bufp := !bufp + toRead;
-					[resString]
-				end
-				else
-				let
-					val available =
-						if !buflimit < 0 then 0 else !buflimit - !bufp
-					val resString =
-						CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME available))
-				in
-					fillBuffer strm;
-					if !buflimit = 0
-					then (* Reached eof - return what we have. *)
-						[resString]
-					else resString :: readN (toRead - available)
-				end
-			 val result = concat(readN n)
-		in
-			(* If we reached EOF without reading anything we clear the EOF
-			   indicator.  Otherwise we leave it.  That way we always return
-			   a single null string for each eof. *)
-			if n <> 0 andalso size result = 0
-			then buflimit := ~1
-			else ();
-			result
-		end
+    local
+    	fun inputN' n (ref(Underlying strm)) = ImpIO.inputN(strm, n)
+    	|   inputN' n (ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
+    		if n < 0 orelse n > CharVector.maxLen
+    		then raise Size
+    		else if !buflimit = 0
+    		then (* Last read returned end-of-file.  Clear the EOF state once
+    				we return this empty string. *)
+    			(buflimit := ~1; "")
+    		else 
+    		let
+    			fun readN toRead =
+    				if !bufp + toRead <= !buflimit
+    				then (* Can satisfy the request from the buffer. *)
+    				let
+    					val resString =
+    						CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME toRead));
+    				in
+    					bufp := !bufp + toRead;
+    					[resString]
+    				end
+    				else
+    				let
+    					val available =
+    						if !buflimit < 0 then 0 else !buflimit - !bufp
+    					val resString =
+    						CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME available))
+    				in
+    					fillBuffer strm;
+    					if !buflimit = 0
+    					then (* Reached eof - return what we have. *)
+    						[resString]
+    					else resString :: readN (toRead - available)
+    				end
+    			 val result = concat(readN n)
+    		in
+    			(* If we reached EOF without reading anything we clear the EOF
+    			   indicator.  Otherwise we leave it.  That way we always return
+    			   a single null string for each eof. *)
+    			if n <> 0 andalso size result = 0
+    			then buflimit := ~1
+    			else ();
+    			result
+    		end
+	in
+	    fun inputN(r, n) = protect (inputN' n) r
+	end
 
-	fun inputAll(ref(Underlying strm)) = ImpIO.inputAll strm
-	|   inputAll(ref(Direct(strm as {buffer, bufp, buflimit, descr, name, ...}))) =
-		if !buflimit = 0
-		(* Last read returned an empty buffer.  Clear the EOF state once
-		   we return this empty string. *)
-		then (buflimit := ~1; "")
-		else
-		let
-			val soFar =
-				if !buflimit < 0
-				then ""
- 				else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
 
-			(* Find out how much we have available and try reading
-			   a vector of that size.  It may get less than the whole
-			   file so we have to keep trying. *)
-			fun readAll() =
-			let
-				(* The call to sys_avail can raise an exception if the file is a
-				   special device e.g. in the /proc filing system on Linux. *)
-				val charsAvailable = sys_avail descr handle exn => 0
-				(* If it's less than the blocksize get a block.  This way we
-				   always get a reasonable amount if "avail" is giving us a
-				   small amount. *)
-				val toRead = Int.max(charsAvailable, CharArray.length buffer)
-				val readRest =
-					sys_read_string(descr, toRead)
-						handle exn => raise mapToIo(exn, name, "TextIO.inputAll")
-			in
-				if readRest = ""
-				then [""] (* Reached eof. *)
-				else readRest :: readAll()
-			end
-			(* Put it all together. *)
-			val result = concat(soFar :: readAll())
-		in
-			bufp := 0; (* The buffer is now empty. *)
-			(* If we are returning a null string then we clear the eof
-			   indicator. *)
-			if size result = 0
-			then buflimit := ~1
-			else buflimit := 0; (* We're at eof. *)
-			result
-		end
+    local
+    	fun inputAll'(ref(Underlying strm)) = ImpIO.inputAll strm
+    	|   inputAll'(ref(Direct(strm as {buffer, bufp, buflimit, descr, name, ...}))) =
+    		if !buflimit = 0
+    		(* Last read returned an empty buffer.  Clear the EOF state once
+    		   we return this empty string. *)
+    		then (buflimit := ~1; "")
+    		else
+    		let
+    			val soFar =
+    				if !buflimit < 0
+    				then ""
+     				else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
+    
+    			(* Find out how much we have available and try reading
+    			   a vector of that size.  It may get less than the whole
+    			   file so we have to keep trying. *)
+    			fun readAll() =
+    			let
+    				(* The call to sys_avail can raise an exception if the file is a
+    				   special device e.g. in the /proc filing system on Linux. *)
+    				val charsAvailable = sys_avail descr handle exn => 0
+    				(* If it's less than the blocksize get a block.  This way we
+    				   always get a reasonable amount if "avail" is giving us a
+    				   small amount. *)
+    				val toRead = Int.max(charsAvailable, CharArray.length buffer)
+    				val readRest =
+    					sys_read_string(descr, toRead)
+    						handle exn => raise mapToIo(exn, name, "TextIO.inputAll")
+    			in
+    				if readRest = ""
+    				then [""] (* Reached eof. *)
+    				else readRest :: readAll()
+    			end
+    			(* Put it all together. *)
+    			val result = concat(soFar :: readAll())
+    		in
+    			bufp := 0; (* The buffer is now empty. *)
+    			(* If we are returning a null string then we clear the eof
+    			   indicator. *)
+    			if size result = 0
+    			then buflimit := ~1
+    			else buflimit := 0; (* We're at eof. *)
+    			result
+    		end
+	in
+	    val inputAll = protect inputAll'
+	end
 
-	fun canInput(ref(Underlying strm), n) = ImpIO.canInput(strm, n)
-	|	canInput(ref(Direct{bufp, buflimit, descr, name, buffer, ...}), n) =
+    local
+	fun canInput' n (ref(Underlying strm)) = ImpIO.canInput(strm, n)
+	|	canInput' n (ref(Direct{bufp, buflimit, descr, name, buffer, ...})) =
 		if n < 0 orelse n > CharVector.maxLen
 		then raise Size
 		else
@@ -656,27 +706,39 @@ struct
 				else SOME available (* Just what's in the buffer. *)
 				)
 		end
+	in
+	    fun canInput(r, n) = protect (canInput' n) r
+	end
 
-	fun closeIn(ref(Underlying strm)) = ImpIO.closeIn strm
-	|	closeIn(strm as ref(Direct{descr, ...})) =
-		(
-			(* Do we need to do something to get the right effect with
-			   getInstream? *)
-			sys_close(descr)
-		)
+    local
+    	fun closeIn'(ref(Underlying strm)) = ImpIO.closeIn strm
+    	|	closeIn'(strm as ref(Direct{descr, ...})) =
+    		(
+    			(* Do we need to do something to get the right effect with
+    			   getInstream? *)
+    			sys_close(descr)
+    		)
+	in
+	    val closeIn = protect closeIn'
+	end
 
-	fun endOfStream(ref(Underlying strm)) = ImpIO.endOfStream strm
-	|	endOfStream(ref(Direct(strm as {buflimit, bufp, ...}))) =
-			(
-			(* If we have never read before or we have exhausted the
-			   input we have to read now. *)
-			if !bufp >= !buflimit andalso !buflimit <> 0
-			then fillBuffer strm else ();
-			(* At eof if the buffer is now empty. *)
-			!buflimit = 0
-			)
+    local
+    	fun endOfStream'(ref(Underlying strm)) = ImpIO.endOfStream strm
+    	|	endOfStream'(ref(Direct(strm as {buflimit, bufp, ...}))) =
+    			(
+    			(* If we have never read before or we have exhausted the
+    			   input we have to read now. *)
+    			if !bufp >= !buflimit andalso !buflimit <> 0
+    			then fillBuffer strm else ();
+    			(* At eof if the buffer is now empty. *)
+    			!buflimit = 0
+    			)
+	in
+	    val endOfStream = protect endOfStream'
+	end
 
-	fun inputLine (ref(Underlying strm)) =
+    local
+	fun inputLine' (ref(Underlying strm)) =
 		let
 			val f = ImpIO.getInstream strm
 		in
@@ -692,7 +754,7 @@ struct
 					end
 			|	SOME (s, f') => ( ImpIO.setInstream(strm, f'); SOME s )
 		end
-	|  inputLine (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
+	|  inputLine' (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
 		if !buflimit = 0 then (buflimit := ~1; NONE) (* Already at EOF. *)
 		else
 		let
@@ -737,15 +799,22 @@ struct
 			then ( buflimit := ~1; NONE )
 			else SOME result
 		end
+	in
+	    val inputLine = protect inputLine'
+	end
 
-	fun lookahead (ref(Underlying strm)) = ImpIO.lookahead strm
-	|	lookahead (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
-		(
-		if !bufp >= ! buflimit andalso !buflimit <> 0
-		then fillBuffer strm else ();
-		if !buflimit = 0 then NONE (* EOF *)
-		else SOME(CharArray.sub(buffer, !bufp))
-		)
+    local
+    	fun lookahead' (ref(Underlying strm)) = ImpIO.lookahead strm
+    	|	lookahead' (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
+    		(
+    		if !bufp >= ! buflimit andalso !buflimit <> 0
+    		then fillBuffer strm else ();
+    		if !buflimit = 0 then NONE (* EOF *)
+    		else SOME(CharArray.sub(buffer, !bufp))
+    		)
+	in
+	    val lookahead = protect lookahead'
+	end
 
 
 	fun outputSubstr(f, s) = StreamIO.outputSubstr(getOutstream f, s)
@@ -800,7 +869,7 @@ struct
 			}
 		val streamIo = StreamIO.mkInstream(textPrimRd, "")
 	in
-		ref(Underlying(ImpIO.mkInstream streamIo))
+		InStream(ref(Underlying(ImpIO.mkInstream streamIo)), mutex())
 	end
 
 	fun scanStream scanFn strm =

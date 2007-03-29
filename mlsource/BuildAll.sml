@@ -35,5 +35,5 @@ Debug.maxInlineSize := 50;
 (* Compile the prelude and basis in the new compiler. *)
 MLCompiler.use "mlsource/BuildBasis";
 
-MLCompiler.shell(); (* Installs the new compiler. *)
-
+(* This runs the new shell on top of the old one. *)
+MLCompiler.shell();

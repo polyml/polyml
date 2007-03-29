@@ -25,38 +25,39 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData; 
 
-extern Handle Make_arbitrary_precision(POLYSIGNED);
-extern Handle Make_unsigned(POLYUNSIGNED);
-extern Handle Make_arb_from_pair(unsigned hi, unsigned lo);
-extern Handle Make_arb_from_pair_scaled(unsigned hi, unsigned lo, unsigned scale);
-void get_C_pair(PolyWord number, unsigned long *pHi, unsigned long *pLo);
+extern Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED);
+extern Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED);
+extern Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo);
+extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, unsigned scale);
+void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo);
 
-extern Handle add_longc(Handle,Handle);
-extern Handle sub_longc(Handle,Handle);
-extern Handle mult_longc(Handle,Handle);
-extern Handle div_longc(Handle,Handle);
-extern Handle rem_longc(Handle,Handle);
-extern Handle or_longc(Handle,Handle);
-extern Handle and_longc(Handle,Handle);
-extern Handle xor_longc(Handle,Handle);
-extern Handle neg_longc(Handle);
+extern Handle add_longc(TaskData *taskData, Handle,Handle);
+extern Handle sub_longc(TaskData *taskData, Handle,Handle);
+extern Handle mult_longc(TaskData *taskData, Handle,Handle);
+extern Handle div_longc(TaskData *taskData, Handle,Handle);
+extern Handle rem_longc(TaskData *taskData, Handle,Handle);
+extern Handle or_longc(TaskData *taskData, Handle,Handle);
+extern Handle and_longc(TaskData *taskData, Handle,Handle);
+extern Handle xor_longc(TaskData *taskData, Handle,Handle);
+extern Handle neg_longc(TaskData *taskData, Handle);
 
-extern Handle equal_longc(Handle y, Handle x);
-extern Handle not_equal_longc(Handle y, Handle x);
-extern Handle gt_longc(Handle y, Handle x);
-extern Handle ls_longc(Handle y, Handle x);
-extern Handle ge_longc(Handle y, Handle x);
-extern Handle le_longc(Handle y, Handle x);
-extern Handle int_to_word_c(Handle x);
+extern Handle equal_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle not_equal_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle gt_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle ls_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle ge_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle le_longc(TaskData *taskData, Handle y, Handle x);
+extern Handle int_to_word_c(TaskData *taskData, Handle x);
 
 
 
-extern POLYUNSIGNED     get_C_ulong(PolyWord);
-extern unsigned short   get_C_ushort(PolyWord);
-extern POLYSIGNED       get_C_long(PolyWord);
-extern short            get_C_short(PolyWord);
-extern int              compareLong(Handle,Handle);
+extern POLYUNSIGNED     get_C_ulong(TaskData *taskData, PolyWord);
+extern unsigned short   get_C_ushort(TaskData *taskData, PolyWord);
+extern POLYSIGNED       get_C_long(TaskData *taskData, PolyWord);
+extern short            get_C_short(TaskData *taskData, PolyWord);
+extern int              compareLong(TaskData *taskData, Handle,Handle);
 
 
 #endif

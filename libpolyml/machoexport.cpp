@@ -286,7 +286,7 @@ static struct { const char *name; unsigned procType, procSubType; } archTable[] 
     { "ppc",    CPU_TYPE_POWERPC,   CPU_SUBTYPE_POWERPC_ALL },
 };
 
-void MachoExport::exportStore(const char *outFileName)
+void MachoExport::exportStore(void)
 {
     PolyWord    *p;
     struct mach_header fhdr;
@@ -294,10 +294,6 @@ void MachoExport::exportStore(const char *outFileName)
     struct symtab_command symTab;
     struct section *sections = 0;
     unsigned i;
-
-    exportFile = fopen(outFileName, "wb");
-    if (exportFile == NULL)
-        raise_syscall("Cannot open export file", errno);
 
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
@@ -318,7 +314,7 @@ void MachoExport::exportStore(const char *outFileName)
         {
             struct utsname name;
             if (uname(&name) < 0)
-                raise_syscall("Unable to determine processor type", errno);
+                raise_syscall(taskData, "Unable to determine processor type", errno);
             for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
             {
                 if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
@@ -329,7 +325,7 @@ void MachoExport::exportStore(const char *outFileName)
                 }
             }
             if (i == sizeof(archTable)/sizeof(archTable[0]))
-                raise_exception_string(EXC_Fail, "Unable to determine processor type");
+                raise_exception_string(taskData, EXC_Fail, "Unable to determine processor type");
             break;
         }
     case MA_I386:
@@ -341,7 +337,7 @@ void MachoExport::exportStore(const char *outFileName)
         fhdr.cpusubtype = CPU_SUBTYPE_POWERPC_ALL;
         break;
     default:
-        raise_exception_string(EXC_Fail, "The Mach-O exporter can only be run on the i386 or PPC architectures");
+        raise_exception_string(taskData, EXC_Fail, "The Mach-O exporter can only be run on the i386 or PPC architectures");
     }
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 

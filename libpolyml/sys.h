@@ -56,19 +56,24 @@
 #define POLY_SYS_os_specific         52 /* DCJM 22/5/00 */
 #define POLY_SYS_io_dispatch         61 /* DCJM 8/5/00 */
 #define POLY_SYS_signal_handler      62 /* DCJM 18/7/00 */
-#define POLY_SYS_fork_process        82
-#define POLY_SYS_choice_process      83
+#define POLY_SYS_atomic_incr         70 /* DCJM 12/3/07 */
+#define POLY_SYS_atomic_decr         71 /* DCJM 12/3/07 */
+#define POLY_SYS_thread_self         72 /* DCJM 12/3/07 */
+#define POLY_SYS_thread_dispatch     73 /* DCJM 12/3/07 */
+
+//#define POLY_SYS_fork_process        82
+//#define POLY_SYS_choice_process      83
 #define POLY_SYS_kill_self           84
-#define POLY_SYS_int_process         85
-#define POLY_SYS_send_on_channel     86
-#define POLY_SYS_receive_on_channel  87
+//#define POLY_SYS_int_process         85
+//#define POLY_SYS_send_on_channel     86
+//#define POLY_SYS_receive_on_channel  87
 #define POLY_SYS_profiler            88
 #define POLY_SYS_full_gc             92   /* MJC 18/03/91 */
 #define POLY_SYS_stack_trace         93   /* MJC 18/03/91 */
 #define POLY_SYS_timing_dispatch     94   /* DCJM 10/4/00 */
 #define POLY_SYS_objsize             99   /* MJC 27/04/88 */
 #define POLY_SYS_showsize            100  /* MJC 09/03/89 */
-#define POLY_SYS_interrupt_console_processes 103  /* MJC 01/08/90 */
+//#define POLY_SYS_interrupt_console_processes 103  /* MJC 01/08/90 */
 #define POLY_SYS_is_short            105
 #define POLY_SYS_aplus               106
 #define POLY_SYS_aminus              107
@@ -191,6 +196,8 @@
    also by substring.  As "Subscript" it is used extensively in the
    Basis library. */
 #define EXC_subscript   11 /* General.Subscript */
+
+#define EXC_thread      12 /* Thread.Thread. */  /* DCJM 13/3/07 */
 
 #define EXC_foreign     23  /* nic 4/5/94 */
 

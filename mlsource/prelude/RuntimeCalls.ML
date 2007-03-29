@@ -25,7 +25,6 @@ structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
   val POLY_SYS_exit                = 1
-  val POLY_SYS_install_root        = 2
   val POLY_SYS_chdir               = 9
   val POLY_SYS_alloc_store         = 11
   val POLY_SYS_raisex              = 14
@@ -45,14 +44,13 @@ struct
   val POLY_SYS_nullvector          = 49
   val POLY_SYS_network			   = 51 (* DCJM 22/5/00 *)
   val POLY_SYS_os_specific		   = 52 (* DCJM 22/5/00 *)
-  val POLY_SYS_io_dispatch		   = 61   (* DCJM 8/5/00 *)
-  val POLY_SYS_signal_handler	   = 62   (* DCJM 18/7/00 *)
-  val POLY_SYS_fork_process        = 82
-  val POLY_SYS_choice_process      = 83
+  val POLY_SYS_io_dispatch		   = 61 (* DCJM 8/5/00 *)
+  val POLY_SYS_signal_handler	   = 62 (* DCJM 18/7/00 *)
+  val POLY_SYS_atomic_incr         = 70 (* DCJM 12/3/07 *)
+  val POLY_SYS_atomic_decr         = 71 (* DCJM 12/3/07 *)
+  val POLY_SYS_thread_self         = 72 (* DCJM 12/3/07 *)
+  val POLY_SYS_thread_dispatch     = 73 (* DCJM 12/3/07 *)
   val POLY_SYS_kill_self           = 84
-  val POLY_SYS_int_process         = 85
-  val POLY_SYS_send_on_channel     = 86
-  val POLY_SYS_receive_on_channel  = 87
   val POLY_SYS_profiler            = 88
   val POLY_SYS_full_gc             = 92   (* MJC 18/03/91 *)
   val POLY_SYS_stack_trace         = 93   (* MJC 18/03/91 *)
@@ -111,8 +109,6 @@ struct
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)
   val POLY_SYS_callcode_tupled     = 204  (* SPF 07/07/94 *)
   val POLY_SYS_foreign_dispatch    = 205  (* NIC 22/04/94 *)
-  val POLY_SYS_install_subshells   = 206  (* MJC 12/09/90 *)
-  val POLY_SYS_switch_subshells    = 207  (* MJC 12/09/90 *)
   val POLY_SYS_XWindows            = 209  (* MJC 27/09/90 *)
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_bytes_per_word      = 214  (* added 30/3/95 (DCJM) *)
@@ -159,6 +155,7 @@ struct
   val EXC_conversion  = 8
   val EXC_XWindows    = 10
   val EXC_subscript   = 11
+  val EXC_thread      = 12 (* DCJM 13/3/07. *)
 
   val EXC_foreign     = 23  (* nic 4/5/94 *)
   

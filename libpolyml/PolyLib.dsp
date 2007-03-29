@@ -208,6 +208,10 @@ SOURCE=.\interpret.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\locking.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\memmgr.cpp
 # End Source File
 # Begin Source File
@@ -419,6 +423,10 @@ SOURCE=.\int_opcodes.h
 # Begin Source File
 
 SOURCE=.\io_internal.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\locking.h
 # End Source File
 # Begin Source File
 

@@ -1,0 +1,82 @@
+/*
+    Title:      Mutex and Condition Variable library.
+
+    Copyright (c) 2007 David C. J. Matthews
+
+    Portions of this code are derived from the original stream io
+    package copyright CUTS 1983-2000.
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+*/
+
+#ifndef LOCKING_H_DEFINED
+#define LOCKING_H_DEFINED
+
+#ifdef WIN32
+#include "winconfig.h"
+#else
+#include "config.h"
+#endif
+
+
+#ifdef HAVE_WINDOWS_H
+#include <windows.h>
+#endif
+
+#ifdef HAVE_PTHREAD_H
+#include <pthread.h>
+#endif
+
+// Simple Mutex.
+class PLock {
+public:
+    PLock();
+    ~PLock();
+    void Lock(void); // Lock the mutex
+    void Unlock(void); // Unlock the mutex
+    bool Trylock(void); // Try to lock the mutex - returns true if succeeded
+
+private:
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    pthread_mutex_t lock;
+#elif defined(HAVE_WINDOWS_H)
+    CRITICAL_SECTION lock;
+#endif
+    friend class PCondVar;
+};
+
+// Simple condition variable.  N.B.  The Windows code does not
+// support multiple threads blocking on this condition variable.
+class PCondVar {
+public:
+    PCondVar();
+    ~PCondVar();
+    void Wait(PLock *pLock); // Wait indefinitely.  Drops the lock and reaquires it.
+    // Wait for a signal or until the time.  The argument is an absolute time
+    // represented as a struct timespec in Unix and a FILETIME in Windows.
+    void WaitUntil(PLock *pLock, const void *timeArg);
+    void Signal(void); // Wake up the waiting thread.
+private:
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    pthread_cond_t cond;
+    pthread_mutex_t *plock;
+#elif defined(HAVE_WINDOWS_H)
+    HANDLE cond;
+    CRITICAL_SECTION *plock;
+#endif
+};
+
+#endif

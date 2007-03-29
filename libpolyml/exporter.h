@@ -31,9 +31,10 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle exportNative(Handle args);
-extern Handle exportPortable(Handle args);
+extern Handle exportNative(TaskData *mdTaskData, Handle args);
+extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 
 // This is the base class for the exporters for the various object-code formats.
 class Exporter
@@ -41,7 +42,7 @@ class Exporter
 public:
     Exporter();
     virtual ~Exporter();
-    virtual void exportStore(const char *outFileName) = 0;
+    virtual void exportStore(void) = 0;
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
     void relocateValue(PolyWord *pt);
@@ -49,8 +50,8 @@ protected:
     void createRelocation(PolyWord *pt) { *pt = createRelocation(*pt, pt); }
     unsigned findArea(void *p); // Find index of area that address is in.
 
-    FILE     *exportFile;
 public:
+    FILE     *exportFile;
     struct _memTableEntry *memTable;
     unsigned memTableEntries;
     unsigned ioMemEntry; // The index corresponding to the IO area.

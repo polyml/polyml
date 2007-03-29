@@ -6,7 +6,7 @@ AM_ASFLAGS = $(ARCHFLAG) $(OSFLAG)
 AM_CCASFLAGS = $(ARCHFLAG) $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 0:0
+libpolyml_la_LDFLAGS = -version-info 1:0
 
 # Select the architecture-specific modules
 if ARCHI386
@@ -55,6 +55,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
+    locking.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE)
 
 # Convert the portable format to a native binary

@@ -38,32 +38,23 @@ struct
 	
 	val mainSessionShell = #shell mainShell
 
-    val secondaryEnv = Make.makeSubshellDbEnv globalTable;
-    val {shell = secondarySessionShell, ...} =
-        Make.shellProc (secondaryEnv, ref "2> ", ref "2# ");
+    val debugEnv = Make.makeSubshellDbEnv globalTable;
 	 
     val {debugger, ...} =
-        Make.shellProc (secondaryEnv, ref "debug> ", ref "debug# ");
+        Make.shellProc (debugEnv, ref "debug> ", ref "debug# ");
     (* Link up the debugger. *)
     val _ = Debugger.setDebugger debugger;
 
 	fun printVersion() = ()
 		
-    (* create the main and secondary shells for exporting *)
+    (* create the main shell for exporting *)
     (* the primary process group *)
     fun mainGo () : unit = 
     (
 	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
 		then ()
-		else (!Debug.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+		else (!Debug.printString) (String.concat ["Poly/ML ", CompilerVersion.compilerVersion, "\n"]);
       mainSessionShell ();
-	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
-    );
-	
-   (* the secondary process group *)
-   fun secondaryGo () =
-    (
-      secondarySessionShell ();
 	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
     );
 
@@ -84,7 +75,7 @@ struct
 		else if List.exists(fn s => s = "--help") argList
 		then (* --help option: Print argument information and exit. *)
 		   (
-     		(!Debug.printString) (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+     		(!Debug.printString) (String.concat ["Poly/ML ", CompilerVersion.compilerVersion, "\n"]);
 			(!Debug.printString) "Compiler arguments:\n";
 			(!Debug.printString) "\n";
 			(!Debug.printString) "-v        Print the version of Poly/ML and exit\n";
@@ -94,10 +85,7 @@ struct
 			(!Debug.printString) (rtsHelp())
 		   )
 		else
-		   (
-            RunCall.run_call1 POLY_SYS_install_subshells secondaryGo;
-            mainGo ()
-		)
+             mainGo ()
 	end;
 
     val U:unit =
@@ -107,8 +95,6 @@ struct
     val make = Make.makeIntoEnv globalTable; (* I don't think this is used. *)
     val use  = Make.useIntoEnv globalTable; (* Used to compile in the prelude and basis. *)
     
-    fun shell () : unit = 
-      (* install new compiler as main shell *)
-      RunCall.run_call1 POLY_SYS_install_root rootShell
+    val shell = rootShell
   end;
 end;

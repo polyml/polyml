@@ -25,8 +25,9 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
-extern Handle ObjSize(Handle obj);
-extern Handle ShowSize(Handle obj);
-extern Handle ObjProfile(Handle obj);
+extern Handle ObjSize(TaskData *taskData, Handle obj);
+extern Handle ShowSize(TaskData *taskData, Handle obj);
+extern Handle ObjProfile(TaskData *taskData, Handle obj);
 #endif

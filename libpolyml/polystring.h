@@ -26,6 +26,7 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class TaskData;
 
 // A string object.  N.B. Poly strings can be either a single tagged integer or
 // a pointer to this.
@@ -41,8 +42,8 @@ public:
 extern PolyWord EmptyString(void);
 
 /* PolyStringObject functions */
-extern PolyWord Buffer_to_Poly(const char *buffer, unsigned length);
-extern PolyWord C_string_to_Poly(const char *buffer);
+extern PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, unsigned length);
+extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen);
 extern char *Poly_string_to_C_alloc(PolyWord ps);
 
@@ -64,26 +65,26 @@ extern WCHAR *Poly_string_to_U_alloc(PolyWord ps);
 #define Poly_string_to_T_alloc	Poly_string_to_C_alloc
 #endif
 
-Handle convert_string_list(int count, char **strings);
+Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
 extern char **stringListToVector(Handle list);
 extern void freeStringVector(char **vec);
 extern void print_string(PolyWord s);
 
 // These should no longer be used in the RTS except internally.
 // They are currently used by the ML code during bootstrapping.
-extern Handle strconcatc(Handle x, Handle y);
-extern Handle string_subc(Handle x, Handle y);
-Handle string_length_c(Handle string);
+extern Handle strconcatc(TaskData *mdTaskData, Handle x, Handle y);
+extern Handle string_subc(TaskData *mdTaskData, Handle x, Handle y);
+Handle string_length_c(TaskData *mdTaskData, Handle string);
 
 #define DEREFSTRINGHANDLE(_x)    ((PolyStringObject *)(_x)->WordP())
 
-extern Handle compareStrings(Handle y, Handle x);
-extern Handle testStringEqual(Handle y, Handle x);
-extern Handle testStringNotEqual(Handle y, Handle x);
-extern Handle testStringGreater(Handle y, Handle x);
-extern Handle testStringLess(Handle y, Handle x);
-extern Handle testStringGreaterOrEqual(Handle y, Handle x);
-extern Handle testStringLessOrEqual(Handle y, Handle x);
+extern Handle compareStrings(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringEqual(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringNotEqual(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x);
+extern Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 
 
 
