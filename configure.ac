@@ -13,19 +13,16 @@ AC_ARG_ENABLE([debug],
 
 if test "$ac_debug_mode" != "yes"; then
 	# Default to maximum optimisation. -O2 is not good enough.
-	if test "$CFLAGS" = ""; then
-	  CFLAGS="-g -O3"
-	fi
-	if test "$CXXFLAGS" = ""; then
-	   CXXFLAGS="-g -O3"
-fi
+        # Set CCASFLAGS to empty so that it doesn't get set to CFLAGS.
+        #   The -g option on assembler causes problems on Sparc/Solaris 10.
+        # test X || Y  is equivalent to  if !X then Y
+        test "${CFLAGS+set}" = set || CFLAGS="-g -O3"
+        test "${CXXFLAGS+set}" = set || CXXFLAGS="-g -O3"
+	test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 else
-	if test "$CFLAGS" = ""; then
-	  CFLAGS="-g"
-	fi
-	if test "$CXXFLAGS" = ""; then
-	   CXXFLAGS="-g"
-	fi
+        test "${CFLAGS+set}" = set || CFLAGS="-g"
+        test "${CXXFLAGS+set}" = set || CXXFLAGS="-g"
+        test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 fi
 
 #AC_LIBTOOL_WIN32_DLL # libpolyml can be a DLL but libpolymain can't.
