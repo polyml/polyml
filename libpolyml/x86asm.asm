@@ -261,7 +261,8 @@ ELSE
 #define POPFL        popfl
 #define PUSHAL       pushal
 #define POPAL        popal
-#define LOCKXADDL    lock xaddl
+;# Older versions of GCC require a semicolon here.
+#define LOCKXADDL    lock; xaddl
 
 ENDIF
 
