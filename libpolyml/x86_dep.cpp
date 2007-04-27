@@ -2104,7 +2104,7 @@ static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
 #ifdef __GNUC__
 // Unix - x64
     __asm__ __volatile__ (
-        "lock xaddq %1,(%2); " // Do atomic addition
+        "lock xaddq %1,(%2) " // Do atomic addition
         : "=r" (result) // Output
         : "0" (toAdd), "r" (p) // Input
         : "cc", "memory" // Modifies cc and memory
@@ -2117,7 +2117,7 @@ static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
 #ifdef __GNUC__
 // Unix - x32
     __asm__ __volatile__ (
-        "lock xaddl %1,(%2); " // Do atomic addition
+        "lock; xaddl %1,(%2) " // Do atomic addition
         : "=r" (result) // Output
         : "0" (toAdd), "r" (p) // Input
         : "cc", "memory" // Modifies cc and memory
