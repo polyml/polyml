@@ -461,7 +461,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             Handle wakeTime = SAVE(args->WordP()->Get(1));
             // Atomically release the mutex.  This is atomic because we hold schedLock
             // so no other thread can call signal or broadcast.
-            Handle decrResult = machineDependent->AtomicDecrement(taskData, mutexH);
+            Handle decrResult = machineDependent->AtomicIncrement(taskData, mutexH);
             if (UNTAGGED(decrResult->Word()) != 1)
             {
                 DEREFHANDLE(mutexH)->Set(0, TAGGED(1)); // Set this to released.
@@ -471,7 +471,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                 {
                     ProcessTaskData *p = taskArray[i];
                     // If the thread is blocked on this mutex we can signal the thread.
-                    if (p && p->blockMutex == DEREFHANDLE(args))
+                    if (p && p->blockMutex == DEREFHANDLE(mutexH))
                         p->threadLock.Signal();
                 }
             }
