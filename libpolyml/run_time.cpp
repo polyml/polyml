@@ -552,7 +552,7 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
 */
 #if defined(WINDOWS_PC)
 static int exitCode = 0;
-static int exitRequest = 0;
+static bool exitRequest = false;
 
 static DWORD WINAPI CrowBarFn(LPVOID lpParameter)
 /* This thread pauses for 10 seconds and then exits the process anyway.
@@ -573,7 +573,7 @@ void RequestFinish(int n)
     /* We request an interrupt which should occur next time
        we do a stack check. */
     exitCode = n;
-    exitRequest = 1;
+    exitRequest = true;
     processes->KillAllThreads();
     hCrowBar = CreateThread(NULL, 0, CrowBarFn, 0, 0, &dwId);
 	if (! hCrowBar)

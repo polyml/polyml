@@ -1550,13 +1550,39 @@ void Processes::Reinit(void)
 
 void Processes::Uninit(void)
 {
-    // Wait for threads to terminate?
+    // Request all threads to stop.  N.B. Uninit is actually being
+    // called on one of those threads.
+    KillAllThreads();
+     
 #ifdef HAVE_WINDOWS_H
     if (hWakeupEvent) SetEvent(hWakeupEvent);
+#endif
+    // Wait until there is only one thread running which should be the caller.
+    unsigned waitCount = 0;
+    while(1) {
+        unsigned running = 0;
+        schedLock.Lock();
+        // See if we have any threads still running.
+        for (unsigned i = 0; i < taskArraySize; i++)
+        {
+            ProcessTaskData *taskData = taskArray[i];
+            if (taskData) running++;
+        }
+        schedLock.Unlock();
+        if (running <= 1) break; // The only thread is the caller.
+#if defined(WINDOWS_PC)
+        Sleep(1000);
+#else
+        sleep(1);
+#endif
+        // If the threads haven't stopped within 10s we have
+        // a problem.  Exit anyway.
+        if (waitCount++ > 10) break;
+    }
 
+#ifdef HAVE_WINDOWS_H
     if (hWakeupEvent) CloseHandle(hWakeupEvent);
     hWakeupEvent = NULL;
-#else
 #endif
 
 #ifdef HAVE_PTHREAD

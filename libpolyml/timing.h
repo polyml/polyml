@@ -33,7 +33,7 @@ extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
 /* Called by the garbage collector at the beginning and
    end of garbage collection. */
-extern void record_gc_time(int isEnd);
+extern void record_gc_time(bool isEnd);
 
 
 #endif

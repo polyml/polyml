@@ -378,7 +378,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
    To speed up garbage collection we decide to do this only if
    there is a timer running.
 */
-void record_gc_time(int isEnd)
+void record_gc_time(bool isEnd)
 {
 #ifdef WINDOWS_PC
     FILETIME kt, ut;

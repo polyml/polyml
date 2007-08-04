@@ -1092,7 +1092,7 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     static bool doFullGCNextTime = 0;
     static unsigned this_generation = 0;
     
-    record_gc_time(0);
+    record_gc_time(false);
     
     ASSERT (gc_phase == 0);
     
@@ -1459,7 +1459,7 @@ GC_AGAIN:
             {
                 // No we don't even have that - interrupt console processes and end GC here.
                 gc_phase = 0;
-                record_gc_time(0);
+                record_gc_time(true);
                 return false;
             }
         }
@@ -1550,7 +1550,7 @@ GC_AGAIN:
 
     /* End of garbage collection */
     gc_phase = 0; 
-    record_gc_time(1);
+    record_gc_time(true);
     
     /* Invariant: the bitmaps are completely clean */
     return true; // Completed
