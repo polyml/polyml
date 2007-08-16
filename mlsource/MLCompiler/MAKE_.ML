@@ -318,19 +318,12 @@ struct
 
 		(* Lock the mutex during any lookup or entry.  This is primarily to
 		   avoid the underlying hash table from being rehashed by different
-		   threads at the same time.  This code should be in a library.
-
-		   This isn't completely right.  If an asynchronous interrupt
-		   arrives while we've set the thread to handle interrupts
-		   synchronously we won't see the interrupt at least not
-		   until we next go into the RTS. *)
+		   threads at the same time.  This code should be in a library. *)
 	  	fun protect mutx f =
 		let
-		    (* Set this to handle interrupts synchronously while we have
-			   the lock.  An asynchronous interrupt could arrive at the
-			   wrong moment. *)
+		    (* Turn off interrupts while we have the lock. *)
 		    val oldAttrs = getAttributes()
-			val () = setAttributes[InterruptState InterruptSynch]
+			val () = setAttributes[InterruptState InterruptDefer]
 	  		val () = lock mutx
 			val result = f()
 				handle exn => (unlock mutx; setAttributes oldAttrs; raise exn)

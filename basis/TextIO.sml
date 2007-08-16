@@ -432,11 +432,15 @@ struct
 	(* Lock the mutex during any lookup or entry. This code should be in a library. *)
   	fun protect f (InStream(r, m)) =
 	let
-	    (* Set this to handle interrupts synchronously while we have
-		   the lock.  An asynchronous interrupt could arrive at the
-		   wrong moment. *)
+	    (* Set this to handle interrupts synchronously except if we are blocking
+		   them.  We don't want to get an asynchronous interrupt while we are
+		   actually locking or unlocking the mutex but if we have to block to do
+		   IO then we should allow an interrupt at that point. *)
 	    val oldAttrs = getAttributes()
-		val () = setAttributes[InterruptState InterruptSynch]
+		val () =
+		   case List.find (fn InterruptState _ => true | _ => false) oldAttrs of
+		       SOME(InterruptState InterruptDefer) => ()
+			 | _ => setAttributes[InterruptState InterruptSynch];
   		val () = lock m
 		val result = f r
 			handle exn => (unlock m; setAttributes oldAttrs; raise exn)
