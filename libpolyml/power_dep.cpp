@@ -1573,7 +1573,7 @@ Handle PowerPCDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
         "addi    %0,%0,2\n"    // 2 is TAGGED(1)-TAG
         "stwcx.  %0,0,%1\n"    // Store the updated value unless someone else did.
         "bne-    1b\n"         // Repeat if we couldn't do the store
-    :"=r"(result)   // %0 - Output - updated value
+    :"=&r"(result)  // %0 - Output - updated value.  Must not be same as input reg.
     :"r"(p)         // %1 - Input  - address of mutex
     : "cc", "memory" // Modifies cc and memory
     );
@@ -1590,7 +1590,7 @@ Handle PowerPCDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
         "subi    %0,%0,2\n"    // 2 is TAGGED(1)-TAG
         "stwcx.  %0,0,%1\n"    // Store the updated value unless someone else did.
         "bne-    1b\n"         // Repeat if we couldn't do the store
-    :"=r"(result)   // %0 - Output - updated value
+    :"=&r"(result)  // %0 - Output - updated value.  Must not be same as input reg.
     :"r"(p)         // %1 - Input  - address of mutex
     : "cc", "memory" // Modifies cc and memory
     );
