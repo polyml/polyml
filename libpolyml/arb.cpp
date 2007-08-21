@@ -75,29 +75,6 @@ canonical representation.  That is required for structure equality to work.
 #include "save_vec.h"
 #include "processes.h"
 
-
-/* The "value in the Poly" Heap */
-static PolyWord x_extend[2] =
-    {
-        PolyWord::FromUnsigned(1),  // Length word
-        TAGGED(0)                   // Space for a short
-    };
-static PolyWord y_extend[2] =
-    {
-        PolyWord::FromUnsigned(1),  // Length word
-        TAGGED(0)                   // Space for a short
-    };
-
-// Create static SaveVecEntries.  These are only used internally.
-// This is slightly messy to avoid strict alias warnings.
-static SaveVecEntry x_extend_addr =
-    SaveVecEntry::Create(PolyWord::FromStackAddr(&(x_extend[1])));
-static SaveVecEntry y_extend_addr =
-    SaveVecEntry::Create(PolyWord::FromStackAddr(&(y_extend[1])));
-
-static Handle xHandle    = &x_extend_addr;
-static Handle yHandle    = &y_extend_addr;
-
 /******************************************************************************/
 /*                                                                            */
 /*      get_length - utility function                                         */
@@ -260,12 +237,14 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
 /******************************************************************************/
 /* Gets the arguments into the long form. */
 /* HACK - must NOT be used for results.   */
-static Handle get_long(Handle x, Handle extend, int *sign)
+static Handle get_long(TaskData *taskData, Handle x, PolyWord *extend, int *sign)
 {
     if (IS_INT(DEREFWORD(x)))
-    { /* Short form - put it in the pre-allocated temporary. (HACK) */
+    { /* Short form - put it in the temporary in the task-data  */
         POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
-        byte *u = DEREFBYTEHANDLE(extend);
+        PolyObject *pObj = (PolyObject*)(extend+1);
+        pObj->SetLengthWord(1);
+        byte *u = (byte*)pObj;
 ;
         
         if (x_v >= 0)
@@ -284,7 +263,7 @@ static Handle get_long(Handle x, Handle extend, int *sign)
             u[i] = x_v & 0xff;
             x_v = x_v >> 8;
         }
-        return extend;
+        return taskData->saveVec.push(pObj);
     }
     else
     { /* Long-form - x is an address. */
@@ -476,7 +455,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     }
     
     /* Either overflow or long argument - convert to long form */
-    long_x = get_long(x, xHandle, &sign_x);
+    long_x = get_long(taskData, x, taskData->x_extend, &sign_x);
     
     /* Get length of arg. */
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
@@ -670,8 +649,8 @@ Handle add_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Either overflow or long arguments - convert to long form */
-    long_x = get_long(x, xHandle , &sign_x);
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x);
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     /* Work out whether to add or subtract */
     if ((sign_y ^ sign_x) >= 0) /* signs the same? */
@@ -706,8 +685,8 @@ Handle sub_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Either overflow or long arguments. */
-    long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x); /* Convert to long form */
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     /* If the signs are different add the two values. */
     if ((sign_y ^ sign_x) < 0) /* signs differ */
@@ -735,8 +714,8 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     routine even if both arguments are short. */
     
     /* Convert to long form */
-    long_x = get_long(x, xHandle , &sign_x);
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x);
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     /* Get lengths of args. */
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
@@ -903,8 +882,8 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Long operands or overflow - convert to long form */
-    long_x = get_long(x, xHandle , &sign_x);
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x);
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     /* Get lengths of args. */
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
@@ -975,8 +954,8 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Long operands or overflow - convert any shorts to long form */
-    long_x = get_long(x, xHandle , &sign_x);
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x);
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     /* Get lengths of args. */ 
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
@@ -1084,8 +1063,8 @@ int compareLong(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Convert to long form */
-    long_x = get_long(x, xHandle, &sign_x); 
-    long_y = get_long(y, yHandle, &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend, &sign_x); 
+    long_y = get_long(taskData, y, taskData->y_extend, &sign_y);
     
     if (sign_x >= 0) /* x is positive */
     {
@@ -1247,8 +1226,8 @@ Handle and_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Long arguments. */
-    long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x); /* Convert to long form */
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doAnd);
 }
@@ -1273,8 +1252,8 @@ Handle or_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Long arguments. */
-    long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x); /* Convert to long form */
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doOr);
 }
@@ -1299,8 +1278,8 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Long arguments. */
-    long_x = get_long(x, xHandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, yHandle , &sign_y);
+    long_x = get_long(taskData, x, taskData->x_extend , &sign_x); /* Convert to long form */
+    long_y = get_long(taskData, y, taskData->y_extend , &sign_y);
     
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
 }

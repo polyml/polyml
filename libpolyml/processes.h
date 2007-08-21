@@ -83,6 +83,7 @@ public:
     StackObject *stack;
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
+    PolyWord    x_extend[2], y_extend[2]; // Space to extend short precision args.
 };
 
 /***************************************************************************
