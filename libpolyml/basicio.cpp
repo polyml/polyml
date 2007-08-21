@@ -561,15 +561,18 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
     POLYSIGNED haveRead;
     PIOSTRUCT strm = get_stream(stream->WordP());
     byte *buff;
-    /* Limit the length to 1M. Calling alloca with a very large size
-       can cause a crash if there's a limit on the stack. In any
-       case "read" may well only give us a single block. */
-    if (length > 1048576) length = 1048576;
-    buff = (byte*)alloca(length);
+    // We previously allocated the buffer on the stack but that caused
+    // problems with multi-threading at least on Mac OS X because of
+    // stack exhaustion.  We limit the space to 100k. */
+    if (length > 102400) length = 102400;
+    buff = (byte*)malloc(length);
+    if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     haveRead = readToMem(taskData, strm, buff, length);
-    return(SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead)));
+    Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
+    free(buff);
+    return result;
 }
 
 static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
