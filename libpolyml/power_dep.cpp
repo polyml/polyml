@@ -1153,12 +1153,6 @@ void PowerPCDependent::InitInterfaceVector(void)
     
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_exit, codeAddr);
     add_word_to_io_area(POLY_SYS_exit, PolyWord::FromCodePtr(codeAddr));
-   
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_install_root, codeAddr);
-    add_word_to_io_area(POLY_SYS_install_root, PolyWord::FromCodePtr(codeAddr));
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_strconcat, codeAddr);    
-    add_word_to_io_area(POLY_SYS_strconcat, PolyWord::FromCodePtr(codeAddr));
     
     add_function_to_io_area(POLY_SYS_alloc_store, alloc_store);
     
@@ -1264,11 +1258,7 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_int_geq, int_geq);
     add_function_to_io_area(POLY_SYS_int_leq, int_leq);
     add_function_to_io_area(POLY_SYS_int_gtr, int_gtr);
-    add_function_to_io_area(POLY_SYS_int_lss, int_lss);
-    
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_string_sub, codeAddr);
-    add_word_to_io_area(POLY_SYS_string_sub, PolyWord::FromCodePtr(codeAddr)); // This is really redundant.
-    
+    add_function_to_io_area(POLY_SYS_int_lss, int_lss);    
     add_function_to_io_area(POLY_SYS_or_word, or_word);
     add_function_to_io_area(POLY_SYS_and_word, and_word);
     add_function_to_io_area(POLY_SYS_xor_word, xor_word);

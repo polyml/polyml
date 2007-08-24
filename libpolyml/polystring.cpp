@@ -254,8 +254,7 @@ void freeStringVector(char **vec)
     free(vec);
 }
 
-// Concatenate two strings.  Used internally in the RTS.  Currently only used in
-// ML during the bootstrap before the basis library has been compiled.
+// Concatenate two strings.  Now used only internally in the RTS.
 Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
 /* Note: arguments are in the reverse order from Poly */
 {
@@ -332,28 +331,6 @@ Handle string_length_c(TaskData *mdTaskData, Handle string)    /* Length of a st
     POLYUNSIGNED length = ((PolyStringObject *)str.AsObjPtr())->length;
     return Make_arbitrary_precision(mdTaskData, length);
 }
-
-// This is used only during bootstrapping and that should be removed,
-// N.B.  The index counts from 1 not from zero.
-Handle string_subc(TaskData *mdTaskData, Handle y, Handle x)
-{
-    POLYSIGNED index = get_C_long(mdTaskData, DEREFWORD(y));
-    if (IS_INT(DEREFWORD(x)))
-    {
-        if (index != 1)
-            raise_exception0(mdTaskData, EXC_subscript);
-        else return x;
-    }
-    else
-    {
-        PolyStringObject* str = (PolyStringObject*)DEREFHANDLE(x);
-        if (index > 0 && (POLYUNSIGNED)index <= str->length)
-            return mdTaskData->saveVec.push(TAGGED(str->chars[index-1]));
-        else raise_exception0(mdTaskData, EXC_subscript);
-    }
-	return 0; // Actually never reached.
-}
-
 
 static PolyStringObject s_test_x, s_test_y;
 

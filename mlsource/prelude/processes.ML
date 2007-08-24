@@ -196,6 +196,7 @@ struct
 							else MrTaken
 						)
 				)
+			|   lockSynch _ = raise Match (* Suppress warning *)
 		
 		in
 			getSynch(! synchro, mySynch) 

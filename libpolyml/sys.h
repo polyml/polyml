@@ -33,8 +33,6 @@
  *********************************************************************/
 
 #define POLY_SYS_exit                1
-#define POLY_SYS_install_root        2
-#define POLY_SYS_strconcat           6 /* Now obsolete. */
 #define POLY_SYS_chdir               9
 #define POLY_SYS_alloc_store         11
 #define POLY_SYS_raisex              14 /* This is now used only by SetException. */
@@ -140,7 +138,6 @@
 #define POLY_SYS_int_leq             232
 #define POLY_SYS_int_gtr             233
 #define POLY_SYS_int_lss             234
-#define POLY_SYS_string_sub          235 /* Now obsolete. */
 #define POLY_SYS_mul_word            238  /* Reinstated DCJM 9/10/99 */
 #define POLY_SYS_plus_word           239  /* Reinstated DCJM 9/10/99 */
 #define POLY_SYS_minus_word          240  /* Reinstated DCJM 9/10/99 */

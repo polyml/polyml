@@ -1003,14 +1003,6 @@ Handle EnterPolyCode(TaskData *taskData)
                 machineDependent->CallIO1(taskData, &finishc);
                 break;
 
-            case POLY_SYS_install_root:
-                machineDependent->CallIO1(taskData, &install_rootc);
-                break;
-
-            case POLY_SYS_strconcat:
-                machineDependent->CallIO2(taskData, &strconcatc);
-                break;
-
             case POLY_SYS_alloc_store:
                 machineDependent->CallIO3(taskData, &alloc_store_long_c);
                 break;
@@ -1259,10 +1251,6 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_int_lss:
                 machineDependent->CallIO2(taskData, &ls_longc);
-                break;
-
-            case POLY_SYS_string_sub:
-                machineDependent->CallIO2(taskData, &string_subc);
                 break;
 
             case POLY_SYS_or_word:

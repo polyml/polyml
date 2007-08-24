@@ -73,7 +73,6 @@ extern void print_string(PolyWord s);
 // These should no longer be used in the RTS except internally.
 // They are currently used by the ML code during bootstrapping.
 extern Handle strconcatc(TaskData *mdTaskData, Handle x, Handle y);
-extern Handle string_subc(TaskData *mdTaskData, Handle x, Handle y);
 Handle string_length_c(TaskData *mdTaskData, Handle string);
 
 #define DEREFSTRINGHANDLE(_x)    ((PolyStringObject *)(_x)->WordP())

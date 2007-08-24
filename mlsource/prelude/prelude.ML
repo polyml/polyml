@@ -266,8 +266,6 @@ end;
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
-(*val op ^ : string * string -> string = 
-	  RunCall.run_call2 RuntimeCalls.POLY_SYS_strconcat;*)
 
 (* This is built in because the length of a string is stored as
    an untagged integer.  The result needs to be a tagged integer.  Actually
@@ -339,15 +337,6 @@ local
 
     val ord0 = ord #"0";
 	val chr = RunCall.unsafeCast
-  
-(*    fun soi acc 0 = acc
-    |   soi acc n = soi (chr (n mod 10 + ord0) ^ acc) (n div 10);
-	
-	fun stringOfInt 0 = "0"
-    |   stringOfInt n = if n < 0 then "~" ^ soi "" (~n) else soi "" n;
-
-	fun print_int (put, beg, brk, nd) depth _ (i: int) =
-		put(stringOfInt i) *)
 
 	fun print_bool (put, beg, brk, nd) depth _ (b: bool) =
 		put(if b then "true" else "false")
@@ -380,10 +369,8 @@ local
 	    end
 
 in
-(*  	val it = PolyML.Inner.install_pp print_int; *)
   	val it = PolyML.Inner.install_pp print_bool;
   	val it = PolyML.Inner.install_pp print_string;
   	val it = PolyML.Inner.install_pp print_char;
-  	(*val it = PolyML.Inner.install_pp print_real;*)
   	val it = PolyML.Inner.install_pp print_list
 end;

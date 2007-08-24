@@ -102,7 +102,6 @@ struct
   val POLY_SYS_set_code_constant   = 194  (* DCJM 2/1/01 *)
   val POLY_SYS_move_words		   = 195  (* DCJM 9/10/99 *)
   val POLY_SYS_shift_right_arith_word	= 196  (* DCJM 9/10/99 *)
-(*val POLY_SYS_int_to_word		   = 197 *) (* DCJM 9/10/99 *) (* Obsolete *)
   val POLY_SYS_move_bytes		   = 198  (* DCJM 9/10/99 *)
   val POLY_SYS_code_flags          = 200  (* SPF 10/11/1998 *)
   val POLY_SYS_shrink_stack        = 201  (* SPF 10/11/1998 *)
@@ -123,7 +122,6 @@ struct
   val POLY_SYS_int_leq             = 232
   val POLY_SYS_int_gtr             = 233
   val POLY_SYS_int_lss             = 234
-(*val POLY_SYS_string_sub          = 235 *)
   val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_plus_word           = 239  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_minus_word          = 240  (* Reinstated DCJM 9/10/99 *)

@@ -105,7 +105,6 @@ extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
 
 extern Handle switch_subshells_c(TaskData *mdTaskData);
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
-NORETURNFN(extern Handle install_rootc(TaskData *mdTaskData, Handle proc));
 extern Handle install_subshells_c(TaskData *mdTaskData, Handle root_function);
 extern Handle shrink_stack_c(TaskData *mdTaskData, Handle reserved_space);
 

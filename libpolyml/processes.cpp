@@ -730,16 +730,6 @@ Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
     return SAVE(TAGGED(0));
 }
 
-// This is only ever used when compiling the compiler in an
-// interactive session.
-Handle install_rootc(TaskData *, Handle proc)
-/* Installs a new procedure as the root. This involves killing all the processes
-   and starting a new process with this root. */
-{
-    processesModule.BeginRootThread(DEREFHANDLE(proc)); // Should never return.
-    finish(0); // If it does.
-}
-
 // Broadcast an interrupt to all relevant threads.
 void Processes::BroadcastInterrupt(void)
 {

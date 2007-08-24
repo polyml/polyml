@@ -1075,8 +1075,6 @@ static void add_function_to_io_area(int x, int (*y)())
 void SparcDependent::InitInterfaceVector(void)
 {
     add_function_to_io_area(POLY_SYS_exit, &finisha);
-    add_function_to_io_area(POLY_SYS_install_root, &install_roota);
-    add_function_to_io_area(POLY_SYS_strconcat, &strconcata);
     add_function_to_io_area(POLY_SYS_alloc_store, &alloc_store);
     add_function_to_io_area(POLY_SYS_chdir, &change_dira);
     add_function_to_io_area(POLY_SYS_get_length, &get_length_a);
@@ -1141,7 +1139,6 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_int_leq, &int_leq);
     add_function_to_io_area(POLY_SYS_int_gtr, &int_gtr);
     add_function_to_io_area(POLY_SYS_int_lss, &int_lss);
-    add_function_to_io_area(POLY_SYS_string_sub, &string_suba); // This is really redundant.
     add_function_to_io_area(POLY_SYS_or_word, &or_word);
     add_function_to_io_area(POLY_SYS_and_word, &and_word);
     add_function_to_io_area(POLY_SYS_xor_word, &xor_word);

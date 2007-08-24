@@ -1017,7 +1017,6 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 break;
                 }
 
-        case INSTR_io_vec_6: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_strconcat); break;
         case INSTR_io_vec_229: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_eq); break;
         case INSTR_io_vec_233: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_gtr); break;
         case INSTR_io_vec_236: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_or_word); break;
@@ -1224,8 +1223,6 @@ Handle Interpreter::CallBackResult(TaskData *taskData)
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
-    add_word_to_io_area(POLY_SYS_install_root, TAGGED(POLY_SYS_install_root));
-    add_word_to_io_area(POLY_SYS_strconcat, TAGGED(POLY_SYS_strconcat));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
     add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));
@@ -1298,7 +1295,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_int_leq, TAGGED(POLY_SYS_int_leq));
     add_word_to_io_area(POLY_SYS_int_gtr, TAGGED(POLY_SYS_int_gtr));
     add_word_to_io_area(POLY_SYS_int_lss, TAGGED(POLY_SYS_int_lss));
-    add_word_to_io_area(POLY_SYS_string_sub, TAGGED(POLY_SYS_string_sub));
     add_word_to_io_area(POLY_SYS_mul_word, TAGGED(POLY_SYS_mul_word));
     add_word_to_io_area(POLY_SYS_plus_word, TAGGED(POLY_SYS_plus_word));
     add_word_to_io_area(POLY_SYS_minus_word, TAGGED(POLY_SYS_minus_word));
