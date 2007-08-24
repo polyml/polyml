@@ -1177,7 +1177,7 @@ TryAgain:
                         if (emfileFlag) /* Previously had an EMFILE error. */
                             raise_syscall(taskData, "socket failed", EMFILE);
                         emfileFlag = true;
-                        processes->FullGC(); /* May clear emfileFlag if we close a file. */
+                        processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
                         goto TryAgain;
                     }
                 case EINTR: goto TryAgain;
