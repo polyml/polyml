@@ -23,6 +23,9 @@
 #ifndef _SHAREDATA_H
 #define _SHAREDATA_H
 
+// Called by the thread to make the request.
 void ShareData(TaskData *taskData, Handle root);
+// Called by the root thread to do the work.
+bool RunShareData(PolyObject *root);
 
 #endif

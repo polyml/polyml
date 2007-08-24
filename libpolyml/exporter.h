@@ -72,4 +72,7 @@ public:
     unsigned long stringSize, stringAvailable;
 };
 
+// Called by the root thread to do the work.
+extern bool RunExport(PolyObject *rootFunction, Exporter *exports);
+
 #endif

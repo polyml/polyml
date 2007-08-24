@@ -42,6 +42,7 @@ class StackObject;
 class PolyWord;
 class ScanAddress;
 class MDTaskData;
+class Exporter;
 
 #define MIN_HEAP_SIZE   4096 // Minimum and initial heap segment size (words)
 
@@ -145,8 +146,15 @@ public:
     // requested a GC already BeginGC will block until that has completed
     // and then return false.  A thread should not call EndGC unless BeginGC
     // has returned true.
-    virtual bool BeginGC(TaskData *taskData) = 0;
-    virtual void EndGC(TaskData *taskData) = 0;
+//    virtual bool BeginGC(TaskData *taskData) = 0;
+//    virtual void EndGC(TaskData *taskData) = 0;
+
+    // Requests from the threads for actions that need to be performed by
+    // the root thread.
+    virtual void FullGC(TaskData *taskData) = 0;
+    virtual bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequired) = 0;
+    virtual bool ShareData(TaskData *taskData, Handle root) = 0;
+    virtual bool Export(TaskData *taskData, Handle root, Exporter *exports) = 0;
 
     // Deal with any interrupt or kill requests.
     virtual void ProcessAsynchRequests(TaskData *taskData) = 0;

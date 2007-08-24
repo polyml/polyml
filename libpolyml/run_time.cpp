@@ -163,13 +163,7 @@ void add_word_to_io_area (unsigned sysop, PolyWord val)
 PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg)
 {
     if (userOptions.debug & DEBUG_FORCEGC)
-    {
-        if (processes->BeginGC(taskData))
-        {
-            QuickGC(words);
-            processes->EndGC(taskData);
-        }
-    }
+        processes->QuickGC(taskData, words);
 
     while (1)
     {
@@ -216,15 +210,9 @@ PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alway
                 }
             }
 
-            // Garbage collect.  If another thread has requested a GC we will
-            // wait until that completes.  We don't need to start one ourselves 
-            if (processes->BeginGC(taskData))
-            {
-                bool gcResult = QuickGC(words);
-                processes->EndGC(taskData);
-                if (! gcResult)
-                    return 0;
-            }
+            // Try garbage-collecting.  If this failed return 0.
+            if (! processes->QuickGC(taskData, words))
+                return 0;
             // Try again.  There should be space now.
         }
     }
@@ -283,11 +271,7 @@ Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
 /* CALL_IO0(full_gc_, NOIND) */
 Handle full_gc_c(TaskData *taskData)
 {
-    if (processes->BeginGC(taskData))
-    {
-        FullGC();
-        processes->EndGC(taskData);
-    }
+    processes->FullGC(taskData);
     return SAVE(TAGGED(0));
 }
 

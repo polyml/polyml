@@ -578,12 +578,8 @@ TryAgain:
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
                             raise_syscall(taskData, "socket failed", EMFILE);
-                        emfileFlag = 1;
-                        if (processes->BeginGC(taskData))
-                        {
-                            FullGC(); /* May clear emfileFlag if we close a file. */
-                            processes->EndGC(taskData);
-                        }
+                        emfileFlag = true;
+                        processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
                         goto TryAgain;
                     }
                 case EINTR: goto TryAgain;
@@ -836,12 +832,8 @@ TryAgain:
                         {
                             if (emfileFlag) /* Previously had an EMFILE error. */
                                 raise_syscall(taskData, "accept failed", EMFILE);
-                            emfileFlag = 1;
-                            if (processes->BeginGC(taskData))
-                            {
-                                FullGC(); /* May clear emfileFlag if we close a file. */
-                                processes->EndGC(taskData);
-                            }
+                            emfileFlag = true;
+                            processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
                             goto TryAgain;
                         }
                     case EWOULDBLOCK:
@@ -1184,12 +1176,8 @@ TryAgain:
                     {
                         if (emfileFlag) /* Previously had an EMFILE error. */
                             raise_syscall(taskData, "socket failed", EMFILE);
-                        emfileFlag = 1;
-                        if (processes->BeginGC(taskData))
-                        {
-                            FullGC(); /* May clear emfileFlag if we close a file. */
-                            processes->EndGC(taskData);
-                        }
+                        emfileFlag = true;
+                        processes->FullGC(); /* May clear emfileFlag if we close a file. */
                         goto TryAgain;
                     }
                 case EINTR: goto TryAgain;

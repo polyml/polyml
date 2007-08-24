@@ -450,63 +450,56 @@ static void RestoreLengthWords(Vector *vec)
 
 static unsigned verbose = 0;
 
-// ShareData.  This is the main entry point.
-void ShareData(TaskData *taskData, Handle root)
+
+// This is called by the root thread to do the work.
+bool RunShareData(PolyObject *root)
 {
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
     
     vectors =  0;
 
-    if (! root->Word().IsDataPtr())
-        return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
-
-    // We're manipulating the heap in ways that could mess up other threads.
-    // Pause them until we finish.
-    while (! processes->BeginGC(taskData)) {}
-
+    // Build the vectors from the immutable objects.
+    ProcessAddToVector addToVector;
     try {
-        // Build the vectors from the immutable objects.
-        ProcessAddToVector addToVector;
-        try {
-            (void)addToVector.ScanObjectAddress(root->Word().AsObjPtr());
-        }
-        catch (MemoryException)
+        (void)addToVector.ScanObjectAddress(root);
+    }
+    catch (MemoryException)
+    {
+        // If we run out of memory and raise an exception we have to clean up.
+        while (vectors)
         {
-            // If we run out of memory and raise an exception we have to clean up.
-            while (vectors)
-            {
-                Vector *v = vectors;
-                vectors = v->next;
-                delete(v);
-            }
-            raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+            Vector *v = vectors;
+            vectors = v->next;
+            delete(v);
         }
+        return false; // Run out of memory.
+    }
 
-        ProcessFixupAddress fixup;
+    ProcessFixupAddress fixup;
 
-        Vector *vec = vectors;
+    Vector *vec = vectors;
 
-        if (vec && vec->depth == 0) // Skip the level zero objects.
-             vec = vec->next; // We fix them up when we've done all the rest.
+    if (vec && vec->depth == 0) // Skip the level zero objects.
+         vec = vec->next; // We fix them up when we've done all the rest.
 
-        while (vec)
+    while (vec)
+    {
+        fixup.FixupItems(vec);
+        qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
+    
+        POLYUNSIGNED n = MergeSameItems (vec);
+    
+        if (n && verbose)
         {
-            fixup.FixupItems(vec);
-            qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
-        
-            POLYUNSIGNED n = MergeSameItems (vec);
-        
-            if (n && verbose)
-            {
-                printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
-            }
-        
-            totalObjects += vec->nitems;
-            totalShared  += n;
-        
-            vec = vec->next; // Get the next vector (if any)
-        }  
+            printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
+        }
+    
+        totalObjects += vec->nitems;
+        totalShared  += n;
+    
+        vec = vec->next; // Get the next vector (if any)
+    }  
 
       /* 
        At this stage, we have fixed up most but not all of the forwarding
@@ -533,38 +526,30 @@ void ShareData(TaskData *taskData, Handle root)
       SPF 26/1/95
     */
 
-
-        /* We have updated the addresses in objects with non-zero level so they point to
-           the single occurrence but we need to do the same with level 0 objects
-           (mutables, stacks and code). */
-        vec = vectors;
-        if (vec && vec->depth == 0)
-        {
-            Vector *v = vec;
-            RestoreLengthWords(v);
-            fixup.FixupItems(v);
-            vec = vec->next;
-            delete(v); // Free all the data
-        }
-
-        /* Previously we made a complete scan over the memory updating any addresses so
-           that if we have shared two substructures within our root we would also
-           share any external pointers.  This has been removed but we have to
-           reinstate the length words we've overwritten with forwarding pointers because
-           there may be references to unshared objects from outside. */
-        while (vec != 0)
-        {
-            Vector *v = vec;
-            RestoreLengthWords(v);
-            vec = vec->next;
-            delete(v);
-        }
-        processes->EndGC(taskData);
-    }
-    catch (...)
+    /* We have updated the addresses in objects with non-zero level so they point to
+       the single occurrence but we need to do the same with level 0 objects
+       (mutables, stacks and code). */
+    vec = vectors;
+    if (vec && vec->depth == 0)
     {
-        processes->EndGC(taskData);
-        throw;
+        Vector *v = vec;
+        RestoreLengthWords(v);
+        fixup.FixupItems(v);
+        vec = vec->next;
+        delete(v); // Free all the data
+    }
+
+    /* Previously we made a complete scan over the memory updating any addresses so
+       that if we have shared two substructures within our root we would also
+       share any external pointers.  This has been removed but we have to
+       reinstate the length words we've overwritten with forwarding pointers because
+       there may be references to unshared objects from outside. */
+    while (vec != 0)
+    {
+        Vector *v = vec;
+        RestoreLengthWords(v);
+        vec = vec->next;
+        delete(v);
     }
 
     if (verbose)
@@ -572,4 +557,19 @@ void ShareData(TaskData *taskData, Handle root)
         printf ("Total Objects %6lu, Total Shared %6lu\n", totalObjects, totalShared);
         fflush(stdout); /* We need this for Windows at least. */
     }
+    return true; // Succeeded.
+}
+
+// ShareData.  This is the main entry point.
+// Because this can recurse deeply it needs to be run by the main thread.
+// Also it manipulates the heap in ways that could mess up other threads
+// so we need to stop them before executing this.
+void ShareData(TaskData *taskData, Handle root)
+{
+    if (! root->Word().IsDataPtr())
+        return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
+
+    // Get the main thread to do the work and raise an exception if it failed.
+    if (! processes->ShareData(taskData, root))
+        raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
 }

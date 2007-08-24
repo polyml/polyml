@@ -255,7 +255,7 @@ static unsigned max_streams;
    an EMFILE error and is cleared whenever a file is closed or opened
    successfully.  It prevents infinite looping if we really have too
    many files. */
-int emfileFlag = 0;
+bool emfileFlag = false;
 
 /* Close a stream, either explicitly or as a result of detecting an
    unreferenced stream in the g.c.  Doesn't report any errors. */
@@ -280,7 +280,7 @@ void close_stream(PIOSTRUCT str)
     else close(str->device.ioDesc);
     str->ioBits = 0;
     str->token = 0;
-    emfileFlag = 0;
+    emfileFlag = false;
 }
 
 
@@ -439,7 +439,7 @@ TryAgain:
                 fcntl(stream, F_SETFD, 1);
             }
 #endif
-            emfileFlag = 0; /* Successful open. */
+            emfileFlag = false; /* Successful open. */
             return(str_token);
         }
 
@@ -455,12 +455,8 @@ TryAgain:
             {
                 if (emfileFlag) /* Previously had an EMFILE error. */
                     raise_syscall(taskData, "Cannot open", EMFILE);
-                emfileFlag = 1; /* May clear emfileFlag if we close a file. */
-                if (processes->BeginGC(taskData))
-                {
-                    FullGC();
-                    processes->EndGC(taskData);
-                }
+                emfileFlag = true;
+                processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
                 goto TryAgain;
             }
         default:
@@ -1063,12 +1059,8 @@ TryAgain:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */
                         raise_syscall(taskData, "Cannot open", EMFILE);
-                    emfileFlag = 1;
-                    if (processes->BeginGC(taskData))
-                    {
-                        FullGC(); /* May clear emfileFlag if we close a file. */
-                        processes->EndGC(taskData);
-                    }
+                    emfileFlag = true;
+                    processes->FullGC(); /* May clear emfileFlag if we close a file. */
                     goto TryAgain;
                 }
             default:

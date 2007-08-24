@@ -113,5 +113,5 @@ extern void close_stream(PIOSTRUCT str);
 
 extern PIOSTRUCT basic_io_vector;
 
-extern int emfileFlag;
+extern bool emfileFlag;
 #endif

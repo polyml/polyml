@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006-7 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -287,7 +287,7 @@ static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
     }
 }
 
-static void exporter(TaskData *taskData, Handle args, bool isNative, const char *extension, Exporter *exports)
+static void exporter(TaskData *taskData, Handle args, const char *extension, Exporter *exports)
 {
     char fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
     POLYUNSIGNED length =
@@ -298,91 +298,81 @@ static void exporter(TaskData *taskData, Handle args, bool isNative, const char 
     // Does it already have the extension?  If not add it on.
     if (length < strlen(extension) || strcmp(fileNameBuff + length - strlen(extension), extension) != 0)
         strcat(fileNameBuff, extension);
+    exports->exportFile = fopen(fileNameBuff, "wb");
+    if (exports->exportFile == NULL)
+        raise_syscall(taskData, "Cannot open export file", errno);
 
-    // Do a full GC to minimise the size of the heaps when we
-    // come to rewrite the length words.
+    Handle root = taskData->saveVec.push(args->WordP()->Get(1));
 
-    // Although we don't actually need to repeat the GC we
-    // do need to exclude any other thread from the memory until
-    // we've finished.
-    while (! processes->BeginGC(taskData)) {}
-    FullGC();
+    // Request the main thread to do the work.
+    if (! processes->Export(taskData, root, exports))
+        raise_exception_string(taskData, EXC_Fail, "Insufficient memory for export");
+}
 
+// This is called by the initial thread to actually do the export.
+bool RunExport(PolyObject *rootFunction, Exporter *exports)
+{
+    // Copy the root and everything reachable from it into the temporary area.
+    CopyScan copyScan;
+
+    PolyObject *copiedRoot = 0;
     try {
-
-        PolyObject *rootFunction = args->WordP()->Get(1).AsObjPtr();
-
-        // Copy the root and everything reachable from it into the temporary area.
-        CopyScan copyScan;
-
-        PolyObject *copiedRoot = 0;
-        try {
-            copiedRoot = copyScan.ScanObjectAddress(rootFunction);
-        }
-        catch (MemoryException)
-        {
-            // If we run out of memory.
-            copiedRoot = 0;
-            raise_exception_string(taskData, EXC_Fail, "Insufficient memory for export");
-        }
-
-        // Fix the forwarding pointers.
-        unsigned j;
-        for (j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[j];
-            // Local areas only have objects from the allocation pointer to the top.
-            FixForwarding(space->pointer, space->top - space->pointer);
-        }
-        for (j = 0; j < gMem.npSpaces; j++)
-        {
-            MemSpace *space = gMem.pSpaces[j];
-            // Permanent areas are filled with objects from the bottom.
-            FixForwarding(space->bottom, space->top - space->bottom);
-        }
-
-        // Reraise the exception after cleaning up the forwarding pointers.
-        if (copiedRoot == 0)
-            throw IOException(EXC_EXCEPTION);
-
-        // Copy the areas into the export object.
-        exports->memTable = new memoryTableEntry[gMem.neSpaces+1];
-        exports->ioMemEntry = 0;
-        // The IO vector.  Should we actually create a blank area?  This needs to be
-        // writable by the RTS but not normally by ML.
-        MemSpace *ioSpace = gMem.IoSpace();
-        exports->memTable[0].mtAddr = ioSpace->bottom;
-        exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
-        exports->memTable[0].mtFlags = 0;
-
-        for (unsigned i = 0; i < gMem.neSpaces; i++)
-        {
-            memoryTableEntry *entry = &exports->memTable[i+1];
-            ExportMemSpace *space = gMem.eSpaces[i];
-            entry->mtAddr = space->pointer;
-            entry->mtLength = (space->top-space->pointer)*sizeof(PolyWord);
-            if (space->isMutable)
-                entry->mtFlags = MTF_WRITEABLE;
-            else
-                entry->mtFlags = MTF_EXECUTABLE;
-        }
-
-        exports->memTableEntries = gMem.neSpaces+1;
-
-        exports->ioSpacing = IO_SPACING;
-        exports->rootFunction = copiedRoot;
-
-        exports->exportFile = fopen(fileNameBuff, "wb");
-        if (exports->exportFile == NULL)
-            raise_syscall(taskData, "Cannot open export file", errno);
-        exports->exportStore();
-        processes->EndGC(taskData);
+        copiedRoot = copyScan.ScanObjectAddress(rootFunction);
     }
-    catch (...)
+    catch (MemoryException)
     {
-        processes->EndGC(taskData);
-        throw;
+        // If we ran out of memory.
+        copiedRoot = 0;
     }
+
+    // Fix the forwarding pointers.
+    unsigned j;
+    for (j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        // Local areas only have objects from the allocation pointer to the top.
+        FixForwarding(space->pointer, space->top - space->pointer);
+    }
+    for (j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        // Permanent areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+
+    // Reraise the exception after cleaning up the forwarding pointers.
+    if (copiedRoot == 0)
+        return false;
+
+    // Copy the areas into the export object.
+    exports->memTable = new memoryTableEntry[gMem.neSpaces+1];
+    exports->ioMemEntry = 0;
+    // The IO vector.  Should we actually create a blank area?  This needs to be
+    // writable by the RTS but not normally by ML.
+    MemSpace *ioSpace = gMem.IoSpace();
+    exports->memTable[0].mtAddr = ioSpace->bottom;
+    exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
+    exports->memTable[0].mtFlags = 0;
+
+    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    {
+        memoryTableEntry *entry = &exports->memTable[i+1];
+        ExportMemSpace *space = gMem.eSpaces[i];
+        entry->mtAddr = space->pointer;
+        entry->mtLength = (space->top-space->pointer)*sizeof(PolyWord);
+        if (space->isMutable)
+            entry->mtFlags = MTF_WRITEABLE;
+        else
+            entry->mtFlags = MTF_EXECUTABLE;
+    }
+
+    exports->memTableEntries = gMem.neSpaces+1;
+
+    exports->ioSpacing = IO_SPACING;
+    exports->rootFunction = copiedRoot;
+
+    exports->exportStore();
+    return true;
 }
 
 // Functions called via the RTS call.
@@ -396,17 +386,17 @@ Handle exportNative(TaskData *taskData, Handle args)
     const char *extension = ".o"; // Cygwin
 #endif
     PECOFFExport exports;
-    exporter(taskData, args, true, extension, &exports);
+    exporter(taskData, args, extension, &exports);
 #elif defined(HAVE_ELF_H)
     // Most Unix including Linux, FreeBSD and Solaris.
     const char *extension = ".o";
     ELFExport exports(taskData);
-    exporter(taskData, args, true, extension, &exports);
+    exporter(taskData, args, extension, &exports);
 #elif defined(HAVE_MACH_O_RELOC_H)
     // Mac OS-X
     const char *extension = ".o";
     MachoExport exports(taskData);
-    exporter(taskData, args, true, extension, &exports);
+    exporter(taskData, args, extension, &exports);
 #else
     raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
 #endif
@@ -416,7 +406,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 Handle exportPortable(TaskData *taskData, Handle args)
 {
     PExport exports;
-    exporter(taskData, args, false, ".txt", &exports);
+    exporter(taskData, args, ".txt", &exports);
     return taskData->saveVec.push(TAGGED(0));
 }
 
