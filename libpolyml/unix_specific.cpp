@@ -612,9 +612,20 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 25: /* Get group list. */
         {
-            gid_t groups[NGROUPS_MAX];
-            int ngroups = getgroups(NGROUPS_MAX, groups);
+            // This previously allocated gid_t[NGROUPS_MAX] on the stack but this
+            // requires quite a bit of stack space.
+            gid_t gid[1];
+            int ngroups = getgroups(0, gid); // Just get the number.
             if (ngroups < 0) raise_syscall(taskData, "getgroups failed", errno);
+            if (ngroups == 0) return SAVE(ListNull);
+            gid_t *groups = (gid_t*)calloc(sizeof(gid_t), ngroups);
+            if (groups == 0) raise_syscall(taskData, "Unable to allocate memory", errno);
+            if (getgroups(ngroups, groups) < 0)
+            {
+                int lasterr = errno;
+                free(groups);
+                raise_syscall(taskData, "getgroups failed", lasterr);
+            }
             Handle saved = taskData->saveVec.mark();
             Handle list  = SAVE(ListNull);
 
@@ -628,6 +639,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 taskData->saveVec.reset(saved);
                 list = SAVE(DEREFHANDLE(next));
             }
+            free(groups);
             return list;
         }
 
