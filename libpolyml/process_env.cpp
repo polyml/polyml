@@ -444,12 +444,15 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 }
 
 /* Terminate normally with a result code. */
-Handle finishc(TaskData *mdTaskData, Handle h)
+Handle finishc(TaskData *taskData, Handle h)
 {
-    int i = get_C_long(mdTaskData, DEREFWORDHANDLE(h));
-    finish(i);
-    // Push a dummy result
-    return mdTaskData->saveVec.push(TAGGED(0));
+    int i = get_C_long(taskData, DEREFWORDHANDLE(h));
+    // Cause the other threads to exit.
+    processes->Exit(i);
+    // Exit this thread
+    processes->ThreadExit(taskData); // Doesn't return.
+    // Push a dummy result to keep lint happy
+    return taskData->saveVec.push(TAGGED(0));
 }
 
 class ProcessEnvModule: public RtsModule

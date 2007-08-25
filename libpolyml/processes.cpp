@@ -175,11 +175,42 @@ public:
 #endif
 };
 
+// Data structure used for requests from a thread to the root
+// thread.  These are GCs or similar.
+
+class MainThreadRequest
+{
+public:
+    bool completed;
+    enum {
+        kirequestQuickGC,      // Want a partial GC
+        kirequestFullGC,       // Want a full GC
+        kirequestShare,        // Want to share common sub-exps
+        kirequestExport        // Want to export data
+    } requestType;
+
+    union {
+        struct {
+            POLYUNSIGNED words;
+            bool         gcResult;
+        } gc;
+        struct {
+            Handle root;
+            bool shResult;
+        } sh;
+        struct {
+            Handle root;
+            Exporter *export;
+            bool exResult;
+        } exp;
+    };
+};
+
 class Processes: public ProcessExternal, public RtsModule
 {
 public:
     Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
-        initialThreadRequest(kirequestNone), requestRTSState(krequestRTSNone) {}
+        threadRequest(0), exitResult(0), requestRTSState(krequestRTSNone) {}
     virtual void Init(void);
     virtual void Uninit(void);
     virtual void Reinit(void);
@@ -187,6 +218,10 @@ public:
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
+    void Exit(int n); // Request all ML threads to exit and set the process result code.
+    // Called when a thread has completed - doesn't return.
+    virtual NORETURNFN(void ThreadExit(TaskData *taskData));
+
     void BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall);
     void BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall);
     void SwitchSubShells(void);
@@ -196,8 +231,6 @@ public:
     // otherwise interrupts the threads.
     virtual void RequestThreadsEnterRTS(bool isSignal);
     void RequestThreadsEnterRTSInternal(bool isSignal);
-    // Get all threads to exit.
-    virtual void KillAllThreads(void);
     // ForkFromRTS.  Creates a new thread from within the RTS.
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
     // Create a new thread.  The "args" argument is only used for threads
@@ -216,15 +249,6 @@ public:
     // If the schedule lock is already held we need to use these functions.
     void ThreadUseMLMemoryWithSchedLock(TaskData *taskData);
     void ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData);
-    // Begin and End garbage collection or similar actions that require the
-    // whole memory.  BeginGC only returns when every other thread has
-    // released its use of the ML memory.  They will then be blocked in
-    // ThreadUseMLMemory until the GC is complete.  If another thread has
-    // requested a GC already BeginGC will block until that has completed
-    // and then return false.  A thread should not call EndGC unless BeginGC
-    // has returned true.
-    bool BeginGC(TaskData *taskData);
-    void EndGC(TaskData *taskData);
 
     // Requests from the threads for actions that need to be performed by
     // the root thread.
@@ -232,6 +256,9 @@ public:
     virtual bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequired);
     virtual bool ShareData(TaskData *taskData, Handle root);
     virtual bool Export(TaskData *taskData, Handle root, Exporter *exports);
+
+    // Make the request and wait until it has completed.
+    void MakeRootRequest(TaskData *taskData, MainThreadRequest *request);
 
     // Deal with any interrupt or kill requests.
     virtual void ProcessAsynchRequests(TaskData *taskData);
@@ -241,9 +268,6 @@ public:
     // Set a thread to be interrupted or killed.  Wakes up the
     // thread if necessary.  MUST be called with taskArrayLock held.
     void MakeRequest(ProcessTaskData *p, ThreadRequests request);
-
-    // Called when a thread has completed - doesn't return.
-    NORETURNFN(void ThreadExit(TaskData *taskData));
 
     // Profiling control.
     virtual void StartProfiling(void);
@@ -290,20 +314,17 @@ public:
     // make sure we have the packet before we do.
     poly_exn *interrupt_exn;
 
-    bool    wantGC;
-    PCondVar gcBegin; // One thread blocks on here until all the others have stopped.
-    PCondVar gcComplete; // All the threads block on here until the GC has completed.
     /* initialThreadWait: The initial thread waits on this for
        wake-ups from the ML threads requesting actions such as GC or
        close-down. */
     PCondVar initialThreadWait;
     // A requesting thread sets this to indicate the request.  This value
     // is only reset once the request has been satisfied.
-    enum {
-        kirequestNone,              // No requests
-        kirrequestGC                // We want a GC
-    } initialThreadRequest;
+    MainThreadRequest *threadRequest;
+
     PCondVar mlThreadWait;  // All the threads block on here until the request has completed.
+
+    int exitResult;
 
     // This deals with asynchronous signals.
     // If we've had a signal we need to get a thread to enter the RTS.  Because a
@@ -803,18 +824,20 @@ void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
 void Processes::ThreadExit(TaskData *taskData)
 {
     schedLock.Lock();
+    ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
     // Remove this from the taskArray
     unsigned index = UNTAGGED(taskData->threadObject->Get(0));
     if (index < taskArraySize && taskArray[index] == taskData)
         taskArray[index] = 0;
     delete(taskData);
-    ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
+    initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
 #ifdef HAVE_PTHREAD
     pthread_exit(0);
 #elif defined(HAVE_WINDOWS_H)
     ExitThread(0);
 #else
+    // No pthreads: exit the process
     finish(0);
 #endif
 }
@@ -846,19 +869,9 @@ void Processes::ThreadReleaseMLMemory(TaskData *taskData)
 void Processes::ThreadUseMLMemoryWithSchedLock(TaskData *taskData)
 {
     ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
-    while (wantGC)
-    {
-        // Allow the GC to happen.  Waiting here on gcComplete ensures that
-        // the GC thread has actually been allowed to run.  If it has it
-        // will have taken schedLock and we won't have got this far but if
-        // we call ThreadReleaseMLMemoryWithSchedLock and then call
-        // ThreadUseMLMemoryWithSchedLock shortly afterwards there may not
-        // have been enough time for the signal to get through.
-        gcBegin.Signal();
-        gcComplete.Wait(&schedLock);
-    }
-    // Notify the main thread if there is a request outstanding.
-    while (initialThreadRequest != kirequestNone)
+    // If there is a request outstanding we have to wait for it to
+    // complete.  We notify the root thread and wait for it.
+    while (threadRequest != 0)
     {
         initialThreadWait.Signal();
         // Wait for the GC to happen
@@ -886,57 +899,46 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
         // Make this a byte object so it's always skipped.
         dummy->SetLengthWord(space, F_BYTE_BIT);
     }
-    if (wantGC) // A thread is waiting to do a GC.  Wake it up because it may now be able to run.
-        gcBegin.Signal();
     //
-    if (initialThreadRequest != kirequestNone)
+    if (threadRequest != 0)
         initialThreadWait.Signal();
 }
 
-bool Processes::BeginGC(TaskData *taskData)
+
+// Make a request to the root thread.  There is a special case here that
+// if a partial GC is already being requested by another thread we don't
+// request another one.  I don't know whether that makes any real difference
+// but it's quite possible that when memory runs low two threads might both
+// see that.
+void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 {
     schedLock.Lock();
-    bool wasGC = wantGC; // Does another thread want to do a GC?
-    // Allow another thread to GC if it wants to.
-    ThreadReleaseMLMemoryWithSchedLock(taskData);
-    ThreadUseMLMemoryWithSchedLock(taskData);
-    // If another thread has just done a GC we may now be able
-    // to satisfy our memory needs.  Don't start another GC here.
-    if (wasGC)
-    {
-        schedLock.Unlock(); // Unlock the lock before returning.
-        return false;
-    }
 
-    // We want to do a garbage collection.
-    // We already have schedLock.
-    wantGC = true;
-    bool allStopped = false;
-
-    while (! allStopped)
+    // Wait for any other requests. 
+    while (threadRequest != 0)
     {
-        allStopped = true;
-        for (unsigned i = 0; i < taskArraySize; i++)
+        bool wasGC = threadRequest->requestType == MainThreadRequest::kirequestQuickGC;
+        // Deal with any pending requests.
+        ThreadReleaseMLMemoryWithSchedLock(taskData);
+        ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
+        if (request->requestType == MainThreadRequest::kirequestQuickGC && wasGC)
         {
-            ProcessTaskData *p = taskArray[i];
-            if (p && p != taskData && p->inMLHeap)
-            {
-                allStopped = false;
-                // It must be running - interrupt it.
-                machineDependent->InterruptCode(p);
-            }
+            // The other thread's request for a GC should now have
+            // been dealt with.
+            schedLock.Unlock();
+            request->gc.gcResult = true;
+            return;
         }
-        // Wait until they are all stopped.
-        if (! allStopped)
-            gcBegin.Wait(&schedLock);
     }
-    return true; // Everything else is now stopped.
-}
-
-void Processes::EndGC(TaskData *taskData)
-{
-    wantGC = false;
-    gcComplete.Signal(); // Wake up any waiting threads.
+    // Now the other requests have been dealt with (and we have schedLock).
+    request->completed = false;
+    threadRequest = request;
+    // Wait for it to complete.
+    while (! request->completed)
+    {
+        ThreadReleaseMLMemoryWithSchedLock(taskData);
+        ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
+    }
     schedLock.Unlock();
 }
 
@@ -944,51 +946,48 @@ void Processes::EndGC(TaskData *taskData)
 // in progress wait for that to complete and then start again.
 void Processes::FullGC(TaskData *taskData)
 {
-    while (! BeginGC(taskData)) {};
-    ::FullGC();
-    EndGC(taskData);
+    MainThreadRequest request;
+    request.completed = false;
+    request.requestType = MainThreadRequest::kirequestFullGC;
+    MakeRootRequest(taskData, &request);
 }
 
-// Garbage collect.  If another thread has requested a GC we will
-// wait until that completes.  We don't need to start one ourselves. 
+// Garbage collect.
 bool Processes::QuickGC(TaskData *taskData, POLYUNSIGNED words)
 {
-    if (BeginGC(taskData))
-    {
-        // We're doing the GC.
-        bool gcResult = ::QuickGC(words);
-        EndGC(taskData);
-        return gcResult;
-    }
-    return true;
+    // If another thread has requested a GC we will
+    // wait until that completes.  We don't need to start one ourselves. 
+    MainThreadRequest request;
+    request.completed = false;
+    request.requestType = MainThreadRequest::kirequestQuickGC;
+    request.gc.words = words;
+    request.gc.gcResult = false;
+    MakeRootRequest(taskData, &request);
+    return request.gc.gcResult;
 }
 
 // Share common substructures.
 bool Processes::ShareData(TaskData *taskData, Handle root)
 {
-    // We need to get control of the memory.
-    while (! BeginGC(taskData)) {};
-    ::FullGC();
-    // Now do the work.
-    bool result = RunShareData(root->Word().AsObjPtr());
-    EndGC(taskData);
-    return result;
+    MainThreadRequest request;
+    request.completed = false;
+    request.requestType = MainThreadRequest::kirequestShare;
+    request.sh.root = root;
+    request.sh.shResult = false;
+    MakeRootRequest(taskData, &request);
+    return request.sh.shResult;
 }
 
 bool Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
 {
-    // Do a full GC to minimise the size of the heaps when we
-    // come to rewrite the length words.
-
-    // Although we don't actually need to repeat the GC we
-    // do need to exclude any other thread from the memory until
-    // we've finished.
-    while (! BeginGC(taskData)) {}
-    ::FullGC();
-    // Now do the work.
-    bool result = RunExport(root->WordP(), exports);
-    EndGC(taskData);
-    return result;
+    MainThreadRequest request;
+    request.completed = false;
+    request.requestType = MainThreadRequest::kirequestExport;
+    request.exp.root = root;
+    request.exp.exResult = false;
+    request.exp.export = exports;
+    MakeRootRequest(taskData, &request);
+    return request.exp.exResult;
 }
 
 Handle exitThread(TaskData *taskData)
@@ -1102,7 +1101,7 @@ static void *NewThreadFunction(void *parameter)
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
     pthread_setspecific(processesModule.tlsId, taskData);
     processes->ThreadUseMLMemory(taskData);
-    (void)EnterPolyCode(taskData); // Will normally (always?) call finish directly
+    (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
     return 0;
 }
 #elif defined(HAVE_WINDOWS_H)
@@ -1126,6 +1125,14 @@ static void NewThreadFunction(void *parameter)
 // Sets up the initial thread from the root function.  This is run on
 // the initial thread of the process so it will work if we don't
 // have pthreads.
+// When multithreading this thread also deals with all garbage-collection
+// and similar operations and the ML threads send it requests to deal with
+// that.  These require all the threads to pause until the operation is complete
+// since they affect all memory but they are also sometimes highly recursive.
+// On Mac OS X and on Linux if the stack limit is set to unlimited only the
+// initial thread has a large stack and newly created threads have smaller
+// stacks.  We need to make sure that any significant stack usage occurs only
+// on the inital thread.
 void Processes::BeginRootThread(PolyObject *rootFunction)
 {
     if (taskArraySize < 1)
@@ -1133,8 +1140,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         taskArray = (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *));
         taskArraySize = 1;
     }
-    // The root thread has to be handled differently from the other
-    // threads because we don't have a taskData object before we start
+    // We can't use ForkThread because we don't have a taskData object before we start
     ProcessTaskData *taskData = new ProcessTaskData;
     taskData->mdTaskData = machineDependent->CreateTaskData();
     taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
@@ -1164,8 +1170,93 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         interrupt_exn =
             DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
 
-    // Enter the code as if this were a new thread.
+#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
+    schedLock.Lock();
+    bool success = false;
+#ifdef HAVE_PTHREAD
+    // Create a thread that isn't joinable since we don't want to wait
+    // for it to finish.
+    pthread_attr_t attrs;
+    pthread_attr_init(&attrs);
+    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    success = pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) == 0;
+    pthread_attr_destroy(&attrs);
+#elif defined(HAVE_WINDOWS_H)
+    DWORD dwThrdId; // Have to provide this although we don't use it.
+    taskData->threadHandle =
+        CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
+    success = taskData->threadHandle != NULL;
+#endif
+    if (! success)
+    {
+        // Thread creation failed.
+        taskArray[0] = 0;
+        delete(taskData);
+    }
+    // Wait until the threads terminate or make a request.
+    // We only release schedLock while waiting.
+    while (1)
+    {
+        // Look at the threads to see if they are running.
+        bool allStopped = true;
+        bool allDied = true;
+        for (unsigned i = 0; i < taskArraySize; i++)
+        {
+            ProcessTaskData *p = taskArray[i];
+            if (p) allDied = false;
+            if (p && p != taskData && p->inMLHeap)
+            {
+                allStopped = false;
+                // It must be running - interrupt it if we are waiting.
+                if (threadRequest != 0)
+                    machineDependent->InterruptCode(p);
+            }
+        }
+        if (allDied)
+            break; // All threads have died: exit.
+
+        if (allStopped && threadRequest != 0)
+        {
+            // Can now satisfy the request.
+            switch (threadRequest->requestType)
+            {
+            case MainThreadRequest::kirequestFullGC:
+                ::FullGC();
+                break;
+            case MainThreadRequest::kirequestQuickGC:
+                threadRequest->gc.gcResult = ::QuickGC(threadRequest->gc.words);
+                break;
+            case MainThreadRequest::kirequestShare:
+                ::FullGC(); // First do a GC to reduce the size of fix-ups.
+                // Now do the work.  Now the GC has been done we can deref the handle.
+                threadRequest->sh.shResult =
+                    RunShareData(threadRequest->sh.root->Word().AsObjPtr());
+                break;
+            case MainThreadRequest::kirequestExport:
+                ::FullGC(); // Do a GC to reduce the size of fix-ups.
+                // Now do the work.
+                threadRequest->exp.exResult =
+                    RunExport(threadRequest->exp.root->WordP(), threadRequest->exp.export);
+                break;
+            }
+            threadRequest->completed = true;
+            threadRequest = 0; // Allow a new request.
+            mlThreadWait.Signal();
+        }
+
+        // Now release schedLock and wait for a thread
+        // to wake us up.
+        // TODO: Maybe use timed waiting here together with
+        // checks to see if a thread has died.
+        initialThreadWait.Wait(&schedLock);
+    }
+    schedLock.Unlock();
+    finish(exitResult); // Close everything down and exit.
+#else
+    // If we don't have threading enter the code as if this were a new thread.
+    // This will call finish so will never return.
     NewThreadFunction(taskData);
+#endif
 }
 
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
@@ -1189,6 +1280,16 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
 
     unsigned thrdIndex;
     schedLock.Lock();
+    // Before forking a new thread check to see whether we have been asked
+    // to exit.  Processes::Exit sets the current set of threads to exit but won't
+    // see a new thread.
+    if (taskData->requests == kRequestKill)
+    {
+        schedLock.Unlock();
+        // Raise an exception although the thread may exit before we get there.
+        raise_exception_string(taskData, EXC_thread, "Thread is exiting");
+    }
+
     // See if there's a spare entry in the array.
     for (thrdIndex = 0;
          thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
@@ -1223,7 +1324,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
     machineDependent->InitStackFrame(taskData, stack, threadFunction, args);
 
     // Now actually fork the thread.
-    bool success = 0;
+    bool success = false;
     schedLock.Lock();
 #ifdef HAVE_PTHREAD
     // Create a thread that isn't joinable since we don't want to wait
@@ -1443,10 +1544,12 @@ void Processes::RequestThreadsEnterRTS(bool isSignal)
 #endif
 }
 
-// Set all threads to exit.
-void Processes::KillAllThreads(void)
+// Set all threads to exit.  Usually called by one of the threads but
+// in the Windows version can also be called by the GUI.
+void Processes::Exit(int n)
 {
     schedLock.Lock();
+    exitResult = n;
     for (unsigned i = 0; i < taskArraySize; i++)
     {
         ProcessTaskData *taskData = taskArray[i];
@@ -1454,6 +1557,8 @@ void Processes::KillAllThreads(void)
             MakeRequest(taskData, kRequestKill);
     }
     schedLock.Unlock();
+    // TODO: Maybe set a timer so that if the main thread doesn't
+    // exit within a short time it will force a close-down.
 }
 
 #ifdef HAVE_PTHREAD
@@ -1631,11 +1736,7 @@ void Processes::Reinit(void)
 }
 
 void Processes::Uninit(void)
-{
-    // Request all threads to stop.  N.B. Uninit is actually being
-    // called on one of those threads.
-    KillAllThreads();
-     
+{     
 #ifdef HAVE_WINDOWS_H
     if (hWakeupEvent) SetEvent(hWakeupEvent);
 #endif

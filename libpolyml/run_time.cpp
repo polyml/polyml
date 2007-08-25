@@ -517,57 +517,6 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     /*NOTREACHED*/
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*     catchINT - utility function: handles SIGINT signals; doesn't allocate  */
-/*                                                                            */
-/*  PC handleINT (CTRL+C handling function) - utility function (doesn't allocate) */
-/*                                                                            */
-/* This function is executed on a separate thread created by the OS when      */
-/* CTRL+C is pressed. The main process is suspended and resumed at the end.   */
-/* If the main process is not suspended then both the main process and the    */
-/* thread (created by WNT) try to read from the same input(console) and this  */
-/* causes problems.                                                           */
-/*                                                                            */
-/******************************************************************************/
-/*
-    It now simply sets an event and returns.  Some time later handleINT
-    is called to actually deal with input.
-*/
-#if defined(WINDOWS_PC)
-static int exitCode = 0;
-static bool exitRequest = false;
-
-static DWORD WINAPI CrowBarFn(LPVOID lpParameter)
-/* This thread pauses for 10 seconds and then exits the process anyway.
-   It is used to give the process time to close down gracefully if
-   possible but to make sure it doesn't hang around if something is too
-   badly screwed up. */
-{
-    Sleep(10000);
-    ExitProcess(exitCode);
-    return 0;
-}
-
-/* Request termination.  Called from the Window thread. */
-void RequestFinish(int n)
-{
-    HANDLE hCrowBar;
-    DWORD  dwId;
-    /* We request an interrupt which should occur next time
-       we do a stack check. */
-    exitCode = n;
-    exitRequest = true;
-    processes->KillAllThreads();
-    hCrowBar = CreateThread(NULL, 0, CrowBarFn, 0, 0, &dwId);
-	if (! hCrowBar)
-	{
-		ExitProcess(n);
-	}
-    CloseHandle(hCrowBar);
-}
-#endif
-
 /* end of interrupt handling */
 
 // Return the address of the iovec entry for a given index.
@@ -1427,24 +1376,3 @@ Handle EnterPolyCode(TaskData *taskData)
 
     }
 }
-
-class RunTime: public RtsModule
-{
-public:
-    virtual void ThreadHasTrapped(TaskData *taskData);
-};
-
-// Declare this.  It will be automatically added to the table.
-static RunTime runtimeModule;
-
-void RunTime::ThreadHasTrapped(TaskData * /*taskData*/)
-/* Called from execute_pending_interrupts some time after a signal such as
-   SIGALRM, SIGINT etc. 
-   If the signal was SIGALRM it selects the next process (a more
-   subtle scheme would try to find the process which wanted to do IO). */
-{
-#ifdef WINDOWS_PC
-    if (exitRequest) finish(exitCode);
-#endif
-}
-

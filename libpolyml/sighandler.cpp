@@ -222,12 +222,7 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
 
     if (comch == 'q') 
     {
-#ifdef WINDOWS_PC
-        RequestFinish(0);
-        /* Continue running while we close down. */
-#else
-        finish(0); /* And exit */
-#endif
+        processes->Exit(0);
     }
 
     if (comch == 'f') 

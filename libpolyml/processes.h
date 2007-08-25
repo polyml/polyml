@@ -125,8 +125,11 @@ public:
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
     virtual void RequestThreadsEnterRTS(bool isSignal) = 0;
-    // Get all threads to exit.
-    virtual void KillAllThreads(void) = 0;
+    // Request all ML threads to exit and set the result code.  Does not cause
+    // the calling thread itself to exit since this may be called on the GUI thread.
+    virtual void Exit(int n) = 0;
+    // Exit from this thread.
+    virtual NORETURNFN(void ThreadExit(TaskData *taskData)) = 0;
 
     virtual void BroadcastInterrupt(void) = 0;
 
@@ -139,15 +142,6 @@ public:
     // a GC was in progress.
     virtual void ThreadUseMLMemory(TaskData *taskData) = 0;
     virtual void ThreadReleaseMLMemory(TaskData *taskData) = 0;
-    // Begin and End garbage collection or similar actions that require the
-    // whole memory.  BeginGC only returns when every other thread has
-    // released its use of the ML memory.  They will then be blocked in
-    // ThreadUseMLMemory until the GC is complete.  If another thread has
-    // requested a GC already BeginGC will block until that has completed
-    // and then return false.  A thread should not call EndGC unless BeginGC
-    // has returned true.
-//    virtual bool BeginGC(TaskData *taskData) = 0;
-//    virtual void EndGC(TaskData *taskData) = 0;
 
     // Requests from the threads for actions that need to be performed by
     // the root thread.

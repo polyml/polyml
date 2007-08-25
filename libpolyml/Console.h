@@ -39,6 +39,5 @@ extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
 extern HANDLE hMainThread; /* Handle to main thread. */
-void RequestFinish(int n);
 
 #endif
