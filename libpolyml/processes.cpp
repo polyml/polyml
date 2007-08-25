@@ -200,7 +200,7 @@ public:
         } sh;
         struct {
             Handle root;
-            Exporter *export;
+            Exporter *exports;
             bool exResult;
         } exp;
     };
@@ -985,7 +985,7 @@ bool Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
     request.requestType = MainThreadRequest::kirequestExport;
     request.exp.root = root;
     request.exp.exResult = false;
-    request.exp.export = exports;
+    request.exp.exports = exports;
     MakeRootRequest(taskData, &request);
     return request.exp.exResult;
 }
@@ -1236,7 +1236,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 ::FullGC(); // Do a GC to reduce the size of fix-ups.
                 // Now do the work.
                 threadRequest->exp.exResult =
-                    RunExport(threadRequest->exp.root->WordP(), threadRequest->exp.export);
+                    RunExport(threadRequest->exp.root->WordP(), threadRequest->exp.exports);
                 break;
             }
             threadRequest->completed = true;
