@@ -1263,11 +1263,11 @@ INLINE_ROUTINE(thread_self)
 globldec(registerMaskVector)
     .long   Mask_all                /* 0 is unused */
     .long   Mask_finish             /* 1 */
-    .long   Mask_install_root       /* 2 */
+    .long   Mask_all                /* 2 - now unused */
     .long   Mask_all                /* 3 is unused */
     .long   Mask_all                /* 4 is unused */
     .long   Mask_all                /* 5 is unused */
-    .long   Mask_strconcat          /* 6 */
+    .long   Mask_all                /* 6 - now unused */
     .long   Mask_all                /* 7 is unused */
     .long   Mask_all                /* 8 is unused */
     .long   Mask_change_dir         /* 9 */
@@ -1496,7 +1496,7 @@ globldec(registerMaskVector)
     .long   Mask_int_leq             /* 232 */
     .long   Mask_int_gtr             /* 233 */
     .long   Mask_int_lss             /* 234 */
-    .long   Mask_string_sub          /* 235 */
+    .long   Mask_all                 /* 235 - now unused */
     .long   Mask_all                 /* 236 is unused */
     .long   Mask_all                 /* 237 is unused */
     .long   Mask_mul_word            /* 238 */
