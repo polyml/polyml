@@ -275,7 +275,6 @@ gbla(name): \
 /***************************************************************************/
 
     CALL_IO(finish, POLY_SYS_exit)
-    CALL_IO(install_root, POLY_SYS_install_root)
     CALL_IO(change_dir, POLY_SYS_chdir)
     CALL_IO(profiler, POLY_SYS_profiler)
     CALL_IO(Real_str,POLY_SYS_Real_str)
@@ -700,7 +699,6 @@ test_string6:
     jmp     %o7+8
     nop
 
-    CALL_IO(string_sub, POLY_SYS_string_sub)
 
 /* raisex is used by compiled code. N.B. note that raisex is NOT the same as raise_ex */
 INLINE_ROUTINE(raisex)
@@ -980,8 +978,6 @@ INLINE_ROUTINE(set_string_length_a)
     mov UNIT,%o0
 
     RegMask (set_string_length,M_O0|M_O4|M_O7)
-
-    CALL_IO(strconcat, POLY_SYS_strconcat)
 
    
 INLINE_ROUTINE(is_big_endian)
