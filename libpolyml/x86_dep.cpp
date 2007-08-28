@@ -830,8 +830,12 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
             FindAllocationSpace(taskData, mdTask->allocWords, true);
         if (space == 0)
         {
-            fprintf(stderr,"Run out of store - interrupting threads\n");
+            fprintf(stderr,"Run out of store - interrupting thread\n");
             processes->MemoryExhausted(taskData);
+            // We will now raise an exception instead of returning.
+            // Set allocWords to zero so we don't set the allocation register
+            // since that could be holding the exception packet.
+            mdTask->allocWords = 0;
         }
         // Undo the allocation just now.
         taskData->allocPointer += mdTask->allocWords;
@@ -850,6 +854,15 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
 #endif
         mdTask->allocWords = 0;
     }
+
+    // If we have run out of store, either just above or while allocating in the RTS,
+    // allocPointer and allocLimit will have been set to zero as part of the GC.  We will
+    // now be raising an exception which may free some store but we need to come back here
+    // before we allocate anything.  The compiled code uses unsigned arithmetic to check for
+    // heap overflow but only after subtracting the space required.  We need to make sure
+    // that the values are still non-negative after substracting any object size.
+    if (taskData->allocPointer == 0) taskData->allocPointer += MAX_OBJECT_SIZE;
+    if (taskData->allocLimit == 0) taskData->allocLimit += MAX_OBJECT_SIZE;
 
     mdTask->memRegisters.localMbottom = taskData->allocLimit + 1;
     mdTask->memRegisters.localMpointer = taskData->allocPointer + 1;
