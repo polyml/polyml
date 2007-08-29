@@ -64,8 +64,7 @@ public:
 // Per-thread data.
 class TaskData {
 public:
-    TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0) {}
+    TaskData();
     virtual ~TaskData() {}
 
     virtual void GarbageCollect(ScanAddress *process) = 0;
@@ -84,7 +83,10 @@ public:
     StackObject *stack;
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
-    PolyWord    x_extend[2], y_extend[2]; // Space to extend short precision args.
+    Handle      x_ehandle, y_ehandle; // Space to extend short precision args.
+private:
+    PolyWord    x_extend[2], y_extend[2];
+    SaveVecEntry x_extend_addr, y_extend_addr;
 };
 
 /***************************************************************************
@@ -146,12 +148,11 @@ public:
     // Requests from the threads for actions that need to be performed by
     // the root thread.
     virtual void FullGC(TaskData *taskData) = 0;
-    virtual bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequired) = 0;
     virtual bool ShareData(TaskData *taskData, Handle root) = 0;
     virtual bool Export(TaskData *taskData, Handle root, Exporter *exports) = 0;
 
     // Deal with any interrupt or kill requests.
-    virtual void ProcessAsynchRequests(TaskData *taskData) = 0;
+    virtual bool ProcessAsynchRequests(TaskData *taskData) = 0;
     // Process an interrupt request synchronously.
     virtual void TestSynchronousRequests(TaskData *taskData) = 0;
     
@@ -161,11 +162,12 @@ public:
     // Profiling control.
     virtual void StartProfiling(void) = 0;
     virtual void StopProfiling(void) = 0;
-
-    // Called if this thread has attempted to allocate some memory, has
-    // garbage-collected but still not recovered enough.  For the moment
-    // just raises an interrupt exception in this thread.
-    virtual void MemoryExhausted(TaskData *taskData) = 0;
+    
+    // Find space for an object.  Returns a pointer to the start.  "words" must include
+    // the length word and the result points at where the length word will go.
+    // If the allocation succeeds it may update the allocation values in the taskData object.
+    // If the heap is exhausted it may set this thread (or other threads) to raise an exception.
+    virtual PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg) = 0;
 };
 
 

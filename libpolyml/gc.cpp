@@ -889,10 +889,29 @@ void ProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 #define GC_NEWLINE 2
 #define GC_FULL    4
 
+// Try to allocate another heap segment.  It tries to allocate the requested size
+// but if that fails it allocates what it can.
+static bool TryMoreHeap(POLYUNSIGNED size, bool mut)
+{
+    if (userOptions.debug & DEBUG_NOGROW) return false; // No heap growing.
+
+    do {
+        // Return if this succeeded.
+        if (gMem.NewLocalSpace(size, mut))
+            return true;
+        // Otherwise try with half the size and stop when
+        // it's less than 64k words.
+        size = size / 2;
+    } while (size > 64*1024);
+
+    return false;
+}
+
 /* The problem with this version of PossiblyExpandArea is that it doesn't always expand
    it enough for the subsequent compaction phase to actually liberate wordsRequiredToAllocate
    of free space. SPF 31/7/96
 */
+
 // This function is called after the mark phase of a full garbage collection to
 // expand the immutable area if necessary.  wordsNeeded is the amount of immutable
 // data detected during the mark phase.
@@ -926,7 +945,7 @@ static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
 
-        (void)gMem.NewLocalSpace(words, false); // If this fails just carry on with what we have.
+        (void)TryMoreHeap(words, false); // If this fails just carry on with what we have.
     }
 }
 
@@ -1015,7 +1034,7 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
 
-        if (gMem.NewLocalSpace(words, isMutableSpace)) // If this fails just carry on with what we have.
+        if (TryMoreHeap(words, isMutableSpace)) // If this fails just carry on with what we have.
             sizeChanged = true;
     }
     else // currentlyFree >= requiredFree

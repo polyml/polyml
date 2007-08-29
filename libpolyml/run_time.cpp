@@ -158,66 +158,6 @@ void add_word_to_io_area (unsigned sysop, PolyWord val)
 /*                                                                            */
 /******************************************************************************/
 
-// Find space for an object.  Returns a pointer to the start.  "words" must include
-// the length word and the result points at where the length word will go.
-PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg)
-{
-    if (userOptions.debug & DEBUG_FORCEGC)
-        processes->QuickGC(taskData, words);
-
-    while (1)
-    {
-        // After a GC allocPointer and allocLimit are zero and when allocating the
-        // heap segment we request a minimum of zero words.
-        if (taskData->allocPointer != 0 && taskData->allocPointer >= taskData->allocLimit + words)
-        {
-            // There's space in the current segment,
-            taskData->allocPointer -= words;
-            return taskData->allocPointer;
-        }
-        else // Insufficient space in this area. 
-        {
-            if (words > taskData->allocSize && ! alwaysInSeg)
-            {
-                // If the object we want is larger than the heap segment size
-                // we allocate it separately rather than in the segment.
-                PolyWord *foundSpace = gMem.AllocHeapSpace(words);
-                if (foundSpace) return foundSpace;
-            }
-            else
-            {
-                // Fill in any unused space in the existing segment
-                if (taskData->allocPointer > taskData->allocLimit)
-                {
-                    PolyObject *dummy = (PolyObject *)(taskData->allocLimit+1);
-                    POLYUNSIGNED space = taskData->allocPointer-taskData->allocLimit-1;
-                    // Make this a byte object so it's always skipped.
-                    dummy->SetLengthWord(space, F_BYTE_BIT);
-                }
-                // Get another heap segment with enough space for this object.
-                POLYUNSIGNED spaceSize = taskData->allocSize+words;
-                // Get the space and update spaceSize with the actual size.
-                PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
-                if (space)
-                {
-                    // Double the allocation size for the next time.
-                    taskData->IncrementAllocationCount();
-                    taskData->allocLimit = space;
-                    taskData->allocPointer = space+spaceSize;
-                    // Actually allocate the object
-                    taskData->allocPointer -= words;
-                    return taskData->allocPointer;
-                }
-            }
-
-            // Try garbage-collecting.  If this failed return 0.
-            if (! processes->QuickGC(taskData, words))
-                return 0;
-            // Try again.  There should be space now.
-        }
-    }
-}
-
 // This is the storage allocator for allocating heap objects in the RTS.
 PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
 /* Allocate a number of words. */
@@ -230,12 +170,10 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
         add_count(taskData, stack->p_pc, stack->p_sp, words);
     }
 
-    PolyWord *foundSpace = FindAllocationSpace(taskData, words, false);
+    PolyWord *foundSpace = processes->FindAllocationSpace(taskData, words, false);
     if (foundSpace == 0)
     {
-        fprintf(stderr,"Run out of store - interrupting thread\n");
-        // Raise interrupt in this thread even if it is deferring interrupts.
-        processes->MemoryExhausted(taskData);
+        // Failed - the thread is set to raise an exception.
         throw IOException(EXC_EXCEPTION);
     }
 

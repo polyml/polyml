@@ -463,13 +463,7 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
 
         // Find some space to allocate in.  Updates taskData->allocPointer and
         // returns a pointer to the newly allocated space (if allocWords != 0)
-        PolyWord *space =
-            FindAllocationSpace(taskData, mdTask->allocWords, true);
-        if (space == 0)
-        {
-            fprintf(stderr,"Run out of store - interrupting threads\n");
-            processes->MemoryExhausted(taskData);
-        }
+        (void)processes->FindAllocationSpace(taskData, mdTask->allocWords, true);
     }
     else if (mdTask->allocWords != 0) // May just be store profiling.
         taskData->allocPointer -= mdTask->allocWords;

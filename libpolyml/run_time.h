@@ -55,11 +55,6 @@ public:
 };
 
 /* storage allocation functions */
-
-// Find space for an object.  Returns a pointer to the start.  "words" must include
-// the length word and the result points at where the length word will go.
-extern PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
-
 extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 

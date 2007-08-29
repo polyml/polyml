@@ -30,15 +30,15 @@
 /* The element is currently represented as a (PolyWord *) */
 
 class SaveVecEntry {
-private:
+public:
     SaveVecEntry(PolyWord w): m_Handle(w) {}
     SaveVecEntry(): m_Handle(PolyWord::FromUnsigned(0)) {} // Just used when initialising the vec
-    PolyWord m_Handle;
-public:
+
     PolyWord Word() { return m_Handle; }
     PolyObject *WordP() { return m_Handle.AsObjPtr(); }
-    // Public constructor function.  This is only used in arb.c.
-    static SaveVecEntry Create(PolyWord w) { return SaveVecEntry(w); }
+
+private:
+    PolyWord m_Handle;
 
     friend class SaveVec;
 };

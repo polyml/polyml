@@ -39,10 +39,11 @@ extern struct _userOptions {
 } userOptions;
 
 // Values for debugging flags
-#define DEBUG_CHECK_OBJECTS 1
-#define DEBUG_REGION_CHECK  2
-#define DEBUG_FORCEGC       16
-#define DEBUG_X             128
+#define DEBUG_CHECK_OBJECTS 1       // Check that addresses are valid.
+#define DEBUG_REGION_CHECK  2       // VERY EXPENSIVE checking
+#define DEBUG_NOGROW        4       // Don't allocate new heap segments
+#define DEBUG_FORCEGC       16      // Force a GC every allocation
+#define DEBUG_X             128     // X-Windows debugging
 
 class PolyWord;
 

@@ -242,9 +242,6 @@ public:
 
     virtual void ThreadUseMLMemory(TaskData *taskData); 
     virtual void ThreadReleaseMLMemory(TaskData *taskData);
-    // Storage allocation.  This is in here because we need to synchronise the threads
-    // if we want to garbage-collect.
-    PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
     // If the schedule lock is already held we need to use these functions.
     void ThreadUseMLMemoryWithSchedLock(TaskData *taskData);
@@ -261,7 +258,7 @@ public:
     void MakeRootRequest(TaskData *taskData, MainThreadRequest *request);
 
     // Deal with any interrupt or kill requests.
-    virtual void ProcessAsynchRequests(TaskData *taskData);
+    virtual bool ProcessAsynchRequests(TaskData *taskData);
     // Process an interrupt request synchronously.
     virtual void TestSynchronousRequests(TaskData *taskData);
 
@@ -280,10 +277,10 @@ public:
     // Unix: Start a profile timer for a thread.
     void StartProfilingTimer(void);
 #endif
-
-    // Called if this thread has attempted to allocate some memory, has
-    // garbage-collected but still not recovered enough.
-    virtual void MemoryExhausted(TaskData *taskData);
+    // Memory allocation.  Tries to allocate space.  If the allocation succeeds it
+    // may update the allocation values in the taskData object.  If the heap is exhausted
+    // it may set this thread (or other threads) to raise an exception.
+    PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
     // Find a task that matches the specified identifier and returns
     // it if it exists.  MUST be called with taskArrayLock held.
@@ -661,6 +658,17 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     }
 }
 
+TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
+        stack(0), threadObject(0)
+{
+    // Initialise the dummy save vec entries used to extend short precision arguments.
+    // This is a bit of a hack.
+    x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
+    y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
+    x_ehandle = &x_extend_addr;
+    y_ehandle = &y_extend_addr;
+}
+
 ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
@@ -790,16 +798,6 @@ void Processes::BroadcastInterrupt(void)
         }
     }
     schedLock.Unlock();
-}
-
-// There is no memory to satisfy the request from this thread. Just raises
-// an exception in this thread.
-void Processes::MemoryExhausted(TaskData *taskData)
-{
-    // This may raise an exception in a thread that isn't expecting
-    // asynchronous exceptions.  Since this is really a last ditch
-    // attempt it's probably the easiest way to deal with it.
-    machineDependent->SetException(taskData, interrupt_exn);
 }
 
 // Set the asynchronous request variable for the thread.  Must be called
@@ -989,6 +987,92 @@ bool Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
     MakeRootRequest(taskData, &request);
     return request.exp.exResult;
 }
+
+
+// Find space for an object.  Returns a pointer to the start.  "words" must include
+// the length word and the result points at where the length word will go.
+PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg)
+{
+    bool triedInterrupt = false;
+
+    if (userOptions.debug & DEBUG_FORCEGC) // Always GC when allocating?
+        QuickGC(taskData, words);
+
+    while (1)
+    {
+        // After a GC allocPointer and allocLimit are zero and when allocating the
+        // heap segment we request a minimum of zero words.
+        if (taskData->allocPointer != 0 && taskData->allocPointer >= taskData->allocLimit + words)
+        {
+            // There's space in the current segment,
+            taskData->allocPointer -= words;
+            return taskData->allocPointer;
+        }
+        else // Insufficient space in this area. 
+        {
+            if (words > taskData->allocSize && ! alwaysInSeg)
+            {
+                // If the object we want is larger than the heap segment size
+                // we allocate it separately rather than in the segment.
+                PolyWord *foundSpace = gMem.AllocHeapSpace(words);
+                if (foundSpace) return foundSpace;
+            }
+            else
+            {
+                // Fill in any unused space in the existing segment
+                if (taskData->allocPointer > taskData->allocLimit)
+                {
+                    PolyObject *dummy = (PolyObject *)(taskData->allocLimit+1);
+                    POLYUNSIGNED space = taskData->allocPointer-taskData->allocLimit-1;
+                    // Make this a byte object so it's always skipped.
+                    dummy->SetLengthWord(space, F_BYTE_BIT);
+                }
+                // Get another heap segment with enough space for this object.
+                POLYUNSIGNED spaceSize = taskData->allocSize+words;
+                // Get the space and update spaceSize with the actual size.
+                PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
+                if (space)
+                {
+                    // Double the allocation size for the next time.
+                    taskData->IncrementAllocationCount();
+                    taskData->allocLimit = space;
+                    taskData->allocPointer = space+spaceSize;
+                    // Actually allocate the object
+                    taskData->allocPointer -= words;
+                    return taskData->allocPointer;
+                }
+            }
+
+            // Try garbage-collecting.  If this failed return 0.
+            if (! QuickGC(taskData, words))
+            {
+                if (! triedInterrupt)
+                {
+                    triedInterrupt = true;
+                    fprintf(stderr,"Run out of store - interrupting threads\n");
+                    BroadcastInterrupt();
+                    if (ProcessAsynchRequests(taskData))
+                        return 0; // Has been interrupted.
+                    // Not interrupted: pause this thread to allow for other
+                    // interrupted threads to free something.
+#if defined(WINDOWS_PC)
+                    Sleep(5000);
+#else
+                    sleep(5);
+#endif
+                    // Try again.
+                }
+                else {
+                    // That didn't work.  Kill this thread.
+                    fprintf(stderr,"Failed to recover - killing thread\n");
+                    ThreadExit(taskData);
+                }
+             }
+            // Try again.  There should be space now.
+        }
+    }
+}
+
 
 Handle exitThread(TaskData *taskData)
 /* A call to this is put on the stack of a new thread so when the
@@ -1368,8 +1452,9 @@ bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
 }
 
 // Deal with any interrupt or kill requests.
-void Processes::ProcessAsynchRequests(TaskData *taskData)
+bool Processes::ProcessAsynchRequests(TaskData *taskData)
 {
+    bool wasInterrupted = false;
     ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
 
     schedLock.Lock();
@@ -1410,6 +1495,7 @@ void Processes::ProcessAsynchRequests(TaskData *taskData)
                 schedLock.Unlock();
                 // Don't actually throw the exception here.
                 machineDependent->SetException(taskData, interrupt_exn);
+                wasInterrupted = true;
             }
             else schedLock.Unlock();
         }
@@ -1436,6 +1522,7 @@ void Processes::ProcessAsynchRequests(TaskData *taskData)
     else ptaskData->runningProfileTimer = false;
     // The timer will be stopped next time it goes off.
 #endif
+    return wasInterrupted;
 }
 
 // If this thread is processing interrupts synchronously and has been

@@ -827,11 +827,9 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
         // Find some space to allocate in.  Updates taskData->allocPointer and
         // returns a pointer to the newly allocated space (if allocWords != 0)
         PolyWord *space =
-            FindAllocationSpace(taskData, mdTask->allocWords, true);
+            processes->FindAllocationSpace(taskData, mdTask->allocWords, true);
         if (space == 0)
         {
-            fprintf(stderr,"Run out of store - interrupting thread\n");
-            processes->MemoryExhausted(taskData);
             // We will now raise an exception instead of returning.
             // Set allocWords to zero so we don't set the allocation register
             // since that could be holding the exception packet.

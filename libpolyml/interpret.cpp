@@ -207,13 +207,8 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         // Find some space to allocate in.  Updates taskData->allocPointer and
         // returns a pointer to the newly allocated space (if allocWords != 0)
         PolyWord *space =
-            FindAllocationSpace(taskData, storeWords, true);
-        if (space == 0)
-        {
-            fprintf(stderr,"Run out of store - interrupting threads\n");
-            processes->MemoryExhausted(taskData);
-        }
-        else // Undo the allocation just now.  We'll redo it now we have the store.
+            processes->FindAllocationSpace(taskData, storeWords, true);
+        if (space != 0) // Undo the allocation just now.  We'll redo it now we have the store.
             taskData->allocPointer += storeWords;
     }
     storeWords = 0;
