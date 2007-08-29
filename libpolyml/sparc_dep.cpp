@@ -477,6 +477,15 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
     // point for all the return and IO-call cases.
     mdTask->memRegisters.ioEntry = (byte*)SparcAsmSaveStateAndReturn;
 
+    // If we have run out of store, either just above or while allocating in the RTS,
+    // allocPointer and allocLimit will have been set to zero as part of the GC.  We will
+    // now be raising an exception which may free some store but we need to come back here
+    // before we allocate anything.  To avoid a problem when testing allocPointer and
+    // allocLimit below we need to make sure that the values are still non-negative
+    // after substracting any object size.
+    if (taskData->allocPointer == 0) taskData->allocPointer += MAX_OBJECT_SIZE;
+    if (taskData->allocLimit == 0) taskData->allocLimit += MAX_OBJECT_SIZE;
+
     // Set up heap pointers.
     mdTask->memRegisters.heapPointer = taskData->allocPointer+1; // This points beyond the length word
     // The Sparc version sets %g5 to be -maxint + space.  Each time an object is allocated
