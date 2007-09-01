@@ -1805,14 +1805,14 @@ static Handle EmptyFont
     /* Must do all allocations before we do the first dereference */
     X_Font_Object *object = (X_Font_Object *)DEREFHANDLE(objectHandle);
     Font          *font   = (Font *)DEREFHANDLE(fontHandle);
-    XFontStruct  **FS     = (XFontStruct **)DEREFHANDLE(FSHandle);
+    XFontStruct  **xfstr  = (XFontStruct **)DEREFHANDLE(FSHandle);
 
     *font = id; FINISHED(taskData, fontHandle);
-    *FS   = fs; FINISHED(taskData, FSHandle);
+    *xfstr = fs; FINISHED(taskData, FSHandle);
 
     object->type = TAGGED(X_Font);
     object->font = font;
-    object->fs   = FS;
+    object->fs   = xfstr;
     object->ds   = DEREFDISPLAYHANDLE(dsHandle);
 
     debugCreate(Font,id);
