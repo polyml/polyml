@@ -1063,9 +1063,9 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     // Try again.
                 }
                 else {
-                    // That didn't work.  Kill this thread.
-                    fprintf(stderr,"Failed to recover - killing thread\n");
-                    ThreadExit(taskData);
+                    // That didn't work.  Exit.
+                    fprintf(stderr,"Failed to recover - exiting\n");
+                    Exit(1);
                 }
              }
             // Try again.  There should be space now.
@@ -1631,21 +1631,11 @@ void Processes::RequestThreadsEnterRTS(bool isSignal)
 #endif
 }
 
-// Set all threads to exit.  Usually called by one of the threads but
+// Stop.  Usually called by one of the threads but
 // in the Windows version can also be called by the GUI.
 void Processes::Exit(int n)
 {
-    schedLock.Lock();
-    exitResult = n;
-    for (unsigned i = 0; i < taskArraySize; i++)
-    {
-        ProcessTaskData *taskData = taskArray[i];
-        if (taskData)
-            MakeRequest(taskData, kRequestKill);
-    }
-    schedLock.Unlock();
-    // TODO: Maybe set a timer so that if the main thread doesn't
-    // exit within a short time it will force a close-down.
+    exit(n);
 }
 
 #ifdef HAVE_PTHREAD
