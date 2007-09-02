@@ -329,7 +329,7 @@ public:
     enum {
         krequestRTSNone,           // No outstanding request
         krequestRTSInterrupted,    // The threads have been requested to trap
-        krequestRTSToInterrupt     // The lock was held and we need to reqeust a trap
+        krequestRTSToInterrupt     // The lock was held and we need to request a trap
     } requestRTSState;
 
 #if defined(WINDOWS_PC)
@@ -1083,11 +1083,17 @@ Handle exitThread(TaskData *taskData)
 
 
 void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
-/* The process is waiting for IO or for a timer.  Suspend it and
-   then restart it later.  fd may be negative if the file descriptor
-   value is not relevant.
+/* Called when a thread is about to block, usually because of IO.
+   fd may be negative if the file descriptor value is not relevant.
    If this is interruptable (currently only used for Posix functions)
-   the process will be set to raise an exception if a signal is handled. */
+   the process will be set to raise an exception if any signal is handled.
+
+   The current code is largely a legacy of the old single-thread
+   version and could be updated.  It is no longer necessary to set a
+   thread to retry but that requires changes in the callers.  The main
+   purpose of this code is to ensure that the thread has released the ML
+   memory when it blocks but also to allow a 
+*/
 {
     machineDependent->SetForRetry(taskData, ioCall);
     TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
@@ -1288,7 +1294,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         {
             ProcessTaskData *p = taskArray[i];
             if (p) allDied = false;
-            if (p && p != taskData && p->inMLHeap)
+            if (p && p->inMLHeap)
             {
                 allStopped = false;
                 // It must be running - interrupt it if we are waiting.
@@ -1586,8 +1592,10 @@ void Processes::RequestThreadsEnterRTSInternal(bool isSignal)
             // Do this with the lock held.
             machineDependent->InterruptCode(taskData);
 #ifdef HAVE_PTHREAD
+            // In most cases we want the thread to wake up
+            // immediately if it is in BlockAndRestart.
             if (isSignal)
-                pthread_kill(taskData->pthreadId, SIGALRM);
+                pthread_kill(taskData->pthreadId, SIGUSR2);
 #endif
         }
     }
@@ -1777,8 +1785,8 @@ void Processes::Init(void)
 #ifdef HAVE_PTHREAD
     // We send a thread an alarm signal to wake it up if
     // it is blocking on an IO function.
-    markSignalInuse(SIGALRM);
-    setSignalHandler(SIGALRM, catchALRM);
+    markSignalInuse(SIGUSR2);
+    setSignalHandler(SIGUSR2, catchALRM);
 #endif
 
 #ifdef HAVE_PTHREAD

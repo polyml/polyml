@@ -809,19 +809,8 @@ struct
 				if t > now then t-now else Time.zeroTime
 			end
 		in
-			fun alarm t =
-			let
-				(* A value of zero cancels the timer. *)
-				val nextTime =
-					if t = Time.zeroTime then Time.zeroTime else toAbsolute t
-				val prev = doCall(20, nextTime)
-			in
-				(* The result is either zero if there is no timer
-				   or the absolute time. *)
-				if prev = Time.zeroTime
-				then Time.zeroTime
-				else endTime prev
-			end
+			(* This previously used absolute times.  Now uses relative. *)
+			fun alarm t = doCall(20, t)
 
 			fun sleep t =
 			let

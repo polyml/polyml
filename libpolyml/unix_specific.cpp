@@ -130,12 +130,6 @@
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-/* This is used to simulate the alarm clock maintained by "alarm".  Since we
-   use SIGALRM for process scheduling we have to handle this internally.  It is
-   only approximately accurate and depends on the frequency of the process
-   scheduling clock. */
-static struct timeval alarmclock = { 0, 0 };
-
 /* Table of constants returned by call 4. */
 static int unixConstVec[] =
 {
@@ -545,22 +539,25 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             raise_syscall(taskData, "execvp failed", err);
         }
 
-    case 20: /* Sets an alarm and returns the current alarm time.  The caller (within
-            the Posix structure) converts these from/to relative times.  A value of
-            zero for the time cancels the timer. */
+    case 20: /* Sets an alarm and returns the current alarm time.  A value of
+                zero for the time cancels the timer. */
         {
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = args;
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            int secs = get_C_long(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
-            int usecs = get_C_long(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            struct itimerval newTimer, oldTimer;
+            newTimer.it_interval.tv_sec = 0;
+            newTimer.it_interval.tv_usec = 0;
+            newTimer.it_value.tv_sec =
+                get_C_long(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+            newTimer.it_value.tv_usec =
+                get_C_long(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            if (setitimer(ITIMER_REAL, &newTimer, &oldTimer) != 0)
+                raise_syscall(taskData, "setitimer failed", errno);
             Handle result = /* Return the previous setting. */
-                Make_arb_from_pair_scaled(taskData, alarmclock.tv_sec,
-                        alarmclock.tv_usec, 1000000);
-            /* Store the absolute time. */
-            alarmclock.tv_sec = secs;
-            alarmclock.tv_usec = usecs;
+                Make_arb_from_pair_scaled(taskData, oldTimer.it_value.tv_sec,
+                        oldTimer.it_value.tv_usec, 1000000);
             return result;
         }
 
@@ -2007,31 +2004,10 @@ class UnixSpecific: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void ThreadHasTrapped(TaskData *taskData);
 };
 
 // Declare this.  It will be automatically added to the table.
 static UnixSpecific unixModule;
-
-void UnixSpecific::ThreadHasTrapped(TaskData */*taskData*/)
-{
-    /* Check the alarm clock. */
-    if (alarmclock.tv_sec != 0 || alarmclock.tv_usec != 0)
-    {
-        struct timeval tv;
-        struct timezone tz;
-        if (gettimeofday(&tv, &tz) != 0) return;
-        /* If the current time is after the alarm clock we schedule
-           an interrupt and clear the timer. */
-        if (tv.tv_sec > alarmclock.tv_sec ||
-           (tv.tv_sec == alarmclock.tv_sec && tv.tv_usec >= alarmclock.tv_usec))
-        {
-            alarmclock.tv_sec = alarmclock.tv_usec = 0;
-            /* Simulate a SIGALRM. */
-            addSigCount(SIGALRM);
-        }
-    }
-}
 
 void UnixSpecific::Init(void)
 {

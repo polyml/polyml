@@ -424,7 +424,7 @@ void init_asyncmask(sigset_t *mask)
     sigemptyset(mask);
     sigaddset(mask,SIGVTALRM);
     sigaddset(mask,SIGINT);
-    sigaddset(mask,SIGALRM);
+    sigaddset(mask,SIGUSR2);
     sigaddset(mask,SIGWINCH);
 
     // This next used to be needed when emulation traps resulted in
