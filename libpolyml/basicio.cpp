@@ -224,7 +224,8 @@ static int isAvailable(TaskData *taskData, PIOSTRUCT strm)
 #else
 // Test whether input is available and block if it is not.
 // This is also used in xwindows.cpp
-void process_may_block(TaskData *taskData, int fd, int ioCall)
+// N.B.  There may be a GC while in here.
+void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
 {
 #ifdef __CYGWIN__
       static struct timeval poll = {0,1};
@@ -233,16 +234,21 @@ void process_may_block(TaskData *taskData, int fd, int ioCall)
 #endif
       fd_set read_fds;
       int selRes;
-  
-      FD_ZERO(&read_fds);
-      FD_SET((int)fd,&read_fds);
 
-      /* If there is something there we can return. */
-      selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
-      if (selRes > 0) return; /* Something waiting. */
-      else if (selRes < 0 && errno != EINTR) Crash("select failed %d\n", errno);
-      /* Have to block unless this is the only process. */
-      processes->BlockAndRestartIfNecessary(taskData, fd, ioCall);
+      while (1)
+      {
+  
+          FD_ZERO(&read_fds);
+          FD_SET((int)fd,&read_fds);
+
+          /* If there is something there we can return. */
+          selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
+          if (selRes > 0) return; /* Something waiting. */
+          else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
+              raise_syscall(taskData, "select failed %d\n", errno);
+          // Wait for activity.
+          processes->ThreadPauseForIO(taskData, fd);
+      }
 }
 
 #endif
@@ -482,52 +488,6 @@ static Handle close_file(TaskData *taskData, Handle stream)
     return Make_arbitrary_precision(taskData, 0);
 } /* close_file */
 
-/* Call the underlying "read" function and handle any errors. */
-static POLYUNSIGNED readToMem(TaskData *taskData, PIOSTRUCT strm, byte *buff, POLYUNSIGNED count)
-{
-    POLYSIGNED haveRead;
-    int fd = strm->device.ioDesc;
-    int err;
-
-#ifdef WINDOWS_PC
-    if (isConsole(strm))
-    {
-        if (! isConsoleInput())
-            processes->BlockAndRestartIfNecessary(taskData, -1, POLY_SYS_io_dispatch);
-        haveRead = getConsoleInput((char*)buff, count);
-        err = errno;
-    }
-    else
-    {
-        if (! isAvailable(taskData, strm))
-            processes->BlockAndRestartIfNecessary(taskData, strm->device.ioDesc, POLY_SYS_io_dispatch);
-        haveRead = read(fd, buff, count);
-        err = errno;
-    }
-#else
-    /* Unix. */
-    {
-        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
-        haveRead = read(fd, buff, count);
-        err = errno;
-    }
-#endif
-    if (haveRead >= 0) return haveRead;
-    /* If it was an interrupt then go off to the interrupt handler. If there
-       is nothing else to do this code will be re-entered.
-       Note in 4.2 Unix "read" does not seem to do this despite what it
-       says in the manual. */
-    if (err == EINTR)
-    {
-        retry_rts_call(taskData);
-        /*NOTREACHED*/
-    }
-    raise_syscall(taskData, "Error while reading", err);
-    /*NOTREACHED*/
-	return 0;
-}
-
-
 /* Read into an array. */
 static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
@@ -535,16 +495,60 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
        is provided for future use.  Windows remembers the mode used
        when the file was opened to determine whether to translate
        CRLF into LF. */
-    byte    *base = (byte*)DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-    POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
-    PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
-    POLYSIGNED haveRead;
-    /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-
-    haveRead = readToMem(taskData, strm, base+offset, length);
-    return Make_arbitrary_precision(taskData, haveRead);
+    while (1) // Loop if interrupted.
+    {
+        // First test to see if we have input available.
+        // These tests may result in a GC if another thread is running.
+        PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
+        /* Raise an exception if the stream has been closed. */
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+        int fd = strm->device.ioDesc;
+#ifdef WINDOWS_PC
+        if (isConsole(strm))
+        {
+            while (! isConsoleInput())
+                processes->ThreadPause(taskData);
+        }
+        else
+        {
+            while (! isAvailable(taskData, strm))
+            {
+                processes->ThreadPauseForIO(taskData, strm->device.ioDesc);
+                strm = get_stream(DEREFHANDLE(stream)); // Could have been closed.
+            }
+        }
+#else
+        /* Unix. */
+        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
+#endif
+        // We can now try to read without blocking.
+        strm = get_stream(DEREFHANDLE(stream));
+        /* Raise an exception if the stream has been closed. */
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+        fd = strm->device.ioDesc;
+        byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
+        POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+        POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+        POLYSIGNED haveRead;
+        int err;
+#ifdef WINDOWS_PC
+        if (isConsole(strm))
+        {
+            haveRead = getConsoleInput((char*)base+offset, length);
+            err = errno;
+        }
+        else
+#endif
+        { // Unix and Windows other than console.
+            haveRead = read(fd, base+offset, length);
+            err = errno;
+        }
+        if (haveRead >= 0)
+            return Make_arbitrary_precision(taskData, haveRead); // Success.
+        // If it failed because it was interrupted keep trying otherwise it's an error.
+        if (err != EINTR)
+            raise_syscall(taskData, "Error while reading", err);
+    }
 }
 
 /* Return input as a string. We don't actually need both readArray and
@@ -554,21 +558,67 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORD(args));
-    POLYSIGNED haveRead;
-    PIOSTRUCT strm = get_stream(stream->WordP());
-    byte *buff;
-    // We previously allocated the buffer on the stack but that caused
-    // problems with multi-threading at least on Mac OS X because of
-    // stack exhaustion.  We limit the space to 100k. */
-    if (length > 102400) length = 102400;
-    buff = (byte*)malloc(length);
-    if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
-    /* Raise an exception if the stream has been closed. */
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-    haveRead = readToMem(taskData, strm, buff, length);
-    Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
-    free(buff);
-    return result;
+
+    while (1) // Loop if interrupted.
+    {
+        // First test to see if we have input available.
+        // These tests may result in a GC if another thread is running.
+        PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
+        /* Raise an exception if the stream has been closed. */
+        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+        int fd = strm->device.ioDesc;
+#ifdef WINDOWS_PC
+        if (isConsole(strm))
+        {
+            while (! isConsoleInput())
+                processes->ThreadPause(taskData);
+        }
+        else
+        {
+            while (! isAvailable(taskData, strm))
+            {
+                processes->ThreadPauseForIO(taskData, strm->device.ioDesc);
+                strm = get_stream(DEREFHANDLE(stream)); // Could have been closed.
+            }
+        }
+#else
+        /* Unix. */
+        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
+#endif
+        // We can now try to read without blocking.
+        strm = get_stream(DEREFHANDLE(stream));
+        fd = strm->device.ioDesc;
+        // We previously allocated the buffer on the stack but that caused
+        // problems with multi-threading at least on Mac OS X because of
+        // stack exhaustion.  We limit the space to 100k. */
+        if (length > 102400) length = 102400;
+        byte *buff = (byte*)malloc(length);
+        if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
+        POLYSIGNED haveRead;
+        int err;
+#ifdef WINDOWS_PC
+        if (isConsole(strm))
+        {
+            haveRead = getConsoleInput((char*)buff, length);
+            err = errno;
+        }
+        else
+#endif
+        { // Unix and Windows other than console.
+            haveRead = read(fd, buff, length);
+            err = errno;
+        }
+        if (haveRead >= 0)
+        {
+            Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
+            free(buff);
+            return result;
+        }
+        free(buff);
+        // If it failed because it was interrupted keep trying otherwise it's an error.
+        if (err != EINTR)
+            raise_syscall(taskData, "Error while reading", err);
+    }
 }
 
 static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)

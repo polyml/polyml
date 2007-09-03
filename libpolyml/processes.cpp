@@ -223,7 +223,10 @@ public:
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
 
     void BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall);
-    void BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall);
+    // Called when a thread may block.  Returns some time later when perhaps
+    // the input is available.
+    virtual void ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable=false);
+
     void SwitchSubShells(void);
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
@@ -1081,21 +1084,14 @@ Handle exitThread(TaskData *taskData)
     processesModule.ThreadExit(taskData);
 }
 
-
-void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
 /* Called when a thread is about to block, usually because of IO.
    fd may be negative if the file descriptor value is not relevant.
    If this is interruptable (currently only used for Posix functions)
    the process will be set to raise an exception if any signal is handled.
-
-   The current code is largely a legacy of the old single-thread
-   version and could be updated.  It is no longer necessary to set a
-   thread to retry but that requires changes in the callers.  The main
-   purpose of this code is to ensure that the thread has released the ML
-   memory when it blocks but also to allow a 
-*/
+   It may also raise an exception if another thread has called
+   broadcastInterrupt. */
+void Processes::ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable)
 {
-    machineDependent->SetForRetry(taskData, ioCall);
     TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
     ThreadReleaseMLMemory(taskData);
 #ifdef WINDOWS_PC
@@ -1136,34 +1132,18 @@ void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterrupta
 #endif
     ThreadUseMLMemory(taskData);
     TestSynchronousRequests(taskData); // Check if we've been interrupted.
-
-    throw IOException(EXC_EXCEPTION);
-    /* NOTREACHED */
+    ProcessAsynchRequests(taskData);
 }
 
-void Processes::BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall)
-/* Similar to block_and_restart except that this can return if there
-   is only one process.  It can be called before a system call, e.g.
-   "read", so that we can block if there is nothing else to do. */
+// This is largely a legacy of the old single-thread version.  In that version there
+// was only a single C thread managing multiple ML threads (processes) so if an ML
+// thread blocked it was necessary to switch the thread and then for the C function
+// call to raise an exception to get back to ML.  
+void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
 {
-    /*
-       Original comment:
-         If there is just one process and no file descriptors being
-         looked after by routines called from "execute_pending_interrupts"
-         it does not matter if we block. We can simply return. Doing this
-         allows the system to work if the process that is sending us the data
-         is using select to see if we are actually reading.
-      SPF added a comment to this concerning AHL's licence manager. Essentially
-      it is safe to block only if there is no other activity which is time
-      critical.
-      In the Windows version we can't block because we handle control-C
-      as a synchronous interrupt.  There may be similar constraints in
-      Unix so it's simpler never to block.
-      DCJM May 2000.
-    */
-    /* if (no_of_processes == 1) return; */
-
-    BlockAndRestart(taskData, fd, false, ioCall);
+    machineDependent->SetForRetry(taskData, ioCall);
+    ThreadPauseForIO(taskData, fd, posixInterruptable);
+    throw IOException(EXC_EXCEPTION);
     /* NOTREACHED */
 }
 
@@ -1470,7 +1450,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
         // We may get another trap request while processing the last.
         requestRTSState = krequestRTSNone;
         schedLock.Unlock();
-        InterruptModules(taskData);
+        ProcessSignalsInMLThread(taskData);
         schedLock.Lock();
     }
 

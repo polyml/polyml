@@ -35,7 +35,6 @@ public:
     virtual void Uninit(void) {}
     virtual void Reinit(void) {}
     virtual void GarbageCollect(ScanAddress * /*process*/) {}
-    virtual void ThreadHasTrapped(TaskData * /*taskData*/) {}
 
 private:
     void RegisterModule(void);
@@ -45,7 +44,6 @@ void InitModules(void);
 void ReinitModules(void);
 void UninitModules(void);
 void GCModules(ScanAddress *process);
-void InterruptModules(TaskData *taskData);
 
 #endif
 

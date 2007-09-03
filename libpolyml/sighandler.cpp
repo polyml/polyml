@@ -107,7 +107,7 @@ static bool setSimpleSignalHandler(int sig, void (*)(int));
 // This function is called under slightly different circumstances in
 // Windows and Unix.  In Unix it is a signal handler and is called from
 // one of the threads when the signal is delivered.  In Windows it is
-// called from SigHandler::ThreadHasTrapped some time after the console
+// called from ProcessSignalsInMLThread some time after the console
 // thread has requested a trap.
 #ifdef WINDOWS_PC
 void handleINT(void)
@@ -453,7 +453,6 @@ class SigHandler: public RtsModule
 public:
     virtual void Init(void);
     virtual void Reinit(void);
-    virtual void ThreadHasTrapped(TaskData *taskData);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 };
 
@@ -511,11 +510,9 @@ void SigHandler::Reinit(void)
 }
 
 
-/* This function is called when the system is in a safe state, some
-   time after an interrupt.
-   We can then fork any processes needed to handle the interrupts.
-*/
-void SigHandler::ThreadHasTrapped(TaskData *taskData)
+// This is called by an ML thread to create new threads to handle
+// the signals.
+void ProcessSignalsInMLThread(TaskData *taskData)
 {
     int i;
     for (i = 0; i < NSIG; i++)

@@ -136,9 +136,16 @@ public:
     virtual void BroadcastInterrupt(void) = 0;
 
     virtual void BeginRootThread(PolyObject *rootFunction) = 0;
+    // Called when a thread may block.  Never returns.  May cause a retry.
     virtual NORETURNFN(void BlockAndRestart(TaskData *taskData, int fd,
-                    bool poisixInterruptable, int ioCall)) = 0;
-    virtual void BlockAndRestartIfNecessary(TaskData *taskData, int fd, int ioCall) = 0;
+                    bool posixInterruptable, int ioCall)) = 0;
+    // Called when a thread may block.  Returns some time later when perhaps
+    // the input is available.
+    virtual void ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable=false) = 0;
+    // As ThreadPauseForIO but when there is no file descriptor
+    virtual void ThreadPause(TaskData *taskData, bool posixInterruptable = false)
+    { ThreadPauseForIO(taskData, -1, posixInterruptable); }
+
     // If a thread is blocking for some time it should release its use
     // of the ML memory.  That allows a GC. ThreadUseMLMemory returns true if
     // a GC was in progress.

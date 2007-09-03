@@ -65,9 +65,3 @@ void GCModules(ScanAddress *process)
     for(unsigned i = 0; i < modCount; i++)
         module_table[i]->GarbageCollect(process);
 }
-
-void InterruptModules(TaskData *taskData)
-{
-    for(unsigned i = 0; i < modCount; i++)
-        module_table[i]->ThreadHasTrapped(taskData);
-}
