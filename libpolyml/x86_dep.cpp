@@ -137,7 +137,7 @@ typedef struct _MemRegisters {
 
 class X86TaskData: public MDTaskData {
 public:
-    X86TaskData(): allocReg(0), allocWords(0)
+    X86TaskData(): allocReg(0), allocWords(0), pendingInterrupt(false)
     {
     memRegisters.inRTS = 1; // We start off in the RTS.
     }
@@ -145,6 +145,7 @@ public:
     POLYUNSIGNED allocWords; // The words to allocate.
     Handle callBackResult;
     MemRegisters memRegisters;
+    bool pendingInterrupt;
 };
 
 
@@ -813,10 +814,11 @@ void X86Dependent::InterruptCode(TaskData *taskData)
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Set the stack limit pointer to the top of the stack to cause
     // a trap when we next check for stack overflow.
-    // SetMemRegisters actually does this anyway if "interrupted" is set but
+    // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
-        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1); 
+        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
+    mdTask->pendingInterrupt = true;
 }
 
 // This is called from SwitchToPoly before we enter the ML code.
@@ -882,8 +884,12 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // Whenever the ML code enters a function it checks that the stack pointer is above
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
+    // InterruptCode may be called either when the thread is in the RTS or in ML code.
     mdTask->memRegisters.stackTop = taskData->stack->Offset(taskData->stack->Length() - 1);
-    mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    if (mdTask->pendingInterrupt)
+        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
+    else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    mdTask->pendingInterrupt = false;
     mdTask->memRegisters.handlerRegister = taskData->stack->p_hr;
     mdTask->memRegisters.requestCode = 0; // Clear these because only one will be set.
     mdTask->memRegisters.returnReason = RETURN_IO_CALL;
