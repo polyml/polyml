@@ -324,6 +324,7 @@ public:
     PCondVar mlThreadWait;  // All the threads block on here until the request has completed.
 
     int exitResult;
+    bool exitRequest;
     // Shutdown locking.
     void CrowBarFn(void);
     PLock shutdownLock;
@@ -351,8 +352,8 @@ static Processes processesModule;
 ProcessExternal *processes = &processesModule;
 
 Processes::Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
-    threadRequest(0), exitResult(0), requestRTSState(krequestRTSNone),
-    crowbarRunning(false)
+    threadRequest(0), exitResult(0), exitRequest(false),
+    crowbarRunning(false), requestRTSState(krequestRTSNone)
 {
 #ifdef HAVE_WINDOWS_H
     hWakeupEvent = NULL;
@@ -1329,11 +1330,23 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             mlThreadWait.Signal();
         }
 
+        // Have we had a request to stop?  This may have happened while in the GC.
+        if (exitRequest)
+        {
+            // Set this to kill the threads.
+            for (unsigned i = 0; i < taskArraySize; i++)
+            {
+                ProcessTaskData *taskData = taskArray[i];
+                if (taskData)
+                    MakeRequest(taskData, kRequestKill);
+            }
+            exitRequest = false; // Don't need to repeat this.
+        }
+
         // Now release schedLock and wait for a thread
-        // to wake us up.
-        // TODO: Maybe use timed waiting here together with
-        // checks to see if a thread has died.
-        initialThreadWait.Wait(&schedLock);
+        // to wake us up.  Use a timed wait to avoid the race with
+        // setting exitRequest.
+        initialThreadWait.WaitFor(&schedLock, 2000);
     }
     schedLock.Unlock();
     // We are about to return normally.  Stop any crowbar function
@@ -1655,7 +1668,7 @@ void Processes::CrowBarFn(void)
 #if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
     shutdownLock.Lock();
     crowbarRunning = true;
-    if (crowbarLock.WaitFor(&shutdownLock, 5000))
+    if (crowbarLock.WaitFor(&shutdownLock, 5000)) // Wait for 5s
     {
         // We've been woken by the main thread.  Let it do the shutdown.
         crowbarStopped.Signal();
@@ -1673,9 +1686,10 @@ void Processes::CrowBarFn(void)
 }
 
 #ifdef HAVE_PTHREAD
-static void crowBarFn(void*)
+static void *crowBarFn(void*)
 {
     processesModule.CrowBarFn();
+    return 0;
 }
 #elif defined(HAVE_WINDOWS_H)
 static DWORD WINAPI crowBarFn(LPVOID arg)
@@ -1703,17 +1717,11 @@ void Processes::Exit(int n)
     HANDLE hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, &dwThrdId);
     CloseHandle(hCrowBarThread); // Not needed
 #endif
-    // Close down the threads.  This could block if schedLock is held,
-    // for example if we're in a GC.
-    schedLock.Lock();
+    // We may be in an interrupt handler with schedLock held.
+    // Just set the exit request and go.
     exitResult = n;
-    for (unsigned i = 0; i < taskArraySize; i++)
-    {
-        ProcessTaskData *taskData = taskArray[i];
-        if (taskData)
-            MakeRequest(taskData, kRequestKill);
-    }
-    schedLock.Unlock();
+    exitRequest = true;
+    initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
 #ifdef HAVE_PTHREAD
