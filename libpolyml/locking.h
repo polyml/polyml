@@ -68,6 +68,8 @@ public:
     // Wait for a signal or until the time.  The argument is an absolute time
     // represented as a struct timespec in Unix and a FILETIME in Windows.
     void WaitUntil(PLock *pLock, const void *timeArg);
+    // Wait for a time.  This is used internally in the RTS.
+    bool WaitFor(PLock *pLock, unsigned milliseconds);
     void Signal(void); // Wake up the waiting thread.
 private:
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))

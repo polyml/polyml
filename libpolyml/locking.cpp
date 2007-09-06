@@ -160,6 +160,31 @@ void PCondVar::WaitUntil(PLock *pLock, const void *timeArg)
 #endif
 }
 
+// Wait for a number of milliseconds.  Used within the RTS.  Drops the lock and reaquires it.
+bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
+{
+#ifdef HAVE_PTHREAD
+    struct timespec waitTime;
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0)
+        return false;
+    waitTime.tv_sec = tv.tv_sec + milliseconds / 1000;
+    waitTime.tv_nsec = tv.tv_usec * 1000 + milliseconds % 1000;
+    if (waitTime.tv_nsec >= 1000*1000*1000)
+    {
+        waitTime.tv_nsec -= 1000*1000*1000;
+        waitTime.tv_sec += 1;
+    }
+    return pthread_cond_timedwait(&cond, &pLock->lock, &waitTime) == 0;
+#elif defined(HAVE_WINDOWS_H)
+    ResetEvent(cond); // Do this with the lock held.
+    LeaveCriticalSection(&pLock->lock);
+    DWORD dwResult = WaitForSingleObject(cond, milliseconds);
+    EnterCriticalSection(&pLock->lock);
+    return dwResult == WAIT_OBJECT_0;
+#endif
+}
+
 // Wake up all the waiting threads. 
 void PCondVar::Signal(void)
 {

@@ -209,8 +209,7 @@ public:
 class Processes: public ProcessExternal, public RtsModule
 {
 public:
-    Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
-        threadRequest(0), exitResult(0), requestRTSState(krequestRTSNone) {}
+    Processes();
     virtual void Init(void);
     virtual void Uninit(void);
     virtual void Reinit(void);
@@ -325,6 +324,11 @@ public:
     PCondVar mlThreadWait;  // All the threads block on here until the request has completed.
 
     int exitResult;
+    // Shutdown locking.
+    void CrowBarFn(void);
+    PLock shutdownLock;
+    PCondVar crowbarLock, crowbarStopped;
+    bool crowbarRunning;
 
     // This deals with asynchronous signals.
     // If we've had a signal we need to get a thread to enter the RTS.  Because a
@@ -345,6 +349,17 @@ public:
 // Global process data.
 static Processes processesModule;
 ProcessExternal *processes = &processesModule;
+
+Processes::Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
+    threadRequest(0), exitResult(0), requestRTSState(krequestRTSNone),
+    crowbarRunning(false)
+{
+#ifdef HAVE_WINDOWS_H
+    hWakeupEvent = NULL;
+    hStopEvent = NULL;
+    profilingHd = NULL;
+#endif
+}
 
 // Get the attribute flags.
 static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
@@ -537,13 +552,13 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                         get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, wakeTime)));
                     tWake.tv_nsec =
                         1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
-                    ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
+                    (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
 #elif defined(HAVE_WINDOWS_H)
                     // On Windows it is the number of 100ns units since the epoch
                     FILETIME tWake;
                     get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
                         (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
-                    ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
+                    (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
 #endif
                     // get_C_ulong and get_C_pair could possibly raise exceptions.
                 }
@@ -1321,6 +1336,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         initialThreadWait.Wait(&schedLock);
     }
     schedLock.Unlock();
+    // We are about to return normally.  Stop any crowbar function
+    // and wait until it stops.
+    shutdownLock.Lock();
+    if (crowbarRunning)
+    {
+        crowbarLock.Signal();
+        crowbarStopped.Wait(&shutdownLock);
+    }
     finish(exitResult); // Close everything down and exit.
 #else
     // If we don't have threading enter the code as if this were a new thread.
@@ -1620,10 +1643,77 @@ void Processes::RequestThreadsEnterRTS(bool isSignal)
 }
 
 // Stop.  Usually called by one of the threads but
-// in the Windows version can also be called by the GUI.
+// in the Windows version can also be called by the GUI or
+// it can be called from the default console interrupt handler.
+// This is more complicated than it seems.  We must avoid
+// calling exit while there are other threads running because
+// exit will finalise the modules and deallocate memory etc.
+// However some threads may be deadlocked or we may be in the
+// middle of a very slow GC and we just want it to stop.
+void Processes::CrowBarFn(void)
+{
+#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
+    shutdownLock.Lock();
+    crowbarRunning = true;
+    if (crowbarLock.WaitFor(&shutdownLock, 5000))
+    {
+        // We've been woken by the main thread.  Let it do the shutdown.
+        crowbarStopped.Signal();
+        shutdownLock.Unlock();
+    }
+    else
+    {
+#if defined(HAVE_WINDOWS_H)
+        ExitProcess(1);
+#else
+        abort(); // Something is stuck.
+#endif
+    }
+#endif
+}
+
+#ifdef HAVE_PTHREAD
+static void crowBarFn(void*)
+{
+    processesModule.CrowBarFn();
+}
+#elif defined(HAVE_WINDOWS_H)
+static DWORD WINAPI crowBarFn(LPVOID arg)
+{
+    processesModule.CrowBarFn();
+    return 0;
+}
+#endif
+
 void Processes::Exit(int n)
 {
-    exit(n);
+    // Start a crowbar thread.  This will stop everything if the main thread
+    // does not reach the point of stopping within 5 seconds.
+#if (defined(HAVE_PTHREAD))
+    // Create a thread that isn't joinable since we don't want to wait
+    // for it to finish.
+    pthread_attr_t attrs;
+    pthread_attr_init(&attrs);
+    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+    pthread_t threadId;
+    (void)pthread_create(&threadId, &attrs, crowBarFn, 0);
+    pthread_attr_destroy(&attrs);
+#elif defined(HAVE_WINDOWS_H)
+    DWORD dwThrdId;
+    HANDLE hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, &dwThrdId);
+    CloseHandle(hCrowBarThread); // Not needed
+#endif
+    // Close down the threads.  This could block if schedLock is held,
+    // for example if we're in a GC.
+    schedLock.Lock();
+    exitResult = n;
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        ProcessTaskData *taskData = taskArray[i];
+        if (taskData)
+            MakeRequest(taskData, kRequestKill);
+    }
+    schedLock.Unlock();
 }
 
 #ifdef HAVE_PTHREAD
@@ -1805,28 +1895,6 @@ void Processes::Uninit(void)
 #ifdef HAVE_WINDOWS_H
     if (hWakeupEvent) SetEvent(hWakeupEvent);
 #endif
-    // Wait until there is only one thread running which should be the caller.
-    unsigned waitCount = 0;
-    while(1) {
-        unsigned running = 0;
-        schedLock.Lock();
-        // See if we have any threads still running.
-        for (unsigned i = 0; i < taskArraySize; i++)
-        {
-            ProcessTaskData *taskData = taskArray[i];
-            if (taskData) running++;
-        }
-        schedLock.Unlock();
-        if (running <= 1) break; // The only thread is the caller.
-#if defined(WINDOWS_PC)
-        Sleep(1000);
-#else
-        sleep(1);
-#endif
-        // If the threads haven't stopped within 10s we have
-        // a problem.  Exit anyway.
-        if (waitCount++ > 10) break;
-    }
 
 #ifdef HAVE_WINDOWS_H
     if (hWakeupEvent) CloseHandle(hWakeupEvent);
