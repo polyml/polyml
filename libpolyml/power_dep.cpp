@@ -178,12 +178,13 @@ typedef struct MemRegisters {
 
 class PowerPCTaskData: public MDTaskData {
 public:
-    PowerPCTaskData(): allocWords(0)
+    PowerPCTaskData(): allocWords(0), pendingInterrupt(false)
     {
     memRegisters.inRTS = 1; // We start off in the RTS.
     }
     POLYUNSIGNED allocWords; // The words to allocate.
     MemRegisters memRegisters;
+    bool pendingInterrupt;
 };
 
 class PowerPCDependent: public MachineDependent {
@@ -594,8 +595,13 @@ void PowerPCDependent::SetMemRegisters(TaskData *taskData)
         mdTask->memRegisters.heapBase = taskData->allocPointer;
     else
         mdTask->memRegisters.heapBase = taskData->allocLimit;
-    
-    mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    // Whenever the ML code enters a function it checks that the stack pointer is above
+    // this value.  The default is to set it to the top of the reserved area
+    // but if we've had an interrupt we set it to the end of the stack.
+    // InterruptCode may be called either when the thread is in the RTS or in ML code.    
+    if (mdTask->pendingInterrupt)
+        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
+    else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
     mdTask->memRegisters.threadId = taskData->threadObject;
 
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
@@ -770,10 +776,11 @@ void PowerPCDependent::InterruptCode(TaskData *taskData)
     PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
     // Set the stack limit pointer to the top of the stack to cause
     // a trap when we next check for stack overflow.
-    // SetMemRegisters actually does this anyway if "interrupted" is set but
+    // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1); 
+    mdTask->pendingInterrupt = true;
 }
 
 void PowerPCDependent::SetForRetry(TaskData *taskData, int ioCall)
