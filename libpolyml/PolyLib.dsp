@@ -284,6 +284,10 @@ SOURCE=.\save_vec.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\savestate.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\scanaddrs.cpp
 # End Source File
 # Begin Source File
@@ -523,6 +527,10 @@ SOURCE=.\run_time.h
 # Begin Source File
 
 SOURCE=.\save_vec.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\savestate.h
 # End Source File
 # Begin Source File
 

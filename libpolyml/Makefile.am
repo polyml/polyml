@@ -55,7 +55,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
-    locking.cpp \
+    locking.cpp savestate.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE)
 
 # Convert the portable format to a native binary

@@ -48,29 +48,29 @@
 #include "objsize.h"
 #include "memmgr.h"
 #include "processes.h"
+#include "savestate.h"
 
-#define SAVE(x) mdTaskData->saveVec.push(x)
-#define ALLOC(n) alloc_and_save(n)
+#define SAVE(x) taskData->saveVec.push(x)
 
 
-Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
+Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
+    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 1:
-        return exportNative(mdTaskData, args); // Export
+        return exportNative(taskData, args); // Export
     case 2:
-		raise_syscall(mdTaskData, "C Export has been withdrawn", 0);
+		raise_syscall(taskData, "C Export has been withdrawn", 0);
 		return 0;
     case 3:
-        return exportPortable(mdTaskData, args); // Export as portable format
+        return exportPortable(taskData, args); // Export as portable format
 
     case 10: // Return the RTS version string.
-        return SAVE(C_string_to_Poly(mdTaskData, poly_runtime_system_version));
+        return SAVE(C_string_to_Poly(taskData, poly_runtime_system_version));
 
     case 11: // Return the RTS copyright string
-        return SAVE(C_string_to_Poly(mdTaskData, poly_runtime_system_copyright));
+        return SAVE(C_string_to_Poly(taskData, poly_runtime_system_copyright));
 
     case 12: // Return the architecture
         {
@@ -84,38 +84,53 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             case MA_X86_64:         arch = "X86_64"; break;
             default:                arch = "Unknown"; break;
             }
-            return SAVE(C_string_to_Poly(mdTaskData, arch));
+            return SAVE(C_string_to_Poly(taskData, arch));
         }
 
     case 13: // Share common immutable data.
         {
-            ShareData(mdTaskData, args);
+            ShareData(taskData, args);
             return SAVE(TAGGED(0));
         }
 
         // ObjSize and ShowSize have their own IO vector entries but really they don't
         // need them.  Include them here and add ObjProfile.
     case 14:
-        return ObjSize(mdTaskData, args);
+        return ObjSize(taskData, args);
 
     case 15:
-        return ShowSize(mdTaskData, args);
+        return ShowSize(taskData, args);
 
     case 16:
-        return ObjProfile(mdTaskData, args);
+        return ObjProfile(taskData, args);
 
     /* 17 and 18 are no longer used. */
 
     case 19: // Return the RTS argument help string.
-        return SAVE(C_string_to_Poly(mdTaskData, RTSArgHelp()));
+        return SAVE(C_string_to_Poly(taskData, RTSArgHelp()));
+
+    case 20: // Write a saved state file.
+        return SaveState(taskData, args);
+
+    case 21: // Load a saved state file and any ancestors.
+        return LoadState(taskData, args);
+
+    case 22: // Show the hierarchy.
+        return ShowHierarchy(taskData);
+
+    case 23: // Change the name of the immediate parent stored in a child
+        return RenameParent(taskData, args);
+
+    case 24: // Return the name of the immediate parent stored in a child
+        return ShowParent(taskData, args);
 
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */
-            return Make_arbitrary_precision(mdTaskData, MAX_OBJECT_SIZE);
+            return Make_arbitrary_precision(taskData, MAX_OBJECT_SIZE);
     case 101: /* Return the maximum string size (in bytes).
                  It is the maximum number of bytes in a segment
                  less one word for the length field. */
-            return Make_arbitrary_precision(mdTaskData,
+            return Make_arbitrary_precision(taskData,
                 (MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord));
     case 102: /* Test whether the supplied address is in the io area.
                  This was previously done by having get_flags return
@@ -124,8 +139,8 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         {
             PolyWord *pt = (PolyWord*)DEREFWORDHANDLE(args);
             if (gMem.IsIOPointer(pt))
-                return Make_arbitrary_precision(mdTaskData, 1);
-            else return Make_arbitrary_precision(mdTaskData, 0);
+                return Make_arbitrary_precision(taskData, 1);
+            else return Make_arbitrary_precision(taskData, 0);
         }
     case 103: /* Return the register mask for the given function.
                  This is used by the code-generator to find out
@@ -141,11 +156,11 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 {
                     if (pt == (PolyObject*)IoEntry(i))
                     {
-                        return Make_arbitrary_precision(mdTaskData,
+                        return Make_arbitrary_precision(taskData,
                                 machineDependent->GetIOFunctionRegisterMask(i));
                     }
                 }
-                raise_syscall(mdTaskData, "Io pointer not found", 0);
+                raise_syscall(taskData, "Io pointer not found", 0);
             }
             else
             {
@@ -169,13 +184,13 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     {
                         return SAVE(mask);
                     }
-                    else return Make_arbitrary_precision(mdTaskData, -1);
+                    else return Make_arbitrary_precision(taskData, -1);
                 }
-                else raise_syscall(mdTaskData, "Not a code pointer", 0);
+                else raise_syscall(taskData, "Not a code pointer", 0);
             }
         }
 
-    case 104: return Make_arbitrary_precision(mdTaskData, POLY_version_number);
+    case 104: return Make_arbitrary_precision(taskData, POLY_version_number);
 
     case 105: /* Get the name of the function. */
         {
@@ -190,10 +205,10 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     {
                         char buff[8];
                         sprintf(buff, "RTS%d", i);
-                        return SAVE(C_string_to_Poly(mdTaskData, buff));
+                        return SAVE(C_string_to_Poly(taskData, buff));
                     }
                 }
-                raise_syscall(mdTaskData, "Io pointer not found", 0);
+                raise_syscall(taskData, "Io pointer not found", 0);
             }
             else if (pt->IsCodeObject()) /* Should now be a code object. */ 
             {
@@ -202,17 +217,17 @@ Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 PolyWord name = codePt[0];
                 /* May be zero indicating an anonymous segment - return null string. */
                 if (name == PolyWord::FromUnsigned(0))
-                    return SAVE(C_string_to_Poly(mdTaskData, ""));
+                    return SAVE(C_string_to_Poly(taskData, ""));
                 else return SAVE(name);
             }
-            else raise_syscall(mdTaskData, "Not a code pointer", 0);
+            else raise_syscall(taskData, "Not a code pointer", 0);
         }
 
     default:
         {
             char msg[100];
             sprintf(msg, "Unknown poly-specific function: %d", c);
-            raise_exception_string(mdTaskData, EXC_Fail, msg);
+            raise_exception_string(taskData, EXC_Fail, msg);
 			return 0;
         }
     }

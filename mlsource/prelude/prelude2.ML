@@ -1,7 +1,7 @@
 (*
     Title: 	Secondary ML prelude file.
     Author: 	Dave Matthews, Cambridge University Computer Laboratory
-	Copyright (c) 2000
+	Copyright (c) 2000-7
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -95,5 +95,20 @@ in
 	fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
     fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
 
+    (* Saving and loading state. *)
+	structure SaveState = 
+	    struct
+    	fun saveChild(f: string, depth: int): unit =
+    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+    	fun saveState f = saveChild (f, 0);
+        fun loadState (f: string): unit =
+    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+    	fun showHierarchy(): string list =
+    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+    	fun renameParent{ child: string, newParent: string }: unit =
+    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+		fun showParent(child: string): string =
+		    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+		end
     end;
 end;
