@@ -67,6 +67,8 @@ public:
     TaskData();
     virtual ~TaskData() {}
 
+    void FillUnusedSpace(void);
+
     virtual void GarbageCollect(ScanAddress *process) = 0;
     virtual void Lock(void) = 0;
     virtual void Unlock(void) = 0;

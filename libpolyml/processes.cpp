@@ -688,6 +688,28 @@ TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), 
     y_ehandle = &y_extend_addr;
 }
 
+// Fill unused allocation space with a dummy object to preserve the invariant
+// that memory is always valid.
+void TaskData::FillUnusedSpace(void)
+{
+    if (allocPointer > allocLimit)
+    {
+        POLYUNSIGNED space = allocPointer-allocLimit-1;
+        PolyObject *pDummy = (PolyObject*)(allocLimit+1);
+        while (space > 0)
+        {
+            POLYUNSIGNED oSize = space;
+            // Generally the space will be less than the maximum object size
+            // but just in case...
+            if (space > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
+            // Make this a byte object so it's always skipped.
+            pDummy->SetLengthWord(oSize, F_BYTE_BIT);
+            space -= oSize;
+            pDummy += oSize+1;
+        }
+    }
+}
+
 ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
@@ -909,13 +931,7 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
     ptaskData->inMLHeap = false;
     // Put a dummy object in any unused space.  This maintains the
     // invariant that the allocated area is filled with valid objects.
-    if (ptaskData->allocPointer > ptaskData->allocLimit)
-    {
-        PolyObject *dummy = (PolyObject *)(ptaskData->allocLimit+1);
-        POLYUNSIGNED space = ptaskData->allocPointer-ptaskData->allocLimit-1;
-        // Make this a byte object so it's always skipped.
-        dummy->SetLengthWord(space, F_BYTE_BIT);
-    }
+    ptaskData->FillUnusedSpace();
     //
     if (threadRequest != 0)
         initialThreadWait.Signal();
@@ -1039,13 +1055,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             else
             {
                 // Fill in any unused space in the existing segment
-                if (taskData->allocPointer > taskData->allocLimit)
-                {
-                    PolyObject *dummy = (PolyObject *)(taskData->allocLimit+1);
-                    POLYUNSIGNED space = taskData->allocPointer-taskData->allocLimit-1;
-                    // Make this a byte object so it's always skipped.
-                    dummy->SetLengthWord(space, F_BYTE_BIT);
-                }
+                taskData->FillUnusedSpace();
                 // Get another heap segment with enough space for this object.
                 POLYUNSIGNED spaceSize = taskData->allocSize+words;
                 // Get the space and update spaceSize with the actual size.
