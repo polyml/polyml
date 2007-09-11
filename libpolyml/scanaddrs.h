@@ -24,6 +24,8 @@
 
 #include "globals.h"
 
+// Type of relocations.  N.B. These values are built into saved states.  Either add
+// new entries to the end or update the saved state version number.
 typedef enum {
     PROCESS_RELOC_DIRECT = 0,           // 32 or 64 bit address of target
     PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
