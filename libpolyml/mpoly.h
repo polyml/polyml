@@ -31,7 +31,6 @@ extern struct _userOptions {
     char        *programName;
     unsigned    debug;              /* debugging  flags                       */
     bool        noDisplay;          /* X display flag                         */
-    unsigned    timeslice;          /* Poly/ML process timeslice (in ms)      */
     // Not all of these can be set any longer.
     unsigned long    heapSize, immutableSegSize, mutableSegSize;
     unsigned long    immutableFreeSpace, mutableFreeSpace;

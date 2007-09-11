@@ -115,8 +115,7 @@ struct __argtab {
     { "--heap",         "Initial heap size (MB)",                1024,   &hsize },
     { "--immutable",    "Initial size of immutable buffer (MB)", 1024,   &isize },
     { "--mutable",      "Initial size of mutable buffer(MB)",    1024,   &msize },
-    { "--debug",        "Debug options",                         1,      &userOptions.debug },
-    { "--timeslice",    "Time slice (ms)",                       1,      &userOptions.timeslice }
+    { "--debug",        "Debug options",                         1,      &userOptions.debug }
 };
 
 /* In the Windows version this is called from WinMain in Console.c */
@@ -145,7 +144,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
     char *importFileName = 0;
     userOptions.debug       = 0;
     userOptions.noDisplay   = false;
-    userOptions.timeslice   = 1000; /* default timeslice = 1000ms */
 
     userOptions.user_arg_count   = 0;
     userOptions.user_arg_strings = (char**)malloc(argc * sizeof(char*)); // Enough room for all of them
@@ -194,11 +192,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
         Usage("Missing import file name");
     
     if (hsize < 500) Usage ("Invalid heap-size value");
-    
-    // DCJM: Now allow a timeslice of 0 to disable asynchronous interrupts.
-    // They make it very difficult to single step in the debugger.
-    if (userOptions.timeslice < 0 || userOptions.timeslice > 10000)
-        Usage ("Timeslice must be in the range 0 .. 10000ms");
     
     if (hsize < isize) hsize = isize;
     if (hsize < msize) hsize = msize;
@@ -353,6 +346,6 @@ void InitHeaderFromExport(exportDescription *exports)
             (void)gMem.InitIOSpace((PolyWord*)memTable[i].mtAddr, memTable[i].mtLength/sizeof(PolyWord));
         else
             (void)gMem.NewPermanentSpace((PolyWord*)memTable[i].mtAddr,
-                memTable[i].mtLength/sizeof(PolyWord), (memTable[i].mtFlags & MTF_WRITEABLE) != 0);
+                memTable[i].mtLength/sizeof(PolyWord), (memTable[i].mtFlags & MTF_WRITEABLE) != 0, memTable[i].mtIndex);
     }
 }
