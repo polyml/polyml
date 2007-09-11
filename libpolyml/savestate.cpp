@@ -34,6 +34,10 @@
 #include <windows.h> // For MAX_PATH
 #endif
 
+#ifdef HAVE_SYS_PARAM_H
+#include <sys/param.h> // For MAX_PATH
+#endif
+
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -527,7 +531,7 @@ void StateLoader::DoLoad(void)
                     return;
                 }
                 MemSpace *toSpace =
-                    reloc.targetSegment == 0 ? toSpace = gMem.IoSpace() : gMem.SpaceForIndex(reloc.targetSegment);
+                    reloc.targetSegment == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(reloc.targetSegment);
                 if (toSpace == NULL)
                 {
                     errorResult = "Unknown space reference in relocation";
