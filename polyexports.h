@@ -37,6 +37,7 @@ typedef struct _memTableEntry {
     void *mtAddr;                       // The address of the area of memory
     UNSIGNEDADDR mtLength;              // The length in bytes of the area
     UNSIGNEDADDR mtFlags;               // Flags describing the area.
+    UNSIGNEDADDR mtIndex;               // An index to identify permanent spaces.
 } memoryTableEntry;
 
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
