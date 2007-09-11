@@ -85,21 +85,7 @@ have to go back over the memory and turn the tombstones back into length
 words.
 */
 
-class CopyScan: public ScanAddress
-{
-public:
-    CopyScan();
-    ~CopyScan();
-protected:
-    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
-public:
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-
-    // Default sizes of the segments.
-    POLYUNSIGNED defaultImmSize, defaultMutSize;
-};
-
-CopyScan::CopyScan()
+CopyScan::CopyScan(unsigned h): hierarchy(h)
 {
     ASSERT(gMem.neSpaces == 0);
     // Set the space sizes to a quarter the space currently in use.  Making
@@ -158,6 +144,15 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     // that have been updated in ScanConstantsWithinCode.
     if (space->spaceType == ST_EXPORT)
         return 0;
+
+    // If this is at a lower level than the hierarchy we are saving
+    // then leave it untouched.
+    if (space->spaceType == ST_PERMANENT)
+    {
+        PermanentMemSpace *pmSpace = (PermanentMemSpace*)space;
+        if (pmSpace->hierarchy < hierarchy)
+            return 0;
+    }
 
     if (val.IsCodePtr())
     {
@@ -353,6 +348,7 @@ bool RunExport(PolyObject *rootFunction, Exporter *exports)
     exports->memTable[0].mtAddr = ioSpace->bottom;
     exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
     exports->memTable[0].mtFlags = 0;
+    exports->memTable[0].mtIndex = 0;
 
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
@@ -360,6 +356,7 @@ bool RunExport(PolyObject *rootFunction, Exporter *exports)
         ExportMemSpace *space = gMem.eSpaces[i];
         entry->mtAddr = space->pointer;
         entry->mtLength = (space->top-space->pointer)*sizeof(PolyWord);
+        entry->mtIndex = i+1;
         if (space->isMutable)
             entry->mtFlags = MTF_WRITEABLE;
         else

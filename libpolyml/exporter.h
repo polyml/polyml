@@ -72,6 +72,24 @@ public:
     unsigned long stringSize, stringAvailable;
 };
 
+#include "scanaddrs.h"
+
+class CopyScan: public ScanAddress
+{
+public:
+    CopyScan(unsigned h=0);
+    ~CopyScan();
+protected:
+    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+public:
+    virtual PolyObject *ScanObjectAddress(PolyObject *base);
+
+    // Default sizes of the segments.
+    POLYUNSIGNED defaultImmSize, defaultMutSize;
+    unsigned hierarchy;
+};
+
+
 // Called by the root thread to do the work.
 extern bool RunExport(PolyObject *rootFunction, Exporter *exports);
 
