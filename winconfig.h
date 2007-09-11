@@ -604,19 +604,19 @@
 #undef const
 
 /* Define to `int' if <sys/types.h> doesn't define. */
-#undef gid_t
+#define gid_t int
 
 /* Define to rpl_malloc if the replacement function should be used. */
 #undef malloc
 
 /* Define to `int' if <sys/types.h> does not define. */
-#undef mode_t
+#define mode_t int
 
 /* Define to `long' if <sys/types.h> does not define. */
 #undef off_t
 
 /* Define to `int' if <sys/types.h> does not define. */
-#undef pid_t
+#define pid_t int
 
 /* Define to rpl_realloc if the replacement function should be used. */
 #undef realloc
@@ -625,7 +625,7 @@
 #undef size_t
 
 /* Define to `int' if <sys/types.h> doesn't define. */
-#undef uid_t
+#define uid_t int
 
 /* Define as `fork' if `vfork' does not work. */
 #undef vfork
