@@ -314,7 +314,10 @@ void MachoExport::exportStore(void)
         {
             struct utsname name;
             if (uname(&name) < 0)
-                raise_syscall(taskData, "Unable to determine processor type", errno);
+            {
+                errorMessage = "Unable to determine processor type";
+                return;
+            }
             for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
             {
                 if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
@@ -325,7 +328,10 @@ void MachoExport::exportStore(void)
                 }
             }
             if (i == sizeof(archTable)/sizeof(archTable[0]))
-                raise_exception_string(taskData, EXC_Fail, "Unable to determine processor type");
+            {
+                errorMessage = "Unable to determine processor type";
+                return;
+            }
             break;
         }
     case MA_I386:
@@ -337,7 +343,8 @@ void MachoExport::exportStore(void)
         fhdr.cpusubtype = CPU_SUBTYPE_POWERPC_ALL;
         break;
     default:
-        raise_exception_string(taskData, EXC_Fail, "The Mach-O exporter can only be run on the i386 or PPC architectures");
+        errorMessage = "The Mach-O exporter can only be run on the i386 or PPC architectures";
+        return;
     }
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 

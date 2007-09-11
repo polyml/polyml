@@ -33,7 +33,7 @@
 class MachoExport: public Exporter, public ScanAddress
 {
 public:
-    MachoExport(TaskData *td): relocationCount(0), symbolCount(0), taskData(td) {}
+    MachoExport(): relocationCount(0), symbolCount(0) {}
 public:
     virtual void exportStore(void);
 
@@ -53,7 +53,6 @@ private:
     unsigned relocationCount;
     unsigned symbolCount;
     ExportStringTable stringTable;
-    TaskData *taskData; // Needed for exceptions.
 };
 
 #endif
