@@ -63,9 +63,10 @@ extern Handle ex_tracec(TaskData *taskData, Handle exc_data, Handle handler_hand
 /* exceptions and interrupts */
 NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
 NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));
-NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, char *str));
-NORETURNFN(extern void raise_syscall(TaskData *taskData, char *errmsg, int err));
-Handle create_syscall_exception(TaskData *taskData, char *errmsg, int err);
+NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, const char *str));
+NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
+NORETURNFN(extern void raise_fail(TaskData *taskData, const char *errmsg));
+Handle create_syscall_exception(TaskData *taskData, const char *errmsg, int err);
 
 typedef void (*InterruptFunc)(int signum);
 extern void register_interrupt_proc(InterruptFunc int_proc);

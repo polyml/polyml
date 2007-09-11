@@ -285,7 +285,7 @@ void raise_exception0(TaskData *taskData, int id)
 /*      raise_exception_string - called by run-time system                    */
 /*                                                                            */
 /******************************************************************************/
-void raise_exception_string(TaskData *taskData, int id, char *str)
+void raise_exception_string(TaskData *taskData, int id, const char *str)
 /* Raise an exception with a C string as the argument. */
 {
     raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)));
@@ -298,7 +298,7 @@ void raise_exception_string(TaskData *taskData, int id, char *str)
 /*                                                                            */
 /******************************************************************************/
 // Create a syscall exception packet.
-Handle create_syscall_exception(TaskData *taskData, char *errmsg, int err)
+Handle create_syscall_exception(TaskData *taskData, const char *errmsg, int err)
 {
     /* exception SysErr of (string * syserror Option.option) */
     /* If the argument is zero we don't have a suitable error number
@@ -320,16 +320,18 @@ Handle create_syscall_exception(TaskData *taskData, char *errmsg, int err)
 }
 
 
-/******************************************************************************/
-/*                                                                            */
-/*      raise_syscall - called by run-time system                             */
-/*                                                                            */
-/******************************************************************************/
 /* Raises a Syserr exception. */
-void raise_syscall(TaskData *taskData, char *errmsg, int err)
+void raise_syscall(TaskData *taskData, const char *errmsg, int err)
 {
     raise_exception(taskData, EXC_syserr, create_syscall_exception(taskData, errmsg, err));
 }
+
+// Raises a Fail exception.
+void raise_fail(TaskData *taskData, const char *errmsg)
+{
+    raise_exception_string(taskData, EXC_Fail, errmsg);
+}
+
 
 /******************************************************************************/
 /*                                                                            */
