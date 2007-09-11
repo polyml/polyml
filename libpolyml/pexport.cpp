@@ -1,5 +1,5 @@
 /*
-    Title:     Export memory in a portable format
+    Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
     Copyright (c) 2006 David C. J. Matthews
@@ -56,6 +56,11 @@
 #include "processes.h" // For IO_SPACING
 #include "memmgr.h"
 #include "osmem.h"
+
+/*
+This file contains the code both to export the file and to import it
+in a new session.
+*/
 
 PExport::PExport()
 {
@@ -421,6 +426,12 @@ void PExport::exportStore(void)
     fclose(exportFile); exportFile = NULL;
 }
 
+
+/*
+Import a portable export file and load it into memory.
+Creates "permanent" address entries in the global memory table.
+*/
+
 class SpaceAlloc
 {
 public:
@@ -434,7 +445,7 @@ public:
     PolyWord *base;
     POLYUNSIGNED used;
     bool isMutable;
-
+    unsigned spaceIndex;
 };
 
 SpaceAlloc::SpaceAlloc(bool isMut, POLYUNSIGNED def)
@@ -444,6 +455,7 @@ SpaceAlloc::SpaceAlloc(bool isMut, POLYUNSIGNED def)
     base = 0;
     currentSize = 0;
     used = 0;
+    spaceIndex = 1;
 }
 
 SpaceAlloc::~SpaceAlloc()
@@ -457,7 +469,7 @@ bool SpaceAlloc::AddToTable(void)
     if (base != 0)
     {
         // Add the new space to the permanent memory table.
-        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable);
+        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable, spaceIndex++);
         if (space == 0)
         {
             fprintf(stderr, "Insufficient memory\n");

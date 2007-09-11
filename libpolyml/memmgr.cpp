@@ -99,6 +99,7 @@ MemMgr::MemMgr()
     pSpaces = 0;
     lSpaces = 0;
     eSpaces = 0;
+    nextIndex = 0;
 }
 
 MemMgr::~MemMgr()
@@ -151,16 +152,19 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 }
 
 // Create an entry for a permanent space.
-MemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut)
+PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut, unsigned index)
 {
-    MemSpace *space = new MemSpace;
+    PermanentMemSpace *space = new PermanentMemSpace;
     space->bottom = base;
     space->top = space->bottom + words;
     space->spaceType = ST_PERMANENT;
     space->isMutable = mut;
+    space->index = index;
+    if (index >= nextIndex) nextIndex = index+1;
 
     // Extend the permanent memory table and add this space to it.
-    MemSpace **table = (MemSpace **)realloc(pSpaces, (npSpaces+1) * sizeof(MemSpace *));
+    PermanentMemSpace **table =
+        (PermanentMemSpace **)realloc(pSpaces, (npSpaces+1) * sizeof(PermanentMemSpace *));
     if (table == 0)
     {
         delete space;
@@ -208,6 +212,7 @@ ExportMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut)
     ExportMemSpace *space = new ExportMemSpace;
     space->spaceType = ST_EXPORT;
     space->isMutable = mut;
+    space->index = nextIndex++;
     // Allocate the memory itself.
     size_t iSpace = size*sizeof(PolyWord);
     space->bottom  =
@@ -242,6 +247,53 @@ void MemMgr::DeleteExportSpaces(void)
         delete(eSpaces[--neSpaces]);
 }
 
+// If we have saved the state rather than exported a function we turn the exported
+// spaces into permanent ones, removing existing permanent spaces at the same or
+// lower level.
+bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
+{
+    // Create a new table big enough to hold all the permanent and export spaces
+    PermanentMemSpace **table =
+        (PermanentMemSpace **)calloc(npSpaces+neSpaces, sizeof(PermanentMemSpace *));
+    if (table == 0) return false;
+    unsigned newSpaces = 0;
+    // Save permanent spaces at a lower hierarchy and delete others
+    for (unsigned i = 0; i < npSpaces; i++)
+    {
+        if (pSpaces[i]->hierarchy < hierarchy)
+            table[newSpaces++] = pSpaces[i];
+        else delete(pSpaces[i]);
+    }
+    // Save newly exported spaces.
+    for (unsigned j = 0; j < neSpaces; j++)
+    {
+        ExportMemSpace *space = eSpaces[j];
+        space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
+        space->spaceType = ST_PERMANENT;
+        // Put a dummy object to fill up the unused space.
+        if (space->bottom != space->pointer)
+        {
+            POLYUNSIGNED unused = space->pointer - space->bottom  - 1;
+            PolyObject *pDummy = (PolyObject*)(space->bottom +1);
+            while (unused > 0)
+            {
+                POLYUNSIGNED oSize = unused;
+                if (unused > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
+                pDummy->SetLengthWord(oSize, F_BYTE_BIT);
+                unused -= oSize;
+                pDummy += oSize+1;
+            }
+        }
+        // Put in a dummy object to fill the rest of the space.
+        table[newSpaces++] = space;
+    }
+    neSpaces = 0;
+    npSpaces = newSpaces;
+    free(pSpaces);
+    pSpaces = table;
+
+    return true;
+}
 
 void MemMgr::OpOldMutables(ScanAddress *process) // Scan permanent mutable areas
 {
@@ -297,6 +349,18 @@ bool MemMgr::IsPermanentMemoryPointer(const void *pt)
             return true;
     }
     return false;
+}
+
+// Return the space for a given index
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
+{
+    for (unsigned i = 0; i < npSpaces; i++)
+    {
+        PermanentMemSpace *space = pSpaces[i];
+        if (space->index == index)
+            return space;
+    }
+    return NULL;
 }
 
 // Allocate an area of the heap of at least minWords and at most maxWords.

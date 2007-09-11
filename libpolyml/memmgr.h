@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006-7 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,8 +34,7 @@ typedef enum {
     ST_EXPORT       // Temporary export area
 } SpaceType;
 
-// General memory area.  This is used for permanent memory area (i.e. those linked into
-// the executable program).
+// Base class for the various memory spaces.
 class MemSpace
 {
 protected:
@@ -48,6 +47,19 @@ public:
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
+
+    friend class MemMgr;
+};
+
+// Permanent memory space.  Either linked into the executable program or
+// loaded from a saved state file.
+class PermanentMemSpace: public MemSpace
+{
+protected:
+    PermanentMemSpace(): index(0), hierarchy(0) {}
+public:
+    unsigned        index;      // An identifier for the space.  Used when saving and loading.
+    unsigned        hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
 
     friend class MemMgr;
 };
@@ -80,7 +92,7 @@ public:
 
 // Temporary areas used during the export process.  The main reason they are here is
 // so that CheckAddress doesn't produce a spurious error.
-class ExportMemSpace: public MemSpace
+class ExportMemSpace: public PermanentMemSpace
 {
 protected:
     ExportMemSpace();
@@ -100,7 +112,7 @@ public:
     // Create and initialise a new local space and add it to the table.
     LocalMemSpace *NewLocalSpace(POLYUNSIGNED size, bool mut);
     // Create an entry for a permanent space.
-    MemSpace   *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut);
+    PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut, unsigned index);
     // Create an entry for the IO space.
     MemSpace   *InitIOSpace(PolyWord *base, POLYUNSIGNED words);
     // Delete a local space
@@ -118,8 +130,10 @@ public:
     // Create and delete export spaces
     ExportMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut);
     void DeleteExportSpaces(void);
+    bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
 
     MemSpace *SpaceForAddress(const void *pt); // Return the space the address is in or NULL if none.
+    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
 
     // See if the address is in a local space.  This is used in the GC and
     // needs to be fast.
@@ -149,7 +163,7 @@ public:
     MemSpace ioSpace; // The IO space
 
     // Table for permanent spaces
-    MemSpace **pSpaces;
+    PermanentMemSpace **pSpaces;
     unsigned npSpaces;
 
     // Table for local spaces
@@ -165,6 +179,8 @@ public:
 
     // Storage manager lock.
     PLock allocLock;
+
+    unsigned nextIndex; // Used when allocating new permanent spaces.
 };
 
 extern MemMgr gMem;
