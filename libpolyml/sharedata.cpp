@@ -250,7 +250,8 @@ static POLYUNSIGNED MergeSameItems(Vector *v)
     while (i < N)
     {
         ASSERT (OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
-        PolyObject *toShare = itemVec[i].pt; // Candidate to share.
+        PolyObject *toShare = NULL; // Candidate to share.
+        unsigned minHierarchy = 0;
 
         POLYUNSIGNED j;
         for (j = i+1; j < N; j++)
@@ -260,9 +261,24 @@ static POLYUNSIGNED MergeSameItems(Vector *v)
             // Choose an object in the permanent memory if that is available.
             // This is necessary to retain the invariant that no object in
             // the permanent memory points to an object in the temporary heap.
-            if (gMem.IsPermanentMemoryPointer(itemVec[j].pt))
-                toShare = itemVec[j].pt;
+            // (There may well be pointers to this object elsewhere in the permanent
+            // heap).
+            // Choose the lowest hierarchy value for preference since that
+            // may reduce the size of saved state when resaving already saved
+            // data.
+            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt);
+            if (space->spaceType == ST_PERMANENT)
+            {
+                PermanentMemSpace *pSpace = (PermanentMemSpace *)space;
+                if (toShare == NULL || pSpace->hierarchy < minHierarchy)
+                {
+                    toShare = itemVec[j].pt;
+                    minHierarchy = pSpace->hierarchy;
+                }
+            }
         }
+        // If there isn't a permanent object choose the first in the table.
+        if (toShare == NULL) toShare = itemVec[i].pt;
         POLYUNSIGNED k = j; // Remember the first object that didn't match.
         //.For each identical object set all but the one we want to point to
         // the shared object.
