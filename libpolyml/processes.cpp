@@ -671,7 +671,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
         {
             char msg[100];
             sprintf(msg, "Unknown thread function: %d", c);
-            raise_exception_string(taskData, EXC_Fail, msg);
+            raise_fail(taskData, msg);
 			return 0;
         }
     }
@@ -1867,7 +1867,7 @@ void Processes::StopProfiling(void)
 void Processes::Init(void)
 {
 #ifdef HAVE_WINDOWS_H
-    /* Create event to stop timeslice interrupts. */
+    // Create event to wake up from IO sleeping.
     hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 #endif
 #ifdef HAVE_PTHREAD
