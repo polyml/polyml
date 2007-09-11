@@ -43,6 +43,10 @@ public:
     Exporter();
     virtual ~Exporter();
     virtual void exportStore(void) = 0;
+
+    // Called by the root thread to do the work.
+    void RunExport(PolyObject *rootFunction);
+
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
     void relocateValue(PolyWord *pt);
@@ -52,6 +56,9 @@ protected:
 
 public:
     FILE     *exportFile;
+    const char *errorMessage;
+
+protected:
     struct _memTableEntry *memTable;
     unsigned memTableEntries;
     unsigned ioMemEntry; // The index corresponding to the IO area.
@@ -88,9 +95,5 @@ public:
     POLYUNSIGNED defaultImmSize, defaultMutSize;
     unsigned hierarchy;
 };
-
-
-// Called by the root thread to do the work.
-extern bool RunExport(PolyObject *rootFunction, Exporter *exports);
 
 #endif

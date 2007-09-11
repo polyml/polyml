@@ -158,7 +158,7 @@ public:
     // the root thread.
     virtual void FullGC(TaskData *taskData) = 0;
     virtual bool ShareData(TaskData *taskData, Handle root) = 0;
-    virtual bool Export(TaskData *taskData, Handle root, Exporter *exports) = 0;
+    virtual void Export(TaskData *taskData, Handle root, Exporter *exports) = 0;
 
     // Deal with any interrupt or kill requests.
     virtual bool ProcessAsynchRequests(TaskData *taskData) = 0;

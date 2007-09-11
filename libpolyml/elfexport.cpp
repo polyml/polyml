@@ -396,7 +396,10 @@ void ELFExport::exportStore(void)
         {
             struct utsname name;
             if (uname(&name) < 0)
-                raise_syscall(taskData, "Unable to determine processor type", errno);
+            {
+                errorMessage = "Unable to determine processor type";
+                return;
+            }
             for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
             {
                 if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
@@ -408,7 +411,10 @@ void ELFExport::exportStore(void)
                 }
             }
             if (i == sizeof(archTable)/sizeof(archTable[0]))
-                raise_exception_string(taskData, EXC_Fail, "Unable to determine processor type");
+            {
+                errorMessage = "Unable to determine processor type";
+                return;
+            }
             break;
         }
     case MA_I386:

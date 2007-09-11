@@ -57,8 +57,7 @@ class TaskData;
 class ELFExport: public Exporter, public ScanAddress
 {
 public:
-    ELFExport(TaskData *td): relocationCount(0), symbolCount(0),
-                             directReloc(0), taskData(td) {}
+    ELFExport(): relocationCount(0), symbolCount(0), directReloc(0) {}
 public:
     virtual void exportStore(void);
 
@@ -82,8 +81,7 @@ private:
     // There are two tables - one is used for section names, the other for symbol names.
     ExportStringTable symStrings, sectionStrings;
     unsigned directReloc;
-    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
-    TaskData *taskData; // Needed for exceptions.
+    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel    TaskData *taskData; // Needed for exceptions.
 };
 
 #endif

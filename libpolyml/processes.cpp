@@ -201,7 +201,6 @@ public:
         struct {
             Handle root;
             Exporter *exports;
-            bool exResult;
         } exp;
     };
 };
@@ -254,7 +253,7 @@ public:
     virtual void FullGC(TaskData *taskData);
     virtual bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequired);
     virtual bool ShareData(TaskData *taskData, Handle root);
-    virtual bool Export(TaskData *taskData, Handle root, Exporter *exports);
+    virtual void Export(TaskData *taskData, Handle root, Exporter *exports);
 
     // Make the request and wait until it has completed.
     void MakeRootRequest(TaskData *taskData, MainThreadRequest *request);
@@ -1011,16 +1010,14 @@ bool Processes::ShareData(TaskData *taskData, Handle root)
     return request.sh.shResult;
 }
 
-bool Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
+void Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
 {
     MainThreadRequest request;
     request.completed = false;
     request.requestType = MainThreadRequest::kirequestExport;
     request.exp.root = root;
-    request.exp.exResult = false;
     request.exp.exports = exports;
     MakeRootRequest(taskData, &request);
-    return request.exp.exResult;
 }
 
 
@@ -1331,8 +1328,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             case MainThreadRequest::kirequestExport:
                 ::FullGC(); // Do a GC to reduce the size of fix-ups.
                 // Now do the work.
-                threadRequest->exp.exResult =
-                    RunExport(threadRequest->exp.root->WordP(), threadRequest->exp.exports);
+                threadRequest->exp.exports->RunExport(threadRequest->exp.root->WordP());
                 break;
             }
             threadRequest->completed = true;

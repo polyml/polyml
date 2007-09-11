@@ -53,7 +53,6 @@
 #include "save_vec.h"
 #include "polystring.h"
 #include "run_time.h"
-#include "sys.h"
 #include "osmem.h"
 #include "scanaddrs.h"
 #include "gc.h"
@@ -300,13 +299,15 @@ static void exporter(TaskData *taskData, Handle args, const char *extension, Exp
     Handle root = taskData->saveVec.push(args->WordP()->Get(1));
 
     // Request the main thread to do the work.
-    if (! processes->Export(taskData, root, exports))
-        raise_exception_string(taskData, EXC_Fail, "Insufficient memory for export");
+    processes->Export(taskData, root, exports);
+    if (exports->errorMessage)
+        raise_fail(taskData, exports->errorMessage);
 }
 
 // This is called by the initial thread to actually do the export.
-bool RunExport(PolyObject *rootFunction, Exporter *exports)
+void Exporter::RunExport(PolyObject *rootFunction)
 {
+    Exporter *exports = this;
     // Copy the root and everything reachable from it into the temporary area.
     CopyScan copyScan;
 
@@ -337,7 +338,10 @@ bool RunExport(PolyObject *rootFunction, Exporter *exports)
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)
-        return false;
+    {
+        exports->errorMessage = "Insufficient Memory";
+        return;
+    }
 
     // Copy the areas into the export object.
     exports->memTable = new memoryTableEntry[gMem.neSpaces+1];
@@ -369,7 +373,7 @@ bool RunExport(PolyObject *rootFunction, Exporter *exports)
     exports->rootFunction = copiedRoot;
 
     exports->exportStore();
-    return true;
+    return;
 }
 
 // Functions called via the RTS call.
@@ -387,12 +391,12 @@ Handle exportNative(TaskData *taskData, Handle args)
 #elif defined(HAVE_ELF_H)
     // Most Unix including Linux, FreeBSD and Solaris.
     const char *extension = ".o";
-    ELFExport exports(taskData);
+    ELFExport exports;
     exporter(taskData, args, extension, &exports);
 #elif defined(HAVE_MACH_O_RELOC_H)
     // Mac OS-X
     const char *extension = ".o";
-    MachoExport exports(taskData);
+    MachoExport exports;
     exporter(taskData, args, extension, &exports);
 #else
     raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
@@ -410,7 +414,7 @@ Handle exportPortable(TaskData *taskData, Handle args)
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(): exportFile(NULL), memTable(0)
+Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0)
 {
 }
 
