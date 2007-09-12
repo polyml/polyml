@@ -290,12 +290,6 @@ static Atom WM_DELETE_WINDOW(Display *d); /* was int SPF 6/1/94 */
 #define ISNIL(p)  (ML_Cons_Cell::IsNull(p))
 #define NONNIL(p) (!ISNIL(p))
 
-                                          /* The Solaris version of gettimeofday used to only need 1 argument,
-   but now it takes 2, just like everything else. 
-   SPF 17/2/1998
-*/
-#define GETTIMEOFDAY(arg) gettimeofday(arg,NULL)
-
 typedef Handle EventHandle;
 
 
@@ -2823,7 +2817,7 @@ static void WaitDoubleClickTime(Handle dsHandle, PredicateArgs *A)
     FD_SET(fd,&read_fds);
   }
 
-  GETTIMEOFDAY(&start_time);
+  gettimeofday(&start_time, NULL);
 
   dt.tv_sec  = 0;
   dt.tv_usec = DoubleClickTime * 1000;
@@ -2855,7 +2849,7 @@ static void WaitDoubleClickTime(Handle dsHandle, PredicateArgs *A)
 
     select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&dt);
 
-    GETTIMEOFDAY(&start_time);
+    gettimeofday(&start_time, NULL);
   }
 }
 
@@ -4495,7 +4489,7 @@ static Handle GetTimeOfDay(TaskData *taskData)
 {
   TimeVal now;
   
-  GETTIMEOFDAY(&now);
+  gettimeofday(&now, NULL);
   
   return CreatePair(taskData, Make_unsigned(taskData, now.tv_sec),Make_unsigned(taskData, now.tv_usec));
 }
@@ -4538,7 +4532,7 @@ static void CheckTimerQueue(void)
   if (TList)
   {
     TimeVal now;
-    GETTIMEOFDAY(&now);
+    gettimeofday(&now, NULL);
     TList->expired = TimeLeq(&TList->timeout,&now);
   }
 }
@@ -4566,7 +4560,7 @@ static void InsertTimeout
   { /* find insertion point in list */
     TimeVal dt;
     
-    GETTIMEOFDAY(&now);
+    gettimeofday(&now, NULL);
     dt.tv_sec  = ms / 1000;
     dt.tv_usec = 1000 * (ms % 1000);
     
@@ -4670,7 +4664,7 @@ static void InsertWidgetTimeout
     {
         TimeVal dt;
         
-        GETTIMEOFDAY(&now);
+        gettimeofday(&now, NULL);
         
         dt.tv_sec = ms / 1000;
         dt.tv_usec = 1000 * (ms % 1000);
