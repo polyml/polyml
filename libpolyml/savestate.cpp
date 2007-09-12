@@ -132,6 +132,8 @@ typedef struct _relocationEntry
 
 #define SAVE(x) taskData->saveVec.push(x)
 
+static char lastLoadName[MAXPATHLEN]; // Last file name loaded.
+
 
 class SaveStateExport: public Exporter, public ScanAddress
 {
@@ -570,7 +572,12 @@ Handle LoadState(TaskData *taskData, Handle hFileName)
     // Do the load.  This may set the error string if it failed.
     loader.DoLoad();
     if (loader.errorResult != 0)
+    {
+        lastLoadName[0] = 0; // No loaded file.
         raise_fail(taskData, loader.errorResult);
+    }
+
+    strcpy(lastLoadName, fileNameBuff);
 
     return SAVE(TAGGED(0));
 }
@@ -579,7 +586,13 @@ Handle ShowHierarchy(TaskData *taskData)
 // Show the hierarchy.
 {
     Handle list = SAVE(ListNull);
-    // Not yet implemented: always return empty list.
+    if (lastLoadName[0])
+    {
+        Handle str = SAVE(C_string_to_Poly(taskData, lastLoadName));
+        list = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
+        DEREFLISTHANDLE(list)->h = DEREFHANDLE(str); 
+        DEREFLISTHANDLE(list)->t = ListNull;
+    }
     return list;
 }
 
