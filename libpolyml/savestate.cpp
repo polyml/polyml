@@ -172,7 +172,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (char*)addr - (char*)memTable[addrArea].mtAddr;
-    reloc.targetSegment = addrArea;
+    reloc.targetSegment = memTable[addrArea].mtIndex;
     reloc.relKind = PROCESS_RELOC_DIRECT;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -413,6 +413,7 @@ StateLoader::~StateLoader()
 // global memory so all other threads must be stopped.
 void StateLoader::DoLoad(void)
 {
+    unsigned int newHierarchy = 1; // Only single level files currently supported.
     // Read the header and check the signature.
     if (fread(&header, sizeof(SavedStateHeader), 1, loadFile) != 1)
     {
@@ -494,7 +495,8 @@ void StateLoader::DoLoad(void)
             }
             // At the moment we leave all segments with write access.
             space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord),
-                        (descr->segmentFlags & SSF_WRITABLE) != 0, descr->segmentIndex);
+                        (descr->segmentFlags & SSF_WRITABLE) != 0,
+                        descr->segmentIndex, newHierarchy);
         }
     }
 

@@ -112,7 +112,8 @@ public:
     // Create and initialise a new local space and add it to the table.
     LocalMemSpace *NewLocalSpace(POLYUNSIGNED size, bool mut);
     // Create an entry for a permanent space.
-    PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut, unsigned index);
+    PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut,
+        unsigned index, unsigned hierarchy = 0);
     // Create an entry for the IO space.
     MemSpace   *InitIOSpace(PolyWord *base, POLYUNSIGNED words);
     // Delete a local space

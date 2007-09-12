@@ -152,7 +152,8 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 }
 
 // Create an entry for a permanent space.
-PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut, unsigned index)
+PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
+                                             bool mut, unsigned index, unsigned hierarchy /*= 0*/)
 {
     PermanentMemSpace *space = new PermanentMemSpace;
     space->bottom = base;
@@ -160,6 +161,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
     space->spaceType = ST_PERMANENT;
     space->isMutable = mut;
     space->index = index;
+    space->hierarchy = hierarchy;
     if (index >= nextIndex) nextIndex = index+1;
 
     // Extend the permanent memory table and add this space to it.
