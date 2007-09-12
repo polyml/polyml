@@ -159,8 +159,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
-            struct timezone tz;
-            if (gettimeofday(&tv, &tz) != 0)
+            if (gettimeofday(&tv, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
             return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
 #endif
@@ -320,8 +319,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arb_from_pair(taskData, li.HighPart, li.LowPart);
 #else
             struct timeval tv;
-            struct timezone tz;
-            if (gettimeofday(&tv, &tz) != 0)
+            if (gettimeofday(&tv, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
             subTimes(&tv, &startTime);
             return Make_arb_from_pair_scaled(taskData, tv.tv_sec, tv.tv_usec, 1000000);
@@ -455,7 +453,6 @@ void Timing::Init(void)
 	   real timing and also CPU timing if GetProcessTimes doesn't work. */
 	GetSystemTimeAsFileTime(&startTime);
 #else
-    struct timezone tz;
-    gettimeofday(&startTime, &tz);
+    gettimeofday(&startTime, NULL);
 #endif
 }

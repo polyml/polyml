@@ -574,7 +574,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             expired or a signal has occurred. */
         {
             struct timeval tv;
-            struct timezone tz;
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = args;
@@ -582,7 +581,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             unsigned long secs = get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs = get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
             /* Has the time expired? */
-            if (gettimeofday(&tv, &tz) != 0)
+            if (gettimeofday(&tv, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block.  This can be interrupted

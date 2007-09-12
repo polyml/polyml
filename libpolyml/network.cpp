@@ -1566,7 +1566,6 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             /* else drop through and block. */
 #else /* Unix */
             struct timeval tv;
-            struct timezone tz;
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
@@ -1577,7 +1576,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
                 get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
-            if (gettimeofday(&tv, &tz) != 0)
+            if (gettimeofday(&tv, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
             if ((unsigned long)tv.tv_sec > secs ||
                 ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec >= usecs))
