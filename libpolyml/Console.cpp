@@ -102,6 +102,9 @@ static int initDDEControl(char *lpszName);
 static void uninitDDEControl(void);
 static DWORD dwDDEInstance;
 
+static int nInitialShow; // Value of nCmdShow passed in.
+static bool isActive = false;
+
 // Default DDE service name.
 #define POLYMLSERVICE   "PolyML"
 
@@ -117,6 +120,7 @@ static DWORD dwDDEInstance;
 int isConsoleInput(void)
 {
     int nRes;
+    if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
     EnterCriticalSection(&csIOInterlock);
     nRes = (nAvailable != nReadPosn) || fCtrlC;
     LeaveCriticalSection(&csIOInterlock);
@@ -127,6 +131,7 @@ int isConsoleInput(void)
 int getConsoleInput(char *buff, int nChars)
 {
     int nRes = 0;
+    if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
     EnterCriticalSection(&csIOInterlock);
     while (nAvailable == nReadPosn || fCtrlC)
     {
@@ -691,6 +696,7 @@ static DWORD WINAPI InThrdProc(LPVOID lpParameter)
         if (! ReadFile(hReadFromML, buff, sizeof(buff)-1, &dwRead, NULL))
             return 0;
         buff[dwRead] = 0;
+        if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
         SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)buff);
     }
 }
@@ -800,6 +806,7 @@ int PolyWinMain(
             return 1;
         }
 
+        // Initially created invisible.
         hMainWindow = CreateWindow(
             (LPTSTR)atClass,
             _T("Poly/ML"),
@@ -819,7 +826,10 @@ int PolyWinMain(
             return 1;
         }
 
-        ShowWindow(hMainWindow, nCmdShow);
+        // Save this setting and only apply it when we actually
+        // read from or write to the main window.  That way if we are
+        // actually using another window this will never get displayed.
+        nInitialShow = nCmdShow;
         useConsole = 1;
     }
     else {
