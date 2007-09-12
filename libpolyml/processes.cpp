@@ -339,7 +339,7 @@ public:
         krequestRTSToInterrupt     // The lock was held and we need to request a trap
     } requestRTSState;
 
-#if defined(WINDOWS_PC)
+#ifdef HAVE_WINDOWS_H
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
     HANDLE profilingHd;
