@@ -40,8 +40,9 @@ let
 	val app = Globals.ApplicationInstance()
 
 	(* Borrow the Poly icon from the application program. It happens to
-	   be icon id 102. *)
-	val polyIcon = Icon.LoadIcon(app, Resource.MAKEINTRESOURCE 102);
+	   be icon id 102. If this doesn't work return NULL. *)
+	val polyIcon =
+	    Icon.LoadIcon(app, Resource.MAKEINTRESOURCE 102) handle _ => Globals.hNull;
 
 	local
 		(* Create sub-menus. *)
