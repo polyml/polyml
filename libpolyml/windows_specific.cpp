@@ -744,23 +744,21 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1101: // Wait for a message.
         {
-            HWND hwnd = (HWND)get_C_long(taskData, DEREFWORDHANDLE(args)->Get(0)); /* Handles are treated as SIGNED. */
-            UINT wMsgFilterMin = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-            UINT wMsgFilterMax = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
-            MSG msg;
-            processes->ThreadReleaseMLMemory(taskData);
-            // N.B.  PeekMessage doesn't just return the message for DispatchMessage to
-            // schedule it can also directly call the window proc itself resulting in a
-            // callback into ML.  That can mess up the ML stack so in that case we must
-            // return.
-            BOOL result = PeekMessage(&msg, hwnd, wMsgFilterMin, wMsgFilterMax, PM_NOREMOVE);
-            processes->ThreadUseMLMemory(taskData);
-            if (result)
+            while (1)
             {
-                return Make_arbitrary_precision(taskData, 0);
+                HWND hwnd = (HWND)get_C_long(taskData, DEREFWORDHANDLE(args)->Get(0)); /* Handles are treated as SIGNED. */
+                UINT wMsgFilterMin = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+                UINT wMsgFilterMax = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+                MSG msg;
+                processes->ThreadReleaseMLMemory(taskData);
+                // N.B.  PeekMessage may directly call the window proc resulting in a
+                // callback to ML.
+                BOOL result = PeekMessage(&msg, hwnd, wMsgFilterMin, wMsgFilterMax, PM_NOREMOVE);
+                processes->ThreadUseMLMemory(taskData);
+                if (result) return Make_arbitrary_precision(taskData, 0);
+                // Pause until a message arrives.
+                processes->ThreadPause(taskData);
             }
-            // Run another ML process until a message arrives.
-            processes->BlockAndRestart(taskData, -1, false, POLY_SYS_os_specific);
         }
 
     // case 1102: // Return the address of the window callback function.
