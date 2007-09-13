@@ -752,7 +752,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 MSG msg;
                 processes->ThreadReleaseMLMemory(taskData);
                 // N.B.  PeekMessage may directly call the window proc resulting in a
-                // callback to ML.
+                // callback to ML.  For this to work a callback must not overwrite "args".
                 BOOL result = PeekMessage(&msg, hwnd, wMsgFilterMin, wMsgFilterMax, PM_NOREMOVE);
                 processes->ThreadUseMLMemory(taskData);
                 if (result) return Make_arbitrary_precision(taskData, 0);
