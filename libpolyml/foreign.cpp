@@ -810,21 +810,28 @@ static void print_call
 // N.B.  This has a potential nasty in Windows.  Normal Windows API calls use
 // "pascal" (callee removes arguments) calling conventions but we're calling the
 // function with C (caller removes arguments) conventions.  The result will be
-// that the stack is reset twice.  The "space" variable is intended to make sure
-// we don't overwrite anything important but it's really a mess.
+// that the stack is reset twice.
+// This now has a piece of assembly code to save the stack pointer in esi
+// which is preserved across calls and then reload it.  For this to work
+// we hope that esi is not used in the process of loading the function
+// arguments.
 
 // The only really satisfactory solution to this would be to compile specific
 // call and return code depending on the types of the arguments and the result.
 
 #ifdef WINDOWS_PC
+
 #define CALL_TYPED(TYPE)    \
     do { \
-        int space[20];\
-        space[0] = 0;\
+        int saveEsi;\
         processes->ThreadReleaseMLMemory(taskData);\
+        __asm { mov saveEsi,esi }\
+        __asm { mov esi,esp }\
         TYPE result = ((TYPE(*)(...))fun)(a1,\
             a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,b1,b2,b3,b4,b5,b6,\
             b7,b8,b9,b10,b11,b12,b13,b14,b15);\
+        __asm { mov esp,esi }\
+        __asm { mov esi,saveEsi }\
         processes->ThreadUseMLMemory(taskData);\
         Handle res = vol_alloc_with_c_space(taskData, sizeof(TYPE));\
         *(TYPE*)DEREFVOL(taskData, UNHANDLE(res)) = result;\
