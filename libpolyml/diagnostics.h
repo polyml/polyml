@@ -26,6 +26,5 @@
 
 NORETURNFN(extern void Exit(const char *, ...));
 NORETURNFN(extern void Crash(const char *, ...));
-NORETURNFN(extern void SysError(const char *, ...));
 
 #endif

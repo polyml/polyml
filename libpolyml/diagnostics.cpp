@@ -86,31 +86,8 @@ void Exit(const char *msg, ...)
     exit(1);
 }
 
-
-void SysError(const char *msg, ...)
-{
-    char   buff[50];
-    va_list vl;
-    int er = errno;
-    fflush(stdout);
-    printf("\n");
-    va_start(vl, msg);
-    vprintf(msg, vl);
-    va_end(vl);
-    printf("\n");
-    fflush(stdout);
-    sprintf(buff,"Error number %i",er);
-	perror(buff);
-    fflush(stderr);
-#if defined(WINDOWS_PC) /* PC version */
-  if (useConsole)
-  {
-      MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
-  }
-#endif
-    exit(1);
-}
-
+// Error condition.  This should really be replaced either with ASSERTs
+// or exceptions.
 void Crash(const char *msg, ...)
 {
     va_list vl;
