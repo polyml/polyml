@@ -35,7 +35,6 @@
 
 #include "globals.h"
 #include "save_vec.h"
-#include "diagnostics.h"
 #include "check_objects.h"
 #include "scanaddrs.h"
 
@@ -59,14 +58,13 @@ SaveVec::~SaveVec()
 // and it's safe to still use it provided that doesn't result in allocation.
 void SaveVec::reset(Handle old_value)
 {
-    ASSERT(isValidHandle(old_value));
+    ASSERT(old_value >= save_vec && old_value <= save_vec_addr);
     save_vec_addr = old_value;
 }
 
 Handle SaveVec::push(PolyWord valu) /* Push a PolyWord onto the save vec. */
 {
-    if (save_vec_addr >= save_vec+SVEC_SIZE)
-        Crash("Save_vec overflow\n");
+    ASSERT(save_vec_addr < save_vec+SVEC_SIZE);
 
     Check(valu);
 
