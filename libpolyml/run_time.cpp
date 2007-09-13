@@ -852,6 +852,7 @@ static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant
 Handle EnterPolyCode(TaskData *taskData)
 /* Called from "main" to enter the code. */
 {
+    Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
     while (1)
     {
         // Process any asynchronous events i.e. interrupts or kill
@@ -862,7 +863,7 @@ Handle EnterPolyCode(TaskData *taskData)
         processes->ThreadUseMLMemory(taskData);
         // Run the ML code and return with the function to call.
         int ioFunction = machineDependent->SwitchToPoly(taskData);
-        taskData->saveVec.init(); // Set this up for the IO calls.
+        taskData->saveVec.reset(hOriginal); // Set this up for the IO calls.
 	    try {
             switch (ioFunction)
             {

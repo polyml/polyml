@@ -412,8 +412,10 @@ int SparcDependent::SwitchToPoly(TaskData *taskData)
 /* (Re)-enter the Poly code from C. */
 {
     SparcTaskData *mdTask = (SparcTaskData*)taskData->mdTaskData;
+    Handle mark = taskData->saveVec.mark();
     while (1)
     {
+        taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         CheckMemory(); // Do any memory checking.
 
         // Remember the position after the last time we checked
@@ -922,8 +924,6 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
 /* One or both of the arguments may be i4 or i5.  These registers are saved
    by the trap handler but are not preserved by the garbage collector.  */
 {
-    taskData->saveVec.init();
-    
     unsigned rd = (instr >> 25) & 31; /* Destination register. */
 
     Handle arg1 = taskData->saveVec.push(AddOne(*(get_reg(taskData, (instr >> 14) & 31))));

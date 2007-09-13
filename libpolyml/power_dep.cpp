@@ -440,8 +440,10 @@ int PowerPCDependent::SwitchToPoly(TaskData *taskData)
 /* (Re)-enter the Poly code from C. */
 {
     PowerPCTaskData *mdTask = (PowerPCTaskData*)taskData->mdTaskData;
+    Handle mark = taskData->saveVec.mark();
     while (1)
     {
+        taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         CheckMemory(); // Do any memory checking.
 
         // Remember the position after the last time we checked
@@ -882,7 +884,6 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
         int exp2_16 = 1 << 16;
         int SI = (UI < exp2_15) ? UI : UI - exp2_16;
         
-        taskData->saveVec.init();
         Handle arg1 = taskData->saveVec.push(*get_reg(taskData, RA));
         Handle arg2 = taskData->saveVec.push(PolyWord::FromSigned(SI));
         
@@ -916,8 +917,6 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
     { 
         unsigned RB       = (instr >> 11) & 0x1f;  /*  5 bits */
         unsigned opcode2  = instr & 0x7ff;         /* 11 bits */
-        
-        taskData->saveVec.init();
         
         if (opcode2 == OPCODE2_addodot)
         {

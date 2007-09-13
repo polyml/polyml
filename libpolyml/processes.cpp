@@ -1193,6 +1193,7 @@ static void *NewThreadFunction(void *parameter)
 {
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
     pthread_setspecific(processesModule.tlsId, taskData);
+    taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
     (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
     return 0;
@@ -1202,6 +1203,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
 {
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
     TlsSetValue(processesModule.tlsId, taskData);
+    taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
     (void)EnterPolyCode(taskData);
     return 0;
@@ -1210,6 +1212,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
 static void NewThreadFunction(void *parameter)
 {
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
     (void)EnterPolyCode(taskData);
 }

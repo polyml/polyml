@@ -331,8 +331,10 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 // -1 if we are responding to an interrupt.
 {
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
+    Handle mark = taskData->saveVec.mark();
     do
     {
+        taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         CheckMemory(); // Do any memory checking before calling SetMemRegisters
                        // (which may set pc to a temporarily bad value if this is a retry).
         SetMemRegisters(taskData);
@@ -495,7 +497,6 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
 // IO Functions called indirectly from assembly code.
 void X86Dependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
-    taskData->saveVec.init();
     // Set the return address now.
     taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
     try {
@@ -1062,7 +1063,6 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 {
     int src1 = -1, src2 = -1, dest = -1;
     bool doneSubtraction = false;
-    taskData->saveVec.init(); /* Reset it. */
     while(1) {
         byte rexPrefix = 0;
 #ifdef X86_64
@@ -1287,7 +1287,7 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
     // Arithmetic operation has overflowed or detected long values.
     if (profileMode == kProfileEmulation)
         add_count(taskData, PSP_IC(taskData->stack), PSP_SP(taskData->stack), 1);
-    // Emulate the arbitrary precision instruction.  
+    // Emulate the arbitrary precision instruction.
     if (! emulate_instrs(taskData))
         Crash("Arbitrary precision emulation fault at %x\n", PSP_IC(taskData->stack));
 }

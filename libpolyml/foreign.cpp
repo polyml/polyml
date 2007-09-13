@@ -1805,6 +1805,7 @@ void *CCallbackFunction(unsigned cbNo, void **args)
 {
     // We should get the task data for the thread that is running this code.
     TaskData *taskData = processes->GetTaskDataForThread();
+    Handle mark = taskData->saveVec.mark();
     processes->ThreadUseMLMemory(taskData);
 
     ASSERT(cbNo >= 0 && cbNo < callBackEntries);
@@ -1825,9 +1826,11 @@ void *CCallbackFunction(unsigned cbNo, void **args)
     Handle resultHandle = EnterPolyCode(taskData);
 
     processes->ThreadReleaseMLMemory(taskData);
+    PolyWord resultWord = UNHANDLE(resultHandle);
+    taskData->saveVec.reset(mark);
     /* Return the address of the vol.  The stub function then has to extract the
        appropriate result depending on how it was compiled. */
-    return DEREFVOL(taskData, UNHANDLE(resultHandle));
+    return DEREFVOL(taskData, resultWord);
 }
 
 /**********************************************************************
