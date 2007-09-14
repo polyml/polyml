@@ -112,6 +112,13 @@
 /* Windows file times are 64-bit numbers representing times in
    tenths of a microsecond. */
 #define TICKS_PER_MICROSECOND 10
+
+#ifdef __GNUC__
+#define SECSSINCE1601 11644473600LL
+#else
+#define SECSSINCE1601 11644473600
+#endif
+
 #else
 /* For Unix return times in microseconds. */
 #define TICKS_PER_MICROSECOND 1
@@ -188,7 +195,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* Although the offset is in seconds it is since 1601. */
             LARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
-            theTime = (long)(liTime.QuadPart - 11644473600);
+            theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
@@ -209,7 +216,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* Although the offset is in seconds it is since 1601. */
             LARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
-            theTime = (long)(liTime.QuadPart - 11644473600);
+            theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
