@@ -204,7 +204,7 @@ void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (char*)a - (char*)memTable[aArea].mtAddr;
-    reloc.targetSegment = aArea;
+    reloc.targetSegment = memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -519,12 +519,13 @@ void StateLoader::DoLoad(void)
             }
         }
         // Relocate addresses in this segment.
+        // If we get errors just skip the error and continue rather than leave
+        // everything in an unstable state.
         if (descr->relocations)
         {
             if (fseek(loadFile, descr->relocations, SEEK_SET) != 0)
             {
                 errorResult = "Unable to read relocation segment";
-                return;
             }
             for (unsigned k = 0; k < descr->relocationCount; k++)
             {
@@ -532,21 +533,20 @@ void StateLoader::DoLoad(void)
                 if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
                 {
                     errorResult = "Unable to read relocation segment";
-                    return;
                 }
                 MemSpace *toSpace =
                     reloc.targetSegment == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(reloc.targetSegment);
                 if (toSpace == NULL)
                 {
                     errorResult = "Unknown space reference in relocation";
-                    return;
+                    continue;
                 }
                 byte *setAddress = (byte*)space->bottom + reloc.relocAddress;
                 byte *targetAddress = (byte*)toSpace->bottom + reloc.targetAddress;
                 if (setAddress >= (byte*)space->top || targetAddress >= (byte*)toSpace->top)
                 {
                     errorResult = "Bad relocation";
-                    return;
+                    continue;
                 }
                 ScanAddress::SetConstantValue(setAddress, PolyWord::FromCodePtr(targetAddress), reloc.relKind);
             }
