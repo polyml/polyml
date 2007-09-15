@@ -604,6 +604,7 @@ void PowerPCDependent::SetMemRegisters(TaskData *taskData)
     if (mdTask->pendingInterrupt)
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
     else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    mdTask->pendingInterrupt = false;
     mdTask->memRegisters.threadId = taskData->threadObject;
 
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
