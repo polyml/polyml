@@ -79,8 +79,11 @@
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(mdTaskData, n)
 
-#ifdef WINDOWS_PC
+#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
 #define MAXPATHLEN MAX_PATH
+#endif
+
+#ifdef WINDOWS_PC
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
 #define DEFAULTSEPARATOR    "\\"
 #else
@@ -119,7 +122,6 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 21: /* Return the whole environment. */
         {
-            extern char **environ;
             /* Count the environment strings */
             int env_count = 0;
             while (environ[env_count] != NULL) env_count++;
