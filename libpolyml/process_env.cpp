@@ -91,6 +91,11 @@
 #define DEFAULTSEPARATOR    "/"
 #endif
 
+// "environ" is declared in the headers on some systems but not all.
+// Oddly, declaring it within process_env_dispatch_c causes problems
+// on mingw where "environ" is actually a function.
+extern char **environ;
+
 /* Functions registered with atExit are added to this list. */
 static PolyWord at_exit_list = TAGGED(0);
 /* Once "exit" is called this flag is set and no further
