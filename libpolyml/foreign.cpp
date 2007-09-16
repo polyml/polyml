@@ -688,7 +688,7 @@ static Handle load_lib (TaskData *taskData, Handle string)
 		if (lib == NULL) 
 		{
 			char buf[256];
-			sprintf(buf, "load_lib <%s> : %i", name, GetLastError());
+			sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
 			RAISE_EXN(buf);
 		}
 		
@@ -733,12 +733,12 @@ static Handle load_sym (TaskData *taskData, Handle h)
 	
 #if defined(WINDOWS_PC)
 	{
-		FARPROC sym = GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
+		void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
 		
 		if (sym == NULL) 
 		{
 			char buf[256];
-			sprintf(buf, "load_sym <%s> : %i", name,GetLastError());
+			sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
 			RAISE_EXN(buf);
 		}
 		
@@ -821,6 +821,21 @@ static void print_call
 
 #ifdef WINDOWS_PC
 
+#ifdef __GNUC__
+#define CALL_TYPED(TYPE)    \
+    do { \
+        int saveEsi;\
+        processes->ThreadReleaseMLMemory(taskData);\
+        TYPE result = ((TYPE(*)(...))fun)(a1,\
+            a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,b1,b2,b3,b4,b5,b6,\
+            b7,b8,b9,b10,b11,b12,b13,b14,b15);\
+        processes->ThreadUseMLMemory(taskData);\
+        Handle res = vol_alloc_with_c_space(taskData, sizeof(TYPE));\
+        *(TYPE*)DEREFVOL(taskData, UNHANDLE(res)) = result;\
+        return res;\
+    } while (0)
+#else
+// Windows C compilers.
 #define CALL_TYPED(TYPE)    \
     do { \
         int saveEsi;\
@@ -837,6 +852,7 @@ static void print_call
         *(TYPE*)DEREFVOL(taskData, UNHANDLE(res)) = result;\
         return res;\
     } while (0)
+#endif
 #else
 #define CALL_TYPED(TYPE)    \
     do { \
