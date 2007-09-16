@@ -39,19 +39,23 @@ endif
 endif
 
 poly_LDFLAGS=
+polyimport_LDFLAGS=
+POLYRESOURCES=
 
 if NATIVE_WINDOWS
-poly_LDFLAGS += -Wl,-u,_WinMain@16
-POLYOBJECTFILES = polyexport.obj polyresource.o
+poly_LDFLAGS += -mwindows -Wl,-u,_WinMain@16
+polyimport_LDFLAGS += -mwindows
+POLYOBJECTFILE = polyexport.obj
+POLYRESOURCES += polyresource.o
 else
-POLYOBJECTFILES = polyexport.o
+POLYOBJECTFILE = polyexport.o
 endif
 
 poly_SOURCES = 
-poly_LDADD = $(POLYOBJECTFILES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
+poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 
 polyimport_SOURCES = polyimport.c
-polyimport_LDADD = libpolyml/libpolyml.la
+polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
 #
 polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
