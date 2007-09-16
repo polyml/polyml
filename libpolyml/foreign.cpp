@@ -824,7 +824,8 @@ static void print_call
 #ifdef __GNUC__
 #define CALL_TYPED(TYPE)    \
     do { \
-        int saveEsi;\
+        int space[20];\
+        space[0] = 0;\
         processes->ThreadReleaseMLMemory(taskData);\
         TYPE result = ((TYPE(*)(...))fun)(a1,\
             a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,b1,b2,b3,b4,b5,b6,\
