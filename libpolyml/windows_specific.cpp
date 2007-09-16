@@ -138,6 +138,8 @@ static void close_handle(PHANDLETAB pTab)
     case HE_DDECONVERSATION:
         CloseDDEConversation(pTab->entry.hcDDEConv);
         break;
+    case HE_UNUSED:
+        break; // Avoid warnings
     }
     pTab->token = 0;
     pTab->entryType = HE_UNUSED;
@@ -362,7 +364,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 1006: /* Return a constant. */
         {
             int i = get_C_long(taskData, DEREFWORD(args));
-            if (i < 0 || i >= sizeof(winConstVec)/sizeof(winConstVec[0]))
+            if (i < 0 || i >= (int)(sizeof(winConstVec)/sizeof(winConstVec[0])))
                 raise_syscall(taskData, "Invalid index", 0);
             return Make_unsigned(taskData, winConstVec[i]);
         }
@@ -1214,16 +1216,6 @@ static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL
     result = alloc_and_save(taskData, 1);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resVal));
     return result;
-}
-
-
-static int CALLBACK editWordBreakProc(  LPTSTR lpch,     // pointer to edit text
-  int ichCurrent,  // index of starting point
-  int cch,         // length in characters of edit text
-  int code         // action to take
-)
-{
-    return 0;
 }
 
 class WindowsModule: public RtsModule
