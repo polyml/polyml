@@ -19,7 +19,13 @@
 
 */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
+#else
+#error "No configuration file"
+#endif
 
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
@@ -53,7 +59,6 @@
 #endif
 
 #include "resource.h"
-
 #include "mpoly.h"
 #include "PolyControl.h"
 #include "diagnostics.h"
@@ -320,7 +325,7 @@ LRESULT CALLBACK DDEWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             DdeFreeStringHandle(dwDDEInstance, hszTopicName);
             if (hcDDEConv == 0)
             {
-                UINT nErr = DdeGetLastError(dwDDEInstance);
+                // UINT nErr = DdeGetLastError(dwDDEInstance);
                 return 0;
             }
             return (LRESULT)hcDDEConv;
@@ -808,7 +813,7 @@ int PolyWinMain(
 
         // Initially created invisible.
         hMainWindow = CreateWindow(
-            (LPTSTR)atClass,
+            (LPTSTR)(LONG)atClass,
             _T("Poly/ML"),
             dwStyle,
             CW_USEDEFAULT,
@@ -891,7 +896,7 @@ int PolyWinMain(
         if ((atClass = RegisterClassEx(&wndClass)) == 0) return 1;
 
         hDDEWindow = CreateWindow(
-            (LPTSTR)atClass,
+            (LPTSTR)(LONG)atClass,
             "Poly/ML-DDE",
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
