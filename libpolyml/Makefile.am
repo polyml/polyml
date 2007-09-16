@@ -8,6 +8,11 @@ AM_CCASFLAGS = $(ARCHFLAG) $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 1:0
 
+if NATIVE_WINDOWS
+# Force all references to be defined to build the DLL.
+libpolyml_la_LDFLAGS +=  -no-undefined
+endif
+
 # Select the architecture-specific modules
 if ARCHI386
 ARCHSOURCE = x86_dep.cpp x86asmtemp.S
@@ -47,16 +52,22 @@ endif
 endif
 endif
 
+if NATIVE_WINDOWS
+OSSOURCE = Console.cpp windows_specific.cpp
+else
+OSSOURCE = unix_specific.cpp
+endif
+
 libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
     realconv.c objsize.cpp proper_io.cpp foreign.cpp \
-    process_env.cpp basicio.cpp network.cpp unix_specific.cpp \
+    process_env.cpp basicio.cpp network.cpp \
     sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
     locking.cpp savestate.cpp \
-    $(ARCHSOURCE) $(EXPORTSOURCE)
+    $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 # Convert the portable format to a native binary
 polyexport.o: polyimport exportPoly.sml
