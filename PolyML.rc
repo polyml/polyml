@@ -80,7 +80,7 @@ END
 //
 
 IDD_ABOUT_POLYML DIALOG DISCARDABLE  0, 0, 217, 113
-STYLE DS_MODALFRAME | DS_3DLOOK | WS_POPUP
+STYLE DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU
 FONT 8, "MS Sans Serif"
 BEGIN
     DEFPUSHBUTTON   "OK",IDOK,7,92,50,14
@@ -125,8 +125,8 @@ IDI_ICON                ICON    DISCARDABLE     "poly.ico"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 4,9,1,0
- PRODUCTVERSION 4,9,1,0
+ FILEVERSION 5,0,1,0
+ PRODUCTVERSION 5,0,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -144,14 +144,14 @@ BEGIN
             VALUE "Comments", "\0"
             VALUE "CompanyName", " \0"
             VALUE "FileDescription", "PolyML v5 beta 1\0"
-            VALUE "FileVersion", "4.9.1\0"
+            VALUE "FileVersion", "5.1\0"
             VALUE "InternalName", "PolyML\0"
-            VALUE "LegalCopyright", "Copyright © CUTS, David Matthews and contributors 2000-2006\0"
+            VALUE "LegalCopyright", "Copyright © CUTS, David Matthews and contributors 2000-2007\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "PolyML.exe\0"
             VALUE "PrivateBuild", "\0"
-            VALUE "ProductName", " PolyML\0"
-            VALUE "ProductVersion", "4.9.1\0"
+            VALUE "ProductName", "PolyML\0"
+            VALUE "ProductVersion", "5.1\0"
             VALUE "SpecialBuild", "\0"
         END
     END
