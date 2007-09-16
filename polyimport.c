@@ -20,9 +20,17 @@
 
 // This is the start-up function for Poly/ML for importing a portable database.
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
+#include "winconfig.h"
+#else
+#error "No configuration file"
+#endif
+
 #include "polyexports.h"
 
-#ifdef WIN32
+#ifdef WINDOWS_PC
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
     return PolyWinMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow, 0);

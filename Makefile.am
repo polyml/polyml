@@ -38,8 +38,17 @@ endif
 endif
 endif
 
+poly_LDFLAGS=
+
+if NATIVE_WINDOWS
+poly_LDFLAGS += -Wl,-u,_WinMain@16
+POLYOBJECTFILES = polyexport.obj polyresource.o
+else
+POLYOBJECTFILES = polyexport.o
+endif
+
 poly_SOURCES = 
-poly_LDADD = polyexport.o libpolymain/libpolymain.la libpolyml/libpolyml.la 
+poly_LDADD = $(POLYOBJECTFILES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 
 polyimport_SOURCES = polyimport.c
 polyimport_LDADD = libpolyml/libpolyml.la
@@ -48,9 +57,18 @@ polyimport_LDADD = libpolyml/libpolyml.la
 polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
 	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
 
+polyexport.obj: polyimport exportPoly.sml $(POLYIMPORT)
+	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
+
+polyresource.o: PolyML.rc poly.ico
+	windres -o polyresource.o PolyML.rc
+
+
 # Poly/ML command to compile the compile and build the export version.
 # Run "make" to import it and build the poly executable with it.
 bootstrap: poly
 	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
 
+clean-local:
+	rm -f *.obj
 

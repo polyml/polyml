@@ -25,7 +25,7 @@ else
         test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 fi
 
-#AC_LIBTOOL_WIN32_DLL # libpolyml can be a DLL but libpolymain can't.
+AC_LIBTOOL_WIN32_DLL # libpolyml can be a DLL but libpolymain can't.
 AC_PROG_LIBTOOL
 AM_PROG_LIBTOOL
 AM_MAINTAINER_MODE
@@ -51,6 +51,9 @@ AC_CHECK_LIB(stdc++, main)
 AC_CHECK_LIB(dl, dlopen)
 AC_CHECK_LIB(m, floor)
 AC_CHECK_LIB(pthread, pthread_create)
+# The next two are only used with mingw
+AC_CHECK_LIB(wsock32, main)
+AC_CHECK_LIB(gdi32, main)
 # Solaris needs -lsocket and -lnsl
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
@@ -237,6 +240,8 @@ AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 
 # Set the OS flag.  This should not really be required but is still used in
 # a few places for OS-specific quirks that can't be handled by more specific tests.
+# Check also for mingw in which case we want to build native Windows.
+poly_native_windows=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
@@ -244,10 +249,28 @@ case "${host_os}" in
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
+    *mingw*)
+        AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+        poly_native_windows=yes
+        ;;
+    *cygwin*)
+        if test "$ac_cv_c_compiler_gnu" = "yes"; then
+            if $CC -dumpmachine | grep -q mingw; then
+                AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+                poly_native_windows=yes
+            else
+                AC_SUBST([OSFLAG], [-DLINUX])
+            fi
+        else
+            AC_SUBST([OSFLAG], [-DLINUX])
+        fi
+        ;;
     *)
         AC_SUBST([OSFLAG], [-DLINUX])
         ;;
 esac
+
+AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 
 AH_TOP([
 #ifndef CONF_H_INCLUDED

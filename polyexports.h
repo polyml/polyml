@@ -25,7 +25,7 @@ This header contains the structures used in saved state created by "export".
 #ifndef _STANDALONE_H
 #define _STANDALONE_H 1
 
-#ifdef WIN32
+#if(defined(HAVE_WINDOWS_H))
 #include <windows.h>
 typedef UINT_PTR UNSIGNEDADDR;
 #else
@@ -62,12 +62,12 @@ extern exportDescription poly_exports;
 extern "C" {
 #endif
 
-#ifdef WIN32
+#ifdef WINDOWS_PC
 
 #ifdef NO_POLY_LIBRARY
 #define POLYLIB_API
 #else
-#ifdef POLYLIB_EXPORTS
+#if(defined(POLYLIB_EXPORTS)||defined(DLL_EXPORT))
 #define POLYLIB_API __declspec(dllexport)
 #else
 #define POLYLIB_API __declspec(dllimport)
