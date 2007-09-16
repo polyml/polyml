@@ -33,7 +33,9 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
-@NATIVE_WINDOWS_TRUE@am__append_1 = -Wl,-u,_WinMain@16
+@NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,_WinMain@16
+@NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows
+@NATIVE_WINDOWS_TRUE@am__append_3 = polyresource.o
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
@@ -53,14 +55,17 @@ binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
 am_poly_OBJECTS =
 poly_OBJECTS = $(am_poly_OBJECTS)
-poly_DEPENDENCIES = $(POLYOBJECTFILES) libpolymain/libpolymain.la \
-	libpolyml/libpolyml.la
+poly_DEPENDENCIES = $(POLYOBJECTFILE) $(POLYRESOURCES) \
+	libpolymain/libpolymain.la libpolyml/libpolyml.la
 poly_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(poly_LDFLAGS) \
 	$(LDFLAGS) -o $@
 am_polyimport_OBJECTS = polyimport.$(OBJEXT)
 polyimport_OBJECTS = $(am_polyimport_OBJECTS)
-polyimport_DEPENDENCIES = libpolyml/libpolyml.la
+polyimport_DEPENDENCIES = $(POLYRESOURCES) libpolyml/libpolyml.la
+polyimport_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
+	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
+	$(polyimport_LDFLAGS) $(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -234,12 +239,14 @@ man_MANS = poly.1 polyimport.1
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = imports/polymli386.txt
 poly_LDFLAGS = $(am__append_1)
-@NATIVE_WINDOWS_FALSE@POLYOBJECTFILES = polyexport.o
-@NATIVE_WINDOWS_TRUE@POLYOBJECTFILES = polyexport.obj polyresource.o
+polyimport_LDFLAGS = $(am__append_2)
+POLYRESOURCES = $(am__append_3)
+@NATIVE_WINDOWS_FALSE@POLYOBJECTFILE = polyexport.o
+@NATIVE_WINDOWS_TRUE@POLYOBJECTFILE = polyexport.obj
 poly_SOURCES = 
-poly_LDADD = $(POLYOBJECTFILES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
+poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 polyimport_SOURCES = polyimport.c
-polyimport_LDADD = libpolyml/libpolyml.la
+polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -328,7 +335,7 @@ poly$(EXEEXT): $(poly_OBJECTS) $(poly_DEPENDENCIES)
 	$(poly_LINK) $(poly_OBJECTS) $(poly_LDADD) $(LIBS)
 polyimport$(EXEEXT): $(polyimport_OBJECTS) $(polyimport_DEPENDENCIES) 
 	@rm -f polyimport$(EXEEXT)
-	$(LINK) $(polyimport_OBJECTS) $(polyimport_LDADD) $(LIBS)
+	$(polyimport_LINK) $(polyimport_OBJECTS) $(polyimport_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
