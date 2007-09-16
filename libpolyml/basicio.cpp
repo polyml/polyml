@@ -827,7 +827,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 #ifdef WINDOWS_PC
     {
         /* Record the results in this vector. */
-        char *results;
+        char *results = 0;
         int haveResult = 0;
         Handle  resVec;
         if (nDesc > 0)
