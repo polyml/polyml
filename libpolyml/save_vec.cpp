@@ -86,9 +86,18 @@ void SaveVec::gcScan(ScanAddress *process)
     {
         PolyWord *saved = &(sv->m_Handle);
         if ((*saved).IsTagged()) {} // Don't need to do anything
+        else if ((*saved).IsCodePtr())
+        {
+            // We can have code pointers in set_code_address.
+            // Find the start of the code segment
+            PolyObject *obj = ObjCodePtrToPtr(saved->AsCodePtr());
+            // Calculate the byte offset of this value within the code object.
+            POLYUNSIGNED offset = saved->AsCodePtr() - (byte*)obj;
+            process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
+            *saved = PolyWord::FromCodePtr((byte*)obj + offset);
+
+        }
         else {
-            // If it's not a tagged integer then it should be a data pointer.
-            // We shouldn't get code addresses here, should we?
             ASSERT((*saved).IsDataPtr());
             PolyObject *obj = (*saved).AsObjPtr();
             process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
