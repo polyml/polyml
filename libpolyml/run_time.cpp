@@ -855,6 +855,7 @@ Handle EnterPolyCode(TaskData *taskData)
     Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
     while (1)
     {
+        taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
         // Process any asynchronous events i.e. interrupts or kill
         processes->ProcessAsynchRequests(taskData);
         // Release and re-acquire use of the ML memory to allow another thread
@@ -863,7 +864,6 @@ Handle EnterPolyCode(TaskData *taskData)
         processes->ThreadUseMLMemory(taskData);
         // Run the ML code and return with the function to call.
         int ioFunction = machineDependent->SwitchToPoly(taskData);
-        taskData->saveVec.reset(hOriginal); // Set this up for the IO calls.
 	    try {
             switch (ioFunction)
             {
