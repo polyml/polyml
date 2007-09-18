@@ -34,7 +34,7 @@ build_triplet = @build@
 host_triplet = @host@
 
 # Force all references to be defined to build the DLL.
-@NATIVE_WINDOWS_TRUE@am__append_1 = -no-undefined
+@NO_UNDEFINED_TRUE@am__append_1 = -no-undefined
 subdir = libpolyml
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4

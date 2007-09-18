@@ -8,9 +8,9 @@ AM_CCASFLAGS = $(ARCHFLAG) $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 1:0
 
-if NATIVE_WINDOWS
+if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
-libpolyml_la_LDFLAGS +=  -no-undefined
+libpolyml_la_LDFLAGS += -no-undefined
 endif
 
 # Select the architecture-specific modules

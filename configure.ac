@@ -16,8 +16,8 @@ if test "$ac_debug_mode" != "yes"; then
         # Set CCASFLAGS to empty so that it doesn't get set to CFLAGS.
         #   The -g option on assembler causes problems on Sparc/Solaris 10.
         # test X || Y  is equivalent to  if !X then Y
-        test "${CFLAGS+set}" = set || CFLAGS="-g -O3"
-        test "${CXXFLAGS+set}" = set || CXXFLAGS="-g -O3"
+        test "${CFLAGS+set}" = set || CFLAGS="-O3"
+        test "${CXXFLAGS+set}" = set || CXXFLAGS="-O3"
 	test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 else
         test "${CFLAGS+set}" = set || CFLAGS="-g"
@@ -242,6 +242,9 @@ AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 # a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
+# If we are building on cygwin or mingw we need to give the -no-defined flag to
+# build a DLL.
+poly_no_undefined=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
@@ -252,8 +255,10 @@ case "${host_os}" in
     *mingw*)
         AC_SUBST([OSFLAG], [-DWINDOWS_PC])
         poly_native_windows=yes
+        poly_no_undefined=yes
         ;;
     *cygwin*)
+        poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
                 AC_SUBST([OSFLAG], [-DWINDOWS_PC])
@@ -271,6 +276,7 @@ case "${host_os}" in
 esac
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
+AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 
 AH_TOP([
 #ifndef CONF_H_INCLUDED
