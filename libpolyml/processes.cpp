@@ -1155,7 +1155,8 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterrupt
 #endif
     ThreadUseMLMemory(taskData);
     TestSynchronousRequests(taskData); // Check if we've been interrupted.
-    ProcessAsynchRequests(taskData);
+    if (ProcessAsynchRequests(taskData))
+        throw IOException(EXC_EXCEPTION);
 }
 
 // This is largely a legacy of the old single-thread version.  In that version there
@@ -1677,7 +1678,7 @@ void Processes::CrowBarFn(void)
 #if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
     shutdownLock.Lock();
     crowbarRunning = true;
-    if (crowbarLock.WaitFor(&shutdownLock, 5000)) // Wait for 5s
+    if (crowbarLock.WaitFor(&shutdownLock, 20000)) // Wait for 20s
     {
         // We've been woken by the main thread.  Let it do the shutdown.
         crowbarStopped.Signal();
