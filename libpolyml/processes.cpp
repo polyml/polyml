@@ -1689,7 +1689,7 @@ void Processes::CrowBarFn(void)
 #if defined(HAVE_WINDOWS_H)
         ExitProcess(1);
 #else
-        abort(); // Something is stuck.
+        _exit(1); // Something is stuck.  Get out without calling destructors.
 #endif
     }
 #endif
