@@ -862,7 +862,7 @@ in
 	(* This MUST make a signed value otherwise toCint will crash with negative values. *)
 	fun MAKELONG(a, b) =
 	let
-		open LargeWord
+		open Word32
 		infix << orb andb
 		val r = (fromInt b << 0w16) orb (fromInt a andb 0wxFFFF)
 	in
