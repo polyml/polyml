@@ -105,6 +105,60 @@ struct
 			val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
 		end
 
+    	structure ExStyle:>
+    	sig
+    	    include BIT_FLAGS
+            val WS_EX_DLGMODALFRAME: flags and WS_EX_NOPARENTNOTIFY: flags and WS_EX_TOPMOST: flags
+			and WS_EX_ACCEPTFILES : flags and WS_EX_TRANSPARENT: flags and WS_EX_MDICHILD: flags
+            and WS_EX_TOOLWINDOW: flags and WS_EX_WINDOWEDGE: flags and WS_EX_CLIENTEDGE: flags
+			and WS_EX_CONTEXTHELP: flags and WS_EX_RIGHT: flags and WS_EX_LEFT: flags
+			and WS_EX_RTLREADING: flags and WS_EX_LTRREADING: flags and WS_EX_LEFTSCROLLBAR: flags
+			and WS_EX_RIGHTSCROLLBAR: flags and WS_EX_CONTROLPARENT: flags and WS_EX_STATICEDGE: flags
+			and WS_EX_APPWINDOW: flags and WS_EX_OVERLAPPEDWINDOW: flags and WS_EX_PALETTEWINDOW: flags
+    	end =
+		struct
+			type flags = SysWord.word
+			fun toWord f = f
+			fun fromWord f = f
+			val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
+			fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
+			fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
+			fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            val WS_EX_DLGMODALFRAME                          = 0wx00000001
+            val WS_EX_NOPARENTNOTIFY                         = 0wx00000004
+            val WS_EX_TOPMOST                                = 0wx00000008
+            val WS_EX_ACCEPTFILES                            = 0wx00000010
+            val WS_EX_TRANSPARENT                            = 0wx00000020
+            val WS_EX_MDICHILD                               = 0wx00000040
+            val WS_EX_TOOLWINDOW                             = 0wx00000080
+            val WS_EX_WINDOWEDGE                             = 0wx00000100
+            val WS_EX_CLIENTEDGE                             = 0wx00000200
+            val WS_EX_CONTEXTHELP                            = 0wx00000400
+        
+            val WS_EX_RIGHT                                  = 0wx00001000
+            val WS_EX_LEFT                                   = 0wx00000000
+            val WS_EX_RTLREADING                             = 0wx00002000
+            val WS_EX_LTRREADING                             = 0wx00000000
+            val WS_EX_LEFTSCROLLBAR                          = 0wx00004000
+            val WS_EX_RIGHTSCROLLBAR                         = 0wx00000000
+        
+            val WS_EX_CONTROLPARENT                          = 0wx00010000
+            val WS_EX_STATICEDGE                             = 0wx00020000
+            val WS_EX_APPWINDOW                              = 0wx00040000
+        
+        
+            val WS_EX_OVERLAPPEDWINDOW = flags[WS_EX_WINDOWEDGE, WS_EX_CLIENTEDGE]
+            val WS_EX_PALETTEWINDOW = flags[WS_EX_WINDOWEDGE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST]
+
+			val all = flags[WS_EX_DLGMODALFRAME, WS_EX_NOPARENTNOTIFY, WS_EX_TOPMOST, WS_EX_ACCEPTFILES,
+                            WS_EX_TRANSPARENT, WS_EX_MDICHILD, WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE,
+                            WS_EX_CLIENTEDGE, WS_EX_CONTEXTHELP, WS_EX_RIGHT, WS_EX_LEFT, WS_EX_RTLREADING,
+                            WS_EX_LTRREADING, WS_EX_LEFTSCROLLBAR, WS_EX_RIGHTSCROLLBAR, WS_EX_CONTROLPARENT,
+                            WS_EX_STATICEDGE, WS_EX_APPWINDOW]
+	
+			val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+		end
+
 		datatype WindowPositionStyle =
 		    	SWP_ASYNCWINDOWPOS
 		    |	SWP_DEFERERASE
