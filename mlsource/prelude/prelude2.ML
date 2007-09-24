@@ -49,25 +49,45 @@ in
 		(* Run the list in reverse order. *)
 		fun runOnEntry [] = ()
 		  | runOnEntry (f :: b) = (runOnEntry b; f() handle _ => ());
+
+        (* If the installed function returns without calling OS.Process.exit
+		   we have to run the installed "atExit" functions as though it had.
+		   Unfortunately we have to duplicate code from OS.Process here. *)
+		local
+			val doExit =
+				RunCall.run_call1 RuntimeCalls.POLY_SYS_exit
+			val doCall: int*unit -> (unit->unit) =
+				RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+		in
+			fun exit () =
+			let
+				val exitFun =
+					(* If we get an empty list here we've finished. *)
+					doCall(19, ()) handle _ => doExit 0
+			in
+				(* Run the function and then repeat. *)
+				exitFun() handle _ => ();
+				exit()
+			end
+		end
 	in
 		(* The equivalent of atExit except that functions are added to
 		   the list persistently and of course the functions are executed
 		   at start-up rather than close-down. *)
 		fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
+
+		fun runFunction f () =
+		(
+		    runOnEntry(! onEntryList); (* Perform start-up operations. *)
+			f(); (* Run the main function. *)
+			exit() (* Perform close-down actions. *)
+		)
 		
     	(* Export functions - write out the function and everything reachable from it. *)
     	fun export(filename: string, f: unit->unit): unit =
-		    let
-		       fun run () = (runOnEntry(! onEntryList); f())
-			in 
-    		   RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, run))
-			end
+   		    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, runFunction f))
     	fun exportPortable(filename: string, f: unit->unit): unit =
-		    let
-		       fun run () = (runOnEntry(! onEntryList); f())
-			in 
-     		   RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, run))
-			end
+		    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, runFunction f))
 	end
 		
 	fun shareCommonData(root: 'a): unit =
