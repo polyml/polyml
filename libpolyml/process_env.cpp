@@ -73,6 +73,7 @@
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "processes.h"
+#include "locking.h"
 
 #include "poly_specific.h" // For the functions that have been moved.
 
@@ -100,7 +101,9 @@ extern char **environ;
 static PolyWord at_exit_list = TAGGED(0);
 /* Once "exit" is called this flag is set and no further
    calls to atExit are allowed. */
-static int exiting = 0;
+static bool exiting = false;
+
+static PLock atExitLock; // Thread lock for above.
 
 Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
@@ -156,7 +159,8 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 18: /* Register function to run at exit. */
         {
-            if (exiting == 0)
+            PLocker locker(&atExitLock);
+            if (! exiting)
             {
                 PolyObject *cell = alloc(mdTaskData, 2);
                 cell->Set(0, at_exit_list);
@@ -169,8 +173,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     case 19: /* Return the next function in the atExit list and set the
                 "exiting" flag to true. */
         {
+            PLocker locker(&atExitLock);
             Handle res;
-            exiting = 1; /* Ignore further calls to atExit. */
+            exiting = true; /* Ignore further calls to atExit. */
             if (at_exit_list == TAGGED(0))
                 raise_syscall(mdTaskData, "List is empty", 0);
             PolyObject *cell = at_exit_list.AsObjPtr();
