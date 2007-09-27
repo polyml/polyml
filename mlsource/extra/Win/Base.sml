@@ -743,6 +743,7 @@ in
 	and commdlg sym = get_sym "comdlg32.DLL" sym
 	and gdi sym = get_sym "gdi32.DLL" sym
 	and shell sym = get_sym "shell32.DLL" sym
+	and comctl sym = get_sym "comctl32.DLL" sym
 
 	(* Conversion to and from LargeWord.word.  This is used for 32-bit flags. *)
 	val WORD = absConversion {abs = LargeWord.fromInt, rep = LargeWord.toInt} UINT
@@ -822,25 +823,6 @@ in
 	   we can't find out how big the C vector is. *)
 	val fromWord8vec = toCbytes
 	and toWord8vec = fromCbytes
-	(*fun fromWord8vec w =
-	let
-		val inputLength = Word8Vector.length w
-		val buf = alloc inputLength Cchar
-		fun copyToBuf (i, v): unit =
-			assign Cchar (offset i Cchar buf) (toCint(Word8.toInt v))
-	in
-		Word8Vector.appi copyToBuf (w, 0, NONE);
-		address buf
-	end
-
-	and toWord8vec (v, len) =
-	let
-		val buf = deref v
-	in
-		Word8Vector.tabulate(len,
-			fn i => Word8.fromInt(ord(fromCchar(offset i Cchar buf)))
-			)
-	end*)
 
 	(* Conversion for a fixed size byte array. *)
 	fun BYTEARRAY n =
@@ -853,24 +835,49 @@ in
 		mkConversion from to base
 	end
 
-
-	(* We need to make sure the sign bits are propagated correctly. *)
-	fun LOWORD(l) =
-		let val r = IntInf.andb (l, 0xFFFF) in if r >= 32768 then r - 65536 else r end
-	fun HIWORD(l) = LOWORD(IntInf.~>>(l, 0w16))
-
-	(* This MUST make a signed value otherwise toCint will crash with negative values. *)
-	fun MAKELONG(a, b) =
+    (* Conversion for a fixed size char array. *)
+    fun CHARARRAY n =
 	let
-		open Word32
-		infix << orb andb
-		val r = (fromInt b << 0w16) orb (fromInt a andb 0wxFFFF)
+	    val base = Cstruct (List.tabulate (n, fn _ => Cchar))
+		fun from (v: vol): string =
+		let
+		    open Word8Vector
+			infix sub
+		    val vector = toWord8vec(address v, n)
+			val len = length vector
+			(* This will be null-terminated - trim it at the first null. *)
+			fun term i =
+			    if i = len orelse (vector sub i) = 0w0 then i else term (i+1)
+		in
+		    Byte.unpackStringVec(Word8VectorSlice.slice(vector, 0, SOME(term 0)))
+		end
+		fun to (s: string): vol =
+		let
+		    open Word8Array
+		    val substr = if size s < n then s else String.substring(s, 0, n-1)
+			val arr = array(n, 0w0)
+            val _ = copyVec{src=Byte.stringToBytes substr, dst=arr, di=0}
+		in
+		    deref(fromWord8vec(vector arr))
+		end
 	in
-		toIntX r
+		mkConversion from to base
 	end
-	   
-	fun HIBYTE(w) = IntInf.andb ( IntInf.andb (w,0xFFFF)  div  256 , 0xFF)
-	fun LOBYTE(w) = IntInf.andb (w,0xFF)
+
+	(* These should always be UNSIGNED values. *)
+	local
+	    open LargeWord
+        infix << >> orb andb
+	in
+    	fun LOWORD(l) = toInt(fromInt l andb 0wxFFFF)
+    	fun HIWORD(l) = toInt((fromInt l >> 0w16) andb 0wxFFFF)
+    
+    	fun MAKELONG(a, b) =
+    		toInt ((fromInt b << 0w16) orb (fromInt a andb 0wxFFFF))
+			
+    	fun HIBYTE(w) = toInt((fromInt w >> 0w8) andb 0wxFF)
+    	fun LOBYTE(w) = toInt(fromInt w andb 0wxFF)
+	end
 
 	(* Convert between strings and vectors containing Unicode characters.
 	   N.B.  These are not null terminated. *)
