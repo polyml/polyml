@@ -127,7 +127,7 @@ struct
 				(SC_MONITORPOWER, 0xF170),
 				(SC_CONTEXTHELP, 0xF180)]
 		in
-			val SYSTEMCOMMAND = tableConversion(tab, NONE)
+			val (fromSysCommand, toSysCommand) = tableLookup(tab, NONE)
 		end
 
 		datatype ControlType = ODT_MENU | ODT_LISTBOX | ODT_COMBOBOX | ODT_BUTTON | ODT_STATIC
@@ -197,6 +197,106 @@ struct
 		type KeyData = int
 
 		datatype HelpHandle = MenuHandle of HMENU | WindowHandle of HWND
+
+        (* Passed in the lpParam argument of a WM_NOTIFY message.
+		   TODO: Many of these have additional information. *)
+        datatype Notification =
+		    NM_OUTOFMEMORY
+        |   NM_CLICK
+		|   NM_DBLCLK
+		|   NM_RETURN
+		|   NM_RCLICK
+		|   NM_RDBLCLK
+		|   NM_SETFOCUS
+		|   NM_KILLFOCUS
+		|   NM_CUSTOMDRAW
+		|   NM_HOVER
+		|   NM_NCHITTEST
+		|   NM_KEYDOWN
+		|   NM_RELEASEDCAPTURE
+		|   NM_SETCURSOR
+		|   NM_CHAR
+        |   NM_TOOLTIPSCREATED
+        |   NM_LDOWN
+        |   NM_RDOWN
+        |   NM_THEMECHANGED
+        |   LVN_ITEMCHANGING
+        |   LVN_ITEMCHANGED
+        |   LVN_INSERTITEM
+        |   LVN_DELETEITEM
+        |   LVN_DELETEALLITEMS
+        |   LVN_BEGINLABELEDIT
+        |   LVN_ENDLABELEDIT
+        |   LVN_COLUMNCLICK
+        |   LVN_BEGINDRAG
+        |   LVN_BEGINRDRAG
+        |   LVN_GETDISPINFO
+        |   LVN_SETDISPINFO
+        |   LVN_KEYDOWN
+        |   LVN_GETINFOTIP
+        |   HDN_ITEMCHANGING
+        |   HDN_ITEMCHANGED
+        |   HDN_ITEMCLICK
+        |   HDN_ITEMDBLCLICK
+        |   HDN_DIVIDERDBLCLICK
+        |   HDN_BEGINTRACK
+        |   HDN_ENDTRACK
+        |   HDN_TRACK
+        |   HDN_ENDDRAG
+        |   HDN_BEGINDRAG
+        |   HDN_GETDISPINFO
+        |   TVN_SELCHANGING
+        |   TVN_SELCHANGED
+        |   TVN_GETDISPINFO
+        |   TVN_SETDISPINFO
+        |   TVN_ITEMEXPANDING
+        |   TVN_ITEMEXPANDED
+        |   TVN_BEGINDRAG
+        |   TVN_BEGINRDRAG
+        |   TVN_DELETEITEM
+        |   TVN_BEGINLABELEDIT
+        |   TVN_ENDLABELEDIT
+        |   TVN_KEYDOWN
+        |   TVN_GETINFOTIP
+        |   TVN_SINGLEEXPAND
+        |   TTN_GETDISPINFO of string ref
+        |   TTN_SHOW
+        |   TTN_POP
+        |   TCN_KEYDOWN
+        |   TCN_SELCHANGE
+        |   TCN_SELCHANGING
+        |   TBN_GETBUTTONINFO
+        |   TBN_BEGINDRAG
+        |   TBN_ENDDRAG
+        |   TBN_BEGINADJUST
+        |   TBN_ENDADJUST
+        |   TBN_RESET
+        |   TBN_QUERYINSERT
+        |   TBN_QUERYDELETE
+        |   TBN_TOOLBARCHANGE
+        |   TBN_CUSTHELP
+        |   TBN_DROPDOWN
+        |   TBN_HOTITEMCHANGE
+        |   TBN_DRAGOUT
+        |   TBN_DELETINGBUTTON
+        |   TBN_GETDISPINFO
+        |   TBN_GETINFOTIP
+        |   UDN_DELTAPOS
+        |   RBN_GETOBJECT
+        |   RBN_LAYOUTCHANGED
+        |   RBN_AUTOSIZE
+        |   RBN_BEGINDRAG
+        |   RBN_ENDDRAG
+        |   RBN_DELETINGBAND
+        |   RBN_DELETEDBAND
+        |   RBN_CHILDSIZE
+        |   CBEN_GETDISPINFO
+        |   CBEN_DRAGBEGIN
+        |   IPN_FIELDCHANGED
+        |   SBN_SIMPLEMODECHANGE
+        |   PGN_SCROLL
+        |   PGN_CALCSIZE
+		|   NM_OTHER of int (* Catch-all for other cases. *)
 
 		datatype Message     =
 					WM_ACTIVATE of {active : WMActivateOptions, minimize : bool }
@@ -404,15 +504,9 @@ struct
                     | WM_GETHOTKEY
                       (* Gets the virtual-key code of a Window's hot key *) 
                     
-                    | WM_GETMINMAXINFO of { MaxSizex      : int,
-	                                        MaxSizey      : int,
-                                            MaxPositionx  : int,
-	                                        MaxPositiony  : int,
-                                            MinTrackSizex : int,
-	                                        MinTrackSizey : int,
-                                            MaxTrackSizex : int,
-                                            MaxTrackSizey : int                                            
-                                             }
+                    | WM_GETMINMAXINFO of
+					     { maxSize: POINT ref, maxPosition: POINT ref,
+						   minTrackSize: POINT ref, maxTrackSize : POINT ref }
                       (* Gets minimum and maximum sizing information *)
                     
                     | WM_GETTEXT of { length: int, text : string ref  }	
@@ -549,17 +643,17 @@ struct
                       (* Changes the active state of nonclient area *)
                     
                     | WM_NCCALCSIZE	of { validarea     : bool,
-										     newrect       : RECT,
-										     oldrect       : RECT,
-										     oldclientarea : RECT,
-											 hwnd		   : HWND,
-										     insertAfter   : HWND,
-                                             x     : int,
-                                             y     : int,
-                                             cx    : int,
-                                             cy    : int,
-                                             style : WindowPositionStyle list
-					                       }
+									     newrect       : RECT ref, (* can be updated. *)
+									     oldrect       : RECT,
+									     oldclientarea : RECT,
+										 hwnd		   : HWND,
+									     insertAfter   : HWND,
+                                         x     : int,
+                                         y     : int,
+                                         cx    : int,
+                                         cy    : int,
+                                         style : WindowPositionStyle list
+				                       }
                       (* Calculates the size of a Window's client area *)
                     
                     | WM_NCCREATE of { instance: HINSTANCE,
@@ -714,7 +808,7 @@ struct
                     | WM_SYSCOLORCHANGE
                       (* Indicates a system color value was changed *) 
                     
-                    | WM_SYSCOMMAND of { commandvalue : SystemCommand, p: POINT }
+                    | WM_SYSCOMMAND of { commandvalue : SystemCommand, sysBits: int, p: POINT }
                       (* Indicates a system command was requested *) 
                     
                     | WM_SYSDEADCHAR of { charCode : char, data : KeyData  }
@@ -776,18 +870,18 @@ struct
                                                flags  : WindowPositionStyle list }
                       (* Notifies Window of size or position change *)
                     
-                    | WM_WINDOWPOSCHANGING of { hwnd: HWND, front  : HWND,
-                                                x   : int,
-                                                y   : int,
-                                                width  : int,
-                                                height : int,
-                                                flags  : WindowPositionStyle list }	
+                    | WM_WINDOWPOSCHANGING of { hwnd: HWND, front: HWND ref,
+                                                x   : int ref,
+                                                y   : int ref,
+                                                width  : int ref,
+                                                height : int ref,
+                                                flags  : WindowPositionStyle list ref }	
                       (* Notifies Window of new size or position *) 
                     
                     | WM_SETTINGCHANGE of { section_name : string  }	
                       (* Notifies applications that system wide settings have changed *)
 
-					| WM_NOTIFY of {from: HWND, idCtrl: int, idFrom : int, code: int }
+					| WM_NOTIFY of {from: HWND, idCtrl: int, idFrom : int, notification: Notification }
 
 					| WM_CAPTURECHANGED of { newCapture: HWND }
 
