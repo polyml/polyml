@@ -2,7 +2,7 @@
     Title:      Foreign function interface
     Author:     Nick Chapman
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -99,6 +99,7 @@ typedef char TCHAR;
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
+#include "locking.h"
 
 
 /**********************************************************************
@@ -235,35 +236,12 @@ typedef struct {
 
 
 static Volatile *vols;
+static PLock volLock; // Mutex to protect vols.
 
 #define FIRST_VOL 0
 
 static POLYUNSIGNED num_vols = 0;
 static POLYUNSIGNED next_vol = FIRST_VOL;
-
-
-/**********************************************************************
- *
- *  Expand Volatile array
- *   
- **********************************************************************/
-
-static void expand_vol_array(TaskData *taskData)
-{
-  POLYUNSIGNED new_num_vols = (num_vols==0) ? INITIAL_NUM_VOLS : num_vols*2;
-  info(("<%lu> ---> <%lu>\n", num_vols, new_num_vols));
-  {
-    Volatile *new_vols = (Volatile*)malloc(sizeof(Volatile)*new_num_vols);
-    if (new_vols == NULL) {
-      RAISE_EXN("Can't Enlarge Volatile Array");
-      /*NOTREACHED*/
-    }
-    memcpy(new_vols,vols,num_vols*sizeof(Volatile));
-    free(vols);
-    vols = new_vols;
-    num_vols = new_num_vols;
-  }
-}
 
 
 /* This table contains all the callback functions that have been created.  Once a callback
@@ -334,7 +312,16 @@ static Handle vol_alloc (TaskData *taskData)
     Handle result = SAVE(v);
     
     trace(("index=<%lu>\n",next_vol));
-    if (next_vol >= num_vols) expand_vol_array(taskData);
+    if (next_vol >= num_vols)
+    {
+        POLYUNSIGNED new_num_vols = (num_vols==0) ? INITIAL_NUM_VOLS : num_vols*2;
+        info(("<%lu> ---> <%lu>\n", num_vols, new_num_vols));
+        Volatile *new_vols = (Volatile*)realloc(vols, sizeof(Volatile)*new_num_vols);
+        if (new_vols == NULL)
+            RAISE_EXN("Can't Enlarge Volatile Array");
+        vols = new_vols;
+        num_vols = new_num_vols;
+    }
     V_INDEX(v) = next_vol++;
     MakeVolMagic(v);
     ML_POINTER(v) = v;
@@ -347,6 +334,7 @@ static Handle vol_alloc (TaskData *taskData)
 /* Allocate a new "vol" in the table which points to a C object of size "size". */
 static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
 {
+    PLocker plocker(&volLock);
     Handle res = vol_alloc(taskData);
     trace(("size= %lu\n",size));
     Vmalloc( C_POINTER(UNVOLHANDLE(res)), size );
@@ -364,6 +352,7 @@ static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
 /* Returns the C-pointer component corresponding to the "vol" argument. */
 static void* DEREFVOL (TaskData *taskData, PolyWord v)
 { TRACE; {
+    PLocker plocker(&volLock);
     PolyVolData *vol = (PolyVolData*)v.AsObjPtr();
     
     POLYUNSIGNED index = V_INDEX(vol);
@@ -424,26 +413,29 @@ static void sanity_check_vols(void)
    store so we need to call address(alloc s). */
 static Handle allocate (TaskData *taskData, Handle h)
 { TRACE; {
-  POLYUNSIGNED size = get_C_ulong(taskData, DEREFWORD(h)); /* bytes */
-
-  Handle space = vol_alloc_with_c_space(taskData, size);
-  return space;
+    POLYUNSIGNED size = get_C_ulong(taskData, DEREFWORD(h)); /* bytes */
+    Handle space = vol_alloc_with_c_space(taskData, size);
+    return space;
 }}
 
 /* Constructs a one-word C object whose value is the C-pointer of the argument. */
 static Handle address (TaskData *taskData, Handle h)
 { TRACE; {
-  Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-  *(void**)C_POINTER(UNVOLHANDLE(res)) = DEREFVOL(taskData, UNVOLHANDLE(h));
-  return res;
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    void *addr = DEREFVOL(taskData, UNVOLHANDLE(h));
+    PLocker plocker(&volLock);
+    *(void**)C_POINTER(UNVOLHANDLE(res)) = addr;
+    return res;
 }}
 
 /* Returns a vol containing the value at the address given in its argument. */
 static Handle deref (TaskData *taskData, Handle h)
 { TRACE; {
-  Handle res = vol_alloc(taskData);
-  C_POINTER(UNVOLHANDLE(res))= *(void**)DEREFVOL(taskData, UNVOLHANDLE(h));
-  return res;
+    void *addr = DEREFVOL(taskData, UNVOLHANDLE(h));
+    PLocker plocker(&volLock);
+    Handle res = vol_alloc(taskData);
+    C_POINTER(UNVOLHANDLE(res))= *(void**)addr;
+    return res;
 }}
 
 
@@ -457,11 +449,13 @@ static Handle deref (TaskData *taskData, Handle h)
    There's always one more level of indirection than you think.  DCJM 12/4/04. */
 static Handle offset (TaskData *taskData, Handle h)
 { TRACE; {
-    Handle res = vol_alloc(taskData);
     PolyWord structure  = UNHANDLE(h)->Get(0);
+    char *addr = (char*)DEREFVOL(taskData, structure);
+    PLocker plocker(&volLock);
+    Handle res = vol_alloc(taskData);
     int num_bytes = get_C_long(taskData, DEREFWORDHANDLE(h)->Get(1));
     
-    C_POINTER(UNVOLHANDLE(res)) = (char*)DEREFVOL(taskData, structure) + num_bytes;
+    C_POINTER(UNVOLHANDLE(res)) = addr + num_bytes;
     return res;
 }}
   
@@ -472,12 +466,11 @@ static Handle assign (TaskData *taskData, Handle h)
     PolyVolData *left  = (PolyVolData *)(UNHANDLE(h)->Get(0).AsObjPtr());
     PolyVolData *right = (PolyVolData *)(UNHANDLE(h)->Get(1).AsObjPtr());
     POLYSIGNED size = get_C_long(taskData, DEREFWORDHANDLE(h)->Get(2)); /* bytes */
-    POLYSIGNED i;
-    
-    for (i=0; i<size; i++) {
-        ((char*)C_POINTER(left))[i] = ((char*)DEREFVOL(taskData, right))[i];
-    }
-    
+    void *source = DEREFVOL(taskData, right);
+    PLocker plocker(&volLock);
+    void *dest = C_POINTER(left);
+    memcpy(dest, source, size);
+
     return h; /* to be ignored */
 }}
 
@@ -683,37 +676,30 @@ static Handle load_lib (TaskData *taskData, Handle string)
 	info(("<%s>\n", name));
 	
 #if defined(WINDOWS_PC)
+	HINSTANCE lib = LoadLibrary(name);
+	if (lib == NULL) 
 	{
-		HINSTANCE lib = LoadLibrary(name);
-		if (lib == NULL) 
-		{
-			char buf[256];
-			sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
-			RAISE_EXN(buf);
-		}
-		
-		{
-			Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-			*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
-			return res;
-		}
+		char buf[256];
+		sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
+		RAISE_EXN(buf);
 	}
+
+	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+	return res;
+
 #else  /* UNIX version */
+	void *lib = dlopen(name,DLOPENFLAGS);
+	if (!lib)
 	{
-		void *lib = dlopen(name,DLOPENFLAGS);
-		if (!lib)
-		{
-			char buf[256];
-			sprintf(buf, "load_lib <%s> : %s", name, dlerror());
-			RAISE_EXN(buf);
-		}
-		
-		{
-			Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-			*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
-			return res;
-		}
+		char buf[256];
+		sprintf(buf, "load_lib <%s> : %s", name, dlerror());
+		RAISE_EXN(buf);
 	}
+	
+	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+	return res;
 #endif
 }
 
@@ -732,40 +718,32 @@ static Handle load_sym (TaskData *taskData, Handle h)
 	info(("<%s>\n", name));
 	
 #if defined(WINDOWS_PC)
-	{
-		void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
-		
-		if (sym == NULL) 
-		{
-			char buf[256];
-			sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
-			RAISE_EXN(buf);
-		}
-		
-		{
-			Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-			*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
-			return res;
-		}
-	}
+	void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
 	
-#else /* UNIX version */
+	if (sym == NULL) 
 	{
-		void *sym = dlsym( *(void**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name );
-		
-		if (!sym)
-		{
-			char buf[256];
-			sprintf(buf, "load_sym <%s> : %s", name, dlerror());
-			RAISE_EXN(buf);
-		}
-		
-		{
-			Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-			*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
-			return res;
-		}
+		char buf[256];
+		sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
+		RAISE_EXN(buf);
 	}
+
+	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+	return res;
+
+#else /* UNIX version */
+	void *sym = dlsym( *(void**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name );
+	
+	if (!sym)
+	{
+		char buf[256];
+		sprintf(buf, "load_sym <%s> : %s", name, dlerror());
+		RAISE_EXN(buf);
+	}
+
+	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+	return res;
 #endif
 }
 
@@ -960,18 +938,15 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
                 
                   SPF 31/3/1998
                 */
-                
+
                 Handle res = vol_alloc_with_c_space(taskData, size);
                 
-                {
-                    STRUCT_MAX temp = 
-                        ((STRUCT_MAX(*)(...))fun)
-                        (a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,
-                        b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15);
-                    
-                    memcpy(DEREFVOL(taskData, UNHANDLE(res)), &temp, size);
-                }
+                STRUCT_MAX temp = 
+                    ((STRUCT_MAX(*)(...))fun)
+                    (a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,
+                    b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15);
                 
+                memcpy(DEREFVOL(taskData, UNHANDLE(res)), &temp, size);                
                 
                 mes(("Returning from foreign function\n"));
                 return res;
@@ -1156,22 +1131,19 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
    DCJM 27/6/01. */
 static Handle toCchar (TaskData *taskData, Handle h)
 {
-  char s[2];
-  Poly_string_to_C(DEREFWORD(h),s,2);
-  mes(("<%c>\n", s[0]));
-  {
+    char s[2];
+    Poly_string_to_C(DEREFWORD(h),s,2);
+    mes(("<%c>\n", s[0]));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(char));
     *(char*)DEREFVOL(taskData, UNHANDLE(res)) = s[0];
     return res;
-  }
 }
 
 static Handle fromCchar (TaskData *taskData, Handle h)
 {
-  char c;
-  c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
-  mes(("<%c>\n", c));
-  return SAVE(Buffer_to_Poly(taskData, &c,1));
+    char c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
+    mes(("<%c>\n", c));
+    return SAVE(Buffer_to_Poly(taskData, &c,1));
 }
 
 
@@ -1183,20 +1155,18 @@ static Handle fromCchar (TaskData *taskData, Handle h)
 
 static Handle toCdouble (TaskData *taskData, Handle h)
 {
-  double d = real_arg(h);
-  mes(("<%f>\n", d));
-  {
+    double d = real_arg(h);
+    mes(("<%f>\n", d));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(double));
     *(double*)DEREFVOL(taskData, UNHANDLE(res)) = d;
     return res;
-  }
 }
 
 static Handle fromCdouble (TaskData *taskData, Handle h)
 {
-  double d = *(double*)DEREFVOL(taskData, UNHANDLE(h));
-  mes(("<%f>\n", d));
-  return real_result(taskData, d);
+    double d = *(double*)DEREFVOL(taskData, UNHANDLE(h));
+    mes(("<%f>\n", d));
+    return real_result(taskData, d);
 }
 
 
@@ -1208,20 +1178,18 @@ static Handle fromCdouble (TaskData *taskData, Handle h)
 
 static Handle toCfloat (TaskData *taskData, Handle h)
 {
-  float f = (float)real_arg(h);
-  mes(("<%f>\n", f));
-  {
+    float f = (float)real_arg(h);
+    mes(("<%f>\n", f));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(float));
     *(float*)DEREFVOL(taskData, UNHANDLE(res)) = f;
     return res;
-  }
 }
 
 static Handle fromCfloat (TaskData *taskData, Handle h)
 {
-  float f = *(float*)DEREFVOL(taskData, UNHANDLE(h));
-  mes(("<%f>\n", f));
-  return real_result(taskData, (double)f);
+    float f = *(float*)DEREFVOL(taskData, UNHANDLE(h));
+    mes(("<%f>\n", f));
+    return real_result(taskData, (double)f);
 }
 
 
@@ -1235,11 +1203,9 @@ static Handle toCint (TaskData *taskData, Handle h)
 {
     int i = get_C_long(taskData, UNHANDLE(h));
     mes(("value = %d\n", i));
-    {
-        Handle res = vol_alloc_with_c_space(taskData, sizeof(int));
-        *(int*)DEREFVOL(taskData, UNHANDLE(res)) = i;
-        return res;
-    }
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(int));
+    *(int*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    return res;
 }
 
 static Handle fromCint (TaskData *taskData, Handle h)
@@ -1260,11 +1226,9 @@ static Handle toClong (TaskData *taskData, Handle h)
 {
     long i = get_C_long(taskData, UNHANDLE(h));
     mes(("value = %d\n", (int)i));
-    {
-        Handle res = vol_alloc_with_c_space(taskData, sizeof(long));
-        *(long*)DEREFVOL(taskData, UNHANDLE(res)) = i;
-        return res;
-    }
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(long));
+    *(long*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    return res;
 }
 
 static Handle fromClong (TaskData *taskData, Handle h)
@@ -1283,20 +1247,18 @@ static Handle fromClong (TaskData *taskData, Handle h)
 
 static Handle toCshort (TaskData *taskData, Handle h)
 {
-  short i = (short)get_C_long(taskData, UNHANDLE(h));
-  mes(("<%d>\n", (int)i));
-  {
+    short i = (short)get_C_long(taskData, UNHANDLE(h));
+    mes(("<%d>\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(short));
     *(short*)DEREFVOL(taskData, UNHANDLE(res)) = i;
     return res;
-  }
 }
 
 static Handle fromCshort (TaskData *taskData, Handle h)
 {
-  short i = *(short*)DEREFVOL(taskData, UNHANDLE(h));
-  mes(("<%d>\n", (int)i));
-  return Make_arbitrary_precision(taskData, i);
+    short i = *(short*)DEREFVOL(taskData, UNHANDLE(h));
+    mes(("<%d>\n", (int)i));
+    return Make_arbitrary_precision(taskData, i);
 }
 
 
@@ -1308,20 +1270,18 @@ static Handle fromCshort (TaskData *taskData, Handle h)
 
 static Handle toCuint (TaskData *taskData, Handle h)
 {
-  unsigned i = get_C_ulong(taskData, UNHANDLE(h));
-  mes(("value = %d\n", (int)i));
-  {
+    unsigned i = get_C_ulong(taskData, UNHANDLE(h));
+    mes(("value = %d\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(unsigned));
     *(unsigned*)DEREFVOL(taskData, UNHANDLE(res)) = i;
     return res;
-  }
 }
 
 static Handle fromCuint (TaskData *taskData, Handle h)
 {
-  unsigned i = *(unsigned*)DEREFVOL(taskData, UNHANDLE(h));
-  mes(("<%d>\n", (int)i));
-  return Make_unsigned(taskData, i);
+    unsigned i = *(unsigned*)DEREFVOL(taskData, UNHANDLE(h));
+    mes(("<%d>\n", (int)i));
+    return Make_unsigned(taskData, i);
 }
 
 /**********************************************************************
@@ -1344,6 +1304,7 @@ static Handle fillCstring (TaskData *taskData, Handle h)
     size += 1; // For the terminating zero
 
     Poly_string_to_C(str, (char*)DEREFVOL(taskData, cArg), size);
+    PLocker plocker(&volLock);
     mes(("<%s>\n", (char*)C_POINTER(cArg)));
     return h; /* to be ignored */
 }}
@@ -1363,6 +1324,7 @@ static Handle toCstring (TaskData *taskData, Handle h)
     which is owned by the same vol. */
     Handle res = vol_alloc_with_c_space(taskData, sizeof(char*)+size);
     
+    PLocker plocker(&volLock);
     /* Make the first word of the c-space point to the second word */
     *(void**)C_POINTER(UNVOLHANDLE(res)) = 1 + (void**)C_POINTER(UNVOLHANDLE(res));
     
@@ -1394,6 +1356,7 @@ static Handle toCbytes (TaskData *taskData, Handle h)
     /* Allocate c-space for both the string & a pointer to the string,
        which is owned by the same vol. */
     Handle res = vol_alloc_with_c_space(taskData, sizeof(char*)+size);
+    PLocker plocker(&volLock);
     char  **p = (char**)C_POINTER(UNVOLHANDLE(res));
     
     /* Make the first word of the c-space point to the second word */
@@ -1765,6 +1728,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
             RAISE_EXN("Callback functions are currently only implemented for the i386");
     /* Construct a "vol" containing the pointer to the C function. */
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    PLocker plocker(&volLock);
     *(unsigned char **)C_POINTER(UNVOLHANDLE(res)) = callbackTable[callBackEntries].cFunction;
     callBackEntries++;
     return res;
