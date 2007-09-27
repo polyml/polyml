@@ -58,6 +58,7 @@ structure Painting :
     val SetBkColor : HDC * COLORREF -> COLORREF
     val SetROP2 : HDC * BinaryRasterOperation -> BinaryRasterOperation
     val WindowFromDC : HDC -> HWND
+	val InvalidateRect: HWND * RECT * bool -> unit
   end =
 struct
 	local
@@ -150,6 +151,10 @@ struct
 			end
 			and EndPaint(hwnd: HWND, ps: PAINTSTRUCT): unit = endPaint(hwnd, address(toCPS ps))
 		end
+		
+		val InvalidateRect =
+		    (checkResult "InvalidateRect") o
+		    (call3 (user "InvalidateRect") (HWND, POINTERTO RECT, BOOL) BOOL)
 		(*
 			Other painting and drawing functions:
 				DrawAnimatedRects  
@@ -164,7 +169,6 @@ struct
 				GetBoundsRect  
 				GetWindowRgn  
 				GrayString  
-				InvalidateRect  
 				LockWindowUpdate  
 				OutputProc  
 				PaintDesktop  
