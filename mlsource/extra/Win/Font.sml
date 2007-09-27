@@ -477,7 +477,7 @@ struct
 
 		local
 			val tabbedTextOut =
-				call8 (user "TabbedTextOutA") (HDC, INT, INT, STRING, INT, INT, POINTER, INT) INT
+				call8 (user "TabbedTextOutA") (HDC, INT, INT, STRING, INT, INT, POINTER, INT) UINT
 		in
 			fun TabbedTextOut(hdc, {x, y}: POINT, str, tabs, origin): SIZE =
 			let
