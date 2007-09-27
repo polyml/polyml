@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -47,5 +47,6 @@ local
 	structure m = Mouse
 	structure ws = WinSystem
 	structure lo = Locale
+	structure cc = CommonControls
 in
 end;
