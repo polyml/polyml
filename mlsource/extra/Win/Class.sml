@@ -29,7 +29,7 @@ sig
 
     datatype 'a ATOM =
         Registered of
-			{proc: HWND * Message * 'a -> LRESULT option * 'a, className: string}
+			{proc: HWND * Message * 'a -> LRESULT * 'a, className: string}
       | SystemClass of string
 
     val Button : unit ATOM
@@ -63,7 +63,7 @@ sig
 
 	type 'a WNDCLASSEX =
 		{style: Style.flags, 
-		 wndProc: HWND * Message * 'a -> LRESULT option * 'a,
+		 wndProc: HWND * Message * 'a -> LRESULT * 'a,
 		 hInstance: HINSTANCE,
 		 hIcon: HICON option,
 		 hCursor: HCURSOR option,
@@ -124,7 +124,7 @@ struct
 		(* Classes are either registered by the user, in which case they have
 		   ML callback functions, or they are built-in, such as Edit. *)
 		datatype 'a ATOM =
-			Registered of { proc: HWND * Message * 'a -> LRESULT option * 'a, className: string }
+			Registered of { proc: HWND * Message * 'a -> LRESULT * 'a, className: string }
 		|	SystemClass of string
 
 		val Button: unit ATOM = SystemClass "Button"
@@ -139,7 +139,7 @@ struct
 
 		type 'a WNDCLASSEX =
 			{style: Style.flags, 
-			 wndProc: HWND * Message * 'a -> LRESULT option * 'a,
+			 wndProc: HWND * Message * 'a -> LRESULT * 'a,
 			 hInstance: HINSTANCE,
 			 hIcon: HICON option,
 			 hCursor: HCURSOR option,
@@ -149,15 +149,15 @@ struct
 			 hIconSm: HICON option}
 
 		local
-		    val WNDPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
+		    val WNDPROC = PASCALFUNCTION4 (HWND, INT, POINTER, POINTER) POINTER
 			val WNDCLASSEX = STRUCT12(INT,WORD,WNDPROC,INT,INT,HINSTANCE,HGDIOBJOPT,
 									  HGDIOBJOPT,HGDIOBJOPT,RESID,STRING,HGDIOBJOPT)
 			val (fromCwndclassex, toCwndclassex, wndclassEx) = breakConversion WNDCLASSEX
 			val CallWindowProc =
-				call5 (user "CallWindowProcA") (WNDPROC, HWND, INT, POINTER, POINTER) INT
+				call5 (user "CallWindowProcA") (WNDPROC, HWND, INT, POINTER, POINTER) POINTER
 		in
 			fun RegisterClassEx({style: Style.flags, 
-								wndProc: HWND * Message * 'a -> LRESULT option * 'a,
+								wndProc: HWND * Message * 'a -> LRESULT * 'a,
 								hInstance: HINSTANCE,
 								hIcon: HICON option,
 								hCursor: HCURSOR option,
@@ -195,7 +195,7 @@ struct
 			fun GetClassInfoEx(hInst, class): 'a WNDCLASSEX =
 			let
 				val v =
-					toCwndclassex(sizeof wndclassEx, 0w0, fn _ => 0, 0, 0, hNull, 
+					toCwndclassex(sizeof wndclassEx, 0w0, fn _ => toCint 0, 0, 0, hNull, 
 								  NONE, NONE, NONE, IdAsInt 0, "", NONE)
 				val res = call3(user "GetClassInfoExA") (HINSTANCE, STRING, POINTER)
 							(SUCCESSSTATE "GetClassInfoEx") (hInst, class, address v)
@@ -209,8 +209,9 @@ struct
 				fun wndProc(hwnd, msg, state) =
 				let
 					val (msgId: int, wParam: vol, lParam: vol) = Message.compileMessage msg
+					val res: vol = CallWindowProc(wproc, hwnd, msgId, wParam, lParam)
 				in
-					(SOME(LRESINT(CallWindowProc(wproc, hwnd, msgId, wParam, lParam))), state)
+					(Message.messageReturnFromParams(msg, wParam, lParam, res), state)
 				end
 			in
 				{style = Style.fromWord style, wndProc = wndProc, hInstance = hInstance,

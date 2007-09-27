@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -136,9 +136,9 @@ struct
 			if isHNull c then raise OS.SysErr(name, SOME(GetLastError())) else c
 
 		(* Dialogue procedures never call DefWindowProc. *)
-		fun dlgProcRes (lres, state) = (SOME lres, state)
+		fun dlgProcRes (lres, state) = (lres, state)
 		
-		val DLGPROC = PASCALFUNCTION4 (INT, INT, INT, INT) INT
+		val DLGPROC = PASCALFUNCTION4 (HWND, INT, POINTER, POINTER) POINTER
 	in
 		type HWND = HWND and HINSTANCE = HINSTANCE
 
@@ -467,7 +467,7 @@ struct
 		in
 			fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
 			let
-				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
+				val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
 				val res = checkWindow "CreateDialog" 
 					(sysCreateDialog(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0))
 			in
@@ -485,7 +485,7 @@ struct
 		in
 			fun CreateDialogIndirect (hInst, template, hWndParent, dialogueProc, init) =
 			let
-				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
+				val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
 				(* Compile the template and copy it to C memory. *)
 				val compiled = compileTemplate template
 				val size = Word8Vector.length compiled
@@ -511,7 +511,7 @@ struct
 			fun DialogBox (hInst, lpTemplate, hWndParent, dialogueProc, init) =
 			let
 				(* We can use the normal window procedure as a dialogue proc. *)
-				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
+				val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
 				val result = sysDialogBox(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0)
 			in
 				(* How do we remove the callback?  Look for the last message? *)
@@ -526,7 +526,7 @@ struct
 		in
 			fun DialogBoxIndirect (hInst, template, hWndParent, dialogueProc, init) =
 			let
-				val _ = Message.addCallback(hwndNull, dlgProcRes o dialogueProc, init, fn _ => 0);
+				val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
 				(* Compile the template and copy it to C memory. *)
 				val compiled = compileTemplate template
 				val size = Word8Vector.length compiled
@@ -542,7 +542,7 @@ struct
 		(* Get average size of system font. *)
 		fun GetDialogBaseUnits() : {horizontal: int, vertical: int} =
 		let
-			val base = call0 (user "GetDialogBaseUnits") () INT ()
+			val base = call0 (user "GetDialogBaseUnits") () UINT ()
 		in
 			{horizontal = LOWORD base, vertical = HIWORD base}
 		end
