@@ -314,7 +314,7 @@ struct
 					itemData, typeData, cch) = fromCmenuiteminfo r
 				val menuType =
 					if LargeWord.andb(mtype, mft_BITMAP) <> 0w0
-					then MFT_BITMAP(handleOfInt(LOWORD(fromCint typeData)))
+					then MFT_BITMAP(handleOfInt(LOWORD(fromCuint typeData)))
 					else if LargeWord.andb(mtype, mft_OWNERDRAW) <> 0w0
 					then MFT_OWNERDRAW(fromCint typeData)
 					else if LargeWord.andb(mtype, mft_SEPARATOR) <> 0w0
@@ -370,7 +370,7 @@ struct
 		end
 
 		local
-        	val getMenuState = call3 (user "GetMenuState") (HMENU,INT,MENUFLAG) INT
+        	val getMenuState = call3 (user "GetMenuState") (HMENU,INT,MENUFLAG) UINT
 		in
 			(* If the menu opens a submenu the high order word is the number of
 			   items.  The low order word is the state. *)
@@ -496,7 +496,7 @@ struct
 			end
 		end
 
-		val LoadMenu = call2 (user "LoadMenu") (HINSTANCE, RESID) HMENU
+		val LoadMenu = call2 (user "LoadMenuA") (HINSTANCE, RESID) HMENU
 		val SetMenu = call2 (user "SetMenu") (HWND, HMENUOPT) (SUCCESSSTATE "SetMenu")
 
 		val SetMenuContextHelpId =
