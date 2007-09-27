@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -55,7 +55,7 @@ let
 								relation = ChildWindow{parent=w, id=99 (* Not used *)},
 								instance = app, init = ()}
 		in
-			(SOME(LRESINT 0), SOME static) (* Return it as the "state". *)
+			(LRESINT 0, SOME static) (* Return it as the "state". *)
 		end
 
 	|	wndProc(w: HWND, WM_PAINT, state as SOME static) =
@@ -73,7 +73,7 @@ let
 			val _ = ExtTextOut(hdc, {x=0, y=0}, [ETO_OPAQUE], SOME(#paint ps), "", []);
 		in
 			EndPaint(w, ps);
-			(SOME(LRESINT 0), state)
+			(LRESINT 0, state)
 		end
 
 	|	wndProc(w: HWND, WM_SIZE {width, height, ...}, state as SOME static) =
@@ -84,10 +84,10 @@ let
 			MoveWindow{hWnd = static, x = (width - #right subRect) div 2,
 					   y = (height - #bottom subRect) div 2,
 					   height = #bottom subRect, width = #right subRect, repaint = true};
-			(SOME(LRESINT 0), state)
+			(LRESINT 0, state)
 		end
 
-	|   wndProc(w: HWND, WM_COMMAND{notifyCode = 0, wId = 1 (* menuCopy*), control},
+	|   wndProc(w: HWND, msg as WM_COMMAND{notifyCode = 0, wId = 1 (* menuCopy*), control},
 				state as SOME static) =
 		(* WM_COMMAND messages are sent when a menu item is pulled down.  wId is the
 		   value we set as the ID when we created the menu. *)
@@ -98,7 +98,7 @@ let
 				SendMessage(static, STM_GETIMAGE{imageType=IMAGE_BITMAP})
 		in
 			if isHNull bitMap
-			then (NONE, state)
+			then (DefWindowProc(w, msg), state)
 			else (
 				OpenClipboard(SOME w);
 				let
@@ -116,11 +116,11 @@ let
 				end (* Make sure the clipboard is closed if anything goes wrong. *)
 				handle exn => (CloseClipboard(); raise exn);
 				CloseClipboard();
-				(SOME(LRESINT 0), state)
+				(LRESINT 0, state)
 				)
 		end
 
-	|  wndProc(w: HWND, WM_COMMAND{notifyCode = 0, wId = 2 (* menuPaste*), control},
+	|  wndProc(w: HWND, msg as WM_COMMAND{notifyCode = 0, wId = 2 (* menuPaste*), control},
 			   state as SOME static) =
 		(
 		case GetPriorityClipboardFormat[CF_DIB, CF_BITMAP, CF_ENHMETAFILE] of
@@ -156,7 +156,7 @@ let
 				handle exn => (CloseClipboard(); raise exn);
 
 				CloseClipboard();
-				(SOME(LRESINT 0), state)
+				(LRESINT 0, state)
 			)
 
 		|	SOME CF_DIB =>
@@ -178,7 +178,7 @@ let
 				handle exn => (CloseClipboard(); raise exn);
 
 				CloseClipboard();
-				(SOME(LRESINT 0), state)
+				(LRESINT 0, state)
 			)
 
 		(* The clipboard synthesises DIBs from bitmaps so this code will never be
@@ -202,17 +202,17 @@ let
 				handle exn => (CloseClipboard(); raise exn);
 
 				CloseClipboard();
-				(SOME(LRESINT 0), state)
+				(LRESINT 0, state)
 			)
-		|	_ => (NONE, state) (* Nothing we can use. *)
+		|	_ => (DefWindowProc(w, msg), state) (* Nothing we can use. *)
 		)
 
-	|  wndProc(w: HWND, WM_NCDESTROY, state) =
+	|  wndProc(w: HWND, msg as WM_NCDESTROY, state) =
 		(* When the window is closed we send a QUIT message which exits from the application loop. *)
-		(PostQuitMessage 0; (NONE, state))
+		(PostQuitMessage 0; (DefWindowProc(w, msg), state))
 
 	|  wndProc(w: HWND, msg: Message, state) =
-		(NONE, state) (* Anything else. *)
+		(DefWindowProc(w, msg), state) (* Anything else. *)
 
 	and setBitmap(newb: HBITMAP, main: HWND, static: HWND) =
 	let

@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -95,7 +95,7 @@ let
 		fileName: string
 		}
 
-	fun wndProc(hw: HWND, msg: Message, NONE) =
+	fun wndProc(hw: HWND, msg: Message, NONE): LRESULT * state option =
 		(
 		case msg of
 			WM_CREATE _ => (* Create an edit window and return it as the state. *)
@@ -120,10 +120,10 @@ let
 					   pitch=FIXED_PITCH, family=FF_MODERN, faceName="Courier"}
 			in
 				SendMessage(edit, WM_SETFONT{font=hFont, redrawflag=false});
-				(SOME(LRESINT 0), SOME{edit=edit, devMode=NONE, devNames = NONE, fileName=""})
+				(LRESINT 0, SOME{edit=edit, devMode=NONE, devNames = NONE, fileName=""})
 			end
 
-		| _ => (NONE, NONE)
+		| _ => (DefWindowProc(hw, msg), NONE)
 		)
 
 	| wndProc(hw: HWND,
@@ -132,21 +132,21 @@ let
 		case msg of
 			WM_SETFOCUS _ =>
 				(* If we get a focus request we set the focus to the edit window. *)
-				(SetFocus(SOME edit); (NONE, state))
+				(SetFocus(SOME edit); (DefWindowProc(hw, msg), state))
 	
 		|	WM_SIZE{height, width, ...} =>
 				(* If we get a size change we set the size of the edit window. *)
-				(MoveWindow{hWnd=edit, x=0, y=0, height=height, width=width, repaint=true}; (NONE, state))
+				(MoveWindow{hWnd=edit, x=0, y=0, height=height, width=width, repaint=true}; (DefWindowProc(hw, msg), state))
 	
 		|	WM_NCDESTROY =>
 				(* When the window is closed we send a QUIT message which exits from the application loop. *)
-				(PostQuitMessage 0; (NONE, state))
+				(PostQuitMessage 0; (DefWindowProc(hw, msg), state))
 	
 		|	WM_CLOSE =>
 				(* User has pressed the Close box.  If it's ok to close we could call
 				   DestroyWindow ourselves.  Just as an example we return NONE which
 				   passes it to the default window procedure and does it for us. *)
-				(if checkForSave(hw, edit, fileName) then NONE else SOME(LRESINT 0), state)
+				(if checkForSave(hw, edit, fileName) then DefWindowProc(hw, msg) else LRESINT 0, state)
 	
 		|	WM_COMMAND{notifyCode = 0, wId, control} =>
 				(* Menu selections arrive here. *)
@@ -155,7 +155,7 @@ let
 				then
 					(
 					if checkForSave(hw, edit, fileName) then DestroyWindow hw else ();
-					(SOME(LRESINT 0), state)
+					(LRESINT 0, state)
 					)
 
 				else if wId = menuOpen
@@ -180,7 +180,7 @@ let
 					}
 				in
 					case GetOpenFileName on of
-						NONE => (SOME(LRESINT 0), state)
+						NONE => (LRESINT 0, state)
 					|	SOME {file, ...} =>
 						(* If it's been modified we need to ask before overwriting. *)
 						if checkForSave(hw, edit, fileName)
@@ -196,30 +196,30 @@ let
 							SetWindowText(edit, nlToCrnl(TextIO.inputAll f));
 							TextIO.closeIn f;
 							SendMessage(edit, EM_SETMODIFY{modified=false});
-							(SOME(LRESINT 0), SOME{edit=edit, devMode=devMode, devNames=devNames,
+							(LRESINT 0, SOME{edit=edit, devMode=devMode, devNames=devNames,
 								          fileName=file})
 						end) handle exn =>
 							(MessageBox(SOME hw,
 								concat["Unable to open - ", file, "\n"(*, exnMessage exn*)],
 								"Open failure", MessageBoxStyle.MB_OK);
-							(SOME(LRESINT 0), state))
-						else (SOME(LRESINT 0), state)
+							(LRESINT 0, state))
+						else (LRESINT 0, state)
 				end
 
 				else if wId = menuSave andalso fileName <> ""
 				then (* Save to the original file name if there is one. *)
 				(
 					saveDocument(hw, fileName, edit);
-					(SOME(LRESINT 0), state)
+					(LRESINT 0, state)
 				)
 
 				else if wId = menuSaveAs orelse wId = menuSave (* andalso fileName = "" *)
 				then
 				(
 					case saveAsDocument(hw, edit) of
-						NONE => (SOME(LRESINT 0), state)
+						NONE => (LRESINT 0, state)
 					|	SOME newName =>
-							(SOME(LRESINT 0), (* Use the selected file name. *)
+							(LRESINT 0, (* Use the selected file name. *)
 								SOME{edit=edit, devMode=devMode, devNames=devNames,
 								     fileName=newName})
 				)
@@ -235,16 +235,16 @@ let
 								 findWhat="", replaceWith="", bufferSize = 100}
 				in
 					ShowWindow(find, SW_SHOW);
-					(SOME(LRESINT 0), state)
+					(LRESINT 0, state)
 				end
 
 				(* Cut, Copy and Paste are all handled by the Edit window. *)
 				else if wId = menuCut
-				then (SendMessage(edit, WM_CUT); (SOME(LRESINT 0), state))
+				then (SendMessage(edit, WM_CUT); (LRESINT 0, state))
 				else if wId = menuCopy
-				then (SendMessage(edit, WM_COPY); (SOME(LRESINT 0), state))
+				then (SendMessage(edit, WM_COPY); (LRESINT 0, state))
 				else if wId = menuPaste
-				then (SendMessage(edit, WM_PASTE); (SOME(LRESINT 0), state))
+				then (SendMessage(edit, WM_PASTE); (LRESINT 0, state))
 
 				else if wId = menuPageSetup
 				then
@@ -254,9 +254,9 @@ let
 									 flags=PageSetupFlags.flags[], paperSize={x=0,y=0},
 									 minMargin={top=0,bottom=0,left=0,right=0},
 									 margin={top=0,bottom=0,left=0,right=0}} of
-						NONE => (SOME(LRESINT 0), state)
+						NONE => (LRESINT 0, state)
 					|	SOME {devMode, devNames, ...} =>
-							(SOME(LRESINT 0), SOME{edit=edit, devMode=devMode, devNames=devNames,
+							(LRESINT 0, SOME{edit=edit, devMode=devMode, devNames=devNames,
 										  fileName=fileName})
 					)
 
@@ -406,27 +406,27 @@ let
 							SelectObject(hdc, oldFont);
 							DeleteObject(hFont);
 							DeleteDC hdc; (* Now delete the device context. *)
-							(SOME(LRESINT 0), SOME{edit=edit, devMode=devMode, devNames=devNames,
+							(LRESINT 0, SOME{edit=edit, devMode=devMode, devNames=devNames,
 										  fileName=fileName})
 						end
 							(* If any of the functions failed simply delete the device
 							   context and return the original state. *)
 							handle (exn as OS.SysErr _) => (
-								print (exnName exn); AbortDoc hdc; DeleteDC hdc; (SOME(LRESINT 0), state)))
-					|	_ => (SOME(LRESINT 0), state)
+								print (exnName exn); AbortDoc hdc; DeleteDC hdc; (LRESINT 0, state)))
+					|	_ => (LRESINT 0, state)
 				end
 
 				else if wId = menuAbout
-				then (aboutmlEdit hw; (SOME(LRESINT 0), state))
+				then (aboutmlEdit hw; (LRESINT 0, state))
 
-				else (NONE, state)
+				else (DefWindowProc(hw, msg), state)
 
 		|  FINDMSGSTRING{flags, findWhat, ...} =>
 			if FindReplaceFlags.anySet(flags, FindReplaceFlags.FR_DIALOGTERM)
 			then (* The "find" box is going away. *)
 				(
 					SetFocus(SOME edit);
-					(SOME(LRESINT 0), state)
+					(LRESINT 0, state)
 				)
 			else if FindReplaceFlags.anySet(flags, FindReplaceFlags.FR_FINDNEXT)
 			then (* The Find Next button has been pressed. *)
@@ -473,11 +473,11 @@ let
 					()
 					)
 				else MessageBeep(MessageBoxStyle.fromWord 0wxFFFFFFFF);
-				(SOME(LRESINT 0), state)
+				(LRESINT 0, state)
 			end
-			else (NONE, state)
+			else (DefWindowProc(hw, msg), state)
 
-		|	_ => (NONE, state)
+		|	_ => (DefWindowProc(hw, msg), state)
 
 	(* If this document has been modified we want to ask before quitting or
 	   opening a new document. *)
@@ -583,7 +583,7 @@ let
 	            title =
 					DLG_TITLESTRING
 	                   "mlEdit - An example of Windows programming in Poly/ML\
-					   \\nCopyright David C.J. Matthews 2001-6",
+					   \\nCopyright David C.J. Matthews 2001-7",
 	            creationData = NONE,  extendedStyle = 0}] }
 
 		(* Dialogue procedure. *)

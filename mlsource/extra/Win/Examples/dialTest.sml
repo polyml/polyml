@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -22,11 +22,11 @@
 fun dlgProc (h, Message.WM_INITDIALOG _, ()) = (Message.LRESINT 1, ())
  |  dlgProc (h, Message.WM_COMMAND{notifyCode = 0, wId, ...}, ()) =
  		(if wId = MessageBox.IDOK orelse wId = MessageBox.IDCANCEL
-		 then Dialog.EndDialog(h, wId) else ();
+		 then (Dialog.EndDialog(h, wId); Message.PostQuitMessage 0) else ();
 		 (Message.LRESINT 1, ()))
- |  dlgProc (h, Message.WM_DESTROY, ()) =
- 		(Message.PostQuitMessage 0; (Message.LRESINT 1, ()))
- |  dlgProc msg = ((*PolyML.print msg; *)(Message.LRESINT 0, ()));
+ |  dlgProc msg = ((*PolyML.print msg;*)(Message.LRESINT 0, ()));
+
+val dial = ref Base.hwndNull;
 
 local
 open Dialog Window.Style
@@ -52,23 +52,31 @@ val template =
        {x = 136, y = 46, cx = 58, cy = 72, id = 1002, creationData = NONE, extendedStyle = 0,
         class = DLG_LISTBOX (flags[WS_CHILD, WS_VISIBLE, WS_BORDER, WS_VSCROLL, WS_TABSTOP]),
         title = DLG_TITLESTRING ""}]}
-val dial =
+fun makedial() =
 	CreateDialogIndirect(Globals.ApplicationInstance(), template,
 		Globals.MainWindow(), dlgProc, ());
 end;
 (*
 val hi = Resource.LoadLibrary "C:\\Source Files\\DialogueDLL\\Debug\\DialogueDLL.dll";
 	 
-val dial = Dialog.CreateDialog(hi, Resource.IdAsString "MYDIALOGUE", Globals.MainWindow(),
+fun makedial() = Dialog.CreateDialog(hi, Resource.IdAsString "MYDIALOGUE", Globals.MainWindow(),
 	dlgProc, ());
 *)
-Window.ShowWindow(dial, Window.SW_SHOW);
-Window.SetForegroundWindow dial;
-Process.fork(fn () => (Message.RunApplication(); ()));
+(* The dialogue has to be created by the thread that will handle its messages. *)
+fun runDialogue() =
+    (
+        dial := makedial();
+	    Window.ShowWindow(!dial, Window.SW_SHOW);
+        Window.SetForegroundWindow (!dial);
+        Message.RunApplication();
+		()
+	);
 
-val combo = Dialog.GetDlgItem(dial, 1003);
-val scroll = Dialog.GetDlgItem(dial, 1001);
-val listbox = Dialog.GetDlgItem(dial, 1002);
+Thread.Thread.fork(runDialogue, []);
+
+val combo = Dialog.GetDlgItem(!dial, 1003);
+val scroll = Dialog.GetDlgItem(!dial, 1001);
+val listbox = Dialog.GetDlgItem(!dial, 1002);
 
 val info = ref {minPos = 10, maxPos = 20, pageSize = 4, pos = 15, trackPos = 0};
 Message.SendMessage(scroll, Message.SBM_SETSCROLLINFO{info= !info, options=Scrollbar.SIF_ALL});
@@ -76,4 +84,4 @@ Message.SendMessage(scroll, Message.SBM_GETSCROLLINFO{info=info, options=Scrollb
 !info;
 Message.SendMessage(combo, Message.CB_DIR{attrs = [], fileSpec ="C:\\*"});
 
-Message.SendMessage(listbox, Message.LB_DIR{attrs = [], fileSpec ="C:\\*"});
+Message.SendMessage(combo, Message.CB_DIR{attrs = [], fileSpec ="C:\\*"});
