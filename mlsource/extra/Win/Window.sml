@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -34,6 +34,18 @@ sig
 		and WS_MINIMIZEBOX:flags and WS_MAXIMIZEBOX:flags and WS_TILED:flags and WS_ICONIC:flags
 		and WS_SIZEBOX:flags and WS_OVERLAPPEDWINDOW:flags and WS_TILEDWINDOW:flags
 		and WS_POPUPWINDOW:flags and WS_CHILDWINDOW:flags
+	end
+	
+	structure ExStyle:
+	sig
+	    include BIT_FLAGS
+        val WS_EX_DLGMODALFRAME: flags and WS_EX_NOPARENTNOTIFY: flags and WS_EX_TOPMOST: flags
+		and WS_EX_ACCEPTFILES : flags and WS_EX_TRANSPARENT: flags and WS_EX_MDICHILD: flags
+        and WS_EX_TOOLWINDOW: flags and WS_EX_WINDOWEDGE: flags and WS_EX_CLIENTEDGE: flags
+		and WS_EX_CONTEXTHELP: flags and WS_EX_RIGHT: flags and WS_EX_LEFT: flags
+		and WS_EX_RTLREADING: flags and WS_EX_LTRREADING: flags and WS_EX_LEFTSCROLLBAR: flags
+		and WS_EX_RIGHTSCROLLBAR: flags and WS_EX_CONTROLPARENT: flags and WS_EX_STATICEDGE: flags
+		and WS_EX_APPWINDOW: flags and WS_EX_OVERLAPPEDWINDOW: flags and WS_EX_PALETTEWINDOW: flags
 	end
 
 	datatype WindowPositionStyle =
@@ -102,6 +114,16 @@ sig
        {x: int, y: int, init: 'a, name: string, class: 'a Class.ATOM,
          style: Style.flags, width: int, height: int,
          instance: HINSTANCE, relation: ParentType} -> HWND
+    val CreateWindowEx :
+       {x: int, y: int, init: 'a, name: string, class: 'a Class.ATOM,
+         style: Style.flags, width: int, height: int,
+         instance: HINSTANCE, relation: ParentType, exStyle: ExStyle.flags} -> HWND
+	val CreateMDIClient: {
+	        relation: ParentType, style: Style.flags, instance: HINSTANCE, windowMenu: HMENU,
+			idFirstChild: int} -> HWND
+	val DefWindowProc: HWND * Message.Message -> Message.LRESULT
+	val DefFrameProc: HWND * HWND * Message.Message -> Message.LRESULT
+	val DefMDIChildProc: HWND * Message.Message -> Message.LRESULT
 	val DestroyWindow: HWND -> unit
 	val FindWindow: string * string option -> HWND
 	val FindWindowEx: HWND option * HWND option * string * string option -> HWND
@@ -134,7 +156,8 @@ sig
     val SetWindowText : HWND * string -> unit
     val SubclassWindow :
        HWND *
-	   (HWND * Message.Message * 'a -> Message.LRESULT option * 'a) * 'a -> unit
+	   (HWND * Message.Message * 'a -> Message.LRESULT * 'a) * 'a ->
+	       (HWND  * Message.Message) -> Message.LRESULT
     val WindowFromPoint : POINT -> HWND option
 
 end =
@@ -325,15 +348,10 @@ in
 		else old
 	end
 
-	(* In C the parent and menu arguments are combined in a rather odd way. *)
-	datatype ParentType =
-		PopupWithClassMenu		(* Popup or overlapped window using class menu. *)
-	|	PopupWindow of HMENU	(* Popup or overlapped window with supplied menu. *)
-	|	ChildWindow of { parent: HWND, id: int } (* Child window. *)
-
-	fun CreateWindow{class: 'a Class.ATOM, (* Window class *)
+	fun CreateWindowEx{class: 'a Class.ATOM, (* Window class *)
 					 name: string, (* Window name *)
 					 style: Style.flags, (* window style *)
+					 exStyle: ExStyle.flags, (* extended style *)
 					 x: int, (* horizontal position of window *)
 					 y: int, (* vertical position of window *)
 					 width: int, (* window width *)
@@ -342,15 +360,42 @@ in
 					 instance: HINSTANCE, (* application instance *)
 					 init: 'a}: HWND =
 	let
-		(* Get the ML callback function.  For system classes this is an identity fn. *)
-		val (mlCallback, className: string) =
+		(* Set up a callback for ML classes and return the class name. *)
+		val className: string =
 			case class of
-				Registered { proc, className} => (proc, className)
-			|	SystemClass s => (fn(_, _, a) => (NONE, a), s)
+				Registered { proc, className} =>
+				    (Message.setCallback(proc, init);  className)
+			|	SystemClass s => s
 
-		(* In the case of a child window the "menu" is actually an integer
-		   which identifies the child in notification messages to the parent.
-		   We silently set or clear the WS_CHILD bit depending on the argument. *)
+		val (parent, menu, styleWord) = WinBase.unpackWindowRelation(relation, style)
+
+		(* Create a window. *)
+		val res =
+			call12 (user "CreateWindowExA") (WORD, STRING, STRING, WORD, INT, INT, INT, INT,
+					HWND, INT, HINSTANCE, INT) HWND
+				(ExStyle.toWord exStyle, className, name, styleWord, x, y, width, height, parent, menu,
+				 instance, 0)
+	in
+		if isHNull res
+		then raise OS.SysErr("CreateWindowEx", SOME(GetLastError())) else ();
+		res
+	end
+
+	fun CreateWindow{class: 'a Class.ATOM, name: string, style: Style.flags, x: int,
+					 y: int, width: int, height: int, relation: ParentType, instance: HINSTANCE,
+					 init: 'a}: HWND =
+        CreateWindowEx{exStyle=ExStyle.flags[], class=class, name=name, style=style, x=x,
+		               y=y, width=width, height=height,relation=relation, instance=instance,
+					   init=init}
+					   
+	fun CreateMDIClient{
+	        relation: ParentType, (* This should always be ChildWindow *)
+			style: Style.flags,
+	        instance: HINSTANCE,  (* application instance *)
+            windowMenu: HMENU,    (* Window menu to which children are added. *)
+			idFirstChild: int     (* Id of first child when it's created. *)
+			}: HWND =
+	let
 		val (parent, menu, styleWord) =
 			case relation of
 				PopupWithClassMenu =>
@@ -359,31 +404,52 @@ in
 					(hwndNull, hm, Style.toWord(Style.clear(Style.WS_CHILD, style)))
 			|	ChildWindow{parent, id} =>
 					(parent, handleOfInt id, Style.toWord(Style.flags[Style.WS_CHILD, style]))
-
-		(* Make an entry in the table for this window. *)
-		(* TEMPORARY.  TODO: Something better than using NULL here. *)
-		val DefWindowProc = call4 (user "DefWindowProcA") (INT, INT, INT, INT) INT
-		val _ = Message.addCallback(hwndNull, mlCallback, init, DefWindowProc);
-
-		(* Create a window. *)
+		val CLIENTCREATESTRUCT = STRUCT2(HMENU, UINT)
+		val (_, toCcreateStruct, _) = breakConversion CLIENTCREATESTRUCT
+		val createS = address(toCcreateStruct(windowMenu, idFirstChild))
 		val res =
-			call12 (user "CreateWindowExA") (INT, STRING, STRING, WORD, INT, INT, INT, INT,
-					HWND, HMENU, HINSTANCE, INT) HWND
-				(0, className, name, styleWord, x, y, width, height, parent, menu,
-				 instance, 0)
+			call12 (user "CreateWindowExA") (WORD, STRING, WORD, WORD, INT, INT, INT, INT,
+					HWND, HMENU, HINSTANCE, POINTER) HWND
+				(0w0, "MDICLIENT", 0w0, styleWord, 0, 0, 0, 0, parent, menu,
+				 instance, createS)
 	in
 		if isHNull res
-		then raise OS.SysErr("CreateWindow", SOME(GetLastError())) else ();
-		(* This is still messy.  If we have created a window of a system class we
-		   won't have received anything in the callback function.  That means we'll
-		   still have this wretched zero around and that will cause problems if
-		   we then try to subclass it.  We need to explicitly update the entry
-		   if it's still zero.
-		   A better solution might be not to create an entry for a system class
-		   UNTIL we subclass it. *)
-		Message.updateWindowHandle res;
-		res
+		then raise OS.SysErr("CreateWindowEx", SOME(GetLastError()))
+		else res
 	end
+
+ 
+    fun DefWindowProc (hWnd: HWND, msg: Message.Message): Message.LRESULT  =
+	let
+	    val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+	    val res =
+		    call4 (user "DefWindowProcA") (HWND, INT, POINTER, POINTER) POINTER
+			    (hWnd, wMsg, wParam, lParam)
+	in
+		Message.messageReturnFromParams(msg, wParam, lParam, res)
+	end
+   
+    fun DefFrameProc (hWnd: HWND, hWndMDIClient: HWND, msg: Message.Message): Message.LRESULT  =
+	let
+	    val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+	    val res =
+		    call5 (user "DefFrameProcA") (HWND, HWND, INT, POINTER, POINTER) POINTER
+			    (hWnd, hWndMDIClient, wMsg, wParam, lParam)
+	in
+	    (* Write back any changes the function has made. *)
+		Message.messageReturnFromParams(msg, wParam, lParam, res)
+	end
+
+    fun DefMDIChildProc (hWnd: HWND, msg: Message.Message): Message.LRESULT =
+	let
+	    val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+	    val res =
+		    call4 (user "DefMDIChildProcA") (HWND, INT, POINTER, POINTER) POINTER
+			    (hWnd, wMsg, wParam, lParam)
+	in
+		Message.messageReturnFromParams(msg, wParam, lParam, res)
+	end
+	
 
 	val CW_USEDEFAULT = ~0x80000000 (* Default value for size and/ot position. *)
 
