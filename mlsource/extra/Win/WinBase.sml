@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -195,6 +195,29 @@ struct
 			fun toInt (SWP_OTHER i) = i | toInt _ = raise Match
 		in
 			val WINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toInt))
+		end
+		
+    	(* In C the parent and menu arguments are combined in a rather odd way. *)
+    	datatype ParentType =
+    		PopupWithClassMenu		(* Popup or overlapped window using class menu. *)
+    	|	PopupWindow of HMENU	(* Popup or overlapped window with supplied menu. *)
+    	|	ChildWindow of { parent: HWND, id: int } (* Child window. *)
+
+        (* This function is used whenever windows are created. *)
+        local
+    		open Style
+		in
+     		(* In the case of a child window the "menu" is actually an integer
+    		   which identifies the child in notification messages to the parent.
+    		   We silently set or clear the WS_CHILD bit depending on the argument. *)
+           	fun unpackWindowRelation(relation: ParentType, style) =
+    			case relation of
+    				PopupWithClassMenu =>
+    					(hwndNull, 0, toWord(clear(WS_CHILD, style)))
+    			|	PopupWindow hm =>
+    					(hwndNull, intOfHandle hm, toWord(clear(WS_CHILD, style)))
+    			|	ChildWindow{parent, id} =>
+    					(parent, id, toWord(flags[WS_CHILD, style]))
 		end
 	
 	end
