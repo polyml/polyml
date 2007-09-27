@@ -58,6 +58,17 @@ private:
     friend class PCondVar;
 };
 
+// Lock a mutex and automatically unlock it in the destructor.
+// This can be used in a function to lock a mutex and unlock it
+// when the function either returns normally or raises an exception.
+class PLocker {
+public:
+    PLocker(PLock *lock): m_lock(lock) { m_lock->Lock(); }
+    ~PLocker() { m_lock->Unlock(); }
+private:
+    PLock *m_lock;
+};
+
 // Simple condition variable.  N.B.  The Windows code does not
 // support multiple threads blocking on this condition variable.
 class PCondVar {
