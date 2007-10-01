@@ -175,7 +175,7 @@ static Handle make_handle_entry(TaskData *taskData)
            /* See if we have unreferenced streams. */
             if (! have_collected)
             {
-                processes->FullGC(taskData);
+                FullGC(taskData);
                 have_collected = true;
             }
             else /* No space - expand vector. */

@@ -462,7 +462,7 @@ TryAgain:
                 if (emfileFlag) /* Previously had an EMFILE error. */
                     raise_syscall(taskData, "Cannot open", EMFILE);
                 emfileFlag = true;
-                processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
+                FullGC(taskData); /* May clear emfileFlag if we close a file. */
                 goto TryAgain;
             }
         default:
@@ -1108,7 +1108,7 @@ TryAgain:
                     if (emfileFlag) /* Previously had an EMFILE error. */
                         raise_syscall(taskData, "Cannot open", EMFILE);
                     emfileFlag = true;
-                    processes->FullGC(taskData); /* May clear emfileFlag if we close a file. */
+                    FullGC(taskData); /* May clear emfileFlag if we close a file. */
                     goto TryAgain;
                 }
             default:
