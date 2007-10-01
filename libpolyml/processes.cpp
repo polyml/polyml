@@ -175,36 +175,6 @@ public:
 #endif
 };
 
-// Data structure used for requests from a thread to the root
-// thread.  These are GCs or similar.
-
-class MainThreadRequest
-{
-public:
-    bool completed;
-    enum {
-        kirequestQuickGC,      // Want a partial GC
-        kirequestFullGC,       // Want a full GC
-        kirequestShare,        // Want to share common sub-exps
-        kirequestExport        // Want to export data
-    } requestType;
-
-    union {
-        struct {
-            POLYUNSIGNED words;
-            bool         gcResult;
-        } gc;
-        struct {
-            Handle root;
-            bool shResult;
-        } sh;
-        struct {
-            Handle root;
-            Exporter *exports;
-        } exp;
-    };
-};
-
 class Processes: public ProcessExternal, public RtsModule
 {
 public:
@@ -249,14 +219,8 @@ public:
     void ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData);
 
     // Requests from the threads for actions that need to be performed by
-    // the root thread.
-    virtual void FullGC(TaskData *taskData);
-    virtual bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequired);
-    virtual bool ShareData(TaskData *taskData, Handle root);
-    virtual void Export(TaskData *taskData, Handle root, Exporter *exports);
-
-    // Make the request and wait until it has completed.
-    void MakeRootRequest(TaskData *taskData, MainThreadRequest *request);
+    // the root thread. Make the request and wait until it has completed.
+    virtual void MakeRootRequest(TaskData *taskData, MainThreadRequest *request);
 
     // Deal with any interrupt or kill requests.
     virtual bool ProcessAsynchRequests(TaskData *taskData);
@@ -745,82 +709,6 @@ ProcessTaskData *Processes::TaskForIdentifier(Handle taskId)
     }
     return 0;
 }
-
-void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
-/* Expands the current stack if it has grown. We cannot shrink a stack segment
-   when it grows smaller because the frame is checked only at the beginning of
-   a procedure to ensure that there is enough space for the maximum that can
-   be allocated. */
-{
-    /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = OBJECT_LENGTH(taskData->stack);
- 
-    /* The minimum size must include the reserved space for the registers. */
-    POLYUNSIGNED min_size = ((PolyWord*)taskData->stack) + old_len - lower_limit + taskData->stack->p_space;
-    
-    if (old_len >= min_size) return; /* Ok with present size. */
-
-    // If it is too small double its size.
-    // BUT, the maximum size is 2^24-1 words (on 32 bit) or 2^56-1 on 64 bit.
-
-    if (old_len == MAX_OBJECT_SIZE)
-    {
-        /* Cannot expand the stack any further. */
-        fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
-        // We really should do this only if the thread is handling interrupts
-        // asynchronously.  On the other hand what else do we do?
-        machineDependent->SetException(taskData, processesModule.interrupt_exn);
-        return;
-    }
-
-    POLYUNSIGNED new_len; /* New size */
-    for (new_len = old_len; new_len < min_size; new_len *= 2);
-    if (new_len > MAX_OBJECT_SIZE) new_len = MAX_OBJECT_SIZE;
-
-    /* Must make a new frame and copy the data over. */
-    StackObject *new_stack = // N.B.  May throw a C++ exception.
-        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
-    CopyStackFrame(taskData->stack, new_stack);
-    taskData->stack = new_stack;
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      shrink_stack - called from sparc_assembly.s - allocates               */
-/*                                                                            */
-/******************************************************************************/
-Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
-/* Shrinks the current stack. */
-{
-    int reserved = get_C_long(taskData, DEREFWORDHANDLE(reserved_space));
-
-    int old_len; /* Current size of stack segment. */
-    int new_len; /* New size */
-    int min_size;
-    StackObject *new_stack;
-
-    if (reserved < 0)
-    {
-       raise_exception0(taskData, EXC_size);
-    }
-
-    /* Get current size of new stack segment. */
-    old_len = OBJECT_LENGTH(taskData->stack);
- 
-    /* The minimum size must include the reserved space for the registers. */
-    min_size = (((PolyWord*)taskData->stack) + old_len - (PolyWord*)taskData->stack->p_sp) + taskData->stack->p_space + reserved;
-    
-    for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
-
-    if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
-
-    /* Must make a new frame and copy the data over. */
-    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
-    CopyStackFrame(taskData->stack, new_stack);
-    taskData->stack = new_stack;    
-    return SAVE(TAGGED(0));
-}
-
 // Broadcast an interrupt to all relevant threads.
 void Processes::BroadcastInterrupt(void)
 {
@@ -944,23 +832,14 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
 // see that.
 void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 {
-    schedLock.Lock();
+    PLocker locker(&schedLock);
 
     // Wait for any other requests. 
     while (threadRequest != 0)
     {
-        bool wasGC = threadRequest->requestType == MainThreadRequest::kirequestQuickGC;
         // Deal with any pending requests.
         ThreadReleaseMLMemoryWithSchedLock(taskData);
         ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
-        if (request->requestType == MainThreadRequest::kirequestQuickGC && wasGC)
-        {
-            // The other thread's request for a GC should now have
-            // been dealt with.
-            schedLock.Unlock();
-            request->gc.gcResult = true;
-            return;
-        }
     }
     // Now the other requests have been dealt with (and we have schedLock).
     request->completed = false;
@@ -971,55 +850,7 @@ void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
         ThreadReleaseMLMemoryWithSchedLock(taskData);
         ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
     }
-    schedLock.Unlock();
 }
-
-// Perform a full garbage collection.  If there is another collection
-// in progress wait for that to complete and then start again.
-void Processes::FullGC(TaskData *taskData)
-{
-    MainThreadRequest request;
-    request.completed = false;
-    request.requestType = MainThreadRequest::kirequestFullGC;
-    MakeRootRequest(taskData, &request);
-}
-
-// Garbage collect.
-bool Processes::QuickGC(TaskData *taskData, POLYUNSIGNED words)
-{
-    // If another thread has requested a GC we will
-    // wait until that completes.  We don't need to start one ourselves. 
-    MainThreadRequest request;
-    request.completed = false;
-    request.requestType = MainThreadRequest::kirequestQuickGC;
-    request.gc.words = words;
-    request.gc.gcResult = false;
-    MakeRootRequest(taskData, &request);
-    return request.gc.gcResult;
-}
-
-// Share common substructures.
-bool Processes::ShareData(TaskData *taskData, Handle root)
-{
-    MainThreadRequest request;
-    request.completed = false;
-    request.requestType = MainThreadRequest::kirequestShare;
-    request.sh.root = root;
-    request.sh.shResult = false;
-    MakeRootRequest(taskData, &request);
-    return request.sh.shResult;
-}
-
-void Processes::Export(TaskData *taskData, Handle root, Exporter *exports)
-{
-    MainThreadRequest request;
-    request.completed = false;
-    request.requestType = MainThreadRequest::kirequestExport;
-    request.exp.root = root;
-    request.exp.exports = exports;
-    MakeRootRequest(taskData, &request);
-}
-
 
 // Find space for an object.  Returns a pointer to the start.  "words" must include
 // the length word and the result points at where the length word will go.
@@ -1314,27 +1145,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
         if (allStopped && threadRequest != 0)
         {
-            // Can now satisfy the request.
-            switch (threadRequest->requestType)
-            {
-            case MainThreadRequest::kirequestFullGC:
-                ::FullGC();
-                break;
-            case MainThreadRequest::kirequestQuickGC:
-                threadRequest->gc.gcResult = ::QuickGC(threadRequest->gc.words);
-                break;
-            case MainThreadRequest::kirequestShare:
-                ::FullGC(); // First do a GC to reduce the size of fix-ups.
-                // Now do the work.  Now the GC has been done we can deref the handle.
-                threadRequest->sh.shResult =
-                    RunShareData(threadRequest->sh.root->Word().AsObjPtr());
-                break;
-            case MainThreadRequest::kirequestExport:
-                ::FullGC(); // Do a GC to reduce the size of fix-ups.
-                // Now do the work.
-                threadRequest->exp.exports->RunExport(threadRequest->exp.root->WordP());
-                break;
-            }
+            threadRequest->Perform();
             threadRequest->completed = true;
             threadRequest = 0; // Allow a new request.
             mlThreadWait.Signal();
@@ -1593,18 +1404,6 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
         ThreadExit(taskData);
         // Doesn't return.
     }
-}
-
-/* CALL_IO1(install_subshells_, REF, NOIND) */
-Handle install_subshells_c(TaskData *taskData, Handle root_function)
-{
-    return SAVE(TAGGED(0));
-}
-
-/* CALL_IO0(switch_subshells_,NOIND) */
-Handle switch_subshells_c(TaskData *taskData)
-{
-    return SAVE(TAGGED(0));
 }
 
 void Processes::RequestThreadsEnterRTSInternal(bool isSignal)

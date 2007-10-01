@@ -91,27 +91,7 @@ private:
     SaveVecEntry x_extend_addr, y_extend_addr;
 };
 
-/***************************************************************************
- * 
- * Types & Definitions for PROCESSES
- *
- ***************************************************************************/
-
-class ProcessChannel;
-
-/**********************************************************************
- *
- * Handles for different 'objects' are of type Handle
- *
- **********************************************************************/
-
-// Check to see that there is space in the stack.  May GC and may raise a C++ exception.
-extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
-
-extern Handle switch_subshells_c(TaskData *mdTaskData);
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
-extern Handle install_subshells_c(TaskData *mdTaskData, Handle root_function);
-extern Handle shrink_stack_c(TaskData *mdTaskData, Handle reserved_space);
 
 Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
 Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
@@ -119,6 +99,16 @@ Handle ThreadSelf(TaskData *taskData);
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
 class ScanAddress;
+
+// Data structure used for requests from a thread to the root
+// thread.  These are GCs or similar.
+class MainThreadRequest
+{
+public:
+    MainThreadRequest (): completed(false) {}
+    bool completed;
+    virtual void Perform() = 0;
+};
 
 // External interface to the Process module.  These functions are all implemented
 // by the Processes class.
@@ -156,9 +146,7 @@ public:
 
     // Requests from the threads for actions that need to be performed by
     // the root thread.
-    virtual void FullGC(TaskData *taskData) = 0;
-    virtual bool ShareData(TaskData *taskData, Handle root) = 0;
-    virtual void Export(TaskData *taskData, Handle root, Exporter *exports) = 0;
+    virtual void MakeRootRequest(TaskData *taskData, MainThreadRequest *request) = 0;
 
     // Deal with any interrupt or kill requests.
     virtual bool ProcessAsynchRequests(TaskData *taskData) = 0;
