@@ -2,7 +2,7 @@
     Title:      Profiling
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -95,6 +95,7 @@
 #include "gc.h" // For gc_phase
 #include "memmgr.h"
 #include "scanaddrs.h"
+#include "locking.h"
 
 /******************************************************************************/
 /*                                                                            */
@@ -316,7 +317,7 @@ static void writeProfileResults(void)
 static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
 {
     PolyWord *ptr = bottom;
-    
+
     while (ptr < top)
     {
         ptr++; // Skip the length word
@@ -346,6 +347,8 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
                     {
                         PPROFENTRY pEnt = newProfileEntry();
                         pEnt->count = count;
+                        // This should be a valid string which may be a single character.
+                        ASSERT(name.IsTagged() || name.AsObjPtr()->IsByteObject());
                         pEnt->functionName = name;
                     }
                     
@@ -489,14 +492,22 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
     }
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      profilerc - called from assembly.s                                    */
-/*                                                                            */
-/******************************************************************************/
+class ProfileRequest: public MainThreadRequest
+{
+public:
+    ProfileRequest(unsigned prof): mode(prof) {}
 
-/* CALL_IO1(profiler, NOIND, NOIND) */
-Handle profilerc(TaskData *taskData, Handle mode_handle)    /* Generate profile information */
+    virtual void Perform();
+    unsigned mode;
+};
+
+// To speed up testing whether profiling is off already we
+// maintain a variable that contains the global state.
+static unsigned profile_mode = 0;
+static PLock profLock;
+
+// Called from ML to control profiling.
+Handle profilerc(TaskData *taskData, Handle mode_handle)
 /* Profiler - generates statistical profiles of the code.
    The parameter is an integer which determines the value to be profiled.
    When profiler is called it always resets the profiling and prints out any
@@ -506,17 +517,30 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)    /* Generate profile 
    if the parameter is 2 it produces store profiling.
    3 - arbitrary precision emulation traps. */
 {
-    static unsigned profile_mode = 0;
-    POLYUNSIGNED mode = get_C_ulong(taskData, DEREFWORDHANDLE(mode_handle));
+    unsigned mode = get_C_ulong(taskData, DEREFWORDHANDLE(mode_handle));
+    {
+        PLocker locker(&profLock);
+        if (mode == profile_mode) // No change in mode = no-op
+            return taskData->saveVec.push(TAGGED(0));
     
-    /* No change in mode = no-op */
-    if (mode == profile_mode) return taskData->saveVec.push(TAGGED(0));
-    
-    /* profiling 0 turns off profiling and prints results,
-    but is ignored for profile_modes > 4. To get the
-    accumulated results of these, set profiling to 4. */
-    if (mode == 0 && profile_mode > PROF_ACCUMULATED) return taskData->saveVec.push(TAGGED(0));
-    
+        /* profiling 0 turns off profiling and prints results,
+           but is ignored for profile_modes > 4. To get the
+           accumulated results of these, set profiling to 4. */
+        if (mode == 0 && profile_mode > PROF_ACCUMULATED)
+            return taskData->saveVec.push(TAGGED(0));
+        profile_mode = mode;
+    }
+    // All these actions are performed by the root thread.  Only profile
+    // printing needs to be performed with all the threads stopped but it's
+    // simpler to serialise all requests.
+    ProfileRequest request(mode);
+    processes->MakeRootRequest(taskData, &request);
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+// This is called from the root thread when all the ML threads have been paused.
+void ProfileRequest::Perform()
+{
     switch (mode & ~PROF_ACCUMULATED)
     {
     case kProfileOff:
@@ -543,9 +567,6 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)    /* Generate profile 
         break;
     }
     
-    profile_mode = mode;
-    
-    return taskData->saveVec.push(TAGGED(0));
 } /* profilerc */
 
 
