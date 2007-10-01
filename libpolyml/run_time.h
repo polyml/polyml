@@ -1,7 +1,7 @@
 /*
     Title:  run_time.h
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -85,6 +85,9 @@ extern bool trace_allowed;
 
 extern void add_word_to_io_area(unsigned sysop, PolyWord val);
 
-Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle);
+extern Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle);
+
+// Check to see that there is space in the stack.  May GC and may raise a C++ exception.
+extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
 
 #endif /* _RUNTIME_H_DEFINED */

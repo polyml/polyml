@@ -209,7 +209,7 @@ Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
 /* CALL_IO0(full_gc_, NOIND) */
 Handle full_gc_c(TaskData *taskData)
 {
-    processes->FullGC(taskData);
+    FullGC(taskData);
     return SAVE(TAGGED(0));
 }
 
@@ -847,6 +847,90 @@ static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant
 {
     machineDependent->SetCodeConstant(taskData, data, constant, offseth, base);
     return taskData->saveVec.push(TAGGED(0));
+}
+
+void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
+/* Expands the current stack if it has grown. We cannot shrink a stack segment
+   when it grows smaller because the frame is checked only at the beginning of
+   a procedure to ensure that there is enough space for the maximum that can
+   be allocated. */
+{
+    /* Get current size of new stack segment. */
+    POLYUNSIGNED old_len = OBJECT_LENGTH(taskData->stack);
+ 
+    /* The minimum size must include the reserved space for the registers. */
+    POLYUNSIGNED min_size = ((PolyWord*)taskData->stack) + old_len - lower_limit + taskData->stack->p_space;
+    
+    if (old_len >= min_size) return; /* Ok with present size. */
+
+    // If it is too small double its size.
+    // BUT, the maximum size is 2^24-1 words (on 32 bit) or 2^56-1 on 64 bit.
+
+    if (old_len == MAX_OBJECT_SIZE)
+    {
+        /* Cannot expand the stack any further. */
+        fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
+        // We really should do this only if the thread is handling interrupts
+        // asynchronously.  On the other hand what else do we do?
+        Handle exn = make_exn(taskData, EXC_interrupt, SAVE(TAGGED(0)));
+        machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
+        return;
+    }
+
+    POLYUNSIGNED new_len; /* New size */
+    for (new_len = old_len; new_len < min_size; new_len *= 2);
+    if (new_len > MAX_OBJECT_SIZE) new_len = MAX_OBJECT_SIZE;
+
+    /* Must make a new frame and copy the data over. */
+    StackObject *new_stack = // N.B.  May throw a C++ exception.
+        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+    CopyStackFrame(taskData->stack, new_stack);
+    taskData->stack = new_stack;
+}
+
+// This is used after executing each top-level command to minimise the
+// heap size.  It's fairly dubious and there ought to be a better way to do this.
+static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
+/* Shrinks the current stack. */
+{
+    int reserved = get_C_long(taskData, DEREFWORDHANDLE(reserved_space));
+
+    int old_len; /* Current size of stack segment. */
+    int new_len; /* New size */
+    int min_size;
+    StackObject *new_stack;
+
+    if (reserved < 0)
+    {
+       raise_exception0(taskData, EXC_size);
+    }
+
+    /* Get current size of new stack segment. */
+    old_len = OBJECT_LENGTH(taskData->stack);
+ 
+    /* The minimum size must include the reserved space for the registers. */
+    min_size = (((PolyWord*)taskData->stack) + old_len - (PolyWord*)taskData->stack->p_sp) + taskData->stack->p_space + reserved;
+    
+    for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
+
+    if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
+
+    /* Must make a new frame and copy the data over. */
+    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+    CopyStackFrame(taskData->stack, new_stack);
+    taskData->stack = new_stack;    
+    return SAVE(TAGGED(0));
+}
+
+// These are no longer used.  They are retained in case we want to revive them.
+static Handle install_subshells_c(TaskData *taskData, Handle root_function)
+{
+    return SAVE(TAGGED(0));
+}
+
+static Handle switch_subshells_c(TaskData *taskData)
+{
+    return SAVE(TAGGED(0));
 }
 
 Handle EnterPolyCode(TaskData *taskData)
