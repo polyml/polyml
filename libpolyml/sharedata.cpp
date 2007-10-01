@@ -576,6 +576,17 @@ bool RunShareData(PolyObject *root)
     return true; // Succeeded.
 }
 
+class ShareRequest: public MainThreadRequest
+{
+public:
+    ShareRequest(Handle root): shareRoot(root), result(false) {}
+
+    virtual void Perform() { result = RunShareData(shareRoot->WordP()); }
+    Handle shareRoot;
+    bool result;
+};
+
+
 // ShareData.  This is the main entry point.
 // Because this can recurse deeply it needs to be run by the main thread.
 // Also it manipulates the heap in ways that could mess up other threads
@@ -585,7 +596,14 @@ void ShareData(TaskData *taskData, Handle root)
     if (! root->Word().IsDataPtr())
         return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
 
-    // Get the main thread to do the work and raise an exception if it failed.
-    if (! processes->ShareData(taskData, root))
+    // Request a full GC  to reduce the size of fix-ups.
+    FullGC(taskData);
+
+    // Request the main thread to do the sharing.
+    ShareRequest request(root);
+    processes->MakeRootRequest(taskData, &request);
+
+    // Raise an exception if it failed.
+    if (! request.result)
         raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
 }

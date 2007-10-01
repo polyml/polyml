@@ -1,7 +1,7 @@
 /*
     Title:      Garbage Collector
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -1698,16 +1698,35 @@ POLYUNSIGNED GetPhysicalMemorySize(void)
     return 0; // Unable to determine
 }
 
+class FullGCRequest: public MainThreadRequest
+{
+public:
+    virtual void Perform() { doGC (true,0); }
+};
+
+class QuickGCRequest: public MainThreadRequest
+{
+public:
+    QuickGCRequest(POLYUNSIGNED words): wordsRequired(words) {}
+
+    virtual void Perform() { result = doGC (false, wordsRequired); }
+    bool result;
+    POLYUNSIGNED wordsRequired;
+};
 
 // Perform a full garbage collection.  This is called either from ML via the full_gc RTS call
 // or from various RTS functions such as open_file to try to recover dropped file handles.
-void FullGC(void)
+void FullGC(TaskData *taskData)
 {
-    (void)doGC (true,0);
+    FullGCRequest request;
+    processes->MakeRootRequest(taskData, &request);
 }
 
 // This is the normal call when memory is exhausted and we need to garbage collect.
-bool QuickGC(POLYUNSIGNED wordsRequiredToAllocate)
+bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
 {
-    return doGC (false, wordsRequiredToAllocate);
+    QuickGCRequest request(wordsRequiredToAllocate);
+    processes->MakeRootRequest(taskData, &request);
+    return request.result;
 }
+

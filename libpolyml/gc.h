@@ -1,7 +1,7 @@
 /*
     Title:  gc.h - exports signature for gc.cpp
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -26,9 +26,14 @@
 class StackObject;
 #include "globals.h" // For POLYUNSIGNED
 
+class TaskData;
+
 extern void CopyStackFrame(StackObject *old_stack, StackObject *new_stack);
-extern void FullGC(void);
-extern bool QuickGC(POLYUNSIGNED words_needed);
+
+// Make a request for a full garbage collection.
+extern void FullGC(TaskData *taskData);
+// Make a request for a partial garbage collection.
+extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
 extern void CreateHeap(void);
 extern POLYUNSIGNED GetPhysicalMemorySize(void);
 

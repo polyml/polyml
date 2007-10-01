@@ -281,6 +281,16 @@ static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
     }
 }
 
+class ExportRequest: public MainThreadRequest
+{
+public:
+    ExportRequest(Handle root, Exporter *exp): exportRoot(root), exporter(exp) {}
+
+    virtual void Perform() { exporter->RunExport(exportRoot->WordP()); }
+    Handle exportRoot;
+    Exporter *exporter;
+};
+
 static void exporter(TaskData *taskData, Handle args, const char *extension, Exporter *exports)
 {
     char fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
@@ -298,8 +308,11 @@ static void exporter(TaskData *taskData, Handle args, const char *extension, Exp
 
     Handle root = taskData->saveVec.push(args->WordP()->Get(1));
 
-    // Request the main thread to do the work.
-    processes->Export(taskData, root, exports);
+    // Request a full GC  to reduce the size of fix-ups.
+    FullGC(taskData);
+    // Request the main thread to do the export.
+    ExportRequest request(root, exports);
+    processes->MakeRootRequest(taskData, &request);
     if (exports->errorMessage)
         raise_fail(taskData, exports->errorMessage);
 }
