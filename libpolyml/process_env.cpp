@@ -1,6 +1,6 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -316,7 +316,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 11: /* Match the volume name part of a path. */
         {
-            char *volName = NULL;
+            const char *volName = NULL;
             int  isAbs = 0;
             int  toRemove = 0;
             PolyWord path = DEREFHANDLE(args);

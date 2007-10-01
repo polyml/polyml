@@ -1,7 +1,7 @@
 /*
     Title:  exports signature for mpoly.c
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -28,7 +28,7 @@
 extern struct _userOptions {
     unsigned    user_arg_count;
     char        **user_arg_strings;
-    char        *programName;
+    const char  *programName;
     unsigned    debug;              /* debugging  flags                       */
     bool        noDisplay;          /* X display flag                         */
     // Not all of these can be set any longer.

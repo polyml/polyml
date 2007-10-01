@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000-7 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -1293,7 +1293,7 @@ static Handle makeGroupEntry(TaskData *taskData, struct group *grp)
 /* Make a cons cell for a pair of strings. */
 // Doesn't currently reset the save vec so it's only safe for a small number
 // of cells.
-static void makeStringPairList(TaskData *taskData, Handle &list, char *s1, char *s2)
+static void makeStringPairList(TaskData *taskData, Handle &list, const char *s1, const char *s2)
 {
     Handle nameHandle, valueHandle, pairHandle, next;
     /* This has to be done carefully to ensure we don't throw anything
@@ -1486,7 +1486,7 @@ static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
 /* These are highly OS dependent.  It has been configured on Solaris 2.8, Linux Redhat 5.2
    and FreeBSD 3.4. */
 static struct {
-    char *saName;
+    const char *saName;
     int saVal;
 } sysArgTable[] =
 {
@@ -1950,7 +1950,7 @@ static Handle getSysConf(TaskData *taskData, Handle args)
 
 
 static struct {
-    char *pcName;
+    const char *pcName;
     int pcVal;
 } pathConfTable[] =
 {

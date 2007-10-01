@@ -1,7 +1,7 @@
 /*
     Title:  Error number names
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -21,8 +21,8 @@
 */
 
 static struct {
-    int     errorNum;
-    char*   errorString;
+    int           errorNum;
+    const char*   errorString;
 } errortable[] =
 {
 #ifdef EPERM

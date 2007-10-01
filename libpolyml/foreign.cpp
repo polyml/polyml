@@ -194,7 +194,7 @@ static Handle set_foreign_debug (TaskData *taskData, Handle h)
 
 
 
-static char *stringOfCtype(Ctype c)
+static const char *stringOfCtype(Ctype c)
 {
   switch (c) {
   case Cchar    : return "Cchar";

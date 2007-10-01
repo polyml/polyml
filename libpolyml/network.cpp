@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000-7 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -166,7 +166,7 @@ typedef int socklen_t; // This must be int for Windows at least
    Other entries are entirely optional and are for amusement
    only. */
 struct af_tab_struct {
-    char *af_name;
+    const char *af_name;
     int af_num;
 } af_table[] =
 {
@@ -274,7 +274,7 @@ struct af_tab_struct {
 
 /* Socket types.  Only STREAM and DGRAM are required.  */
 struct sk_tab_struct {
-    char *sk_name;
+    const char *sk_name;
     int sk_num;
 } sk_table[] =
 {

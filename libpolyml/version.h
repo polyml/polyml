@@ -1,7 +1,7 @@
 /*
     Title:  version.h
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -27,7 +27,7 @@
 #define POLY_version_number    510 
 #define TextVersion             "5.1"
 
-extern char *poly_runtime_system_version;
-extern char *poly_runtime_system_copyright;
+extern const char *poly_runtime_system_version;
+extern const char *poly_runtime_system_copyright;
 
 #endif

@@ -1,7 +1,7 @@
 /*
     Title:      Main program
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -69,7 +69,7 @@
 #endif
 
 static void  InitHeaderFromExport(exportDescription *exports);
-NORETURNFN(static void Usage(char *message));
+NORETURNFN(static void Usage(const char *message));
 
 // Return the entry in the io vector corresponding to the Poly system call.
 PolyWord *IoEntry(unsigned sysOp)
@@ -99,9 +99,9 @@ UNSIGNEDADDR exportTimeStamp;
 #define ARCH "X86_64-"
 #endif
 
-char *poly_runtime_system_version = ARCH TextVersion;
+const char *poly_runtime_system_version = ARCH TextVersion;
 
-char *poly_runtime_system_copyright =
+const char *poly_runtime_system_copyright =
 "Copyright (c) 2002-6 CUTS, David C.J. Matthews and contributors.";
 
 unsigned hsize, isize, msize;
@@ -290,7 +290,7 @@ void finish (int n)
 }
 
 // Print a message and exit if an argument is malformed.
-void Usage(char *message)
+void Usage(const char *message)
 {
     if (message)
         printf("%s\n", message);
