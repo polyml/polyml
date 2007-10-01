@@ -657,19 +657,21 @@ void TaskData::FillUnusedSpace(void)
 {
     if (allocPointer > allocLimit)
     {
-        POLYUNSIGNED space = allocPointer-allocLimit-1;
-        PolyObject *pDummy = (PolyObject*)(allocLimit+1);
+        POLYUNSIGNED space = allocPointer-allocLimit;
+        PolyWord *pDummy = allocLimit+1;
         while (space > 0)
         {
             POLYUNSIGNED oSize = space;
-            // Generally the space will be less than the maximum object size
-            // but just in case...
+            // If the space is larger than the maximum object size
+            // we will need several objects.
             if (space > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
+            else oSize = space-1;
             // Make this a byte object so it's always skipped.
-            pDummy->SetLengthWord(oSize, F_BYTE_BIT);
-            space -= oSize;
+            ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_BIT);
+            space -= oSize+1;
             pDummy += oSize+1;
         }
+        ASSERT(pDummy == allocPointer+1);
     }
 }
 
