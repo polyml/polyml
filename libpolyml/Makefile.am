@@ -60,7 +60,7 @@ endif
 
 libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
-    realconv.c objsize.cpp proper_io.cpp foreign.cpp \
+    realconv.cpp objsize.cpp proper_io.cpp foreign.cpp \
     process_env.cpp basicio.cpp network.cpp \
     sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \

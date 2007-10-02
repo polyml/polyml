@@ -180,6 +180,7 @@
 #endif
 
 #include "realconv.h"
+#include "locking.h"
 
 // Try to determine the byte order to set either IEEE_8087 or IEEE_MC68k
 #ifdef __BYTE_ORDER
@@ -506,6 +507,11 @@ extern double rnd_prod(double, double), rnd_quot(double, double);
 #define ULLong unsigned Llong
 #endif
 #endif /* NO_LONG_LONG */
+
+#define MULTIPLE_THREADS
+static PLock dtoaLocks[2];
+#define ACQUIRE_DTOA_LOCK(n) { dtoaLocks[n].Lock(); }
+#define FREE_DTOA_LOCK(n) { dtoaLocks[n].Unlock(); }
 
 #ifndef MULTIPLE_THREADS
 #define ACQUIRE_DTOA_LOCK(n)	/*nothing*/

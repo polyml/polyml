@@ -264,7 +264,7 @@ SOURCE=.\proper_io.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=.\realconv.c
+SOURCE=.\realconv.cpp
 # End Source File
 # Begin Source File
 
