@@ -1043,7 +1043,6 @@ static void *NewThreadFunction(void *parameter)
 static DWORD WINAPI NewThreadFunction(void *parameter)
 {
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
-    initThreadSignals(taskData); // Doesn't currently do anything on Windows.
     TlsSetValue(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
