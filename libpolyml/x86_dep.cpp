@@ -1,7 +1,7 @@
 /*
     Title:  Machine dependent code for i386 and X64 under Windows and Unix
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -1526,8 +1526,6 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_timing_dispatch, codeAddr);
     add_word_to_io_area(POLY_SYS_timing_dispatch, PolyWord::FromCodePtr(codeAddr));
     
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_install_subshells, codeAddr);
-    add_word_to_io_area(POLY_SYS_install_subshells, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_XWindows, codeAddr);
     add_word_to_io_area(POLY_SYS_XWindows, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_full_gc, codeAddr);

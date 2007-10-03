@@ -1,7 +1,7 @@
 /*
     Title:  Sparc dependent code.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -294,8 +294,6 @@ extern int word_lss();
 extern int objsize_a();
 extern int showsize_a();
 extern int timing_dispatch_a();
-
-extern int install_subshells_a();           /* MJC 12/09/90 */
 
 extern int XWindows_a();                    /* MJC 27/09/90 */
 
@@ -1156,7 +1154,6 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_objsize, & objsize_a ); /* MJC 27/04/88 */
     add_function_to_io_area(POLY_SYS_showsize,& showsize_a); /* MJC 09/03/89 */
     add_function_to_io_area(POLY_SYS_timing_dispatch, & timing_dispatch_a); /* DCJM 10/4/00 */
-    add_function_to_io_area(POLY_SYS_install_subshells, & install_subshells_a); /* MJC 12/09/90 */
     add_function_to_io_area(POLY_SYS_XWindows,& XWindows_a); /* MJC 27/09/90 */
     add_function_to_io_area(POLY_SYS_full_gc,     & full_gc_a);     /* MJC 18/03/91 */
     add_function_to_io_area(POLY_SYS_stack_trace, & stack_trace_a); /* MJC 18/03/91 */

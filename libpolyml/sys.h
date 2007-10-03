@@ -1,7 +1,7 @@
 /*
     Title:  sys.h
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -123,7 +123,6 @@
 #define POLY_SYS_stderr              202  /* SPF 29/11/96 */
 #define POLY_SYS_callcode_tupled     204  /* SPF 07/07/94 */
 #define POLY_SYS_foreign_dispatch    205  /* NIC 22/04/94 */
-#define POLY_SYS_install_subshells   206  /* MJC 12/09/90 */
 #define POLY_SYS_XWindows            209  /* MJC 27/09/90 */
 #define POLY_SYS_is_big_endian       213  /* added 30/3/95 (DCJM) */
 #define POLY_SYS_bytes_per_word      214  /* added 30/3/95 (DCJM) */

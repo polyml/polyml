@@ -2,7 +2,7 @@
     Title:  An interpreter for a compact instruction set.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -1309,7 +1309,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_assign_byte, TAGGED(POLY_SYS_assign_byte));
     add_word_to_io_area(POLY_SYS_assign_word, TAGGED(POLY_SYS_assign_word));
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
-    add_word_to_io_area(POLY_SYS_install_subshells, TAGGED(POLY_SYS_install_subshells));
     add_word_to_io_area(POLY_SYS_XWindows, TAGGED(POLY_SYS_XWindows));
     add_word_to_io_area(POLY_SYS_full_gc,     TAGGED(POLY_SYS_full_gc));
     add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));

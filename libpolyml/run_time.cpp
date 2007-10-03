@@ -922,17 +922,6 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
     return SAVE(TAGGED(0));
 }
 
-// These are no longer used.  They are retained in case we want to revive them.
-static Handle install_subshells_c(TaskData *taskData, Handle root_function)
-{
-    return SAVE(TAGGED(0));
-}
-
-static Handle switch_subshells_c(TaskData *taskData)
-{
-    return SAVE(TAGGED(0));
-}
-
 Handle EnterPolyCode(TaskData *taskData)
 /* Called from "main" to enter the code. */
 {
@@ -1262,10 +1251,6 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_timing_dispatch:
                 machineDependent->CallIO2(taskData, &timing_dispatch_c);
-                break;
-
-            case POLY_SYS_install_subshells:
-                machineDependent->CallIO1(taskData, &install_subshells_c);
                 break;
 
             case POLY_SYS_XWindows:

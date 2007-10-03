@@ -1,7 +1,7 @@
 !
 !  Title:   Assembly code routines for the poly system.
 !  Author:    David Matthews
-!  Copyright (c) Cambridge University Technical Services Limited 2000
+!  Copyright (c) Cambridge University Technical Services Limited 2000-7
 !
 !   This library is free software; you can redistribute it and/or
 !   modify it under the terms of the GNU Lesser General Public
@@ -305,8 +305,6 @@ gbla(name): \
     CALL_IO(objsize_, POLY_SYS_objsize)                     ! MJC 27/04/88
     CALL_IO(showsize_, POLY_SYS_showsize)                    ! MJC 09/03/89
     CALL_IO(timing_dispatch_,POLY_SYS_timing_dispatch)          ! DCJM 10/4/00
-
-    CALL_IO(install_subshells_, POLY_SYS_install_subshells)     ! MJC 12/09/90
 
     CALL_IO(XWindows_, POLY_SYS_XWindows)            ! MJC 27/09/90
 
@@ -1467,7 +1465,7 @@ globldec(registerMaskVector)
     .long   Mask_all                 /* 203 now unused */
     .long   Mask_callcode_tupled     /* 204 */
     .long   Mask_foreign_dispatch_   /* 205 */
-    .long   Mask_install_subshells_  /* 206 */
+    .long   Mask_all                 /* 206 now unused */
     .long   Mask_all                 /* 207 is unused */
     .long   Mask_all                 /* 208 now unused */
     .long   Mask_XWindows_           /* 209 */
