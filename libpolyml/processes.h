@@ -1,9 +1,8 @@
 /*
     Title:      Lightweight process library
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
+    Author:     David C.J. Matthews
 
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
+    Copyright (c) 2007 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -65,7 +64,7 @@ public:
 class TaskData {
 public:
     TaskData();
-    virtual ~TaskData() {}
+    virtual ~TaskData();
 
     void FillUnusedSpace(void);
 
@@ -86,6 +85,7 @@ public:
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     Handle      x_ehandle, y_ehandle; // Space to extend short precision args.
+    void        *signalStack;  // Stack to handle interrupts (Unix only)
 private:
     PolyWord    x_extend[2], y_extend[2];
     SaveVecEntry x_extend_addr, y_extend_addr;

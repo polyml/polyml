@@ -60,6 +60,11 @@
 #include <unistd.h>
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h> // For malloc
+#endif
+
+
 #if (defined(HAVE_STACK_T) && defined(HAVE_SIGALTSTACK))
 extern "C" {
 // This is missing in older versions of Mac OS X 
@@ -347,6 +352,35 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
     }
 }
 
+// Set up per-thread signal data: basically signal stack.
+void initThreadSignals(TaskData *taskData)
+{
+    // ensure that all signals are handled using exception_stack.
+    // This is needed at least on the i386 because sp points into the ML
+    // stack.
+#if !defined(WINDOWS_PC)
+ /* Earlier versions of Linux did not have sigaltstack.  It MUST be used
+   in later versions for sigactions installed with SA_ONSTACK otherwise
+   a SIGSEGV is sent when the signal would be delivered. */
+#if (defined(SA_ONSTACK) && defined(HAVE_SIGALTSTACK))
+    taskData->signalStack = malloc(SIGSTKSZ);
+#ifdef HAVE_STACK_T
+    stack_t ex_stack;
+#else
+    // This used to be used in FreeBSD and Mac OS X
+    struct sigaltstack ex_stack;
+#endif
+    memset(&ex_stack, 0, sizeof(ex_stack));
+    ex_stack.ss_sp    = taskData->signalStack;
+    ex_stack.ss_size  = SIGSTKSZ;
+    ex_stack.ss_flags = 0; /* not SS_DISABLE */
+    int sigaltstack_result = sigaltstack(&ex_stack, NULL);
+    ASSERT(sigaltstack_result == 0);
+#endif
+#endif /* not the PC */
+}
+
+
 /* General purpose function to set up a signal handler. */
 #ifndef WINDOWS_PC
 
@@ -461,30 +495,6 @@ static SigHandler sighandlerModule;
 
 void SigHandler::Init(void)
 {
-    // ensure that all signals are handled using exception_stack.
-    // This is needed at least on the i386 because sp points into the ML
-    // stack.
-#if !defined(WINDOWS_PC)
- /* Earlier versions of Linux did not have sigaltstack.  It MUST be used
-   in later versions for sigactions installed with SA_ONSTACK otherwise
-   a SIGSEGV is sent when the signal would be delivered. */
-#if (defined(SA_ONSTACK) && defined(HAVE_SIGALTSTACK))
-#define EXCEPTION_STACK_SIZE (4*MINSIGSTKSZ)
-    static char exception_stack[EXCEPTION_STACK_SIZE];
-#ifdef HAVE_STACK_T
-    stack_t ex_stack;
-#else
-    // This used to be used in FreeBSD and Mac OS X
-    struct sigaltstack ex_stack;
-#endif
-    memset(&ex_stack, 0, sizeof(ex_stack));
-    ex_stack.ss_sp    = exception_stack;
-    ex_stack.ss_size  = EXCEPTION_STACK_SIZE;
-    ex_stack.ss_flags = 0; /* not SS_DISABLE */
-    int sigaltstack_result = sigaltstack(&ex_stack, NULL);
-    ASSERT(sigaltstack_result == 0);
-#endif
-#endif /* not the PC */
 }
 
 void SigHandler::Reinit(void)
