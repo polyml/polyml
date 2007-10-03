@@ -141,15 +141,15 @@ static struct
   int used;
 } P;
 
+// Lock to serialise updates of counts. Only used during update.
+// Not required when we print the counts since there's only one thread
+// running then.
+static PLock countLock;
 
-/******************************************************************************/
-/*                                                                            */
-/*      add_count - utility function                                          */
-/*                                                                            */
-/******************************************************************************/
+// Adds incr to the profile count for the function pointed at by
+// pc or by one of its callers.
+// This is called from a signal handler in the case of time profiling.
 void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
-/* Adds incr to the profile count for the function */
-/* pointed at by pc or by one of its callers.      */
 {
 
     /* The first PC may be valid even if it's not a code pointer */
@@ -158,65 +158,28 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
     StackObject *stack = taskData->stack;
     PolyWord *endStack = stack->Offset(stack->Length());
     
-    total_count += incr;
-    
-    /* Now try to discover which Poly/ML function we're in. Note:
-       if we're in the RTS, the pc value that we've been given may not
-       be valid since the machine-dependent code for the SPARC
-       and other platforms uses TAGGED(0) as a special marker.
-       The correct fix is to change the machine-dependant
-       code so that add_count only sees legal values, but for now I'm
-       just going to implement the following work-around.
-       SPF 2/8/96
-    
-       We also have to worry about those grubby bits of assembly code
-       in the RTS that haven't set in_run_time_system (yet?) but which
-       are definitely NOT well-formed ML code segments. On the PC,
-       the pc could even have the right alignment to look like a
-       code pointer. So what we do is:
-     
-       (1) Check whether the pc value looks like a code pointer.
-       (2) Check whether it points into the heap/database
-      
-       If so, we have a genuine code segment; if not, we have some
-       sort of bad value (TAGGED(0) or RTS code address).
-       SPF 2/8/96
-       
-       We don't want to lose the function that actually called into the
-       RTS, so I've added the new is_code flag to try to handle this.
-       SPF 17/3/97
-    */
-    
     /* First try the pc value we have been given - if that fails search down
-    the stack to see if there is a return address we can use. */
+       the stack to see if there is a return address we can use. */
     for (;;)
     {
         /* Get the address of the code segment from the code pointer */
         if (pc.IsCodePtr() || is_code)
         {   
-            /* The first PC gets special treatment, since it may not
-               be correctly tagged as a code-pointer.  Problem - what
-               happens if the first PC is an RTS address that "just happens"
-               to look like a properly-tagged code-pointer? (This can happen
-               on the i386 but not on the RISC machines.) Then OBJ_CODEPTR_TO_PTR
-               can fail horribly! So we have to check that pc has a sensible value
-               BEFORE we call this macro.
-               SPF 17/11/1998 */
             is_code = false;
             
-            /* N.B. we must NOT attempt to increment the profile counts for
-               those pieces of code that live in the I/O area, because
-               they don't have them! Similarly, we must NOT test their
-               flags - they don't have these either. */
+            // Check that the pc value is within the heap.  It could be
+            // in the assembly code.
             MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
             if (space != 0)
             {
                 PolyObject *ptr = ObjCodePtrToPtr(pc.AsCodePtr());
                 ASSERT(ptr->IsCodeObject());
                 PolyWord *consts = ptr->ConstPtrForCode();
-                if (consts[0] != TAGGED(0)) /* Anonymous segment - try again */
+                if (consts[0] != TAGGED(0)) // Skip anonymous code.
                 {
+                    PLocker locker(&countLock);
                     ((POLYUNSIGNED*)consts)[-1] += incr;
+                    total_count += incr;
                     return;
                 }
             }
@@ -228,7 +191,9 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
             pc = *sp++;
         else /* Reached bottom of stack without finding valid code pointer */
         {
+            PLocker locker(&countLock);
             unknown_count += incr;
+            total_count += incr;
             return;
         }
     } /* loop "forever" */
@@ -380,19 +345,22 @@ static void printprofile(void)
     P.total = 0;
     P.used = 0;
 
-    unsigned j;
-    for (j = 0; j < gMem.npSpaces; j++)
+    if (total_count != 0)
     {
-        MemSpace *space = gMem.pSpaces[j];
-        // Permanent areas are filled with objects from the bottom.
-        PrintProfileCounts(space->bottom, space->top); // Bottom to top
-    }
-    for (j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        // Local areas only have objects from the allocation pointer to the top.
-        PrintProfileCounts(space->pointer, space->top);
-    }
+        unsigned j;
+        for (j = 0; j < gMem.npSpaces; j++)
+        {
+            MemSpace *space = gMem.pSpaces[j];
+            // Permanent areas are filled with objects from the bottom.
+            PrintProfileCounts(space->bottom, space->top); // Bottom to top
+        }
+        for (j = 0; j < gMem.nlSpaces; j++)
+        {
+            LocalMemSpace *space = gMem.lSpaces[j];
+            // Local areas only have objects from the allocation pointer to the top.
+            PrintProfileCounts(space->pointer, space->top);
+        }
+    } // else if we haven't actually had an interrupt avoid expensive scan of memory.
     
     if (gc_count1 || gc_count2 || gc_count3)
     {
