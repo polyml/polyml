@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006-7 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -846,6 +846,7 @@ bool PImport::DoImport()
                     fscanf(f, "%02x", &n);
                     u[i] = n;
                 }
+                machineDependent->FlushInstructionCache(u, nBytes);
                 ch = getc(f);
                 ASSERT(ch == '|');
                 /* Set the constant count. */
