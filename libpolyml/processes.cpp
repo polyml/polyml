@@ -1557,6 +1557,8 @@ static void catchALRM(SIG_HANDLER_ARGS(sig, context))
 /*                                                                            */
 /******************************************************************************/
 #if !defined(WINDOWS_PC)
+// N.B. This may be called either by an ML thread or by the main thread.
+// On the main thread taskData will be null.
 static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
 {
     ASSERT(sig == SIGVTALRM);
@@ -1640,7 +1642,7 @@ DWORD WINAPI ProfilingTimer(LPVOID parm)
 
 #endif
 
-    // Profiling control.
+// Profiling control.  Called by the root thread.
 void Processes::StartProfiling(void)
 {
 #ifdef WINDOWS_PC
@@ -1658,6 +1660,7 @@ void Processes::StartProfiling(void)
 #else
     // In Linux, at least, we need to run a timer in each thread.
     RequestThreadsEnterRTS(false);
+    StartProfilingTimer(); // Start the timer in the root thread.
 #endif
 }
 
