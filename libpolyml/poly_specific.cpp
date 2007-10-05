@@ -52,6 +52,8 @@
 
 #define SAVE(x) taskData->saveVec.push(x)
 
+static const char *poly_runtime_system_copyright =
+"Copyright (c) 2002-7 CUTS, David C.J. Matthews and contributors.";
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -67,7 +69,19 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return exportPortable(taskData, args); // Export as portable format
 
     case 10: // Return the RTS version string.
-        return SAVE(C_string_to_Poly(taskData, poly_runtime_system_version));
+        {
+            const char *version;
+            switch (machineDependent->MachineArchitecture())
+            {
+            case MA_Interpreted:    version = "Portable-" TextVersion; break;
+            case MA_I386:           version = "I386-" TextVersion; break;
+            case MA_PPC:            version = "PPC-" TextVersion; break;
+            case MA_Sparc:          version = "Sparc-" TextVersion; break;
+            case MA_X86_64:         version = "X86_64-" TextVersion; break;
+            default:                version = "Unknown-" TextVersion; break;
+            }
+            return SAVE(C_string_to_Poly(taskData, version));
+        }
 
     case 11: // Return the RTS copyright string
         return SAVE(C_string_to_Poly(taskData, poly_runtime_system_copyright));

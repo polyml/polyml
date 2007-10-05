@@ -85,25 +85,6 @@ struct _userOptions userOptions;
 
 UNSIGNEDADDR exportTimeStamp;
 
-#ifdef INTERPRETED
-#define ARCH "Portable-"
-#elif WINDOWS_PC
-#define ARCH "Windows-"
-#elif defined(i386)
-#define ARCH "I386-"
-#elif defined(SPARC)
-#define ARCH "Sparc-"
-#elif defined(POWER2)
-#define ARCH "PPC-"
-#elif defined(X86_64)
-#define ARCH "X86_64-"
-#endif
-
-const char *poly_runtime_system_version = ARCH TextVersion;
-
-const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-6 CUTS, David C.J. Matthews and contributors.";
-
 unsigned hsize, isize, msize;
 
 struct __argtab {
