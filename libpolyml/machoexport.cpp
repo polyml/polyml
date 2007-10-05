@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006-7 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -153,6 +153,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
+#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             // For Mach-O we seem to need to subtract the offset of this instruction
@@ -175,6 +176,8 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
+#endif
+#ifdef HOSTARCHITECTURE_PPC
     case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
     case PROCESS_RELOC_PPCDUAL16UNSIGNED:
         {
@@ -229,10 +232,9 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             pt[1] = (pt[1] & 0xffff0000) | lo;
        }
         break;
-    case PROCESS_RELOC_SPARCDUAL: // Sparc - two consecutive words
-    case PROCESS_RELOC_SPARCRELATIVE: // Sparc 30-bit relative address
-        Crash("Using Sparc relocation with Mach exporter");
-        break;
+#endif
+        default:
+            ASSERT(0); // Wrong type of relocation for this architecture.
     }
 }
 
@@ -273,19 +275,6 @@ void MachoExport::createStructsRelocation(unsigned sect, POLYUNSIGNED offset)
     relocationCount++;
 }
 
-// This table maps the results of uname to the value to put in cputype and
-// cpusubtype.  It is only used in the portable
-// (interpreted) version.
-static struct { const char *name; unsigned procType, procSubType; } archTable[] =
-{
-    { "i386",   CPU_TYPE_I386,      CPU_SUBTYPE_I386_ALL },
-    { "i486",   CPU_TYPE_I386,      CPU_SUBTYPE_I386_ALL },
-    { "i586",   CPU_TYPE_I386,      CPU_SUBTYPE_I386_ALL },
-    { "i686",   CPU_TYPE_I386,      CPU_SUBTYPE_I386_ALL },
-    { "Power",  CPU_TYPE_POWERPC,   CPU_SUBTYPE_POWERPC_ALL },
-    { "ppc",    CPU_TYPE_POWERPC,   CPU_SUBTYPE_POWERPC_ALL },
-};
-
 void MachoExport::exportStore(void)
 {
     PolyWord    *p;
@@ -304,48 +293,17 @@ void MachoExport::exportStore(void)
     fhdr.sizeofcmds = sizeof(struct segment_command) + sizeof(struct section)*(memTableEntries+1)
         + sizeof(struct symtab_command);
     fhdr.flags = 0;
-    // The machine needs to match the machine we're compiling for.
-    // Generally that will match the architecture but that won't work for
-    // the interpreted version.  We also need to find the code used on this
-    // architecture for a simple direct relocation.
-    switch (machineDependent->MachineArchitecture())
-    {
-    case MA_Interpreted:
-        {
-            struct utsname name;
-            if (uname(&name) < 0)
-            {
-                errorMessage = "Unable to determine processor type";
-                return;
-            }
-            for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
-            {
-                if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
-                {
-                    fhdr.cputype = archTable[i].procType;
-                    fhdr.cpusubtype = archTable[i].procSubType;
-                    break;
-                }
-            }
-            if (i == sizeof(archTable)/sizeof(archTable[0]))
-            {
-                errorMessage = "Unable to determine processor type";
-                return;
-            }
-            break;
-        }
-    case MA_I386:
-        fhdr.cputype = CPU_TYPE_I386;
-        fhdr.cpusubtype = CPU_SUBTYPE_I386_ALL;
-        break;
-    case MA_PPC:
-        fhdr.cputype = CPU_TYPE_POWERPC;
-        fhdr.cpusubtype = CPU_SUBTYPE_POWERPC_ALL;
-        break;
-    default:
-        errorMessage = "The Mach-O exporter can only be run on the i386 or PPC architectures";
-        return;
-    }
+    // The machine needs to match the machine we're compiling for
+    // even if this is actually portable code.
+#if defined(HOSTARCHITECTURE_X86)
+    fhdr.cputype = CPU_TYPE_I386;
+    fhdr.cpusubtype = CPU_SUBTYPE_I386_ALL;
+#elif defined(HOSTARCHITECTURE_PPC)
+    fhdr.cputype = CPU_TYPE_POWERPC;
+    fhdr.cpusubtype = CPU_SUBTYPE_POWERPC_ALL;
+#else
+#error "No support for exporting on this architecture"
+#endif
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
     // Segment header.
