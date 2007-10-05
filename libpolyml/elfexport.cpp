@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006-7 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -81,39 +81,6 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
-
-// Some of these aren't defined in Solaris 2.8 on the Sparc
-#ifndef R_PPC_ADDR32
-#define R_PPC_ADDR32            1
-#endif
-#ifndef R_PPC_ADDR16_LO
-#define R_PPC_ADDR16_LO         4
-#endif
-#ifndef R_PPC_ADDR16_HI
-#define R_PPC_ADDR16_HI         5
-#endif
-#ifndef R_PPC_ADDR16_HA
-#define R_PPC_ADDR16_HA         6
-#endif
-#ifndef EM_X86_64
-#define EM_X86_64       62
-#endif
-#ifndef R_X86_64_64
-#define R_X86_64_64            1
-#endif
-// And these aren't defined in FreeBSD on the i386
-#ifndef R_SPARC_32
-#define R_SPARC_32              3
-#endif
-#ifndef R_SPARC_WDISP30
-#define R_SPARC_WDISP30         7
-#endif
-#ifndef R_SPARC_HI22
-#define R_SPARC_HI22            9
-#endif
-#ifndef R_SPARC_LO10
-#define R_SPARC_LO10            12
-#endif
 
 #define sym_last_local_sym sym_data_section
 
@@ -210,6 +177,7 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
+#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
      case PROCESS_RELOC_I386RELATIVE:         // 32 or 64 bit relative address
         {
             ElfXX_Rel reloc;
@@ -226,6 +194,8 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
+#endif
+#ifdef HOSTARCHITECTURE_PPC
     case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
     case PROCESS_RELOC_PPCDUAL16UNSIGNED:
         {
@@ -250,6 +220,8 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             caddr[1] = caddr[1] & 0xffff0000;
         }
         break;
+#endif
+#ifdef HOSTARCHITECTURE_SPARC
     case PROCESS_RELOC_SPARCDUAL: // Sparc - two consecutive words
         {
             ElfXX_Rela reloc;
@@ -282,6 +254,9 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             caddr[0] = caddr[0] & 0xc0000000;
         }
         break;
+#endif
+        default:
+            ASSERT(0); // Wrong type of relocation for this architecture.
     }
 }
 
@@ -338,25 +313,6 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
     }
 }
 
-
-// This table maps the results of uname to the value to put in e_machine and
-// the value to use for a direct relocation.  It is only used in the portable
-// (interpreted) version.  It should really contain all the possible architectures
-// that the interpreted version might run on and not just those for which we
-// also have a code-generator.
-static struct { const char *name; unsigned procType, relocation; bool useRela; } archTable[] =
-{
-    { "i386",   EM_386,     R_386_32,       false },
-    { "i486",   EM_386,     R_386_32,       false },
-    { "i586",   EM_386,     R_386_32,       false },
-    { "i686",   EM_386,     R_386_32,       false },
-    { "sparc",  EM_SPARC,   R_SPARC_32,     true },
-    { "Power",  EM_PPC,     R_PPC_ADDR32,   true },
-    { "ppc",    EM_PPC,     R_PPC_ADDR32,   true },
-    { "x86_64", EM_X86_64,  R_X86_64_64,    false },
-    { "amd64",  EM_X86_64,  R_X86_64_64,    false }
-};
-
 void ELFExport::exportStore(void)
 {
     PolyWord    *p;
@@ -386,62 +342,42 @@ void ELFExport::exportStore(void)
             fhdr.e_ident[EI_DATA] = ELFDATA2LSB; // Little endian
     }
     fhdr.e_type = ET_REL;
-    // The machine needs to match the machine we're compiling for.
-    // Generally that will match the architecture but that won't work for
-    // the interpreted version.  We also need to find the code used on this
-    // architecture for a simple direct relocation.
-    switch (machineDependent->MachineArchitecture())
-    {
-    case MA_Interpreted:
-        {
-            struct utsname name;
-            if (uname(&name) < 0)
-            {
-                errorMessage = "Unable to determine processor type";
-                return;
-            }
-            for (i = 0; i < sizeof(archTable)/sizeof(archTable[0]); i++)
-            {
-                if (strncmp(name.machine, archTable[i].name, strlen(archTable[i].name)) == 0)
-                {
-                    fhdr.e_machine = archTable[i].procType;
-                    directReloc = archTable[i].relocation;
-                    useRela = archTable[i].useRela;
-                    break;
-                }
-            }
-            if (i == sizeof(archTable)/sizeof(archTable[0]))
-            {
-                errorMessage = "Unable to determine processor type";
-                return;
-            }
-            break;
-        }
-    case MA_I386:
-        fhdr.e_machine = EM_386;
-        directReloc = R_386_32;
-        useRela = false;
-        break;
-    case MA_PPC:
-        fhdr.e_machine = EM_PPC;
-        directReloc = R_PPC_ADDR32;
-        useRela = true;
-        break;
-    case MA_Sparc:
-        fhdr.e_machine = EM_SPARC;
-        directReloc = R_SPARC_32;
-        useRela = true;
-        /* Sparc/Solaris, at least 2.8, requires ELF32_Rela relocations.  For some reason,
-           though, it adds the value in the location being relocated (as with ELF32_Rel
-           relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
-           relocation we always zero the location to be relocated. */
-        break;
-    case MA_X86_64:
-        fhdr.e_machine = EM_X86_64;
-        directReloc = R_X86_64_64;
-        useRela = false;
-        break;
-    }
+    // The machine needs to match the machine we're compiling for
+    // even if this is actually portable code.
+#if defined(HOSTARCHITECTURE_X86)
+    fhdr.e_machine = EM_386;
+    directReloc = R_386_32;
+    useRela = false;
+#elif defined(HOSTARCHITECTURE_PPC)
+    fhdr.e_machine = EM_PPC;
+    directReloc = R_PPC_ADDR32;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_SPARC)
+    fhdr.e_machine = EM_SPARC;
+    directReloc = R_SPARC_32;
+    useRela = true;
+    /* Sparc/Solaris, at least 2.8, requires ELF32_Rela relocations.  For some reason,
+       though, it adds the value in the location being relocated (as with ELF32_Rel
+       relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
+       relocation we always zero the location to be relocated. */
+#elif defined(HOSTARCHITECTURE_X86_64)
+    fhdr.e_machine = EM_X86_64;
+    directReloc = R_X86_64_64;
+    useRela = false;
+#elif defined(HOSTARCHITECTURE_ARM)
+#ifndef EF_ARM_EABI_VER4 
+#define EF_ARM_EABI_VER4     0x04000000
+#endif
+    // When linking ARM binaries the linker checks the ABI version.  We
+    // need to set the version to the same as the libraries. 
+    // GCC currently uses version 4.
+    fhdr.e_machine = EM_ARM;
+    directReloc = R_ARM_ABS32;
+    useRela = false;
+    fhdr.e_flags = EF_ARM_EABI_VER4;
+#else
+#error "No support for exporting on this architecture"
+#endif
     fhdr.e_version = EV_CURRENT;
     fhdr.e_shoff = sizeof(fhdr); // Offset to section header - immediately follows
     fhdr.e_ehsize = sizeof(fhdr);

@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([[Poly/ML]], [[5.0]], [[polyml AT polyml DOT org]])
+AC_INIT([[Poly/ML]], [[5.1]], [[polyml AT polyml DOT org]])
 AM_INIT_AUTOMAKE
 AC_PREREQ(2.59)
 
@@ -197,38 +197,43 @@ AC_CHECK_MEMBERS([mcontext_t.gregs, mcontext_t.regs, mcontext_t.mc_esp],,,[#incl
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
-# I
+# Test the --with-portable option to build the interpreter even if
+# we have a code-generator.
 AC_ARG_WITH(portable,
     [  --with-portable         Build the portable interpreter version of Poly/ML instead of native], [
     ac_cv_with_portable=yes], [
     ac_cv_with_portable=no])
 
-case $ac_cv_with_portable in
-   yes )
-       AC_SUBST([ARCHFLAG], [-DINTERPRETED])
-       polyarch=interpret
-       ;;
-   * )
-    case "${host_cpu}" in
-          i[[3456]]86*)
-                AC_SUBST([ARCHFLAG], [-Di386])
-                polyarch=i386
-                ;;
-          sparc*)
-                AC_SUBST([ARCHFLAG], [-DSPARC])
-                polyarch=sparc
-                ;;
-          power* | ppc*)
-                AC_SUBST([ARCHFLAG], [-DPOWER2])
-                polyarch=ppc
-                ;;
-          x86_64* | amd64*)
-                AC_SUBST([ARCHFLAG], [-DX86_64])
-                polyarch=x86_64
-                ;;
-	    *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
-    esac;;
+case "${host_cpu}" in
+      i[[3456]]86*)
+            AC_DEFINE([HOSTARCHITECTURE_X86], [1], [Define if the host is an X86 (32 bit)])
+            polyarch=i386
+            ;;
+      sparc*)
+            AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
+            polyarch=sparc
+            ;;
+      power* | ppc*)
+            AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])
+            polyarch=ppc
+            ;;
+      x86_64* | amd64*)
+            AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64 bit)])
+            polyarch=x86_64
+            ;;
+      arm*)
+            AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
+            ac_cv_with_portable=yes
+            ;;
+      *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
+
+# If we have explicitly set --with-portable or we are on a machine without
+# a code-generator set to use the interpreter.
+if test "$ac_cv_with_portable" = "yes"; then
+       AC_DEFINE([INTERPRETED], [1], [Define if using the interpreter] )
+       polyarch=interpret
+fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHPPC], [test "$polyarch" = ppc])
@@ -263,15 +268,8 @@ case "${host_os}" in
             if $CC -dumpmachine | grep -q mingw; then
                 AC_SUBST([OSFLAG], [-DWINDOWS_PC])
                 poly_native_windows=yes
-            else
-                AC_SUBST([OSFLAG], [-DLINUX])
             fi
-        else
-            AC_SUBST([OSFLAG], [-DLINUX])
         fi
-        ;;
-    *)
-        AC_SUBST([OSFLAG], [-DLINUX])
         ;;
 esac
 

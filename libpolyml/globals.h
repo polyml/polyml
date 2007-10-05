@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000
+    Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -59,7 +59,7 @@
    containing 01. 
    DCJM 27/9/00.
  */
-#if defined(SPARC)
+#if (defined(HOSTARCHITECTURE_SPARC) && !defined(INTERPRETED))
 #define POLY_TAGSHIFT    2
 #else
 #define POLY_TAGSHIFT    1

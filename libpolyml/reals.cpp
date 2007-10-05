@@ -528,7 +528,7 @@ static void setrounding(TaskData *taskData, Handle args)
     _FPU_SETCW(ctrl);
 }
 
-#elif defined(POWER2)
+#elif (defined(HOSTARCHITECTURE_PPC) && defined(MACOSX))
 // Older versions of the Mac OS X didn't have a suitable function.
 
 static void getround(union db *res)

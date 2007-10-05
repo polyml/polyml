@@ -144,6 +144,9 @@
 /* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
 #undef HAVE_LIBGCC_S
 
+/* Define to 1 if you have the `gdi32' library (-lgdi32). */
+#undef HAVE_LIBGDI32
+
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
 
@@ -158,6 +161,9 @@
 
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
+
+/* Define to 1 if you have the `wsock32' library (-lwsock32). */
+#undef HAVE_LIBWSOCK32
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11
@@ -487,6 +493,24 @@
 
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
+
+/* Define if the host is an ARM (32 bit) */
+#undef HOSTARCHITECTURE_ARM
+
+/* Define if the host is a Power PC (32 bit) */
+#undef HOSTARCHITECTURE_PPC
+
+/* Define if the host is a Sparc (32 bit) */
+#undef HOSTARCHITECTURE_SPARC
+
+/* Define if the host is an X86 (32 bit) */
+#undef HOSTARCHITECTURE_X86
+
+/* Define if the host is an X86 (64 bit) */
+#undef HOSTARCHITECTURE_X86_64
+
+/* Define if using the interpreter */
+#undef INTERPRETED
 
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */

@@ -1,9 +1,9 @@
 AUTOMAKE_OPTIONS=foreign
 
-AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
-AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
-AM_ASFLAGS = $(ARCHFLAG) $(OSFLAG)
-AM_CCASFLAGS = $(ARCHFLAG) $(OSFLAG)
+AM_CPPFLAGS = $(OSFLAG) -Wall
+AM_CFLAGS = $(OSFLAG) -Wall -fno-strict-aliasing
+AM_ASFLAGS = $(OSFLAG)
+AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 1:0
