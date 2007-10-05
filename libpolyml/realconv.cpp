@@ -192,7 +192,7 @@
 #endif
 
 #if !defined(IEEE_8087) && ! defined(IEEE_MC68k)
-#if defined(WINDOWS_PC) || defined(i386) || defined (__i386__) || defined (_M_IX86) || \
+#if defined(WINDOWS_PC) || defined(HOSTARCHITECTURE_X86) || defined (__i386__) || defined (_M_IX86) || \
         defined (vax) || defined (__alpha)
 #define IEEE_8087
 #else
@@ -2602,7 +2602,7 @@ rv_alloc(int i)
 
 	j = sizeof(ULong);
 	for(k = 0;
-		sizeof(Bigint) - sizeof(ULong) - sizeof(int) + j <= i;
+		(int)(sizeof(Bigint) - sizeof(ULong) - sizeof(int)) + j <= i;
 		j <<= 1)
 			k++;
 	r = (int*)Balloc(k);
@@ -2618,7 +2618,7 @@ rv_alloc(int i)
 #ifdef KR_headers
 nrv_alloc(s, rve, n) char *s, **rve; int n;
 #else
-nrv_alloc(char *s, char **rve, int n)
+nrv_alloc(const char *s, char **rve, int n)
 #endif
 {
 	char *rv, *t;
@@ -2729,7 +2729,7 @@ dtoa
 		to hold the suppressed trailing zeros.
 	*/
 
-	int bbits, b2, b5, be, dig, i, ieps, ilim, ilim0, ilim1,
+	int bbits, b2, b5, be, dig, i, ieps, ilim=0, ilim0, ilim1=0,
 		j, j1, k, k0, k_check, leftright, m2, m5, s2, s5,
 		spec_case, try_quick;
 	Long L;
