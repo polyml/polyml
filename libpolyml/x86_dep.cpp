@@ -78,11 +78,11 @@
 #define EXTRA_STACK 0
 #endif
 
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
 #define CHECKED_REGS    6
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
 #define CHECKED_REGS    13
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 /* The unchecked reg field is used for the condition codes. */
 #define UNCHECKED_REGS  1
 
@@ -163,13 +163,13 @@ public:
     virtual int  GetIOFunctionRegisterMask(int ioCall);
 
     virtual Architectures MachineArchitecture(void)
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
          { return MA_I386; }
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
          { return MA_X86_64; }
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     virtual unsigned char *BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove);
     virtual void GetCallbackArg(void **args, void *argLoc, int nSize);
 #endif
@@ -421,7 +421,7 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
             taskData->stack->p_hr = (*(PSP_SP(taskData->stack)++)).AsStackAddr(); // Restore the previous handler.
             mdTask->callBackResult = taskData->saveVec.push(PSP_EAX(taskData->stack)); // Argument to return is in EAX.
             // Restore the registers
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
             PSP_R10(taskData->stack) = *PSP_SP(taskData->stack)++;
             PSP_R9(taskData->stack) = *PSP_SP(taskData->stack)++;
             PSP_R8(taskData->stack) = *PSP_SP(taskData->stack)++;
@@ -564,19 +564,19 @@ void X86Dependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
     taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
     Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
         PSP_EAX(taskData->stack) = result->Word();
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         PSP_SP(taskData->stack) += 2; // Pop the return address and a stack arg.
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
         PSP_SP(taskData->stack)++;
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -594,21 +594,21 @@ void X86Dependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
     taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
     Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[2]);
     Handle saved4 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData->stack));
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
         PSP_EAX(taskData->stack) = result->Word();
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         PSP_SP(taskData->stack) += 3; // Pop the return address and two stack args.
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
         PSP_SP(taskData->stack)++;
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -627,23 +627,23 @@ void X86Dependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
     taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
     Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[3]);
     Handle saved4 = taskData->saveVec.push(PSP_SP(taskData->stack)[2]);
     Handle saved5 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData->stack));
     Handle saved5 = taskData->saveVec.push(PSP_R10(taskData->stack));
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
         PSP_EAX(taskData->stack) = result->Word();
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         PSP_SP(taskData->stack) += 4; // Pop the return address and 3 stack args
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
         PSP_SP(taskData->stack)++;
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -699,7 +699,7 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
     taskData->stack->p_hr = PSP_SP(taskData->stack);
     byte *codeAddr;
 #ifndef __GNUC__
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
     ASSERT(0); // Inline assembly not supported on Windows 64-bit
 #else
     __asm {
@@ -715,13 +715,13 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
 // GCC
     __asm__ __volatile__ (
      "call    1f;"
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         "addl    $8,%%esp;"
         "popl    4(%%ebp);"
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
         "addq    $16,%%rsp;"
         "popq    8(%%rbp);"
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
         "ret;"
         "nop;"    // Add an extra byte so that we have 8 bytes on both X86 and X86_64
     "1: pop %0"
@@ -762,39 +762,39 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
 #elif defined(HAVE_UCONTEXT_T)
 #ifdef HAVE_MCONTEXT_T_GREGS
     // Linux
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     pc = (byte*)context->uc_mcontext.gregs[REG_EIP];
     sp = (PolyWord*)context->uc_mcontext.gregs[REG_ESP];
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     pc = (byte*)context->uc_mcontext.gregs[REG_RIP];
     sp = (PolyWord*)context->uc_mcontext.gregs[REG_RSP];
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 #elif defined(HAVE_MCONTEXT_T_MC_ESP)
    // FreeBSD
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     pc = (byte*)context->uc_mcontext.mc_eip;
     sp = (PolyWord*)context->uc_mcontext.mc_esp;
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     pc = (byte*)context->uc_mcontext.mc_rip;
     sp = (PolyWord*)context->uc_mcontext.mc_rsp;
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 #else
    // Mac OS X
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
 #ifdef HAVE_X86_THREAD_STATE32_T
     pc = (byte*)context->uc_mcontext->ss.eip;
     sp = (PolyWord*)context->uc_mcontext->ss.esp;
 #else
     return false;
 #endif
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
 #ifdef  HAVE_X86_THREAD_STATE64_T
     pc = (byte*)context->uc_mcontext->ss.rip;
     sp = (PolyWord*)context->uc_mcontext->ss.rsp;
 #else
     return false;
 #endif
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 #endif
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
     pc = (byte*)context->sc_pc;
@@ -857,7 +857,7 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
         // We will have already garbage collected and recovered sufficient space.
         // This also happens if we have just trapped because of store profiling.
         taskData->allocPointer -= mdTask->allocWords; // Now allocate
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         // Set the allocation register to this area.
         *(get_reg(taskData, mdTask->allocReg)) =
             PolyWord::FromStackAddr(taskData->allocPointer + 1); /* remember: it's off-by-one */
@@ -949,7 +949,7 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
       case 4: return (PolyWord*)&taskData->stack->p_sp;
       case 6: return &PSP_ESI(taskData->stack);
       case 7: return &PSP_EDI(taskData->stack);
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
       case 8: return &PSP_R8(taskData->stack);
       case 9: return &PSP_R9(taskData->stack);
       case 10: return &PSP_R10(taskData->stack);
@@ -958,7 +958,7 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
       case 13: return &PSP_R13(taskData->stack);
       case 14: return &PSP_R14(taskData->stack);
       // R15 is the heap pointer so shouldn't occur here.
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
       default: 
         Crash("Unknown register %d at %p\n", n, PSP_IC(taskData->stack));
     }
@@ -979,7 +979,7 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
             PSP_IC(taskData->stack) += 256 - PSP_IC(taskData->stack)[1] + 2;
         else PSP_IC(taskData->stack) += PSP_IC(taskData->stack)[1] + 2;
     }
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
     // This should be movl REG,0[%ebp].
     ASSERT(PSP_IC(taskData->stack)[0] == 0x89);
     mdTask->allocReg = (PSP_IC(taskData->stack)[1] >> 3) & 7; // Remember this until we allocate the memory
@@ -995,7 +995,7 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
     /* length in words, including length word */
 
     ASSERT (wordsNeeded <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
     // This should be movq Length,-8(%r15)
     ASSERT(PSP_IC(taskData->stack)[0] == 0x49 && PSP_IC(taskData->stack)[1] == 0xc7 && PSP_IC(taskData->stack)[2] == 0x47 && PSP_IC(taskData->stack)[3] == 0xf8);
     // The Length field should be in the next word.  N.B.  This assumes that
@@ -1003,16 +1003,16 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
     ASSERT((PSP_IC(taskData->stack)[7] & 0x80) == 0); // Should not be negative
     for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | PSP_IC(taskData->stack)[i];
     wordsNeeded += 1; // That was the object size. We need to add one for the length word.
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     
     if (profileMode == kProfileStoreAllocation)
         add_count(taskData, PSP_IC(taskData->stack), PSP_SP(taskData->stack), wordsNeeded);
 
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
     // On the X64 the value that ends up in allocSpace->pointer includes the
     // attempted allocation.  Add back the space we tried to allocate
     taskData->allocPointer += wordsNeeded;
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 
     mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }
@@ -1065,14 +1065,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
     bool doneSubtraction = false;
     while(1) {
         byte rexPrefix = 0;
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
         // Get any REX prefix
         if (PSP_IC(taskData->stack)[0] >= 0x40 && PSP_IC(taskData->stack)[0] <= 0x4f)
         {
             rexPrefix = PSP_IC(taskData->stack)[0];
             PSP_INCR_PC(taskData->stack, 1);
         }
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
         // Decode the register fields and include any REX bits
         int bbb = PSP_IC(taskData->stack)[1] & 7;
         if (rexPrefix & 0x1) bbb += 8;
@@ -1242,17 +1242,17 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             break;
 
         case 0x50: /* push eax - used before a multiply. */
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r8
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
             *(--PSP_SP(taskData->stack)) = PSP_EAX(taskData->stack);
             PSP_INCR_PC(taskData->stack, 1);
             break;
 
         case 0x52: /* push edx - used before a multiply. */
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r10
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
             *(--PSP_SP(taskData->stack)) = PSP_EDX(taskData->stack);
             PSP_INCR_PC(taskData->stack, 1);
             break;
@@ -1304,7 +1304,7 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
 
 #ifndef __GNUC__
 // Windows
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
 
 #define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
 { \
@@ -1324,14 +1324,14 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
     __asm mov result,eax \
 }
 
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
 // Visual C++ on X64 doesn't support inline assembly code
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 
 
 #else
 
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
 
 #define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
 { \
@@ -1355,7 +1355,7 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
            ); \
 }
 
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
 
 #define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
 { \
@@ -1378,7 +1378,7 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
            :"i"(exNum) \
            ); \
 }
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
 
 #endif
 
@@ -1642,22 +1642,22 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         // Second arg, if there is one, goes into EBX
         if (argCount > 1)
             PSP_EBX(taskData->stack) = argv->Get(1);
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
         if (argCount > 2)
             PSP_R8(taskData->stack) = argv->Get(2);
         if (argCount > 3)
             PSP_R9(taskData->stack) = argv->Get(3);
         if (argCount > 4)
             PSP_R10(taskData->stack) = argv->Get(4);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
         // Remaining args go on the stack.
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         for (POLYUNSIGNED i = 2; i < argCount; i++)
             *(--PSP_SP(taskData->stack)) = argv->Get(i+2);
-#else /* X86_64 */
+#else /* HOSTARCHITECTURE_X86_64 */
         for (POLYUNSIGNED i = 5; i < argCount; i++)
             *(--PSP_SP(taskData->stack)) = argv->Get(i);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
     }
     // The closure goes into the closure reg.
     PSP_EDX(taskData->stack) = DEREFWORD(closure);
@@ -1681,7 +1681,7 @@ void X86Dependent::SetCallbackFunction(TaskData *taskData, Handle func, Handle a
     *(--PSP_SP(taskData->stack)) = PSP_EDX(taskData->stack);
     *(--PSP_SP(taskData->stack)) = PSP_EAX(taskData->stack);
     *(--PSP_SP(taskData->stack)) = PSP_EBX(taskData->stack);
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
     *(--PSP_SP(taskData->stack)) = PSP_R8(taskData->stack);
     *(--PSP_SP(taskData->stack)) = PSP_R9(taskData->stack);
     *(--PSP_SP(taskData->stack)) = PSP_R10(taskData->stack);
@@ -1717,9 +1717,9 @@ static void skipea(byte **pt, ScanAddress *process)
             if ((sib & 7) == 5) 
             {
                 /* An immediate address. */
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
                 process->ScanConstant(*pt, PROCESS_RELOC_DIRECT);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
                 (*pt) += 4;
             }
         }
@@ -1728,10 +1728,10 @@ static void skipea(byte **pt, ScanAddress *process)
     }
     else if (md == 0 && rm == 5)
     {
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
         /* Absolute address. */
         process->ScanConstant(*pt, PROCESS_RELOC_DIRECT);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
         *pt += 4;
     }
     else
@@ -1758,7 +1758,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
     while (pt != (byte*)end)
     {
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
         byte lastRex;
         if (*pt >= 0x40 && *pt <= 0x4f)
@@ -1768,7 +1768,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
         //printf("pt=%p *pt=%x\n", pt, *pt);
 
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
         switch (*pt)
         {
         case 0x50: case 0x51: case 0x52: case 0x53:
@@ -1872,9 +1872,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
                 else {
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
                     ASSERT(sizeof(PolyWord) == 4); // Should only be used internally on x64
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
                     if (addr != old)
                     {
                         // The old value of the displacement was relative to the old address before
@@ -1909,9 +1909,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 else
                 {
                     skipea(&pt, process);
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
                     process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
                     pt += 4;
                 }
                 break;
@@ -1920,11 +1920,11 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xb8: case 0xb9: case 0xba: case 0xbb:
         case 0xbc: case 0xbd: case 0xbe: case 0xbf: /* MOVL_32_64_R */
             pt ++;
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
             if ((lastRex & 8) == 0)
                 pt += 4; // 32-bit mode on 64-bits.  Can this occur?
             else
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
             {
                 // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
                 process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
@@ -1934,9 +1934,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
         case 0x68: /* PUSH_32 */
             pt ++;
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
             process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
-#endif /* X86_64 */
+#endif /* HOSTARCHITECTURE_X86_64 */
             pt += 4;
             break;
 
@@ -1992,7 +1992,7 @@ void X86Dependent::SetCodeConstant(TaskData *taskData, Handle data, Handle const
     }
 }
 
-#ifndef X86_64
+#ifndef HOSTARCHITECTURE_X86_64
 // This will only work on the i386.  The X86_64 uses different conventions with some arguments
 // in registers.
 
@@ -2115,7 +2115,7 @@ void X86Dependent::GetCallbackArg(void **args, void *argLoc, int nSize)
 static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
 {
     POLYUNSIGNED result;
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
 #ifdef __GNUC__
 // Unix - x64
     __asm__ __volatile__ (
@@ -2128,7 +2128,7 @@ static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
 // Visual C++ on X64 doesn't support inline assembly code
 #endif // ! __GNUC__
 //
-#else // ! X86_64
+#else // ! HOSTARCHITECTURE_X86_64
 #ifdef __GNUC__
 // Unix - x32
     __asm__ __volatile__ (

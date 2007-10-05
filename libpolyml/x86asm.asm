@@ -66,7 +66,7 @@ EXTNAME     TEXTEQU <>
 ;# since macros have to be converted into C preprocessor macros.
 CALLMACRO       TEXTEQU <>
 
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 Reax        TEXTEQU <eax>
 Rebx        TEXTEQU <ebx>
 Recx        TEXTEQU <ecx>
@@ -168,7 +168,7 @@ POPAL        TEXTEQU <popad>
 INCL         TEXTEQU <inc>
 
 ELSE
-
+#include "config.h"
 ;# External names in older versions of FreeBSD have a leading underscore.
 #if ! defined(__ELF__)
 #define EXTNAME(x)  _##x
@@ -176,7 +176,7 @@ ELSE
 #define EXTNAME(x)  x
 #endif
 
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 #define Reax        %eax
 #define Rebx        %ebx
 #define Recx        %ecx
@@ -198,7 +198,7 @@ ENDIF
 #define R_al        %al
 #define R_cl        %cl
 #define R_bl        %bl
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
 #define R8          %r8
 #define R9          %r9
 #define R10         %r10
@@ -213,7 +213,7 @@ ENDIF
 
 #define END
 
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
 #define MOVL         movq
 #define MOVB        movb
 #define ADDL         addq
@@ -292,7 +292,7 @@ ELSE
 #define     M_Rebx      8
 #define     M_Resi      16
 #define     M_Redi      32
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
 #define     M_R8         64
 #define     M_R9        128
 #define     M_R10       256
@@ -311,7 +311,7 @@ ENDIF
 ;# Default mask for unused entries.  This is set to all the registers
 ;# for safety in case a new function is added without adding an entry
 ;# here.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 CALLMACRO   RegMask all,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Resi OR M_Redi)
 ELSE
 CALLMACRO   RegMask all,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Resi OR M_Redi OR M_R8 OR M_R9 OR M_R10 OR M_R11 OR M_R12 OR M_R13 OR M_R14)
@@ -389,7 +389,7 @@ TRUE        TEXTEQU     TAGGED(1)
 MINUS1      TEXTEQU     TAGGED(0-1)
 B_mutablebytes  EQU     41h
 B_mutable   EQU         40h
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 Max_Length  EQU         00ffffffh
 ELSE
 Max_Length  EQU         00ffffffffffffffh
@@ -405,7 +405,7 @@ ELSE
 .set    MINUS1,     TAGGED(0-1)
 .set    B_mutable,  0x40
 .set    B_mutablebytes, 0x41
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 .set    Max_Length, 0x00ffffff
 ELSE
 .set    Max_Length, 0x00ffffffffffffff
@@ -420,7 +420,7 @@ ENDIF
 IFDEF WINDOWS
 LocalMpointer       EQU     0
 
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 HandlerRegister     EQU     4
 LocalMbottom        EQU     8
 StackTop            EQU     16  ;# Upper limit of stack
@@ -454,7 +454,7 @@ ENDIF
 
 ELSE
 .set    LocalMpointer,0
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 .set    HandlerRegister,4
 .set    LocalMbottom,8
 .set    StackTop,16
@@ -544,7 +544,7 @@ FLAGS_OFF   EQU     48
 ELSE
 
 .set    SPACE_OFF,  0
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
 .set    PC_OFF,     4
 .set    SP_OFF,     8
 .set    HR_OFF,     12
@@ -597,7 +597,7 @@ IFDEF WINDOWS
 
 CALL_IO    MACRO   index
         mov     byte ptr [RequestCode+Rebp],index
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
         jmp     dword ptr [IOEntryPoint+Rebp]
 ELSE
         jmp     qword ptr [IOEntryPoint+Rebp]
@@ -621,7 +621,7 @@ ELSE
 GLOBAL EXTNAME(X86AsmSwitchToPoly)
 EXTNAME(X86AsmSwitchToPoly):               ;# Entry point from C
 ENDIF
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx                    ;# Argument - address of MemRegisters - goes into Rebp
     PUSHAL                                  ;# Save all the registers just to be safe
     MOVL    Resp,SavedSp[Recx]              ;# savedSp:=%Resp - Save the system stack pointer.
@@ -639,7 +639,7 @@ ELSE
     MOVL    Redi,Rebp                       ;# Put address of MemRegisters where it belongs
 ENDIF
     MOVL    PolyStack[Rebp],Reax
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
     MOVL    LocalMpointer[Rebp],R15         ;# Set the heap pointer register
 ENDIF
     MOVL    SP_OFF[Reax],Resp               ;# Set the new stack ptr
@@ -650,7 +650,7 @@ ENDIF
     MOVL    EDX_OFF[Reax],Redx
     MOVL    ESI_OFF[Reax],Resi
     MOVL    EDI_OFF[Reax],Redi
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8_OFF[Reax],R8
     MOVL    R9_OFF[Reax],R9
     MOVL    R10_OFF[Reax],R10
@@ -683,7 +683,7 @@ ENDIF
     MOVL    Redx,EDX_OFF[Reax]
     MOVL    Resi,ESI_OFF[Reax]
     MOVL    Redi,EDI_OFF[Reax]
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8,R8_OFF[Reax]
     MOVL    R9,R9_OFF[Reax]
     MOVL    R10,R10_OFF[Reax]
@@ -702,7 +702,7 @@ ELSE
     MOVB    CONST 1,InRTS[Rebp]             ;# inRTS:=0 (stack now kosher)
 ENDIF
     MOVL    SavedSp[Rebp],Resp
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
     POPL    %r15                            ;# Restore callee-save registers
@@ -753,7 +753,7 @@ CALLMACRO    INLINE_ROUTINE move_bytes
  ;# (source, sourc_offset, destination, dest_offset, length)
 
  ;# Assume that the offsets and length are all short integers.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    12[Resp],Redi               ;# Destination address
     MOVL    8[Resp],Recx                ;# Destination offset, untagged
 ELSE
@@ -765,7 +765,7 @@ ENDIF
     MOVL    Reax,Resi                   ;# Source address
     SHRL    CONST TAGSHIFT,Rebx
     ADDL    Rebx,Resi
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx                ;# Get the length to move
 ELSE
     MOVL    R10,Recx                ;# Get the length to move
@@ -794,7 +794,7 @@ ENDIF
  ;# Visual Studio 5 C++ seems to assume that the direction flag
  ;# is cleared.  I think that`s a bug but we have to go along with it.
     cld
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 12
 ELSE
     ret
@@ -808,7 +808,7 @@ CALLMACRO    INLINE_ROUTINE move_words
  ;# Must deal with the case of overlapping segments correctly.
  ;# (source, source_offset, destination, dest_offset, length)
  ;# Assume that the offsets and length are all short integers.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    12[Resp],Redi               ;# Destination address
     MOVL    8[Resp],Recx                ;# Destination offset
     LEAL    (-2)[Redi+Recx*2],Redi      ;# Destination address plus offset
@@ -828,7 +828,7 @@ ENDIF
  ;# use incrementing moves.
     ja      mvw1
     std                             ;# Decrement Redi,Resi
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     LEAL    (-4)[Resi+Recx*4],Resi
     LEAL    (-4)[Redi+Recx*4],Redi
 ELSE
@@ -837,14 +837,14 @@ ELSE
 ENDIF
 mvw1:
 IFDEF WINDOWS
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     rep movsd                       ;# Copy the words
 ELSE
     rep movsq                       ;# Copy the words
 ENDIF
 ELSE
     rep
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     movsl                           ;# Copy the words
 ELSE
     movsq                           ;# Copy the words
@@ -857,7 +857,7 @@ ENDIF
  ;# Visual Studio 5 C++ seems to assume that the direction flag
  ;# is cleared.  I think that`s a bug but we have to go along with it.
     cld
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 12
 ELSE
     ret
@@ -907,7 +907,7 @@ CALLMACRO   RegMask xor_word,(M_Reax)
 CALLMACRO   INLINE_ROUTINE  shift_left_word
  ;# Assume that both args are tagged integers
  ;# Word.<<(a,b) is defined to return 0 if b > Word.wordSize
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST TAGGED(31),Rebx
 ELSE
     CMPL    CONST TAGGED(63),Rebx
@@ -927,7 +927,7 @@ CALLMACRO   RegMask shift_left_word,(M_Reax OR M_Recx)
 
 CALLMACRO   INLINE_ROUTINE  shift_right_word
  ;# Word.>>(a,b) is defined to return 0 if b > Word.wordSize
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST TAGGED(31),Rebx
 ELSE
     CMPL    CONST TAGGED(63),Rebx
@@ -947,13 +947,13 @@ CALLMACRO   RegMask shift_right_word,(M_Reax OR M_Recx)
 CALLMACRO   INLINE_ROUTINE  shift_right_arith_word
  ;# Word.~>>(a,b) is defined to return 0 or ~1 if b > Word.wordSize
  ;# The easiest way to do that is to set the shift to 31.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST TAGGED(31),Rebx
 ELSE
     CMPL    CONST TAGGED(63),Rebx
 ENDIF
     jb      sra1
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    CONST TAGGED(31),Rebx
 ELSE
     MOVL    CONST TAGGED(63),Rebx
@@ -1003,7 +1003,7 @@ CALLMACRO   RegMask lockseg,M_Reax
 
 
 CALLMACRO   INLINE_ROUTINE  get_length_a
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    (-4)[Reax],Reax
 ELSE
     MOVL    (-8)[Reax],Reax
@@ -1058,7 +1058,7 @@ ENDIF
     MOVL    [Recx],Rebx ;# Arg1 - the identifier for this handler
     CMPL    [Reax],Rebx ;# Compare with exception tag - Have we got the right handler?
     je      rsx7        ;# Skip if we found a match.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ADDL    CONST 8,Recx        ;# Look at the next handler.
 ELSE
     ADDL    CONST 16,Recx        ;# Look at the next handler.
@@ -1073,7 +1073,7 @@ ENDIF
     jmp     rsx1
 
 rsx7:   ;# We have found the right handler - %Recx points to the data
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ADDL    CONST 4,Recx        ;# point it at the code
 ELSE
     ADDL    CONST 8,Recx        ;# point it at the code
@@ -1085,7 +1085,7 @@ ENDIF
  ;# We have to remove them and find the pointer to the next handler in the
  ;# chain.  This becomes the new handler pointer.
 rsx6:
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ADDL    CONST 4,Recx
 ELSE
     ADDL    CONST 8,Recx
@@ -1120,7 +1120,7 @@ CALLMACRO   INLINE_ROUTINE  load_byte
 IFDEF WINDOWS
     movzx   Redi, byte ptr [Reax][Redi]
 ELSE
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     movzbl  (Reax,Redi,1),Redi
 ELSE
     movzbq  (Reax,Redi,1),Redi
@@ -1132,7 +1132,7 @@ CALLMACRO   MAKETAGGED  Redi,Reax
 CALLMACRO   RegMask load_byte,(M_Reax OR M_Redi)
 
 CALLMACRO   INLINE_ROUTINE  load_word
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    (-2)[Reax+Rebx*2],Reax
 ELSE
     MOVL    (-4)[Reax+Rebx*4],Reax
@@ -1144,7 +1144,7 @@ CALLMACRO   RegMask load_word,(M_Reax)
 CALLMACRO   INLINE_ROUTINE  assign_byte
 
 ;# We can assume that the data value will not overflow 30 bits (it is only 1 byte!)
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx
 ELSE
     MOVL    R8,Recx
@@ -1158,7 +1158,7 @@ ENDIF
     MOVL    CONST UNIT,Reax             ;# The function returns unit
     MOVL    Reax,Rebx                   ;# Clobber bad value in %Rebx
     MOVL    Reax,Recx                   ;# and %Recx
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 4
 ELSE
     ret
@@ -1167,14 +1167,14 @@ CALLMACRO   RegMask assign_byte,(M_Reax OR M_Rebx OR M_Recx)
 
 
 CALLMACRO   INLINE_ROUTINE  assign_word
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx
     MOVL    Recx,(-2)[Reax+Rebx*2]
 ELSE
     MOVL    R8,(-4)[Reax+Rebx*4]      ;# The offset is tagged already
 ENDIF
     MOVL    CONST UNIT,Reax           ;# The function returns unit
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 4
 CALLMACRO   RegMask assign_word,(M_Reax OR M_Recx)
 ELSE
@@ -1200,14 +1200,14 @@ CALLMACRO   INLINE_ROUTINE  alloc_store
     MOVL    CONST 1,Redi            ;# because they mess up the g.c.
     MOVL    CONST TAGGED(1),Reax
 allst0:
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST Max_Length,Redi   ;# Length field must fit in 24 bits
 ELSE
     MOVL    CONST Max_Length,Redx   ;# Length field must fit in 56 bits
     CMPL    Redx,Redi
 ENDIF
     ja      alloc_in_rts            ;# Get the RTS to raise an exception
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     INCL    Redi                    ;# Add 1 word
     SHLL    CONST 2,Redi            ;# Get length in bytes
     MOVL    LocalMpointer[Rebp],Redx
@@ -1219,7 +1219,7 @@ ENDIF
     SUBL    Redi,Redx               ;# Allocate the space
     MOVL    Reax,Redi               ;# Clobber bad value in Redi
     CMPL    LocalMbottom[Rebp],Redx            ;# Check for free space
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     jb      alloc_in_rts            ;# TODO: Is this exactly the right test?
 
     MOVL    Redx,LocalMpointer[Rebp]             ;# Put back in the heap ptr
@@ -1228,7 +1228,7 @@ ELSE
     MOVL    Redx,R15                 ;# Put back in the heap ptr
 ENDIF
     SHRL    CONST TAGSHIFT,Reax
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    Reax,(-4)[Redx]         ;# Put in length
 ELSE
     MOVL    Reax,(-8)[Redx]         ;# Put in length
@@ -1238,7 +1238,7 @@ ENDIF
     MOVB    R_bl,(-1)[Redx]         ;# and put it in.
  ;# Initialise the store.
     MOVL    Reax,Recx               ;# Get back the no. of words.
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Reax            ;# Get initial value.
 ELSE
     MOVL    R8,Reax                 ;# Get initial value.
@@ -1248,7 +1248,7 @@ ENDIF
 
  ;# If this is a byte seg
     SHRL    CONST TAGSHIFT,Reax ;# untag the initialiser
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     SHLL    CONST 2,Recx        ;# Convert to bytes
 ELSE
     SHLL    CONST 3,Recx        ;# Convert to bytes
@@ -1269,7 +1269,7 @@ IFDEF WINDOWS
     rep stosd
 ELSE
     rep
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     stosl
 ELSE
     stosq
@@ -1283,7 +1283,7 @@ allst3:
     MOVL    Reax,Redx
     MOVL    Reax,Rebx
     MOVL    Reax,Redi
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 4
 ELSE
     ret
@@ -1361,7 +1361,7 @@ CALLMACRO   INLINE_ROUTINE  div_long
     SARL    CONST TAGSHIFT,Reax
     MOVL    Rebx,Redi
     SARL    CONST TAGSHIFT,Redi
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     cdq
 ELSE
     cqo
@@ -1389,7 +1389,7 @@ CALLMACRO   INLINE_ROUTINE  rem_long
     SARL    CONST TAGSHIFT,Reax
     MOVL    Rebx,Redi
     SARL    CONST TAGSHIFT,Redi
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     cdq
 ELSE
     cqo
@@ -1544,7 +1544,7 @@ teststreq2:
     MOVL    Recx,Reax
     MOVL    Rebx,Redi       ;# Move ready for cmpsb.
     MOVL    [Reax],Recx     ;# Get length
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ADDL    CONST 4,Recx    ;# add 4 for the length field.
 ELSE
     ADDL    CONST 8,Recx    ;# add 8 for the length field.
@@ -1579,7 +1579,7 @@ teststrneq2:
     MOVL    Recx,Reax
     MOVL    Rebx,Redi       ;# Move ready for cmpsb.
     MOVL    [Reax],Recx     ;# Get length
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     ADDL    CONST 4,Recx    ;# add 4 for the length field.
 ELSE
     ADDL    CONST 8,Recx    ;# add 8 for the length field.
@@ -1619,7 +1619,7 @@ tststr0a:
     CMPL    [Rebx],Redi
     jg      tststr4            ;# Return with "gtr" set if it is
     SHRL    CONST TAGSHIFT,Reax
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     CMPB    4[Rebx],R_al
 ELSE
     CMPB    8[Rebx],R_al
@@ -1635,7 +1635,7 @@ tststr1: ;# arg2 is not short.  Is arg1 ?
     CMPL    CONST 1,Redi
     jl      tststr4            ;# Return with "less" set if it is
     SHRL    CONST TAGSHIFT,Rebx
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVB    4[Reax],R_cl
 ELSE
     MOVB    8[Reax],R_cl
@@ -1652,7 +1652,7 @@ tststr2:
     jge     tststr3
     MOVL    Redi,Recx
 tststr3:
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     LEAL    4[Reax],Resi    ;# Load ptrs for cmpsb
     LEAL    4[Rebx],Redi
 ELSE
@@ -1665,7 +1665,7 @@ IFDEF WINDOWS
     repe cmpsb          ;# Compare while equal and Recx > 0
 ELSE
     repe    
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     cmpsb           ;# Compare while equal and %ecx > 0
 ELSE
     cmpsb           ;# Compare while equal and %rcx > 0
@@ -1725,7 +1725,7 @@ CALLMACRO   INLINE_ROUTINE  is_big_endian
 CALLMACRO   RegMask is_big_endian,(M_Reax)
 
 CALLMACRO   INLINE_ROUTINE  bytes_per_word
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    CONST TAGGED(4),Reax  ;# 4 bytes per word
 ELSE
     MOVL    CONST TAGGED(8),Reax  ;# 8 bytes per word
@@ -1864,7 +1864,7 @@ IFDEF WINDOWS
     PUBLIC  registerMaskVector
 registerMaskVector  dd  Mask_all                ;# 0 is unused
 ELSE
-IFNDEF X86_64
+IFNDEF HOSTARCHITECTURE_X86_64
         GLOBAL EXTNAME(registerMaskVector)
 ELSE
         .global EXTNAME(registerMaskVector)
@@ -2129,7 +2129,7 @@ ENDIF
     dd  Mask_assign_byte         ;# 254
     dd  Mask_assign_word         ;# 255
 
-IFDEF X86_64
+IFDEF HOSTARCHITECTURE_X86_64
 
 
 ENDIF
