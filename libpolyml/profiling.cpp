@@ -438,7 +438,11 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
                 POLYCODEPTR pc;
                 if (machineDependent->GetPCandSPFromContext(taskData, context, sp, pc))
                     add_count(taskData, pc, sp, 1);
+                else unknown_count++;
             }
+            else unknown_count++;
+            // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
+            // so all the counts will be "unknown".
         }
         break;
         
