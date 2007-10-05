@@ -27,7 +27,4 @@
 #define POLY_version_number    510 
 #define TextVersion             "5.1"
 
-extern const char *poly_runtime_system_version;
-extern const char *poly_runtime_system_copyright;
-
 #endif
