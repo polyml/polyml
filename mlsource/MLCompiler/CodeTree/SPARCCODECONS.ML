@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000-7
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -923,7 +923,7 @@ struct
     val immed13_4  = immed13 4;
     val immed13_6  = immed13 6;
     val immed13_8  = immed13 8;
-    val immed13_16 = immed13 16;
+    val immed13_24 = immed13 24;
     
     val immed13_TAGSHIFT = immed13 TAGSHIFT;
     val immed13_TAGMASK  = immed13 TAGMASK;
@@ -1358,7 +1358,7 @@ struct
   fun trap (cond:testCode, rs:reg, md:mode13) : quad =
     format3Quad (2, op3_2ToInt Ticc, getReg rs, getMode13 md, getTest cond) 
 
-  val tlu16 = trap (cs, g0, immed13_16); (* tlu 16 is a synonym for tcs 16 *)
+  val tlu24 = trap (cs, g0, immed13_24); (* tlu 24 is a synonym for tcs 24 *)
 
   fun format2Quad (op2:int, imm:int (* unsigned *), rdn:int) : quad =
   let
@@ -1905,7 +1905,6 @@ struct
   val genTaddcctv = type2T TADDccTV;
   val genTsubcctv = type2T TSUBccTV;
 
-
 (***************************************************************************  
   Functions that use cached values.
 ***************************************************************************)  
@@ -2426,7 +2425,7 @@ Calling conventions:
   fun genTrapls (cvec : code) : unit =
     ( 
       doPendingStackAdjustment cvec;
-      genInstruction (tlu16, cvec)
+      genInstruction (tlu24, cvec)
     );
 
 
@@ -2640,7 +2639,7 @@ Calling conventions:
     end
     
     
-   (* untag the arguments into the working registers, returning their locactions in order *)
+   (* untag the arguments into the working registers, returning their locations in order *)
    fun untagBothArgs (r1 : reg, r2 : reg, cvec : code) : reg * mode13 =
 (* The following would be unsafe because the RTS assumes that (i4+1) and (i5+1)
    are valid tagged integers whenever we do a taddcctv or tsubcctv with a non-constant
@@ -3479,7 +3478,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
           loadSL :: cl @
           [format3_2 (SUB, psp, loc, i5), (* N.B. not "ADD" SPF 13/10/94 *)
            format3_2 (SUBcc, i5, i3M, g0),
-           tlu16]
+           tlu24]
         end
            
         (* If we call another function, we have to perform the following
@@ -3500,7 +3499,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
               cause a trap is a "safe" state. *)
            format3_3 (LD, i0, immed13 MemRegStackLimit, i3),
            format3_2 (SUBcc, psp, i3M, g0),
-           tlu16
+           tlu24
            ]
            
         (* Leaf or tail-call-only function - no stack check required. *)

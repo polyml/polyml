@@ -784,7 +784,11 @@ static void catchILL(SIG_HANDLER_ARGS(s, context))
 {
     assert(s == SIGILL);
     assert(context != NULL);
+#ifdef SOLARIS
     SIGNALCONTEXT *cntxt = (SIGNALCONTEXT *)context;
+#else // Linux
+    sigcontext *cntxt = (sigcontext*)context;
+#endif
 
     TaskData *taskData = processes->GetTaskDataForThread();
     if (taskData == 0)
@@ -822,9 +826,15 @@ static void catchILL(SIG_HANDLER_ARGS(s, context))
     /* This piece of code is extremely messy. It has to get the state when the
        interrupt occured by unwinding the stack. It can then save the registers
        and call ``translate''. */
+#ifdef SOLARIS
     taskData->stack->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
     cntxt->uc_mcontext.gregs[REG_PC]  = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->uc_mcontext.gregs[REG_nPC] = cntxt->uc_mcontext.gregs[REG_PC] + 4;
+#else
+    taskData->stack->p_pc = (byte*)cntxt->si_regs.pc;
+    cntxt->si_regs.pc = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
+    cntxt->si_regs.npc = cntxt->si_regs.pc + 4;
+#endif
     
     /* "returns" to MD_trap_handler */
 }
@@ -838,7 +848,11 @@ static void catchEMT(SIG_HANDLER_ARGS(s, context))
 {
     assert(s == SIGEMT);
     assert(context != NULL);
+#ifdef SOLARIS
     SIGNALCONTEXT *cntxt = (SIGNALCONTEXT *)context;
+#else // Linux
+    sigcontext *cntxt = (sigcontext*)context;
+#endif
 
     TaskData *taskData = processes->GetTaskDataForThread();
     if (taskData == 0)
@@ -864,10 +878,16 @@ static void catchEMT(SIG_HANDLER_ARGS(s, context))
     /* This piece of code is extremely messy. It has to get the state when the
        interrupt occured by unwinding the stack. It can then save the registers
        and call ``translate''. */
+#ifdef SOLARIS
     taskData->stack->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
     cntxt->uc_mcontext.gregs[REG_PC]  = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->uc_mcontext.gregs[REG_nPC] = cntxt->uc_mcontext.gregs[REG_PC] + 4;
-    
+#else
+    taskData->stack->p_pc = (byte*)cntxt->si_regs.pc;
+    cntxt->si_regs.pc = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
+    cntxt->si_regs.npc = cntxt->si_regs.pc + 4;
+#endif
+ 
     /* "returns" to MD_trap_handler */
 }
 
@@ -1000,15 +1020,14 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
     /* Trap instructions can be as a result of stack or heap overflow,
        or may be caused by arithmetic overflows when using tagged numbers.
        Various different traps are in use.
-       tlu 16 occurs as a result of stack overflow.
-       tvs 16 and tnz 16 are a result of tagged PolyWord overflow.
+       tlu 24 (previously tlu 16) occurs as a result of stack overflow.
        tsubcctv %g5,?,%g5 occurs as a result of storage allocation.
        taddcctv and tsubcctv occur as a result of arithmetic overflow. */
     
     /* Skip over the trap instruction. */
     taskData->stack->p_pc += 4;
     
-    if (instr == 0x8bd02010)  /* tlu 16 is stack overflow */
+    if (instr == 0x8bd02010 || instr == 0x8bd02018)  /* tlu 24 is stack overflow */
     {
         /* Check the size of the stack and expand if necessary. */
         /* We need to examine the previous instruction */
@@ -1061,9 +1080,7 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
         
         emulate_trap(taskData, instr);
     }
-    else if (instr == 0x8fd02010 || instr == 0x93d02010 /* tvs 16 or tnz 16 */)
-        raise_exception0(taskData, EXC_size);
-    
+ 
     else Crash("Bad trap pc=%p, instr=%08x",taskData->stack->p_pc-4,instr);
     return false;
 }

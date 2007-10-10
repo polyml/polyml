@@ -53,8 +53,7 @@ of a garbage collection, since the garbage collector doesn't change the
 values in these registers.
 
 Other register MUST contain properly tagged values if there any a possibility
-of a garbage collection. This includes the case where we execute "tvs 16"
-or "tnz 16" to (possibly) raise "Range".
+of a garbage collection.
 */
 
 /* Include sys.h for the POLY_SYS entries. */
