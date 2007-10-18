@@ -185,15 +185,15 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     // Allocate a new address for the object.
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
-        ExportMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = gMem.eSpaces[i];
         if (isMutableObj == space->isMutable)
         {
-            ASSERT(space->pointer <= space->top && space->pointer >= space->bottom);
-            POLYUNSIGNED spaceLeft = space->pointer - space->bottom;
+            ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
+            POLYUNSIGNED spaceLeft = space->top - space->topPointer;
             if (spaceLeft > words)
             {
-                space->pointer -= words+1;
-                newObj = (PolyObject*)(space->pointer+1);
+                newObj = (PolyObject*)(space->topPointer+1);
+                space->topPointer += words+1;
                 break;
             }
         }
@@ -204,15 +204,15 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         POLYUNSIGNED spaceWords = isMutableObj ? defaultMutSize : defaultImmSize;
         if (spaceWords <= words)
             spaceWords = words+1; // Make sure there's space for this object.
-        ExportMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj);
+        PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj);
         if (space == 0)
         {
             // Unable to allocate this.
             throw MemoryException();
         }
-        space->pointer -= words+1;
-        newObj = (PolyObject*)(space->pointer+1);
-        ASSERT(space->pointer <= space->top && space->pointer >= space->bottom);
+        newObj = (PolyObject*)(space->topPointer+1);
+        space->topPointer += words+1;
+        ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
     }
 
     newObj->SetLengthWord(lengthWord); // copy length word
@@ -370,9 +370,9 @@ void Exporter::RunExport(PolyObject *rootFunction)
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
         memoryTableEntry *entry = &exports->memTable[i+1];
-        ExportMemSpace *space = gMem.eSpaces[i];
-        entry->mtAddr = space->pointer;
-        entry->mtLength = (space->top-space->pointer)*sizeof(PolyWord);
+        PermanentMemSpace *space = gMem.eSpaces[i];
+        entry->mtAddr = space->bottom;
+        entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = i+1;
         if (space->isMutable)
             entry->mtFlags = MTF_WRITEABLE;
