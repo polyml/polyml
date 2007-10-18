@@ -662,23 +662,7 @@ TaskData::~TaskData()
 void TaskData::FillUnusedSpace(void)
 {
     if (allocPointer > allocLimit)
-    {
-        POLYUNSIGNED space = allocPointer-allocLimit;
-        PolyWord *pDummy = allocLimit+1;
-        while (space > 0)
-        {
-            POLYUNSIGNED oSize = space;
-            // If the space is larger than the maximum object size
-            // we will need several objects.
-            if (space > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
-            else oSize = space-1;
-            // Make this a byte object so it's always skipped.
-            ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_BIT);
-            space -= oSize+1;
-            pDummy += oSize+1;
-        }
-        ASSERT(pDummy == allocPointer+1);
-    }
+        gMem.FillUnusedSpace(allocLimit, allocPointer-allocLimit); 
 }
 
 ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
