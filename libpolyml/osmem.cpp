@@ -165,7 +165,7 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
 // the segment.  The space must be the size actually allocated.
 bool OSMem::Free(void *p, size_t space)
 {
-    return VirtualFree(p, 0, MEM_DECOMMIT|MEM_RELEASE) == TRUE;
+    return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
 }
 
 // Adjust the permissions on a segment.  This must apply to the
