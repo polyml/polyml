@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006-7 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -43,6 +43,13 @@ MemSpace::MemSpace()
     isMutable = false;
     bottom = 0;
     top = 0;
+    isOwnSpace = false;
+}
+
+MemSpace::~MemSpace()
+{
+    if (isOwnSpace && bottom != 0)
+        osMemoryManager->Free(bottom, (char*)top - (char*)bottom);
 }
 
 LocalMemSpace::LocalMemSpace()
@@ -58,12 +65,6 @@ LocalMemSpace::LocalMemSpace()
     i_marked = m_marked = copied = updated = 0;
 }
 
-LocalMemSpace::~LocalMemSpace()
-{
-    if (bottom != 0)
-        osMemoryManager->Free(bottom, (char*)top - (char*)bottom);
-}
-
 bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 {
     isMutable = mut;
@@ -74,6 +75,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
     if (bottom == 0)
         return false;
+    isOwnSpace = true; // Deallocate when we're finished.
 
     // The size may have been rounded up to a block boundary.
     size = iSpace/sizeof(PolyWord);
@@ -85,11 +87,6 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     
     // Bitmap for the space.
     return bitmap.Create(size);
-}
-
-ExportMemSpace::ExportMemSpace()
-{
-    pointer = 0;
 }
 
 MemMgr::MemMgr()
@@ -117,11 +114,17 @@ MemMgr::~MemMgr()
 LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 {
     LocalMemSpace *space = new LocalMemSpace;
-    if (! space->InitSpace(size, mut))
-    {
-        delete space;
-        return 0;
-    }
+    if (space->InitSpace(size, mut) && AddLocalSpace(space))
+        return space;
+    // If something went wrong.
+    delete space;
+    return 0;
+}
+
+
+// Add a local memory space to the table.
+bool MemMgr::AddLocalSpace(LocalMemSpace *space)
+{
     // Compute the maximum and minimum local addresses.  The idea
     // is to speed up LocalSpaceForAddress which is likely to be a hot-spot
     // in the GC.
@@ -141,15 +144,12 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 
     // Add to the table.
     LocalMemSpace **table = (LocalMemSpace **)realloc(lSpaces, (nlSpaces+1) * sizeof(LocalMemSpace *));
-    if (table == 0)
-    {
-        delete space;
-        return 0;
-    }
+    if (table == 0) return false;
     lSpaces = table;
     lSpaces[nlSpaces++] = space;
-    return space;
+    return true;
 }
+
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
@@ -157,7 +157,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
 {
     PermanentMemSpace *space = new PermanentMemSpace;
     space->bottom = base;
-    space->top = space->bottom + words;
+    space->topPointer = space->top = space->bottom + words;
     space->spaceType = ST_PERMANENT;
     space->isMutable = mut;
     space->index = index;
@@ -209,9 +209,9 @@ MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 
 
 // Create and initialise a new export space and add it to the table.
-ExportMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut)
+PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut)
 {
-    ExportMemSpace *space = new ExportMemSpace;
+    PermanentMemSpace *space = new PermanentMemSpace;
     space->spaceType = ST_EXPORT;
     space->isMutable = mut;
     space->index = nextIndex++;
@@ -225,14 +225,15 @@ ExportMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut)
         delete space;
         return 0;
     }
+    space->isOwnSpace = true;
  
     // The size may have been rounded up to a block boundary.
     size = iSpace/sizeof(PolyWord);
     space->top = space->bottom + size;
-    space->pointer = space->top;
+    space->topPointer = space->bottom;
 
     // Add to the table.
-    ExportMemSpace **table = (ExportMemSpace **)realloc(eSpaces, (neSpaces+1) * sizeof(ExportMemSpace *));
+    PermanentMemSpace **table = (PermanentMemSpace **)realloc(eSpaces, (neSpaces+1) * sizeof(PermanentMemSpace *));
     if (table == 0)
     {
         delete space;
@@ -259,7 +260,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         (PermanentMemSpace **)calloc(npSpaces+neSpaces, sizeof(PermanentMemSpace *));
     if (table == 0) return false;
     unsigned newSpaces = 0;
-    // Save permanent spaces at a lower hierarchy and delete others
+    // Save permanent spaces at a lower hierarchy and delete others.  Any reachable
+    // data in permanent spaces at a higher or equal hierarchy level will have been
+    // copied into the export spaces.
     for (unsigned i = 0; i < npSpaces; i++)
     {
         if (pSpaces[i]->hierarchy < hierarchy)
@@ -269,27 +272,49 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
     // Save newly exported spaces.
     for (unsigned j = 0; j < neSpaces; j++)
     {
-        ExportMemSpace *space = eSpaces[j];
+        PermanentMemSpace *space = eSpaces[j];
         space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
         space->spaceType = ST_PERMANENT;
         // Put a dummy object to fill up the unused space.
-        if (space->bottom != space->pointer)
-        {
-            POLYUNSIGNED unused = space->pointer - space->bottom  - 1;
-            PolyObject *pDummy = (PolyObject*)(space->bottom +1);
-            while (unused > 0)
-            {
-                POLYUNSIGNED oSize = unused;
-                if (unused > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
-                pDummy->SetLengthWord(oSize, F_BYTE_BIT);
-                unused -= oSize;
-                pDummy += oSize+1;
-            }
-        }
+        if (space->topPointer != space->top)
+            FillUnusedSpace(space->topPointer, space->top - space->topPointer);
         // Put in a dummy object to fill the rest of the space.
         table[newSpaces++] = space;
     }
     neSpaces = 0;
+    npSpaces = newSpaces;
+    free(pSpaces);
+    pSpaces = table;
+
+    return true;
+}
+
+
+// Before we import a hierarchical saved state we need to turn any previously imported
+// spaces into local spaces.
+bool MemMgr::DemoteImportSpaces()
+{
+    // Create a new permanent space table.
+    PermanentMemSpace **table =
+        (PermanentMemSpace **)calloc(npSpaces, sizeof(PermanentMemSpace *));
+    if (table == NULL) return false;
+    unsigned newSpaces = 0;
+    for (unsigned i = 0; i < npSpaces; i++)
+    {
+        PermanentMemSpace *pSpace = pSpaces[i];
+        if (pSpace->hierarchy == 0) // Leave truly permanent spaces
+            table[newSpaces++] = pSpace;
+        else
+        {
+            // Turn this into a local space.
+            LocalMemSpace *space = new LocalMemSpace;
+            space->top = space->gen_top = space->gen_bottom = pSpace->top;
+            space->bottom = space->pointer = pSpace->bottom;
+            space->isMutable = pSpace->isMutable;
+            if (! AddLocalSpace(space))
+                return false;
+        }
+    }
     npSpaces = newSpaces;
     free(pSpaces);
     pSpaces = table;
@@ -363,6 +388,25 @@ PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
             return space;
     }
     return NULL;
+}
+
+// In several places we assume that segments are filled with valid
+// objects.  This fills unused memory with one or more "byte" objects.
+void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
+{
+    PolyWord *pDummy = base+1;
+    while (words > 0)
+    {
+        POLYUNSIGNED oSize = words;
+        // If the space is larger than the maximum object size
+        // we will need several objects.
+        if (words > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
+        else oSize = words-1;
+        // Make this a byte object so it's always skipped.
+        ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_BIT);
+        words -= oSize+1;
+        pDummy += oSize+1;
+    }
 }
 
 // Allocate an area of the heap of at least minWords and at most maxWords.

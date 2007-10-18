@@ -30,6 +30,7 @@ class ScanAddress;
 typedef enum {
     ST_IO,          // The io area forms an interface with the RTS
     ST_PERMANENT,   // Permanent areas are part of the object code
+                    // Also loaded saved state.
     ST_LOCAL,       // Local heaps contain volatile data
     ST_EXPORT       // Temporary export area
 } SpaceType;
@@ -39,11 +40,12 @@ class MemSpace
 {
 protected:
     MemSpace();
-    virtual ~MemSpace() {}
+    virtual ~MemSpace();
 
 public:
     SpaceType       spaceType;
     bool            isMutable;
+    bool            isOwnSpace; // True if this has been allocated.
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
@@ -56,10 +58,14 @@ public:
 class PermanentMemSpace: public MemSpace
 {
 protected:
-    PermanentMemSpace(): index(0), hierarchy(0) {}
+    PermanentMemSpace(): index(0), hierarchy(0), topPointer(0) {}
 public:
     unsigned        index;      // An identifier for the space.  Used when saving and loading.
     unsigned        hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
+
+    // When exporting or saving state we copy data into a new area.
+    // This area grows upwards unlike the local areas that grow down.
+    PolyWord    *topPointer;
 
     friend class MemMgr;
 };
@@ -71,7 +77,7 @@ class LocalMemSpace: public MemSpace
 {
 protected:
     LocalMemSpace();
-    virtual ~LocalMemSpace();
+    virtual ~LocalMemSpace() {}
     bool InitSpace(POLYUNSIGNED size, bool mut);
 
 public:
@@ -86,19 +92,6 @@ public:
     POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
     POLYUNSIGNED copied;          /* count of words copied.                            */
     POLYUNSIGNED updated;         /* count of words updated.                           */
-
-    friend class MemMgr;
-};
-
-// Temporary areas used during the export process.  The main reason they are here is
-// so that CheckAddress doesn't produce a spurious error.
-class ExportMemSpace: public PermanentMemSpace
-{
-protected:
-    ExportMemSpace();
-    virtual ~ExportMemSpace() {}
-public:
-    PolyWord    *pointer;
 
     friend class MemMgr;
 };
@@ -129,9 +122,10 @@ public:
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
     // Create and delete export spaces
-    ExportMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut);
+    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut);
     void DeleteExportSpaces(void);
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
+    bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
     MemSpace *SpaceForAddress(const void *pt); // Return the space the address is in or NULL if none.
     PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
@@ -159,6 +153,10 @@ public:
 
     void OpOldMutables(ScanAddress *process); // Scan permanent mutable areas
 
+    // In several places we assume that segments are filled with valid
+    // objects.  This fills unused memory with one or more "byte" objects.
+    void FillUnusedSpace(PolyWord *base, POLYUNSIGNED words);
+
     MemSpace *IoSpace() { return &ioSpace; } // Return pointer to the IO space.
 
     MemSpace ioSpace; // The IO space
@@ -172,7 +170,7 @@ public:
     unsigned nlSpaces;
 
     // Table for export spaces
-    ExportMemSpace **eSpaces;
+    PermanentMemSpace **eSpaces;
     unsigned neSpaces;
 
     // Used for quick check for local addresses.
@@ -182,6 +180,9 @@ public:
     PLock allocLock;
 
     unsigned nextIndex; // Used when allocating new permanent spaces.
+
+private:
+    bool AddLocalSpace(LocalMemSpace *space);
 };
 
 extern MemMgr gMem;
