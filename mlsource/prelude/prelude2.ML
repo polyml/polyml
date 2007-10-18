@@ -127,8 +127,8 @@ in
     	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
     	fun renameParent{ child: string, newParent: string }: unit =
     	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
-		fun showParent(child: string): string =
-		    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+		fun showParent(child: string): string option =
+    		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
 		end
     end;
 end;
