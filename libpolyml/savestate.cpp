@@ -75,6 +75,21 @@
 #define MAXPATHLEN MAX_PATH
 #endif
 
+// Helper class to close files on exit.
+class AutoClose {
+public:
+    AutoClose(FILE *f = 0): m_file(f) {}
+    ~AutoClose() { if (m_file) ::fclose(m_file); }
+
+	operator FILE*() { return m_file; }
+
+private:
+    FILE *m_file;
+};
+
+/*
+ *  Structure definitions for the saved state files.
+ */
 
 #define SAVEDSTATESIGNATURE "POLYSAVE"
 #define SAVEDSTATEVERSION   1
@@ -113,6 +128,7 @@ typedef struct _savedStateSegmentDescr
     unsigned    relocationSize;         // Size of a relocation entry
     unsigned    segmentFlags;           // Segment flags (see SSF_ values)
     unsigned    segmentIndex;           // The index of this segment or the segment it overwrites
+    void        *originalAddress;       // The base address when the segment was written.
 } SavedStateSegmentDescr;
 
 #define SSF_WRITABLE    1               // The segment contains mutable data
@@ -132,9 +148,48 @@ typedef struct _relocationEntry
 
 #define SAVE(x) taskData->saveVec.push(x)
 
-static char lastLoadName[MAXPATHLEN]; // Last file name loaded.
+/*
+ *  Hierarchy table: contains information about last loaded or saved state.
+ */
 
+// Pointer to list of files loaded in last load.
+// There's no need for a lock since the update is only made when all
+// the ML threads have stopped.
+class HierachyTable
+{
+public:
+    HierachyTable(): fileName(0) {}
+    ~HierachyTable() { free(fileName); }
+    char *fileName;
+    UNSIGNEDADDR timeStamp;
+};
 
+HierachyTable **hierarchyTable;
+
+static unsigned hierarchyDepth;
+
+static bool AddHierarchyEntry(const char *fileName, UNSIGNEDADDR timeStamp)
+{
+    // Add an entry to the hierarchy table for this file.
+    HierachyTable *newEntry = new HierachyTable;
+    if (newEntry == 0) return false;
+    newEntry->fileName = strdup(fileName);
+    if (newEntry->fileName == 0) return false;
+    newEntry->timeStamp = timeStamp;
+    HierachyTable **newTable =
+        (HierachyTable **)realloc(hierarchyTable, sizeof(HierachyTable *)*(hierarchyDepth+1));
+    if (newTable == 0) return false;
+    hierarchyTable = newTable;
+    hierarchyTable[hierarchyDepth++] = newEntry;
+    return true;
+}
+
+/*
+ *  Saving state.
+ */
+
+// This class is used to create the relocations.  It uses Exporter
+// for this but this may perhaps be too heavyweight.
 class SaveStateExport: public Exporter, public ScanAddress
 {
 public:
@@ -153,7 +208,7 @@ private:
     PolyWord createRelocation(PolyWord p, void *relocAddr);
     unsigned relocationCount;
 
-    friend Handle SaveState(TaskData *taskData, Handle args);
+    friend class SaveRequest;
 };
 
 // Generate the address relative to the start of the segment.
@@ -210,23 +265,87 @@ void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
     relocationCount++;
 }
 
-
-
-Handle SaveState(TaskData *taskData, Handle args)
-// Write a saved state file.
+// Request to the main thread to save data.
+class SaveRequest: public MainThreadRequest
 {
-    char fileNameBuff[MAXPATHLEN];
-    POLYUNSIGNED length =
-        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
-    if (length > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
-    // The value of depth is zero for top-level save so we need to add one for hierarchy.
-    unsigned newHierarchy = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)) + 1;
-    // We don't support hierarchical saving at the moment.
-    if (newHierarchy != 1)
-        raise_fail(taskData, "Depth must be zero");
+public:
+    SaveRequest(const char *name, unsigned h): fileName(name), newHierarchy(h),
+        errorMessage(0), errCode(0) {}
 
-    // TODO: This must be handled on the root thread.
+    virtual void Perform();
+    const char *fileName;
+    unsigned newHierarchy;
+    const char *errorMessage;
+    int errCode;
+};
+
+// This class is used to update references to objects that have moved.  If
+// we have copied an object into the area to be exported we may still have references
+// to it from the stack or from RTS data structures.  We have to ensure that these
+// are updated.
+// This is very similar to ProcessFixupAddress in sharedata.cpp
+class SaveFixupAddress: public ScanAddress
+{
+protected:
+    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    virtual PolyObject *ScanObjectAddress(PolyObject *base)
+        { return GetNewAddress(base).AsObjPtr(); }
+    PolyWord GetNewAddress(PolyWord old);
+};
+
+
+POLYUNSIGNED SaveFixupAddress::ScanAddressAt(PolyWord *pt)
+{
+    *pt = GetNewAddress(*pt);
+    return 0;
+}
+
+// Returns the new address if the argument is the address of an object that
+// has moved, otherwise returns the original.
+PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
+{
+    if (old.IsTagged() || old == PolyWord::FromUnsigned(0) || gMem.IsIOPointer(old.AsAddress()))
+        return old; //  Nothing to do.
+
+    // When we are updating addresses in the stack or in code segments we may have
+    // code pointers.
+    if (old.IsCodePtr())
+    {
+        // Find the start of the code segment
+        PolyObject *oldObject = ObjCodePtrToPtr(old.AsCodePtr());
+        // Calculate the byte offset of this value within the code object.
+        POLYUNSIGNED offset = old.AsCodePtr() - (byte*)oldObject;
+        PolyWord newObject = GetNewAddress(oldObject);
+        return PolyWord::FromCodePtr(newObject.AsCodePtr() + offset);
+    }
+
+    ASSERT(old.IsDataPtr());
+
+    PolyObject *obj = old.AsObjPtr();
+    
+    if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a moved object
+    {
+        PolyObject *newp = obj->GetForwardingPtr();
+        ASSERT (newp->ContainsNormalLengthWord());
+        return newp;
+    }
+    
+    ASSERT (obj->ContainsNormalLengthWord()); // object is not moved
+    return old;
+}
+
+// Called by the root thread to actually save the state and write the file.
+void SaveRequest::Perform()
+{
+    SaveStateExport exports;
+    // Open the file.  This could quite reasonably fail if the path is wrong.
+    exports.exportFile = fopen(fileName, "wb");
+    if (exports.exportFile == NULL)
+    {
+        errorMessage = "Cannot open save file";
+        errCode = errno;
+        return;
+    }
 
     // Scan over the permanent mutable area copying all reachable data that is
     // not in a lower hierarchy into new permanent segments.
@@ -244,8 +363,6 @@ Handle SaveState(TaskData *taskData, Handle args)
     {
         success = false;
     }
-
-    SaveStateExport exports;
 
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
@@ -269,7 +386,7 @@ Handle SaveState(TaskData *taskData, Handle args)
         {
             memoryTableEntry *entry = &exports.memTable[memTableCount++];
             entry->mtAddr = space->bottom;
-            entry->mtLength = (space->top-space->bottom)*sizeof(PolyWord);
+            entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
             if (space->isMutable)
                 entry->mtFlags = MTF_WRITEABLE;
@@ -283,9 +400,9 @@ Handle SaveState(TaskData *taskData, Handle args)
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
         memoryTableEntry *entry = &exports.memTable[memTableCount++];
-        ExportMemSpace *space = gMem.eSpaces[i];
-        entry->mtAddr = space->pointer;
-        entry->mtLength = (space->top-space->pointer)*sizeof(PolyWord);
+        PermanentMemSpace *space = gMem.eSpaces[i];
+        entry->mtAddr = space->bottom;
+        entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
         if (space->isMutable)
             entry->mtFlags = MTF_WRITEABLE;
@@ -296,26 +413,30 @@ Handle SaveState(TaskData *taskData, Handle args)
     exports.memTableEntries = memTableCount;
     exports.ioSpacing = IO_SPACING;
 
+    // Update references to moved objects.
+    SaveFixupAddress fixup;
+    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[l];
+        fixup.ScanAddressesInRegion(space->pointer, space->top-space->pointer);
+    }
+    GCModules(&fixup);
+
     // Update the global memory space table.  Old segments at the same level
     // or lower are removed.  The new segments become permanent.
     if (! success || ! gMem.PromoteExportSpaces(newHierarchy))
     {
-        // TODO: Revert any moves by replacing forwarding pointers
-        // by ordinary length words.
-        raise_syscall(taskData, "Out of Memory", ENOMEM);
+        errorMessage = "Out of Memory";
+        errCode = ENOMEM;
+        return;
     }
-
-    // TODO: Fix up forwarding pointers from the local heap to objects in
-    // the new spaces.
-    // We may have references to moved objects in local memory.  In particular
-    // the stack will not have been copied so that remains in local memory.
-    // If this failed we must fix up all forwarding pointers
-    // because the destructor for CopyScan deletes all export spaces.
-
-    // Open the file.
-    exports.exportFile = fopen(fileNameBuff, "wb");
-    if (exports.exportFile == NULL)
-        raise_syscall(taskData, "Cannot open save file", errno);
+    // Remove any deeper entries from the hierarchy table.
+    while (hierarchyDepth > newHierarchy-1)
+    {
+        hierarchyDepth--;
+        delete(hierarchyTable[hierarchyDepth]);
+        hierarchyTable[hierarchyDepth] = 0;
+    }
 
     // Write out the file header.
     SavedStateHeader saveHeader;
@@ -325,7 +446,13 @@ Handle SaveState(TaskData *taskData, Handle args)
         SAVEDSTATESIGNATURE, sizeof(saveHeader.headerSignature));
     saveHeader.headerVersion = SAVEDSTATEVERSION;
     saveHeader.segmentDescrLength = sizeof(SavedStateSegmentDescr);
-    saveHeader.parentTimeStamp = exportTimeStamp; // TODO: Change for children
+    if (newHierarchy == 1)
+        saveHeader.parentTimeStamp = exportTimeStamp;
+    else
+    {
+        saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
+        saveHeader.parentNameEntry = 1; // Always the first entry.
+    }
     saveHeader.timeStamp = time(NULL);
     saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
     // Write out the header.
@@ -342,6 +469,7 @@ Handle SaveState(TaskData *taskData, Handle args)
         descrs[j].relocationSize = sizeof(RelocationEntry);
         descrs[j].segmentIndex = entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
+        descrs[j].originalAddress = entry->mtAddr;
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
@@ -370,7 +498,10 @@ Handle SaveState(TaskData *taskData, Handle args)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                exports.relocateObject(obj);
+                // Most relocations can be computed when the saved state is
+                // loaded so we only write out the difficult ones: those that
+                // occur within compiled code.
+                //  exports.relocateObject(obj);
                 if (length != 0 && obj->IsCodeObject())
                     machineDependent->ScanConstantsWithinCode(obj, &exports);
                 p += length;
@@ -382,93 +513,301 @@ Handle SaveState(TaskData *taskData, Handle args)
        }
     }
 
+    // If this is a child we need to write a string table containing the parent name.
+    if (newHierarchy > 1)
+    {
+        saveHeader.stringTable = ftell(exports.exportFile);
+        fputc(0, exports.exportFile); // First byte of string table is zero
+        fputs(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
+        fputc(0, exports.exportFile); // A terminating null.
+        saveHeader.stringTableSize = strlen(hierarchyTable[newHierarchy-2]->fileName) + 2;
+    }
+
     // Rewrite the header and the segment tables now they're complete.
     fseek(exports.exportFile, 0, SEEK_SET);
     fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
     fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
 
+    // Add an entry to the hierarchy table for this file.
+    (void)AddHierarchyEntry(fileName, saveHeader.timeStamp);
+
     delete[](descrs);
+}
+
+Handle SaveState(TaskData *taskData, Handle args)
+{
+    char fileNameBuff[MAXPATHLEN];
+    POLYUNSIGNED length =
+        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
+    if (length > MAXPATHLEN)
+        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    // The value of depth is zero for top-level save so we need to add one for hierarchy.
+    unsigned newHierarchy = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)) + 1;
+    // We don't support hierarchical saving at the moment.
+    if (newHierarchy > hierarchyDepth+1)
+        raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
+    SaveRequest request(fileNameBuff, newHierarchy);
+    processes->MakeRootRequest(taskData, &request);
+    if (request.errorMessage)
+        raise_syscall(taskData, request.errorMessage, request.errCode);
     return SAVE(TAGGED(0));
 }
 
-class StateLoader
+/*
+ *  Loading saved state files.
+ */
+
+class StateLoader: public MainThreadRequest
 {
 public:
-    StateLoader(): loadFile(0), errorResult(0), descrs(0) {}
-    ~StateLoader();
+    StateLoader(const char *file): fileName(file), errorResult(0), errNumber(0) {}
 
-    void DoLoad(void);
+    virtual void Perform(void);
+    bool LoadFile(const char *fileName);
 
-    FILE *loadFile;
+    const char *fileName;
     const char *errorResult;
-    SavedStateHeader header;
-    SavedStateSegmentDescr *descrs;
+    int errNumber;
 };
 
-StateLoader::~StateLoader()
+// Called by the main thread once all the ML threads have stopped.
+void StateLoader::Perform(void)
 {
-    if (loadFile) fclose(loadFile);
+    (void)LoadFile(fileName);
+}
+
+// This class is used to relocate addresses in areas that have been loaded.
+class LoadRelocate
+{
+public:
+    LoadRelocate(): descrs(0), nDescrs(0), errorMessage(0) {}
+    ~LoadRelocate();
+
+    void RelocateObject(PolyObject *p);
+    void RelocateAddressAt(PolyWord *pt);
+
+    SavedStateSegmentDescr *descrs;
+    unsigned nDescrs;
+    const char *errorMessage;
+};
+
+LoadRelocate::~LoadRelocate()
+{
     if (descrs) delete[](descrs);
 }
 
-// TODO: This must be handled on the root thread.  It affects the
-// global memory so all other threads must be stopped.
-void StateLoader::DoLoad(void)
+// Update the addresses in a group of words.
+void LoadRelocate::RelocateAddressAt(PolyWord *pt)
 {
-    unsigned int newHierarchy = 1; // Only single level files currently supported.
+    PolyWord val = *pt;
+
+    if (val.IsTagged()) return;
+
+    // Which segment is this address in?
+    unsigned i;
+    for (i = 0; i < nDescrs; i++)
+    {
+        SavedStateSegmentDescr *descr = &descrs[i];
+        void *addr = val.AsAddress();
+        if (val.AsAddress() > descr->originalAddress &&
+            val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize)
+        {
+            // It's in this segment: relocate it to the current position.
+            MemSpace *space =
+                descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
+            // Error if this doesn't match.
+            byte *setAddress = (byte*)space->bottom + ((char*)val.AsAddress() - (char*)descr->originalAddress);
+            *pt = PolyWord::FromCodePtr(setAddress);
+            break;
+        }
+    }
+    if (i == nDescrs)
+    {
+        // Error: Not found.
+        errorMessage = "Unmatched address";
+    }
+}
+
+// This is based on Exporter::relocateObject but does the reverse.
+// It attempts to adjust all the addresses in the object when it has
+// been read in.
+void LoadRelocate::RelocateObject(PolyObject *p)
+{
+    if (p->IsByteObject())
+    {
+    }
+    else if (p->IsCodeObject())
+    {
+        POLYUNSIGNED constCount;
+        PolyWord *cp;
+        ASSERT(! p->IsMutable() );
+        p->GetConstSegmentForCode(cp, constCount);
+        /* Now the constant area. */
+        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
+        // N.B. This does not deal with constants within the code.  These have
+        // to be handled by real relocation entries.
+    }
+    else if (p->IsStackObject())
+    {
+        StackObject *s = (StackObject*)p;
+        POLYUNSIGNED length = p->Length();
+
+        ASSERT(! p->IsMutable()); // Should have been frozen
+        /* First the standard registers, space, pc, sp, hr. */
+        // pc may be TAGGED(0) indicating a retry.
+        PolyWord pc = PolyWord::FromCodePtr(s->p_pc);
+        if (pc != TAGGED(0))
+        {
+            RelocateAddressAt(&pc);
+            s->p_pc = pc.AsCodePtr();
+        }
+
+        PolyWord *stackPtr = s->p_sp; // Save this before we change it.
+        // These point within the current stack.
+        PolyWord sp = PolyWord::FromStackAddr(s->p_sp);
+        RelocateAddressAt(&sp);
+        s->p_sp = sp.AsStackAddr();
+        PolyWord hr = PolyWord::FromStackAddr(s->p_hr);
+        RelocateAddressAt(&hr);
+        s->p_hr = hr.AsStackAddr();
+
+        /* Checked registers. */
+        PolyWord *stackStart = (PolyWord*)p;
+        PolyWord *stackEnd = stackStart+length;
+        for (POLYUNSIGNED i = 0; i < s->p_nreg; i++)
+        {
+            PolyWord r = s->p_reg[i];
+            if (r.AsStackAddr() >= stackStart && r.AsStackAddr() < stackEnd)
+                RelocateAddressAt(&s->p_reg[i]);
+            /* It seems we can have zeros in the registers, at least on the i386. */
+            else if (r == PolyWord::FromUnsigned(0)) {}
+            else RelocateAddressAt(&(s->p_reg[i]));
+        }
+        /* Now the values on the stack. */
+        for (PolyWord *q = stackPtr; q < stackEnd; q++)
+            RelocateAddressAt(q);
+    }
+    else /* Ordinary objects, essentially tuples. */
+    {
+        POLYUNSIGNED length = p->Length();
+        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i));
+    }
+}
+
+// Load a saved state file.  Calls itself to handle parent files.
+bool StateLoader::LoadFile(const char *fileName)
+{
+    LoadRelocate relocate;
+
+    AutoClose loadFile(fopen(fileName, "rb"));
+    if ((FILE*)loadFile == NULL)
+    {
+        errorResult = "Cannot open load file";
+        errNumber = errno;
+        return false;
+    }
+
+    SavedStateHeader header;
     // Read the header and check the signature.
     if (fread(&header, sizeof(SavedStateHeader), 1, loadFile) != 1)
     {
         errorResult = "Unable to load header";
-        return;
+        return false;
     }
     if (strncmp(header.headerSignature, SAVEDSTATESIGNATURE, sizeof(header.headerSignature)) != 0)
     {
         errorResult = "File is not a saved state";
-        return;
+        return false;
     }
     if (header.headerVersion != SAVEDSTATEVERSION ||
         header.headerLength != sizeof(SavedStateHeader) ||
         header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
     {
         errorResult = "Mismatched version";
-        return;
+        return false;
     }
-    if (header.parentTimeStamp != exportTimeStamp)
+
+    // Have verified that this is a reasonable saved state file.  If it isn't a
+    // top-level file we have to load the parents first.
+    if (header.parentNameEntry != 0)
     {
-        errorResult = 
-            "Saved state was exported from a different executable or the executable has changed";
-        return;
+        char parentFileName[MAXPATHLEN+1];
+        unsigned toRead = header.stringTableSize-header.parentNameEntry;
+        if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
+
+        if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
+            fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
+            fread(parentFileName, 1, toRead, loadFile) != toRead)
+        {
+            errorResult = "Unable to read parent file name";
+            return false;
+        }
+        parentFileName[toRead] = 0; // Should already be null-terminated, but just in case.
+        if (! LoadFile(parentFileName))
+            return false;
+
+        // Check the parent time stamp.
+        ASSERT(hierarchyDepth > 0 && hierarchyTable[hierarchyDepth-1] != 0);
+
+        if (header.parentTimeStamp != hierarchyTable[hierarchyDepth-1]->timeStamp)
+        {
+            // Time-stamps don't match.
+            errorResult = "The parent for this saved state does not match or has been changed";
+            return false;
+        }
+
+    }
+    else // Top-level file
+    {
+        if (header.parentTimeStamp != exportTimeStamp)
+        {
+            // Time-stamp does not match executable.
+            errorResult = 
+                    "Saved state was exported from a different executable or the executable has changed";
+            return false;
+        }
+
+        // Any existing spaces at this level or greater must be turned
+        // into local spaces.  We may have references from the stack to objects that
+        // have previously been imported but otherwise these spaces are no longer
+        // needed.
+        gMem.DemoteImportSpaces();
+        // Clean out the hierarchy table.
+        for (unsigned h = 0; h < hierarchyDepth; h++)
+        {
+            delete(hierarchyTable[h]);
+            hierarchyTable[h] = 0;
+        }
+        hierarchyDepth = 0;
     }
 
     // Now have a valid, matching saved state.
     // Load the segment descriptors.
-    unsigned nDescrs = header.segmentDescrCount;
-    descrs = new SavedStateSegmentDescr[nDescrs];
+    relocate.nDescrs = header.segmentDescrCount;
+    relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
+
     if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0 ||
-        fread(descrs, sizeof(SavedStateSegmentDescr), nDescrs, loadFile) != nDescrs)
+        fread(relocate.descrs, sizeof(SavedStateSegmentDescr), relocate.nDescrs, loadFile) != relocate.nDescrs)
     {
         errorResult = "Unable to read segment descriptors";
-        return;
+        return false;
     }
-    // TODO: Any existing spaces at this level or greater must be turned
-    // into local spaces.  Do this here and flush the hierarchy table.
 
     // Read in and create the new segments first.  If we have problems,
     // in particular if we have run out of memory, then it's easier to recover.  
-    for (unsigned i = 0; i < nDescrs; i++)
+    for (unsigned i = 0; i < relocate.nDescrs; i++)
     {
-        SavedStateSegmentDescr *descr = &descrs[i];
+        SavedStateSegmentDescr *descr = &relocate.descrs[i];
         MemSpace *space =
             descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
 
         if (descr->segmentData == 0)
         { // No data - just an entry in the index.
-            if (space == NULL ||
-                descr->segmentSize != (size_t)((char*)space->top - (char*)space->bottom))
+            if (space == NULL/* ||
+                descr->segmentSize != (size_t)((char*)space->top - (char*)space->bottom)*/)
             {
                 errorResult = "Mismatch for existing memory space";
-                return;
+                return false;
             }
         }
         else if ((descr->segmentFlags & SSF_OVERWRITE) == 0)
@@ -476,7 +815,7 @@ void StateLoader::DoLoad(void)
             if (space != NULL)
             {
                 errorResult = "Segment already exists";
-                return;
+                return false;
             }
             // Allocate memory for the new segment.
             size_t actualSize = descr->segmentSize;
@@ -486,26 +825,30 @@ void StateLoader::DoLoad(void)
             if (mem == 0)
             {
                 errorResult = "Unable to allocate memory";
-                return;
+                return false;
             }
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(mem, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
                 osMemoryManager->Free(mem, descr->segmentSize);
-                return;
+                return false;
             }
+            // Fill unused space to the top of the area.
+            gMem.FillUnusedSpace(mem+descr->segmentSize/sizeof(PolyWord),
+                (actualSize-descr->segmentSize)/sizeof(PolyWord));
             // At the moment we leave all segments with write access.
             space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord),
                         (descr->segmentFlags & SSF_WRITABLE) != 0,
-                        descr->segmentIndex, newHierarchy);
+                        descr->segmentIndex, hierarchyDepth+1);
         }
     }
 
-    // Now read in the mutable overwrites and process the relocations.
-    for (unsigned j = 0; j < nDescrs; j++)
+    // Now read in the mutable overwrites and relocate.
+
+    for (unsigned j = 0; j < relocate.nDescrs; j++)
     {
-        SavedStateSegmentDescr *descr = &descrs[j];
+        SavedStateSegmentDescr *descr = &relocate.descrs[j];
         MemSpace *space =
             descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
         ASSERT(space != NULL); // We should have created it.
@@ -515,10 +858,25 @@ void StateLoader::DoLoad(void)
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
             {
                 errorResult = "Unable to read segment";
-                return;
+                return false;
             }
         }
-        // Relocate addresses in this segment.
+
+        // Relocation.
+        if (descr->segmentData != 0)
+        {
+            // Adjust the addresses in the loaded segment.
+            for (PolyWord *p = space->bottom; p < space->top; )
+            {
+                p++;
+                PolyObject *obj = (PolyObject*)p;
+                POLYUNSIGNED length = obj->Length();
+                relocate.RelocateObject(obj);
+                p += length;
+            }
+        }
+
+        // Process explicit relocations.
         // If we get errors just skip the error and continue rather than leave
         // everything in an unstable state.
         if (descr->relocations)
@@ -552,6 +910,12 @@ void StateLoader::DoLoad(void)
             }
         }
     }
+
+    // Add an entry to the hierarchy table for this file.
+    if (! AddHierarchyEntry(fileName, header.timeStamp))
+        return false;
+
+    return true; // Succeeded
 }
 
 Handle LoadState(TaskData *taskData, Handle hFileName)
@@ -564,34 +928,43 @@ Handle LoadState(TaskData *taskData, Handle hFileName)
     if (length > MAXPATHLEN)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
 
-    StateLoader loader;
-    loader.loadFile = fopen(fileNameBuff, "rb");
-    if (loader.loadFile == NULL)
-        raise_syscall(taskData, "Cannot open load file", errno);
+    StateLoader loader(fileNameBuff);
 
-    // Do the load.  This may set the error string if it failed.
-    loader.DoLoad();
+    // Request the main thread to do the load.  This may set the error string if it failed.
+    processes->MakeRootRequest(taskData, &loader);
+
     if (loader.errorResult != 0)
     {
-        lastLoadName[0] = 0; // No loaded file.
-        raise_fail(taskData, loader.errorResult);
+        if (loader.errNumber == 0)
+            raise_fail(taskData, loader.errorResult);
+        else raise_syscall(taskData, loader.errorResult, loader.errNumber);
     }
-
-    strcpy(lastLoadName, fileNameBuff);
 
     return SAVE(TAGGED(0));
 }
 
+/*
+ *  Additional functions to provide information or change saved-state files.
+ */
+
+// These functions do not affect the global state so can be executed by
+// the ML threads directly.
+
 Handle ShowHierarchy(TaskData *taskData)
-// Show the hierarchy.
+// Return the list of files in the hierarchy.
 {
-    Handle list = SAVE(ListNull);
-    if (lastLoadName[0])
+    Handle saved = taskData->saveVec.mark();
+    Handle list  = SAVE(ListNull);
+
+    // Process this in reverse order.
+    for (unsigned i = hierarchyDepth; i > 0; i--)
     {
-        Handle str = SAVE(C_string_to_Poly(taskData, lastLoadName));
-        list = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
-        DEREFLISTHANDLE(list)->h = DEREFHANDLE(str); 
-        DEREFLISTHANDLE(list)->t = ListNull;
+        Handle value = SAVE(C_string_to_Poly(taskData, hierarchyTable[i-1]->fileName));
+        Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
+        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        taskData->saveVec.reset(saved);
+        list = SAVE(DEREFHANDLE(next));
     }
     return list;
 }
@@ -599,14 +972,108 @@ Handle ShowHierarchy(TaskData *taskData)
 Handle RenameParent(TaskData *taskData, Handle args)
 // Change the name of the immediate parent stored in a child
 {
-    raise_fail(taskData, "RenameParent is not yet implemented");
+    char fileNameBuff[MAXPATHLEN], parentNameBuff[MAXPATHLEN];
+    // The name of the file to modify.
+    POLYUNSIGNED fileLength =
+        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
+    if (fileLength > MAXPATHLEN)
+        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    // The new parent name to insert.
+    POLYUNSIGNED parentLength =
+        Poly_string_to_C(DEREFHANDLE(args)->Get(1), parentNameBuff, MAXPATHLEN);
+    if (parentLength > MAXPATHLEN)
+        raise_syscall(taskData, "Parent name too long", ENAMETOOLONG);
+
+    AutoClose loadFile(fopen(fileNameBuff, "r+b")); // Open for reading and writing
+    if ((FILE*)loadFile == NULL)
+        raise_syscall(taskData, "Cannot open load file", errno);
+
+    SavedStateHeader header;
+    // Read the header and check the signature.
+    if (fread(&header, sizeof(SavedStateHeader), 1, loadFile) != 1)
+        raise_fail(taskData, "Unable to load header");
+
+    if (strncmp(header.headerSignature, SAVEDSTATESIGNATURE, sizeof(header.headerSignature)) != 0)
+        raise_fail(taskData, "File is not a saved state");
+
+    if (header.headerVersion != SAVEDSTATEVERSION ||
+        header.headerLength != sizeof(SavedStateHeader) ||
+        header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
+    {
+        raise_fail(taskData, "Mismatched version");
+    }
+
+    // Does this actually have a parent?
+    if (header.parentNameEntry == 0)
+        raise_fail(taskData, "File does not have a parent");
+
+    // At the moment the only entry in the string table is the parent
+    // name so we can simply write a new one on the end of the file.
+    // This makes the file grow slightly each time but it shouldn't be
+    // significant.
+    fseek(loadFile, 0, SEEK_END);
+    header.stringTable = ftell(loadFile); // Remember where this is
+    fputc(0, loadFile); // First byte of string table is zero
+    fputs(parentNameBuff, loadFile);
+    fputc(0, loadFile); // A terminating null.
+    header.stringTableSize = strlen(parentNameBuff) + 2;
+
+    // Now rewind and write the header with the revised string table.
+    fseek(loadFile, 0, SEEK_SET);
+    fwrite(&header, sizeof(header), 1, loadFile);
+
     return SAVE(TAGGED(0));
 }
 
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    raise_fail(taskData, "ShowParent is not yet implemented");
-    return SAVE(C_string_to_Poly(taskData, ""));
+    char fileNameBuff[MAXPATHLEN];
+    POLYUNSIGNED length =
+        Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
+    if (length > MAXPATHLEN)
+        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+
+    AutoClose loadFile(fopen(fileNameBuff, "rb"));
+    if ((FILE*)loadFile == NULL)
+        raise_syscall(taskData, "Cannot open load file", errno);
+
+    SavedStateHeader header;
+    // Read the header and check the signature.
+    if (fread(&header, sizeof(SavedStateHeader), 1, loadFile) != 1)
+        raise_fail(taskData, "Unable to load header");
+
+    if (strncmp(header.headerSignature, SAVEDSTATESIGNATURE, sizeof(header.headerSignature)) != 0)
+        raise_fail(taskData, "File is not a saved state");
+
+    if (header.headerVersion != SAVEDSTATEVERSION ||
+        header.headerLength != sizeof(SavedStateHeader) ||
+        header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
+    {
+        raise_fail(taskData, "Mismatched version");
+    }
+
+    // Does this have a parent?
+    if (header.parentNameEntry != 0)
+    {
+        char parentFileName[MAXPATHLEN+1];
+        unsigned toRead = header.stringTableSize-header.parentNameEntry;
+        if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
+
+        if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
+            fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
+            fread(parentFileName, 1, toRead, loadFile) != toRead)
+        {
+            raise_fail(taskData, "Unable to read parent file name");
+        }
+        parentFileName[toRead] = 0; // Should already be null-terminated, but just in case.
+        // Convert the name into a Poly string and then build a "Some" value.
+        // It's possible, although silly, to have the empty string as a parent name.
+        Handle resVal = SAVE(C_string_to_Poly(taskData, parentFileName));
+        Handle result = alloc_and_save(taskData, 1);
+        DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resVal));
+        return result;
+    }
+    else return SAVE(NONE_VALUE);
 }
 
