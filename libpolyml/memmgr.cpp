@@ -275,6 +275,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             space->top = space->gen_top = space->gen_bottom = pSpace->top;
             space->bottom = space->pointer = pSpace->bottom;
             space->isMutable = pSpace->isMutable;
+            space->isOwnSpace = true;
             if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                 return false;
         }
@@ -321,6 +322,7 @@ bool MemMgr::DemoteImportSpaces()
             space->top = space->gen_top = space->gen_bottom = pSpace->top;
             space->bottom = space->pointer = pSpace->bottom;
             space->isMutable = pSpace->isMutable;
+            space->isOwnSpace = true;
             if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                 return false;
         }
