@@ -256,18 +256,28 @@ void MemMgr::DeleteExportSpaces(void)
 bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 {
     // Create a new table big enough to hold all the permanent and export spaces
-    PermanentMemSpace **table =
+    PermanentMemSpace **pTable =
         (PermanentMemSpace **)calloc(npSpaces+neSpaces, sizeof(PermanentMemSpace *));
-    if (table == 0) return false;
+    if (pTable == 0) return false;
     unsigned newSpaces = 0;
-    // Save permanent spaces at a lower hierarchy and delete others.  Any reachable
-    // data in permanent spaces at a higher or equal hierarchy level will have been
-    // copied into the export spaces.
+    // Save permanent spaces at a lower hierarchy.  Others are converted into
+    // local spaces.  Most or all items will have been copied from these spaces
+    // into an export space but there could be items reachable only from the stack.
     for (unsigned i = 0; i < npSpaces; i++)
     {
-        if (pSpaces[i]->hierarchy < hierarchy)
-            table[newSpaces++] = pSpaces[i];
-        else delete(pSpaces[i]);
+        PermanentMemSpace *pSpace = pSpaces[i];
+        if (pSpace->hierarchy < hierarchy)
+            pTable[newSpaces++] = pSpace;
+        else
+        {
+            // Turn this into a local space.
+            LocalMemSpace *space = new LocalMemSpace;
+            space->top = space->gen_top = space->gen_bottom = pSpace->top;
+            space->bottom = space->pointer = pSpace->bottom;
+            space->isMutable = pSpace->isMutable;
+            if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                return false;
+        }
     }
     // Save newly exported spaces.
     for (unsigned j = 0; j < neSpaces; j++)
@@ -279,12 +289,12 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         if (space->topPointer != space->top)
             FillUnusedSpace(space->topPointer, space->top - space->topPointer);
         // Put in a dummy object to fill the rest of the space.
-        table[newSpaces++] = space;
+        pTable[newSpaces++] = space;
     }
     neSpaces = 0;
     npSpaces = newSpaces;
     free(pSpaces);
-    pSpaces = table;
+    pSpaces = pTable;
 
     return true;
 }
@@ -311,7 +321,7 @@ bool MemMgr::DemoteImportSpaces()
             space->top = space->gen_top = space->gen_bottom = pSpace->top;
             space->bottom = space->pointer = pSpace->bottom;
             space->isMutable = pSpace->isMutable;
-            if (! AddLocalSpace(space))
+            if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                 return false;
         }
     }
