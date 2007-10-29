@@ -44,6 +44,7 @@ end;
 structure DEBUG :
 sig
   val printString : (string->unit) ref
+  val printDepth : int ref
 end;
 
 (*****************************************************************************)
@@ -366,7 +367,7 @@ struct
 		(* TODO: We could use the global environment here. *)
 		val emptyEnv = { lookupFix = fn s => raise ValueMissing s, lookupExnById = fn _ => NONE }
 	in
-		printStruct(v, t, 4, pstream, emptyEnv)
+		printStruct(v, t, ! DEBUG.printDepth, pstream, emptyEnv)
 	end
 
 	local
