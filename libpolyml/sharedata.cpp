@@ -254,10 +254,10 @@ static POLYUNSIGNED MergeSameItems(Vector *v)
         unsigned minHierarchy = 0;
 
         POLYUNSIGNED j;
-        for (j = i+1; j < N; j++)
+        for (j = i; j < N; j++)
         {
-            // Search for identical objects.
-            if (CompareItems (& itemVec[i], & itemVec[j]) != 0) break;
+            // Search for identical objects.  Don't bother to compare it with itself.
+            if (i != j && CompareItems (& itemVec[i], & itemVec[j]) != 0) break;
             // Choose an object in the permanent memory if that is available.
             // This is necessary to retain the invariant that no object in
             // the permanent memory points to an object in the temporary heap.
