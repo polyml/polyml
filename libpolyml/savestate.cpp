@@ -560,20 +560,19 @@ Handle SaveState(TaskData *taskData, Handle args)
 class StateLoader: public MainThreadRequest
 {
 public:
-    StateLoader(const char *file): fileName(file), errorResult(0), errNumber(0) {}
+    StateLoader(const char *file): errorResult(0), errNumber(0) { strcpy(fileName, file); }
 
     virtual void Perform(void);
-    bool LoadFile(const char *fileName);
-
-    const char *fileName;
+    bool LoadFile(void);
     const char *errorResult;
+    char fileName[MAXPATHLEN];
     int errNumber;
 };
 
 // Called by the main thread once all the ML threads have stopped.
 void StateLoader::Perform(void)
 {
-    (void)LoadFile(fileName);
+    (void)LoadFile();
 }
 
 // This class is used to relocate addresses in areas that have been loaded.
@@ -608,7 +607,6 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
     for (i = 0; i < nDescrs; i++)
     {
         SavedStateSegmentDescr *descr = &descrs[i];
-        void *addr = val.AsAddress();
         if (val.AsAddress() > descr->originalAddress &&
             val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize)
         {
@@ -695,7 +693,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 }
 
 // Load a saved state file.  Calls itself to handle parent files.
-bool StateLoader::LoadFile(const char *fileName)
+bool StateLoader::LoadFile()
 {
     LoadRelocate relocate;
 
@@ -723,7 +721,7 @@ bool StateLoader::LoadFile(const char *fileName)
         header.headerLength != sizeof(SavedStateHeader) ||
         header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
     {
-        errorResult = "Mismatched version";
+        errorResult = "Unsupported version of saved state file";
         return false;
     }
 
@@ -731,19 +729,18 @@ bool StateLoader::LoadFile(const char *fileName)
     // top-level file we have to load the parents first.
     if (header.parentNameEntry != 0)
     {
-        char parentFileName[MAXPATHLEN+1];
         unsigned toRead = header.stringTableSize-header.parentNameEntry;
         if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
             fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
-            fread(parentFileName, 1, toRead, loadFile) != toRead)
+            fread(fileName, 1, toRead, loadFile) != toRead)
         {
             errorResult = "Unable to read parent file name";
             return false;
         }
-        parentFileName[toRead] = 0; // Should already be null-terminated, but just in case.
-        if (! LoadFile(parentFileName))
+        fileName[toRead] = 0; // Should already be null-terminated, but just in case.
+        if (! LoadFile())
             return false;
 
         // Check the parent time stamp.
@@ -937,7 +934,14 @@ Handle LoadState(TaskData *taskData, Handle hFileName)
     {
         if (loader.errNumber == 0)
             raise_fail(taskData, loader.errorResult);
-        else raise_syscall(taskData, loader.errorResult, loader.errNumber);
+        else
+        {
+            char buff[MAXPATHLEN+100];
+            strcpy(buff, loader.errorResult);
+            strcat(buff, ": ");
+            strcat(buff, loader.fileName);
+            raise_syscall(taskData, buff, loader.errNumber);
+        }
     }
 
     return SAVE(TAGGED(0));
@@ -986,7 +990,12 @@ Handle RenameParent(TaskData *taskData, Handle args)
 
     AutoClose loadFile(fopen(fileNameBuff, "r+b")); // Open for reading and writing
     if ((FILE*)loadFile == NULL)
-        raise_syscall(taskData, "Cannot open load file", errno);
+    {
+        char buff[MAXPATHLEN+1+23];
+        strcpy(buff, "Cannot open load file: ");
+        strcat(buff, fileNameBuff);
+        raise_syscall(taskData, buff, errno);
+    }
 
     SavedStateHeader header;
     // Read the header and check the signature.
@@ -1000,7 +1009,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
         header.headerLength != sizeof(SavedStateHeader) ||
         header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
     {
-        raise_fail(taskData, "Mismatched version");
+        raise_fail(taskData, "Unsupported version of saved state file");
     }
 
     // Does this actually have a parent?
@@ -1028,7 +1037,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    char fileNameBuff[MAXPATHLEN];
+    char fileNameBuff[MAXPATHLEN+1];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
@@ -1036,7 +1045,12 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 
     AutoClose loadFile(fopen(fileNameBuff, "rb"));
     if ((FILE*)loadFile == NULL)
-        raise_syscall(taskData, "Cannot open load file", errno);
+    {
+        char buff[MAXPATHLEN+1+23];
+        strcpy(buff, "Cannot open load file: ");
+        strcat(buff, fileNameBuff);
+        raise_syscall(taskData, buff, errno);
+    }
 
     SavedStateHeader header;
     // Read the header and check the signature.
@@ -1050,7 +1064,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         header.headerLength != sizeof(SavedStateHeader) ||
         header.segmentDescrLength != sizeof(SavedStateSegmentDescr))
     {
-        raise_fail(taskData, "Mismatched version");
+        raise_fail(taskData, "Unsupported version of saved state file");
     }
 
     // Does this have a parent?
