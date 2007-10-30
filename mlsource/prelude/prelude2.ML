@@ -74,6 +74,7 @@ in
 		(* The equivalent of atExit except that functions are added to
 		   the list persistently and of course the functions are executed
 		   at start-up rather than close-down. *)
+		(* TODO: There ought to be a mutex here. *)
 		fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
 
 		fun runFunction f () =
@@ -115,20 +116,44 @@ in
 	fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
     fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
 
-    (* Saving and loading state. *)
-	structure SaveState = 
-	    struct
-    	fun saveChild(f: string, depth: int): unit =
-    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
-    	fun saveState f = saveChild (f, 0);
-        fun loadState (f: string): unit =
+    local
+        val onLoadList = ref []
+
+        fun loadSavedState (f: string): unit =
     	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
-    	fun showHierarchy(): string list =
-    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
-    	fun renameParent{ child: string, newParent: string }: unit =
-    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
-		fun showParent(child: string): string option =
-    		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
-		end
-    end;
+    in
+        (* Add a function to be called when a saved state is loaded.  This is really
+		   here to ensure that we can preserve the contents of the buffer for stdIn. *)
+    	fun onLoad (f: (unit->unit)->unit): unit = onLoadList := f :: ! onLoadList
+    
+        (* Saving and loading state. *)
+    	structure SaveState = 
+    	    struct
+        	fun saveChild(f: string, depth: int): unit =
+        	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+        	fun saveState f = saveChild (f, 0);
+        	fun showHierarchy(): string list =
+        	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+        	fun renameParent{ child: string, newParent: string }: unit =
+        	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+    		fun showParent(child: string): string option =
+        		RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+
+            fun loadState (f: string): unit =
+			let
+			    val loadList = ! onLoadList
+			    (* Work along the list calling each function with an argument to
+				   call the next item.  That allows the functions to make local copies
+				   of any references and then reset them when the recursion unwinds. *)
+			    fun apply [] = (* Actually do the loading. *)
+				    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+				|   apply (h::t) = h (fn () => apply t)
+			in
+        	    apply loadList;
+				(* Reset the load list since that will have been overwritten by the load. *)
+				onLoadList := loadList
+			end
+        end
+    end
+	end
 end;
