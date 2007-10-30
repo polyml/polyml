@@ -394,6 +394,32 @@ struct
 			mutex())
 		end
 
+    (* This is a bit of a mess.  When we load a saved state the references associated with stdIn
+	   will be overwritten.  That could actually happen with any input file but stdIn is the only
+	   one that definitely is "persistent".  We need to save the contents of the buffer across the
+	   load and update the buffer with the saved contents.  *)
+    local
+        fun onLoad doLoad =
+		    case stdIn of
+			InStream(ref(Direct{buffer, bufp as ref savedBufp, buflimit as ref savedBufLimit, ...}), _) =>
+			    let
+				    (* Have to extract the contents and save it in a local variable. *)
+    				val savedBuff =
+    					CharArraySlice.vector(
+						    CharArraySlice.slice(buffer, savedBufp, SOME(savedBufLimit - savedBufp)));
+				in
+				    doLoad();
+					CharArray.copyVec { src=savedBuff, dst=buffer, di=savedBufp };
+					bufp := savedBufp;
+					buflimit := savedBufLimit
+				end
+			| _ => doLoad() (* Ignore this case for the moment. *)
+	in
+	    (* Set up an onEntry handler so that this is always installed. *)
+	    val () = PolyML.onEntry (fn () => PolyML.onLoad onLoad);
+		(* Install it now. *)
+	    val () = PolyML.onLoad onLoad
+	end;
 
 	(* We may want to consider unbuffered output or even linking stdOut with stdIn
 	   so that any unbuffered
