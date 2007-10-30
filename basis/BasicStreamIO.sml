@@ -904,7 +904,21 @@ struct
 		   write. *)
 		fun discardAll () =
 		    List.app (fn(OutStream{bufp, ...}) => bufp := 0) (! outputStreamList)
-		fun doOnEntry () = (discardAll(); OS.Process.atExit closeAll)
+		(* When we load a saved state global variables are overwritten.  We need
+		   to preserve the outputStreamList across the call.  We also flush the
+		   buffers before the call and discard any output that had been buffered
+		   in the saved state.
+		   This is a bit of a mess and probably needs to be changed. *)
+		fun doOnLoad doLoad =
+		let
+		    val savedList = ! outputStreamList
+		in
+			List.app flushOut savedList;
+			doLoad();
+			outputStreamList := savedList;
+			discardAll()
+		end
+		fun doOnEntry () = (discardAll(); PolyML.onLoad doOnLoad; OS.Process.atExit closeAll)
 	in
 		val it = PolyML.onEntry doOnEntry;
 		val it = doOnEntry() (* Set it up for this session as well. *)
