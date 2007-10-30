@@ -46,7 +46,7 @@ private:
 private:
     void setRelocationAddress(void *p, int32_t *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
-    void writeSymbol(const char *symbolName, uint nType, uint nSect, uint offset);
+    void writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset);
     void alignFile(int align);
     void createStructsRelocation(unsigned area, POLYUNSIGNED offset);
 

@@ -238,7 +238,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
     }
 }
 
-void MachoExport::writeSymbol(const char *symbolName, uint nType, uint nSect, uint offset)
+void MachoExport::writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset)
 {
     struct nlist symbol;
     memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
