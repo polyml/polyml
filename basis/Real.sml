@@ -108,7 +108,7 @@ structure Real:
     val scan : (char, 'a) StringCvt.reader -> (real, 'a) StringCvt.reader
     val fromString : string -> real option
     val toDecimal : real -> IEEEReal.decimal_approx
-    val fromDecimal : IEEEReal.decimal_approx -> real
+    val fromDecimal : IEEEReal.decimal_approx -> real option
 
 end
  =
@@ -332,36 +332,25 @@ struct
 
 	local
 		val realConv: string->real = RunCall.run_call1 POLY_SYS_conv_real
-		val makeNan: real->real = callReal 27
 
 		val posNan = abs(0.0 / 0.0)
 		val negNan = ~posNan
-
-		fun toChar x =
-			if x < 0 orelse x > 9 then raise General.Domain
-			else Char.chr (x + Char.ord #"0")
 	in
-		fun fromDecimal { class = INF, sign=true, ...} = negInf
-		  | fromDecimal { class = INF, sign=false, ...} = posInf
-		  | fromDecimal { class = ZERO, sign=true, ...} = ~0.0
-		  | fromDecimal { class = ZERO, sign=false, ...} = 0.0
-		  | fromDecimal { class = NAN, sign=true, digits=[], ... } = negNan
-		  | fromDecimal { class = NAN, sign, digits=[], ... } = posNan
-		  | fromDecimal { class = NAN, sign, digits, ... } =
-			let
-				(* Turn the number into a string. *)
-				val str = "0." ^ String.implode(List.map toChar digits)
-				val mantissa =
-					realConv str handle _ => raise General.Domain
-			in
-				if mantissa == 0.0 then raise General.Domain
-				(* The argument to makeNan must be normalised into the
-				   range with a zero exponent. *)
-				else if mantissa > (1.0/radixAsReal) then makeNan mantissa
-				else makeNan(mantissa+(1.0/radixAsReal))
-			end
+		fun fromDecimal { class = INF, sign=true, ...} = SOME negInf
+		  | fromDecimal { class = INF, sign=false, ...} = SOME posInf
+		  | fromDecimal { class = ZERO, sign=true, ...} = SOME ~0.0
+		  | fromDecimal { class = ZERO, sign=false, ...} = SOME 0.0
+		     (* Generate signed Nans ignoring the digits and mantissa.  There
+			    was code here to set the mantissa but there's no reference to
+				that in the current version of the Basis library.  *)
+		  | fromDecimal { class = NAN, sign=true, ... } = SOME negNan
+		  | fromDecimal { class = NAN, sign=false, ... } = SOME posNan
+
 		  | fromDecimal { class = _ (* NORMAL or SUBNORMAL *), sign, digits, exp} =
-		  	let
+		  	(let
+				fun toChar x =
+                    if x < 0 orelse x > 9 then raise General.Domain
+                    else Char.chr (x + Char.ord #"0")
 				(* Turn the number into a string. *)
 				val str = "0." ^ String.implode(List.map toChar digits) ^"E" ^
 					Int.toString exp
@@ -369,14 +358,14 @@ struct
 				   Change any Conversion exceptions into Domain. *)
 				val result = realConv str handle _ => raise General.Domain
 			in
-				if isFinite result then () else raise General.Overflow;
-				if sign then ~result else result
-			end (* fromDecimal *)
+				if sign then SOME (~result) else SOME result
+			end 
+			    handle General.Domain => NONE
+			)
 	end
 		
 	local
 		val dtoa: real*int*int -> string*int*int = RunCall.run_call3 POLY_SYS_Real_str
-		val getNan: real->real = callReal 26
 		open StringCvt
 
 		fun addZeros n =
@@ -498,15 +487,7 @@ struct
 			case kind of
 				ZERO => { class = ZERO, sign = sign, digits=[], exp = 0 }
 			  | INF  => { class = INF, sign = sign, digits=[], exp = 0 }
-			  | NAN =>
-			  	let
-					(* Extract the mantissa part of the nan and treat it as
-					   an ordinary number. *)
-					val (str, _, _) = dtoa(getNan r, 0, 0)
-					val digits = strToDigitList str
-				in
-					{ class = NAN, sign = sign, digits=digits, exp = 0 }
-				end
+			  | NAN => { class = NAN, sign = sign, digits=[], exp = 0 }
 			  | _ => (* NORMAL/SUBNORMAL *)
 			  	let
 					val (str, exp, sign) = dtoa(r, 0, 0)
@@ -616,7 +597,9 @@ struct
 								digits=List.@(intPart, decimals),
 								exp=exponent + List.length intPart}
 					in
-						SOME(fromDecimal decimalRep, srcAfterExp)
+					    case fromDecimal decimalRep of
+						   SOME r => SOME(r, srcAfterExp)
+						 | NONE => NONE
 					end
 	in
 		case getc src of
