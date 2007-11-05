@@ -365,9 +365,10 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     }
         
     /* Now convert it */
-    errno = 0;
     result = strtod(string_buffer, &finish);
-    if (*finish != '\0' || errno != 0)
+    // We no longer detect overflow and underflow and instead return
+    // (signed) zeros for underflow and (signed) infinities for overflow.
+    if (*finish != '\0')
     {
        raise_exception_string(mdTaskData, EXC_conversion, "");
     }
@@ -694,6 +695,7 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             return mdTaskData->saveVec.push(TAGGED(exp));
         }
     case 26: /* Return the mantissa from a Nan as a real number. */
+        // I think this is no longer used.
         {
             union db r_arg_x, r_arg_y;
             /* We want to simply replace the exponent by the exponent
@@ -711,6 +713,7 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             return real_result(mdTaskData, r_arg_x.dble);
         }
     case 27: /* Construct a Nan from a given mantissa. */
+        // I think this is no longer used.
         {
             union db r_arg;
             r_arg.dble = posInf; /* Positive infinity. */
