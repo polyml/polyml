@@ -49,6 +49,7 @@ private:
     void writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset);
     void alignFile(int align);
     void createStructsRelocation(unsigned area, POLYUNSIGNED offset);
+    void adjustOffset(unsigned area, POLYUNSIGNED &offset);
 
     unsigned relocationCount;
     unsigned symbolCount;
