@@ -372,12 +372,15 @@ void MachoExport::exportStore(void)
     writeSymbol("_poly_exports", N_EXT | N_SECT, memTableEntries, 0); // The export table comes first
     // We create local symbols because they make debugging easier.  They may also
     // mean that we can use the usual Unix profiling tools.
+    writeSymbol("memTable", N_SECT, memTableEntries, sizeof(exportDescription)); // Then the memTable.
     for (i = 0; i < memTableEntries; i++)
     {
         if (i == ioMemEntry)
-        {}
+            writeSymbol("ioarea", N_SECT, i, 0);
         else {
             char buff[50];
+            sprintf(buff, "area%0d", i);
+            writeSymbol(buff, N_SECT, i, 0);
             // See if we can find the names of any functions.
             char *start = (char*)memTable[i].mtAddr;
             char *end = start + memTable[i].mtLength;
