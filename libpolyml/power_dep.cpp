@@ -1094,6 +1094,7 @@ void PowerPCDependent::HeapOverflowTrap(TaskData *taskData)
            "stw r0,%0" \
            :"=m"(result) \
            :"i"(ioNum) \
+           : "lr","r0" \
            ); \
 }
 
@@ -1111,6 +1112,7 @@ void PowerPCDependent::HeapOverflowTrap(TaskData *taskData)
            "stw 0,%0" \
            :"=m"(result) \
            :"i"(ioNum) \
+           :"lr","0" \
            ); \
 }
 
@@ -1130,6 +1132,7 @@ void PowerPCDependent::HeapOverflowTrap(TaskData *taskData)
            "stw r0,%0" \
            :"=m"(result) \
            :"i"(exNum) \
+           :"lr","r0" \
            ); \
 }
 
@@ -1147,6 +1150,7 @@ void PowerPCDependent::HeapOverflowTrap(TaskData *taskData)
            "stw 0,%0" \
            :"=m"(result) \
            :"i"(exNum) \
+           :"lr","0" \
            ); \
 }
 
@@ -1481,6 +1485,8 @@ void PowerPCDependent::SetExceptionTrace(TaskData *taskData)
     "1: mflr r0\n"
     "stw r0,%0"
     :"=m"(codeAddr)
+    :
+    : "lr","r0"
     );
 #else
     __asm__ __volatile__ (
@@ -1493,6 +1499,8 @@ void PowerPCDependent::SetExceptionTrace(TaskData *taskData)
     "1: mflr 0; "
     "stw 0,%0"
     :"=m"(codeAddr)
+    :
+    :"lr","0"
     );
 #endif
     Handle retCode = BuildCodeSegment(taskData, codeAddr, 5 /* Code is 5 words */, 'R');
