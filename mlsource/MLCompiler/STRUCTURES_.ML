@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000-7
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -652,6 +652,7 @@ sig
   val mkFunctorBinding:   string * structs * bool * structs * structs * int -> functorBind;
   val mkSharing:          bool * string list * int -> structs;
   val mkWhereType:		  structs * types list * string * types * int -> structs
+  val mkSigConstraint:    structs * structs * bool -> structs
 
   val pass2Structs:   structs list * lexan * env -> unit;
 
@@ -724,6 +725,12 @@ struct
   | WhereType	   of whereTypeStruct    (* type realisation. *)
   | Localdec       of localdecStruct     (* Local/Let. *)
   | IncludeSig     of structs list       (* Include. *)
+  | SigConstraint  of                    (* Constraint of str to match sig. *)
+       {
+          str: structs,  (* Structure to constain *)
+		  csig: structs, (* Constraining signature *)
+          opaque: bool   (* True if opaque, false if transparent. *)
+	   }
   | EmptyStruct                          (* Error cases. *)
 
   (* List of structures. *)
@@ -735,7 +742,12 @@ struct
         value:     structs,        (* And its value *)
         valRef:    structVals ref, (* The structure variable declared. *)
         line:      int
-      } 
+      }
+   (* The constraint could be removed from here and instead the parser could
+      desugar the structure binding.  i.e. structure S: SIG = STREXP becomes
+      structure S = STREXP: SIG.  structBind is also used for structures
+      within signatures where this wouldn't work so a separate data structure
+      for structure specifications would be needed. *)
 
   and sigBind =
       {
@@ -960,7 +972,10 @@ struct
          };
 
 	val mkInclude = IncludeSig;
-       
+
+	fun mkSigConstraint(str, csig, opaque) =
+	   SigConstraint{str=str, csig=csig, opaque=opaque}
+      
   (*  end; structs abstype *)
 
   (* Pretty printing *)
@@ -1219,6 +1234,14 @@ struct
 
       | Singleton {dec, ...} =>
           ptDisplay (dec, depth - 1, pprint)
+
+      | SigConstraint{str, csig, opaque} =>
+           (
+               display (str, depth - 1);
+               ppAddString pprint (if opaque then " :>" else " :");
+               ppBreak pprint (1, 0);
+               display (csig, depth - 1)
+           )
 
       | EmptyStruct =>
           ppAddString pprint ("<bad>")
@@ -2871,6 +2894,35 @@ struct
             (* There should just be one entry in the "body" list. *)
             structValue localStr typeNo (Env localEnv) line strName
           end
+		  
+        | SigConstraint { str, csig, opaque } =>
+          let (* struct: sig or struct :> sig *)
+            val resSig = structValue str typeNo (Env env) lno strName;
+            val explicitSig  : signatures = 
+              sigVal(csig, max (!typeNo) 0, Env env, lno, strName);
+                     
+            (* Make tables to contain the matched ids. *)
+            val typeMap  : typeConstrs map =
+              typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig);
+             
+            fun mustCopyType (s : typeId) : bool = 
+              isBoundId s andalso offsetId s >= sigMinTypes explicitSig;
+              
+			(* These maps are used to construct the resultant signature.
+			   If we are using transparent matching we use the map constructed
+			   from matching the signature to the structure but if we are
+			   using opaque matching we need to make new instances of
+			   every type. *)
+			val resTypeMap = 
+				if opaque
+				then typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig)
+				else typeMap;
+          in
+             matchSigs (resSig, explicitSig, typeMap, str, lno, lex);
+             (* Copy the signature to ensure that any "names" from the structure
+                value are copied into the result signature. *)
+             copySig (explicitSig, mustCopyType, newTypeId, resTypeMap, strName)
+         end
                 
         | _ =>
            raise InternalError "structValue: not a value"
@@ -3680,6 +3732,8 @@ struct
           mkEnv (#code coded @
             [#code (matchStructure (mkTuple (#load coded), value, resultSig))])
         end
+
+      | SigConstraint { str, ... } => structureCode (str, resultSig, strName, debugEnv)
 
       | _ =>
          raise InternalError "structureCode: not a structure"

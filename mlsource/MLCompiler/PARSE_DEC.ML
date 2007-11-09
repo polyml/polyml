@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000-7
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -383,6 +383,7 @@ sig
   val mkFunctorBinding:   string * structs * bool * structs * structs * int -> functorBind
   val mkSharing:          bool * string list * int -> structs
   val mkWhereType:		  structs * types list * string * types * int -> structs
+  val mkSigConstraint:    structs * structs * bool -> structs
 end; (* STRUCTURES *)
 
 (*****************************************************************************)
@@ -2107,60 +2108,72 @@ struct
 
     val UUU = skipon (structSy ++ declarableVarLetSy,
                       fsys, "struct or functor application", lex);
-  in
-    if testfor (SYMBOLS.structSy, empty, lex)
-    then let(* It's a new structure *)
-      val str = structEnd fsys
-      val U : unit = getsym (SYMBOLS.endSy, lex)
-    in
-      str
-    end
-
-    else if testfor (SYMBOLS.letSy, empty, lex)
-    then let
-     (* Fixity is local. *)
-      val lno = lineno lex;
-      val newEnv = mkLocalFixEnv env
-      (* The local declaration *)
-      val ins  = strDec (fsys ++ inEndSy) lex newEnv
-      val U : unit = getsym (SYMBOLS.inSy, lex)
-      val body = [structVal (fsys ++ endSy) lex newEnv]
-      val U : unit = getsym (SYMBOLS.endSy, lex)
-    in
-      mkLocaldec (ins, body, (* "let" rather than "local" *) false,  lno)
-    end
-
-    else let (* Either a structure path or a functor application *)
-      val iden = getLongId (declarableVarSys, fsys ++ leftParen, lex);
-    in
-      if testfor (SYMBOLS.leftParen, empty, lex)
-      then let (* functor application *)
-        (* Functor names shouldn't be qualified, so we ought to
-           check this here using:
-                checkForDots (iden, lex, lineno lex)
-           Unfortunately, this breaks the Poly/ML prelude, which
-           needs the functor RunCall.Run_exception1, so I've
-           taken this check out again! SPF 17/4/96
-        *)
-        val parameter =
-          if (sy lex) eq SYMBOLS.rightParen (* Empty parameter list *)
-          then mkStruct []
-          else let
-            val tsys = fsys ++ rightParenCommaSy
-          in
-            (* May be either a structure value or a sequence
-               of declarations. *)
-            if (sy lex) inside startDecStructureSy
-            then structEnd tsys (* implied struct...end *)
-            else structVal tsys lex env
-          end
-        val U : unit = getsym (SYMBOLS.rightParen, lex)
-      in
-        mkFunctorAppl (iden, parameter)
-      end
-      else mkStructIdent iden
-    end
     
+    val fsysPcolon = fsys ++ colon ++ colonGt
+
+    val strExp =
+        if testfor (SYMBOLS.structSy, empty, lex)
+        then let(* It's a new structure *)
+          val str = structEnd fsysPcolon
+          val U : unit = getsym (SYMBOLS.endSy, lex)
+        in
+          str
+        end
+    
+        else if testfor (SYMBOLS.letSy, empty, lex)
+        then let
+         (* Fixity is local. *)
+          val lno = lineno lex;
+          val newEnv = mkLocalFixEnv env
+          (* The local declaration *)
+          val ins  = strDec (fsysPcolon ++ inEndSy) lex newEnv
+          val U : unit = getsym (SYMBOLS.inSy, lex)
+          val body = [structVal (fsysPcolon ++ endSy) lex newEnv]
+          val U : unit = getsym (SYMBOLS.endSy, lex)
+        in
+          mkLocaldec (ins, body, (* "let" rather than "local" *) false,  lno)
+        end
+    
+        else let (* Either a structure path or a functor application *)
+          val iden = getLongId (declarableVarSys, fsysPcolon ++ leftParen, lex);
+        in
+          if testfor (SYMBOLS.leftParen, empty, lex)
+          then let (* functor application *)
+            (* Functor names shouldn't be qualified, so we ought to
+               check this here using:
+                    checkForDots (iden, lex, lineno lex)
+               Unfortunately, this breaks the Poly/ML prelude, which
+               needs the functor RunCall.Run_exception1, so I've
+               taken this check out again! SPF 17/4/96
+            *)
+            val parameter =
+              if (sy lex) eq SYMBOLS.rightParen (* Empty parameter list *)
+              then mkStruct []
+              else let
+                val tsys = fsysPcolon ++ rightParenCommaSy
+              in
+                (* May be either a structure value or a sequence
+                   of declarations. *)
+                if (sy lex) inside startDecStructureSy
+                then structEnd tsys (* implied struct...end *)
+                else structVal tsys lex env
+              end
+            val U : unit = getsym (SYMBOLS.rightParen, lex)
+          in
+            mkFunctorAppl (iden, parameter)
+          end
+          else mkStructIdent iden
+        end
+
+  (* We may have one or more constraints. *)
+      fun doConstraints strExp =
+          if testfor (SYMBOLS.colon, empty, lex)
+          then doConstraints(mkSigConstraint(strExp, parseSignature fsysPcolon lex env, false))
+          else if testfor (SYMBOLS.colonGt, empty, lex)
+          then doConstraints(mkSigConstraint(strExp, parseSignature fsysPcolon lex env, true))
+          else strExp
+  in
+      doConstraints strExp
   end (* structVal *)
 
   and structureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs =
@@ -2182,7 +2195,7 @@ struct
         val U : unit = getsym (SYMBOLS.equalsSign, lex)
       in
         (* And finally the structure value. *)
-         mkStructureBinding (strId, sgn, isOpaque, structVal fsys lex env, lno)
+        mkStructureBinding (strId, sgn, isOpaque, structVal fsys lex env, lno)
       end
     in  
       mkStructureDec (getList (SYMBOLS.andSy, structSy, lex, doStrDec))
