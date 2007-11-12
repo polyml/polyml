@@ -157,7 +157,9 @@ AC_TYPE_SIZE_T
 AC_HEADER_TIME
 AC_STRUCT_TM
 # Mac OS X, at any rate, needs signal.h to be included first.
-AC_CHECK_TYPES([ucontext_t, x86_thread_state32_t, x86_thread_state64_t, struct ppc_thread_state], , ,[#include "signal.h"
+AC_CHECK_TYPES([ucontext_t, x86_thread_state32_t, x86_thread_state64_t,
+   struct ppc_thread_state, struct __darwin_ppc_thread_state], , ,
+   [#include "signal.h"
 #include "ucontext.h"])
 AC_CHECK_TYPES([struct sigcontext, stack_t, sighandler_t, sig_t], , ,[#include "signal.h"])
 AC_CHECK_TYPES([socklen_t],,,[#include "sys/types.h"

@@ -357,6 +357,10 @@
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
+/* Define to 1 if the system has the type `struct __darwin_ppc_thread_state'.
+   */
+#undef HAVE_STRUCT___DARWIN_PPC_THREAD_STATE
+
 /* Define to 1 if you have the `sysctl' function. */
 #undef HAVE_SYSCTL
 
