@@ -193,15 +193,15 @@ public:
     void BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall);
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
-    virtual void ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable=false);
+    virtual void ThreadPauseForIO(TaskData *taskData, int fd);
 
     void SwitchSubShells(void);
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
     // Get all threads into the RTS.  Sets requestEnterRTS if schedLock is held
     // otherwise interrupts the threads.
-    virtual void RequestThreadsEnterRTS(bool isSignal);
-    void RequestThreadsEnterRTSInternal(bool isSignal);
+    virtual void RequestThreadsEnterRTS(void);
+    void RequestThreadsEnterRTSInternal(void);
     // ForkFromRTS.  Creates a new thread from within the RTS.
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
     // Create a new thread.  The "args" argument is only used for threads
@@ -769,7 +769,7 @@ void Processes::ThreadUseMLMemory(TaskData *taskData)
     ThreadUseMLMemoryWithSchedLock(taskData);
     schedLock.Unlock();
     if (requestRTSState == krequestRTSToInterrupt) // The lock was held when we did this before.
-        RequestThreadsEnterRTS(true);
+        RequestThreadsEnterRTS();
 }
 
 void Processes::ThreadReleaseMLMemory(TaskData *taskData)
@@ -936,7 +936,7 @@ Handle exitThread(TaskData *taskData)
    the process will be set to raise an exception if any signal is handled.
    It may also raise an exception if another thread has called
    broadcastInterrupt. */
-void Processes::ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable)
+void Processes::ThreadPauseForIO(TaskData *taskData, int fd)
 {
     TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
     ThreadReleaseMLMemory(taskData);
@@ -969,12 +969,7 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterrupt
     if (fd >= 0) FD_SET(fd, &read_fds);
     FD_ZERO(&write_fds);
     FD_ZERO(&except_fds);
-    if (select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait) < 0 &&
-            errno == EINTR && posixInterruptable)
-    {
-        ThreadUseMLMemory(taskData);
-        raise_syscall(taskData, "Call interrupted by signal", EINTR);
-    }
+    select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait);
 #endif
     ThreadUseMLMemory(taskData);
     TestSynchronousRequests(taskData); // Check if we've been interrupted.
@@ -989,7 +984,12 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterrupt
 void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
 {
     machineDependent->SetForRetry(taskData, ioCall);
-    ThreadPauseForIO(taskData, fd, posixInterruptable);
+    unsigned lastSigCount = receivedSignalCount;
+    ThreadPauseForIO(taskData, fd);
+    // If this is an interruptible Posix function we raise an exception if
+    // there has been a signal.
+    if (posixInterruptable && lastSigCount != receivedSignalCount)
+        raise_syscall(taskData, "Call interrupted by signal", EINTR);
     throw IOException(EXC_EXCEPTION);
     /* NOTREACHED */
 }
@@ -1344,7 +1344,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
         // Doesn't return.
     }
     if (requestRTSState == krequestRTSToInterrupt) // The lock was held before
-        RequestThreadsEnterRTS(true);
+        RequestThreadsEnterRTS();
 
 #ifndef WINDOWS_PC
     // Start the profile timer if needed.
@@ -1400,7 +1400,7 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
     }
 }
 
-void Processes::RequestThreadsEnterRTSInternal(bool isSignal)
+void Processes::RequestThreadsEnterRTSInternal(void)
 {
     requestRTSState = krequestRTSInterrupted;
     for (unsigned i = 0; i < taskArraySize; i++)
@@ -1410,12 +1410,6 @@ void Processes::RequestThreadsEnterRTSInternal(bool isSignal)
         {
             // Do this with the lock held.
             machineDependent->InterruptCode(taskData);
-#ifdef HAVE_PTHREAD
-            // In most cases we want the thread to wake up
-            // immediately if it is in BlockAndRestart.
-            if (isSignal)
-                pthread_kill(taskData->pthreadId, SIGUSR2);
-#endif
         }
     }
 #ifdef HAVE_WINDOWS_H
@@ -1428,7 +1422,7 @@ void Processes::RequestThreadsEnterRTSInternal(bool isSignal)
 DWORD WINAPI CallRequestEnterRTS(LPVOID)
 {
     processesModule.schedLock.Lock();
-    processesModule.RequestThreadsEnterRTSInternal(false);
+    processesModule.RequestThreadsEnterRTSInternal();
     processesModule.schedLock.Unlock();
     return 0;
 }
@@ -1438,7 +1432,7 @@ DWORD WINAPI CallRequestEnterRTS(LPVOID)
 // at the moment.  In Unix we test the lock and set a flag if the lock is currently
 // taken.  Since we must be in the RTS to take the lock we should test the flag
 // soon.  In Windows we fork a thread to take the lock and deal with this.
-void Processes::RequestThreadsEnterRTS(bool isSignal)
+void Processes::RequestThreadsEnterRTS(void)
 {
 #if (! defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
     // TryLock doesn't work properly in Windows.  Instead we fork off
@@ -1450,7 +1444,7 @@ void Processes::RequestThreadsEnterRTS(bool isSignal)
 #else
     if (schedLock.Trylock())
     {
-        RequestThreadsEnterRTSInternal(isSignal);
+        RequestThreadsEnterRTSInternal();
         schedLock.Unlock();
     }
     else // schedLock is currently held.
@@ -1527,14 +1521,6 @@ void Processes::Exit(int n)
     initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
-#ifdef HAVE_PTHREAD
-static void catchALRM(SIG_HANDLER_ARGS(sig, context))
-// This doesn't need to do anything.
-{
-    (void)sig;
-    (void)context;
-}
-#endif
 /******************************************************************************/
 /*                                                                            */
 /*      catchVTALRM - handler for alarm-clock signal                          */
@@ -1643,7 +1629,7 @@ void Processes::StartProfiling(void)
     SetThreadPriority(profilingHd, THREAD_PRIORITY_ABOVE_NORMAL);
 #else
     // In Linux, at least, we need to run a timer in each thread.
-    RequestThreadsEnterRTS(false);
+    RequestThreadsEnterRTS();
     StartProfilingTimer(); // Start the timer in the root thread.
 #endif
 }
@@ -1666,12 +1652,6 @@ void Processes::Init(void)
     // Create event to wake up from IO sleeping.
     hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 #endif
-#ifdef HAVE_PTHREAD
-    // We send a thread an alarm signal to wake it up if
-    // it is blocking on an IO function.
-    markSignalInuse(SIGUSR2);
-    setSignalHandler(SIGUSR2, catchALRM);
-#endif
 
 #ifdef HAVE_PTHREAD
     pthread_key_create(&tlsId, NULL);
@@ -1684,6 +1664,7 @@ void Processes::Init(void)
     hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 #else
     // Set up a signal handler.  This will be the same for all threads.
+    markSignalInuse(SIGVTALRM);
     setSignalHandler(SIGVTALRM, catchVTALRM);
 #endif
 }

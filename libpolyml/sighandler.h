@@ -53,4 +53,6 @@ extern void initThreadSignals(TaskData *taskData);
 
 #endif /* ! WIN32 */
 
+extern unsigned receivedSignalCount; // Incremented each time we get a signal
+
 #endif

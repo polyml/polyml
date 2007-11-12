@@ -2,7 +2,7 @@
     Title:      Signal handling
     Author:     David C.J. Matthews
 
-    Copyright (c) 2000 David C.J. Matthews
+    Copyright (c) 2000-7 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -105,6 +105,8 @@ static struct _sigData
 static char consoleCode  = 0;
  /* flag indicating if already handling a CTRL+C event. */
 static bool already_handling = false;
+
+unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 
 static bool setSimpleSignalHandler(int sig, void (*)(int));
 
@@ -236,7 +238,7 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
 #ifndef WINDOWS_PC
         fflush(stdin);
 #endif
-        processes->RequestThreadsEnterRTS(true);
+        processes->RequestThreadsEnterRTS();
         /* The exception is not raised yet. Instead we set up the current
            process so that it will give an interrupt in due course. It will
            eventually enter select_next_process which will look at
@@ -261,7 +263,8 @@ void RequestConsoleInterrupt(void)
 void addSigCount(int sig)
 {
     sigData[sig].sigCount++;
-    processes->RequestThreadsEnterRTS(true);
+    receivedSignalCount++;
+    processes->RequestThreadsEnterRTS();
 }
 
 /* Called whenever a signal handler is installed other than in this
@@ -386,7 +389,6 @@ void initThreadSignals(TaskData *taskData)
 
 bool setSignalHandler(int sig, signal_handler_type func)
 {
-    int res;
     struct sigaction sigcatch;
     memset(&sigcatch, 0, sizeof(sigcatch));
     sigcatch.sa_sigaction = func;
@@ -412,39 +414,34 @@ bool setSignalHandler(int sig, signal_handler_type func)
     sigcatch.sa_flags |= SV_SAVE_REGS;
 #endif
 
-    res = sigaction(sig, &sigcatch,NULL);
-
-    /* Mark this signal in use, except for SIGINT which is treated specially. */
-    if (sig != SIGINT) markSignalInuse(sig);
-    return res >= 0;
+    return sigaction(sig, &sigcatch,NULL) >= 0;
 }
 
 // Simpler version for SIG_IGN and SIG_DFL
 bool setSimpleSignalHandler(int sig, void (*func)(int))
 {
-    int res;
     struct sigaction sigcatch;
     memset(&sigcatch, 0, sizeof(sigcatch));
     sigcatch.sa_handler = func;
 
     init_asyncmask(&sigcatch.sa_mask);
     sigcatch.sa_flags = 0;
+    if (func != SIG_IGN && func != SIG_DFL)
+    {
 #if defined(SA_ONSTACK) && defined(HAVE_SIGALTSTACK)
-    sigcatch.sa_flags |= SA_ONSTACK;
+        sigcatch.sa_flags |= SA_ONSTACK;
 #endif
 #ifdef SA_RESTART
-    sigcatch.sa_flags |= SA_RESTART;
+        sigcatch.sa_flags |= SA_RESTART;
 #endif
 #ifdef SA_SIGINFO
-    sigcatch.sa_flags |= SA_SIGINFO;
+        sigcatch.sa_flags |= SA_SIGINFO;
 #endif
 #ifdef SV_SAVE_REGS
-    sigcatch.sa_flags |= SV_SAVE_REGS;
+        sigcatch.sa_flags |= SV_SAVE_REGS;
 #endif
-    res = sigaction(sig, &sigcatch,NULL);
-
-    if (sig != SIGINT) markSignalInuse(sig);
-    return res >= 0;
+    }
+    return sigaction(sig, &sigcatch,NULL) >= 0;
 }
 
 /******************************************************************************/

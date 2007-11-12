@@ -106,6 +106,7 @@ class MainThreadRequest
 {
 public:
     MainThreadRequest (): completed(false) {}
+    virtual ~MainThreadRequest () {} // Suppress silly GCC warning
     bool completed;
     virtual void Perform() = 0;
 };
@@ -118,7 +119,7 @@ public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
-    virtual void RequestThreadsEnterRTS(bool isSignal) = 0;
+    virtual void RequestThreadsEnterRTS(void) = 0;
     // Request all ML threads to exit and set the result code.  Does not cause
     // the calling thread itself to exit since this may be called on the GUI thread.
     virtual void Exit(int n) = 0;
@@ -133,10 +134,9 @@ public:
                     bool posixInterruptable, int ioCall)) = 0;
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
-    virtual void ThreadPauseForIO(TaskData *taskData, int fd, bool posixInterruptable=false) = 0;
+    virtual void ThreadPauseForIO(TaskData *taskData, int fd) = 0;
     // As ThreadPauseForIO but when there is no file descriptor
-    virtual void ThreadPause(TaskData *taskData, bool posixInterruptable = false)
-    { ThreadPauseForIO(taskData, -1, posixInterruptable); }
+    virtual void ThreadPause(TaskData *taskData) { ThreadPauseForIO(taskData, -1); }
 
     // If a thread is blocking for some time it should release its use
     // of the ML memory.  That allows a GC. ThreadUseMLMemory returns true if
