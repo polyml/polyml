@@ -781,16 +781,22 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
 #else
    // Mac OS X
 #ifndef HOSTARCHITECTURE_X86_64
-#ifdef HAVE_X86_THREAD_STATE32_T
+#if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT32_SS))
     pc = (byte*)context->uc_mcontext->ss.eip;
     sp = (PolyWord*)context->uc_mcontext->ss.esp;
+#elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT32___SS))
+    pc = (byte*)context->uc_mcontext->__ss.__eip;
+    sp = (PolyWord*)context->uc_mcontext->__ss.__esp;
 #else
     return false;
 #endif
 #else /* HOSTARCHITECTURE_X86_64 */
-#ifdef  HAVE_X86_THREAD_STATE64_T
+#if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT64_SS))
     pc = (byte*)context->uc_mcontext->ss.rip;
     sp = (PolyWord*)context->uc_mcontext->ss.rsp;
+#elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT64___SS))
+    pc = (byte*)context->uc_mcontext->__ss.__rip;
+    sp = (PolyWord*)context->uc_mcontext->__ss.__rsp;
 #else
     return false;
 #endif

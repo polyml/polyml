@@ -157,8 +157,7 @@ AC_TYPE_SIZE_T
 AC_HEADER_TIME
 AC_STRUCT_TM
 # Mac OS X, at any rate, needs signal.h to be included first.
-AC_CHECK_TYPES([ucontext_t, x86_thread_state32_t, x86_thread_state64_t], , ,
-   [#include "signal.h"
+AC_CHECK_TYPES([ucontext_t], , , [#include "signal.h"
 #include "ucontext.h"])
 AC_CHECK_TYPES([struct sigcontext, stack_t, sighandler_t, sig_t], , ,[#include "signal.h"])
 AC_CHECK_TYPES([socklen_t],,,[#include "sys/types.h"
@@ -193,8 +192,12 @@ AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize
 AC_CHECK_FUNCS([getnetbyname getnetbyaddr sysctl])
 
 # Where are the registers?
+#Linux:
 AC_CHECK_MEMBERS([mcontext_t.gregs, mcontext_t.regs, mcontext_t.mc_esp],,,[#include "ucontext.h"])
-AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darwin_mcontext.__ss],,,
+#Mac OS X:
+AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darwin_mcontext.__ss,
+   struct __darwin_mcontext32.ss, struct __darwin_mcontext32.__ss,
+   struct __darwin_mcontext64.ss, struct __darwin_mcontext64.__ss],,,
    [#include "signal.h"
 #include "ucontext.h"])
 
