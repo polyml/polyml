@@ -351,15 +351,17 @@
 /* Define to 1 if you have the `strtod' function. */
 #undef HAVE_STRTOD
 
-/* Define to 1 if the system has the type `struct ppc_thread_state'. */
-#undef HAVE_STRUCT_PPC_THREAD_STATE
+/* Define to 1 if `ss' is member of `struct mcontext'. */
+#undef HAVE_STRUCT_MCONTEXT_SS
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
-/* Define to 1 if the system has the type `struct __darwin_ppc_thread_state'.
-   */
-#undef HAVE_STRUCT___DARWIN_PPC_THREAD_STATE
+/* Define to 1 if `ss' is member of `struct __darwin_mcontext'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT_SS
+
+/* Define to 1 if `__ss' is member of `struct __darwin_mcontext'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT___SS
 
 /* Define to 1 if you have the `sysctl' function. */
 #undef HAVE_SYSCTL

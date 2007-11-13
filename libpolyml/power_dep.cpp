@@ -54,10 +54,15 @@
 #define NIP(scp)    (scp)->uc_mcontext.regs->nip
 #define GPR27(scp)  (scp)->uc_mcontext.regs->gpr[PT_R27]
 
-#elif (defined(HAVE_STRUCT_PPC_THREAD_STATE) || defined(HAVE_STRUCT___DARWIN_PPC_THREAD_STATE))
-/* Mac OS X 10.2 and, hopefully, later. */
+#elif (defined(HAVE_STRUCT_MCONTEXT_SS) || defined(HAVE_STRUCT___DARWIN_MCONTEXT_SS))
+/* Mac OS X 10.2, 10.3 and 10.4. */
 #define NIP(scp)    scp->uc_mcontext->ss.srr0
 #define GPR27(scp)  scp->uc_mcontext->ss.r27
+
+#elif (defined(HAVE_STRUCT___DARWIN_MCONTEXT___SS))
+// Mac OS X 10.5
+#define NIP(scp)    scp->uc_mcontext->__ss.srr0
+#define GPR27(scp)  scp->uc_mcontext->__ss.r27
 
 #elif defined(HAVE_MCONTEXT_T_GREGS)
 // Linux (new)

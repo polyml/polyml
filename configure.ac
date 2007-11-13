@@ -157,8 +157,7 @@ AC_TYPE_SIZE_T
 AC_HEADER_TIME
 AC_STRUCT_TM
 # Mac OS X, at any rate, needs signal.h to be included first.
-AC_CHECK_TYPES([ucontext_t, x86_thread_state32_t, x86_thread_state64_t,
-   struct ppc_thread_state, struct __darwin_ppc_thread_state], , ,
+AC_CHECK_TYPES([ucontext_t, x86_thread_state32_t, x86_thread_state64_t], , ,
    [#include "signal.h"
 #include "ucontext.h"])
 AC_CHECK_TYPES([struct sigcontext, stack_t, sighandler_t, sig_t], , ,[#include "signal.h"])
@@ -195,6 +194,9 @@ AC_CHECK_FUNCS([getnetbyname getnetbyaddr sysctl])
 
 # Where are the registers?
 AC_CHECK_MEMBERS([mcontext_t.gregs, mcontext_t.regs, mcontext_t.mc_esp],,,[#include "ucontext.h"])
+AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darwin_mcontext.__ss],,,
+   [#include "signal.h"
+#include "ucontext.h"])
 
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
