@@ -61,8 +61,8 @@
 
 #elif (defined(HAVE_STRUCT___DARWIN_MCONTEXT___SS))
 // Mac OS X 10.5
-#define NIP(scp)    scp->uc_mcontext->__ss.srr0
-#define GPR27(scp)  scp->uc_mcontext->__ss.r27
+#define NIP(scp)    scp->uc_mcontext->__ss.__srr0
+#define GPR27(scp)  scp->uc_mcontext->__ss.__r27
 
 #elif defined(HAVE_MCONTEXT_T_GREGS)
 // Linux (new)
