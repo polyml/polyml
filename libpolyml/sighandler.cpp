@@ -358,13 +358,20 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 // Set up per-thread signal data: basically signal stack.
 void initThreadSignals(TaskData *taskData)
 {
-    // ensure that all signals are handled using exception_stack.
-    // This is needed at least on the i386 because sp points into the ML
-    // stack.
-#if !defined(WINDOWS_PC)
- /* Earlier versions of Linux did not have sigaltstack.  It MUST be used
-   in later versions for sigactions installed with SA_ONSTACK otherwise
-   a SIGSEGV is sent when the signal would be delivered. */
+#if (!(defined(WINDOWS_PC)||defined(MACOSX)))
+    // On the i386, at least, we need to set up a signal stack for
+    // each thread if it might receive a signal.  ML code checks for
+    // stack overflow but a signal could result in C code being
+    // executed on the ML stack.  The signal stack avoids this.
+    // On some architectures the C stack pointer is left unused
+    // when executing ML code so this isn't a problem.
+    // In Linux each thread can receive a SIGVTALRM signal when
+    // profiling.
+    // This is currently disabled in Mac OS X.  In 10.4 and before
+    // setting a signal stack in a thread seemed to set it for the
+    // whole process and crash with an illegal instruction on the
+    // second signal.  This isn't currently a problem since only the
+    // main thread receives signals in Mac OS X.
 #if (defined(SA_ONSTACK) && defined(HAVE_SIGALTSTACK))
     taskData->signalStack = malloc(SIGSTKSZ);
 #ifdef HAVE_STACK_T
