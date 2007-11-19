@@ -138,11 +138,6 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
     void *a = p.AsAddress();
     unsigned aArea = findArea(a);
 
-    // We don't need a relocation if this is relative to the current segment
-    // since the relative address will already be right.
-    if (code == PROCESS_RELOC_I386RELATIVE && aArea == findArea(addr))
-        return;
-
     // Set the value at the address to the offset relative to the symbol.
     POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtAddr;
     adjustOffset(aArea, offset);
@@ -171,24 +166,18 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
 #if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            // For Mach-O we seem to need to subtract the offset of this instruction
-            // from the base of the segment.
-            offset -= ((char*)addr - (char*)memTable[findArea(addr)].mtAddr) + 4;
-            struct relocation_info reloc;
-            setRelocationAddress(addr, &reloc.r_address);
-            reloc.r_symbolnum = 1; // Section numbers start at 1
-            reloc.r_pcrel = 1; // It's PC-relative.
-            reloc.r_length = 2; // 4 bytes
-            reloc.r_type = GENERIC_RELOC_VANILLA;
-            reloc.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
+            // We don't need a relocation since everything is in the same segment
+            // but we still need to recalculate the offset.
+            unsigned addrArea = findArea(addr);
+            POLYUNSIGNED addrOffset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+            adjustOffset(addrArea, addrOffset);
+            offset -= addrOffset + 4;
 
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
                 addr[i] = (byte)(offset & 0xff);
                 offset >>= 8;
             }
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
         }
         break;
 #endif
