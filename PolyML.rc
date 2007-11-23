@@ -84,9 +84,9 @@ STYLE DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU
 FONT 8, "MS Sans Serif"
 BEGIN
     DEFPUSHBUTTON   "OK",IDOK,7,92,50,14
-    LTEXT           "Poly/ML  Copyright Cambridge University Technical Services and contributors 2000-6.\n\nThis is free software and released under the GNU Lesser General Public LIcense.",
+    LTEXT           "Poly/ML  Copyright David C.J. Matthews, Cambridge University Technical Services and contributors 2000-7.\n\nThis is free software and released under the GNU Lesser General Public License.",
                     IDC_STATIC,24,30,141,47
-    ICON            IDI_ICON,IDC_STATIC,7,7,21,20
+    ICON            IDI_ICON,IDC_STATIC,7,7,20,20
 END
 
 
