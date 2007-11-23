@@ -104,7 +104,7 @@ sig
 	 		{ rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeOut: Time.time option } ->
 	 		{ rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list }
 	 
-     val ioDesc : ('af, 'sock_type) sock -> OS.IO.poll_desc
+     val ioDesc : ('af, 'sock_type) sock -> OS.IO.iodesc
 
      type out_flags = {don't_route : bool, oob : bool}
      type in_flags = {peek : bool, oob : bool}
@@ -177,7 +177,7 @@ struct
 	   it can be shared by the various socket structures.  In fact it doesn't matter since the
 	   unary constructor here is compiled as an identity so the underlying representation of
 	   "SOCK x" will be the same as "x". *)
-	datatype ('af,'sock_type) sock = SOCK of int
+	datatype ('af,'sock_type) sock = SOCK of OS.IO.iodesc
 	and dgram = DGRAM
 	and 'mode stream = STREAM
 	and passive = PASSIVE
@@ -383,9 +383,8 @@ struct
 		RunCall.run_call2 RuntimeCalls.POLY_SYS_network (50, (s, m))
 	end
 
-	(* To create a poll descriptor we need to make a pair of the
-	   flag bits and the socket descriptor. *)
-	fun ioDesc (SOCK s) = RunCall.unsafeCast(0w0, s);
+	(* The IO descriptor is the underlying socket. *)
+	fun ioDesc (SOCK s) = s;
 
 	type out_flags = {don't_route : bool, oob : bool}
 	type in_flags = {peek : bool, oob : bool}
@@ -592,15 +591,15 @@ struct
 	end
 
 	(* "select" call. *)
-	datatype sock_desc = SOCKDESC of int (* The int is the underlying representation of a socket. *)
+	datatype sock_desc = SOCKDESC of OS.IO.iodesc
 	fun sockDesc (SOCK sock) = SOCKDESC sock (* Create a socket descriptor from a socket. *)
 	fun sameDesc (SOCKDESC a, SOCKDESC b) = a = b
 
 	local
 		(* The underlying call takes three arrays and updates them with the sockets that are
 		   in the appropriate state.  It sets inactive elements to ~1. *)
-		val doIo: int * (int Vector.vector * int Vector.vector * int Vector.vector * Time.time) ->
-					int Vector.vector * int Vector.vector * int Vector.vector
+		val doIo: int * (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * Time.time) ->
+					OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
 			 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
 	in
 		fun sys_select_block(rds, wrs, exs) = doIo(64, (rds, wrs, exs, Time.zeroTime))
@@ -612,11 +611,11 @@ struct
 	fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeOut: Time.time option } :
 			{ rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list } =
 	let
-		fun sockDescToInt(SOCKDESC sock) = sock
+		fun sockDescToDesc(SOCKDESC sock) = sock
 		(* Create the initial vectors. *)
-		val rdVec: int Vector.vector = Vector.fromList(map sockDescToInt rds)
-		val wrVec: int Vector.vector = Vector.fromList(map sockDescToInt wrs)
-		val exVec: int Vector.vector = Vector.fromList(map sockDescToInt exs)
+		val rdVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc rds)
+		val wrVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc wrs)
+		val exVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc exs)
 		val (rdResult, wrResult, exResult) =
 			(* Do the approriate select. *)
 			case timeOut of
