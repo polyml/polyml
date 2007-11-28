@@ -825,11 +825,12 @@ polytemp.txt: $(POLYIMPORT)
 	cp $(POLYIMPORT) polytemp.txt
 
 # This builds the compiler but does not update the files in the imports directory.
-compiler: poly
+# It then builds a version of poly containing the new compiler.
+cvs: all
 	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
-	$(MAKE) poly
+	$(MAKE)
 
-reboot: compiler
+reboot: cvs
 	cp polytemp.txt $(POLYIMPORT)
 
 clean-local:
