@@ -58,21 +58,26 @@ polyimport_SOURCES = polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
 #
-polyexport.o: polyimport exportPoly.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
+polyexport.o: polyimport exportPoly.sml polytemp.txt
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
 
-polyexport.obj: polyimport exportPoly.sml $(POLYIMPORT)
-	./polyimport $(POLYIMPORT_OPTIONS) $(POLYIMPORT) < exportPoly.sml > /dev/null
+polyexport.obj: polyimport exportPoly.sml polytemp.txt
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
 
 polyresource.o: PolyML.rc poly.ico
 	windres -o polyresource.o PolyML.rc
 
+polytemp.txt: $(POLYIMPORT)
+	cp $(POLYIMPORT) polytemp.txt
 
-# Poly/ML command to compile the compile and build the export version.
-# Run "make" to import it and build the poly executable with it.
-bootstrap: poly
+# This builds the compiler but does not update the files in the imports directory.
+compiler: poly
 	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
+	$(MAKE) poly
+
+reboot: compiler
+	cp polytemp.txt $(POLYIMPORT)
 
 clean-local:
-	rm -f *.obj
+	rm -f *.obj polytemp.txt
 

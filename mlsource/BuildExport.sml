@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2006  David C. J. Matthews
+	Copyright (c) 2006-7  David C. J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -34,15 +34,4 @@ Debug.maxInlineSize := 50;
 
 PolyML.shareCommonData MLCompiler.shell;
 
-let
-   val architecture = PolyML.architecture();
-   val arch =
-      if architecture <> "Interpreted"
-	  then String.map Char.toLower architecture
-	  else if Address.wordSize = 8
-	  then "int64"
-	  else "int";	  
-   val name = "imports/polyml" ^ arch
-in
-   PolyML.exportPortable(name, MLCompiler.shell)
-end;
+PolyML.exportPortable("polytemp", MLCompiler.shell);
