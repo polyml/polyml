@@ -829,6 +829,40 @@ struct
      involve an instruction which could raise an exception. Only the more
      common instructions are included. There may be some safe expressions
      which this procedure thinks are unsafe. *)
+  (* Calls which could raise an exception must not be included.
+     Most arbitrary precision operations, word operations and
+	 real operations don't raise exceptions (we don't get overflow
+	 exceptions) so are safe.  *)
+  (* The application of ioOp has been moved out of the isInList since it
+     turned out to be a hot-spot. *)
+  val safeRTSCalls = map ioOp
+  	[POLY_SYS_get_length,
+	 POLY_SYS_get_flags, (* POLY_SYS_alloc_store, - can raise Size *)
+	 POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
+	 POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
+	 POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
+	 POLY_SYS_aneg, POLY_SYS_xora,
+	 POLY_SYS_equala, POLY_SYS_ora, POLY_SYS_anda,
+	 POLY_SYS_Real_str, POLY_SYS_Real_geq, POLY_SYS_Real_leq,
+	 POLY_SYS_Real_gtr, POLY_SYS_Real_lss, POLY_SYS_Real_eq,
+	 POLY_SYS_Real_neq, POLY_SYS_Add_real, POLY_SYS_Sub_real,
+	 POLY_SYS_Mul_real, POLY_SYS_Div_real, POLY_SYS_Neg_real,
+	 POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
+	 POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
+	 POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
+	 POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
+	 POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
+	 POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
+	 POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
+	 POLY_SYS_mul_word, POLY_SYS_plus_word,
+	 POLY_SYS_minus_word, POLY_SYS_or_word,
+	 POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
+	 POLY_SYS_word_geq, POLY_SYS_word_leq,
+	 POLY_SYS_word_gtr, POLY_SYS_word_lss, POLY_SYS_word_eq,
+	 POLY_SYS_load_byte, POLY_SYS_load_word, POLY_SYS_get_first_long_word]
+  val divisionOperations = map ioOp
+   [POLY_SYS_adiv, POLY_SYS_amod, POLY_SYS_div_word, POLY_SYS_mod_word]
+
   (* Note: This simply returns true or false.  For complex expressions,
      such as an RTS call whose argument has a side-effect, we could
 	 reduce the code by extracting the sub-expressions with side-effects
@@ -876,42 +910,10 @@ struct
     | testList (h :: t) = sideEffectFree h andalso testList t
 
   and sideEffectFreeRTSCall(function: word, args: codetree list): bool =
-   let
-	  (* Calls which could raise an exception must not be included.
-	     Most arbitrary precision operations, word operations and
-		 real operations don't raise exceptions (we don't get overflow
-		 exceptions) so are safe.  *)
-   	  val safeCalls =
-	  	[POLY_SYS_get_length,
-		 POLY_SYS_get_flags, (* POLY_SYS_alloc_store, - can raise Size *)
-		 POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
-		 POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
-		 POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
-		 POLY_SYS_aneg, POLY_SYS_xora,
-		 POLY_SYS_equala, POLY_SYS_ora, POLY_SYS_anda,
-		 POLY_SYS_Real_str, POLY_SYS_Real_geq, POLY_SYS_Real_leq,
-		 POLY_SYS_Real_gtr, POLY_SYS_Real_lss, POLY_SYS_Real_eq,
-		 POLY_SYS_Real_neq, POLY_SYS_Add_real, POLY_SYS_Sub_real,
-		 POLY_SYS_Mul_real, POLY_SYS_Div_real, POLY_SYS_Neg_real,
-		 POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
-		 POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
-		 POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
-		 POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
-		 POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
-		 POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
-		 POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
-		 POLY_SYS_mul_word, POLY_SYS_plus_word,
-		 POLY_SYS_minus_word, POLY_SYS_or_word,
-		 POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
-		 POLY_SYS_word_geq, POLY_SYS_word_leq,
-		 POLY_SYS_word_gtr, POLY_SYS_word_lss, POLY_SYS_word_eq,
-		 POLY_SYS_load_byte, POLY_SYS_load_word, POLY_SYS_get_first_long_word]
-	  val divisionOperations =
-	   [POLY_SYS_adiv, POLY_SYS_amod, POLY_SYS_div_word, POLY_SYS_mod_word]
-
-	  fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioOp ioCall)
+    let
+	  fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioCall)
 	in
-	  List.foldl isInList false safeCalls orelse
+	  List.foldl isInList false safeRTSCalls orelse
 	    (* Division operations are safe if we know that the second argument
 		   is not zero. If it's long it can't be zero and we can't have
 		   long arguments for the word operations. *)
