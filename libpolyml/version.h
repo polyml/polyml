@@ -24,7 +24,7 @@
 #define VERSION_H_INCLUDED
 
 // Poly/ML system interface level
-#define POLY_version_number    510 
-#define TextVersion             "5.1"
+#define POLY_version_number    520 
+#define TextVersion             "5.2"
 
 #endif

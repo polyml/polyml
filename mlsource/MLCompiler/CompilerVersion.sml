@@ -18,5 +18,5 @@
 
 structure CompilerVersion =
 struct
-   val compilerVersion = "5.1 Release"
+   val compilerVersion = "5.2 Testing"
 end;
