@@ -2118,8 +2118,6 @@ struct
 				end
 			  | isEnum _ = false
 
-			val containsEnum = List.exists isEnum vConstrs
-
 			fun processConstrs [] =
 					(* The last of the alternatives is false *) CodeZero
 
@@ -2165,8 +2163,13 @@ struct
 						end
 				end
 
+            (* We previously only tested for bit-wise (pointer) equality if we had
+               at least one "enum" constructor in which case the test would eliminate
+               all the enum constructors.  I've now extended this to all cases where
+               there is more than one constructor.  The idea is to speed up equality
+               between identical data structures. *)
 			val eqCode =
-				if containsEnum
+				if List.length vConstrs > 1
 				then mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
 				else processConstrs vConstrs
 			val eqFun =
