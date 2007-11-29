@@ -312,9 +312,19 @@ void InitHeaderFromExport(exportDescription *exports)
     // used in this library.
     if (exports->structLength != sizeof(exportDescription) ||
         exports->memTableSize != sizeof(memoryTableEntry) ||
-        exports->rtsVersion != POLY_version_number)
+        exports->rtsVersion < FIRST_supported_version ||
+        exports->rtsVersion > LAST_supported_version)
     {
-        Exit("The exported object file does not match this version of the library");
+#if (FIRST_supported_version == LAST_supported_version)
+        Exit("The exported object file has version %0.2f but this library supports %0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0);
+#else
+        Exit("The exported object file has version %0.2f but this library supports %0.2f-%0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0,
+            ((float)LAST_supported_version) / 100.0);
+#endif
     }
     // We could also check the RTS version and the architecture.
     exportTimeStamp = exports->timeStamp; // Needed for load and save.
