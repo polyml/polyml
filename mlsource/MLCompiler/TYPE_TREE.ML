@@ -1,6 +1,18 @@
 (*
+    Original Poly version:
+    Title:      Operations on type structures.
+    Author:     Dave Matthews, Cambridge University Computer Laboratory
+    Copyright   Cambridge University 1985
+
+    3/6/94 SPF fixed bug in allowGeneralisation
+    6/6/94 SPF fixed bug in match
+
+    ML translation and other changes:
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
+
+    Further development:
+    Copyright (c) 2000-7 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -16,16 +28,6 @@
 	License along with this library; if not, write to the Free Software
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(*
-    Title:      Operations on type structures.
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
-    Copyright   Cambridge University 1985
-*)
-
-
-(* 3/6/94 SPF fixed bug in allowGeneralisation *)
-(* 6/6/94 SPF fixed bug in match *)
 
 functor TYPE_TREE (
 
@@ -2329,17 +2331,81 @@ struct
           end
 
 	  | (TypeVar typeAVar, _) =>
-	  	(* typeB is not a type variable so set typeA to typeB.*)
-            assign (typeAVar, mapB tB)
+            (* typeB is not a type variable so set typeA to typeB.*)
+            (* Be careful if this is a non-unifiable type variable being matched to
+               the special case of the identity type-construction. *)
+        (
+            if tvNonUnifiable typeAVar
+            then
+                (
+                case tB of
+                    TypeConstruction {value, args, ...} =>
+                    let
+                        val constr = pling value
+                    in
+                        if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                        then
+                            (
+                            case mapB tB of
+                                TypeConstruction {value, args, ...} =>
+                                let
+                                    val constr = pling value
+                                in
+                                    if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                                    then assign (typeAVar, mapB tB)
+                                    else match(tA, eventual (makeEquivalent (constr, args)), trivMap)
+                                end
+                            | _ => assign (typeAVar, mapB tB)
+                            )
+                        else match(tA, eventual (makeEquivalent (constr, args)), mapB)
+                    end
+                |  _ => assign (typeAVar, mapB tB)
+                )
+            else assign (typeAVar, mapB tB)
+        )
          
-      | (_, TypeVar _) => (* and typeA is not *)
+      | (_, TypeVar typeBVar) => (* and typeA is not *)
 	  	(
-	  	case mapB tB of
-			TypeVar tv =>
-			  (* This will fail if we are matching a signature because the
-			     typeB will be non-unifiable. *)
-			  	assign (tv, mapB tA) (* set typeB to typeA *)
-		  | typB => match (tA, typB, (*mapA, *)trivMap)
+            (* We have to check for the special case of the identity type-construction. *)
+            if tvNonUnifiable typeBVar
+            then
+                (
+                case tA of
+                    TypeConstruction {value, args, ...} =>
+                    let
+                        val constr = pling value
+                    in
+                        if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                        then
+                            (
+                            case mapB tB of
+                    			TypeVar tv =>
+                    			  (* This will fail if we are matching a signature because the
+                    			     typeB will be non-unifiable. *)
+                    			  	assign (tv, mapB tA) (* set typeB to typeA *)
+                    		  | typB => match (tA, typB, (*mapA, *)trivMap)
+                            )
+                        else match(eventual (makeEquivalent (constr, args)), tB, mapB)
+                    end
+                |  _ =>
+                    (
+                    case mapB tB of
+            			TypeVar tv =>
+            			  (* This will fail if we are matching a signature because the
+            			     typeB will be non-unifiable. *)
+            			  	assign (tv, mapB tA) (* set typeB to typeA *)
+            		  | typB => match (tA, typB, (*mapA, *)trivMap)
+                    )
+                )
+            else
+                (
+                case mapB tB of
+        			TypeVar tv =>
+        			  (* This will fail if we are matching a signature because the
+        			     typeB will be non-unifiable. *)
+        			  	assign (tv, mapB tA) (* set typeB to typeA *)
+        		  | typB => match (tA, typB, (*mapA, *)trivMap)
+                )
 		)
               
       | (TypeConstruction({value = valueA, args=tAargs, ...}), 
