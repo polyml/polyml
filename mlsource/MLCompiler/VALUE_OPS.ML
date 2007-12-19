@@ -2169,9 +2169,13 @@ struct
                there is more than one constructor.  The idea is to speed up equality
                between identical data structures. *)
 			val eqCode =
-				if List.length vConstrs > 1
-				then mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
-				else processConstrs vConstrs
+                case vConstrs of
+                   [vcons] => (* Single constructor. *)
+                       if isEnum vcons
+                       then CodeTrue (* Return true here: processConstrs would return false. *)
+                       else processConstrs vConstrs
+                 |  _ => (* More than one constructor: should never be zero. *)
+                        mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
 			val eqFun =
 				mkProc(eqCode, newLevel, 2, "eq-" ^ typeName ^ "(2)")
 			(* If this is a monotype we can return it directly otherwise we
