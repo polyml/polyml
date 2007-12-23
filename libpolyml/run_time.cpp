@@ -929,18 +929,24 @@ Handle EnterPolyCode(TaskData *taskData)
     while (1)
     {
         taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
-        // Process any asynchronous events i.e. interrupts or kill
-        processes->ProcessAsynchRequests(taskData);
-        // Release and re-acquire use of the ML memory to allow another thread
-        // to GC.
-        processes->ThreadReleaseMLMemory(taskData);
-        processes->ThreadUseMLMemory(taskData);
         // Run the ML code and return with the function to call.
         int ioFunction = machineDependent->SwitchToPoly(taskData);
 	    try {
             switch (ioFunction)
             {
             case -1:
+                // We've been interrupted.  This usually involves simulating a
+                // stack overflow so we could come here because of a genuine
+                // stack overflow.
+                // Previously this code was executed on every RTS call but there
+                // were problems on Mac OS X at least with contention on schedLock.
+                taskData->pendingInterrupt = false; // Clear this before we handle these
+                // Process any asynchronous events i.e. interrupts or kill
+                processes->ProcessAsynchRequests(taskData);
+                // Release and re-acquire use of the ML memory to allow another thread
+                // to GC.
+                processes->ThreadReleaseMLMemory(taskData);
+                processes->ThreadUseMLMemory(taskData);
                 break;
 
             case -2: // A callback has returned.

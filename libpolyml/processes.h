@@ -86,6 +86,7 @@ public:
     int         lastError;      // Last error from foreign code.
     Handle      x_ehandle, y_ehandle; // Space to extend short precision args.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
+    bool        pendingInterrupt; // The thread should trap into the RTS soon.
 private:
     PolyWord    x_extend[2], y_extend[2];
     SaveVecEntry x_extend_addr, y_extend_addr;

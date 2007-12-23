@@ -137,7 +137,7 @@ typedef struct _MemRegisters {
 
 class X86TaskData: public MDTaskData {
 public:
-    X86TaskData(): allocReg(0), allocWords(0), pendingInterrupt(false)
+    X86TaskData(): allocReg(0), allocWords(0)
     {
     memRegisters.inRTS = 1; // We start off in the RTS.
     }
@@ -145,7 +145,6 @@ public:
     POLYUNSIGNED allocWords; // The words to allocate.
     Handle callBackResult;
     MemRegisters memRegisters;
-    bool pendingInterrupt;
 };
 
 
@@ -825,7 +824,7 @@ void X86Dependent::InterruptCode(TaskData *taskData)
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
-    mdTask->pendingInterrupt = true;
+    taskData->pendingInterrupt = true;
 }
 
 // This is called from SwitchToPoly before we enter the ML code.
@@ -893,10 +892,9 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
     mdTask->memRegisters.stackTop = taskData->stack->Offset(taskData->stack->Length() - 1);
-    if (mdTask->pendingInterrupt)
+    if (taskData->pendingInterrupt)
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
     else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
-    mdTask->pendingInterrupt = false;
     mdTask->memRegisters.handlerRegister = taskData->stack->p_hr;
     mdTask->memRegisters.requestCode = 0; // Clear these because only one will be set.
     mdTask->memRegisters.returnReason = RETURN_IO_CALL;

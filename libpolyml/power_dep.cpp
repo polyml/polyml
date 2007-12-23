@@ -183,13 +183,12 @@ typedef struct MemRegisters {
 
 class PowerPCTaskData: public MDTaskData {
 public:
-    PowerPCTaskData(): allocWords(0), pendingInterrupt(false)
+    PowerPCTaskData(): allocWords(0)
     {
     memRegisters.inRTS = 1; // We start off in the RTS.
     }
     POLYUNSIGNED allocWords; // The words to allocate.
     MemRegisters memRegisters;
-    bool pendingInterrupt;
 };
 
 class PowerPCDependent: public MachineDependent {
@@ -606,10 +605,9 @@ void PowerPCDependent::SetMemRegisters(TaskData *taskData)
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.    
-    if (mdTask->pendingInterrupt)
+    if (taskData->pendingInterrupt)
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
     else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
-    mdTask->pendingInterrupt = false;
     mdTask->memRegisters.threadId = taskData->threadObject;
 
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
@@ -788,7 +786,7 @@ void PowerPCDependent::InterruptCode(TaskData *taskData)
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
         mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1); 
-    mdTask->pendingInterrupt = true;
+    taskData->pendingInterrupt = true;
 }
 
 void PowerPCDependent::SetForRetry(TaskData *taskData, int ioCall)

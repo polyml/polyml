@@ -641,7 +641,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 }
 
 TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0)
+        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false)
 {
     // Initialise the dummy save vec entries used to extend short precision arguments.
     // This is a bit of a hack.
