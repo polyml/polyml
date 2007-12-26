@@ -210,7 +210,7 @@ Handle Real_eqc(TaskData *mdTaskData, Handle y, Handle x)
 Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
 {
     double dx = real_arg(x), dy = real_arg(y);
-    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(0));
+    if (isnan(dx) || isnan(dy)) return mdTaskData->saveVec.push(TAGGED(1));
     return mdTaskData->saveVec.push(dx != dy ? TAGGED(1) : TAGGED(0));
 }
 
