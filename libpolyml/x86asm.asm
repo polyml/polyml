@@ -88,6 +88,7 @@ ENDIF
 R_cl        TEXTEQU <cl>
 R_bl        TEXTEQU <bl>
 R_al        TEXTEQU <al>
+R_ax        TEXTEQU <ax>
 
 CONST       TEXTEQU <>
 
@@ -198,6 +199,7 @@ ENDIF
 #define R_al        %al
 #define R_cl        %cl
 #define R_bl        %bl
+#define R_ax        %ax
 IFDEF HOSTARCHITECTURE_X86_64
 #define R8          %r8
 #define R9          %r9
@@ -387,6 +389,7 @@ ZERO        TEXTEQU     TAGGED(0)
 FALSE       TEXTEQU     TAGGED(0)
 TRUE        TEXTEQU     TAGGED(1)
 MINUS1      TEXTEQU     TAGGED(0-1)
+B_bytes     EQU         01h
 B_mutablebytes  EQU     41h
 B_mutable   EQU         40h
 IFNDEF HOSTARCHITECTURE_X86_64
@@ -403,6 +406,7 @@ ELSE
 .set    FALSE,      TAGGED(0)
 .set    TRUE,       TAGGED(1)
 .set    MINUS1,     TAGGED(0-1)
+.set    B_bytes,    0x01
 .set    B_mutable,  0x40
 .set    B_mutablebytes, 0x41
 IFNDEF HOSTARCHITECTURE_X86_64
@@ -432,6 +436,8 @@ IOEntryPoint        EQU     48  ;# IO call
 RaiseDiv            EQU     52  ;# Call to raise the Div exception
 ArbEmulation		EQU		56  ;# Arbitrary precision emulation
 ThreadId			EQU		60	;# My thread id
+RealTemp            EQU     64 ;# Space for int-real conversions
+
 ELSE
 HandlerRegister     EQU     8
 LocalMbottom        EQU     16
@@ -450,6 +456,7 @@ IOEntryPoint        EQU     96  ;# IO call
 RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
 ThreadId			EQU		120	;# My thread id
+RealTemp            EQU     128 ;# Space for int-real conversions
 ENDIF
 
 ELSE
@@ -466,6 +473,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    RaiseDiv,52
 .set    ArbEmulation,56
 .set    ThreadId,60
+.set    RealTemp,64
 ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
@@ -483,6 +491,7 @@ ELSE
 .set    RaiseDiv,104
 .set    ArbEmulation,112
 .set    ThreadId,120
+.set    RealTemp,128
 ENDIF
 
 ENDIF
@@ -507,6 +516,19 @@ POLY_SYS_int_geq            EQU 231
 POLY_SYS_int_leq            EQU 232
 POLY_SYS_int_gtr            EQU 233
 POLY_SYS_int_lss            EQU 234
+POLY_SYS_Add_real           EQU 125
+POLY_SYS_Sub_real           EQU 126
+POLY_SYS_Mul_real           EQU 127
+POLY_SYS_Div_real           EQU 128
+POLY_SYS_Neg_real           EQU 130
+POLY_SYS_real_to_int        EQU 134
+POLY_SYS_int_to_real        EQU 135
+POLY_SYS_sqrt_real          EQU 136
+POLY_SYS_sin_real           EQU 137
+POLY_SYS_cos_real           EQU 138
+POLY_SYS_arctan_real        EQU 139
+POLY_SYS_exp_real           EQU 140
+POLY_SYS_ln_real            EQU 141
 ELSE
 #include "sys.h"
 ENDIF
@@ -1855,6 +1877,285 @@ CALLMACRO   INLINE_ROUTINE  thread_self
 	ret
 CALLMACRO   RegMask thread_self,(M_Reax)
 
+
+
+;# FLOATING POINT
+;# If we have insufficient space for the result we call in to
+;# main RTS to do the work.
+
+
+mem_for_real:
+;# Allocate memory for the result.
+IFNDEF HOSTARCHITECTURE_X86_64
+        MOVL    LocalMpointer[Rebp],Recx
+	SUBL    CONST 12,Recx        ;# Length word (4 bytes) + 8 bytes
+ELSE
+        MOVL    R15,Recx
+	SUBL    CONST 16,Recx        ;# Length word (4 bytes) + 8 bytes
+ENDIF
+IFDEF TEST_ALLOC
+;# Test case - this will always force a call into RTS.
+        CMPL    LocalMpointer[Rebp],Recx
+ELSE
+        CMPL    LocalMbottom[Rebp],Recx
+ENDIF
+        jb      mem_for_real1
+IFNDEF HOSTARCHITECTURE_X86_64
+        MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
+IFDEF WINDOWS
+        mov     dword ptr (-4)[Recx],01000002h  ;# Length word:
+ELSE
+        MOVL    CONST 0x01000002,(-4)[Recx]		;# Two words plus tag
+ENDIF
+ELSE
+        MOVL    Recx,R15                        ;# Updated allocation pointer
+	MOVL    CONST 1,(-8)[Recx]		;# One word
+	MOVB    CONST B_bytes,(-1)[Recx]	;# Set the byte flag.
+ENDIF
+        ret
+mem_for_real1:  ;# Not enough store: clobber bad value in ecx.
+        MOVL   CONST 1,Recx
+	ret
+
+
+CALLMACRO INLINE_ROUTINE real_add
+        call    mem_for_real
+	jb      real_add_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FADD    qword ptr [Rebx]
+	FSTP    qword ptr [Recx]
+ELSE
+	FLDL    [Reax]
+	FADDL   [Rebx]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_add_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Add_real
+
+CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
+
+CALLMACRO INLINE_ROUTINE real_sub
+        call    mem_for_real
+	jb      real_sub_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FSUB    qword ptr [Rebx]
+	FSTP    qword ptr [Recx]
+ELSE
+	FLDL    [Reax]
+	FSUBL   [Rebx]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_sub_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Sub_real
+
+CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
+CALLMACRO INLINE_ROUTINE real_mul
+        call    mem_for_real
+	jb      real_mul_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FMUL    qword ptr [Rebx]
+	FSTP    qword ptr [Recx]
+ELSE
+	FLDL    [Reax]
+	FMULL   [Rebx]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_mul_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Mul_real
+
+CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
+CALLMACRO INLINE_ROUTINE real_div
+        call    mem_for_real
+	jb      real_div_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FDIV    qword ptr [Rebx]
+	FSTP    qword ptr [Recx]
+ELSE
+	FLDL    [Reax]
+	FDIVL   [Rebx]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_div_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Div_real
+
+CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
+CALLMACRO INLINE_ROUTINE real_neg
+        call    mem_for_real
+	jb      real_neg_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+	FLDZ
+IFDEF WINDOWS
+	FSUB    qword ptr [Reax]
+	FSTP    qword ptr [Recx]
+ELSE
+	FSUBL   [Reax]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_neg_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Neg_real
+
+CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
+
+CALLMACRO INLINE_ROUTINE real_eq
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetFalse     ;# Always false on a NaN
+	je      RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_eq,(M_Reax)
+
+
+CALLMACRO INLINE_ROUTINE real_neq
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetTrue     ;# Always true on a NaN
+	jne     RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_neq,(M_Reax)
+
+
+CALLMACRO INLINE_ROUTINE real_lss
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetFalse     ;# Always false on a NaN
+	jb      RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_lss,(M_Reax)
+
+
+CALLMACRO INLINE_ROUTINE real_gtr
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetFalse     ;# Always false on a NaN
+	ja      RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_gtr,(M_Reax)
+
+
+CALLMACRO INLINE_ROUTINE real_leq
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetFalse     ;# Always false on a NaN
+	jna     RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_leq,(M_Reax)
+
+
+CALLMACRO INLINE_ROUTINE real_geq
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FCOMP   qword ptr [Rebx]
+ELSE
+	FLDL    [Reax]
+	FCOMPL  [Rebx]
+ENDIF
+        FNSTSW  R_ax
+	SAHF
+	jp      RetFalse     ;# Always false on a NaN
+	jnb     RetTrue
+	jmp     RetFalse
+
+CALLMACRO   RegMask real_geq,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE real_from_int
+        call    mem_for_real
+	jb      real_float_1     ;# Not enough space - call RTS.
+        SARL    CONST TAGSHIFT,Reax ;# Untag the value
+	MOVL    Reax,RealTemp[Rebp]	;# Save it in a temporary
+IFDEF WINDOWS
+	FILD    dword ptr RealTemp[Rebp]
+	FSTP    qword ptr [Recx]
+ELSE
+	FILDL   RealTemp[Rebp]
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_float_1:
+	CALLMACRO   CALL_IO    POLY_SYS_int_to_real
+
+CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
 ;# by the function.  It is an untagged bitmap with the registers
@@ -1873,28 +2174,28 @@ EXTNAME(registerMaskVector):
 #define dd  .long
     dd  Mask_all                ;# 0 is unused
 ENDIF
-    dd  Mask_all				;# 1
-    dd  Mask_all				;# 2
-    dd  Mask_all                ;# 3 is unused
-    dd  Mask_all                ;# 4 is unused
-    dd  Mask_all                ;# 5 is unused
-    dd  Mask_all				;# 6
-    dd  Mask_all                ;# 7 is unused
-    dd  Mask_all                ;# 8 is unused
-    dd  Mask_all				;# 9
-    dd  Mask_all                ;# 10 is unused
-    dd  Mask_alloc_store        ;# 11
-    dd  Mask_all				;# 12
-    dd  Mask_all                ;# return = 13
-    dd  Mask_all                ;# raisex = 14
-    dd  Mask_get_length         ;# 15
-    dd  Mask_all                ;# 16 is unused
-    dd  Mask_all				;# 17
-    dd  Mask_all                ;# 18 is no longer used
-    dd  Mask_all                ;# 19 is no longer used
-    dd  Mask_all                ;# 20 is no longer used
-    dd  Mask_all                ;# 21 is unused
-    dd  Mask_all                ;# 22 is unused
+    dd  Mask_all                 ;# 1
+    dd  Mask_all                 ;# 2
+    dd  Mask_all                 ;# 3 is unused
+    dd  Mask_all                 ;# 4 is unused
+    dd  Mask_all                 ;# 5 is unused
+    dd  Mask_all                 ;# 6
+    dd  Mask_all                 ;# 7 is unused
+    dd  Mask_all                 ;# 8 is unused
+    dd  Mask_all                 ;# 9
+    dd  Mask_all                 ;# 10 is unused
+    dd  Mask_alloc_store         ;# 11
+    dd  Mask_all                 ;# 12
+    dd  Mask_all                 ;# return = 13
+    dd  Mask_all                 ;# raisex = 14
+    dd  Mask_get_length          ;# 15
+    dd  Mask_all                 ;# 16 is unused
+    dd  Mask_all                 ;# 17
+    dd  Mask_all                 ;# 18 is no longer used
+    dd  Mask_all                 ;# 19 is no longer used
+    dd  Mask_all                 ;# 20 is no longer used
+    dd  Mask_all                 ;# 21 is unused
+    dd  Mask_all                 ;# 22 is unused
     dd  Mask_str_compare         ;# 23
     dd  Mask_teststreq           ;# 24
     dd  Mask_teststrneq          ;# 25
@@ -1902,7 +2203,7 @@ ENDIF
     dd  Mask_teststrlss          ;# 27
     dd  Mask_teststrgeq          ;# 28
     dd  Mask_teststrleq          ;# 29
-    dd  Mask_all     ;# 30
+    dd  Mask_all                 ;# 30
     dd  Mask_all                 ;# 31 is no longer used
     dd  Mask_all                 ;# 32 is no longer used
     dd  Mask_all                 ;# 33 is no longer used
@@ -1912,71 +2213,71 @@ ENDIF
     dd  Mask_all                 ;# 37 is unused
     dd  Mask_all                 ;# 38 is unused
     dd  Mask_all                 ;# 39 is unused
-    dd  Mask_all				;# 40
+    dd  Mask_all                 ;# 40
     dd  Mask_all                 ;# 41 is unused
-    dd  Mask_all				;# 42
-    dd  Mask_all				;# 43
+    dd  Mask_all                 ;# 42
+    dd  Mask_all                 ;# 43
     dd  Mask_all                 ;# 44 is no longer used
     dd  Mask_all                 ;# 45 is no longer used
-    dd  Mask_all				;# 46
+    dd  Mask_all                 ;# 46
     dd  Mask_lockseg             ;# 47
     dd  Mask_all                 ;# nullorzero = 48
     dd  Mask_all                 ;# 49 is no longer used
     dd  Mask_all                 ;# 50 is no longer used
-    dd  Mask_all				;# 51
-    dd  Mask_all				;# 52
-    dd  Mask_all                ;# 53 is unused
-    dd  Mask_all                ;# 54 is unused
-    dd  Mask_all                ;# version_number = 55
-    dd  Mask_all                ;# 56 is unused
-    dd  Mask_all                ;# 57 is unused
-    dd  Mask_all                ;# 58 is unused
-    dd  Mask_all                ;# 59 is unused
-    dd  Mask_all                ;# 60 is unused
-    dd  Mask_all				;# 61
-    dd  Mask_all				;# 62
-    dd  Mask_all                ;# 63 is unused
-    dd  Mask_all                ;# 64 is unused
-    dd  Mask_all                ;# 65 is unused
-    dd  Mask_all                ;# 66 is unused
-    dd  Mask_all                ;# 67 is unused
-    dd  Mask_all                ;# 68 is unused
-    dd  Mask_all                ;# 69 is unused
-    dd  Mask_atomic_incr        ;# 70
-    dd  Mask_atomic_decr        ;# 71
-    dd  Mask_thread_self        ;# 72
-    dd  Mask_all                ;# 73
-    dd  Mask_all                ;# 74 is unused
-    dd  Mask_all                ;# 75 is unused
-    dd  Mask_all                ;# 76 is unused
-    dd  Mask_all                ;# 77 is unused
-    dd  Mask_all                ;# 78 is unused
-    dd  Mask_all                ;# 79 is unused
-    dd  Mask_all                ;# Mask_version_number_1 = 80
-    dd  Mask_all                ;# 81 is now unused
-    dd  Mask_all				;# 82 is now unused
-    dd  Mask_all				;# 83 is now unused
-    dd  Mask_all				;# 84
-    dd  Mask_all				;# 85 is now unused
-    dd  Mask_all				;# 86 is now unused
-    dd  Mask_all				;# 87 is now unused
-    dd  Mask_all				;# 88
-    dd  Mask_all                ;# 89 is unused
-    dd  Mask_all                ;# 90 is unused
-    dd  Mask_all                ;# 91 is unused
-    dd  Mask_all            ;# 92
-    dd  Mask_all        ;# 93
-    dd  Mask_all    ;# 94
-    dd  Mask_all                ;# 95 is unused
-    dd  Mask_all                ;# 96 is unused
-    dd  Mask_all                ;# 97 is unused
-    dd  Mask_all      ;# 98
-    dd  Mask_all            ;# 99
-    dd  Mask_all           ;# 100
-    dd  Mask_all                ;# 101 is unused
-    dd  Mask_all                ;# 102 is unused
-    dd  Mask_all ;# 103
-    dd  Mask_all                ;# 104 is unused
+    dd  Mask_all                 ;# 51
+    dd  Mask_all                 ;# 52
+    dd  Mask_all                 ;# 53 is unused
+    dd  Mask_all                 ;# 54 is unused
+    dd  Mask_all                 ;# version_number = 55
+    dd  Mask_all                 ;# 56 is unused
+    dd  Mask_all                 ;# 57 is unused
+    dd  Mask_all                 ;# 58 is unused
+    dd  Mask_all                 ;# 59 is unused
+    dd  Mask_all                 ;# 60 is unused
+    dd  Mask_all                 ;# 61
+    dd  Mask_all                 ;# 62
+    dd  Mask_all                 ;# 63 is unused
+    dd  Mask_all                 ;# 64 is unused
+    dd  Mask_all                 ;# 65 is unused
+    dd  Mask_all                 ;# 66 is unused
+    dd  Mask_all                 ;# 67 is unused
+    dd  Mask_all                 ;# 68 is unused
+    dd  Mask_all                 ;# 69 is unused
+    dd  Mask_atomic_incr         ;# 70
+    dd  Mask_atomic_decr         ;# 71
+    dd  Mask_thread_self         ;# 72
+    dd  Mask_all                 ;# 73
+    dd  Mask_all                 ;# 74 is unused
+    dd  Mask_all                 ;# 75 is unused
+    dd  Mask_all                 ;# 76 is unused
+    dd  Mask_all                 ;# 77 is unused
+    dd  Mask_all                 ;# 78 is unused
+    dd  Mask_all                 ;# 79 is unused
+    dd  Mask_all                 ;# Mask_version_number_1 = 80
+    dd  Mask_all                 ;# 81 is now unused
+    dd  Mask_all                 ;# 82 is now unused
+    dd  Mask_all                 ;# 83 is now unused
+    dd  Mask_all                 ;# 84
+    dd  Mask_all                 ;# 85 is now unused
+    dd  Mask_all                 ;# 86 is now unused
+    dd  Mask_all                 ;# 87 is now unused
+    dd  Mask_all                 ;# 88
+    dd  Mask_all                 ;# 89 is unused
+    dd  Mask_all                 ;# 90 is unused
+    dd  Mask_all                 ;# 91 is unused
+    dd  Mask_all                 ;# 92
+    dd  Mask_all                 ;# 93
+    dd  Mask_all                 ;# 94
+    dd  Mask_all                 ;# 95 is unused
+    dd  Mask_all                 ;# 96 is unused
+    dd  Mask_all                 ;# 97 is unused
+    dd  Mask_all                 ;# 98
+    dd  Mask_all                 ;# 99
+    dd  Mask_all                 ;# 100
+    dd  Mask_all                 ;# 101 is unused
+    dd  Mask_all                 ;# 102 is unused
+    dd  Mask_all                 ;# 103
+    dd  Mask_all                 ;# 104 is unused
     dd  Mask_is_short            ;# 105
     dd  Mask_aplus               ;# 106
     dd  Mask_aminus              ;# 107
@@ -1989,31 +2290,31 @@ ENDIF
     dd  Mask_ora                 ;# 114
     dd  Mask_anda                ;# 115
     dd  Mask_all                 ;# version_number_3 = 116
-    dd  Mask_all            ;# 117
-    dd  Mask_all            ;# 118
-    dd  Mask_all            ;# 119
-    dd  Mask_all            ;# 120
-    dd  Mask_all            ;# 121
-    dd  Mask_all             ;# 122
-    dd  Mask_all            ;# 123
-    dd  Mask_all       ;# 124
-    dd  Mask_all            ;# 125
-    dd  Mask_all            ;# 126
-    dd  Mask_all            ;# 127
-    dd  Mask_all            ;# 128
+    dd  Mask_all                 ;# 117
+    dd  Mask_real_geq            ;# 118
+    dd  Mask_real_leq            ;# 119
+    dd  Mask_real_gtr            ;# 120
+    dd  Mask_real_lss            ;# 121
+    dd  Mask_real_eq             ;# 122
+    dd  Mask_real_neq            ;# 123
+    dd  Mask_all                 ;# 124
+    dd  Mask_real_add            ;# 125
+    dd  Mask_real_sub            ;# 126
+    dd  Mask_real_mul            ;# 127
+    dd  Mask_real_div            ;# 128
     dd  Mask_all                 ;# 129 is unused
-    dd  Mask_all            ;# 130
+    dd  Mask_real_neg            ;# 130
     dd  Mask_all                 ;# 131 is unused
-    dd  Mask_all           ;# 132
-    dd  Mask_all           ;# 133
-    dd  Mask_all            ;# 134
-    dd  Mask_all          ;# 135
-    dd  Mask_all           ;# 136
-    dd  Mask_all            ;# 137
-    dd  Mask_all            ;# 138
-    dd  Mask_all         ;# 139
-    dd  Mask_all            ;# 140
-    dd  Mask_all             ;# 141
+    dd  Mask_all                 ;# 132
+    dd  Mask_all                 ;# 133
+    dd  Mask_all                 ;# 134
+    dd  Mask_real_from_int       ;# 135
+    dd  Mask_all                 ;# 136
+    dd  Mask_all                 ;# 137
+    dd  Mask_all                 ;# 138
+    dd  Mask_all                 ;# 139
+    dd  Mask_all                 ;# 140
+    dd  Mask_all                 ;# 141
     dd  Mask_all                 ;# 142 is no longer used
     dd  Mask_all                 ;# 143 is unused
     dd  Mask_all                 ;# 144 is unused
@@ -2022,7 +2323,7 @@ ENDIF
     dd  Mask_all                 ;# 147 is unused
     dd  Mask_all                 ;# stdin = 148
     dd  Mask_all                 ;# stdout= 149
-    dd  Mask_all   ;# 150
+    dd  Mask_all                 ;# 150
     dd  Mask_set_string_length   ;# 151
     dd  Mask_get_first_long_word ;# 152
     dd  Mask_all                 ;# 153 is unused
@@ -2061,7 +2362,7 @@ ENDIF
     dd  Mask_all                 ;# 186 is unused
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused
-    dd  Mask_all       ;# 189
+    dd  Mask_all                 ;# 189
     dd  Mask_all                 ;# 190 is unused
     dd  Mask_all                 ;# 191 is no longer used
     dd  Mask_all                 ;# 192 is unused
@@ -2072,8 +2373,8 @@ ENDIF
     dd  Mask_int_to_word         ;# 197
     dd  Mask_move_bytes          ;# 198
     dd  Mask_all                 ;# 199 now unused
-    dd  Mask_all          ;# 200
-    dd  Mask_all       ;# 201
+    dd  Mask_all                 ;# 200
+    dd  Mask_all                 ;# 201
     dd  Mask_all                 ;# stderr = 202
     dd  Mask_all                 ;# 203 now unused
     dd  Mask_all                 ;# 204

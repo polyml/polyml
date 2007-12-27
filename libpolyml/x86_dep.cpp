@@ -107,7 +107,7 @@ typedef struct _MemRegisters {
     // These offsets are built into the code generator and assembly code
     PolyWord    *localMpointer;     // Allocation ptr + 1 word
     PolyWord    *handlerRegister;   // Current exception handler
-    // These next two are checked using a BOUNDS instruction.  That compares
+    // Originally these next two were checked using a BOUNDS instruction.  That compared
     // a value against a lower and upper limit.
     PolyWord    *localMbottom;      // Base of memory + 1 word
     PolyWord    *stackLimit;        // Lower limit of stack
@@ -133,6 +133,7 @@ typedef struct _MemRegisters {
     byte        *raiseDiv;          // Called to raise the Div exception.
     byte        *arbEmulation;      // This address is called to emulate an arbitrary precision op
     PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
+    POLYSIGNED  real_temp;          // Space used to convert integers to reals.
 } MemRegisters;
 
 class X86TaskData: public MDTaskData {
@@ -317,7 +318,9 @@ extern "C" {
     extern int word_geq(), word_leq(), word_gtr(), word_lss();
     extern int raisex();
     extern int thread_self(), atomic_increment(), atomic_decrement();
-
+    extern int real_add(), real_sub(), real_mul(), real_div(), real_neg();
+    extern int real_geq(), real_leq(), real_gtr(), real_lss(), real_eq(), real_neq();
+    extern int real_from_int();
 };
 
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
@@ -1442,38 +1445,32 @@ void X86Dependent::InitInterfaceVector(void)
 
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_str, codeAddr);
     add_word_to_io_area(POLY_SYS_Real_str, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_geq, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_geq, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_leq, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_leq, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_gtr, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_gtr, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_lss, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_lss, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_eq, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_eq, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_neq, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_neq, PolyWord::FromCodePtr(codeAddr));
+
+    add_function_to_io_area(POLY_SYS_Real_geq, real_geq);
+    add_function_to_io_area(POLY_SYS_Real_leq, real_leq);
+    add_function_to_io_area(POLY_SYS_Real_gtr, real_gtr);
+    add_function_to_io_area(POLY_SYS_Real_lss, real_lss);
+    add_function_to_io_area(POLY_SYS_Real_eq,  real_eq);
+    add_function_to_io_area(POLY_SYS_Real_neq, real_neq);
+
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_Dispatch, codeAddr);
     add_word_to_io_area(POLY_SYS_Real_Dispatch, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Add_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Add_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Sub_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Sub_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Mul_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Mul_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Div_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Div_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Neg_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Neg_real, PolyWord::FromCodePtr(codeAddr));
+
+    add_function_to_io_area(POLY_SYS_Add_real, real_add);
+    add_function_to_io_area(POLY_SYS_Sub_real, real_sub);
+    add_function_to_io_area(POLY_SYS_Mul_real, real_mul);
+    add_function_to_io_area(POLY_SYS_Div_real, real_div);
+    add_function_to_io_area(POLY_SYS_Neg_real, real_neg);
+
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Repr_real, codeAddr);
     add_word_to_io_area(POLY_SYS_Repr_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_conv_real, codeAddr);
     add_word_to_io_area(POLY_SYS_conv_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_real_to_int, codeAddr);
     add_word_to_io_area(POLY_SYS_real_to_int, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_int_to_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_int_to_real, PolyWord::FromCodePtr(codeAddr));
+
+    add_function_to_io_area(POLY_SYS_int_to_real, real_from_int);
+
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_sqrt_real, codeAddr);
     add_word_to_io_area(POLY_SYS_sqrt_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_sin_real, codeAddr);
