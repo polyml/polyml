@@ -49,10 +49,10 @@ open CallWithConv;
 open ForeignException;
     
 
-
-val VOID = mkConversion (fn _ => ())
-    	    	    	(fn () => raise (Foreign "Unable to convert unit to void"))
-			Cvoid
+(* Generally we don't want to convert a unit value into a void except in the
+   case when we're returning a void result from a callback.  Just return
+   zero in that case.  *)
+val VOID = mkConversion (fn _ => ()) (fn () => toCint 0) Cvoid
 
 local    
     fun int2bool 0      = false
