@@ -76,3 +76,10 @@ double MakeCallback2(DBL_CALLBACK p)
 	double y = p(12345, 'X', (double)1.414, (float)2.8, 44, &x);
 	return y;
 }
+
+// Check that void results work for callbacks.
+void MakeCallback3(void(*mlcall)(int), int i)
+{
+    mlcall(i+1);
+}
+

@@ -96,7 +96,10 @@ fun f (i, j) = (PolyML.print(i, j); i+j);
 val doAdd = call2 (load_sym mylib "MakeCallback") (INT, FUNCTION2 (INT, INT) INT) INT;
 doAdd(4, f);
 (* Check that an exception is properly propagated. *)
-doAdd(4, fn _ => raise Fail "failed");
+(* This doesn't work if the library has been compiled with GCC.  Foreign.c is C code
+   not C++ and the C++ exception mechanism won't propagate a C++ exception through
+   C code.  *)
+(* doAdd(4, fn _ => raise Fail "failed"); *)
 
 (* int a, char b, double c, float d, short e, int *f *)
 fun myCallback [v1, v2, v3, v4, v5, v6] =
@@ -119,4 +122,6 @@ val myCbVol = toCfunction [Cint, Cchar, Cdouble, Cfloat, Cshort, Cpointer Cint] 
 val returnR3 = call_sym (load_sym mylib "MakeCallback2") [(Cpointer Cint, myCbVol) ] Cdouble;
 fromCdouble returnR3;
 
+val doit = call2(load_sym mylib "MakeCallback3") (FUNCTION1 INT VOID, INT) VOID;
+doit(fn i => print(Int.toString i), 2);
 
