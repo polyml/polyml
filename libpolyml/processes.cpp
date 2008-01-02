@@ -86,6 +86,11 @@
 #include <pthread.h>
 #endif
 
+#ifdef HAVE_SYS_SYSCTL_H
+// Used determine number of processors in Mac OS X.
+#include <sys/sysctl.h>
+#endif
+
 /************************************************************************
  *
  * Include runtime headers
@@ -617,8 +622,8 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             long res = sysconf(_SC_NPROCESSORS_ONLN);
             if (res <= 0) res = 1;
             return Make_arbitrary_precision(taskData, res);
-#elif(defined(HAVE_SYSCTL) && defined(CTL_HW) && defined(HW_NCP))
-            static int mib[2] = { CTL_HW, HW_NCP };
+#elif(defined(HAVE_SYSCTL) && defined(CTL_HW) && defined(HW_NCPU))
+            static int mib[2] = { CTL_HW, HW_NCPU };
             int nCPU = 1;
             size_t len = sizeof(nCPU);
             if (sysctl(mib, 2, &nCPU, &len, NULL, 0) == 0 && len == sizeof(nCPU))
