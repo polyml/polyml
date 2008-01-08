@@ -91,11 +91,13 @@ PolyWord ScanAddress::ScanStackAddress(PolyWord val, StackObject *base, bool isC
         return PolyWord::FromCodePtr((byte*)newObject + offset);
     }
 
-    else if (val.IsTagged() || (val.AsAddress() > base && val.AsAddress() < end))
+    else if (val.IsTagged() || (val.AsAddress() > base && val.AsAddress() <= end))
             /* We don't need to process tagged integers (now we've checked it isn't
                a code address) and we don't need to process addresses within the
                current stack.  If the containing stack has moved the stack addresses
                will have been updated by CopyStack. */
+            /* N.B. We have "<= end" rather than "< end" because it is possible for
+               the stack to be completely empty on a terminated thread. */
            return val;
 
     else
