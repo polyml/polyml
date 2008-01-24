@@ -1799,6 +1799,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xff: /* Group5 */
         case 0xd1: /* Group2_1_A */
         case 0x8f: /* POP_A */
+        case 0x8d: /* leal. */
             pt++; skipea(&pt, process); break;
 
         case 0xf6: /* Group3_a */
@@ -1835,28 +1836,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 /* Ignore the 32 bit constant here.  It may be
                    untagged and it shouldn't be an address. */
                 pt += 4;
-                break;
-            }
-
-        case 0x8d: /* leal. */
-            {
-                pt++;
-                if ((*pt & 0x3f) == 0x9)
-                {
-                    /* leal ecx,n(ecx).  If this is setting ecx
-                       to be the constant pointer then we stop
-                       processing here.  This isn't just an optimisation
-                       for old code segments, it's needed because old
-                       code segments used a jump table for indexed jumps
-                       (case expressions) and these don't contain valid
-                       i386 instructions. */
-                    int md = (*pt) & 0xc0;
-                    if (md == 0x40 || md == 0x80)
-                    {
-                        if ((pt[1] & 3) == 2) return;
-                    }
-                }
-                skipea(&pt, process);
                 break;
             }
 
