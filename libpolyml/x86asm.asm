@@ -2043,11 +2043,12 @@ ELSE
 	FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetFalse     ;# Always false on a NaN
+;# Not all 64-bit processors support SAHF.
+;# The result is true if the zero flag is set and parity flag clear.  
+        ANDL    CONST 17408,Reax ;# 0x4400
+        CMPL    CONST 16384,Reax ;# 0x4000
 	je      RetTrue
 	jmp     RetFalse
-
 CALLMACRO   RegMask real_eq,(M_Reax)
 
 
@@ -2060,8 +2061,8 @@ ELSE
 	FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetTrue     ;# Always true on a NaN
+        ANDL    CONST 17408,Reax ;# 0x4400
+        CMPL    CONST 16384,Reax ;# 0x4000
 	jne     RetTrue
 	jmp     RetFalse
 
@@ -2069,17 +2070,20 @@ CALLMACRO   RegMask real_neq,(M_Reax)
 
 
 CALLMACRO INLINE_ROUTINE real_lss
+;# Compare Rebx > Reax
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+	FLD     qword ptr [Rebx]
+	FCOMP   qword ptr [Reax]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+	FLDL    [Rebx]
+	FCOMPL  [Reax]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetFalse     ;# Always false on a NaN
-	jb      RetTrue
+
+;# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
+        ANDL    CONST 17664,Reax ;# 0x4500
+
+	je      RetTrue
 	jmp     RetFalse
 
 CALLMACRO   RegMask real_lss,(M_Reax)
@@ -2094,26 +2098,30 @@ ELSE
 	FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetFalse     ;# Always false on a NaN
-	ja      RetTrue
+
+;# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
+        ANDL    CONST 17664,Reax ;# 0x4500
+
+	je      RetTrue
 	jmp     RetFalse
 
 CALLMACRO   RegMask real_gtr,(M_Reax)
 
 
 CALLMACRO INLINE_ROUTINE real_leq
+;# Compare Rebx > Reax
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+	FLD     qword ptr [Rebx]
+	FCOMP   qword ptr [Reax]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+	FLDL    [Rebx]
+	FCOMPL  [Reax]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetFalse     ;# Always false on a NaN
-	jna     RetTrue
+;# True if the carry flag (C0) and parity (C2) are both clear
+        ANDL    CONST 1280,Reax ;# 0x500
+
+	je      RetTrue
 	jmp     RetFalse
 
 CALLMACRO   RegMask real_leq,(M_Reax)
@@ -2128,9 +2136,10 @@ ELSE
 	FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
-	SAHF
-	jp      RetFalse     ;# Always false on a NaN
-	jnb     RetTrue
+;# True if the carry flag (C0) and parity (C2) are both clear
+        ANDL    CONST 1280,Reax ;# 0x500
+
+	je      RetTrue
 	jmp     RetFalse
 
 CALLMACRO   RegMask real_geq,(M_Reax)
