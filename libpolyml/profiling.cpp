@@ -399,6 +399,7 @@ static void printprofile(void)
     
     if (unknown_count)
     {
+        total_count += unknown_count;
         P.total += unknown_count;
         pEnt = newProfileEntry();
         strcpy(psUnknown.chars, "UNKNOWN");
