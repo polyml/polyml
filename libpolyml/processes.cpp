@@ -170,12 +170,13 @@ public:
     // In Linux, at least, we need to run a separate timer in each thread
     bool runningProfileTimer;
 
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
 #ifdef HAVE_PTHREAD
     pthread_t pthreadId;
-#elif (defined(HAVE_WINDOWS_H))
+#endif
+#ifdef HAVE_WINDOWS_H
     HANDLE threadHandle;
 #endif
 };
@@ -240,7 +241,7 @@ public:
     virtual void StartProfiling(void);
     virtual void StopProfiling(void);
 
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     // Windows: Called every millisecond while profiling is on.
     void ProfileInterrupt(void);
 #else
@@ -673,19 +674,20 @@ void TaskData::FillUnusedSpace(void)
 ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     lastCPUTime = 0;
 #endif
 #ifdef HAVE_PTHREAD
     pthreadId = 0;
-#elif (defined(HAVE_WINDOWS_H))
+#endif
+#ifdef HAVE_WINDOWS_H
     threadHandle = 0;
 #endif
 }
 
 ProcessTaskData::~ProcessTaskData()
 {
-#if(!defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
+#ifdef HAVE_WINDOWS_H
     if (threadHandle) CloseHandle(threadHandle);
 #endif
 }
@@ -1021,6 +1023,12 @@ TaskData *Processes::GetTaskDataForThread(void)
 static void *NewThreadFunction(void *parameter)
 {
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+#ifdef HAVE_WINDOWS_H
+    // Cygwin: Get the Windows thread handle in case it's needed for profiling.
+    HANDLE thisProcess = GetCurrentProcess();
+    DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
+        &(taskData->threadHandle), THREAD_ALL_ACCESS, FALSE, 0);
+#endif
     initThreadSignals(taskData);
     pthread_setspecific(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
@@ -1351,7 +1359,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
     if (requestRTSState == krequestRTSToInterrupt) // The lock was held before
         RequestThreadsEnterRTS();
 
-#ifndef WINDOWS_PC
+#ifndef HAVE_WINDOWS_H
     // Start the profile timer if needed.
     if (profileMode == kProfileTime)
     {
@@ -1531,7 +1539,7 @@ void Processes::Exit(int n)
 /*      catchVTALRM - handler for alarm-clock signal                          */
 /*                                                                            */
 /******************************************************************************/
-#if !defined(WINDOWS_PC)
+#if !defined(HAVE_WINDOWS_H)
 // N.B. This may be called either by an ML thread or by the main thread.
 // On the main thread taskData will be null.
 static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
@@ -1550,7 +1558,7 @@ static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
     }
 }
 
-#else /* PC */
+#else /* Windows including Cygwin */
 /* This function is running on a separate OS thread.
    Every 20msec of its own virtual time it updates the count.
    Unfortunately on Windows there is no way to set a timer in 
@@ -1620,7 +1628,7 @@ DWORD WINAPI ProfilingTimer(LPVOID parm)
 // Profiling control.  Called by the root thread.
 void Processes::StartProfiling(void)
 {
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     DWORD threadId;
     if (profilingHd)
         return;
@@ -1641,13 +1649,12 @@ void Processes::StartProfiling(void)
 
 void Processes::StopProfiling(void)
 {
-#ifdef WINDOWS_PC
+#ifdef HAVE_WINDOWS_H
     if (hStopEvent) SetEvent(hStopEvent);
     // Wait for the thread to stop
     if (profilingHd) WaitForSingleObject(profilingHd, 10000);
     CloseHandle(profilingHd);
     profilingHd = NULL;
-#else
 #endif
 }
 
@@ -1664,7 +1671,7 @@ void Processes::Init(void)
     tlsId = TlsAlloc();
 #endif
 
-#if defined(WINDOWS_PC) /* PC version */
+#if defined(HAVE_WINDOWS_H) /* Windows including Cygwin. */
     // Create stop event for time profiling.
     hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 #else
@@ -1674,7 +1681,7 @@ void Processes::Init(void)
 #endif
 }
 
-#ifndef WINDOWS_PC
+#ifndef HAVE_WINDOWS_H
 // On Linux, at least, each thread needs to run this.
 void Processes::StartProfilingTimer(void)
 {
@@ -1707,7 +1714,7 @@ void Processes::Uninit(void)
     TlsFree(tlsId);
 #endif
 
-#if defined(WINDOWS_PC)
+#if defined(HAVE_WINDOWS_H)
     /* Stop the timer and profiling threads. */
     if (hStopEvent) SetEvent(hStopEvent);
     if (profilingHd)

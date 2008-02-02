@@ -754,14 +754,9 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
         pc = taskData->stack->p_pc;
         return true;
     }
-#ifdef _WIN64
-    sp = (PolyWord *)context->Rsp;
-    pc = (POLYCODEPTR)context->Rip;
-#elif defined(WINDOWS_PC)
-    // Windows 32
-    sp = (PolyWord *)context->Esp;
-    pc = (POLYCODEPTR)context->Eip;
-#elif defined(HAVE_UCONTEXT_T)
+// The tests for HAVE_UCONTEXT_T, HAVE_STRUCT_SIGCONTEXT and HAVE_WINDOWS_H need
+// to follow the tests in machine_dep.h.
+#if defined(HAVE_UCONTEXT_T)
 #ifdef HAVE_MCONTEXT_T_GREGS
     // Linux
 #ifndef HOSTARCHITECTURE_X86_64
@@ -807,6 +802,15 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
     pc = (byte*)context->sc_pc;
     sp = (PolyWord*)context->sc_sp;
+#elif defined(HAVE_WINDOWS_H)
+#ifdef _WIN64
+    sp = (PolyWord *)context->Rsp;
+    pc = (POLYCODEPTR)context->Rip;
+#else
+    // Windows 32 including cygwin.
+    sp = (PolyWord *)context->Esp;
+    pc = (POLYCODEPTR)context->Eip;
+#endif
 #else
     // Can't get context.
     return false;
