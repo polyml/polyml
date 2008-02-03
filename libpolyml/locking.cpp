@@ -29,6 +29,10 @@
 #endif
 
 #ifdef HAVE_WINDOWS_H
+// We need the next define since TryEnterCriticalSection is only
+// defined in Win NT.  This could mean that this code won't run under
+// Windows 95 or 98.
+#define _WIN32_WINNT 0x0400
 #include <windows.h>
 #endif
 
@@ -99,7 +103,7 @@ bool PLock::Trylock(void)
     // This is not implemented properly in Windows.  There is
     // TryEnterCriticalSection in Win NT and later but that
     // returns TRUE if the current thread owns the mutex.
-    return false;
+   return TryEnterCriticalSection(&lock);
 #endif
 }
 
