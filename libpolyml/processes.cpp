@@ -313,6 +313,8 @@ public:
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
     HANDLE profilingHd;
+    HANDLE mainThreadHandle; // The same as hMainThread except on Cygwin
+    LONGLONG lastCPUTime; // CPU used by main thread.
 #endif
 };
 
@@ -328,6 +330,8 @@ Processes::Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
     hWakeupEvent = NULL;
     hStopEvent = NULL;
     profilingHd = NULL;
+    lastCPUTime = 0;
+    mainThreadHandle = NULL;
 #endif
 }
 
@@ -1559,61 +1563,69 @@ static void catchVTALRM(SIG_HANDLER_ARGS(sig, context))
 }
 
 #else /* Windows including Cygwin */
-/* This function is running on a separate OS thread.
-   Every 20msec of its own virtual time it updates the count.
-   Unfortunately on Windows there is no way to set a timer in 
-   the virtual time of PolyML (not real time, CPU time used by PolyML).
-   It would be possible to approximate this in Windows NT by looking
-   at the CPU time used in the last real time slice and adjusting the
-   count appropriately.  That won't work in Windows 95 which doesn't
-   have a CPU time counter.
-*/
+// This runs as a separate thread.  Every millisecond it checks the CPU time used
+// by each ML thread and increments the count for each thread that has used a
+// millisecond of CPU time.
+
+static bool testCPUtime(HANDLE hThread, LONGLONG &lastCPUTime)
+{
+    FILETIME cTime, eTime, kTime, uTime;
+    // Try to get the thread CPU time if possible.  This isn't supported
+    // in Windows 95/98 so if it fails we just include this thread anyway.
+    if (GetThreadTimes(hThread, &cTime, &eTime, &kTime, &uTime))
+    {
+        LONGLONG totalTime = 0;
+        LARGE_INTEGER li;
+        li.LowPart = kTime.dwLowDateTime;
+        li.HighPart = kTime.dwHighDateTime;
+        totalTime += li.QuadPart;
+        li.LowPart = uTime.dwLowDateTime;
+        li.HighPart = uTime.dwHighDateTime;
+        totalTime += li.QuadPart;
+        if (totalTime - lastCPUTime >= 10000)
+        {
+            lastCPUTime = totalTime;
+            return true;
+        }
+        return false;
+    }
+    else return true; // Failed to get thread time, maybe Win95.
+ }
+
+
 void Processes::ProfileInterrupt(void)
 {               
     // Wait for millisecond or until the stop event is signalled.
     while (WaitForSingleObject(hStopEvent, 1) == WAIT_TIMEOUT)        
     {
-        schedLock.Lock();
-        for (unsigned i = 0; i < taskArraySize; i++)
+        // We need to hold schedLock to examine the taskArray but
+        // that is held during garbage collection.
+        if (schedLock.Trylock())
         {
-            ProcessTaskData *p = taskArray[i];
-            if (p && p->threadHandle)
+            for (unsigned i = 0; i < taskArraySize; i++)
             {
-                FILETIME cTime, eTime, kTime, uTime;
-                bool includeThread = false;
-                // Try to get the thread CPU time if possible.  This isn't supported
-                // in Windows 95/98 so if it fails we just include this thread anyway.
-                if (GetThreadTimes(p->threadHandle, &cTime, &eTime, &kTime, &uTime))
+                ProcessTaskData *p = taskArray[i];
+                if (p && p->threadHandle)
                 {
-                    LONGLONG totalTime = 0;
-                    LARGE_INTEGER li;
-                    li.LowPart = kTime.dwLowDateTime;
-                    li.HighPart = kTime.dwHighDateTime;
-                    totalTime += li.QuadPart;
-                    li.LowPart = uTime.dwLowDateTime;
-                    li.HighPart = uTime.dwHighDateTime;
-                    totalTime += li.QuadPart;
-                    if (totalTime - p->lastCPUTime >= 10000)
+                    if (testCPUtime(p->threadHandle, p->lastCPUTime))
                     {
-                        includeThread = true;
-                        p->lastCPUTime = totalTime;
+                        CONTEXT context;
+                        SuspendThread(p->threadHandle);
+                        context.ContextFlags = CONTEXT_CONTROL; /* Get Eip and Esp */
+                        if (GetThreadContext(p->threadHandle, &context))
+                        {
+                            handleProfileTrap(p, &context);
+                        }
+                        ResumeThread(p->threadHandle);
                     }
-                }
-                else includeThread = true; // Failed to get thread time, maybe Win95.
-                if (includeThread)
-                {
-                    CONTEXT context;
-                    SuspendThread(p->threadHandle);
-                    context.ContextFlags = CONTEXT_CONTROL; /* Get Eip and Esp */
-                    if (GetThreadContext(p->threadHandle, &context))
-                    {
-                        handleProfileTrap(p, &context);
-                    }
-                    ResumeThread(p->threadHandle);
                 }
             }
+            schedLock.Unlock();
         }
-        schedLock.Unlock();
+        // Check the CPU time used by the main thread.  This is used for GC
+        // so we need to check that as well.
+        if (testCPUtime(mainThreadHandle, lastCPUTime))
+            handleProfileTrap(NULL, NULL);
     }
 }
 
@@ -1674,6 +1686,11 @@ void Processes::Init(void)
 #if defined(HAVE_WINDOWS_H) /* Windows including Cygwin. */
     // Create stop event for time profiling.
     hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    // Get the thread handle for this thread.  It's the same as
+    // hMainThread except that we don't have that in the Cygwin version.
+    HANDLE thisProcess = GetCurrentProcess();
+    DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
+        &mainThreadHandle, THREAD_ALL_ACCESS, FALSE, 0);
 #else
     // Set up a signal handler.  This will be the same for all threads.
     markSignalInuse(SIGVTALRM);
@@ -1725,6 +1742,8 @@ void Processes::Uninit(void)
     }
     if (hStopEvent) CloseHandle(hStopEvent);
     hStopEvent = NULL;
+    if (mainThreadHandle) CloseHandle(mainThreadHandle);
+    mainThreadHandle = NULL;
 #else
     profileMode = kProfileOff;
     // Make sure the timer is not running
