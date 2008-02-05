@@ -87,6 +87,22 @@ private:
     FILE *m_file;
 };
 
+// This is probably generally useful so may be moved into
+// a general header file.
+template<typename BASE> class AutoFree
+{
+public:
+    AutoFree(BASE p = 0): m_value(p) {}
+    ~AutoFree() { free(m_value); }
+
+    // Automatic conversions to the base type.
+    operator BASE() { return m_value; }
+    BASE operator = (BASE p)  { return (m_value = p); }
+
+private:
+    BASE m_value;
+};
+
 /*
  *  Structure definitions for the saved state files.
  */
@@ -155,29 +171,26 @@ typedef struct _relocationEntry
 // Pointer to list of files loaded in last load.
 // There's no need for a lock since the update is only made when all
 // the ML threads have stopped.
-class HierachyTable
+class HierarchyTable
 {
 public:
-    HierachyTable(): fileName(0) {}
-    ~HierachyTable() { free(fileName); }
-    char *fileName;
+    HierarchyTable(const char *file, UNSIGNEDADDR time):
+      fileName(strdup(file)), timeStamp(time) { }
+    AutoFree<char*> fileName;
     UNSIGNEDADDR timeStamp;
 };
 
-HierachyTable **hierarchyTable;
+HierarchyTable **hierarchyTable;
 
 static unsigned hierarchyDepth;
 
 static bool AddHierarchyEntry(const char *fileName, UNSIGNEDADDR timeStamp)
 {
     // Add an entry to the hierarchy table for this file.
-    HierachyTable *newEntry = new HierachyTable;
+    HierarchyTable *newEntry = new HierarchyTable(fileName, timeStamp);
     if (newEntry == 0) return false;
-    newEntry->fileName = strdup(fileName);
-    if (newEntry->fileName == 0) return false;
-    newEntry->timeStamp = timeStamp;
-    HierachyTable **newTable =
-        (HierachyTable **)realloc(hierarchyTable, sizeof(HierachyTable *)*(hierarchyDepth+1));
+    HierarchyTable **newTable =
+        (HierarchyTable **)realloc(hierarchyTable, sizeof(HierarchyTable *)*(hierarchyDepth+1));
     if (newTable == 0) return false;
     hierarchyTable = newTable;
     hierarchyTable[hierarchyDepth++] = newEntry;
@@ -565,6 +578,9 @@ public:
     virtual void Perform(void);
     bool LoadFile(void);
     const char *errorResult;
+    // The fileName here is the last file loaded.  As well as using it
+    // to load the name can also be printed out at the end to identify the
+    // particular file in the hierarchy that failed.
     char fileName[MAXPATHLEN];
     int errNumber;
 };
@@ -696,6 +712,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 bool StateLoader::LoadFile()
 {
     LoadRelocate relocate;
+    AutoFree<char*> thisFile(strdup(fileName));
 
     AutoClose loadFile(fopen(fileName, "rb"));
     if ((FILE*)loadFile == NULL)
@@ -909,7 +926,7 @@ bool StateLoader::LoadFile()
     }
 
     // Add an entry to the hierarchy table for this file.
-    if (! AddHierarchyEntry(fileName, header.timeStamp))
+    if (! AddHierarchyEntry(thisFile, header.timeStamp))
         return false;
 
     return true; // Succeeded
