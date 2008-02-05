@@ -2,7 +2,7 @@
     Title:      Signal handling
     Author:     David C.J. Matthews
 
-    Copyright (c) 2000-7 David C.J. Matthews
+    Copyright (c) 2000-8 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -84,6 +84,7 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "gc.h" // For gc_phase
 #include "scanaddrs.h"
 #include "mpoly.h" // For finish
+#include "polystring.h" // For EmptyString()
 
 #ifdef WINDOWS_PC
 #include "Console.h"
@@ -95,11 +96,16 @@ int sigaltstack(const stack_t *, stack_t *);
 #define DEFAULT_SIG     0
 #define IGNORE_SIG      1
 
+// If the handler function has this value use Poly's ctrl-c handler.
+// Have to use an address here rather than a tagged value so that it will
+// print as SIG_HANDLER ....
+#define POLY_CTRL_C     (EmptyString())
+
 static struct _sigData
 {
     unsigned    sigCount; // Number of signals received since last time
     bool        nonMaskable; // True if this sig is used within the RTS.  Must not be ignored or replaced
-    PolyWord    handler; // User-installed handler or TAGGED(DEFAULT_SIG) or TAGGED(IGNORE_SIG)
+    PolyWord    handler; // User-installed handler, TAGGED(DEFAULT_SIG) or TAGGED(IGNORE_SIG)
 } sigData[NSIG];
 
 static char consoleCode  = 0;
@@ -129,8 +135,6 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
     SIGNALCONTEXT *scp = (SIGNALCONTEXT *)context;
 #endif
 
-    ASSERT(sig == SIGINT); /* SPF */
-
     trace_allowed = false; /* Switch off tracing. */
 
     if (already_handling) return; /* Don't recurse. */    
@@ -141,7 +145,7 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
     { /* use standard SYSV calls */
       sigset_t mask;
       ASSERT(sigemptyset(&mask) == 0);
-      ASSERT(sigaddset(&mask,SIGINT) == 0);
+      ASSERT(sigaddset(&mask,sig) == 0);
       ASSERT(sigprocmask(SIG_UNBLOCK,&mask,NULL) == 0);
     }
 #endif
@@ -330,13 +334,9 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 if (sigData[sign].handler == TAGGED(IGNORE_SIG))
                     fOK = setSimpleSignalHandler(sign, SIG_IGN);
                 else if (sigData[sign].handler == TAGGED(DEFAULT_SIG))
-                {
-                    if (sign == SIGINT)
-                        /* If we set the handler for SIGINT to the default
-                           that means we should run our default handler. */
-                        fOK = setSignalHandler(sign, catchINT);
-                    else fOK = setSimpleSignalHandler(sign, SIG_DFL);
-                }
+                    fOK = setSimpleSignalHandler(sign, SIG_DFL);
+                else if (sigData[sign].handler == POLY_CTRL_C) // Used to indicate poly default.
+                    fOK = setSignalHandler(sign, catchINT);
                 else fOK = setSimpleSignalHandler(sign, addSigCount);
                 if (! fOK)
                     raise_syscall(taskData, "sigaction failed", errno);
@@ -441,12 +441,7 @@ bool setSimpleSignalHandler(int sig, void (*func)(int))
 #ifdef SA_RESTART
         sigcatch.sa_flags |= SA_RESTART;
 #endif
-#ifdef SA_SIGINFO
-        sigcatch.sa_flags |= SA_SIGINFO;
-#endif
-#ifdef SV_SAVE_REGS
-        sigcatch.sa_flags |= SV_SAVE_REGS;
-#endif
+        // Must not use SA_SIGINFO if we assign to sa_handler.
     }
     return sigaction(sig, &sigcatch,NULL) >= 0;
 }
@@ -503,22 +498,28 @@ void SigHandler::Init(void)
 
 void SigHandler::Reinit(void)
 {
-    // Reset the signal vector.
+    // Reset the signal vector and determine the initial settings.
     for (unsigned i = 0; i < NSIG; i++)
-        sigData[i].handler = TAGGED(0);
+    {
+        void (*old_status)(int) = signal(i, SIG_IGN);
+        if (old_status != SIG_ERR)
+            signal(i, old_status);
+        if (old_status == SIG_IGN)
+            sigData[i].handler = TAGGED(IGNORE_SIG);
+        else sigData[i].handler = TAGGED(DEFAULT_SIG);
+    }
 
 #if defined(WINDOWS_PC)
-    // Create a thread to handle ^C.
-
+    // Default to using our ctrl-C handler.
+    sigData[SIGINT].handler = POLY_CTRL_C;
 #else /* UNIX version */
 
     // Set up a handler for the interrupt exception unless it is
     // currently being ignored.
+    if (sigData[SIGINT].handler == TAGGED(DEFAULT_SIG))
     {
-        void (*old_status)(int) = signal(SIGINT,SIG_IGN);
-        ASSERT(old_status != SIG_ERR);
-        if (old_status != SIG_IGN)
-            setSignalHandler(SIGINT, catchINT);
+        setSignalHandler(SIGINT, catchINT);
+        sigData[SIGINT].handler = POLY_CTRL_C;
     }
 #endif /* END of UNIX-specific signal setting */
 }
@@ -535,7 +536,7 @@ void ProcessSignalsInMLThread(TaskData *taskData)
         {
             sigData[i].sigCount--;
             PolyWord hand = findHandler(i);
-            if (!IS_INT(hand)) /* If it's not DEFAULT or IGNORE. */
+            if (!IS_INT(hand) && hand != POLY_CTRL_C) /* If it's not DEFAULT or IGNORE. */
             {
                 /* We may go round this loop an indeterminate number of
                    times.  To prevent the save vec from overflowing we
@@ -563,7 +564,7 @@ void ProcessSignalsInMLThread(TaskData *taskData)
             to be to handle control-C synchronously.
             DCJM June 2000.
             */
-            else if (hand == TAGGED(DEFAULT_SIG) && i == SIGINT)
+            else if (hand == POLY_CTRL_C && i == SIGINT)
             {
                 handleINT();
             }
