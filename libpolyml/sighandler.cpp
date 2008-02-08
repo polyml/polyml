@@ -108,47 +108,19 @@ static struct _sigData
     PolyWord    handler; // User-installed handler, TAGGED(DEFAULT_SIG) or TAGGED(IGNORE_SIG)
 } sigData[NSIG];
 
-static char consoleCode  = 0;
- /* flag indicating if already handling a CTRL+C event. */
-static bool already_handling = false;
-
 unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 
 static bool setSimpleSignalHandler(int sig, void (*)(int));
 
 
-// This function is called under slightly different circumstances in
-// Windows and Unix.  In Unix it is a signal handler and is called from
-// one of the threads when the signal is delivered.  In Windows it is
-// called from ProcessSignalsInMLThread some time after the console
-// thread has requested a trap.
-#ifdef WINDOWS_PC
+// This used to be a signal handling function in Unix.  Now this follows
+// the Windows version and is called from ProcessSignalsInMLThread some
+// time after the console thread has requested a trap.
 void handleINT(void)
-#else
-static void catchINT(SIG_HANDLER_ARGS(sig, context))
-#endif
 {
     char   comch        = '\n';
-#ifdef WINDOWS_PC
-    int    sig = SIGINT;
-#else
-    SIGNALCONTEXT *scp = (SIGNALCONTEXT *)context;
-#endif
 
     trace_allowed = false; /* Switch off tracing. */
-
-    if (already_handling) return; /* Don't recurse. */    
-    already_handling = true;
-
-    /* Allow interrupts again. */
-#if !defined(WINDOWS_PC)
-    { /* use standard SYSV calls */
-      sigset_t mask;
-      ASSERT(sigemptyset(&mask) == 0);
-      ASSERT(sigaddset(&mask,sig) == 0);
-      ASSERT(sigprocmask(SIG_UNBLOCK,&mask,NULL) == 0);
-    }
-#endif
 
     putc('\n', stdout);
 
@@ -193,7 +165,7 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
        {
             if (gc_phase)
             {
-                /* Actually, it might be safe to give a trace in the mark phase? */
+                // This case may no longer apply.
                 printf("Garbage collecting; stack trace unavailable\n");
                 fflush(stdout);
             }
@@ -208,49 +180,23 @@ static void catchINT(SIG_HANDLER_ARGS(sig, context))
                 {
                     StackObject *stack = taskData->stack;
                     PolyWord *endStack = stack->Offset(stack->Length());
-#ifdef WINDOWS_PC
-                    // In Windows we only come here once we have saved the state onto the
-                    // stack.
                     give_stack_trace(taskData, stack->p_sp, endStack);
-#else
-                    // The signal can be delivered at any time; possibly while we are
-                    // in the run-time system, in which case poly_stack->p_sp will have been
-                    // saved on entry and will be valid, and possibly while executing ML
-                    // code.  In the latter case we need to try to get the SP value from the
-                    // signal context.
-                    PolyWord *sp;
-                    POLYCODEPTR pc;
-                    if (machineDependent->GetPCandSPFromContext(taskData, scp, sp, pc))
-                       give_stack_trace(taskData, sp, endStack);
-                    else printf("Unable to get trace information at this point\n");
-#endif
                 }
             }
         }
     } while (comch != 'q' && comch != 'c' && comch != 'f');
     
-    already_handling = false; /* About to leave */
-
     if (comch == 'q') 
-    {
         processes->Exit(0);
-    }
 
     if (comch == 'f') 
     { 
-        consoleCode = 'f'; /* Raise an exception later. */
+        processes->BroadcastInterrupt();
 #ifndef WINDOWS_PC
         fflush(stdin);
 #endif
-        processes->RequestThreadsEnterRTS();
-        /* The exception is not raised yet. Instead we set up the current
-           process so that it will give an interrupt in due course. It will
-           eventually enter select_next_process which will look at
-           consoleCode and set all the console processes to raise
-           exceptions. This may seem a rather roundabout way of doing it but
-           it avoids problems with raising the exception in an awkward place. */
     }
-} /* catchINT */
+}
 
 #ifdef WINDOWS_PC
 // Request an interrupt.
@@ -335,8 +281,6 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     fOK = setSimpleSignalHandler(sign, SIG_IGN);
                 else if (sigData[sign].handler == TAGGED(DEFAULT_SIG))
                     fOK = setSimpleSignalHandler(sign, SIG_DFL);
-                else if (sigData[sign].handler == POLY_CTRL_C) // Used to indicate poly default.
-                    fOK = setSignalHandler(sign, catchINT);
                 else fOK = setSimpleSignalHandler(sign, addSigCount);
                 if (! fOK)
                     raise_syscall(taskData, "sigaction failed", errno);
@@ -518,7 +462,7 @@ void SigHandler::Reinit(void)
     // currently being ignored.
     if (sigData[SIGINT].handler == TAGGED(DEFAULT_SIG))
     {
-        setSignalHandler(SIGINT, catchINT);
+        setSimpleSignalHandler(SIGINT, addSigCount);
         sigData[SIGINT].handler = POLY_CTRL_C;
     }
 #endif /* END of UNIX-specific signal setting */
@@ -536,7 +480,9 @@ void ProcessSignalsInMLThread(TaskData *taskData)
         {
             sigData[i].sigCount--;
             PolyWord hand = findHandler(i);
-            if (!IS_INT(hand) && hand != POLY_CTRL_C) /* If it's not DEFAULT or IGNORE. */
+            if (hand == POLY_CTRL_C)
+               handleINT();
+            else if (!IS_INT(hand)) /* If it's not DEFAULT or IGNORE. */
             {
                 /* We may go round this loop an indeterminate number of
                    times.  To prevent the save vec from overflowing we
@@ -547,34 +493,7 @@ void ProcessSignalsInMLThread(TaskData *taskData)
                 processes->ForkFromRTS(taskData, h, SAVE(TAGGED(i)));
                 taskData->saveVec.reset(saved);
             }
-#ifdef WINDOWS_PC
-            /* 
-            I've tried several different ways of dealing with ctrl-C in Windows and
-            none of them was satisfactory.  The difficulty is that there is no way,
-            as far as I can tell, to cause a running thread to asynchronously execute
-            a handler.  AHL's original idea was to use a separate thread for the
-            interrupt handler (this happens anyway with SetConsoleCtrlHandler)
-            and then call SuspendThread to suspend the ML thread.  That's probably
-            necessary to generate a stack trace at least, but runs into trouble with
-            the multithreaded C run-time library.  That uses an interlock to prevent
-            more than one thread reading or writing a stream.  That includes the
-            low-level IO functions, "read" and "write", which are not system calls
-            in Windows.  If the main thread happens to be doing IO when we start the
-            control-C handler the whole thing will lock up.  The only solution seems
-            to be to handle control-C synchronously.
-            DCJM June 2000.
-            */
-            else if (hand == POLY_CTRL_C && i == SIGINT)
-            {
-                handleINT();
-            }
-#endif
         }
-    }
-    if (consoleCode == 'f')
-    {
-        consoleCode = 0;
-        processes->BroadcastInterrupt();
     }
 }
 
