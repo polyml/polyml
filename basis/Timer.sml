@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Timer Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2008
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -62,9 +62,15 @@ struct
 		and checkGCTime ({ gcUTime, ...}: cpu_timer) = getGCUTime() - gcUTime
 		and totalCPUTimer () =
 			{ userTime=Time.zeroTime, sysTime=Time.zeroTime, gcUTime=Time.zeroTime, gcSTime=Time.zeroTime }
-		and checkCPUTimes { userTime, sysTime, gcUTime, gcSTime } =
-			{ nongc = { usr = getUserTime() - userTime, sys = getSysTime() - sysTime },
-			  gc = { usr = getGCUTime() - gcUTime, sys = getGCSTime() - gcSTime } }
+
+        fun checkCPUTimes (timer as { userTime, sysTime, gcUTime, gcSTime }) =
+            let
+                val { usr, sys } = checkCPUTimer timer
+                val gc_usr = getGCUTime() - gcUTime and gc_sys = getGCSTime() - gcSTime 
+            in
+                { gc = { usr = gc_usr, sys = gc_sys },
+			      nongc = { usr = usr-gc_usr, sys = sys-gc_sys } }
+            end
 
 		fun totalRealTimer() = Time.zeroTime
 		and startRealTimer() = doCall(10, ())
