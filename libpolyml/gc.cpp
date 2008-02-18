@@ -1,7 +1,7 @@
 /*
     Title:      Garbage Collector
 
-    Copyright (c) 2000-7
+    Copyright (c) 2000-8
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -276,17 +276,45 @@ void CopyStackFrame(StackObject *old_stack, StackObject *new_stack)
 }
 
 
+/**************************************************************************/
+/* This function finds all the mutable objects in the local mutable area. */
+/* These are scanned since they may contain references into the gc area.  */
+/**************************************************************************/
+// Mark these mutables.
+static void OpMutables(ScanAddress *process)
+{
+    // Scan the local mutable areas.  It won't do anything if this is a full
+    // GC since gen_top == top.
+    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[i];
+        if (space->isMutable)
+            process->ScanAddressesInRegion(space->gen_top, space->top - space->gen_top);
+    }
+    // Scan the permanent mutable areas.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable)
+            process->ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+    }
+}
+
 class ProcessMarkPointers: public ScanAddress
 {
 public:
-    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
-    void OpNewMutables(void);
+private:
+    POLYUNSIGNED DoScanAddressAt(PolyWord *pt, bool isWeak);
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+    // Have to redefine this for some reason.
+    void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 };
 
 // Mark all pointers in the heap.
-POLYUNSIGNED ProcessMarkPointers::ScanAddressAt(PolyWord *pt)
+POLYUNSIGNED ProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 {
     PolyWord val = *pt;
     CheckPointer (val);
@@ -311,6 +339,7 @@ POLYUNSIGNED ProcessMarkPointers::ScanAddressAt(PolyWord *pt)
     PolyObject *obj = val.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+
     /* Add up the objects to be moved into the mutable area. */
     if (OBJ_IS_MUTABLE_OBJECT(L))
         space->m_marked += n + 1;
@@ -320,10 +349,14 @@ POLYUNSIGNED ProcessMarkPointers::ScanAddressAt(PolyWord *pt)
     /* Mark the segment including the length word. */
     space->bitmap.SetBits(new_bitno - 1, n + 1);
 
+    if (isWeak) // This is a SOME within a weak reference.
+        return 0;
+
     if (OBJ_IS_BYTE_OBJECT(L))
         return 0; // We've done as much as we need
-    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L))  /* May contain code pointers */
-    { 
+    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
+    {
+        // Have to handle these specially.
         (void)ScanAddressesInObject(obj, L);
         return 0; // Already done it.
     }
@@ -396,15 +429,37 @@ void ProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
     }
 }
 
-// This deals with closing unreferenced streams.
-class CheckRuntimeRef: public ScanAddress {
+// This is called both for objects in the local heap and also for mutables
+// in the permanent area and, for partial GCs, for mutables in other areas.
+void ProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
+{
+    if (OBJ_IS_WEAKREF_OBJECT(L))
+    {
+        ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
+        ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
+        // We need to mark the "SOME" values in this object but we don't mark
+        // the references contained within the "SOME".
+        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+        PolyWord *baseAddr = (PolyWord*)base;
+        for (POLYUNSIGNED i = 0; i < n; i++)
+            DoScanAddressAt(baseAddr+i, true);
+    }
+    else ScanAddress::ScanAddressesInObject(base, L);
+}
+
+// Check for weak references that are no longer referenced.
+class CheckWeakRef: public ScanAddress {
+public:
+    void ScanAreas(void);
+private:
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
-    // We've made this pure virtual so must define it here.
+    // This has to be defined since it's virtual.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord);
 };
 
-
-void CheckRuntimeRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
+// This deals with weak references within the run-time system.
+void CheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 {
     /* If the object has not been marked and this is only a weak reference */
     /* then the pointer is set to zero. This allows streams or windows     */
@@ -428,13 +483,76 @@ void CheckRuntimeRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
          *pt = 0;
 }
 
+// Deal with weak objects
+void CheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
+{
+    if (! OBJ_IS_WEAKREF_OBJECT(L)) return;
+    ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
+    ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
+    // See if any of the SOME objects contain unreferenced refs.
+    POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
+    PolyWord *baseAddr = (PolyWord*)obj;
+    for (POLYUNSIGNED i = 0; i < length; i++)
+    {
+        PolyWord someAddr = baseAddr[i];
+        if (someAddr.IsDataPtr())
+        {
+            LocalMemSpace *someSpace = gMem.LocalSpaceForAddress(someAddr.AsAddress());
+            if (someSpace != 0 &&
+                    INRANGE(someAddr.AsStackAddr(), someSpace->gen_bottom, someSpace->gen_top))
+            {
+                PolyObject *someObj = someAddr.AsObjPtr();
+                // If this is a weak object the SOME value may refer to an unreferenced
+                // ref.  If so we have to set this entry to NONE.  For safety we also
+                // set the contents of the SOME to TAGGED(0).
+                ASSERT(someObj->Length() == 1 && someObj->IsWordObject()); // Should be a SOME node.
+                PolyWord refAddress = someObj->Get(0);
+                LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
+                if (space != 0 &&
+                    INRANGE(refAddress.AsStackAddr(), space->gen_bottom, space->gen_top))
+                    // If the ref is permanent it's always there.
+                {
+                    POLYUNSIGNED new_bitno = BITNO(space, refAddress.AsStackAddr());
+                    if (! space->bitmap.TestBit(new_bitno))
+                    {
+                        // It wasn't marked so it's otherwise unreferenced.
+                        baseAddr[i] = TAGGED(0); // Set it to NONE.
+                        someObj->Set(0, TAGGED(0)); // For safety.
+                    }
+                }
+            }
+        }
+    }
+}
+
+// We need to check any weak references both in the areas we are
+// currently collecting and any other areas.  This actually checks
+// weak refs in the area we're collecting even if they are not
+// actually reachable any more.  N.B.  This differs from OpMutables
+// because it also scans the area we're collecting.
+void CheckWeakRef::ScanAreas(void)
+{
+    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[i];
+        if (space->isMutable)
+            ScanAddressesInRegion(space->gen_bottom, space->top - space->gen_bottom);
+    }
+    // Scan the permanent mutable areas.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable)
+            ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+    }
+}
+
 class ProcessUpdate: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
-    void OpNewMutables(void);
 
     void UpdateObjectsInArea(LocalMemSpace *area);
 };
@@ -474,35 +592,7 @@ void ProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/)
         
         CheckObject (*pt);
     }
-}
-
-/**************************************************************************/
-/* This function finds all the mutable objects in the local mutable area. */
-/* These are scanned since they may contain references into the gc area.  */
-/**************************************************************************/
-// Mark these mutables.
-void ProcessMarkPointers::OpNewMutables(void)
-{
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        if (space->isMutable)
-            ScanAddressesInRegion(space->gen_top, space->top - space->gen_top);
-    }
-}
-
-// Update these mutables if the addresses they contain point to moved objects
-void ProcessUpdate::OpNewMutables(void)
-{
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        if (space->isMutable)
-            ScanAddressesInRegion(space->gen_top, space->top - space->gen_top);
-    }
-}
-
-  
+}  
 
 /* Search the area downwards looking for n consecutive free words.          */
 /* Return the bitmap index if successful or 0 (should we use -1?) on failure. */
@@ -1177,9 +1267,7 @@ GC_AGAIN:
     
     /* Do the actual marking */
     ProcessMarkPointers marker;
-    gMem.OpOldMutables(&marker);
-    if (! doFullGC)
-        marker.OpNewMutables();
+    OpMutables(&marker);
     OpGCProcs(&marker);
     /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty here. */
     
@@ -1195,8 +1283,9 @@ GC_AGAIN:
     gc_phase = 2; /* SPF 7/6/96 */
     
     /* Detect unreferenced streams, windows etc. */
-    CheckRuntimeRef checkRef;
+    CheckWeakRef checkRef;
     OpGCProcs(&checkRef);
+    checkRef.ScanAreas();
     
     /* If we are doing a full GC we expand the immutable area now, so that there's
        enough room to copy the immutables that are currently in the mutable buffer.
@@ -1407,9 +1496,7 @@ GC_AGAIN:
         gMem.lSpaces[j]->updated = 0;
        
     ProcessUpdate processUpdate;
-    gMem.OpOldMutables(&processUpdate);
-    if (! doFullGC)
-        processUpdate.OpNewMutables();
+    OpMutables(&processUpdate);
 
     for(j = 0; j < gMem.nlSpaces; j++)
         processUpdate.UpdateObjectsInArea(gMem.lSpaces[j]);

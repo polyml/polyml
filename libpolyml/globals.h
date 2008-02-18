@@ -174,21 +174,6 @@ The following encodings are used:
        an unsigned integer representing the (approximate) depth of the object
        in the data-structure. 
 
-The following encoding is no longer used:
-
-(4) OBJ_PRIVATE_GC_BIT = 1
-       A normal length word i.e. 7 more flags + 24 bit length.
-       A marked but not copied object (within CopyGC). You are
-       supposed to be able to tell the difference between this
-       and case (2) by checking whether the supposed pointer
-       is within the new allocation area. This test is
-       completely unreliable (some combinations of status bits
-       and length are bound to look right) and certainly doesn't
-       work when CopyGC is used within the "share" program.
-       This MJC-ism (I think) has been removed. Instead,
-       we'll use OBJ_PRIVATE_COPYGC_BIT (formerly OBJ_UNUSED_BIT) to
-       mark the not-yet-moved objects properly.
-
 SPF 24/1/95
 */
 #define OBJ_PRIVATE_FLAGS_SHIFT     (8 * (sizeof(PolyWord) - 1))
@@ -199,7 +184,7 @@ SPF 24/1/95
 #define F_CODE_BIT                  0x02  /* code object (mixed bytes and words) */
 #define F_STACK_BIT                 0x08  /* stack object - may contain internal pointers */
 #define F_NEGATIVE_BIT              0x10  /* sign bit for arbitrary precision ints */
-#define F_PRIVATE_UNUSED_BIT        0x20
+#define F_WEAK_BIT                  0x20  /* object contains weak references to option values. */
 #define F_MUTABLE_BIT               0x40  /* object is mutable */
 #define F_PRIVATE_GC_BIT            0x80  /* object is (pointer or depth) tombstone */
 #define F_PRIVATE_FLAGS_MASK        0xFF
@@ -208,7 +193,7 @@ SPF 24/1/95
 #define _OBJ_CODE_BIT                _TOP_BYTE(0x02)  /* code object (mixed bytes and words) */
 #define _OBJ_STACK_BIT               _TOP_BYTE(0x08)  /* stack object - may contain internal pointers */
 #define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
-#define _OBJ_PRIVATE_UNUSED_BIT      _TOP_BYTE(0x20)
+#define _OBJ_WEAK_BIT                _TOP_BYTE(0x20)
 #define _OBJ_MUTABLE_BIT             _TOP_BYTE(0x40)  /* object is mutable */
 #define _OBJ_PRIVATE_GC_BIT          _TOP_BYTE(0x80)  /* object is (pointer or depth) tombstone */
 #define _OBJ_PRIVATE_FLAGS_MASK      _TOP_BYTE(0xFF)
@@ -228,11 +213,12 @@ inline bool OBJ_IS_CODE_OBJECT(POLYUNSIGNED L)          { return ((L & _OBJ_CODE
 inline bool OBJ_IS_STACK_OBJECT(POLYUNSIGNED L)         { return ((L & _OBJ_STACK_BIT) != 0); }
 inline bool OBJ_IS_NEGATIVE(POLYUNSIGNED L)             { return ((L & _OBJ_NEGATIVE_BIT) != 0); }
 inline bool OBJ_IS_MUTABLE_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_MUTABLE_BIT) != 0); }
+inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK_BIT) != 0); }
 
 
 #define _OBJ_PRIVATE_TYPE_MASK       _TOP_BYTE(0x3F)
-/* discards GC flag and mutable bit */
-inline byte GetTypeBits(POLYUNSIGNED L)             { return (byte)(L >> OBJ_PRIVATE_FLAGS_SHIFT) & 0x3F; }
+/* discards GC flag, mutable bit and weak bit. */
+inline byte GetTypeBits(POLYUNSIGNED L)             { return (byte)(L >> OBJ_PRIVATE_FLAGS_SHIFT) & 0x1F; }
 
 /* Standard macro for finding the start of a code segment from
    a code-pointer. First we normalise it to get a properly aligned
@@ -313,6 +299,7 @@ public:
     bool IsStackObject(void) const { return OBJ_IS_STACK_OBJECT(LengthWord()); }
     bool IsWordObject(void) const { return OBJ_IS_WORD_OBJECT(LengthWord()); }
     bool IsMutable(void) const { return OBJ_IS_MUTABLE_OBJECT(LengthWord()); }
+    bool IsWeakRefObject(void) const { return OBJ_IS_WEAKREF_OBJECT(LengthWord()); }
 
     bool ContainsForwardingPtr(void) const { return OBJ_IS_POINTER(LengthWord()); }
     PolyObject *GetForwardingPtr(void) const { return OBJ_GET_POINTER(LengthWord()); }
