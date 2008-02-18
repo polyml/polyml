@@ -81,7 +81,7 @@ protected:
     //
     // If the object is a stack calls ScanStackAddress which calls ScanObjectAddress for
     // addresses within the code.
-    void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
 
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
