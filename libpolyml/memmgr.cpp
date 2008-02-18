@@ -334,17 +334,6 @@ bool MemMgr::DemoteImportSpaces()
     return true;
 }
 
-void MemMgr::OpOldMutables(ScanAddress *process) // Scan permanent mutable areas
-{
-    for (unsigned i = 0; i < npSpaces; i++)
-    {
-        MemSpace *space = pSpaces[i];
-        ASSERT(space->spaceType == ST_PERMANENT);
-        if (space->isMutable)
-            process->ScanAddressesInRegion(space->bottom, space->top - space->bottom);
-    }
-}
-
 // Return the space the address is in or NULL if none.
 // We have to check here against the bottom of the area rather
 // than the allocation because, when called from CopyObject,

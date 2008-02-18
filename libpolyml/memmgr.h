@@ -151,8 +151,6 @@ public:
     bool IsLocalMutable(const void *pt)
     { LocalMemSpace *space = LocalSpaceForAddress(pt); return space != 0 && space->isMutable; }
 
-    void OpOldMutables(ScanAddress *process); // Scan permanent mutable areas
-
     // In several places we assume that segments are filled with valid
     // objects.  This fills unused memory with one or more "byte" objects.
     void FillUnusedSpace(PolyWord *base, POLYUNSIGNED words);

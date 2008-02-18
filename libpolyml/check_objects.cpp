@@ -153,5 +153,11 @@ void DoCheckMemory()
         if (space->isMutable)
             memCheck.ScanAddressesInRegion(space->pointer, space->top-space->pointer);
     }
-    gMem.OpOldMutables(&memCheck);
+    // Scan the permanent mutable areas.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable)
+            memCheck.ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+    }
 }
