@@ -61,6 +61,8 @@ structure i2 = IntArray2
 
 structure ml90 = SML90
 
+structure we = Weak
+
 (* Unix and Windows structures are built separately. *)
 in
 end;
