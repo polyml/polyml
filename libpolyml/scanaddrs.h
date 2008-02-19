@@ -58,7 +58,7 @@ public:
 
     // Scan an address in the run-time system.  This normally just applies ScanObjectAddress
     // but if this is a weak reference it can set *pt to NULL
-    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak = STRENGTH_STRONG)
+    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
         { *pt = ScanObjectAddress(*pt); }
 
     // Process a constant within the code.
