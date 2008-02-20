@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Top level make
     Author:     David Matthews
-    Copyright   David Matthews 1999
+    Copyright   David Matthews 1999-2008
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -21,6 +21,7 @@
 local
 (* Several modules are made as a result of being dependencies
    of modules in this list. *)
+(* Thread, Weak and Signal are Poly/ML extensions. *)
 structure g = General
 structure o = Option
 structure s = String
@@ -62,6 +63,7 @@ structure i2 = IntArray2
 structure ml90 = SML90
 
 structure we = Weak
+structure si = Signal
 
 (* Unix and Windows structures are built separately. *)
 in

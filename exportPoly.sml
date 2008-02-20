@@ -8,7 +8,6 @@ PolyML.Inner.use "mlsource/prelude/RuntimeCalls";
 PolyML.Inner.use "mlsource/prelude/prelude";
 PolyML.Inner.use "mlsource/prelude/prelude2";
 
-PolyML.use "mlsource/prelude/Signal";
 PolyML.use "mlsource/prelude/Universal";
 
 (* Build the main basis library. *)
