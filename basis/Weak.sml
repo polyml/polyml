@@ -32,6 +32,9 @@ signature WEAK =
 sig
     val weak: 'a ref option -> 'a ref option ref
     val weakArray: int * 'a ref option -> 'a ref option array
+    val weakLock: Thread.Mutex.mutex
+    and weakSignal: Thread.ConditionVar.conditionVar
+
 end;
 
 structure Weak: WEAK =
@@ -56,5 +59,7 @@ struct
        System_setw(arr, 0, n);
        arr
     end
-        
+
+    val weakLock = Thread.Mutex.mutex()
+    and weakSignal = Thread.ConditionVar.conditionVar()
 end;
