@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007 David C.J. Matthews
+    Copyright (c) 2007,8 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -112,6 +112,8 @@ public:
     virtual void Perform() = 0;
 };
 
+class PLock;
+
 // External interface to the Process module.  These functions are all implemented
 // by the Processes class.
 class ProcessExternal
@@ -120,7 +122,6 @@ public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
-    virtual void RequestThreadsEnterRTS(void) = 0;
     // Request all ML threads to exit and set the result code.  Does not cause
     // the calling thread itself to exit since this may be called on the GUI thread.
     virtual void Exit(int n) = 0;
@@ -166,6 +167,11 @@ public:
     // If the allocation succeeds it may update the allocation values in the taskData object.
     // If the heap is exhausted it may set this thread (or other threads) to raise an exception.
     virtual PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg) = 0;
+
+    // Signal handling support.  The ML signal handler thread blocks until it is
+    // woken up by the signal detection thread.
+    virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock) = 0;
+    virtual void SignalArrived(void) = 0;
 };
 
 

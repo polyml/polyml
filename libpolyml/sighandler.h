@@ -28,12 +28,9 @@ class TaskData;
 
 extern Handle Sig_dispatch_c(TaskData *taskData, Handle handler, Handle sig);
 
-extern void addSigCount(int sig);
 extern void markSignalInuse(int sig);
-extern void ProcessSignalsInMLThread(TaskData *taskData);
 
 #ifdef WINDOWS_PC
-extern void handleINT(void);
 extern void RequestConsoleInterrupt(void);
 #else
 

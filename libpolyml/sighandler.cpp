@@ -64,6 +64,27 @@
 #include <stdlib.h> // For malloc
 #endif
 
+/*
+Signal handling is complicated in a multi-threading environment.
+Signal handlers as such are not used.  Instead we use sigwait to
+detect signals synchronously on a separate signal detection thread.
+For this to work, the signals we are interested in must be blocked
+from delivery to any thread.  Signals set to SIG_IGN or SIG_DFL must
+not be completely blocked otherwise they will be queued.  To enable
+a signal's state to be changed we block all signals, with the exception
+of signals such as SIGSEGV that indicate an error or SIGVTALRM that are
+used by the RTS.
+
+This is messier still because of what seems like a bug in Cygwin.
+In Cygwin if a signal is included in the signal mask argument it
+is blocked and is delivered as the result of sigwait even if it is
+not otherwise blocked.  So, we can only include signals in the
+argument to sigwait if there is currently a handler installed and
+we need to wake up sigwait, by sending it a SIGUSR1, if a handler
+is installed or removed.
+DCJM Feb 2008.
+*/
+
 
 #if (defined(HAVE_STACK_T) && defined(HAVE_SIGALTSTACK))
 extern "C" {
@@ -84,7 +105,7 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "gc.h" // For gc_phase
 #include "scanaddrs.h"
 #include "mpoly.h" // For finish
-#include "polystring.h" // For EmptyString()
+#include "locking.h"
 
 #ifdef WINDOWS_PC
 #include "Console.h"
@@ -95,133 +116,49 @@ int sigaltstack(const stack_t *, stack_t *);
 
 #define DEFAULT_SIG     0
 #define IGNORE_SIG      1
-
-// If the handler function has this value use Poly's ctrl-c handler.
-// Have to use an address here rather than a tagged value so that it will
-// print as SIG_HANDLER ....
-#define POLY_CTRL_C     (EmptyString())
+#define HANDLE_SIG      2 // This is only used in SignalRequest
 
 static struct _sigData
 {
-    unsigned    sigCount; // Number of signals received since last time
     bool        nonMaskable; // True if this sig is used within the RTS.  Must not be ignored or replaced
     PolyWord    handler; // User-installed handler, TAGGED(DEFAULT_SIG) or TAGGED(IGNORE_SIG)
+    int         signalCount;
 } sigData[NSIG];
 
 unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 
-static bool setSimpleSignalHandler(int sig, void (*)(int));
+// sigLock protects access to the signalCount values in sigData but
+// not the "handler" field.
+static PLock sigLock;
 
-
-// This used to be a signal handling function in Unix.  Now this follows
-// the Windows version and is called from ProcessSignalsInMLThread some
-// time after the console thread has requested a trap.
-void handleINT(void)
-{
-    char   comch        = '\n';
-
-    trace_allowed = false; /* Switch off tracing. */
-
-    putc('\n', stdout);
-
-    do 
-    {
-       /* Read directly from the input. */
-       if (comch == '\n') fputs("=>", stdout);
-       fflush(stdout);
-
-#ifdef WINDOWS_PC
-       {
-           int nChars;
-           if (useConsole)
-           {
-               /* Use our console.  Ignore extra control-Cs. */
-               while ((nChars = getConsoleInput(&comch, 1)) < 0);
-           }
-           else nChars = read(fileno(stdin), &comch, 1);
-           if (nChars != 1)
-           {
-               comch = 'c';
-               break;
-           }
-       }
-#else
-       /* Unix. */
-       if (read(fileno(stdin), &comch, 1) != 1)
-       {
-          comch = 'q';
-          break;
-       }
-#endif
-       
-       if (comch == '?')
-       {
-           fputs("Type q(uit - Exit from system)\n", stdout);
-           fputs("     c(ontinue running)\n", stdout);
-           fputs("     f(ail - Raise an exception)\n", stdout);
-           fputs("or   t(race - Get a trace of calls)\n", stdout);
-       }
-       else if (comch == 't')
-       {
-            if (gc_phase)
-            {
-                // This case may no longer apply.
-                printf("Garbage collecting; stack trace unavailable\n");
-                fflush(stdout);
-            }
-            else
-            {
-                // It's possible that this could be delivered on a thread
-                // other than an ML thread.
-                TaskData *taskData = processes->GetTaskDataForThread();
-                if (taskData == 0)
-                    printf("Unable to get trace information at this point\n");
-                else
-                {
-                    StackObject *stack = taskData->stack;
-                    PolyWord *endStack = stack->Offset(stack->Length());
-                    give_stack_trace(taskData, stack->p_sp, endStack);
-                }
-            }
-        }
-    } while (comch != 'q' && comch != 'c' && comch != 'f');
-    
-    if (comch == 'q') 
-        processes->Exit(0);
-
-    if (comch == 'f') 
-    { 
-        processes->BroadcastInterrupt();
-#ifndef WINDOWS_PC
-        fflush(stdin);
-#endif
-    }
-}
-
-#ifdef WINDOWS_PC
-// Request an interrupt.
-void RequestConsoleInterrupt(void)
-{
-    addSigCount(SIGINT);
-}
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+pthread_t detectionThreadId; // Thread processing signals.
 #endif
 
-/* Called whenever a signal is raised.  This is set up as a handler for
-   all signals which are not otherwise handled and can also be called
-   by the RTS handlers if a signal is received which is not processed
-   within the RTS. */
-void addSigCount(int sig)
+// This must not be called from an asynchronous signal handler.
+static void signalArrived(int sig)
 {
-    sigData[sig].sigCount++;
+    sigLock.Lock();
     receivedSignalCount++;
-    processes->RequestThreadsEnterRTS();
+    sigData[sig].signalCount++;
+    sigLock.Unlock();
+    // To avoid deadlock we must release sigLock first.
+    processes->SignalArrived();
 }
 
-/* Called whenever a signal handler is installed other than in this
-   module. */
+// Called whenever a signal handler is installed other than in this
+// module.   Because modules are initialised in an unspecified order
+// we may have already masked off this signal.
 void markSignalInuse(int sig)
 {
     sigData[sig].nonMaskable = true;
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    // Enable this signal.
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, sig);
+    pthread_sigmask(SIG_UNBLOCK, &sigset, NULL);
+#endif
 }
 
 /* Find the existing handler for this signal. */
@@ -232,12 +169,22 @@ static PolyWord findHandler(int sig)
     else return sigData[sig].handler;
 }
 
+#ifdef WINDOWS_PC
+// This is called to simulate a SIGINT in Windows.
+void RequestConsoleInterrupt(void)
+{
+    // The default action for SIGINT is to exit.
+    if (findHandler(SIGINT) == TAGGED(DEFAULT_SIG))
+        processes->Exit(2); // Exit with the signal value.
+    else signalArrived(SIGINT);
+}
+#endif
+
 /* CALL_IO2(Sig_dispatch_,IND) */
 /* This function behaves fairly similarly to the Unix and Windows signal
    handler.  It takes a signal number and a handler which may be a function
    or may be 0 (default) or 1 (ignore) and returns the value corresponding
-   to the previous handler.  It is complicated because we want to be able
-   to inherit handlers from parent databases. 
+   to the previous handler. 
    I've used a general dispatch function here to allow for future expansion. */
 Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -246,47 +193,73 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
     {
     case 0: /* Set up signal handler. */
         {
+            PLocker locker(&sigLock);
+            // We have to pass this to the main thread to ensure there
+            // is only one thread that blocks and unblocks signals.
             int sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int action;
             Handle oldaction;
             /* Decode the action if it is Ignore or Default. */
             if (IS_INT(DEREFHANDLE(args)->Get(1)))
                 action = UNTAGGED(DEREFHANDLE(args)->Get(1));
-            else action = 2; /* Set the handler. */
+            else action = HANDLE_SIG; /* Set the handler. */
             if (sign <= 0 || sign >= NSIG)
                 raise_syscall(taskData, "Invalid signal value", EINVAL);
 
             /* Get the old action before updating the vector. */
             oldaction = SAVE(findHandler(sign));
-            /* Now update it. */
+            // Now update it.
             sigData[sign].handler = DEREFWORDHANDLE(args)->Get(1);
 
-            /* If the behaviour has changed we may need to register/unregister a
-               handler with the OS. */
+            // Request a change in the masking by the root thread.
+            // This doesn't do anything in Windows so the only "signal"
+            // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
             if (! sigData[sign].nonMaskable)
             {
-#ifdef WINDOWS_PC
-                if (sign == SIGINT)
-                {
-                }
-                else if (action == IGNORE_SIG)
-                {
-                    if (signal(sign, (action == IGNORE_SIG) ? SIG_IGN: addSigCount)
-                            == SIG_ERR)
-                        raise_syscall(taskData, "signal failed", errno);
-                }
-#else
-                bool fOK = true;
-                if (sigData[sign].handler == TAGGED(IGNORE_SIG))
-                    fOK = setSimpleSignalHandler(sign, SIG_IGN);
-                else if (sigData[sign].handler == TAGGED(DEFAULT_SIG))
-                    fOK = setSimpleSignalHandler(sign, SIG_DFL);
-                else fOK = setSimpleSignalHandler(sign, addSigCount);
-                if (! fOK)
-                    raise_syscall(taskData, "sigaction failed", errno);
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+                // This is a mess.  We need to wake up the signal detection thread
+                // so that it can change the signals it is watching and to do that
+                // we have to send it a signal.  We don't want that to be treated
+                // as a real signal.
+                sigData[SIGUSR1].signalCount--;
+                pthread_kill(detectionThreadId, SIGUSR1);
 #endif
             }
             return oldaction;
+        }
+
+    case 1: // Called by the signal handler thread.  Blocks until a signal
+            // is available.
+        {
+            while (true)
+            {
+                processes->ProcessAsynchRequests(taskData); // Check for kill.
+                sigLock.Lock();
+                // Any pending signals?
+                for (int sig = 0; sig < NSIG; sig++)
+                {
+                    if (sigData[sig].signalCount > 0)
+                    {
+                        sigData[sig].signalCount--;
+                        if (!IS_INT(findHandler(sig))) /* If it's not DEFAULT or IGNORE. */
+                        {
+                            // Create a pair of the handler and signal and pass
+                            // them back to be run.
+                            Handle pair = alloc_and_save(taskData, 2);
+                            // Have to call findHandler again here because that
+                            // allocation could have garbage collected.
+                            DEREFHANDLE(pair)->Set(0, findHandler(sig));
+                            DEREFHANDLE(pair)->Set(1, TAGGED(sig));
+                            sigLock.Unlock();
+                            return pair;
+                        }
+                    }
+                }
+                // No pending signal.  Wait until we're woken up.
+                // This releases sigLock after acquiring schedLock.
+                if (! processes->WaitForSignal(taskData, &sigLock))
+                    raise_exception_string(taskData, EXC_Fail, "Only one thread may wait for signals");
+            }
         }
 
     default:
@@ -300,6 +273,7 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 }
 
 // Set up per-thread signal data: basically signal stack.
+// This is really only needed for profiling timer signals.
 void initThreadSignals(TaskData *taskData)
 {
 #if (!(defined(WINDOWS_PC)||defined(MACOSX)))
@@ -368,33 +342,10 @@ bool setSignalHandler(int sig, signal_handler_type func)
     return sigaction(sig, &sigcatch,NULL) >= 0;
 }
 
-// Simpler version for SIG_IGN and SIG_DFL
-bool setSimpleSignalHandler(int sig, void (*func)(int))
-{
-    struct sigaction sigcatch;
-    memset(&sigcatch, 0, sizeof(sigcatch));
-    sigcatch.sa_handler = func;
-
-    init_asyncmask(&sigcatch.sa_mask);
-    sigcatch.sa_flags = 0;
-    if (func != SIG_IGN && func != SIG_DFL)
-    {
-#if defined(SA_ONSTACK) && defined(HAVE_SIGALTSTACK)
-        sigcatch.sa_flags |= SA_ONSTACK;
-#endif
-#ifdef SA_RESTART
-        sigcatch.sa_flags |= SA_RESTART;
-#endif
-        // Must not use SA_SIGINFO if we assign to sa_handler.
-    }
-    return sigaction(sig, &sigcatch,NULL) >= 0;
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      init_asyncmask - utility function - doesn't allocate                  */
-/*                                                                            */
-/******************************************************************************/
+// Signals to mask off when handling a signal.  The signal being handled
+// is always masked off.  This really only applied when emulation traps
+// and requests to GC involved signals.  That no longer applies except
+// on the Sparc.
 void init_asyncmask(sigset_t *mask)
 {
     /* disable asynchronous interrupts while servicing interrupt */
@@ -436,8 +387,95 @@ public:
 // Declare this.  It will be automatically added to the table.
 static SigHandler sighandlerModule;
 
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+// This thread simply detects signals synchronously.  It is unsafe
+// to call pthread functions from an asynchronous signal handler
+// so this waits for the signal and then passes this on to the ML
+// signal handler thread.
+static void *SignalDetectionThread(void *)
+{
+    while (true)
+    {
+        // Set a mask for all signals.
+        // Block them on this thread so we deal with them synchronously.
+        sigset_t active_signals;
+        sigLock.Lock();
+        sigemptyset(&active_signals);
+        sigaddset(&active_signals, SIGUSR1); // We need this to be able to wake up.
+        signal(SIGUSR1, SIG_DFL);
+        int i;
+        // First compute the mask.
+        for (i = 0; i < NSIG; i++)
+        {
+            if (! IS_INT(sigData[i].handler)) // There's a handler.
+                sigaddset(&active_signals, i);
+        }
+        // Apply the mask.
+        pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
+        // Now set the signal state for each signal.  We have to
+        // do that after masking because we will set the signals
+        // we want to handle ourselves to the default action and
+        // if we haven't masked them off we'll take the default
+        // action.
+        for (i = 0; i < NSIG; i++)
+        {
+            if (sigData[i].handler == TAGGED(IGNORE_SIG))
+                signal(i, SIG_IGN);
+            else signal(i, SIG_DFL);
+        }
+
+        sigLock.Unlock();
+
+        int sig = -1;
+        int result = sigwait(&active_signals, &sig);
+        if (result == 0)
+            signalArrived(sig);
+        else if (result != EINTR) // Can get EINTR when running in gdb.
+        {
+            fprintf(stderr, "sigwait returned with %d.  errno = %d\n", result, errno);
+            return 0;
+        }
+    }
+}
+#endif
+
+
 void SigHandler::Init(void)
 {
+    // Mark certain signals as non-maskable since they really
+    // indicate a fatal error.
+#ifdef SIGSEGV
+    sigData[SIGSEGV].nonMaskable = true;
+#endif
+#ifdef SIGBUS
+    sigData[SIGBUS].nonMaskable = true;
+#endif
+#ifdef SIGILL
+    sigData[SIGILL].nonMaskable = true;
+#endif
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    // Create a new thread to handle signals synchronously.
+    // for it to finish.
+    pthread_attr_t attrs;
+    pthread_attr_init(&attrs);
+    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+#ifdef PTHREAD_STACK_MIN
+    pthread_attr_setstacksize(&attrs, PTHREAD_STACK_MIN); // Only small stack.
+#endif
+    pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0);
+    pthread_attr_destroy(&attrs);
+    // Block all signals except those marked as in use by the RTS so
+    // that they will only be picked up by the signal detection thread.
+    // Since the signal mask is inherited all threads will mask these.
+    sigset_t sigset;
+    sigfillset(&sigset);
+    for (int i = 0; i < 0; i++)
+    {
+        if (sigData[i].nonMaskable)
+            sigdelset(&sigset, i);
+    }
+    pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+#endif
 }
 
 void SigHandler::Reinit(void)
@@ -451,49 +489,6 @@ void SigHandler::Reinit(void)
         if (old_status == SIG_IGN)
             sigData[i].handler = TAGGED(IGNORE_SIG);
         else sigData[i].handler = TAGGED(DEFAULT_SIG);
-    }
-
-#if defined(WINDOWS_PC)
-    // Default to using our ctrl-C handler.
-    sigData[SIGINT].handler = POLY_CTRL_C;
-#else /* UNIX version */
-
-    // Set up a handler for the interrupt exception unless it is
-    // currently being ignored.
-    if (sigData[SIGINT].handler == TAGGED(DEFAULT_SIG))
-    {
-        setSimpleSignalHandler(SIGINT, addSigCount);
-        sigData[SIGINT].handler = POLY_CTRL_C;
-    }
-#endif /* END of UNIX-specific signal setting */
-}
-
-
-// This is called by an ML thread to create new threads to handle
-// the signals.
-void ProcessSignalsInMLThread(TaskData *taskData)
-{
-    int i;
-    for (i = 0; i < NSIG; i++)
-    {
-        while (sigData[i].sigCount > 0)
-        {
-            sigData[i].sigCount--;
-            PolyWord hand = findHandler(i);
-            if (hand == POLY_CTRL_C)
-               handleINT();
-            else if (!IS_INT(hand)) /* If it's not DEFAULT or IGNORE. */
-            {
-                /* We may go round this loop an indeterminate number of
-                   times.  To prevent the save vec from overflowing we
-                   mark it and reset it. */
-                Handle saved = taskData->saveVec.mark();
-                // Create a new thread to run the handler.
-                Handle h = SAVE(hand);
-                processes->ForkFromRTS(taskData, h, SAVE(TAGGED(i)));
-                taskData->saveVec.reset(saved);
-            }
-        }
     }
 }
 

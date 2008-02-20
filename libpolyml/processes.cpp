@@ -204,10 +204,6 @@ public:
     void SwitchSubShells(void);
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
-    // Get all threads into the RTS.  Sets requestEnterRTS if schedLock is held
-    // otherwise interrupts the threads.
-    virtual void RequestThreadsEnterRTS(void);
-    void RequestThreadsEnterRTSInternal(void);
     // ForkFromRTS.  Creates a new thread from within the RTS.
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
     // Create a new thread.  The "args" argument is only used for threads
@@ -257,6 +253,11 @@ public:
     // it if it exists.  MUST be called with taskArrayLock held.
     ProcessTaskData *TaskForIdentifier(Handle taskId);
 
+    // Signal handling support.  The ML signal handler thread blocks until it is
+    // woken up by the signal detection thread.
+    virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock);
+    virtual void SignalArrived(void);
+
     // Each thread has an entry in this array.
     ProcessTaskData **taskArray;
     unsigned taskArraySize; // Current size of the array.
@@ -300,15 +301,6 @@ public:
     PCondVar crowbarLock, crowbarStopped;
     bool crowbarRunning;
 
-    // This deals with asynchronous signals.
-    // If we've had a signal we need to get a thread to enter the RTS.  Because a
-    // signal can arrive at any time we have to be careful how we deal with it.
-    enum {
-        krequestRTSNone,           // No outstanding request
-        krequestRTSInterrupted,    // The threads have been requested to trap
-        krequestRTSToInterrupt     // The lock was held and we need to request a trap
-    } requestRTSState;
-
 #ifdef HAVE_WINDOWS_H
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
@@ -316,6 +308,8 @@ public:
     HANDLE mainThreadHandle; // The same as hMainThread except on Cygwin
     LONGLONG lastCPUTime; // CPU used by main thread.
 #endif
+
+    ProcessTaskData *sigTask;  // Pointer to current signal task.
 };
 
 // Global process data.
@@ -324,7 +318,7 @@ ProcessExternal *processes = &processesModule;
 
 Processes::Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
     threadRequest(0), exitResult(0), exitRequest(false),
-    crowbarRunning(false), requestRTSState(krequestRTSNone)
+    crowbarRunning(false), sigTask(0)
 {
 #ifdef HAVE_WINDOWS_H
     hWakeupEvent = NULL;
@@ -779,8 +773,6 @@ void Processes::ThreadUseMLMemory(TaskData *taskData)
     schedLock.Lock();
     ThreadUseMLMemoryWithSchedLock(taskData);
     schedLock.Unlock();
-    if (requestRTSState == krequestRTSToInterrupt) // The lock was held when we did this before.
-        RequestThreadsEnterRTS();
 }
 
 void Processes::ThreadReleaseMLMemory(TaskData *taskData)
@@ -828,11 +820,7 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
 }
 
 
-// Make a request to the root thread.  There is a special case here that
-// if a partial GC is already being requested by another thread we don't
-// request another one.  I don't know whether that makes any real difference
-// but it's quite possible that when memory runs low two threads might both
-// see that.
+// Make a request to the root thread.
 void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 {
     PLocker locker(&schedLock);
@@ -1312,15 +1300,6 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
     ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
 
     schedLock.Lock();
-    // Make any calls to the RTS interrupt functions.
-    while (requestRTSState != krequestRTSNone)
-    {
-        // We may get another trap request while processing the last.
-        requestRTSState = krequestRTSNone;
-        schedLock.Unlock();
-        ProcessSignalsInMLThread(taskData);
-        schedLock.Lock();
-    }
 
     switch (ptaskData->requests)
     {
@@ -1360,8 +1339,6 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
         ThreadExit(taskData);
         // Doesn't return.
     }
-    if (requestRTSState == krequestRTSToInterrupt) // The lock was held before
-        RequestThreadsEnterRTS();
 
 #ifndef HAVE_WINDOWS_H
     // Start the profile timer if needed.
@@ -1415,58 +1392,6 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
         ThreadExit(taskData);
         // Doesn't return.
     }
-}
-
-void Processes::RequestThreadsEnterRTSInternal(void)
-{
-    requestRTSState = krequestRTSInterrupted;
-    for (unsigned i = 0; i < taskArraySize; i++)
-    {
-        ProcessTaskData *taskData = taskArray[i];
-        if (taskData)
-        {
-            // Do this with the lock held.
-            machineDependent->InterruptCode(taskData);
-        }
-    }
-#ifdef HAVE_WINDOWS_H
-    // Wake any threads waiting for IO
-    PulseEvent(hWakeupEvent);
-#endif
-}
-
-#if (! defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
-DWORD WINAPI CallRequestEnterRTS(LPVOID)
-{
-    processesModule.schedLock.Lock();
-    processesModule.RequestThreadsEnterRTSInternal();
-    processesModule.schedLock.Unlock();
-    return 0;
-}
-#endif
-
-// May be called at any time in any state.  In particular schedLock may be held
-// at the moment.  In Unix we test the lock and set a flag if the lock is currently
-// taken.  Since we must be in the RTS to take the lock we should test the flag
-// soon.  In Windows we fork a thread to take the lock and deal with this.
-void Processes::RequestThreadsEnterRTS(void)
-{
-#if (! defined(HAVE_PTHREAD) && defined(HAVE_WINDOWS_H))
-    // TryLock doesn't work properly in Windows.  Instead we fork off
-    // a function to call this when we can get the lock.
-    DWORD dwThrdId;
-    HANDLE hThread = CreateThread(NULL, 0, CallRequestEnterRTS, 0, 0, &dwThrdId);
-    if (hThread) CloseHandle(hThread); // Don't want this.
-    else requestRTSState = krequestRTSToInterrupt;
-#else
-    if (schedLock.Trylock())
-    {
-        RequestThreadsEnterRTSInternal();
-        schedLock.Unlock();
-    }
-    else // schedLock is currently held.
-        requestRTSState = krequestRTSToInterrupt;
-#endif
 }
 
 // Stop.  Usually called by one of the threads but
@@ -1654,7 +1579,17 @@ void Processes::StartProfiling(void)
     SetThreadPriority(profilingHd, THREAD_PRIORITY_ABOVE_NORMAL);
 #else
     // In Linux, at least, we need to run a timer in each thread.
-    RequestThreadsEnterRTS();
+    // We request each to enter the RTS so that it will start the timer.
+    // Since this is being run by the main thread while all the ML threads
+    // are paused this may not actually be necessary.
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        ProcessTaskData *taskData = taskArray[i];
+        if (taskData)
+        {
+            machineDependent->InterruptCode(taskData);
+        }
+    }
     StartProfilingTimer(); // Start the timer in the root thread.
 #endif
 }
@@ -1669,6 +1604,45 @@ void Processes::StopProfiling(void)
     profilingHd = NULL;
 #endif
 }
+
+// Called by the ML signal handling thread.  It blocks until a signal
+// arrives.  There should only be a single thread waiting here.
+bool Processes::WaitForSignal(TaskData *taskData, PLock *sigLock)
+{
+    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    // We need to hold the signal lock until we have acquired schedLock.
+    schedLock.Lock();
+    sigLock->Unlock();
+    if (sigTask != 0)
+    {
+        schedLock.Unlock();
+        return false;
+    }
+    sigTask = ptaskData;
+
+    if (ptaskData->requests == kRequestNone)
+    {
+        // Now release the ML memory.  A GC can start.
+        ThreadReleaseMLMemoryWithSchedLock(ptaskData);
+        ptaskData->threadLock.Wait(&schedLock);
+        // We want to use the memory again.
+        ThreadUseMLMemoryWithSchedLock(ptaskData);
+    }
+
+    sigTask = 0;
+    schedLock.Unlock();
+    return true;
+}
+
+// Called by the signal detection thread to wake up the signal handler
+// thread.  Must be called AFTER releasing sigLock.
+void Processes::SignalArrived(void)
+{
+    PLocker locker(&schedLock);
+    if (sigTask)
+        sigTask->threadLock.Signal();
+}
+
 
 void Processes::Init(void)
 {
