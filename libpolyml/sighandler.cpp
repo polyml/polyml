@@ -65,7 +65,9 @@
 #endif
 
 /*
-Signal handling is complicated in a multi-threading environment.
+Signal handling is complicated in a multi-threading environment
+and because it differs between versions of Unix.
+
 Signal handlers as such are not used.  Instead we use sigwait to
 detect signals synchronously on a separate signal detection thread.
 For this to work, the signals we are interested in must be blocked
@@ -73,7 +75,12 @@ from delivery to any thread.  Signals set to SIG_IGN or SIG_DFL must
 not be completely blocked otherwise they will be queued.  To enable
 a signal's state to be changed we block all signals, with the exception
 of signals such as SIGSEGV that indicate an error or SIGVTALRM that are
-used by the RTS.
+used by the RTS.  Signals that are not handled are unblocked on the
+main thread.
+
+In Linux if a signal is unblocked on any thread and
+set to SIG_DFL the default action will be performed.  In Mac OS X
+that only happens if the signal is unblocked in the main thread.
 
 This is messier still because of what seems like a bug in Cygwin.
 In Cygwin if a signal is included in the signal mask argument it
@@ -180,6 +187,48 @@ void RequestConsoleInterrupt(void)
 }
 #endif
 
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+// Request the main thread to change the blocking state of a signal.
+class SignalRequest: public MainThreadRequest
+{
+public:
+    SignalRequest(int s, int r): signl(s), state(r) {}
+
+    virtual void Perform();
+    int signl, state;
+};
+
+void SignalRequest::Perform()
+{
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, signl);
+
+    switch (state)
+    {
+    case DEFAULT_SIG:
+        pthread_sigmask(SIG_UNBLOCK, &sigset, NULL);
+        signal(signl, SIG_DFL);
+        break;
+    case IGNORE_SIG:
+        pthread_sigmask(SIG_UNBLOCK, &sigset, NULL);
+        signal(signl, SIG_IGN);
+        break;
+    case HANDLE_SIG:
+        pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+        signal(signl, SIG_DFL);
+        break;
+    }
+#ifdef __CYGWIN__
+    // Send a SIGUSR1 to wake up the signal detection thread and
+    // allow it to change its mask.
+    sigData[SIGUSR1].signalCount--;
+    pthread_kill(detectionThreadId, SIGUSR1);
+#endif
+}
+#endif
+
+
 /* CALL_IO2(Sig_dispatch_,IND) */
 /* This function behaves fairly similarly to the Unix and Windows signal
    handler.  It takes a signal number and a handler which may be a function
@@ -217,12 +266,8 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (! sigData[sign].nonMaskable)
             {
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-                // This is a mess.  We need to wake up the signal detection thread
-                // so that it can change the signals it is watching and to do that
-                // we have to send it a signal.  We don't want that to be treated
-                // as a real signal.
-                sigData[SIGUSR1].signalCount--;
-                pthread_kill(detectionThreadId, SIGUSR1);
+                SignalRequest request(sign, action);
+                processes->MakeRootRequest(taskData, &request);
 #endif
             }
             return oldaction;
@@ -306,6 +351,20 @@ void initThreadSignals(TaskData *taskData)
     ASSERT(sigaltstack_result == 0);
 #endif
 #endif /* not the PC */
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    // Block all signals except those marked as in use by the RTS so
+    // that they will only be picked up by the signal detection thread.
+    // Since the signal mask is inherited we really don't need to do
+    // this for every thread, just the initial one.
+    sigset_t sigset;
+    sigfillset(&sigset);
+    for (int i = 0; i < NSIG; i++)
+    {
+        if (sigData[i].nonMaskable)
+            sigdelset(&sigset, i);
+    }
+    pthread_sigmask(SIG_SETMASK, &sigset, NULL);
+#endif
 }
 
 
@@ -394,11 +453,18 @@ static SigHandler sighandlerModule;
 // signal handler thread.
 static void *SignalDetectionThread(void *)
 {
+    // Block all signals so they will be picked up by sigwait.
+    sigset_t active_signals;    
+    sigfillset(&active_signals);
+    pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
+
     while (true)
     {
-        // Set a mask for all signals.
-        // Block them on this thread so we deal with them synchronously.
-        sigset_t active_signals;
+#ifdef __CYGWIN__
+        // Work around for Cygwin bug.  In Cygwin, if a signal is included
+        // in the signal set argument to sigwait it will be blocked from 
+        // being handled by default even if it another thread has it
+        // unblocked.
         sigLock.Lock();
         sigemptyset(&active_signals);
         sigaddset(&active_signals, SIGUSR1); // We need this to be able to wake up.
@@ -410,21 +476,8 @@ static void *SignalDetectionThread(void *)
             if (! IS_INT(sigData[i].handler)) // There's a handler.
                 sigaddset(&active_signals, i);
         }
-        // Apply the mask.
-        pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
-        // Now set the signal state for each signal.  We have to
-        // do that after masking because we will set the signals
-        // we want to handle ourselves to the default action and
-        // if we haven't masked them off we'll take the default
-        // action.
-        for (i = 0; i < NSIG; i++)
-        {
-            if (sigData[i].handler == TAGGED(IGNORE_SIG))
-                signal(i, SIG_IGN);
-            else signal(i, SIG_DFL);
-        }
-
         sigLock.Unlock();
+#endif
 
         int sig = -1;
         int result = sigwait(&active_signals, &sig);
@@ -464,17 +517,6 @@ void SigHandler::Init(void)
 #endif
     pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0);
     pthread_attr_destroy(&attrs);
-    // Block all signals except those marked as in use by the RTS so
-    // that they will only be picked up by the signal detection thread.
-    // Since the signal mask is inherited all threads will mask these.
-    sigset_t sigset;
-    sigfillset(&sigset);
-    for (int i = 0; i < 0; i++)
-    {
-        if (sigData[i].nonMaskable)
-            sigdelset(&sigset, i);
-    }
-    pthread_sigmask(SIG_BLOCK, &sigset, NULL);
 #endif
 }
 
@@ -483,12 +525,18 @@ void SigHandler::Reinit(void)
     // Reset the signal vector and determine the initial settings.
     for (unsigned i = 0; i < NSIG; i++)
     {
-        void (*old_status)(int) = signal(i, SIG_IGN);
-        if (old_status != SIG_ERR)
-            signal(i, old_status);
-        if (old_status == SIG_IGN)
+        if (sigData[i].nonMaskable)
+            // Don't mess with any installed signal handlers.
             sigData[i].handler = TAGGED(IGNORE_SIG);
-        else sigData[i].handler = TAGGED(DEFAULT_SIG);
+        else
+        {
+            void (*old_status)(int) = signal(i, SIG_IGN);
+            if (old_status != SIG_ERR)
+                signal(i, old_status);
+            if (old_status == SIG_IGN)
+                sigData[i].handler = TAGGED(IGNORE_SIG);
+            else sigData[i].handler = TAGGED(DEFAULT_SIG);
+        }
     }
 }
 
