@@ -368,6 +368,14 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf);
 static Handle lockCommand(TaskData *taskData, int cmd, Handle args);
 static int findPathVar(TaskData *taskData, PolyWord ps);
 
+// Unmask all signals just before exec.
+static void restoreSignals(void)
+{
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigprocmask(SIG_SETMASK, &sigset, NULL);
+}
+
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_long(taskData, DEREFWORDHANDLE(code));
@@ -503,6 +511,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char *path = Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0));
             char **argl = stringListToVector(SAVE(DEREFHANDLE(args)->Get(1)));
             int err;
+            restoreSignals();
             execv(path, argl);
             err = errno;
             /* We only get here if there's been an error. */
@@ -517,6 +526,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char **argl = stringListToVector(SAVE(DEREFHANDLE(args)->Get(1)));
             char **envl = stringListToVector(SAVE(DEREFHANDLE(args)->Get(2)));
             int err;
+            restoreSignals();
             execve(path, argl, envl);
             err = errno;
             /* We only get here if there's been an error. */
@@ -531,6 +541,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char *path = Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0));
             char **argl = stringListToVector(SAVE(DEREFHANDLE(args)->Get(1)));
             int err;
+            restoreSignals();
             execvp(path, argl);
             err = errno;
             /* We only get here if there's been an error. */

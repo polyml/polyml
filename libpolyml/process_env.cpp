@@ -48,6 +48,14 @@
 #include <unistd.h>
 #endif
 
+#ifdef HAVE_SYS_WAIT_H
+#include <sys/wait.h>
+#endif
+
+#ifdef __CYGWIN__
+#include <process.h>
+#endif
+
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
 #ifdef WINDOWS_PC
 #ifdef USEWINSOCK2
@@ -145,15 +153,65 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     case 17: /* Run command. */
         {
             char buff[MAXPATHLEN];
-            int res;
             /* Get the string. */
+            int res = -1;
             int length =
                 Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
             if (length >= (int)sizeof(buff))
                 raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
+#if (defined(WINDOWS_PC))
             res = system(buff);
             if (res == -1)
                 raise_syscall(mdTaskData, "Function system failed", errno);
+#else
+            // Cygwin and Unix
+            char *argv[4];
+            argv[0] = (char*)"sh";
+            argv[1] = (char*)"-c";
+            argv[2] = buff;
+            argv[3] = NULL;
+#if (defined(__CYGWIN__))
+            // vfork adds a significant overhead.  spawnvp provides a wrapper
+            // for CreateProcess that avoids this.
+            int pid = spawnvp(_P_NOWAIT, "/bin/sh", argv);
+            if (pid < 0)
+                raise_syscall(mdTaskData, "Function system failed", errno);
+#else
+            // We need to break this down so that we can unblock signals in the
+            // child process.
+            // The Unix "system" function seems to set SIGINT and SIGQUIT to
+            // SIG_IGN in the parent so that the wait will not be interrupted.
+            // That may make sense in a single-threaded application but is
+            // that right here?
+            int pid = vfork();
+            if (pid == -1)
+                raise_syscall(mdTaskData, "Function system failed", errno);
+            else if (pid == 0)
+            { // In child
+                sigset_t sigset;
+                sigemptyset(&sigset);
+                sigprocmask(SIG_SETMASK, &sigset, 0);
+                // Reset other signals?
+                char *argv[4];
+                argv[0] = (char*)"sh";
+                argv[1] = (char*)"-c";
+                argv[2] = buff;
+                argv[3] = NULL;
+                execve("/bin/sh", argv, environ);
+                _exit(1);
+            }
+#endif
+            while (true)
+            {
+                // Test to see if the child has returned.
+                int wRes = waitpid(pid, &res, WNOHANG);
+                if (wRes > 0)
+                    break;
+                else if (wRes < 0)
+                    raise_syscall(mdTaskData, "Function system failed", errno);
+                processes->ThreadPause(mdTaskData);
+            }
+#endif
             return Make_arbitrary_precision(mdTaskData, res);
         }
 
