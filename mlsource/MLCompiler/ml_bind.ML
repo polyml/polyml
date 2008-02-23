@@ -45,19 +45,6 @@ struct
     (* Link up the debugger. *)
     val _ = Debugger.setDebugger debugger;
 
-	fun printVersion() = ()
-		
-    (* create the main shell for exporting *)
-    (* the primary process group *)
-    fun mainGo () : unit = 
-    (
-	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
-		then ()
-		else (!Debug.printString) (String.concat ["Poly/ML ", CompilerVersion.compilerVersion, "\n"]);
-      mainSessionShell ();
-	  OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
-    );
-
     (* This is the root function to run the Poly/ML top level. *)
     fun rootShell () =
 	let
@@ -84,8 +71,23 @@ struct
 			(!Debug.printString) "\nRun time system arguments:\n";
 			(!Debug.printString) (rtsHelp())
 		   )
-		else
-             mainGo ()
+		else (* Enter Poly/ML. *)
+        let
+            open Signal;
+            val () =
+        	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
+        		then ()
+        		else (!Debug.printString) (String.concat ["Poly/ML ", CompilerVersion.compilerVersion, "\n"]);
+            (* Set up a handler for SIGINT if that is currently set to SIG_DFL. *)
+            val oldHandle = signal(2, SIG_IGN);
+            val () =
+                case oldHandle of
+                   SIG_IGN => ()
+                |  _ => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())               
+        in
+            mainSessionShell ();
+            OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
+        end
 	end;
 
     val U:unit =
