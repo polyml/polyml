@@ -78,12 +78,13 @@ struct
         	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
         		then ()
         		else (!Debug.printString) (String.concat ["Poly/ML ", CompilerVersion.compilerVersion, "\n"]);
-            (* Set up a handler for SIGINT if that is currently set to SIG_DFL. *)
-            val oldHandle = signal(2, SIG_IGN);
+            (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
+               If a handler has been set up by an initialisation function don't replace it. *)
             val () =
-                case oldHandle of
+                case signal(2, SIG_IGN) of
                    SIG_IGN => ()
-                |  _ => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())               
+                |  SIG_DFL => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())
+                |  oldHandle => (signal(2, oldHandle); ())
         in
             mainSessionShell ();
             OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
