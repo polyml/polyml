@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006-8 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -220,9 +220,8 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
     } while(1);
 }
 
-void ScanAddress::ScanAddressesInRegion(PolyWord *region, POLYUNSIGNED length)
+void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
 {
-    PolyWord *end = region + length;
     PolyWord *pt = region;
     while (pt < end)
     {

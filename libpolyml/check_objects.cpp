@@ -134,12 +134,6 @@ void DoCheckPointer (const PolyWord pt)
     }
 }
 
-void DoCheckRegion(PolyWord *region, POLYUNSIGNED length)
-{
-    ScanCheckAddress memCheck;
-    memCheck.ScanAddressesInRegion(region, length);
-}
-
 // Check all the objects in the memory.  Used to check the garbage collector
 //
 void DoCheckMemory()
@@ -151,13 +145,13 @@ void DoCheckMemory()
     {
         LocalMemSpace *space = gMem.lSpaces[i];
         if (space->isMutable)
-            memCheck.ScanAddressesInRegion(space->pointer, space->top-space->pointer);
+            memCheck.ScanAddressesInRegion(space->pointer, space->top);
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         MemSpace *space = gMem.pSpaces[j];
         if (space->isMutable)
-            memCheck.ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+            memCheck.ScanAddressesInRegion(space->bottom, space->top);
     }
 }

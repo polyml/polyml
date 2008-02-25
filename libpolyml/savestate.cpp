@@ -369,7 +369,7 @@ void SaveRequest::Perform()
         {
             PermanentMemSpace *space = gMem.pSpaces[i];
             if (space->isMutable)
-                copyScan.ScanAddressesInRegion(space->bottom, space->top-space->bottom);
+                copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
     }
     catch (MemoryException)
@@ -431,7 +431,7 @@ void SaveRequest::Perform()
     for (unsigned l = 0; l < gMem.nlSpaces; l++)
     {
         LocalMemSpace *space = gMem.lSpaces[l];
-        fixup.ScanAddressesInRegion(space->pointer, space->top-space->pointer);
+        fixup.ScanAddressesInRegion(space->pointer, space->top);
     }
     GCModules(&fixup);
 

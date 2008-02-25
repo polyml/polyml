@@ -31,7 +31,6 @@ extern void DoCheck (const PolyWord pt);
 extern void DoCheckPointer (const PolyWord pt);
 extern void DoCheckObject (const PolyObject *base, POLYUNSIGNED lengthWord);
 extern void DoCheckMemory(void);
-extern void DoCheckRegion(PolyWord *region, POLYUNSIGNED length);
 
 #define Check(pt)        {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheck(pt); }
 #define CheckObject(pt)  {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, (pt)->LengthWord()); }

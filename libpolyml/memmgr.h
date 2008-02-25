@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-7 David C. J. Matthews
+    Copyright (c) 2006-8 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -49,6 +49,10 @@ public:
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
+
+    // These next two are used in the GC to limit scanning for
+    // weak refs.
+    PolyWord        *lowestWeak, *highestWeak;
 
     friend class MemMgr;
 };

@@ -64,6 +64,11 @@
 
 unsigned gc_phase = 0; // Tells the profiler whether we're in the gc 
 
+// If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
+// cleared by the signal handler thread.  There's no need for a lock since it
+// is only set during GC and only cleared when not GCing.
+bool convertedWeak = false;
+
 /* zero the memory - the "standard" way */
 #define wzero(start,word_count) do { memset(start, 0, (word_count)*sizeof(POLYUNSIGNED)); } while (0)
 
@@ -289,14 +294,14 @@ static void OpMutables(ScanAddress *process)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
         if (space->isMutable)
-            process->ScanAddressesInRegion(space->gen_top, space->top - space->gen_top);
+            process->ScanAddressesInRegion(space->gen_top, space->top);
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         MemSpace *space = gMem.pSpaces[j];
         if (space->isMutable)
-            process->ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+            process->ScanAddressesInRegion(space->bottom, space->top);
     }
 }
 
@@ -443,6 +448,12 @@ void ProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L
         PolyWord *baseAddr = (PolyWord*)base;
         for (POLYUNSIGNED i = 0; i < n; i++)
             DoScanAddressAt(baseAddr+i, true);
+        // Add this to the limits for the containing area.
+        MemSpace *space = gMem.SpaceForAddress(baseAddr);
+        PolyWord *startAddr = baseAddr-1; // Must point AT length word.
+        PolyWord *endObject = baseAddr + n;
+        if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
+        if (endObject > space->highestWeak) space->highestWeak = endObject;
     }
     else ScanAddress::ScanAddressesInObject(base, L);
 }
@@ -518,6 +529,7 @@ void CheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                         // It wasn't marked so it's otherwise unreferenced.
                         baseAddr[i] = TAGGED(0); // Set it to NONE.
                         someObj->Set(0, TAGGED(0)); // For safety.
+                        convertedWeak = true;
                     }
                 }
             }
@@ -536,14 +548,14 @@ void CheckWeakRef::ScanAreas(void)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
         if (space->isMutable)
-            ScanAddressesInRegion(space->gen_bottom, space->top - space->gen_bottom);
+            ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         MemSpace *space = gMem.pSpaces[j];
         if (space->isMutable)
-            ScanAddressesInRegion(space->bottom, space->top - space->bottom);
+            ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
     }
 }
 
@@ -1225,7 +1237,18 @@ GC_AGAIN:
         // gen_bottom is the lowest object actually allocated in the
         // area.
         lSpace->gen_bottom = lSpace->pointer;
+        // Set upper and lower limits of weak refs.
+        lSpace->highestWeak = lSpace->bottom;
+        lSpace->lowestWeak = lSpace->top;
     }
+
+    // Set limits of weak refs.
+    for (j = 0; j < gMem.npSpaces; j++)
+    {
+        PermanentMemSpace *pSpace = gMem.pSpaces[j];
+        pSpace->highestWeak = pSpace->bottom;
+        pSpace->lowestWeak = pSpace->top;
+    }        
     
     
     /* Our recovery actions may insist on a full GC */
@@ -1286,6 +1309,11 @@ GC_AGAIN:
     CheckWeakRef checkRef;
     OpGCProcs(&checkRef);
     checkRef.ScanAreas();
+
+    if (convertedWeak)
+        // Notify the signal thread to broadcast on the condition var when
+        // the GC is complete.
+        processes->SignalArrived();
     
     /* If we are doing a full GC we expand the immutable area now, so that there's
        enough room to copy the immutables that are currently in the mutable buffer.

@@ -109,9 +109,8 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "sys.h"
 #include "save_vec.h"
 #include "rts_module.h"
-#include "gc.h" // For gc_phase
+#include "gc.h" // For convertedWeak
 #include "scanaddrs.h"
-#include "mpoly.h" // For finish
 #include "locking.h"
 
 #ifdef WINDOWS_PC
@@ -299,6 +298,14 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                             return pair;
                         }
                     }
+                }
+                if (convertedWeak)
+                {
+                    // Last GC converted a weak SOME into NONE.  This isn't
+                    // anything to do with signals but the signal thread can
+                    // deal with this.
+                    convertedWeak = false;
+                    return SAVE(TAGGED(0));
                 }
                 // No pending signal.  Wait until we're woken up.
                 // This releases sigLock after acquiring schedLock.

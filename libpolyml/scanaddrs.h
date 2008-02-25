@@ -1,7 +1,7 @@
 /*
     Title:  scanaddrs.h - Scan addresses in objects
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006-8 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -69,7 +69,7 @@ public:
     // Scan the objects in the region and process their addresses.  Applies ScanAddressesInObject
     // to each of the objects.  The "region" argument points AT the first length word.
     // Typically used to scan or update addresses in the mutable area.
-    void ScanAddressesInRegion(PolyWord *region, POLYUNSIGNED length);
+    void ScanAddressesInRegion(PolyWord *region, PolyWord *endOfRegion);
 
 protected:
     // General object processor.

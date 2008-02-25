@@ -38,5 +38,6 @@ extern void CreateHeap(void);
 extern POLYUNSIGNED GetPhysicalMemorySize(void);
 
 extern unsigned gc_phase;
+extern bool convertedWeak;
 
 #endif
