@@ -980,6 +980,10 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd)
 // was only a single C thread managing multiple ML threads (processes) so if an ML
 // thread blocked it was necessary to switch the thread and then for the C function
 // call to raise an exception to get back to ML.  
+// TODO: There's actually a race here if we have posixInterruptible set.  We
+// repeatedly come back here and if a signal happens while we're in
+// ThreadPauseForIO we will raise the exception.  If the signal happens at
+// another point we won't.
 void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
 {
     machineDependent->SetForRetry(taskData, ioCall);
