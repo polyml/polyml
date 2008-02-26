@@ -172,6 +172,9 @@ public:
     // woken up by the signal detection thread.
     virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock) = 0;
     virtual void SignalArrived(void) = 0;
+
+    // After a Unix fork we only have a single thread in the new process.
+    virtual void SetSingleThreaded(void) = 0;
 };
 
 

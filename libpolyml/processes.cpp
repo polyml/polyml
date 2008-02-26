@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007 David C.J. Matthews
+    Copyright (c) 2007,2008 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -120,7 +120,6 @@
 #ifdef WINDOWS_PC
 #include "Console.h"
 #endif
-
 
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
@@ -258,6 +257,13 @@ public:
     virtual bool WaitForSignal(TaskData *taskData, PLock *sigLock);
     virtual void SignalArrived(void);
 
+    virtual void SetSingleThreaded(void) { singleThreaded = true; }
+
+
+    // Generally, the system runs with multiple threads.  After a
+    // fork, though, there is only one thread.
+    bool singleThreaded;
+
     // Each thread has an entry in this array.
     ProcessTaskData **taskArray;
     unsigned taskArraySize; // Current size of the array.
@@ -316,7 +322,7 @@ public:
 static Processes processesModule;
 ProcessExternal *processes = &processesModule;
 
-Processes::Processes(): taskArray(0), taskArraySize(0), interrupt_exn(0),
+Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0), interrupt_exn(0),
     threadRequest(0), exitResult(0), exitRequest(false),
     crowbarRunning(false), sigTask(0)
 {
@@ -746,6 +752,8 @@ void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
 
 void Processes::ThreadExit(TaskData *taskData)
 {
+    if (singleThreaded) finish(0);
+
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
     // Remove this from the taskArray
@@ -759,9 +767,6 @@ void Processes::ThreadExit(TaskData *taskData)
     pthread_exit(0);
 #elif defined(HAVE_WINDOWS_H)
     ExitThread(0);
-#else
-    // No pthreads: exit the process
-    finish(0);
 #endif
 }
 
@@ -823,23 +828,28 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
 // Make a request to the root thread.
 void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 {
-    PLocker locker(&schedLock);
+    if (singleThreaded)
+        request->Perform();
+    else
+    {
+        PLocker locker(&schedLock);
 
-    // Wait for any other requests. 
-    while (threadRequest != 0)
-    {
-        // Deal with any pending requests.
-        ThreadReleaseMLMemoryWithSchedLock(taskData);
-        ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
-    }
-    // Now the other requests have been dealt with (and we have schedLock).
-    request->completed = false;
-    threadRequest = request;
-    // Wait for it to complete.
-    while (! request->completed)
-    {
-        ThreadReleaseMLMemoryWithSchedLock(taskData);
-        ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
+        // Wait for any other requests. 
+        while (threadRequest != 0)
+        {
+            // Deal with any pending requests.
+            ThreadReleaseMLMemoryWithSchedLock(taskData);
+            ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
+        }
+        // Now the other requests have been dealt with (and we have schedLock).
+        request->completed = false;
+        threadRequest = request;
+        // Wait for it to complete.
+        while (! request->completed)
+        {
+            ThreadReleaseMLMemoryWithSchedLock(taskData);
+            ThreadUseMLMemoryWithSchedLock(taskData); // Drops schedLock while waiting.
+        }
     }
 }
 
@@ -1101,7 +1111,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         interrupt_exn =
             DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
 
-#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
+
+    if (singleThreaded)
+    {
+        // If we don't have threading enter the code as if this were a new thread.
+        // This will call finish so will never return.
+        NewThreadFunction(taskData);
+    }
+
     schedLock.Lock();
     bool success = false;
 #ifdef HAVE_PTHREAD
@@ -1182,11 +1199,6 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         crowbarStopped.Wait(&shutdownLock);
     }
     finish(exitResult); // Close everything down and exit.
-#else
-    // If we don't have threading enter the code as if this were a new thread.
-    // This will call finish so will never return.
-    NewThreadFunction(taskData);
-#endif
 }
 
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
@@ -1194,9 +1206,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
                            Handle args, PolyWord flags)
 {
-#if (!defined(HAVE_PTHREAD) && ! defined(HAVE_WINDOWS_H))
-    raise_exception_string(taskData, EXC_thread, "Threads not available on this platform");
-#else
+    if (singleThreaded)
+        raise_exception_string(taskData, EXC_thread, "Threads not available");
+
     // Create a taskData object for the new thread
     ProcessTaskData *newTaskData = new ProcessTaskData;
     newTaskData->mdTaskData = machineDependent->CreateTaskData();
@@ -1280,7 +1292,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
     delete(newTaskData);
     schedLock.Unlock();
     raise_exception_string(taskData, EXC_thread, "Thread creation failed");
-#endif
+
 }
 
 // ForkFromRTS.  Creates a new thread from within the RTS.  This is currently used
@@ -1444,6 +1456,9 @@ static DWORD WINAPI crowBarFn(LPVOID arg)
 
 void Processes::Exit(int n)
 {
+    if (singleThreaded)
+        finish(n);
+
     // Start a crowbar thread.  This will stop everything if the main thread
     // does not reach the point of stopping within 5 seconds.
 #if (defined(HAVE_PTHREAD))
@@ -1659,6 +1674,8 @@ void Processes::Init(void)
     pthread_key_create(&tlsId, NULL);
 #elif defined(HAVE_WINDOWS_H)
     tlsId = TlsAlloc();
+#else
+    singleThreaded = true;
 #endif
 
 #if defined(HAVE_WINDOWS_H) /* Windows including Cygwin. */
