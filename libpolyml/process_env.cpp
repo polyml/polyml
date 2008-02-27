@@ -1,6 +1,6 @@
 /*
     Title:      Process environment.
-    Copyright (c) 2000-7
+    Copyright (c) 2000-8
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -52,7 +52,7 @@
 #include <sys/wait.h>
 #endif
 
-#ifdef __CYGWIN__
+#if (defined(__CYGWIN__) || defined(WINDOWS_PC))
 #include <process.h>
 #endif
 
@@ -160,8 +160,22 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             if (length >= (int)sizeof(buff))
                 raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
 #if (defined(WINDOWS_PC))
-            res = system(buff);
-            if (res == -1)
+            // Windows.
+            char *argv[4];
+            argv[0] = getenv("COMSPEC"); // Default CLI.
+            if (argv[0] == 0)
+            {
+                if (_osver & 0x8000) argv[0] = "command.com"; // Win 95 etc.
+                else argv[0] = "cmd.exe"; // Win NT etc.
+            }
+            argv[1] = (char*)"/c";
+            argv[2] = buff;
+            argv[3] = NULL;
+            // If _P_NOWAIT is given the result is the process handle.
+            // spawnvp does any necessary path searching if argv[0]
+            // does not contain a full path.
+            int pid = spawnvp(_P_NOWAIT, argv[0], argv);
+            if (pid == -1)
                 raise_syscall(mdTaskData, "Function system failed", errno);
 #else
             // Cygwin and Unix
@@ -201,17 +215,49 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 _exit(1);
             }
 #endif
+#endif
             while (true)
             {
+                try
+                {
                 // Test to see if the child has returned.
-                int wRes = waitpid(pid, &res, WNOHANG);
-                if (wRes > 0)
-                    break;
-                else if (wRes < 0)
-                    raise_syscall(mdTaskData, "Function system failed", errno);
-                processes->ThreadPause(mdTaskData);
-            }
+#ifdef WINDOWS_PC
+                    switch (WaitForSingleObject((HANDLE)pid, 0))
+                    {
+                    case WAIT_OBJECT_0:
+                        {
+                            DWORD result;
+                            BOOL fResult = GetExitCodeProcess((HANDLE)pid, &result);
+                            if (! fResult)
+                                raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                            CloseHandle((HANDLE)pid);
+                            return Make_unsigned(mdTaskData, result);
+                        }
+                    case WAIT_FAILED:
+                        raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                    }
+#else
+                    int wRes = waitpid(pid, &res, WNOHANG);
+                    if (wRes > 0)
+                        break;
+                    else if (wRes < 0)
+                    {
+                        raise_syscall(mdTaskData, "Function system failed", errno);
+                    }
 #endif
+                    processes->ThreadPause(mdTaskData);
+                }
+                catch (...)
+                {
+                    // Either IOException or KillException.
+                    // We're abandoning the wait.  This will leave
+                    // a zombie in Unix.
+#ifdef WINDOWS_PC
+                    CloseHandle((HANDLE)pid);
+#endif
+                    throw;
+                }
+            }
             return Make_arbitrary_precision(mdTaskData, res);
         }
 
