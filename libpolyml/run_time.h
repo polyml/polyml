@@ -54,6 +54,12 @@ public:
     MemoryException() {}
 };
 
+// A request to kill the thread raises this exception. 
+class KillException {
+public:
+    KillException() {}
+};
+
 /* storage allocation functions */
 extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);

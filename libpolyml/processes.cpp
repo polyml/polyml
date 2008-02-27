@@ -969,10 +969,10 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd)
     PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
 
     // Wait until we get input or we're woken up.
-    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, 500, QS_ALLINPUT);
+    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, 100, QS_ALLINPUT);
 #else
     fd_set read_fds, write_fds, except_fds;
-    struct timeval toWait = { 0, 500000 }; /* Half a second. */
+    struct timeval toWait = { 0, 100000 }; /* 100ms. */
 
     FD_ZERO(&read_fds);
     if (fd >= 0) FD_SET(fd, &read_fds);
@@ -1039,7 +1039,13 @@ static void *NewThreadFunction(void *parameter)
     pthread_setspecific(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
-    (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
+    try {
+        (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
+    }
+    catch (KillException) {
+        processesModule.ThreadExit(taskData);
+    }
+
     return 0;
 }
 #elif defined(HAVE_WINDOWS_H)
@@ -1049,7 +1055,12 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     TlsSetValue(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
-    (void)EnterPolyCode(taskData);
+    try {
+        (void)EnterPolyCode(taskData);
+    }
+    catch (KillException) {
+        processesModule.ThreadExit(taskData);
+    }
     return 0;
 }
 #else
@@ -1059,7 +1070,12 @@ static void NewThreadFunction(void *parameter)
     initThreadSignals(taskData);
     taskData->saveVec.init(); // Removal initial data
     processes->ThreadUseMLMemory(taskData);
-    (void)EnterPolyCode(taskData);
+    try {
+        (void)EnterPolyCode(taskData);
+    }
+    catch (KillException) {
+        processesModule.ThreadExit(taskData);
+    }
 }
 #endif
 
@@ -1352,7 +1368,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
 
     case kRequestKill: // The thread has been asked to stop.
         schedLock.Unlock();
-        ThreadExit(taskData);
+        throw KillException();
         // Doesn't return.
     }
 
@@ -1405,7 +1421,7 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
 
     case kRequestKill: // The thread has been asked to stop.
         schedLock.Unlock();
-        ThreadExit(taskData);
+        throw KillException();
         // Doesn't return.
     }
 }
