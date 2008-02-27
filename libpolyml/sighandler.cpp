@@ -241,23 +241,28 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
     {
     case 0: /* Set up signal handler. */
         {
-            PLocker locker(&sigLock);
-            // We have to pass this to the main thread to ensure there
-            // is only one thread that blocks and unblocks signals.
-            int sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+            int sign;
             int action;
             Handle oldaction;
-            /* Decode the action if it is Ignore or Default. */
-            if (IS_INT(DEREFHANDLE(args)->Get(1)))
-                action = UNTAGGED(DEREFHANDLE(args)->Get(1));
-            else action = HANDLE_SIG; /* Set the handler. */
-            if (sign <= 0 || sign >= NSIG)
-                raise_syscall(taskData, "Invalid signal value", EINVAL);
+            {
+                // Lock while we look at the signal vector but release
+                // it before making a root request.
+                PLocker locker(&sigLock);
+                // We have to pass this to the main thread to ensure there
+                // is only one thread that blocks and unblocks signals.
+                sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+                /* Decode the action if it is Ignore or Default. */
+                if (IS_INT(DEREFHANDLE(args)->Get(1)))
+                    action = UNTAGGED(DEREFHANDLE(args)->Get(1));
+                else action = HANDLE_SIG; /* Set the handler. */
+                if (sign <= 0 || sign >= NSIG)
+                    raise_syscall(taskData, "Invalid signal value", EINVAL);
 
-            /* Get the old action before updating the vector. */
-            oldaction = SAVE(findHandler(sign));
-            // Now update it.
-            sigData[sign].handler = DEREFWORDHANDLE(args)->Get(1);
+                /* Get the old action before updating the vector. */
+                oldaction = SAVE(findHandler(sign));
+                // Now update it.
+                sigData[sign].handler = DEREFWORDHANDLE(args)->Get(1);
+            }
 
             // Request a change in the masking by the root thread.
             // This doesn't do anything in Windows so the only "signal"
@@ -304,6 +309,7 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     // Last GC converted a weak SOME into NONE.  This isn't
                     // anything to do with signals but the signal thread can
                     // deal with this.
+                    sigLock.Unlock();
                     convertedWeak = false;
                     return SAVE(TAGGED(0));
                 }
