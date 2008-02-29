@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Real Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2008
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,8 +18,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: Updated signature. *)
-
 structure LargeReal = struct type real = real end;
 
 signature REAL =
@@ -27,6 +25,7 @@ sig
     type  real
 
     structure Math : MATH
+        where type real = real
 
     val radix : int
     val precision : int
