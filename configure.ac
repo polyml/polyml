@@ -25,6 +25,43 @@ else
         test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 fi
 
+AC_CANONICAL_HOST
+# Set the OS flag.  This should not really be required but is still used in
+# a few places for OS-specific quirks that can't be handled by more specific tests.
+# Check also for mingw in which case we want to build native Windows.
+poly_native_windows=no
+# If we are building on cygwin or mingw we need to give the -no-defined flag to
+# build a DLL.
+# On mingw we need the -mthreads flag and this must be included in CFLAGS and
+# CXXFLAGS before the LIBTOOL macros.
+poly_no_undefined=no
+case "${host_os}" in
+    darwin*)
+        AC_SUBST([OSFLAG], [-DMACOSX])
+        ;;
+    sunos* | solaris*)
+        AC_SUBST([OSFLAG], [-DSOLARIS])
+        ;;
+    *mingw*)
+        AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+        poly_native_windows=yes
+        poly_no_undefined=yes
+        CFLAGS="$CFLAGS -mthreads"
+        CXXFLAGS="$CXXFLAGS -mthreads"
+        ;;
+    *cygwin*)
+        poly_no_undefined=yes
+        if test "$ac_cv_c_compiler_gnu" = "yes"; then
+            if $CC -dumpmachine | grep -q mingw; then
+                AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+                poly_native_windows=yes
+                CFLAGS="$CFLAGS -mthreads"
+                CXXFLAGS="$CXXFLAGS -mthreads"
+            fi
+        fi
+        ;;
+esac
+
 AC_LIBTOOL_WIN32_DLL # libpolyml can be a DLL but libpolymain can't.
 AC_PROG_LIBTOOL
 AM_PROG_LIBTOOL
@@ -248,37 +285,6 @@ AM_CONDITIONAL([ARCHSPARC], [test "$polyarch" = sparc])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
-
-
-# Set the OS flag.  This should not really be required but is still used in
-# a few places for OS-specific quirks that can't be handled by more specific tests.
-# Check also for mingw in which case we want to build native Windows.
-poly_native_windows=no
-# If we are building on cygwin or mingw we need to give the -no-defined flag to
-# build a DLL.
-poly_no_undefined=no
-case "${host_os}" in
-    darwin*)
-        AC_SUBST([OSFLAG], [-DMACOSX])
-        ;;
-    sunos* | solaris*)
-        AC_SUBST([OSFLAG], [-DSOLARIS])
-        ;;
-    *mingw*)
-        AC_SUBST([OSFLAG], [-DWINDOWS_PC])
-        poly_native_windows=yes
-        poly_no_undefined=yes
-        ;;
-    *cygwin*)
-        poly_no_undefined=yes
-        if test "$ac_cv_c_compiler_gnu" = "yes"; then
-            if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], [-DWINDOWS_PC])
-                poly_native_windows=yes
-            fi
-        fi
-        ;;
-esac
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
