@@ -258,7 +258,7 @@ sig
     val useIntoEnv   : gEnv -> string -> unit
 
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
           lineNumber: unit->int, putString: string->unit }
        -> unit -> unit;
     val setPrintEnv : nameSpace -> unit  
@@ -1037,7 +1037,7 @@ struct
             (* Construct the record type for the compiler arguments. *)
             val fields = [
                 mkLabelEntry("nameSpace",  nameSpaceType),
-                mkLabelEntry("getChar",    Unit ->> Char),
+                mkLabelEntry("getChar",    Unit ->> Option Char),
                 mkLabelEntry("fileName",   String),
                 mkLabelEntry("lineNumber", Unit ->> Int),
                 mkLabelEntry("putString",  String ->> Unit)

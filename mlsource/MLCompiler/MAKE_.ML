@@ -68,7 +68,7 @@ sig
 
     (* The completed compiler. *)
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
           lineNumber: unit->int, putString: string->unit }
        -> unit -> unit;         (* the function to actually execute *)
 
@@ -253,7 +253,7 @@ sig
       };
       
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
           lineNumber: unit->int, putString: string->unit }
        -> unit -> unit;
 
@@ -412,20 +412,21 @@ struct
                 else TextIO.openIn fileName;
             
             val lineNo   = ref 1;
+            val eof      = ref false;
             
-            fun getChar () : char =
+            fun getChar () : char option =
             case TextIO.input1 inStream of
-                NONE => (* end of file *) eofChar
-            |   SOME #"\n" =>
+                eoln as SOME #"\n" =>
                 (
                     lineNo := !lineNo + 1;                  
-                    #"\n"
+                    eoln
                 )
-            |    SOME c => c
+            |   NONE => (eof := true; NONE)
+            |   c => c
         
         in
             (
-                while not (TextIO.endOfStream inStream) do
+                while not (! eof) do
                 let
                     (* Compile  the code *)
                     val code : unit -> unit = COMPILERBODY.compiler

@@ -106,7 +106,7 @@ sig
   val filename: lexan -> string;
   val pushBackSymbol: lexan * sys -> unit;
      
-  val initial: (unit -> char) * string * (unit -> int) * (string -> unit) -> lexan;
+  val initial: (unit -> char option) * string * (unit -> int) * (string -> unit) -> lexan;
 
   (* Error handling *)
      
@@ -134,7 +134,7 @@ struct
   
   type lexan = 
     {
-      stream:   unit -> char,
+      stream:   unit -> char option,
       filename: string,
       lineno:   unit -> int,
       ch:       char ref,
@@ -183,7 +183,7 @@ struct
    val nullLex = 
      initial
        (
-         fn () => eofChar,
+         fn () => NONE,
          "",
          fn () => 0, 
          fn _ => raise InternalError "no stream"
@@ -254,7 +254,7 @@ struct
     (* "ch" contains the next character in the stream.  extraChars is a hack that is
        needed to deal with a number that looks like it might be a real number
        but actually isn't. *)
-    fun nextCh({ch, stream, extraChars = ref [], ...}) = ch := stream()
+    fun nextCh({ch, stream, extraChars = ref [], ...}) = ch := getOpt(stream(), eofChar)
      |  nextCh({ch, extraChars = extra as ref(c::l), ...}) = (extra := l; ch := c)
  
     and skipWhiteSpace (state as {ch = ref c, ...}:lexan) : char =
@@ -482,12 +482,12 @@ struct
                   Int.toString startLine ^ ")");
                firstCh
               )
-           else case (firstCh, stream ()) of
-                (#"*", #")") => stream () (* End of comment - return next ch. *)
+           else case (firstCh, getOpt(stream (), eofChar)) of
+                (#"*", #")") => getOpt(stream (), eofChar) (* End of comment - return next ch. *)
             |   (#"(", #"*") => skipCommentBody (skipComment ()) (* Nested comment. *)
             |   (_, nextCh) => skipCommentBody nextCh
        in
-         skipCommentBody (stream ()) (* Skip the initial "*" *)
+         skipCommentBody (getOpt(stream (), eofChar)) (* Skip the initial "*" *)
        end; (* skipComment *)
 
     in 

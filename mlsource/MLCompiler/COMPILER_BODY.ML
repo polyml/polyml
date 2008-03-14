@@ -60,7 +60,7 @@ sig
   val resetLexan:    lexan -> unit
   val flushLexan:    lexan -> unit;
 
-  val initial: (unit -> char) * string * (unit -> int) * (string -> unit) -> lexan;
+  val initial: (unit -> char option) * string * (unit -> int) * (string -> unit) -> lexan;
 end;
 
 (*****************************************************************************)
@@ -384,7 +384,7 @@ sig
 
     (* The completed compiler. *)
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
           lineNumber: unit->int, putString: string->unit }
        -> unit -> unit;         (* the function to actually execute *)
 
@@ -789,7 +789,7 @@ struct
         allFunct:     unit -> (string*functors) list
       };
 
-    fun compiler { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+    fun compiler { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
           lineNumber: unit->int, putString: string->unit } : unit -> unit =
     let
         val lex = LEX.initial(getChar, fileName, lineNumber, putString);
