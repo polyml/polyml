@@ -21,9 +21,6 @@
 
 PolyML.print_depth 0;
 
-PolyML.use "mlsource/prelude/RuntimeCalls";
-PolyML.use "mlsource/prelude/Address";
-
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";
 
