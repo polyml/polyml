@@ -29,7 +29,7 @@ Bootstrap.use "basis/build.sml";
 
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)
-PolyML.use "mlsource/prelude/Address";
+PolyML.use "basis/Address";
 PolyML.make "mlsource/extra/CInterface";
 PolyML.use "mlsource/extra/CInterface/clean";
 
