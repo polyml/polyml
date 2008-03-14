@@ -1,21 +1,34 @@
-PolyML.addOverload PolyML.convString PolyML.convStringName;
-PolyML.addOverload PolyML.convInt "convInt";
-PolyML.addOverload PolyML.convWord "convWord";
+(*
+    Title:      Bootstrap code.
+    Author:     David Matthews
+    Copyright   David Matthews 2005-2008
 
-PolyML.Inner.print_depth 1;
-PolyML.Inner.use "mlsource/prelude/RunCall";
-PolyML.Inner.use "mlsource/prelude/RuntimeCalls";
-PolyML.Inner.use "mlsource/prelude/prelude";
-PolyML.Inner.use "mlsource/prelude/prelude2";
-
-PolyML.use "mlsource/prelude/Universal";
+	This library is free software; you can redistribute it and/or
+	modify it under the terms of the GNU Lesser General Public
+	License as published by the Free Software Foundation; either
+	version 2.1 of the License, or (at your option) any later version.
+	
+	This library is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+	Lesser General Public License for more details.
+	
+	You should have received a copy of the GNU Lesser General Public
+	License along with this library; if not, write to the Free Software
+	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
+RunCall.addOverload Bootstrap.convInt "convInt";
+RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)
-PolyML.use "basis/build";
-(* Build the Process structure for backwards compatibility. *)
-PolyML.use "mlsource/prelude/processes";
+Bootstrap.use "basis/build.sml";
 
-PolyML.use "mlsource/prelude/Address";
+(* We've now set up the new name space so everything has to be
+   compiled into that rather than the old space. *)
+
+(* FFI. *)
+PolyML.use "basis/Address";
 PolyML.make "mlsource/extra/CInterface";
 PolyML.use "mlsource/extra/CInterface/clean";
 
@@ -59,7 +72,6 @@ let
 	  | getFile (_::tl) = getFile tl
 	val fileName = getFile args
 in
-	PolyML.use "mlsource/prelude/ReplaceStdio";
 	PolyML.shareCommonData PolyML.rootFunction;
 	PolyML.export(fileName, PolyML.rootFunction)
 end;
