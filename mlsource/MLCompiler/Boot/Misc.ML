@@ -17,8 +17,6 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* HACKS: use of Array, RunCall *)
-
 structure Misc :
 (*****************************************************************************)
 (*                  Misc exports signature                                  *)
@@ -29,10 +27,6 @@ sig
 
   (* These are handled in the compiler *)
   exception Conversion of string;     (* string to int conversion failure *)
-  exception ValueMissing of string;  (* table lookup failure *)
-  
-  (* This is handled at the top level *)
-  exception Failure of string;       (* run-time error *)
 
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
@@ -40,16 +34,6 @@ sig
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 
   val unescapeString : string -> string
-
-  val isNil : 'a list -> bool
-  val nth: 'a list -> int -> 'a
-  
-  val fold   : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-  val filter : ('a -> bool) -> 'a list -> 'a list
-
-  val min : int -> int -> int
-  val max : int -> int -> int
 
   type 'a iter;
   
@@ -65,16 +49,15 @@ sig
   val downto   : int -> int -> int iter
   
   val for    : 'a iter -> ('a -> 'b) -> unit
-  val forall : ('a -> unit) -> 'a list -> unit
+
   val forsucc:  ('a -> 'a) -> ('a * 'b -> bool) -> 
                       'a -> 'b -> ('a -> 'c) -> unit
   val first  : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
 
-  val overList        : 'a list -> 'a iter;
   val mapIterator     : ('a -> 'b) -> 'a iter -> 'b list
   val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
   
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end  =
 
 (*****************************************************************************)
@@ -97,11 +80,6 @@ struct
     exception Conversion = Conversion.ex;
   end;
 
-  exception ValueMissing of string;  (* table lookup failure *)
-  
-  (* Handled at the top level.  Not the same as the global Fail exception. *)
-  exception Failure of string;       (* run-time error *)
-
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
@@ -113,11 +91,9 @@ struct
     | quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
     | quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
   let
-    val test   = leq h;
-    val op before = filter (fn x => not (test x)) t
-    val after  = filter test t (* 'cos h is leq *them* *)
+     val (after, befor) = List.partition (leq h) t
   in
-    quickSort leq (op before) @ (h :: quickSort leq after)
+    quickSort leq befor @ (h :: quickSort leq after)
   end;
 
 
@@ -143,10 +119,6 @@ struct
 		in
 			String.implode(convChars 0)
 		end
-
-  
-  fun forall (f:'a -> unit) []     = ()
-  |   forall (f:'a -> unit) (H::T) = (f H; forall f T);
   
   fun forsucc succ (op <=) =
   let
@@ -155,30 +127,7 @@ struct
   in
     for
   end;
-  
-  fun fold f =
-  let
-    fun loop x []     = x
-    |   loop x (H::T) = f H (loop x T);
-  in
-    loop
-  end;
-  
-  fun revfold f =
-  let
-    fun loop x []     = x
-    |   loop x (H::T) = loop (f H x) T;
-  in
-    loop
-  end;
- 
-  val isNil = List.null
-  
-  fun max (a:int) (b:int) = Int.max(a, b);
-  fun min (a:int) (b:int) = Int.min(a, b);
 
-  fun nth l n = List.nth(l, n)
-  
   datatype 'a iter = Iter of { continue: bool,
 			       value:    unit -> 'a,
 			       next:     unit -> 'a iter };
@@ -207,10 +156,6 @@ struct
   
   fun for i body = if Continue i then (body (Value i); for (Next i) body) else ();
   
-  fun overList L = Iter { continue = not (isNil L),
-			  next     = fn () => overList (tl L),
-			  value    = fn () => hd L };
-
   fun mapIterator     f   i = map     f   (iterList i);
   (*fun revfoldIterator f x i = revfold f x (iterList i);*)
   fun revfoldIterator f x i =
@@ -236,6 +181,6 @@ struct
     pred start
   end;
 
-  fun lookupDefault first second = (fn key => first key handle ValueMissing _ => second key);
+  fun lookupDefault first second = (fn key => case first key of NONE => second key | v => v);
 
 end (* Misc *);
