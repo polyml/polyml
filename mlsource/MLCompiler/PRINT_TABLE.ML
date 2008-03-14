@@ -61,18 +61,7 @@ end;
 structure PRETTYPRINTER :
 sig
   type prettyPrinter;
-end;
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string;
-  exception ValueMissing  of string;
-end;
-) :
-
+end):
 
 (*****************************************************************************)
 (*                  PRINTTABLE export signature                              *)
@@ -99,7 +88,6 @@ end =
 struct
   open STRUCTVALS;
   open PRETTYPRINTER;
-  open MISC;
   type overloadEntry = string * typeConstrs * codetree;
 
   (* Create a ref to hold the list *)
@@ -167,7 +155,7 @@ struct
   (* However, we should search ALL the refs when we lookup a constructor *)
   fun getPrint id =
   let
-      fun searchList []         = raise ValueMissing ""
+      fun searchList []         = raise Subscript
       |   searchList ((i,p)::t) = 
             if sameTypeId (i, id) then p else searchList t;
   in

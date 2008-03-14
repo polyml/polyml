@@ -46,7 +46,6 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception ValueMissing of string;  (* table lookup failure *)
   exception InternalError of string;
 end;
 
@@ -57,7 +56,7 @@ structure UNIVERSAL :
 sig
   type 'a tag
   
-  val tag : unit -> '_a tag
+  val tag : unit -> 'a tag
 end;
 
 (*****************************************************************************)
@@ -70,7 +69,7 @@ sig
   
   val makeUnivTable: unit -> univTable;
   val univEnter:     univTable * 'a tag * string * 'a -> unit;
-  val univLookup:    univTable * 'a tag * string -> 'a;
+  val univLookup:    univTable * 'a tag * string -> 'a option;
   
   (* Freeze a mutable table so it is immutable. *)
   val univFreeze:       univTable -> univTable
@@ -327,13 +326,12 @@ sig
   datatype env =
     Env of
       {
-        lookupVal:    string -> values,
-        lookupType:   string -> typeConstrs,
-        lookupFix:    string -> fixStatus,
-        lookupStruct: string -> structVals,
-        lookupSig:    string -> signatures,
-        lookupFunct:  string -> functors,
-        lookupTvars:  string -> types,
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
         enterVal:     string * values      -> unit,
         enterType:    string * typeConstrs -> unit,
         enterFix:     string * fixStatus   -> unit,
@@ -585,7 +583,7 @@ struct
   and typeVarForm = 
       {
          value:    types ref,
-         encoding: int
+         encoding: Word.word
       }
  
   (* A function type takes two types, the argument and the result. *)
@@ -600,7 +598,7 @@ struct
     { 
       recList: { name: string, typeof: types } list,
       frozen: bool,
-	  genericInstance: (*typeVarForm*) { value: types ref, encoding: int } list
+	  genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
     }
 	
   (* A set of type contructors.  This is used only during the
@@ -667,30 +665,27 @@ struct
   (* To save space "equality", "nonunifiable" and "weak"
      are encoded together with the level.
   *)
-      
-  fun makeTv (t : types, lev, equality, nonunifiable, weak) : typeVarForm =
-    { value    = ref t, (* REF HOTSPOT - 400 *)
-      encoding = (lev * 8 + (if equality     then 4 else 0)
-			  + (if nonunifiable then 2 else 0)
-			  + (if weak         then 1 else 0)) };
 
-  fun tvSetValue (tv : typeVarForm, t : types) : unit =
-    #value tv := t;
+    local
+        open Word
+        infix 8 >> <<
+        infix 7 andb
+        infix 6 orb
+    in
+        fun makeTv (t : types, lev, equality, nonunifiable, weak) : typeVarForm =
+            { value    = ref t, (* REF HOTSPOT - 400 *)
+              encoding = (fromInt lev << 0w3)
+                           orb (if equality     then 0w4 else 0w0)
+                           orb (if nonunifiable then 0w2 else 0w0)
+                           orb (if weak         then 0w1 else 0w0) };
         
-  fun tvValue (tv : typeVarForm) : types =
-    ! (#value tv);
-        
-  fun tvLevel (tv : typeVarForm) : int =
-    #encoding tv div 8;
-        
-  fun tvEquality (tv : typeVarForm) : bool =
-    (#encoding tv mod 8) >= 4;
-        
-  fun tvNonUnifiable (tv : typeVarForm) : bool =
-    (#encoding tv mod 4) >= 2;
-        
-  fun tvWeak (tv : typeVarForm) : bool =
-    (#encoding tv mod 2) = 1;
+        fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t;
+        fun tvValue ({value = ref v, ...} : typeVarForm) : types = v;
+        fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3);
+        fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0;
+        fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0;
+        fun tvWeak ({encoding, ...} : typeVarForm)         = encoding andb 0w1 <> 0w0;
+    end;
 
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 
@@ -701,10 +696,10 @@ struct
      of type variables which are used in the "equivalent" type. ``equality'' is a 
      flag indicating if the values can be tested for equality. *)
       
-  fun tcName       (TypeConstrs {name,...} : typeConstrs)       = name;
-  fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
-  fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
-  fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
+    fun tcName       (TypeConstrs {name,...} : typeConstrs)       = name;
+    fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
+    fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
+    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
 
     local
         fun getUpdatable (TypeConstrs {updatable,...} : typeConstrs) = pling updatable;
@@ -966,19 +961,18 @@ struct
   datatype env = 
     Env of 
       { 
-	lookupVal:    string -> values,
-	lookupType:   string -> typeConstrs,
-	lookupFix:    string -> fixStatus,
-	lookupStruct: string -> structVals,
-	lookupSig:    string -> signatures,
-	lookupFunct:  string -> functors,
-	lookupTvars:  string -> types,
-	enterVal:     string * values      -> unit,
-	enterType:    string * typeConstrs -> unit,
-	enterFix:     string * fixStatus   -> unit,
-	enterStruct:  string * structVals  -> unit,
-	enterSig:     string * signatures  -> unit,
-	enterFunct:   string * functors    -> unit
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit
       };
 
   (* This creates functions for entering and looking up names. *)
@@ -992,7 +986,6 @@ struct
           lookupStruct = makeLook  structVar     tab,
           lookupSig    = makeLook  signatureVar  tab,
           lookupFunct  = makeLook  functorVar    tab,
-          lookupTvars  = fn s => raise ValueMissing s,
           enterVal     = makeEnter valueVar      tab,
           enterType    = makeEnter typeConstrVar tab,
           enterFix     = makeEnter fixVar        tab,
@@ -1000,6 +993,5 @@ struct
           enterSig     = makeEnter signatureVar  tab,
           enterFunct   = makeEnter functorVar    tab
         }
-  end;
-  
+  end; 
 end (* STRUCTVALS *);

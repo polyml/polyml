@@ -24,7 +24,7 @@ structure Debugger =
 		structure STRUCTVALS = StructVals
 		structure DEBUG = Debug
 		structure CODETREE = CodeTree
-		structure MISC = Misc
 		structure VALUEOPS = ValueOps
 		structure PRETTYPRINTER = PrettyPrinter
+        structure UNIVERSAL = Universal
 	);

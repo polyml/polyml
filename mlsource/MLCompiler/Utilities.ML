@@ -22,5 +22,4 @@ structure Utilities =
   UTILITIES_
     (
       structure LEX  = Lex
-      structure MISC = Misc
     );

@@ -220,13 +220,12 @@ sig
   datatype env = 
     Env of
     {
-      lookupVal:    string -> values,
-      lookupType:   string -> typeConstrs,
-      lookupFix:    string -> fixStatus,
-      lookupStruct: string -> structVals,
-      lookupSig:    string -> signatures,
-      lookupFunct:  string -> functors,
-      lookupTvars:  string -> types,
+      lookupVal:    string -> values option,
+      lookupType:   string -> typeConstrs option,
+      lookupFix:    string -> fixStatus option,
+      lookupStruct: string -> structVals option,
+      lookupSig:    string -> signatures option,
+      lookupFunct:  string -> functors option,
       enterVal:     string * values      -> unit,
       enterType:    string * typeConstrs -> unit,
       enterFix:     string * fixStatus   -> unit,
@@ -259,22 +258,21 @@ sig
   
   val codeStruct:     structVals * int -> codetree;
   val codeAccess:     valAccess  * int -> codetree
-  val codeVal:        values * int * types * lexan * int *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree
+  val codeVal:        values * int * types * lexan * int -> codetree
   val codeExFunction: values * int * types * lexan * int -> codetree
                     
-  val lookupAny:  string * (string -> 'a) * (string -> structVals) *
-                 (structVals -> string -> 'a) * string * 'a * (string -> unit) -> 'a
+  val lookupAny:  string * (string -> 'a option) * (string -> structVals option) *
+                 (structVals -> string -> 'a option) * string * 'a * (string -> unit) -> 'a
                     
-  val lookupStructure:  string * {lookupStruct: string -> structVals} * 
+  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                         string * (string -> unit) -> structVals
                                            
-  val lookupStructureDirectly: string * {lookupStruct: string -> structVals} * 
+  val lookupStructureDirectly: string * {lookupStruct: string -> structVals option} * 
                                string * (string -> unit) -> structVals
                                            
                   
-  val lookupTyp:   {lookupType: string -> typeConstrs,
-                    lookupStruct: string -> structVals} * 
+  val lookupTyp:   {lookupType: string -> typeConstrs option,
+                    lookupStruct: string -> structVals option} * 
                    string * (string -> unit) -> typeConstrs
 end (* VALUEOPS *);
 
@@ -300,7 +298,7 @@ sig
   val exnType:              types;
 
    (* Match a candidate to a target type. *)
-   val matchTypes: types * types * (typeId -> typeConstrs) *
+   val matchTypes: types * types * (typeId -> typeConstrs option) *
                    lexan * int * (prettyPrinter -> unit) -> unit;
 
 
@@ -321,7 +319,7 @@ sig
 
   val enterTypeConstrs:     typeConstrs * typeConstrs *
                             { enter: typeId * typeConstrs -> unit, 
-                              lookup: typeId -> typeConstrs} -> unit;
+                              lookup: typeId -> typeConstrs option} -> unit;
 
   val identical:            types * types -> bool;
   val identicalConstr:      typeConstrs * typeConstrs -> bool;
@@ -334,7 +332,7 @@ sig
   val copyTypeConstr:  typeConstrs * (typeId -> bool) * 
                        (unit -> typeId) *
                        {enter: typeId * typeConstrs -> unit, 
-                        lookup: typeId -> typeConstrs} *
+                        lookup: typeId -> typeConstrs option} *
 						(types -> types) * string -> typeConstrs;
 
   val display:              types * int * prettyPrinter -> unit;
@@ -373,9 +371,7 @@ sig
 
   type debugenv = environEntry list * (int->codetree)
 
-  val gencode: parsetree * lexan * debugenv * int * int ref * string * int *
-  					{ lookupFix: string -> fixStatus, lookupExnById: word -> values option}
-					-> codetree list * debugenv
+  val gencode: parsetree * lexan * debugenv * int * int ref * string * int -> codetree list * debugenv
 end;
 
 (*****************************************************************************)
@@ -383,26 +379,8 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception ValueMissing of string;  (* table lookup failure *)
-  exception InternalError of string; (* compiler error *)
-
-  val isNil : 'a list -> bool
-  
-  val fold   : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-
-  val min : int -> int -> int
-  val max : int -> int -> int
-
-  type 'a iter;
-  
-  val downto   : int -> int -> int iter
-  val for    : 'a iter -> ('a -> 'b) -> unit
-  val forall : ('a -> unit) -> 'a list -> unit
-  val overList        : 'a list -> 'a iter;
-  val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
-  
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+  exception InternalError of string; (* compiler error *)  
+  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end;
 
 (*****************************************************************************)
@@ -411,13 +389,13 @@ end;
 structure UTILITIES :
 sig
   val noDuplicates: (string -> unit) -> 
-         { apply: (string * '_a -> unit) -> unit,
-           enter:  string * '_a -> unit,
-           lookup: string -> '_a };
+         { apply: (string * 'a -> unit) -> unit,
+           enter:  string * 'a -> unit,
+           lookup: string -> 'a option };
 
-  val searchList: unit -> { apply: (string * '_a -> unit) -> unit,
-                            enter:  string * '_a -> unit,
-                            lookup: string -> '_a };
+  val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
+                            enter:  string * 'a -> unit,
+                            lookup: string -> 'a option };
   val splitString: string -> { first:string,second:string }
 end;
 
@@ -444,7 +422,7 @@ sig
   type 'a tag
   
   val univEnter:  univTable * 'a tag * string * 'a -> unit;
-  val univLookup: univTable * 'a tag * string -> 'a;
+  val univLookup: univTable * 'a tag * string -> 'a option;
   val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
@@ -671,8 +649,7 @@ sig
        enterSig:     string * signatures  -> unit
      } -> unit;
 
-  val gencodeStructs: structs list * lexan *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree;
+  val gencodeStructs: structs list * lexan -> codetree;
 
   val displayStructs: structs list * int * prettyPrinter -> unit;
 end (* STRUCTURES export signature *) =
@@ -1294,7 +1271,7 @@ struct
   	Value{class=class, name=name, typeOf=typ, access=Formal addr}
 
   (* A null map from a structure identifier to anything. *)
-  fun nullMap (id : 'a) : 'b = raise ValueMissing "";
+  fun nullMap (id : 'a) : 'b option = NONE;
 
   (* Check that a matching has succeeded, and check the value
      constructors if they are datatypes. Used  for both signature
@@ -1374,7 +1351,7 @@ struct
     in 
       (* We have already checked for matching a type in the structure
           to a datatype in the signature. *)
-      if isNil targetConstrs orelse isNil candidConstrs
+      if null targetConstrs orelse null candidConstrs
       then ()
       else checkConstrs (candidConstrs, targetConstrs)
     end
@@ -1389,7 +1366,7 @@ struct
 
   type 'a map =
     {
-      lookup: typeId -> 'a,
+      lookup: typeId -> 'a option,
       enter:  typeId * 'a -> unit
     };
 
@@ -1413,53 +1390,51 @@ struct
             if tagIs typeConstrVar dVal
             then let (* See if there is one with the same name. *)
               val target = tagProject typeConstrVar dVal;
-              val candid = univLookup (sigTab candidate, typeConstrVar, dName);
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
-              if not (isUnsetId (tcIdentifier target)) (* just in case *)
-              then
-                ( 
-                  (* Check for arity and equality - value constructors 
-                     are checked later. If the target is a bound identifier
-                     in the range it can be matched by a candidate. *)
-                  enterTypeConstrs (target, candid, tArgTypeMap);
-                
-                  if tcArity target <> tcArity candid
-                    then errorNear (lex, true, near, lno,
-                       "Types (" ^ tcName target ^ ") have different arities.")
-                       
-                  else if tcEquality target andalso
-                       not (permitsEquality candid)
-                    then errorNear (lex, true, near, lno,
-                       "(" ^ tcName candid ^ ") is not an eqtype")
-                       
-                  else if not (isNil (tcConstructors target)) andalso
-                        isNil (tcConstructors candid)
-                    then errorNear (lex, true, near, lno,
-                        "(" ^ tcName candid ^ ") is not a datatype")
-                       
-                  else () 
-                )
-              else ()
-            end (* scope of "handle" increased SPF 11/8/94 *)
-               (* If the lookup failed catch the exception. *)
-               handle ValueMissing _ =>
+              case univLookup (sigTab candidate, typeConstrVar, dName) of
+                 SOME candid =>
+                  if not (isUnsetId (tcIdentifier target)) (* just in case *)
+                  then
+                    ( 
+                      (* Check for arity and equality - value constructors 
+                         are checked later. If the target is a bound identifier
+                         in the range it can be matched by a candidate. *)
+                      enterTypeConstrs (target, candid, tArgTypeMap);
+                    
+                      if tcArity target <> tcArity candid
+                        then errorNear (lex, true, near, lno,
+                           "Types (" ^ tcName target ^ ") have different arities.")
+                           
+                      else if tcEquality target andalso
+                           not (permitsEquality candid)
+                        then errorNear (lex, true, near, lno,
+                           "(" ^ tcName candid ^ ") is not an eqtype")
+                           
+                      else if not (null (tcConstructors target)) andalso
+                            null (tcConstructors candid)
+                        then errorNear (lex, true, near, lno,
+                            "(" ^ tcName candid ^ ") is not a datatype")
+                           
+                      else () 
+                    )
+                  else ()
+              |  NONE =>
                  errorNear (lex, true, near, lno, 
                      "Type (" ^ dName ^ ") missing in structure.")
+             end
              
             else if tagIs structVar dVal
               then let (* and sub-structures. *)
                 val target = (tagProject structVar) dVal;
                 (* For each target structure: find a candidate with the 
                    same name and recursively check them. *)
-                val candid = univLookup (sigTab candidate, structVar, dName);
               in
-                matchNames (structSignat candid, structSignat target)
-              end (* scope of "handle" increased SPF 11/8/94 *)
-                handle ValueMissing _ =>
-                  errorNear (lex, true, near, lno, 
-                     "Structure (" ^ dName ^ ") missing in structure.")
-
+                case univLookup (sigTab candidate, structVar, dName) of
+                   SOME candid => matchNames (structSignat candid, structSignat target)
+                |  NONE => errorNear (lex, true, near, lno, 
+                              "Structure (" ^ dName ^ ") missing in structure.")
+              end
             else () (* not a type or structure *)
           ), (* end of fn *)
           ()  (* default value for fold *)
@@ -1482,35 +1457,33 @@ struct
                 val target = tagProject typeConstrVar dVal;
                 
                 (* Find a candidate with the same name. *)
-                val candid = univLookup (sigTab candidate, typeConstrVar, dName);
-              in 
-                (* Now check that the types match. *)
-                checkTypeConstrs 
-                  (candid,
-                   target,
-                   lookupType,
-                   fn (c, t, n) =>
-                     matchTypes (c, t, lookupType, lex, lno, foundNear (near, n)),
-                   lex,
-                   near,
-                   lno)
+              in
+                  case univLookup (sigTab candidate, typeConstrVar, dName) of
+                     SOME candid =>
+                        (* Now check that the types match. *)
+                        checkTypeConstrs 
+                          (candid,
+                           target,
+                           lookupType,
+                           fn (c, t, n) =>
+                             matchTypes (c, t, lookupType, lex, lno, foundNear (near, n)),
+                           lex,
+                           near,
+                           lno)
+                  | NONE => () (* If the lookup failed ignore
+                              the error - we've already reported it in matchNames *)
               end
-                (* If the lookup failed catch the exception, but ignore
-                   the error - we've already reported it in matchNames *)
-                handle ValueMissing _ => ()
                
               else if tagIs structVar dVal
               then let (* and each sub-structure *)
                 val target = tagProject structVar dVal;
-                val candid = univLookup (sigTab candidate, structVar, dName);
               in
                 (* For each target structure: find a candidate with the same
                    name and recursively check them. *)
-                matchVals (structSignat candid, structSignat target)
+                case univLookup (sigTab candidate, structVar, dName) of
+                   SOME candid => matchVals (structSignat candid, structSignat target)
+                |  NONE => () (* Ignore the error - we've already reported it in matchNames *)
               end
-                (* If the lookup failed catch the exception, but ignore
-                   the error - we've already reported it in matchNames *)
-                handle ValueMissing _ => ()
   
               else ()
             ), (* fn *)
@@ -1531,42 +1504,42 @@ struct
 			  case v of
 			  	Value{class=Constructor _, ...} => ()
 			  | _ =>
-			   let
-                (* Look up a corresponding value and check the type. *)
-                val candid = univLookup (sigTab candidate, valueVar, dName);
-                     
-                val vIsEx = case v of Value{class=Exception, ...} => true | _ => false
-                and cIsEx = case candid of Value{class=Exception, ...} => true | _ => false
-              in
-                (* Check that exceptions have matched with exceptions 
-                   and values with values, and have not mixed. *)
-                if not cIsEx andalso vIsEx
-                  then errorNear (lex, true, near, lno, 
-                        "Value (" ^ dName ^
-                        ") must be an exception to match the signature.")
-                       
-                (* An exception will match a value provided the types are right. *)
-                else if cIsEx andalso not vIsEx
-                  then let
-                    val exType = valTypeOf candid;
-                    val candidType = 
-                      if isEmpty exType
-                      then exnType
-                      else mkFunctionType (exType, exnType)
+                 case univLookup (sigTab candidate, valueVar, dName)
+                    (* Look up a corresponding value and check the type. *)
+                 of SOME candid =>
+                   let
+                    val vIsEx = case v of Value{class=Exception, ...} => true | _ => false
+                    and cIsEx = case candid of Value{class=Exception, ...} => true | _ => false
                   in
-                    matchTypes
-                      (candidType, valTypeOf v, lookupType,
-                       lex, lno, foundNear (near, dName))
+                    (* Check that exceptions have matched with exceptions 
+                       and values with values, and have not mixed. *)
+                    if not cIsEx andalso vIsEx
+                      then errorNear (lex, true, near, lno, 
+                            "Value (" ^ dName ^
+                            ") must be an exception to match the signature.")
+                           
+                    (* An exception will match a value provided the types are right. *)
+                    else if cIsEx andalso not vIsEx
+                      then let
+                        val exType = valTypeOf candid;
+                        val candidType = 
+                          if isEmpty exType
+                          then exnType
+                          else mkFunctionType (exType, exnType)
+                      in
+                        matchTypes
+                          (candidType, valTypeOf v, lookupType,
+                           lex, lno, foundNear (near, dName))
+                      end
+                      
+                    else
+                      matchTypes
+                        (valTypeOf candid, valTypeOf v, lookupType,
+                         lex, lno, foundNear (near, dName))
                   end
-                  
-                else
-                  matchTypes
-                    (valTypeOf candid, valTypeOf v, lookupType,
-                     lex, lno, foundNear (near, dName))
-              end (* scope of "handle" increased SPF 11/8/94 *)
-                handle ValueMissing _ =>
-                  errorNear (lex, true, near, lno, 
-                      "Value (" ^ dName ^ ") missing in structure.")
+                | NONE =>
+                      errorNear (lex, true, near, lno, 
+                          "Value (" ^ dName ^ ") missing in structure.")
             end
             else ()
           ),
@@ -1582,7 +1555,7 @@ struct
   fun typeMatchTab (minOffset : int, size : int) : typeConstrs map =
   let
     (* Make a vector with an entry for each bound name. *)
-    val v = ARRAY.array (max 0 size, undefType) ;(* was "max 1 size" *)
+    val v = ARRAY.array (Int.max(0, size), undefType) ;
   in
     (* Return the entry corresponding to the name, unless it is empty
        when an exception is raised. *)
@@ -1595,16 +1568,16 @@ struct
             (* It is possible for the offset to be >= size if the type
                is being shared inside the result signature of a functor. It
                will only happen for types inside structures which are shared. *)
-              then raise ValueMissing "" 
-              else (); (* Not present if it isn't bound. *)
+              then NONE (* Not present if it isn't bound. *)
+              else
              let
                (* Must be a bound stamp. *)
                 val entry = ARRAY.sub (v, offsetId id);
                                (* SPF 7/6/94 fixed off-by-one *)
               in
                 if isUnsetId (tcIdentifier entry) (* undefType *)
-                then raise ValueMissing ""
-                else entry
+                then NONE
+                else SOME entry
               end
             ) 
          ),
@@ -1700,7 +1673,7 @@ struct
              makeFormalStruct (structName oldStruct, newSig, addr);
          in
            #enterStruct resEnv (dName, newStruct);
-           max num (addr+1)
+           Int.max(num, addr+1)
          end (* structures *)
                  
          else if tagIs typeConstrVar dVal
@@ -1785,7 +1758,7 @@ struct
 						let
 							val newAddr = addr+offset
 						in
-							address := max (newAddr+1) (!address);
+							address := Int.max(newAddr+1, !address);
 							(Formal newAddr, offset <> 0)
 						end
 					  | access => (access, false)
@@ -1836,7 +1809,7 @@ struct
                   The type in the signature may be either a datatype or a type. *)
                   
               val newType =
-                if not (isNil (tcConstructors newConstr))
+                if not (null (tcConstructors newConstr))
                 then (* Matched to a datatype. Use the NEW types throughout *)
                   makeTypeConstrs (* Necessary? *)
                       (tcName newConstr, tcTypeVars newConstr,
@@ -1857,7 +1830,7 @@ struct
             end
             else #enterType resEnv (dName, newConstr);
             
-            max num (!address)
+            Int.max(num, !address)
           end
             
           (* Finally the values and exceptions. *)
@@ -1878,7 +1851,7 @@ struct
 	                    else v;
 	                in
 	                  #enterVal resEnv (name, res);
-	                  max num (newAddr+1)
+	                  Int.max(num, newAddr+1)
 	                end
 
 			  | Value {typeOf, class, name, access, ...} =>
@@ -2107,14 +2080,11 @@ struct
               in every structure of the virtual structure.
            *)
           val substrList : signatures list =
-            fold 
-              (fn (sigVal : signatures) => fn (res : signatures list) =>
-	              let
-	                val str = univLookup (sigTab sigVal, structVar, strName)
-	              in
-	                structSignat str ::res
-	              end
-                handle ValueMissing _ => res)
+            List.foldr
+              (fn (sigVal : signatures, res : signatures list) =>
+	              case univLookup (sigTab sigVal, structVar, strName) of
+                     SOME str => structSignat str :: res
+                  |  NONE => res)
              []
              sigs;
         in
@@ -2124,11 +2094,12 @@ struct
         (* Find the named typed constructors of a virtual structure. *)
         fun getVirtTypeConstrs sigs (typeName : string) : typeConstrs list =
         let
-           fun funForFold (sigVal : signatures) (res : typeConstrs list) : typeConstrs list =
-		  	  univLookup (sigTab sigVal, typeConstrVar, typeName) :: res
-			  	  handle ValueMissing _ => res
+           fun funForFold (sigVal : signatures, res : typeConstrs list) : typeConstrs list =
+		  	  case univLookup (sigTab sigVal, typeConstrVar, typeName) of
+                 SOME r => r :: res
+              |  NONE => res
         in
-          fold funForFold [] sigs
+          List.foldr funForFold [] sigs
         end;
                 
         (* Find all the substructure names occurring in a list of virtual structures *)
@@ -2142,19 +2113,19 @@ struct
         (* Find all the named virtual substructures occurring in a list of virtual structures *)
         fun listVirtSubStructures (virts : virtStruct list) (strName : string) : virtStruct list = 
         let
-          fun funForFold (vs : virtStruct) (res : virtStruct list) : virtStruct list = 
+          fun funForFold (vs : virtStruct, res : virtStruct list) : virtStruct list = 
             getVirtSubStructure vs strName :: res
         in
-          fold funForFold [] virts 
+          List.foldr funForFold [] virts 
         end;
         
         (* Find all the named virtual type constructors occurring in a list of virtual structures *)
         fun listVirtTypeConstrs (virts : virtStruct list) (strName : string) : typeConstrs list = 
         let
-          fun funForFold (vs : virtStruct) (res : typeConstrs list) : typeConstrs list = 
+          fun funForFold (vs : virtStruct, res : typeConstrs list) : typeConstrs list = 
             (getVirtTypeConstrs vs strName) @ res
         in
-          fold funForFold [] virts 
+          List.foldr funForFold [] virts 
         end;
         
         fun shareVirtStructs ([], _)      = raise InternalError "Empty sharing list"
@@ -2228,7 +2199,7 @@ struct
               in
                 if not (isUnsetId (tcIdentifier first))
                 then
-                  forall
+                  List.app
                     (fn typ => shareTypes (lookupSharing typ, first, line))
                     (tl tlist)
                  else ()
@@ -2286,16 +2257,11 @@ struct
 			(* ML 97 does not allow multiple declarations in a signature. *)
 			fun checkAndEnter enter lookup kind (s: string, v) =
 				if !ml90 then enter(s, v)
-				else
-					(
-					let
-					val discard = lookup s
-					in
-					errorNear (lex, true, str, lno, 
-                         kind ^ " (" ^ s ^ ") is already present in this signature.")
-					end
-					handle ValueMissing _ => enter(s, v)
-					)
+				else case lookup s of
+                       SOME _ => (* Already there. *)
+					     errorNear (lex, true, str, lno, 
+                             kind ^ " (" ^ s ^ ") is already present in this signature.")
+                    |  NONE => enter(s, v)
 
             val checkedStructEnv = 
              {
@@ -2305,7 +2271,6 @@ struct
               lookupStruct  = #lookupStruct structEnv,
               lookupSig     = #lookupSig    structEnv,
               lookupFunct   = #lookupFunct  structEnv,
-              lookupTvars   = #lookupTvars  structEnv,
               enterVal      =
 			  	checkAndEnter (#enterVal structEnv) (#lookupVal structEnv) "Value",
               enterType     =
@@ -2376,7 +2341,6 @@ struct
 			                lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
 			              lookupSig     = #lookupSig    structEnv,
 			              lookupFunct   = #lookupFunct  structEnv,
-			              lookupTvars   = #lookupTvars  structEnv,
 			              enterVal      = #enterVal structEnv,
 			              enterType     = #enterType structEnv,
 			              enterStruct   = #enterStruct structEnv,
@@ -2485,7 +2449,6 @@ struct
 			                lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
 			              lookupSig     = #lookupSig    structEnv,
 			              lookupFunct   = #lookupFunct  structEnv,
-			              lookupTvars   = #lookupTvars  structEnv,
 			              enterVal      = #enterVal structEnv,
 			              enterType     = #enterType structEnv,
 			              enterStruct   = #enterStruct structEnv,
@@ -2536,7 +2499,6 @@ struct
 	                lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
 	              lookupSig     = #lookupSig    structEnv,
 	              lookupFunct   = #lookupFunct  structEnv,
-	              lookupTvars   = #lookupTvars  structEnv,
 	              enterVal      = enterVal,
 	              enterType     = enterType,
 	              enterStruct   = #enterStruct structEnv,
@@ -2551,7 +2513,7 @@ struct
 				   constructors.  All the constructors should be in the set.  Is
 				   it possible that one might not be because of an error? *)
 				fun findConstr(v: values): values =
-					(#lookupVal structEnv)(valName v) handle ValueMissing _ => v
+					getOpt((#lookupVal structEnv)(valName v), v)
 				fun updateConstrList tyCons =
 					tcSetConstructors(tyCons, List.map findConstr (tcConstructors tyCons))
 				val _ = List.app updateConstrList (!datatypeList)
@@ -2593,7 +2555,6 @@ struct
 							(lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)),
 	                lookupSig     = #lookupSig    structEnv,
 	                lookupFunct   = #lookupFunct  structEnv,
-	                lookupTvars   = #lookupTvars  structEnv,
 	                enterVal      = #enterVal structEnv,
 		            enterType     = #enter findTypes,
 		            enterFix      = #enterFix structEnv,
@@ -2709,7 +2670,7 @@ struct
             (* Look up the name, and copy the structure. Strictly functors
                cannot be contained in structures but this allows structures
                to be used as general name spaces. *)
-            val functr =
+            val functr: functors =
               lookupAny 
                 (name,
                  #lookupFunct env, 
@@ -2846,9 +2807,7 @@ struct
 			  (* Fixity declarations are dealt with in the parsing process.  They
 			     are only processed again in this pass in order to get declarations
 				 in the right order. *)
-              enterFix     = fn _ => (),
-              
-              lookupTvars  = #lookupTvars env
+              enterFix     = fn _ => ()
             };
             
             (* process body of structure *)
@@ -2874,7 +2833,6 @@ struct
                 lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
               lookupSig     = #lookupSig    env,
               lookupFunct   = #lookupFunct  env,  (* Sigs and functs are global *)
-              lookupTvars   = #lookupTvars  newEnv,
               enterVal      = #enterVal     newEnv,
               enterType     = #enterType    newEnv,
 			  (* Fixity declarations are dealt with in the parsing process.  At
@@ -2899,7 +2857,7 @@ struct
           let (* struct: sig or struct :> sig *)
             val resSig = structValue str typeNo (Env env) lno strName;
             val explicitSig  : signatures = 
-              sigVal(csig, max (!typeNo) 0, Env env, lno, strName);
+              sigVal(csig, Int.max(!typeNo, 0), Env env, lno, strName);
                      
             (* Make tables to contain the matched ids. *)
             val typeMap  : typeConstrs map =
@@ -2967,7 +2925,7 @@ struct
                 val explicitSig  : signatures = 
                   sigVal 
                     (sigStruct, 
-                     max (!typeNo) 0,
+                     Int.max (!typeNo, 0),
                      Env env,
                      line,
 					 strName ^ name ^ ".");
@@ -3004,7 +2962,7 @@ struct
           end
          
       in 
-        forall pass2StructureBind structList;
+        List.app pass2StructureBind structList;
         (* Put them into the enclosing env. *)
         #apply sEnv (#enterStruct env)
       end; (* pass2StructureDec *)
@@ -3094,7 +3052,6 @@ struct
                   lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
                 lookupSig     = #lookupSig    env,
                 lookupFunct   = #lookupFunct  env,
-                lookupTvars   = #lookupTvars  env,
                 enterVal      = #enterVal     env,
                 enterType     = #enterType    env,
                 enterFix      = fn _ => (),
@@ -3204,7 +3161,7 @@ struct
 			raise InternalError "pass2FunctorBind"
       in
         (* Each element in the list is a functor binding. *)
-        forall pass2FunctorBind structList;
+        List.app pass2FunctorBind structList;
         (* Put them into the enclosing env. *)
         #apply sEnv (#enterFunct env)		
       end; (* pass2FunctorDec *)
@@ -3237,7 +3194,7 @@ struct
              #enter sEnv (name, copiedSig)
            end
       in
-        forall pass2SignatureBind structList;
+        List.app pass2SignatureBind structList;
         (* Put them into the enclosing env. *)
         #apply sEnv (#enterSig env)		
       end; (* pass2SignatureDec *)
@@ -3258,7 +3215,6 @@ struct
               lookupDefault (#lookupStruct newEnv) (#lookupStruct env),
             lookupSig     = #lookupSig    env,
             lookupFunct   = #lookupFunct  env,
-            lookupTvars   = #lookupTvars  newEnv,
             enterVal      = #enterVal     newEnv,
             enterType     = #enterType    newEnv,
             enterFix      = fn _ => (),
@@ -3283,7 +3239,6 @@ struct
            lookupStruct  = #lookupStruct localEnv,
            lookupSig     = #lookupSig    localEnv,
            lookupFunct   = #lookupFunct  localEnv,
-           lookupTvars   = #lookupTvars  localEnv,
            enterVal      =
              fn (pair as (name, v)) =>
                (
@@ -3328,7 +3283,6 @@ struct
              lookupStruct  = #lookupStruct env,
              lookupSig     = #lookupSig    env,
              lookupFunct   = #lookupFunct  env,
-             lookupTvars   = #lookupTvars  env,
              (* Must add the entries onto the end in case a declaration
                 with the same name is made. e.g.
                    local ... in val a=1; val a=2 end. *)
@@ -3388,7 +3342,7 @@ struct
         | _ => (* empty (we should check this!!!) *)
             ();
     in        
-      forall pass2Dec strs (* Process all the top level entries. *)
+       List.app pass2Dec strs (* Process all the top level entries. *)
     end (* pass2Struct *);
 		 
   in (* Structures and types at the top level are free identifiers. *)
@@ -3437,7 +3391,7 @@ struct
 
   (* Generate code from the expressions and arrange to return the results
       so that "pass4" can find them. *)
-  fun gencodeStructs (strs, lex, globalEnv) =
+  fun gencodeStructs (strs, lex) =
   let
     (* Each top level declaration is assigned a distinct address. *)
     val addresses = ref 1;
@@ -3522,7 +3476,7 @@ struct
                   then let
                     val destAddr     = vaFormal (structAccess dval);
                     val sourceStruct =
-                       univLookup (sigTab source, structVar, dName);
+                       valOf(univLookup (sigTab source, structVar, dName));
                          
                     val access = structAccess sourceStruct;
                     (* Since these have come from a signature we might expect all
@@ -3569,7 +3523,7 @@ struct
 				  	Value{access=Formal addr, ...} =>
                   let
                     val sourceVal =
-                      univLookup (sigTab source, valueVar, dName);
+                      valOf(univLookup (sigTab source, valueVar, dName));
                        
                     (* If we have an exception matching a value we have to
                         generate a packet or a function yielding a packet. *)
@@ -3621,7 +3575,7 @@ struct
 							   then codeExFunction(sourceVal, !level, valTypeOf dval, lex, 0 (* line no *))
 							   else let
 								  val valu =
-									 	codeVal (sourceVal, !level, valTypeOf dval, lex, 0, globalEnv)
+									 	codeVal (sourceVal, !level, valTypeOf dval, lex, 0)
 							   in
 							   	  if constrBecomesVal
 								  then mkInd(1, valu)
@@ -3639,7 +3593,7 @@ struct
 				        as values anyway but we don't always. *)
 					let
 		            	val tcons = tagProject typeConstrVar dVal;
-						val matchedType = univLookup (sigTab source, typeConstrVar, dName)
+						val matchedType = valOf(univLookup (sigTab source, typeConstrVar, dName))
 
 						fun processConstructor(Value{access=Formal dstAddr, ...},
 											   Value{access=Formal svAddr, ...}) =
@@ -3653,7 +3607,7 @@ struct
 						  	  (* Any other source. *)
 						 	  (
 							  useOriginal := false;
-							  addToList (codeVal (sourceVal, !level, typeOf, lex, 0, globalEnv)) dstAddr
+							  addToList (codeVal (sourceVal, !level, typeOf, lex, 0)) dstAddr
 							  )
 
 						  | processConstructor _ = ()
@@ -3675,10 +3629,8 @@ struct
             }
           else (* Put the entries into a list for the vector. *)
           let
-            fun foldFn i l = STRETCHARRAY.sub (resVec,i) :: l;
-            val codeList  =
-              revfoldIterator foldFn [] (downto (!maxEntry - 1) 0); 
-                  (* SPF 7/6/94 fixed off-by-one *)
+              val codeList =
+                  List.tabulate (!maxEntry, fn i => STRETCHARRAY.sub (resVec,i))
           in
             {
               code      = mkEnv (#dec decs @ [mkTuple codeList]),
@@ -3840,10 +3792,10 @@ struct
           (* Load each variable and exception that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-		  fun filterVals (CoreValue v) = SOME(codeVal (v, !level, badType, nullLex, 0, globalEnv))
+		  fun filterVals (CoreValue v) = SOME(codeVal (v, !level, badType, nullLex, 0))
 		   |  filterVals _            = NONE
 		  val (code, newDebug) =
-		  	gencode (dec, lex, debugEnv, !level, addresses, strName, line, globalEnv)
+		  	gencode (dec, lex, debugEnv, !level, addresses, strName, line)
         in
           { 
             code = code,
@@ -3943,11 +3895,11 @@ struct
        ()
       ) (* end extractValsToSig *);
 
-    fun extractStruct str addr =
+    fun extractStruct(str, addr) =
       case str of
         FunctorDec (structList : functorBind list) =>
         let
-          fun extractFunctorBind ({name, valRef, ...}: functorBind) addr =
+          fun extractFunctorBind ({name, valRef, ...}: functorBind, addr) =
             let
               val code = mkInd (addr, results);
               val func = !valRef;
@@ -3964,12 +3916,12 @@ struct
             end
         in
           (* Get the functor values. *)
-          revfold extractFunctorBind addr structList
+          List.foldl extractFunctorBind addr structList
         end
  
       | StructureDec (structList : structBind list) =>
         let
-          fun extractStructureBind ({name, valRef, ...}: structBind) addr =
+          fun extractStructureBind ({name, valRef, ...}: structBind, addr) =
             let
               val resultSig = structSignat (!valRef);
 			  val structCode = mkInd (addr, results)
@@ -3982,16 +3934,16 @@ struct
               addr + 1
             end
         in
-          revfold extractStructureBind addr structList
+          List.foldl extractStructureBind addr structList
         end
  
       | Localdec {body, ...} =>
-          revfold extractStruct addr body
+          List.foldl extractStruct addr body
  
       (* Value, exception or type declaration at the top level. *)
       | Singleton {vars, ...} =>
         let (* Enter the values and exceptions. *)
-		  fun makeDecs (CoreValue dec) addr =
+		  fun makeDecs (CoreValue dec, addr) =
                  ( case dec of
 				 	Value{access=Overloaded _, ...} => (* enter it as it is. *) 
                      	enterVal (valName dec, dec)
@@ -4007,7 +3959,7 @@ struct
 	                   end;
                    addr + 1
                  )
-		  |  makeDecs (CoreStruct dec) addr =
+		  |  makeDecs (CoreStruct dec, addr) =
 	          (* Any structures will only come from "open A" where A contains
 	             sub-structures. "A" must be global otherwise the open would
 	             not be global, so all the sub-structures must be global. *)
@@ -4015,11 +3967,11 @@ struct
 				   enterStruct (structName dec, dec);
 				   addr
 				 )
-		  |   makeDecs (CoreFix pair) addr = (enterFix pair; addr)
-		  |   makeDecs (CoreType dec) addr =
+		  |   makeDecs (CoreFix pair, addr) = (enterFix pair; addr)
+		  |   makeDecs (CoreType dec, addr) =
 		  		(enterType(#second(splitString(tcName dec)), dec); addr)
         in
-          revfold makeDecs addr (!vars)
+          List.foldl makeDecs addr (!vars)
         end
 
      | SignatureDec (structList : sigBind list) =>
@@ -4033,7 +3985,7 @@ struct
      | _ =>
        addr; (* end extractStruct *)
      
-    val lastAddr = revfold extractStruct 0 strs;
+    val lastAddr = List.foldl extractStruct 0 strs;
   in
     ()
   end (* pass4Structs *))

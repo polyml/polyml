@@ -31,15 +31,6 @@ structure Debug =
 (*                  Body of DEBUG                                            *)
 (*****************************************************************************)
 struct
-  val bindName = ref "ml_bind";
-  val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
-  (* The architecture-specific suffixes take precedence. *)
-  val suffixes = ref [archSuffix, "",archSuffix^".ML", ".ML", archSuffix^".sml", ".sml"];
-  val useRCS   = ref true;
-
-  val prompt1 = ref "> ";
-  val prompt2 = ref "# ";
-
  (* A new debug switch for the ML system.
   The other parts are the same as for Poly. *)
  
@@ -62,34 +53,14 @@ struct
   val timing        = ref false;
   val profiling     = ref 0;
   val errorDepth    = ref 6;
-  val printDepth    = ref 999;
+  val printDepth    = ref 0;
   val lineLength    = ref 77;
   val traceCompiler = ref false;
   val ml90			= ref false;
   val debug			= ref false;
 
-  (* The only reason for these functions is to allow us to modify
-     the compiler to use the newly created stdIn and stdOut when
-	 we have compiled the basis library in the newly compiled compiler.
-	 That's important because it's possible to redirect stdIn and stdOut.
-	 N.B.  Once the prelude and basis library have been compiled these
-	 functions are replaced by equivalent functions in prelude/ReplaceStdio. *)
+  (* This is used to produce output from PolyML.print.  It is set
+     to the newly compiled TextIO.print function after the basis
+     has been compiled. *)
   val printString = ref (fn s => TextIO.output(TextIO.stdOut, s))
-  val inputChar = ref(fn () => TextIO.input1 TextIO.stdIn)
-  local
-  	  fun checkNewline () =
-	  	case TextIO.lookahead TextIO.stdIn of
-		    SOME #"\n" => true (* "\n" or #"\n" *)
-		|	_          => false
-  in
-	  val nextIsNewline = ref checkNewline
-  end
-  local
-  	  fun flushInput () =
-	  	  case TextIO.canInput(TextIO.stdIn, 1) of
-		  	  SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
-		  |   _ => (* No input waiting or we're at EOF. *) ()
-  in
-      val flushInput = ref flushInput
-  end
 end;

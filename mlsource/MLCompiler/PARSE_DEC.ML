@@ -296,22 +296,22 @@ sig
   val mkValDeclaration : 
        valbind list *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } ->  parsetree;
   
   val mkFunDeclaration : 
        fvalbind list *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } ->  parsetree;
 	
@@ -405,9 +405,9 @@ structure UTILITIES :
 sig
   type lexan
 
-  val searchList: unit -> { apply: (string * '_a -> unit) -> unit,
-                            enter:  string * '_a -> unit,
-                            lookup: string -> '_a }
+  val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
+                            enter:  string * 'a -> unit,
+                            lookup: string -> 'a option }
     
   val checkForDots: string * lexan * int -> unit
     
@@ -418,9 +418,7 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception ValueMissing of string;  (* table lookup failure *)
-
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end;
 
 (*****************************************************************************)
@@ -490,7 +488,7 @@ sig
   type structs;
   
   val parseDec: symset * lexan * { enterFix:  string * fixStatus -> unit,
-                                   lookupFix: string -> fixStatus } -> structs list;
+                                   lookupFix: string -> fixStatus option } -> structs list;
 end =
 
 (*****************************************************************************)
@@ -672,14 +670,9 @@ struct
       val id = getShortId (sys, fsys, lex);
       
       val isInfix =
-         let
-           val fix = lookupFix id;
-         in
-		 	case fix of Nonfix => false | _ => true
+        case lookupFix id of SOME (Infix _) => true | SOME (InfixR _)  => true | _ => false
            (* It is infix if we find it and it has been declared
               as infix. If it hasn't been declared then it isn't infix.*)
-         end
-           handle ValueMissing _ => (* not found *) false;
 
       val U : unit =
         if isInfix andalso not opThere
@@ -695,14 +688,7 @@ struct
       (* op followed by a (long) variable *)
       val id = getLongId (sys, fsys, lex);
       val isInfix =
-         let
-           val fix = lookupFix id;
-         in
-		 	case fix of Nonfix => false | _ => true
-           (* It is infix if we find it and it has been declared
-              as infix. If it hasn't been declared then it isn't infix.*)
-         end
-           handle ValueMissing _ => (* not found *) false;
+        case lookupFix id of SOME (Infix _) => true | SOME (InfixR _)  => true | _ => false
    in
       if isInfix andalso not opThere
       then warningMessage (lex, lineno lex,
@@ -724,8 +710,9 @@ struct
          binding must have been declared before the new type constructor *)
       lookupTvar = 
          fn name =>
-            (lookup name
-               handle ValueMissing _ =>
+            (case lookup name of
+               SOME t => t
+             | NONE =>
                  (
                    errorMessage (lex, lineno lex, 
                         name ^  " has not been declared in type declaration");
@@ -893,7 +880,7 @@ struct
          newTypeVar
        end;
    in
-     { lookupTvar = lookupDefault lookup lookupT,
+     { lookupTvar = fn s => case lookup s of SOME t => t | NONE => lookupT s,
        lookup     = lookup,
        apply      = apply,
 	   enter	  = enter }
@@ -936,7 +923,10 @@ struct
          mkConst data
       end;
 
-      fun parseInfix fsys opSys startSys atomic {enterFix,lookupFix,lookupTvar} =
+      fun parseInfix fsys opSys startSys atomic
+         {enterFix: string * fixStatus -> unit,
+          lookupFix: string -> fixStatus option,
+          lookupTvar: string -> types } =
       let
          (* Infix operators have a precedence value associated with them,
             the larger the value the more tightly they bind. *)
@@ -953,12 +943,7 @@ struct
                     (* It is infix if we find it and it has been declared
                        as infix. If it hasn't been declared then it isn't
                        infix. *)
-                    let
-                      val fix = lookupFix (id lex)
-                    in 
-					 	case fix of Nonfix => false | _ => true
-                    end
-                       handle ValueMissing _ => (* not found *) false
+                    case lookupFix(id lex) of SOME (Infix _) => true | SOME (InfixR _) => true | _ => false
                   )
                then (* it's an infix operator - don't treat it as an arg. *)
                   pproc
@@ -984,7 +969,7 @@ struct
            val fix = 
              if operator = ""
              then Nonfix
-             else lookupFix operator;
+             else valOf(lookupFix operator);
 
            val preclevl = (* ~1 if not infix or infixr *)
 		   		case fix of
@@ -1558,8 +1543,8 @@ struct
 								(* Look up type variables in the explicit
 								   environment, otherwise look them up and
 								   add them to the implicit environment. *)
-								lookupDefault (#lookup explicitTvars)
-									(#lookupTvar implicitTvars)};
+								fn s => case #lookup explicitTvars s of
+                                    SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
 			(* Tyvarseq *)
 			val U = getTypeVars(true,
@@ -1610,8 +1595,8 @@ struct
             val newEnv   = {enterFix   = #enterFix  env,
                             lookupFix  = #lookupFix env,
                             lookupTvar =
-								lookupDefault (#lookup explicitTvars)
-									(#lookupTvar implicitTvars)};
+                              fn s => case #lookup explicitTvars s of
+                                  SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
 			(* Tyvarseq *)
 			val U = getTypeVars(true,

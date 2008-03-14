@@ -276,8 +276,8 @@ struct
     fun print sym = TextIO.output (TextIO.stdOut,repr sym);
 
     local
-      open Boot.Misc;
       open Boot.HashTable;
+      open Boot.Misc;
 
       (* Make table sparse to minimise collisions. SPF 11/5/95 *)
       val table: sys hash = hashMake (4 * down maxsym);
@@ -288,7 +288,7 @@ struct
                       (fn sym => hashSet (table, repr sym, sym));
     in
       (* Returns the symbol if it is in the table else ident *)
-      fun lookup str = hashSub (table, str) handle ValueMissing _ => ident;
+      fun lookup str = getOpt(hashSub (table, str), ident);
     end;
 
   end (* with *);

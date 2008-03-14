@@ -2,6 +2,8 @@
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
 
+    Modified David C.J. Matthews 2008.
+
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
 	License as published by the Free Software Foundation; either
@@ -215,23 +217,23 @@ sig
     Infix of int
   | InfixR of int
   | Nonfix;
-  
-  datatype env = Env of
-    {
-      lookupVal:    string -> values,
-      lookupType:   string -> typeConstrs,
-      lookupFix:    string -> fixStatus,
-      lookupStruct: string -> structVals,
-      lookupSig:    string -> signatures,
-      lookupFunct:  string -> functors,
-      lookupTvars:  string -> types,
-      enterVal:     string * values      -> unit,
-      enterType:    string * typeConstrs -> unit,
-      enterFix:     string * fixStatus   -> unit,
-      enterStruct:  string * structVals  -> unit,
-      enterSig:     string * signatures  -> unit,
-      enterFunct:   string * functors    -> unit
-    };
+
+  datatype env =
+    Env of
+      {
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit
+      };
 
   val makeEnv: signatures -> env;
   
@@ -318,18 +320,12 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception ValueMissing of string;  (* table lookup failure *)
-  exception Failure of string;       (* top-level error *)
   exception InternalError of string; (* compiler error *)
-
-  val isNil : 'a list -> bool
+  
+  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
   
   type 'a iter;
   val for    : 'a iter -> ('a -> 'b) -> unit
-  val overList        : 'a list -> 'a iter;
-  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-  
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
   val iterList : 'a iter -> 'a list
 end;
 
@@ -523,27 +519,20 @@ sig
   (* Print values. *)
   val displayFixStatus:  fixStatus  * int * prettyPrinter -> unit
   val displaySignatures: signatures * int * prettyPrinter -> unit
-  val displayStructures:
-  	structVals * int * prettyPrinter *
-		{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
+  val displayStructures: structVals * int * prettyPrinter -> unit
   val displayFunctors:   functors   * int * prettyPrinter -> unit
-   
-  val displayValues:
-  		values * int * prettyPrinter *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
-                                             
-  val printStruct:
-  		word * types * int * prettyPrinter *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
+  val displayValues: values * int * prettyPrinter -> unit
+  val printStruct: word * types * int * prettyPrinter -> unit
+
+  val printerEnvironment:
+      { lookupFix: string -> fixStatus option, lookupExnById: word -> values option} ref
    
   val codeStruct:     structVals * int -> codetree
   val codeAccess:     valAccess  * int -> codetree
   val mkExIden:       unit -> codetree
-  val codeVal:        values * int * types * lexan * int *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree
+  val codeVal:        values * int * types * lexan * int -> codetree
   val codeExFunction: values * int * types * lexan * int -> codetree
-  val applyFunction:  values * codetree * int * types * lexan * int *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree
+  val applyFunction:  values * codetree * int * types * lexan * int -> codetree
   val getOverloadInstance: string * types * bool * lexan * int -> codetree*string
   val isTheSameException: values * values -> bool
   val raiseBind:      codetree
@@ -551,23 +540,23 @@ sig
   val makeGuard:      values * codetree * int -> codetree 
   val makeInverse:    values * codetree * int -> codetree
   
-  val lookupAny:  string * (string -> 'a) * (string -> structVals) *
-                 (structVals -> string -> 'a) * string * 'a * (string -> unit) -> 'a
+  val lookupAny:  string * (string -> 'a option) * (string -> structVals option) *
+                 (structVals -> string -> 'a option) * string * 'a * (string -> unit) -> 'a
                     
-  val lookupStructure:  string * {lookupStruct: string -> structVals} * 
+  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                         string * (string -> unit) -> structVals
                                            
-  val lookupStructureDirectly: string * {lookupStruct: string -> structVals} * 
+  val lookupStructureDirectly: string * {lookupStruct: string -> structVals option} * 
                                string * (string -> unit) -> structVals
                                            
-  val lookupValue:   string * {lookupVal: string -> values, lookupStruct: string -> structVals} * 
+  val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
                      string * (string -> unit) -> values
                                 
-  val lookupTyp:   {lookupType: string -> typeConstrs,
-                    lookupStruct: string -> structVals} * 
+  val lookupTyp:   {lookupType: string -> typeConstrs option,
+                    lookupStruct: string -> structVals option} * 
                    string * (string -> unit) -> typeConstrs
 
-  val findException: univTable -> word -> values option
+  val findException: (values list * structVals list) -> word -> values option
 
   type representations
   val RefForm:   representations;
@@ -1341,75 +1330,76 @@ struct
 (*****************************************************************************)
 
   (* Look-up functions. *)
-  fun mkEnv x = let val Env e = makeEnv x in e end;
+  fun mkEnv x = let val Env e = makeEnv x in e end
   
   (* Look up a structure. *)
-  fun lookupStructure (kind, {lookupStruct:string -> structVals},
+  fun lookupStructure (kind, {lookupStruct:string -> structVals option},
 		       name, errorMessage) =
   let
     fun lookupStr name secondary =
     let
       val {first = prefix, second = suffix} = splitString name;
-    in
-      (
-	if prefix = "" then lookupStruct suffix
-	else let  (* Look up the first part in the structure environment. *)
-	  val str =
+      val strLookedUp =
+        if prefix = "" then lookupStruct suffix
+        else let  (* Look up the first part in the structure environment. *)
+        val str =
 	     lookupStructure
 	       ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-	in 
-	  (* If the structure is not there the value can't be. *)
-	  if isUndefinedStruct str
-	  then undefinedStruct
-	  else secondary str suffix (* Look up in it and select. *)
-	end
-      ) (* scope of handler corrected SPF 18/8/94 *)
-	 (* Not declared? *)
-	handle ValueMissing _ =>
-	  (errorMessage (kind ^ " (" ^ suffix ^  ") has not been declared" ^
-	       (if prefix = "" then "" else " in structure " ^ prefix));
-	  undefinedStruct)
+        in 
+            (* If the structure is not there the value can't be. *)
+            if isUndefinedStruct str
+            then SOME undefinedStruct
+            else secondary str suffix (* Look up in it and select. *)
+        end
+    in
+        case strLookedUp of
+           SOME s => s
+        |  NONE =>
+        	 (* Not declared? *)
+                (errorMessage (kind ^ " (" ^ suffix ^  ") has not been declared" ^
+        	       (if prefix = "" then "" else " in structure " ^ prefix));
+                undefinedStruct)
     end (* lookupStr *) 
   in
     lookupStr name 
       (fn baseStruct =>
        let
-	 val look = #lookupStruct (mkEnv (structSignat baseStruct));
+           val look = #lookupStruct (mkEnv (structSignat baseStruct));
        in
-	 fn name => makeSelectedStruct (look name, baseStruct)
+           fn name => case look name of SOME s => SOME(makeSelectedStruct (s, baseStruct)) | NONE => NONE
        end)
   end;
 	
   fun lookupAny
 	(name : string,
-	 primary:     string -> 'a,
-	 lookupStruct:string -> structVals,
-	 secondary:   structVals -> string -> 'a,
+	 primary:     string -> 'a option,
+	 lookupStruct:string -> structVals option,
+	 secondary:   structVals -> string -> 'a option,
 	 kind,
 	 undefined:'a,
 	 errorMessage)
 	: 'a =
   let
     val {first = prefix, second = suffix} = splitString name;
-  in
-    (
+    val found =
       if prefix = "" then primary suffix
       else let (* Look up the first part in the structure environment. *)
-	val str =
-	  lookupStructure
-	    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
+        val str =
+            lookupStructure
+                ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
       in
-	(* If the structure is not there the value can't be. *)
-	if isUndefinedStruct str
-	then undefined
-	else secondary str suffix (* Look up in it and select. *)
+            (* If the structure is not there the value can't be. *)
+            if isUndefinedStruct str
+            then SOME undefined
+            else secondary str suffix (* Look up in it and select. *)
       end
-    ) (* scope of handler corrected SPF 18/8/94 *)
-      (* Not declared? *)
-      handle ValueMissing _ =>
-	 (errorMessage (kind ^ " (" ^ suffix ^ ") has not been declared" ^
-	       (if prefix = "" then "" else " in structure " ^ prefix));
-	  undefined)
+  in
+      case found of
+          SOME v => v
+      |   NONE => (* Not declared? *)
+            (errorMessage (kind ^ " (" ^ suffix ^ ") has not been declared" ^
+                (if prefix = "" then "" else " in structure " ^ prefix));
+            undefined)
   end (* lookupAny *) 
  
   (* Look up a structure but return the actual structure even if it is a formal. *)
@@ -1424,9 +1414,9 @@ struct
     lookupAny (name, lookupVal, lookupStruct,
 	       fn baseStruct =>
 	       let
-		 val look = #lookupVal (mkEnv (structSignat baseStruct));
+               val look = #lookupVal (mkEnv (structSignat baseStruct));
 	       in
-		 (fn name => mkSelectedVar (look name, baseStruct))
+               (fn name => case look name of SOME v => SOME(mkSelectedVar (v, baseStruct)) | NONE => NONE)
 	       end,
 	      kind, undefinedValue, errorMessage);
  
@@ -1441,6 +1431,12 @@ struct
  
  
       (* Printing. *)
+
+  (* This is used when printing values to look up fixity and exception packets. *)
+  val printerEnvironment =
+     ref { lookupExnById = fn (w: word) => NONE: values option,
+           lookupFix = fn (s: string) => NONE: fixStatus option}
+
   (* Checks to see whether a labelled record is in the form of
      a product i.e. 1=, 2=   We only need this for prettyprinting. *)
   fun isProductType(LabelledType{recList, frozen=true, ...}) =
@@ -1454,8 +1450,10 @@ struct
     | isProductType _ = false;
 
   (* This module prints a structure by following the type structure. *)
-  fun printStruct (value:word, types, depth, pprint:prettyPrinter, {lookupFix, lookupExnById}) =
+  fun printStruct (value:word, types, depth, pprint:prettyPrinter) =
   let
+      val { lookupFix, lookupExnById} = ! printerEnvironment
+ 
       fun pVec (num, value : word, [], separator, leftPrec, rightPrec, depth) doPrint = ()
       
 	| pVec (num, value : word, [t], separator, leftPrec, rightPrec, depth) doPrint =
@@ -1496,7 +1494,7 @@ struct
       let
 		val maxPrec = 999;
 		val thisPrecedence =
-		  lookupDefault lookupFix (fn s => Nonfix) constrName;
+		  getOpt(lookupFix constrName, Nonfix);
 
 		(* Some of these need to be parenthesised.  We replace values at
 		   level 1 by "..." rather than printing "(...)". *)
@@ -1685,8 +1683,8 @@ struct
         				  | args => mkTuple(map makeArg args)
         		in	
         	      getPrint (tcIdentifier constr) pprint depth (evalue argTuple) value
-        	      handle ValueMissing _ =>
-        	      ( if not (isNil (tcConstructors constr))
+        	      handle Subscript =>
+        	      ( if not (null (tcConstructors constr))
         		    then printConstruction args (tcConstructors constr)
         		    else if not (isEmpty (tcEquivalent constr))  (* May be an alias *)
         		    then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
@@ -1739,7 +1737,7 @@ struct
   in
     prints (value, types, depth, ~1, [])
   end (* printStruct *);
- 
+
   fun displayFixStatus (Nonfix, _, pprint: prettyPrinter) =
 			ppAddString pprint "nonfix"
    | displayFixStatus (Infix prec, _, pprint) =
@@ -1760,7 +1758,7 @@ struct
 			);
  
   (* displays value as a block, with no external formatting *)
-  fun displayValues (Value{name, typeOf, class, access}, depth, pprint: prettyPrinter, env) =
+  fun displayValues (Value{name, typeOf, class, access}, depth, pprint: prettyPrinter) =
     if depth <= 0 
       then ppAddString pprint "..."
 
@@ -1773,7 +1771,7 @@ struct
 		ppAddString pprint (name ^ " =");
 		ppBreak pprint (1, 3);
 		(
-		    printStruct (evalue code, typeOf, depth, pprint, env)
+		    printStruct (evalue code, typeOf, depth, pprint)
 		      handle SML90.Interrupt => raise SML90.Interrupt | _ => ppAddString pprint "<undefined>"
 		      (* evalue will fail for "undefined" *)
 		);
@@ -1818,10 +1816,8 @@ struct
       
     | _ => ()
 
-  val emptyEnv = { lookupFix = fn s => raise ValueMissing s, lookupExnById = fn _ => NONE }
-
   (* Prints "sig ... end" as a block, with no external formatting *)
-  fun displaySig (str, depth : int, pprint: prettyPrinter, space : int, env) : unit =
+  fun displaySig (str, depth : int, pprint: prettyPrinter, space : int) : unit =
   let
     fun break () : unit = ppBreak pprint (1, 2);
       
@@ -1837,7 +1833,7 @@ struct
       then 
 	(
 	  break ();
-	  displayStructures (tagProject structVar value, depth - 1, pprint, env)
+	  displayStructures (tagProject structVar value, depth - 1, pprint)
 	)
 		       
       else if (tagIs typeConstrVar value)
@@ -1860,7 +1856,7 @@ struct
 		  (* We lookup the infix status and any exception in the global environment
 		     only.  Infix status isn't a property of a structure and it's too
 			 much trouble to look up exceptions in the structure. *)
-		  displayValues (value, depth, pprint, env)
+		  displayValues (value, depth, pprint)
 		  )
       end
       
@@ -1891,7 +1887,7 @@ struct
 		(* Put all the entries into a list. *)
     	for (univOver (sigTab str)) addToList;
 		(* Sort the list and print it. *)
-		for (overList(quickSort order (!declist))) displaySpec
+		List.app displaySpec (quickSort order (!declist)) 
 	end;
       
     ppBreak pprint (1, 0);
@@ -1908,12 +1904,12 @@ struct
       ppBeginBlock pprint (0, false);
       ppAddString pprint ("signature " ^ sigName str ^ " =");
       ppBreak pprint (1, 2);
-      displaySig (str, depth, pprint, 1, emptyEnv);
+      displaySig (str, depth, pprint, 1);
       ppEndBlock pprint ()
     )
 
   (* print structure in a block (no external spacing) *)
-  and displayStructures (str, depth, pprint: prettyPrinter, env) =
+  and displayStructures (str, depth, pprint: prettyPrinter) =
   let
   in
     if depth <= 0 then ppAddString pprint "..."
@@ -1927,7 +1923,7 @@ struct
 	  ppBreak pprint (1, 2);
       if signatureName <> ""
 	  then ppAddString pprint signatureName
-      else displaySig (structSignat str, depth - 1, pprint, 1, env);
+      else displaySig (structSignat str, depth - 1, pprint, 1);
       ppEndBlock pprint ()
     end
   end;
@@ -1946,10 +1942,10 @@ struct
        ppBreak pprint (1, 3)
      )
      else ();
-     displaySig (structSignat (functorArg funct), depth - 1, pprint, 0, emptyEnv);
+     displaySig (structSignat (functorArg funct), depth - 1, pprint, 0);
      ppAddString pprint ") :";
 	 ppBreak pprint (1, 3);
-     displaySig (functorResult funct, depth - 1, pprint, 1, emptyEnv);
+     displaySig (functorResult funct, depth - 1, pprint, 1);
      ppEndBlock pprint ()
    );
    
@@ -2422,9 +2418,9 @@ struct
  (* Code-generate an identifier matched to a value.  N.B. If the value is a
     constructor it returns the pair or triple representing the functions on the
 	constructor. *)
- fun codeVal (Value{access = Global code, ...}, _, _, _, _, _) = code
+ fun codeVal (Value{access = Global code, ...}, _, _, _, _) = code
 
-  |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, ...}, level, _, _, _, _) =
+  |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, ...}, level, _, _, _) =
      let
        (* Load the variable. *)
        val levelDiff = level - locLevel;
@@ -2434,14 +2430,14 @@ struct
        else mkLoad (locAddr, levelDiff) (* Argument or local *)
      end
 
-  |  codeVal (Value{access = Selected{addr, base}, ...}, level, _, _, _, _) =
+  |  codeVal (Value{access = Selected{addr, base}, ...}, level, _, _, _) =
        (* Select from a structure. *)
        mkInd (addr, codeStruct (base, level))
 
-  |  codeVal (Value{access = Formal _, ...}, level, _, _, _, _) =
+  |  codeVal (Value{access = Formal _, ...}, level, _, _, _) =
   		raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, _, _, env) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, _, _) =
         let 
          (* "instance" should be 'a -> 'a. We need to get the 'a. *)
          val argType = if not (isFunctionType instance) then badType
@@ -2449,7 +2445,7 @@ struct
          fun printProc value =
          (
            printStruct (value, argType, ! printDepth,
-                        prettyPrint (77, ! DEBUG.printString), env);
+                        prettyPrint (77, ! DEBUG.printString));
             value
           );
            (* Coerce the procedure so that it can be put into the code. *)
@@ -2457,7 +2453,7 @@ struct
          mkConst (toWord printProc)
        end 
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _, env) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _) =
        let 
          (* "instance" should be 'a -> string. We need to get the 'a. *)
          val argType =
@@ -2470,7 +2466,7 @@ struct
            val result = ref ""; (* Accumulate results in this *)
            val pp = uglyPrint (fn s => result := !result ^ s);
            val U : unit = 
-             printStruct (value, argType, ! printDepth, pp, env);
+             printStruct (value, argType, ! printDepth, pp);
          in
            ! result
          end;
@@ -2478,7 +2474,7 @@ struct
          mkConst (toWord makeString)
        end
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, _, _, _) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, _, _) =
          let 
          (* "instance" should be ((,,,) -> int-> 'a -> 'b -> unit) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -2564,21 +2560,21 @@ struct
     									if sameTypeId (tcIdentifier(pling value),
     												tcIdentifier intType)
     									then ()
-    									else raise Failure "Argument printer must have type 'a*int->unit (second arg not int)"
-    							  | _ => raise Failure "Argument printer must have type 'a*int->unit (second arg not type int)"
+    									else raise Fail "Argument printer must have type 'a*int->unit (second arg not int)"
+    							  | _ => raise Fail "Argument printer must have type 'a*int->unit (second arg not type int)"
     							)
-    					   	else raise Failure "Argument printer must have type 'a*int->unit (mismatched 'a)"
+    					   	else raise Fail "Argument printer must have type 'a*int->unit (mismatched 'a)"
     					  | _ =>
-    					  	raise Failure "Argument printer must have type 'a*int->unit (not pair)"
+    					  	raise Fail "Argument printer must have type 'a*int->unit (not pair)"
     					)
     				   | checkFun(tvar: types, _) =
-    				   		raise Failure "Argument printer must have type 'a*int->unit (not function)"
+    				   		raise Fail "Argument printer must have type 'a*int->unit (not function)"
     				 
     				 fun checkFuns([], []) = ()
     				   | checkFuns(tvar::tRest, {name, typeof}::argRest) =
     				   		(checkFun(tvar, typeof); checkFuns(tRest, argRest))
     				   | checkFuns _ =
-    				   		raise Failure "Tuple size does not match type"
+    				   		raise Fail "Tuple size does not match type"
     				 	
                    in
     			   	 (* Check that the arity of the type constructor matches
@@ -2589,7 +2585,7 @@ struct
     				   | [t] => checkFun(t, argPrints)
     				   | tlist =>
     				   		if not (isProductType argPrints)
-    						then raise Failure "Argument must be a tuple"
+    						then raise Fail "Argument must be a tuple"
     						else (
     						case argPrints of
     							LabelledType{recList, ...} => checkFuns(tlist, recList)
@@ -2597,14 +2593,14 @@ struct
     						);
                      (* Check that it's a top-level datatype (NOT in a functor) *)
                        if not (isFreeId typeId)
-                       then raise Failure "Invalid type (not free at top-level)"
+                       then raise Fail "Invalid type (not free at top-level)"
                        else ();
                      typeId
                    end
                    else followTypes (makeEquivalent (constr, args))
 			   end
            | followTypes _ =
-				raise Failure "Invalid type (not a type construction)";
+				raise Fail "Invalid type (not a type construction)";
            
            fun pproc (pretty:prettyPrinter) : int -> word -> word -> unit =
            let
@@ -2623,31 +2619,31 @@ struct
          mkConst (toWord installPp)
        end
 
-  |  codeVal (value as Value{access = Overloaded _, ...}, level, instance, lex, lineno, env) =
+  |  codeVal (value as Value{access = Overloaded _, ...}, level, instance, lex, lineno) =
        (* AddOverload, Equal, NotEqual, TypeDep *)
          mkProc
-           (applyFunction (value, arg1, level, instance, lex, lineno, env),
+           (applyFunction (value, arg1, level, instance, lex, lineno),
            1, 1, "")
      (* codeVal *)
 
  (* Some of these have a more efficient way of calling them as functions. *)
- and applyFunction (value as Value{class=Exception, ...}, argument, level, instance, lex, lineno, env) =
+ and applyFunction (value as Value{class=Exception, ...}, argument, level, instance, lex, lineno) =
      let
        (* If we are applying it as a function we cannot be after the
           exception id, we must be constructing an exception packet. *)
        (* Get the exception id, put it in the packet with the exception name
           and the argument. *)
-         val exIden = codeVal (value, level, instance, lex, lineno, env);
+         val exIden = codeVal (value, level, instance, lex, lineno);
      in
          mkTuple (exIden :: mkStr (valName value) :: [argument])
      end
 
   | applyFunction(value as Value{class=Constructor _, ...},
-  				  argument, level, instance, lex, lineno, env) =
+  				  argument, level, instance, lex, lineno) =
 	 let
 	    (* If this is a value constructor we need to get the construction
 		   function and use that. *)
-         val constrTriple = codeVal (value, level, instance, lex, lineno, env);
+         val constrTriple = codeVal (value, level, instance, lex, lineno);
 	 in
 	 	(* Don't apply this "early".  It might be the ref constructor and that
 		   must not be applied until run-time.  The optimiser should take care
@@ -2656,7 +2652,7 @@ struct
 	 end
 
   | applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
-  				   argument, level, instance, lex, lineno, env) =
+  				   argument, level, instance, lex, lineno) =
      (
 	   case oper of
 	   	  Equal =>
@@ -2718,7 +2714,7 @@ struct
                    else followTypes (makeEquivalent (constr, args))
                 end
 			 | followTypes t =
-			 	raise Failure "Invalid type (not a type construction)";
+			 	raise Fail "Invalid type (not a type construction)";
 
 		   (* In normal use the instance type would be a function and
 		      everything would be fine.  It is possible though that we
@@ -2787,13 +2783,13 @@ struct
 
 	  | _ => (* Print, MakeString, InstallPP *)
          (* Just call as functions. *) (* not early *)
-            mkEval (codeVal (value, level, instance, lex, lineno, env), [argument], false)
+            mkEval (codeVal (value, level, instance, lex, lineno), [argument], false)
             
      ) (* overloaded *)
      
-  | applyFunction (value, argument, level, instance, lex, lineno, env) =
+  | applyFunction (value, argument, level, instance, lex, lineno) =
    (* Just call as functions. *)
-       mkEval (codeVal (value, level, instance, lex ,lineno, env), [argument], false)
+       mkEval (codeVal (value, level, instance, lex ,lineno), [argument], false)
    (* end applyFunction *)
 
   (* If the exception is being used as a value we want an exception packet
@@ -2802,15 +2798,15 @@ struct
      an exception packet. *)
  fun codeExFunction (value, level, instance, lex, lineno) =
 	if isEmpty (valTypeOf value) (* N.B. Not "instance" *)
-	then applyFunction (value, CodeZero, level, instance, lex, lineno, emptyEnv)
+	then applyFunction (value, CodeZero, level, instance, lex, lineno)
 	else mkProc 
-	          (applyFunction (value, arg1, level + 1, instance, lex, lineno, emptyEnv),
+	          (applyFunction (value, arg1, level + 1, instance, lex, lineno),
 	            1, 1, ""); (* shouldn't this function be in-lined??? SPF 20/10/94 *)
 
  (* Operations to compile code from the representation of a constructor. *)
  (* Code to test whether a value matches a constructor. *)
  fun makeGuard (value as Value{class=Constructor _, ...}, testing, level) =
- 		mkEval(mkInd(0, codeVal (value, level, emptyType, nullLex, 0, emptyEnv)),
+ 		mkEval(mkInd(0, codeVal (value, level, emptyType, nullLex, 0)),
 			[testing], true)
 
  |   makeGuard (value as Value{class=Exception, ...}, testing, level) =
@@ -2818,14 +2814,14 @@ struct
         and compare with the identifier in the exception packet. *)
      mkTestptreq 
         (mkInd (0, testing),
-         codeVal (value, level, emptyType, nullLex, 0, emptyEnv))
+         codeVal (value, level, emptyType, nullLex, 0))
 
  |   makeGuard _ = raise InternalError "makeGuard"
 
  (* Code to invert a constructor. i.e. return the value originally
     used as the argument. *)
  fun makeInverse(value as Value{class=Constructor{nullary=false}, ...}, arg, level): codetree =
- 		mkEval(mkInd(2, codeVal (value, level, emptyType, nullLex, 0, emptyEnv)),
+ 		mkEval(mkInd(2, codeVal (value, level, emptyType, nullLex, 0)),
 			[arg], false) (* NOT "early" - this may be the "ref" constructor. *)
 
  |  makeInverse(value as Value{class=Constructor{nullary=true}, ...}, arg, level): codetree =
@@ -2868,41 +2864,40 @@ struct
   |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
 
 
-  (* Find an exception with the given identifier. *)
-  fun findException(u: univTable) (w: word): values option =
-  let
-	  fun searchList f [] = NONE
-	    | searchList f (hd::tl) =
+    (* Find an exception with the given identifier. *)
+    fun findException (allValues: values list, allStructs: structVals list) (w: word): values option =
+    let
+        fun searchList f [] = NONE
+	    |   searchList f (hd::tl) =
 			case f hd of
 				NONE => searchList f tl
 			|	result => result
 
-	  (* Search a name space or a structure. *)
-	  fun searchSpace(u: univTable, base: word) =
-	  let
-	  	  open ADDRESS
+	  	open ADDRESS
 
+        (* Test a value to see if it's the exception we want. *)
+        fun testValue base valu =
+		case valu of
+			(* Top-level exception *)
+			Value{class = Exception, access = Global code, ...} =>
+				if wordEq(evalue code, w) then SOME valu else NONE
+
+			(* Exception in a structure. *)
+		|	Value{class = Exception, access=Formal addr, ...} =>
+				if wordEq(loadWord(toAddress base, toShort addr), w)
+				then SOME valu else NONE
+
+		|	_ => NONE
+
+        (* Search for the exception in a structure. *)
+        fun searchSpace(u: univTable, base: word) =
+        let
 	  	  (* Get a list of all the entries in this space. *)
 	  	  val decList = iterList (univOver u)
 
 		  fun findItem (s: string, u: universal): values option =
 		  	 if tagIs valueVar u (* Values *)
-			 then
-			 	let
-					val valu = tagProject valueVar u
-				in
-					case valu of
-						(* Top-level exception *)
-						Value{class = Exception, access = Global code, ...} =>
-							if wordEq(evalue code, w) then SOME valu else NONE
-
-						(* Exception in a structure. *)
-					|	Value{class = Exception, access=Formal addr, ...} =>
-							if wordEq(loadWord(toAddress base, toShort addr), w)
-							then SOME valu else NONE
-
-					|	_ => NONE
-				end
+			 then testValue base (tagProject valueVar u)
 
 			 else if tagIs structVar u
 			 then (* Search this structure recursively. *)
@@ -2925,8 +2920,20 @@ struct
 	  in
 	  	  searchList findItem decList
 	  end
-	in
-	  searchSpace (u, ADDRESS.toWord 0 (* Never used. *))
+
+        val globalBase = ADDRESS.toWord 0 (* Unused. *)
+    in
+        (* First try the global values. *)
+        case searchList (testValue globalBase) allValues of
+            ex as SOME _ => ex (* found *)
+        |   NONE => (* Not found; try in the structures. *)
+                searchList (
+                    fn s =>
+                        case structAccess s of
+                            Global code =>
+                                searchSpace(sigTab (structSignat s), evalue code)
+                        | _ => NONE (* Should just be globals. *))
+                    allStructs
 	end
 
 end (* body of VALUEOPS *)

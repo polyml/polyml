@@ -2,6 +2,8 @@
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
 
+    Modified David C.J. Matthews 2008.
+
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
 	License as published by the Free Software Foundation; either
@@ -57,6 +59,8 @@ sig
   val errorOccurred: lexan -> bool
   val resetLexan:    lexan -> unit
   val flushLexan:    lexan -> unit;
+
+  val initial: (unit -> char) * string * (unit -> int) * (string -> unit) -> lexan;
 end;
 
 (*****************************************************************************)
@@ -64,13 +68,8 @@ end;
 (*****************************************************************************)
 structure CODETREE :
 sig
-  type word
   type codetree
   type prettyPrinter
-  
-  val mkConst:   word -> codetree
-  val mkRaise:   codetree -> codetree
-  val evalue:    codetree -> word
   
   val genCode:   codetree -> unit -> codetree
   val pretty:    codetree * prettyPrinter -> unit;
@@ -95,13 +94,12 @@ sig
   
   datatype env = Env of
     {
-      lookupVal:    string -> values,
-      lookupType:   string -> typeConstrs,
-      lookupFix:    string -> fixStatus,
-      lookupStruct: string -> structVals,
-      lookupSig:    string -> signatures,
-      lookupFunct:  string -> functors,
-      lookupTvars:  string -> types,
+      lookupVal:    string -> values option,
+      lookupType:   string -> typeConstrs option,
+      lookupFix:    string -> fixStatus option,
+      lookupStruct: string -> structVals option,
+      lookupSig:    string -> signatures option,
+      lookupFunct:  string -> functors option,
       enterVal:     string * values      -> unit,
       enterType:    string * typeConstrs -> unit,
       enterFix:     string * fixStatus   -> unit,
@@ -117,7 +115,6 @@ end;
 structure VALUEOPS :
 sig
   type prettyPrinter
-  type types
   type values
   type structVals
   type functors
@@ -125,24 +122,19 @@ sig
   type fixStatus
   type word
   
-  (* added 7/11/95 SPF *)
   val exnName : exn -> string
   
   val displayFixStatus:  fixStatus  * int * prettyPrinter -> unit
   val displaySignatures: signatures * int * prettyPrinter -> unit
-  val displayStructures:
-  	structVals * int * prettyPrinter *
-		{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
+  val displayStructures: structVals * int * prettyPrinter -> unit
   val displayFunctors:   functors   * int * prettyPrinter -> unit
+  val displayValues:     values * int * prettyPrinter-> unit
 
-  val displayValues:
-  		values * int * prettyPrinter *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
-                                             
-  val printStruct:
-  		word * types * int * prettyPrinter *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
-               
+  val findException: (values list * structVals list) -> word -> values option
+
+  val printerEnvironment:
+      { lookupFix: string -> fixStatus option, lookupExnById: word -> values option} ref
+
 end;
 
 
@@ -173,7 +165,6 @@ sig
   type values
   type structVals
   type functors
-  type word
   type fixStatus
   type typeConstrs
   type signatures
@@ -192,8 +183,7 @@ sig
        enterType:    string * typeConstrs -> unit,
        enterSig:     string * signatures  -> unit
      } -> unit;
-  val gencodeStructs: structs list * lexan *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree;
+  val gencodeStructs: structs list * lexan -> codetree;
   val displayStructs: structs list * int * prettyPrinter -> unit
 end;
 
@@ -209,7 +199,7 @@ sig
   
   val parseDec: symset * lexan *
    { enterFix:  string * fixStatus -> unit,
-     lookupFix: string -> fixStatus }
+     lookupFix: string -> fixStatus option }
      -> structs list
 end;
 
@@ -238,9 +228,9 @@ end;
 structure UTILITIES :
 sig
   val searchList: unit ->
-    { apply: (string * '_a -> unit) -> unit,
-      enter:  string * '_a -> unit,
-      lookup: string -> '_a }
+    { apply: (string * 'a -> unit) -> unit,
+      enter:  string * 'a -> unit,
+      lookup: string -> 'a  option}
 end;
 
 (*****************************************************************************)
@@ -265,29 +255,9 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception Failure of string
-  exception ValueMissing of string
   exception InternalError of string
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-end;
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type word
-  type address
-  type short
-  
-  val wordEq : word * word -> bool
-
-  val toWord    : 'a -> word
-  val toShort   : 'a -> short
-  val toAddress : 'a -> address
-    
-  val loadWord  : (address * short) -> word
 end;
 
 (*****************************************************************************)
@@ -374,16 +344,6 @@ sharing type
 = STRUCTVALS.signatures
 = STRUCTURES.signatures
 
-sharing type
-  ADDRESS.word
-= CODETREE.word
-= VALUEOPS.word
-= STRUCTURES.word
-
-sharing type 
-  TYPETREE.types
-= VALUEOPS.types
-
 (*****************************************************************************)
 (*                  COMPILERBODY export signature                            *)
 (*****************************************************************************)
@@ -391,15 +351,46 @@ sharing type
  ) : 
  
 sig
-  type env
-  type lexan
-  type values
-  type word
-  val compiler :
-      lexan *               (* the I/O environment *)
-      env *                (* the current global environment *)
-	  (word -> values option) -> (* Look-up function for top-level exceptions. *)
-      unit -> unit;         (* the function to actually execute *)
+    type values;
+    type typeConstrs;
+    type fixStatus;
+    type structVals;
+    type signatures;
+    type functors;
+
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      };
+
+    (* The completed compiler. *)
+    val compiler :
+        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+          lineNumber: unit->int, putString: string->unit }
+       -> unit -> unit;         (* the function to actually execute *)
+
+    (* Function to set the environment used by PolyML.print etc to look
+       up infix status and exceptions.  *)
+    val setPrintEnv : nameSpace -> unit
       
 end =
 
@@ -412,7 +403,6 @@ struct
   open PRETTYPRINTER;
   open LEX;
   open DEBUG;
-  type word = ADDRESS.word
 
   fun printTimes (parseTime,pass2Time,treeTime,codeTime,endRunTime) : unit =
     if not (! timing) then ()
@@ -451,7 +441,7 @@ struct
       op ++ (abortParse, semicolon)
     end;
 
-  fun compiler (lex : lexan, STRUCTVALS.Env globals, lookupExnById) : unit -> unit =
+  fun baseCompiler (lex : lexan, STRUCTVALS.Env globals) : unit -> unit =
   let (* let1 *)
 
 	(* Return the total user+system time since the start. *)
@@ -484,7 +474,7 @@ struct
     (* An empty declaration (or end of file!) *)
     if SYMSET.inside (sy lex, stopSyms)
     then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
-       then (resetLexan lex; raise Failure "Static errors (pass 1)")
+       then (resetLexan lex; raise Fail "Static errors (pass 1)")
        else fn () => () (* Do nothing *)
     else let (* let2 *)
       (* create a "throw away" compiling environment for this topdec *)
@@ -512,7 +502,7 @@ struct
  
       val U : unit =
        if errorOccurred lex
-       then (resetLexan lex; raise Failure "Static errors (pass 1)")
+       then (resetLexan lex; raise Fail "Static errors (pass 1)")
        else ()
  
       (* extend throw-away compiling environment *)
@@ -521,7 +511,6 @@ struct
       val newStrEnv   = UTILITIES.searchList();
       val newSigEnv   = UTILITIES.searchList();
       val newFuncEnv  = UTILITIES.searchList();
-      val newTvarsEnv = UTILITIES.searchList();
    
       (* create an "env" from the throw-away environment *)
       val lookupVal =
@@ -538,9 +527,6 @@ struct
  
       val lookupFunct =
         lookupDefault (#lookup newFuncEnv) (#lookupFunct globals);
-         
-      val lookupTvars =
-         #lookup newTvarsEnv; (* always raises exception! *)
  
      (* For each declaration we enter a reference to the identifier in this
         table. We can then construct code which will load each value into 
@@ -553,7 +539,6 @@ struct
            lookupStruct  = lookupStruct,
            lookupSig     = lookupSig,
            lookupFunct   = lookupFunct,
-           lookupTvars   = lookupTvars,
            enterVal      = #enter newValEnv,
            enterType     = #enter newTypeEnv,
            enterFix      = enterFix,
@@ -563,7 +548,6 @@ struct
           };
  
       val localEnv : env = STRUCTVALS.Env locals;
-	  val printEnv = {lookupFix = lookupFix, lookupExnById = lookupExnById}
  
       (* If no errors then do second pass to match identifiers
          and declarations and return type of expression. *)
@@ -585,19 +569,19 @@ struct
  
       val U : unit =
         if errorOccurred lex
-        then (resetLexan lex; raise Failure "Static errors (pass2)")
+        then (resetLexan lex; raise Fail "Static errors (pass2)")
         else ();
       
       (* Only code-generate if there were no errors and
          it's not a directive. *)
       val optimisedCode : CODETREE.codetree =
-        STRUCTURES.gencodeStructs (parseTree, lex, printEnv);
+        STRUCTURES.gencodeStructs (parseTree, lex);
       val treeTime = cpuTime startTime;
       
       val U : unit =
         if errorOccurred lex
         then (* Errors can be produced during the code-generation phase. *)
-           (resetLexan lex; raise Failure "Static errors (pass3)")
+           (resetLexan lex; raise Fail "Static errors (pass3)")
         else ();
  
        val UUU:unit =
@@ -626,55 +610,22 @@ struct
 
          val startRunTime = Timer.startCPUTimer(); (* Save the run-time *)
          val U : unit = startProfile wasProfiling;
-         
-          (* In the event of an exception, catch it and print the
-             parameter. This can only be done if the exception is global
-             since otherwise we don't know the parameter type. *)
-         fun catchExn (exceptionData: CODETREE.word) = 
-         let
-           (* turn off the timer *)
-           val U : unit = stopProfile wasProfiling;
-           val endRunTime = cpuTime startRunTime;
-             (* if we are profiling, stop and force out the profile counts *)
-           val U : unit = stopProfile wasProfiling;
 
-           val pstream = prettyPrint (77, lexPrint lex);
-
-           in
-             ppBeginBlock pstream (3, false);
-             ppAddString  pstream "Exception-";
-             ppBreak      pstream (1, 0);
-             VALUEOPS.printStruct (exceptionData,
-               TYPETREE.exnType, ! errorDepth, pstream, printEnv);
-             ppBreak      pstream (1, 0);
-             ppAddString  pstream "raised";
-             ppEndBlock   pstream ();
-
-             (* print out timing info *)
-             printTimes (parseTime,pass2Time,treeTime,codeTime,endRunTime)
-         end; (* catchExn *)
-       
          val resultVec = (* Now run it *)
-          resultCode ()
-            handle
-              Failure s => 
-                raise Failure s (* caught by next level up *)
-                      
-            | InternalError s =>
-              let
-                val s' =
-                "Exception- InternalError: " ^
-                    String.toString s ^
-                    " raised while executing"
-              in
-                (! printString) (s' ^ "\n");
-                raise Failure s'
-              end
-             
-           | exn => (* Print out the exception data and reraise the exception. *)
-		   		(catchExn (ADDRESS.toWord exn); raise exn)
-
-         val U : unit = stopProfile wasProfiling;
+             resultCode ()
+                 handle exn => (* Exceptions in run-time code. *)
+                 let
+                     val () = stopProfile wasProfiling;
+                     val endRunTime = cpuTime startRunTime;
+                     (* if we are profiling, stop and force out the profile counts *)
+                     val () = stopProfile wasProfiling;
+                 in
+                     (* print out timing info *)
+                     printTimes (parseTime,pass2Time,treeTime,codeTime,endRunTime);
+                     raise exn
+                 end
+ 
+         val () = stopProfile wasProfiling;
          val endRunTime = cpuTime startRunTime;
 
        in (* let3 *)
@@ -766,7 +717,7 @@ struct
                 
 
 		   let
-	    val ll = ! lineLength;
+	        val ll = ! lineLength;
             val pstream = prettyPrint (if ll < 10 then 10 else ll, lexPrint lex);
 
 		    fun printEntry (_, TypeConstrKind t) =
@@ -782,11 +733,11 @@ struct
 			|   printEntry (_, SignatureKind s) =
                  VALUEOPS.displaySignatures (s, ! printDepth, pstream)
 			|   printEntry (_, StructureKind s) =
-                 VALUEOPS.displayStructures (s, ! printDepth, pstream, printEnv)
+                 VALUEOPS.displayStructures (s, ! printDepth, pstream)
 			|   printEntry (_, FunctorKind f) =
                  VALUEOPS.displayFunctors (f, ! printDepth, pstream)
 			|   printEntry (_, ValueKind v) =
-                   VALUEOPS.displayValues (v, ! printDepth, pstream, printEnv);
+                   VALUEOPS.displayValues (v, ! printDepth, pstream);
 
 			(* Primarily sort by name, secondarily by type of entry. *)
 			fun kindToInt(FixStatusKind _) = 0
@@ -814,61 +765,104 @@ struct
     end (* let2 *)
   end; (* let1 *)
 
-(* HACK *)
-  fun compiler2 (envs as (lex : lexan, _, _)) : unit -> unit =
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      };
+
+    fun compiler { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+          lineNumber: unit->int, putString: string->unit } : unit -> unit =
+    let
+        val lex = LEX.initial(getChar, fileName, lineNumber, putString);
+
+        (* Convert the environment into the form used by the compiler. *)
+        val useEnv : STRUCTVALS.env =
+          STRUCTVALS.Env
+            { 
+              lookupFix    = #lookupFix nameSpace,
+              lookupVal    = #lookupVal nameSpace,
+              lookupType   = #lookupType nameSpace,
+              lookupSig    = #lookupSig nameSpace,
+              lookupStruct = #lookupStruct nameSpace,
+              lookupFunct  = #lookupFunct nameSpace,
+              enterFix     = #enterFix nameSpace,
+              enterVal     = #enterVal nameSpace,
+              enterType    = #enterType nameSpace,
+              enterStruct  = #enterStruct nameSpace,
+              enterSig     = #enterSig nameSpace,
+              enterFunct   = #enterFunct nameSpace
+             };
+    in
     (
-      if !traceCompiler
-      then POLYML.exception_trace (fn () => compiler envs)
-      else compiler envs
+        if !traceCompiler
+        then POLYML.exception_trace (fn () => baseCompiler(lex,useEnv))
+        else baseCompiler(lex,useEnv)
     )
       handle
         SML90.Interrupt =>
         (
-          (* 
-             Reset the lexer to its "start of topdec" state,
-             so we don't get any funnies on the next compilation.
-             SPF 16/7/96
-          *)
-          LEX.flushLexan lex;
-		  (! printString) ("Compilation interrupted\n");
+          LEX.flushLexan lex; (* No longer needed? *)
+		  putString ("Compilation interrupted\n");
           raise SML90.Interrupt
         )
         
-      | Failure s => 
-		  raise Failure s (* static errors - caught by next level up *)
+      | Fail s => 
+		  raise Fail s (* static errors - caught by next level up *)
 		 
       | InternalError s =>
 		let
 		  val s' =
-		  "Exception- InternalError: " ^
-		      String.toString s ^
-		      " raised while compiling"
+		  "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
 		in
-		  (! printString) (s' ^ "\n");
-		  raise Failure s'
-		end
-       
-      | ValueMissing s =>
-		let
-		  val s' =
-		  "Exception- ValueMissing: " ^
-		      String.toString s ^
-		      " raised while compiling"
-		in
-		  (! printString) (s' ^ "\n");
-		  raise Failure s'
+		  putString (s' ^ "\n");
+		  raise Fail s'
 		end
        
       | exn =>
      	let
 		  val s' =
-		  "Exception- " ^ VALUEOPS.exnName exn
-		   ^ " unexpectedly raised while compiling"
+		      "Exception- " ^ VALUEOPS.exnName exn ^ " unexpectedly raised while compiling"
 		in
-		  (! printString) (s' ^ "\n");
-		  raise Failure s'
-		end;
-  
-val compiler = compiler2;
-     
+		  putString (s' ^ "\n");
+		  raise Fail s'
+		end
+    end 
+
+    fun setPrintEnv nameSpace: unit =
+    let
+        (* This function is bound into PolyML.print, PolyML.makeString and General.exnMessage
+           to lookup exceptions.  This enables the contents of exception packets to be printed. *)
+        fun exceptionSearch (w: VALUEOPS.word) : values option =
+        let
+            val values = #allVal nameSpace ()
+            and strs   = #allStruct nameSpace ()
+            (* Filter out the strings.  Order doesn't matter. *)
+            fun getVal []            l = l
+            |   getVal ((_, v) :: r) l = getVal r (v::l)
+        in
+            VALUEOPS.findException(getVal values [], getVal strs []) w
+        end
+
+    in
+        VALUEOPS.printerEnvironment := { lookupFix = #lookupFix nameSpace, lookupExnById = exceptionSearch }
+    end
 end; (* struct *)

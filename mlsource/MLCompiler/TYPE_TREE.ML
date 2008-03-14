@@ -12,7 +12,7 @@
 		Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-7 David C.J. Matthews
+    Copyright (c) 2000-8 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -170,8 +170,8 @@ end;
 (*****************************************************************************)
 structure UTILITIES :
 sig
-  val mapTable: ('_a * '_a -> bool) ->
-                   {enter: '_a * '_b -> unit, lookup: '_a -> '_b}
+  val mapTable: ('a * 'a -> bool) ->
+                   {enter: 'a * 'b -> unit, lookup: 'a -> 'b option}
   val splitString:   string -> { first:string, second:string }
 end;
 
@@ -193,23 +193,9 @@ end;
 (*****************************************************************************)
 structure MISC :
 sig
-  exception ValueMissing of string;  (* table lookup failure *)
   exception InternalError of string;
-
-  val isNil : 'a list -> bool
   
-  val fold   : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
-
-  val min : int -> int -> int
-
-  type 'a iter;
-
-  val for      : 'a iter -> ('a -> 'b) -> unit
-  val first    : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
-  val overList : 'a list -> 'a iter;
-  
-  val lookupDefault : ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b
+  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end;
 
 (*****************************************************************************)
@@ -315,7 +301,7 @@ sig
   (* Checking procedures *)
 
    (* Match a candidate to a target type. *)
-   val matchTypes: types * types * (typeId -> typeConstrs) *
+  val matchTypes: types * types * (typeId -> typeConstrs option) *
                    lexan * int * (prettyPrinter -> unit) -> unit;
 
   (* Unify two type structures to give a unified type. *)
@@ -361,7 +347,7 @@ sig
   val copyTypeConstr: 
      typeConstrs * (typeId -> bool) * (unit -> typeId) *
         {enter: typeId * typeConstrs -> unit,
-         lookup: typeId -> typeConstrs} *
+         lookup: typeId -> typeConstrs option} *
 		 (types -> types) * string ->
                       typeConstrs;
 
@@ -369,7 +355,7 @@ sig
 
   val enterTypeConstrs: typeConstrs * typeConstrs *
                         { enter: typeId * typeConstrs -> unit,
-                          lookup: typeId -> typeConstrs} -> unit;
+                          lookup: typeId -> typeConstrs option} -> unit;
 
   val identical:       types * types -> bool;
   val identicalConstr: typeConstrs * typeConstrs -> bool;
@@ -693,13 +679,13 @@ struct
 
        | TypeConstruction {args, ...} =>
            (* Then process the arguments. *)
-           fold foldT res args
+           List.foldr (fn (t, v) => foldT t v) res args
            
       | FunctionType {arg, result} =>
-          foldT arg (foldT result res)
+           foldT arg (foldT result res)
     
       | LabelledType {recList,...} =>
-          fold (fn { name, typeof } => foldT typeof) res recList
+           List.foldr (fn ({ name, typeof }, v) => foldT typeof v) res recList
 
       | BadType =>
           res
@@ -870,7 +856,7 @@ struct
        in
 		 ppBeginBlock pprint (0, false);
 		 
-		 if not (isNil T) orelse
+		 if not (null T) orelse
 		    isProductType argVal orelse
 		    isFunctionType argVal
 		 then (* parenthesise if there is more than one
@@ -943,7 +929,7 @@ struct
 					ppBreak      pprint (1, 0);
 					dispP (typeof, depth - 1);
 					ppEndBlock   pprint ();
-		            if isNil T then ()
+		            if null T then ()
 		            else
 		            (
 		              ppBreak pprint (0, 0);
@@ -951,7 +937,7 @@ struct
 		            );
             
 					ppEndBlock pprint ();
-					if isNil T then ()
+					if null T then ()
 					else
 						(
 		              	ppBreak pprint (1, 0);
@@ -1022,26 +1008,21 @@ struct
     (* If the type is already there return the name we have given it
        otherwise make a new name and put it in the list. *)
     fn (var : typeVarForm) =>
-      first (fn (Names {entry,...}) => sameTv (entry, var))
-	    (fn (Names {name,...})  => name)
-	    (fn () => (* Not on the list - make a new name *)
-	    let
-	      fun name num = (if num >= 26 then name (num div 26 - 1) else "")
-			      ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
-	    in
-	      nameNum := !nameNum + 1;
-	      let
-		val n = (if tvEquality var then "''" else "'") ^
-			(if !ml90 andalso tvWeak var then "_" else "") ^ name(!nameNum);
-	      (* Should explicit type variables be distinguished? *)
-	      in
-		gNameList := Names{name=n, entry=var} :: !gNameList;
-		n
-	      end
-	    end
-	    )
-	    (overList (!gNameList))
-          
+        case List.find (fn (Names {entry,...}) => sameTv (entry, var)) (!gNameList) of
+            NONE =>  (* Not on the list - make a new name *)
+    	    let
+    	        fun name num = (if num >= 26 then name (num div 26 - 1) else "")
+    			      ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
+                val () = nameNum := !nameNum + 1;
+    	        val n = (if tvEquality var then "''" else "'") ^
+    			     (if !ml90 andalso tvWeak var then "_" else "") ^ name(!nameNum);
+    	        (* Should explicit type variables be distinguished? *)
+    	    in
+    		    gNameList := Names{name=n, entry=var} :: !gNameList;
+    		    n
+    	    end
+       |    SOME (Names {name,...}) => name
+           
   end (* varNameSequence *);
   
 
@@ -1080,12 +1061,12 @@ struct
         let
           fun pVars vars depth = 
             if depth <= 0 then ppAddString pprint "..."
-            else if not (isNil vars)
+            else if not (null vars)
                  then  
                  (
                    tDisp (hd vars, depth, pprint, typeV);
                    ppBreak pprint (0, 0);
-                   if not (isNil (tl vars))
+                   if not (null (tl vars))
                    then
                    (
                      ppAddString pprint ",";
@@ -1130,7 +1111,7 @@ struct
   in
     if depth <= 0 
     then ppAddString pprint "..."
-    else if not (isNil (tcConstructors tCons))
+    else if not (null (tcConstructors tCons))
       then let (* It has constructors - datatype declaration *)
          (* Print a single constructor (blocked) *)
          fun pValConstr (first, name, typeOf, depth) =
@@ -1453,8 +1434,9 @@ struct
       (* We share occurences of type constructors (not just their
          identifiers) so that if we have a value of a type which is a
          datatype we can find the constructors when we need to print it. *)
-      lookup id (* Return it if it is in the table. *)
-         handle ValueMissing _ =>
+      case lookup id of (* Return it if it is in the table. *)
+         SOME i => i
+      |  NONE =>
 	   let (* Not there, so copy it. *)
 		 (* Replace any signature name by the given structure name unless this is
 		    is a type equivalence.  It may be that the type is not actually
@@ -1786,11 +1768,9 @@ struct
 	    (#arg (typesFunctionType (valTypeOf h)),
 	     genEquality,
 	     fn tyVar =>
-	       first 
-	         (fn v => sameTv (typesTypeVar v, tyVar))
-		 (fn types => Yes)
-		 (fn () => No)
-		 (overList (tcTypeVars constructor))
+             if List.exists (fn v => sameTv (typesTypeVar v, tyVar))
+                 (tcTypeVars constructor)
+             then Yes else No
 	    );
       in
 	if eq = No
@@ -1804,7 +1784,7 @@ struct
     let 
       (* Look it up to see if we have already done it. It may fail because
          we may have constructors that do not admit equality. *)
-      val thisState = lookupDefault lookup (fn _ => Processed No) constructorId;
+      val thisState = getOpt(lookup constructorId, Processed No);
     in
       if isProcessed thisState
       then stateProcessed thisState (* Have either done it already or are currently doing it. *)
@@ -1818,8 +1798,8 @@ struct
         enter (constructorId, Processed Maybe);
         let
           val eq =
-            revfold 
-              (fn cons => fn t => 
+            List.foldl 
+              (fn (cons, t) => 
                  if t = No
                    then No
                  else if inSignature andalso
@@ -1847,30 +1827,31 @@ struct
   in
      (* If we have an eqtype we set it to true, otherwise we set all of them
        to "notSeen" with the constructor as value. *)
-   for (overList types)
+     List.app 
         (fn dec => 
         let  (* If we have two datatypes which share we may already have
                 one in the table.  We have to link them together. *)
           val tclist =
-          let
-            val others  = stateNotSeen (lookup (tcIdentifier dec));
-            val newList = dec :: others;
-          in
-            (* If any of these are already equality types (i.e. share with an eqtype)
-               then they all must be. *)
-            if tcEquality dec orelse tcEquality (hd others)
-            then 
-              for (overList newList) (fn d => tcSetEquality (d, true))
-            else ();
-            newList
-          end (* If not in the list put in a new entry. *)
-              handle ValueMissing _ => [dec];
-        in
+              case lookup (tcIdentifier dec) of
+                  NONE => [dec]
+              |   SOME l =>
+                  let
+                    val others = stateNotSeen l
+                    val newList = dec :: others;
+                  in
+                    (* If any of these are already equality types (i.e. share with an eqtype)
+                       then they all must be. *)
+                    if tcEquality dec orelse tcEquality (hd others)
+                    then List.app (fn d => tcSetEquality (d, true)) newList
+                    else ();
+                    newList
+                  end
+                in
           enter (tcIdentifier dec, NotSeen tclist)
-        end);
+        end) types;
 
       (* Apply genEquality to each element of the list. *)
-      for (overList types) (fn constructor => 
+      List.app (fn constructor => 
           let
             val constructorId = tcIdentifier constructor;
             val eqForCons     = genEquality constructorId;
@@ -1890,7 +1871,7 @@ struct
               enter (constructorId, Processed Yes);
               tcSetEquality (constructor, true)
             )
-          end)
+          end) types
     end (* genEqualityFunctions *);
 
   (* Test to see is a type constructor is in an overload set. *)
@@ -2074,7 +2055,7 @@ struct
            let
              (* The level is the minimum of the two, and if we are unifying with
                 an equality type variable we must make this into one. *)
-             val minLev = min (tvLevel var) (tvLevel tvar);
+             val minLev = Int.min (tvLevel var, tvLevel tvar);
 			 (* Make the resultant type variable weak unless we are really
 			    unifying it with an overload set. *)
              val isWeak = ((tvWeak var) orelse (tvWeak tvar))
@@ -2480,7 +2461,7 @@ struct
         				else if not(isEmpty (tcEquivalent typeBCons))
         				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
         				else (* See if the target type is among those in the overload set. *)
-        					if isNil typeBargs (* Must be a nullary type constructor. *)
+        					if null typeBargs (* Must be a nullary type constructor. *)
         						andalso isInSet(tBCons, typeset)
         				then () (* ok. *)
         				else cantMatch (tA, typB, "(Overloading does not include type)")
@@ -2498,7 +2479,7 @@ struct
     		(* We should never find an overload set as the target for a signature
     		   match but it is perfectly possible for tB to be an overload set
     		   when unifying two types.  *)
-    		else if isNil tAargs andalso isInSet(tACons, typeset)
+    		else if null tAargs andalso isInSet(tACons, typeset)
     		then () (* ok. *)
     		else cantMatch (tA, mapB tB, "(Overloading does not include type)")
 		end
@@ -2917,8 +2898,9 @@ struct
       val t = pling (#value (typesTypeConstruction equiv));
       (* Is it in the table already?  If so don't overwrite it. *)
     in
-       (#lookup matchTab (tcIdentifier t); {}) (* bugfix 3/8/94 SPF *)
-	  handle ValueMissing _ => enterTypeConstrs (t, candidate, matchTab)
+       case #lookup matchTab (tcIdentifier t) of
+          SOME _ => ()
+       |  NONE => enterTypeConstrs (t, candidate, matchTab)
     end
     else ()
   end;
@@ -2927,7 +2909,7 @@ struct
   fun matchTypes
     (candidate : types, 
      target    : types,
-     targMap   : typeId -> typeConstrs,
+     targMap   : typeId -> typeConstrs option,
      lex       : lexan,
      lineno    : int,
      moreInfo  : prettyPrinter -> unit)
@@ -2940,8 +2922,7 @@ struct
         ( (* Copy it if it is in the map. *)
            copyTypeConstr
               (tcon, 
-               (fn id => (targMap id; true) (* bugfix SPF 3/8/93 *)
-                            handle ValueMissing _ => false),
+               (fn id => case targMap id of SOME _ => true | NONE => false),
                makeFreeId, (* Not used. *)
               {lookup = targMap, enter = (fn (id, tc) => ())},
 			  trivMap, ""
@@ -3061,8 +3042,8 @@ struct
         (* Are they the same already? If so skip all this. *)
       then ()
 	  else let  (* Not there. *)
-        val AIsDatatype = not (isNil(tcConstructors typeA));
-        val BIsDatatype = not (isNil(tcConstructors typeB));
+        val AIsDatatype = not (null(tcConstructors typeA));
+        val BIsDatatype = not (null(tcConstructors typeB));
         (* If we have a variable type constructor which is a type or eqtype
            (but not a datatype) we can set its "equivalent" field to the
            other type constr. *)
@@ -3238,13 +3219,13 @@ struct
 		   is legal in ML97, although unmatchable.  If we apply a
 		   "where type" constraint to, say s, e.g. where type s = bool,
 		   we don't check it. *)
-		else if not (isNil(tcConstructors tcToSet))
+		else if not (null(tcConstructors tcToSet))
 		then
 		(*
 			cantSet ("Cannot apply type realisation: (" ^
 							 tcName tcToSet ^ ") is a datatype.")
 		*)
-			if isNil(tcConstructors equivTc)
+			if null(tcConstructors equivTc)
 			then
 				cantSet ("Cannot apply type realisation: (" ^
 							 tcName tcToSet ^ ") is a datatype but (" ^
@@ -3368,7 +3349,7 @@ struct
         val l = tcConstructors constr
     in
       (* In a few cases it is possible for the value to be an equivalent. *)
-      if isNil l andalso not(isEmpty(tcEquivalent constr))
+      if null l andalso not(isEmpty(tcEquivalent constr))
       then getConstrList (makeEquivalent (constr, args))
       else l
     end
@@ -3393,9 +3374,9 @@ struct
        the list is if the list is empty. We have to check the types are
        the same because we also use this when copying datatypes. *)
   in
-    first (fn v => valName v = name)
-          (fn v => if equalTypes (valTypeOf v) t then v else copied)
-          (fn () => copied)
-          (overList (tcConstructors constructor))
+      case List.find (fn v => valName v = name)
+          (tcConstructors constructor) of
+          SOME v => if equalTypes (valTypeOf v) t then v else copied
+      |   NONE => copied
   end; 
 end (* TYPETREE *);

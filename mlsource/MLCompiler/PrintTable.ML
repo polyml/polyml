@@ -23,6 +23,5 @@ structure PrintTable  =
     (
       structure STRUCTVALS = StructVals
       structure PRETTYPRINTER = PrettyPrinter
-      structure MISC = Misc
     );
 

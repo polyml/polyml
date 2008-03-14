@@ -31,6 +31,11 @@ end;
 structure STRUCTVALS :
 sig
   type types
+  type typeConstrs
+  type fixStatus
+  type structVals
+  type signatures
+  type functors
   type values
   type codetree
   type valAccess
@@ -48,14 +53,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception ValueMissing of string;  (* table lookup failure *)
-end
-
-(*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
 structure VALUEOPS :
@@ -71,9 +68,7 @@ sig
   val mkGvar:    string * types * codetree -> values
   val mkGex:     string * types * codetree -> values
   
-  val printStruct:
-  		word * types * int * prettyPrinter *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> unit
+  val printStruct: word * types * int * prettyPrinter -> unit
 end
 
 structure CODETREE :
@@ -126,6 +121,11 @@ sig
     type types
 	type values
 	type word
+    type fixStatus
+    type structVals
+    type typeConstrs
+    type signatures
+    type functors
 
 	datatype environEntry =
 		EnvValue of string * types
@@ -138,7 +138,10 @@ sig
 	val enterFunction: string -> unit -> unit
 	val leaveFunction: types -> word -> word
 	val exceptionFunction: exn -> 'a
-	val setDebugger: ((string->values)*(unit->bool)->unit) -> unit
+	val setDebugger: ({lookupVal: string -> values option, lookupType: string -> typeConstrs option,
+                    lookupFix: string -> fixStatus option, lookupStruct: string -> structVals option,
+                    lookupSig: string -> signatures option, lookupFunct:  string -> functors option }
+                    *(unit->bool)->unit) -> unit
 	val singleStep: unit -> unit
 	val stepOver: unit -> unit
 	val stepOut: unit -> unit
@@ -156,13 +159,16 @@ sig
 end
 =
 struct
-    open STRUCTVALS DEBUG ADDRESS MISC VALUEOPS CODETREE PRETTYPRINTER
+    open STRUCTVALS DEBUG ADDRESS VALUEOPS CODETREE PRETTYPRINTER
 
 	(* The debugger is actually the compiler itself but we need the
 	   address of the debugFunction within the compiler.  To close
 	   the loop we have this reference which is set when the compiler
 	   has been compiled. *)
-	val debugRef: ((string->values)*(unit->bool)->unit) ref = ref (fn _ => ())
+	val debugRef: ({lookupVal: string -> values option, lookupType: string -> typeConstrs option,
+                    lookupFix: string -> fixStatus option, lookupStruct: string -> structVals option,
+                    lookupSig: string -> signatures option, lookupFunct:  string -> functors option }
+                    *(unit->bool)->unit) ref = ref (fn _ => ())
 	fun setDebugger debug = (debugRef := debug)
 
 	val exitLoop = ref false; (* Set to true to exit the debug loop *)
@@ -301,18 +307,17 @@ struct
 		  	 (* The name we are looking for isn't in
 			    the environment.
 				The lists should be the same length. *)
-			 raise ValueMissing "Not in environment"
+			 raise Subscript
 	in
-		if ! debugLevel = 0
+		SOME(if ! debugLevel = 0
 		then searchList(valEnv, valueList)
 		else (* Find the entry in the stack. *)
 		let
 			val {ctEnv, rtEnv, ...} = List.nth(!stack, !debugLevel -1)
 		in
 			searchList(ctEnv, rtEnv)
-		end
+		end) handle Subscript => NONE
 	end
-
 
 	(* Try to print the appropriate line from the file. *)
 	fun printLine(fileName: string, line: int, funName: string) =
@@ -363,12 +368,7 @@ struct
 		end
 
 	fun printValue pstream (t: types, v: word) =
-	let
-		(* TODO: We could use the global environment here. *)
-		val emptyEnv = { lookupFix = fn s => raise ValueMissing s, lookupExnById = fn _ => NONE }
-	in
-		printStruct(v, t, ! DEBUG.printDepth, pstream, emptyEnv)
-	end
+		printStruct(v, t, ! DEBUG.printDepth, pstream)
 
 	local
 		fun printAll pstream (EnvValue(name, ty) :: ctRest, value :: rtRest) doAll =
@@ -507,7 +507,12 @@ struct
 					debugLevel := 0;
 					enteredFn := false;
 					printLine(fileName, line, !lastFun);
-					(!debugRef) (valueLookup(staticEnv, valueList), fn () => !exitLoop)
+                    (* We have a full environment here for future expansion but at
+                       the moment only the value environment is used. *)
+					(!debugRef) ({ lookupVal = valueLookup(staticEnv, valueList),
+                                  lookupType = fn _ => NONE, lookupFix = fn _ => NONE,
+                                  lookupStruct = fn _ => NONE, lookupSig = fn _ => NONE,
+                                  lookupFunct = fn _ => NONE}, fn () => !exitLoop)
 				)
 
 			else if !enteredFn

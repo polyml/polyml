@@ -35,14 +35,6 @@ sig
   val errorMessage: lexan * int * string -> unit;
 end
 
-(*****************************************************************************)
-(*                  MISC exports signature                                  *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception ValueMissing of string;  (* table lookup failure *)
-end
-
 ) :
    
 (*****************************************************************************)
@@ -52,18 +44,18 @@ sig
   type lexan;
 
   val noDuplicates: (string -> unit) -> 
-                       { apply: (string * '_a -> unit) -> unit,
-                         enter:  string * '_a -> unit,
-                         lookup: string -> '_a };
+                       { apply: (string * 'a -> unit) -> unit,
+                         enter:  string * 'a -> unit,
+                         lookup: string -> 'a option };
     
-  val searchList: unit -> { apply: (string * '_a -> unit) -> unit,
-                            enter:  string * '_a -> unit,
-                            lookup: string -> '_a };
+  val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
+                            enter:  string * 'a -> unit,
+                            lookup: string -> 'a option};
     
   val checkForDots: string * lexan * int -> unit;
     
-  val mapTable: ('_a * '_a -> bool) ->
-                   {enter: '_a * '_b -> unit, lookup: '_a -> '_b};
+  val mapTable: ('a * 'a -> bool) ->
+                   {enter: 'a * 'b -> unit, lookup: 'a -> 'b option};
      
   val splitString: string -> { first:string,second:string }
 end (* UTILITIES export signature *) =
@@ -73,7 +65,6 @@ end (* UTILITIES export signature *) =
 (*                  UTILITIES functor body                                   *)
 (*****************************************************************************)
 struct
-  open MISC;
   open LEX;
   
   (* A search list in which an identifier may only be entered once.
@@ -108,8 +99,8 @@ struct
 
     fun lookup (name : string) = 
     let
-      fun look []         = raise ValueMissing name
-      |   look ((n,v)::T) = if n = name then v else look T;
+      fun look []         = NONE
+      |   look ((n,v)::T) = if n = name then SOME v else look T;
     in
       look (!variable)
     end;
@@ -139,8 +130,8 @@ struct
     (* Look up name *)
     fun lookup (name : string) = 
     let
-      fun look []         = raise ValueMissing name
-      |   look ((n,v)::T) = if n = name then v else look T;
+      fun look []         = NONE
+      |   look ((n,v)::T) = if n = name then SOME v else look T;
     in
       look (!variable)
     end;
@@ -164,20 +155,20 @@ struct
   (* Creates a table which will match values of one type and return
      corresponding results. *)
   
-  fun mapTable (same : '_a * '_a -> bool) :
-         {enter: '_a * '_b -> unit, lookup: '_a -> '_b} =
+  fun mapTable (same : 'a * 'a -> bool) :
+         {enter: 'a * 'b -> unit, lookup: 'a -> 'b option} =
   let
-    val table : ('_a * '_b) list ref = ref [];
+    val table : ('a * 'b) list ref = ref [];
      
     (* Don't allow duplicate keys in the list! *)
     local    
-      fun member (x, [] : ('_a * '_b) list) = false
+      fun member (x, [] : ('a * 'b) list) = false
 	| member (x, h::t) = same (#1 h, x) orelse member (x, t);
 	
-      fun delete (x, [] : ('_a * '_b) list) = []
+      fun delete (x, [] : ('a * 'b) list) = []
 	| delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t);
     in	
-      fun enter (entry as (a: '_a, b: '_b)) : unit =
+      fun enter (entry as (a: 'a, b: 'b)) : unit =
       let
 	val list    = !table;
 	val newList = if member (a, list) then delete (a, list) else list;
@@ -192,10 +183,10 @@ struct
 ... *)
     
     (* Get a value if it's there *)
-    fun lookup (x : '_a) : '_b = 
+    fun lookup (x : 'a) : 'b option = 
     let
-      fun search []           = raise ValueMissing ""
-      |   search ((a, b) :: T) = if same (a, x) then b else search T;
+      fun search []           = NONE
+      |   search ((a, b) :: T) = if same (a, x) then SOME b else search T;
     in
       search (!table)
     end;

@@ -19,7 +19,6 @@
  
 structure Make =
   MAKE_ (
-    structure DEBUG = Debug;
     structure STRUCTVALS = StructVals;
     structure HASHTABLE = HashTable;
     structure LEX = Lex;
@@ -27,5 +26,4 @@ structure Make =
     structure MISC = Misc;
     structure UNIVERSAL = Universal
     structure UNIVERSALTABLE = UniversalTable
-	structure VALUE_OPS = ValueOps
   ); 

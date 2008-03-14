@@ -2,6 +2,8 @@
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
 
+    Updated David C.J. Matthews 2008
+
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
 	License as published by the Free Software Foundation; either
@@ -23,8 +25,6 @@
     Copyright   Cambridge University 1985
 *)
 
-(* preliminary version *)
-
 functor INITIALISE_ (
 
 (*****************************************************************************)
@@ -40,6 +40,11 @@ sig
   val mkProductType:      types list -> types;
   val mkFunctionType:     types * types -> types;
   val mkOverloadSet:	  typeConstrs list -> types;
+  val mkLabelled:         {name: string, typeof: types } list * bool -> types;
+  val mkLabelEntry:       string * types -> {name: string, typeof: types };
+
+  val sortLabels:         {name: string, typeof: types } list * (string -> unit) ->
+  								{name: string, typeof: types } list;
    
   val boolType:   types;
   val intType:    types;
@@ -63,7 +68,7 @@ sig
   type codetree;
   type values;
   type typeId;
-  
+
   val undefinedStruct:   structVals;
   val structSignat:      structVals -> signatures;
   
@@ -129,13 +134,12 @@ sig
   type fixStatus;
   datatype env = Env of
     {
-      lookupVal:    string -> values,
-      lookupType:   string -> typeConstrs,
-      lookupFix:    string -> fixStatus,
-      lookupStruct: string -> structVals,
-      lookupSig:    string -> signatures,
-      lookupFunct:  string -> functors,
-      lookupTvars:  string -> types,
+      lookupVal:    string -> values option,
+      lookupType:   string -> typeConstrs option,
+      lookupFix:    string -> fixStatus option,
+      lookupStruct: string -> structVals option,
+      lookupSig:    string -> signatures option,
+      lookupFunct:  string -> functors option,
       enterVal:     string * values      -> unit,
       enterType:    string * typeConstrs -> unit,
       enterFix:     string * fixStatus   -> unit,
@@ -145,7 +149,16 @@ sig
     };
 
   val makeEnv: signatures -> env;
-end;  
+
+  type 'a tag;
+  
+  val valueVar:      values      tag;
+  val typeConstrVar: typeConstrs tag;
+  val fixVar:        fixStatus   tag;
+  val structVar:     structVals  tag;
+  val signatureVar:  signatures  tag;
+  val functorVar:    functors    tag;
+end;
 
 
 (*****************************************************************************)
@@ -195,6 +208,9 @@ sig
   val mkIf:             codetree * codetree * codetree -> codetree;
   val mkEval:           codetree * codetree list * bool -> codetree;
   val identityFunction: string -> codetree;
+  val mkTuple:          codetree list -> codetree;
+  val mkStr:            string   -> codetree;
+  val mkRaise:          codetree -> codetree;
 end;
 
 (*****************************************************************************)
@@ -202,31 +218,50 @@ end;
 (*****************************************************************************)
 structure MAKE :
 sig
-  type dbEnv
-  type univTable
-  type values
+    type gEnv
+    type env
+
+    type values;
+    type typeConstrs;
+    type fixStatus;
+    type structVals;
+    type signatures;
+    type functors;
+
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      };
   
-  val makeIntoEnv  : dbEnv -> string -> unit
-  val useIntoEnv   : dbEnv -> string -> unit
-  val dependsInEnv : dbEnv -> string -> unit
-  val dependenciesInEnv : dbEnv -> string -> string list
-  val runCompiler  : dbEnv -> 
-       (unit -> string) * (string -> unit) * (unit -> int) * string -> unit -> unit
-     
-  val forgetMakeInfo  : dbEnv -> string -> unit;
-  val forgetSignature : dbEnv -> string -> unit;
-  val forgetStructure : dbEnv -> string -> unit;
-  val forgetFunctor   : dbEnv -> string -> unit;
-  val forgetValue     : dbEnv -> string -> unit;
-  val forgetType      : dbEnv -> string -> unit;
-  val forgetFixity    : dbEnv -> string -> unit;
-  
-  val signatureNames : dbEnv -> unit -> string list;
-  val structureNames : dbEnv -> unit -> string list;
-  val functorNames   : dbEnv -> unit -> string list;
-  val valueNames     : dbEnv -> unit -> string list;
-  val typeNames      : dbEnv -> unit -> string list;
-  val fixityNames    : dbEnv -> unit -> string list;
+    val gEnvAsEnv    : gEnv -> env
+    val gEnvAsNameSpace: gEnv -> nameSpace
+    
+    val useIntoEnv   : gEnv -> string -> unit
+
+    val compiler :
+        { nameSpace: nameSpace, getChar: unit->char, fileName: string,
+          lineNumber: unit->int, putString: string->unit }
+       -> unit -> unit;
+    val setPrintEnv : nameSpace -> unit  
 end;
 
 (*****************************************************************************)
@@ -235,7 +270,14 @@ end;
 structure ADDRESS :
 sig
   type word
+  type short
   val toWord : 'a -> word;
+  (* Used for flag manipulations *)
+  val Or:  short * short -> short;
+  
+  val F_words     : short;
+  val F_bytes     : short;
+  val F_mutable   : short;
 end;
 
 (*****************************************************************************)
@@ -257,21 +299,13 @@ sig
   val traceCompiler       : bool ref;
   val inlineFunctors      : bool ref;
   val maxInlineSize       : int ref;
-  val useRCS              : bool ref;
-  val suffixes            : string list ref;
   val ml90				  : bool ref;
   val debug				  : bool ref;
 
   val printInAlphabeticalOrder : bool ref;
   val printTypesWithStructureName : bool ref;
-  
-  val prompt1 : string ref;
-  val prompt2 : string ref;
 
   val printString : (string->unit) ref;
-  val inputChar : (unit->char option) ref;
-  val nextIsNewline : (unit->bool) ref;
-  val flushInput : (unit->unit) ref;
 end;
 
 (*****************************************************************************)
@@ -291,6 +325,13 @@ end;
 (*****************************************************************************)
 structure DEBUGGER :
 sig
+	type values
+    type fixStatus
+    type structVals
+    type typeConstrs
+    type signatures
+    type functors
+
 	val singleStep: unit -> unit
 	val stepOver: unit -> unit
 	val stepOut: unit -> unit
@@ -305,6 +346,11 @@ sig
 	val printVars: unit -> unit
 	val stackTrace: unit -> unit
 	val traceFunctions: bool -> unit
+
+	val setDebugger: ({lookupVal: string -> values option, lookupType: string -> typeConstrs option,
+                    lookupFix: string -> fixStatus option, lookupStruct: string -> structVals option,
+                    lookupSig: string -> signatures option, lookupFunct:  string -> functors option }
+                    *(unit->bool)->unit) -> unit
 end;
 
 structure VERSION:
@@ -338,263 +384,262 @@ sharing type
 sharing type
   TYPETREE.typeConstrs
 = STRUCTVALS.typeConstrs 
-  
+= MAKE.typeConstrs
+
 sharing type
-  STRUCTVALS.univTable
-= MAKE.univTable 
-  
+  STRUCTVALS.env
+= MAKE.env
+
+sharing type
+  STRUCTVALS.functors
+= MAKE.functors
+
+sharing type
+  STRUCTVALS.signatures
+= MAKE.signatures
+
+sharing type
+  STRUCTVALS.fixStatus
+= MAKE.fixStatus
+
 ) : 
 
 (*****************************************************************************)
 (*                  INITIALISE export signature                              *)
 (*****************************************************************************)
 sig
-  type dbEnv
-  type env
-  type values
-  val initGlobalEnv :
-	  {  shell:      unit -> unit,    (* The command processor *)
-		 debugger:	 (string -> values)*(unit->bool) -> unit
-	   } * env * dbEnv * (unit->unit) -> unit
+  type gEnv
+  val initGlobalEnv : gEnv -> unit
 end =
 
 (*****************************************************************************)
 (*                  INITIALISE functor body                                  *)
 (*****************************************************************************)
 struct
-   (* Don't open TYPETREE 'cos names clash with STRUCTVALS *)
-   open STRUCTVALS;
-   open VALUEOPS;
-   open CODETREE;
-   open ADDRESS;
-   open MAKE;
-   open MISC;
-   open RuntimeCalls; (* for POLY_SYS calls *)
+    (* Don't open TYPETREE 'cos names clash with STRUCTVALS *)
+    open STRUCTVALS;
+    open VALUEOPS;
+    open CODETREE;
+    open ADDRESS;
+    open MAKE;
+    open MISC;
+    open RuntimeCalls; (* for POLY_SYS calls *)
 
 (*****************************************************************************)
 (*                  Untility functions                                       *)
 (*****************************************************************************)
-  fun applyList f []       = ()
-    | applyList f (h :: t) = (f h : unit; applyList f t);
+    fun applyList f []       = ()
+    |   applyList f (h :: t) = (f h : unit; applyList f t);
 
 (*****************************************************************************)
 (*                  initGlobalEnv                                            *)
 (*****************************************************************************)
-fun initGlobalEnv
-     (
-	  mainShell,
-	  globals      : env,
-	  globalTable  : dbEnv,
-	  rootShell    : unit -> unit) =
-let
-   val Env globalEnv = globals
+    fun initGlobalEnv(globalTable  : gEnv) =
+    let
+        val Env globalEnv = MAKE.gEnvAsEnv globalTable
    
 (*****************************************************************************)
 (*                  Utilities                                                *)
 (*****************************************************************************)
-   (* shouldn't these be imported from somewhere? *)
-   fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
-   val intZero    = mkConst (toWord 0);
-   val realZero   = mkConst (toWord 0.0);
+        (* shouldn't these be imported from somewhere? *)
+        fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
+        val intZero    = mkConst (toWord 0);
+        val realZero   = mkConst (toWord 0.0);
+        
+        fun loadArg n  = mkLoad (~ n, 0);
+        fun mkEntry n  = mkConst (ioOp n);
+        
+        val enterGlobalValue  = #enterVal  globalEnv;
+        val enterGlobalType   = #enterType globalEnv;
 
-   fun loadArg n  = mkLoad (~ n, 0);
-   fun mkEntry n  = mkConst (ioOp n);
-
-   val enterGlobalValue  = #enterVal  globalEnv;
-   val enterGlobalType   = #enterType globalEnv;
-
-   (* Some routines to help make the types. *)
-   local
-     (* careful - STRUCTVALS.intType differs from TYPETREE.intType *)
-     open TYPETREE;
-   in
-     (* Make some type variables *)
-     fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false);
-     fun makeTV    () = mkTypeVar (generalisable, false, false, false);
-     fun makeImpTV () = mkTypeVar (generalisable, false, false, true);
-
-     (* Make some functions *)
-     infixr 5 ->>
-     fun a ->> b = mkFunctionType (a, b);
-
-     infix 7 **;
-     fun a ** b = mkProductType [a, b];
-
-     (* Type identifiers for the types of the declarations. *)
-     val Int    = intType;
-     val String = stringType;
-     val Bool   = boolType;
-     val Unit   = unitType;
-	 val Char	= charType;
-	 val Word   = wordType;
-     
-     val mkTypeConstruction = mkTypeConstruction;
-     val mkTypeVar = mkTypeVar;
-   end;
+        (* Some routines to help make the types. *)
+        local
+            (* careful - STRUCTVALS.intType differs from TYPETREE.intType *)
+            open TYPETREE;
+        in
+            (* Make some type variables *)
+            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false);
+            fun makeTV    () = mkTypeVar (generalisable, false, false, false);
+            fun makeImpTV () = mkTypeVar (generalisable, false, false, true);
+            
+            (* Make some functions *)
+            infixr 5 ->>
+            fun a ->> b = mkFunctionType (a, b);
+            
+            infix 7 **;
+            fun a ** b = mkProductType [a, b];
+            
+            (* Type identifiers for the types of the declarations. *)
+            val Int    = intType;
+            val String = stringType;
+            val Bool   = boolType;
+            val Unit   = unitType;
+            val Char	= charType;
+            val Word   = wordType;
+            
+            val mkTypeConstruction = mkTypeConstruction;
+            val mkTypeVar = mkTypeVar;
+        end;
    
-   (* List of something *)
-   fun List (base : types) : types =
-     mkTypeConstruction ("list", listType, [base]);
+        (* List of something *)
+        fun List (base : types) : types =
+            mkTypeConstruction ("list", listType, [base]);
 
-   (* ref something *)
-   fun Ref (base : types) : types  =
-     mkTypeConstruction ("ref", refType, [base]);
-
-   (* option something *)
-   val optionType =
-       makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId (), true, 0);
-
-   fun Option (base : types) : types  =
-     mkTypeConstruction ("option", optionType, [base]);
-
-
-   (* Type-dependent functions. *)
-   fun mkSpecialFun (name:string) (typeof:types) (opn: typeDependent) : values =
-      makeOverloaded (name, typeof, opn);
-
-   (* Overloaded functions. *)
-   fun mkOverloaded (name:string) (typeof: types)
-        : values = mkSpecialFun name typeof TypeDep;
+        (* ref something *)
+        fun Ref (base : types) : types  =
+            mkTypeConstruction ("ref", refType, [base]);
+        
+        (* option something *)
+        val optionType =
+            makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId (), true, 0);
+        
+        fun Option (base : types) : types  =
+            mkTypeConstruction ("option", optionType, [base]);
+        
+        
+        (* Type-dependent functions. *)
+        fun mkSpecialFun (name:string) (typeof:types) (opn: typeDependent) : values =
+            makeOverloaded (name, typeof, opn);
+        
+        (* Overloaded functions. *)
+        fun mkOverloaded (name:string) (typeof: types)
+            : values = mkSpecialFun name typeof TypeDep;
          
 (*****************************************************************************)
 (*                  unit                                                     *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("unit", unitType);
+        val () = enterGlobalType ("unit", unitType);
 
 (*****************************************************************************)
 (*                  bool                                                     *)
 (*****************************************************************************)
-   local
-     val falseCons =
-	 	mkGconstr ("false", Bool,
-	 		createNullaryConstructor(EnumForm 0, "false"), true);
-     val trueCons  =
-	 	mkGconstr ("true",  Bool,
-			createNullaryConstructor(EnumForm 1, "true"), true);
-   in
-      val U : unit = enterGlobalType  ("bool",  boolType);
-      val U : unit = enterGlobalValue ("true",  trueCons);
-      val U : unit = enterGlobalValue ("false", falseCons);
-
-     (* Put these constructors onto the boolean type. *)
-     val U : unit =
-       tcSetConstructors (boolType, [trueCons, falseCons]);
-   end;
-
+        local
+            val falseCons =
+                mkGconstr ("false", Bool,
+                    createNullaryConstructor(EnumForm 0, "false"), true);
+            val trueCons  =
+                mkGconstr ("true",  Bool,
+                    createNullaryConstructor(EnumForm 1, "true"), true);
+        in
+            val () = enterGlobalType  ("bool",  boolType);
+            val () = enterGlobalValue ("true",  trueCons);
+            val () = enterGlobalValue ("false", falseCons);
+            
+            (* Put these constructors onto the boolean type. *)
+            val () =
+                tcSetConstructors (boolType, [trueCons, falseCons]);
+        end;
+        
 
 (*****************************************************************************)
 (*                  int                                                      *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("int", intType);
+        val () = enterGlobalType ("int", intType);
    
 (*****************************************************************************)
 (*                  char                                                     *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("char", charType);
+        val () = enterGlobalType ("char", charType);
    
 (*****************************************************************************)
 (*                  string                                                   *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("string", stringType);
+        val () = enterGlobalType ("string", stringType);
 
-   (* chr - define it as an identity function for now. It is redefined in
-      the prelude to check that the value is a valid character. *)
-   local
-     val chrCode = identityFunction "chr";
-     val chrType = Int ->> String;
-     val chrVal  = mkGvar ("chr", chrType, chrCode);
-   in
-     val U : unit = enterGlobalValue ("chr", chrVal);
-   end;        
+        (* chr - define it as an identity function for now. It is redefined in
+           the prelude to check that the value is a valid character. *)
+        local
+            val chrCode = identityFunction "chr";
+            val chrType = Int ->> String;
+            val chrVal  = mkGvar ("chr", chrType, chrCode);
+        in
+            val () = enterGlobalValue ("chr", chrVal);
+        end;        
     
 (*****************************************************************************)
 (*                  real                                                     *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("real", realType);
+        val () = enterGlobalType ("real", realType);
 
 (*****************************************************************************)
 (*                  'a list                                                  *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType  ("list", listType);
-   val U : unit = enterGlobalValue ("::",   consConstructor);
-   val U : unit = enterGlobalValue ("nil",  nilConstructor);
-
-   (* Put these constructors onto the list type. *)
-   val U : unit = tcSetConstructors (listType, [consConstructor, nilConstructor]);
+        val () = enterGlobalType  ("list", listType);
+        val () = enterGlobalValue ("::",   consConstructor);
+        val () = enterGlobalValue ("nil",  nilConstructor);
+        
+        (* Put these constructors onto the list type. *)
+        val () = tcSetConstructors (listType, [consConstructor, nilConstructor]);
 
 (*****************************************************************************)
 (*                  'a option                                                  *)
 (*****************************************************************************)
-  (* Type option does not need to be built in but because its representation is
-     built into the RTS it's easier and safer to do it this way. *)
-  local
-    val optionTypeVars  = tcTypeVars optionType;
-    val alpha         = hd optionTypeVars;
-    val alphaOption   = mkTypeConstruction ("option", optionType, optionTypeVars);
-    val someType      = TYPETREE.mkFunctionType (alpha, alphaOption);
-	(* These two representations are built into the RTS. *)
-	val NoneForm = EnumForm 0;
-	val SomeForm = BoxedForm;
-    val noneConstructor  =
-		mkGconstr ("NONE", alphaOption,
-			createNullaryConstructor(NoneForm, "NONE"),  true);
-    val someConstructor =
-		mkGconstr ("SOME",  someType,
-			createUnaryConstructor(SomeForm, "SOME"), false);
-  in
-   val U : unit = enterGlobalType  ("option", optionType);
-   val U : unit = enterGlobalValue ("SOME",   someConstructor);
-   val U : unit = enterGlobalValue ("NONE",   noneConstructor);
-   (* Put these constructors onto the option type.  N.B.  as with all
-      value constructors the order is significant.  Shorter names come
-	  first and if the length is the same the order is alphabetical. *)
-   val U : unit = tcSetConstructors (optionType, [noneConstructor, someConstructor]);
-  end;
+        local
+            val optionTypeVars  = tcTypeVars optionType;
+            val alpha         = hd optionTypeVars;
+            val alphaOption   = mkTypeConstruction ("option", optionType, optionTypeVars);
+            val someType      = TYPETREE.mkFunctionType (alpha, alphaOption);
+            (* These two representations are built into the RTS. *)
+            val NoneForm = EnumForm 0;
+            val SomeForm = BoxedForm;
+            val noneConstructor  =
+                mkGconstr ("NONE", alphaOption,
+                    createNullaryConstructor(NoneForm, "NONE"),  true);
+            val someConstructor =
+                mkGconstr ("SOME",  someType,
+                    createUnaryConstructor(SomeForm, "SOME"), false);
+        in
+            val () = enterGlobalType  ("option", optionType);
+            val () = enterGlobalValue ("SOME",   someConstructor);
+            val () = enterGlobalValue ("NONE",   noneConstructor);
+            (* Put these constructors onto the option type.  N.B.  as with all
+               value constructors these need to be in alphabetical order. *)
+            val () = tcSetConstructors (optionType, [noneConstructor, someConstructor]);
+        end;
 
 
 (*****************************************************************************)
 (*                  ref                                                      *)
 (*****************************************************************************)
-   local
-     val refCons =
-       let (* an imperative type variable *)
-         val a : types = makeImpTV ();
-       in
-         mkGconstr ("ref", a ->> Ref a,
-		 	createUnaryConstructor(RefForm, "ref"), false)
-       end
-   in
-     val U : unit = enterGlobalType  ("ref", refType);
-     val U : unit = enterGlobalValue ("ref", refCons);
+        local
+            val refCons =
+                let
+                    val a : types = makeImpTV ();
+                in
+                    mkGconstr ("ref", a ->> Ref a,
+                        createUnaryConstructor(RefForm, "ref"), false)
+                end
+        in
+            val () = enterGlobalType  ("ref", refType);
+            val () = enterGlobalValue ("ref", refCons);
+            
+            (* Put this constructor onto the ref type. *)
+            val () = tcSetConstructors (refType, [refCons]);
+        end;
 
-     (* Put this constructor onto the ref type. *)
-     val U : unit = tcSetConstructors (refType, [refCons]);
-   end;
+        (* '!' does not really have to be here but it makes it easier
+           to ensure that it is implemented in-line. *)
+        local
+            val plingCode = (* we load the zero'th word from the parameter *)
+                mkInlproc
+                    (mkEval (mkConst (ioOp POLY_SYS_load_word), [(loadArg 1), CodeZero],
+                        false) (* NOT early *), 0, 1, "!(1)");
 
-   (* '!' does not really have to be here but it makes it easier
-      to ensure that it is implemented in-line. *)
-   local
-     val plingCode = (* we load the zero'th word from the parameter *)
-        mkInlproc
-			(mkEval (mkConst (ioOp POLY_SYS_load_word), [(loadArg 1), CodeZero],
-	         false) (* NOT early *), 0, 1, "!(1)");
-       
-          
-     val plingType = let val a = makeTV () in Ref a ->> a end;
-     val plingVal  = mkGvar ("!", plingType, plingCode);
-   in
-     val U : unit = enterGlobalValue ("!", plingVal);
-   end;        
+            val plingType = let val a = makeTV () in Ref a ->> a end;
+            val plingVal  = mkGvar ("!", plingType, plingCode);
+        in
+            val () = enterGlobalValue ("!", plingVal);
+        end;        
 
 (*****************************************************************************)
 (*                  exn                                                      *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("exn", exnType);
+        val () = enterGlobalType ("exn", exnType);
 
 (*****************************************************************************)
 (*                  word                                                      *)
 (*****************************************************************************)
-   val U : unit = enterGlobalType ("word", wordType);
+        val () = enterGlobalType ("word", wordType);
 
 (*****************************************************************************)
 (*                  'a vector                                                *)
@@ -604,445 +649,434 @@ let
    add an overload for "=" as we do with arrays because that causes the
    type to have a ref-style equality i.e. 'a vector would permit equality
    even if 'a did not. *)
-  val vectorType =
-     makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0);
-   val U : unit = enterGlobalType  ("vector", vectorType);
-
-(*****************************************************************************)
-(*                  System functions (in structure PolyML)                   *)
-(*****************************************************************************)
-   local
-      val PolyML = makeEmptyGlobal "PolyML";
-    in
-      val U : unit        = #enterStruct globalEnv ("PolyML", PolyML);
-      val (Env PolyMLEnv) = makeEnv (structSignat PolyML);
-    end;
-   
-    fun enterPolyML (name : string, entry : codetree, typ : types) : unit =
-    let
-      val value = mkGvar (name, typ, entry);
-    in
-      #enterVal PolyMLEnv (name, value)
-    end;
+        val vectorType =
+            makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0);
+        val () = enterGlobalType  ("vector", vectorType);
 
 
 (*****************************************************************************)
-(*                  PolyML.unsafeCast                                        *)
+(*                  System functions (in structure RunCall)                  *)
+(*****************************************************************************)
+        local
+            val runCall = makeEmptyGlobal "RunCall";
+        in
+            val ()        = #enterStruct globalEnv ("RunCall", runCall);
+            val (Env runCallEnv) = makeEnv (structSignat runCall);
+        end;
+        
+        fun enterRunCall (name : string, entry : codetree, typ : types) : unit =
+        let
+            val value = mkGvar (name, typ, entry);
+        in
+            #enterVal runCallEnv (name, value)
+        end;
+
+
+(*****************************************************************************)
+(*                  RunCall.unsafeCast                                        *)
 (*****************************************************************************)
   
-  local
-    val a = makeTV ();
-    val b = makeTV ();
-    val unsafeCastType = a ->> b;
+        local
+            val a = makeTV ();
+            val b = makeTV ();
+            val unsafeCastType = a ->> b;
 
-    val unsafeCastEntry : codetree =
-      let 
-        val name = "unsafeCast(1)";
-	val level = 1;
-	val args  = 1;
-	val body  = mkLoad (~1, 0)  (* just the parameter *)
-      in
-        mkInlproc (body, level, args, name)
-      end;
-  in
-    val U : unit =
-      enterPolyML ("unsafeCast", unsafeCastEntry, unsafeCastType);
-  end;
-  
+            val unsafeCastEntry : codetree =
+            let 
+                val name = "unsafeCast(1)";
+                val level = 1;
+                val args  = 1;
+                val body  = mkLoad (~1, 0)  (* just the parameter *)
+            in
+                mkInlproc (body, level, args, name)
+            end;
+        in
+            val () =
+                enterRunCall ("unsafeCast", unsafeCastEntry, unsafeCastType);
+        end;
+        
 
 (*****************************************************************************)
-(*                  PolyML.run_call*                                         *)
+(*                  RunCall.run_call*                                         *)
 (*****************************************************************************)
 
-  local
-    val a = makeTV ();
-    val b = makeTV ();
-    val c = makeTV ();
-    val d = makeTV ();
-    val e = makeTV ();
-    val f = makeTV ();
-    val runCall0Type = Int ->> Unit ->> a;
-    val runCall1Type = Int ->> a ->> b;
-    val runCall2Type = Int ->> TYPETREE.mkProductType [a,b] ->> c;
-    val runCall3Type = Int ->> TYPETREE.mkProductType [a,b,c] ->> d;
-    val runCall4Type = Int ->> TYPETREE.mkProductType [a,b,c,d] ->> e;
-    val runCall5Type = Int ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f;
+        local
+            val a = makeTV ();
+            val b = makeTV ();
+            val c = makeTV ();
+            val d = makeTV ();
+            val e = makeTV ();
+            val f = makeTV ();
+            val runCall0Type = Int ->> Unit ->> a;
+            val runCall1Type = Int ->> a ->> b;
+            val runCall2Type = Int ->> TYPETREE.mkProductType [a,b] ->> c;
+            val runCall3Type = Int ->> TYPETREE.mkProductType [a,b,c] ->> d;
+            val runCall4Type = Int ->> TYPETREE.mkProductType [a,b,c,d] ->> e;
+            val runCall5Type = Int ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f;
 
-(* 
-   We used to have the following definition:
+            (* 
+               We used to have the following definition:
+            
+                 val runCall1Entry = mkEntry POLY_SYS_io_operation;
+                
+               but it didn't work as well, because CODETREE.ML wouldn't optimise
+               expressions like:
+               
+                 RunCall.run_call1 POLY_SYS_io_operation
+                 
+               because there was nothing to tell it that this should be evaluated
+               "early". Now we use an inline procedure wrapped round the constant,
+               and set the "early" flag in the inline proc. SPF 2/5/95.
+            *)
 
-     val runCall1Entry = mkEntry POLY_SYS_io_operation;
+            val runCall1Entry : codetree =
+            let 
+                val name = "run_call1(1)";
+                val ioOpEntry = mkEntry POLY_SYS_io_operation;
+                val level = 1;
+                val args  = 1;
+                val n     = mkLoad (~1, 0)                 (* the outer parameter *)
+                val body  = mkEval (ioOpEntry, [n], true); (* early! *)
+            in
+                mkInlproc (body, level, args, name)
+            end;
     
-   but it didn't work as well, because CODETREE.ML wouldn't optimise
-   expressions like:
-   
-     PolyML.Inner.run_call1 POLY_SYS_io_operation
-     
-   because there was nothing to tell it that this should be evaluated
-   "early". Now we use an inline procedure wrapped round the constant,
-   and set the "early" flag in the inline proc. SPF 2/5/95.
-*)
-
-    val runCall1Entry : codetree =
-      let 
-        val name = "run_call1(1)";
-        val ioOpEntry = mkEntry POLY_SYS_io_operation;
-        val level = 1;
-        val args  = 1;
-        val n     = mkLoad (~1, 0)                 (* the outer parameter *)
-        val body  = mkEval (ioOpEntry, [n], true); (* early! *)
-      in
-        mkInlproc (body, level, args, name)
-      end;
-
-    fun makeRunCallTupled (width:int) : codetree =
-    let 
-      (* These declarations should really be read in the reverse order.
-	 We are trying to build the codetree for something like the
-	 following:
-	 
-	    val run_call3 = 
-	      fn (n:int) => 
-	      let
-		val f = ioOp n
-	      in
-		fn (x,y,z) => f <x,y,z>
-	      end;
-	      
-	 where "f <x,y,z>" designates Poly-style (values in registers)
-	 uncurried parameter passing.
-       *)
-      
-      val name = "run_call" ^ Int.toString width;
-      val ioOpEntry = mkEntry POLY_SYS_io_operation;
-      
-      val innerBody : codetree =
-      let
-		val f     = mkLoad (1, 1);        (* first item from enclosing scope *)
-		val tuple = mkLoad (~1, 0);       (* the inner parameter *)
-		val args  = mapIterator (fn n => mkInd (n, tuple)) (upto 0 (width - 1));
-      in
-		mkEval (f, args, false) (* no early evaluation (f may have side effects!) *)
-      end;
-      
-      val innerLambda : codetree  =
-      let
-		val level = 2;
-		val args  = 1;
-      in
-		mkInlproc (innerBody, level, args, name ^ "(1)")
-      end;
-      
-      val outerBody : codetree  =
-      let
-		val n = mkLoad (~1, 0)                 (* the outer parameter *)
-		val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
-      in
-		mkEnv
-		  [
-		    mkDec (1, f),
-		    innerLambda
-		  ]
-      end;
-      
-      val outerLambda : codetree  =
-      let
-		val level = 1;
-		val args  = 1;
-      in
-		mkInlproc (outerBody, level, args, name)
-      end;
-    in
-      outerLambda
-    end;
-
-    val runCall0Entry = makeRunCallTupled 0;
-    val runCall2Entry = makeRunCallTupled 2;
-    val runCall3Entry = makeRunCallTupled 3;
-    val runCall4Entry = makeRunCallTupled 4;
-    val runCall5Entry = makeRunCallTupled 5;
-  in
-    val U : unit = enterPolyML ("run_call0", runCall0Entry, runCall0Type);
-    val U : unit = enterPolyML ("run_call1", runCall1Entry, runCall1Type);
-    val U : unit = enterPolyML ("run_call2", runCall2Entry, runCall2Type);
-    val U : unit = enterPolyML ("run_call3", runCall3Entry, runCall3Type);
-    val U : unit = enterPolyML ("run_call4", runCall4Entry, runCall4Type);
-    val U : unit = enterPolyML ("run_call5", runCall5Entry, runCall5Type);
-  end;
+            fun makeRunCallTupled (width:int) : codetree =
+            let 
+              (* These declarations should really be read in the reverse order.
+            	 We are trying to build the codetree for something like the
+            	 following:
+            	 
+            	    val run_call3 = 
+            	      fn (n:int) => 
+            	      let
+            		val f = ioOp n
+            	      in
+            		fn (x,y,z) => f <x,y,z>
+            	      end;
+            	      
+            	 where "f <x,y,z>" designates Poly-style (values in registers)
+            	 uncurried parameter passing.
+                 *)
+          
+                val name = "run_call" ^ Int.toString width;
+                val ioOpEntry = mkEntry POLY_SYS_io_operation;
+                
+                val innerBody : codetree =
+                let
+                    val f     = mkLoad (1, 1);        (* first item from enclosing scope *)
+                    val tuple = mkLoad (~1, 0);       (* the inner parameter *)
+                    val args  = mapIterator (fn n => mkInd (n, tuple)) (upto 0 (width - 1));
+                in
+                    mkEval (f, args, false) (* no early evaluation (f may have side effects!) *)
+                end;
+                
+                val innerLambda : codetree  =
+                let
+                    val level = 2;
+                    val args  = 1;
+                in
+                    mkInlproc (innerBody, level, args, name ^ "(1)")
+                end;
+                
+                val outerBody : codetree  =
+                let
+                    val n = mkLoad (~1, 0)                 (* the outer parameter *)
+                    val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
+                in
+                    mkEnv
+                      [
+                        mkDec (1, f),
+                        innerLambda
+                      ]
+                end;
+                
+                val outerLambda : codetree  =
+                let
+                    val level = 1;
+                    val args  = 1;
+                in
+                    mkInlproc (outerBody, level, args, name)
+                end;
+            in
+                outerLambda
+            end;
+            
+            val runCall0Entry = makeRunCallTupled 0;
+            val runCall2Entry = makeRunCallTupled 2;
+            val runCall3Entry = makeRunCallTupled 3;
+            val runCall4Entry = makeRunCallTupled 4;
+            val runCall5Entry = makeRunCallTupled 5;
+        in
+            val () = enterRunCall ("run_call0", runCall0Entry, runCall0Type);
+            val () = enterRunCall ("run_call1", runCall1Entry, runCall1Type);
+            val () = enterRunCall ("run_call2", runCall2Entry, runCall2Type);
+            val () = enterRunCall ("run_call3", runCall3Entry, runCall3Type);
+            val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type);
+            val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type);
+        end;
 
 (*****************************************************************************)
-(*                  Initialisation and bootstrapping functions                                 *)
+(*                  Bootstrapping functions (in structure Bootstrap)         *)
 (*****************************************************************************)
-  local
-    fun addVal (name : string, value : 'a, typ : types) : unit =
-      enterPolyML (name, mkConst (toWord value), typ)
+        local
+            val bootstrap = makeEmptyGlobal "Bootstrap";
+        in
+            val ()        = #enterStruct globalEnv ("Bootstrap", bootstrap);
+            val (Env bootstrapEnv) = makeEnv (structSignat bootstrap);
+        end;
+        
+        fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
+        let
+            val value = mkGvar (name, typ, entry);
+        in
+            #enterVal bootstrapEnv (name, value)
+        end;
+
+(*****************************************************************************)
+(*                  Initialisation and bootstrapping functions               *)
+(*****************************************************************************)
+        local
+            fun addVal (name : string, value : 'a, typ : types) : unit =
+                enterBootstrap (name, mkConst (toWord value), typ)
 	  
-	(* These are only used during the bootstrap phase.  Replacements are installed once
-	   the appropriate modules of the basis library are compiled. *)
-	fun intOfString s =
-		let
-		val radix =
-			if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
-			   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
-			then StringCvt.HEX else StringCvt.DEC
-		in
-			case StringCvt.scanString (Int.scan radix) s of
-				NONE => raise Conversion "Invalid integer constant"
-			  | SOME res => res
-		end
+        	(* These are only used during the bootstrap phase.  Replacements are installed once
+        	   the appropriate modules of the basis library are compiled. *)
+        	fun intOfString s =
+        		let
+        		val radix =
+        			if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
+        			   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
+        			then StringCvt.HEX else StringCvt.DEC
+        		in
+        			case StringCvt.scanString (Int.scan radix) s of
+        				NONE => raise Conversion "Invalid integer constant"
+        			  | SOME res => res
+        		end
+        
+        	fun wordOfString s =
+        		let
+        		val radix =
+        			if String.size s > 2 andalso String.sub(s, 2) = #"x"
+        			then StringCvt.HEX else StringCvt.DEC
+        		in
+        			case StringCvt.scanString (Word.scan radix) s of
+        				NONE => raise Conversion "Invalid word constant"
+        			  | SOME res => res
+        		end
+        in
+        	(* When we start the compiler we don't have any conversion functions.
+        	   We can't even use a literal string until we have installed a
+        	   basic converter. *)
+            val () = addVal ("convStringName", "convString", String);
+            val () = addVal ("convInt", intOfString, String ->> Int);
+            val () = addVal ("convWord", wordOfString, String ->> Word);
+        	(* Convert a string, recognising and converting the escape codes. *)
+            val () = addVal ("convString", unescapeString, String ->> String);
 
-	fun wordOfString s =
-		let
-		val radix =
-			if String.size s > 2 andalso String.sub(s, 2) = #"x"
-			then StringCvt.HEX else StringCvt.DEC
-		in
-			case StringCvt.scanString (Word.scan radix) s of
-				NONE => raise Conversion "Invalid word constant"
-			  | SOME res => res
-		end
-  in
-	(* When we start the compiler we don't have any conversion functions.
-	   We can't even use a literal string until we have installed a
-	   basic converter. *)
-    val U : unit = addVal ("convStringName", "convString", String);
-    val U : unit = addVal ("convInt", intOfString, String ->> Int);
-    val U : unit = addVal ("convWord", wordOfString, String ->> Word);
-	(* Convert a string, recognising and converting the escape codes. *)
-    val U : unit = addVal ("convString", unescapeString, String ->> String);
-	(* References to functions for interactive input and output.  We need to
-	   change these to use TextIO.stdIn/stdOut once we have compiled the
-	   basis library.  That allows the redirection to work. *)
-	val U : unit = addVal ("printString", DEBUG.printString, Ref(String->>Unit));
-	val U : unit = addVal ("inputChar", DEBUG.inputChar, Ref(Unit->>Option Char));
-	val U : unit = addVal ("nextIsNewline", DEBUG.nextIsNewline, Ref(Unit->>Bool));
- 	val U : unit = addVal ("flushInput", DEBUG.flushInput, Ref(Unit->>Unit));
-end;
+        	(* The output stream used for PolyML.print must be set to use TextIO.stdOut
+               once it has been compiled. *)
+        	val () = addVal ("printString", DEBUG.printString, Ref(String->>Unit));
+        end;
 
 (*****************************************************************************)
 (*                  Polymorphic functions                                    *)
 (*****************************************************************************)
-   local
-     val eqType = let val a = makeEqTV () in a ** a ->> Bool end;
-     val eqVal  = mkSpecialFun "=" eqType Equal;
-   in
-     val U : unit = enterGlobalValue ("=", eqVal);
-   end;        
+(* "=', '<>', PolyML.print etc are type-specific function which appear
+   to be polymorphic.  The compiler recognises these and treats them specially.
+   For (in)equality that means generating type-specific versions of the equality
+   operations; for print etc that means printing in a type-specific way.  They
+   can become true polymorphic functions and lose their type-specificity.  For
+   (in)equality that means defaulting to structure equality which is normal and
+   expected behaviour.  For print etc that means losing the ability to print
+   and just printing "?" so it's important to avoid that happening.  "open"
+   treats type-specific functions specially and retains the type-specificity.
+   That's important to allow the prelude code to expand the PolyML structure. *)
+        local
+            val eqType = let val a = makeEqTV () in a ** a ->> Bool end;
+            val eqVal  = mkSpecialFun "=" eqType Equal;
+        in
+            val () = enterGlobalValue ("=", eqVal);
+        end;        
+
+        local
+            val neqType = let val a = makeEqTV () in a ** a ->> Bool end;
+            val neqVal  = mkSpecialFun "<>" neqType NotEqual;
+        in
+            val () = enterGlobalValue ("<>", neqVal);
+        end;        
     
-
-   local
-     val neqType = let val a = makeEqTV () in a ** a ->> Bool end;
-     val neqVal  = mkSpecialFun "<>" neqType NotEqual;
-   in
-     val U : unit = enterGlobalValue ("<>", neqVal);
-   end;        
+(*****************************************************************************)
+(*              Funny polymorphic functions (in structure PolyML)            *)
+(*****************************************************************************)
+        local
+            val polyml = makeEmptyGlobal "PolyML";
+        in
+            val ()             = #enterStruct globalEnv ("PolyML", polyml);
+            val (Env polyMLEnv) = makeEnv (structSignat polyml);
+            val enterPolyMLVal  = #enterVal polyMLEnv;
+        end;
+        
+        local
+            val printType = let val a = makeTV () in a ->> a end;
+            val printVal  = mkSpecialFun "print" printType Print;
+        in
+            val () = enterPolyMLVal ("print", printVal);
+        end;
+        
+        local
+            val makeStringType = let val a = makeTV () in a ->> String end;
+            val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
+        in
+            val () = enterPolyMLVal ("makestring", makeStringVal);
+        end;
     
-(*****************************************************************************)
-(*              Funny polymorphic functions (in structure PolyML.Inner)      *)
-(*****************************************************************************)
-   (* Inner contains operations that are passed through to the top level
-      unchanged, others are system functions that are filtered out by prelude2. *)
-    local
-      val Inner = makeEmptyGlobal "Inner";
-    in
-      val U : unit       = #enterStruct PolyMLEnv ("Inner", Inner);
-      val (Env InnerEnv) = makeEnv (structSignat Inner);
-      val enterInnerVal  = #enterVal InnerEnv;
-    end;
+        local
+            val a = makeTV ();
+            val b = makeTV ();
+        
+            val printTupleType =
+                TYPETREE.mkProductType
+                 [
+                   String ->> Unit,      (* addString *)
+                   Int ** Bool ->> Unit, (* beginBracket *)
+                   Int ** Int ->> Unit,  (* space *)
+                   Unit ->> Unit         (* endBracket *)
+                 ];
+            val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
+            val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
+        in
+            val () = enterPolyMLVal ("install_pp", installPPVal);
+        end;
 
-    fun enterInner (name : string, entry : codetree, typ : types) : unit =
-    let
-      val value = mkGvar (name, typ, entry);
-    in
-      enterInnerVal (name, value)
-    end;
-
-   local
-     val printType = let val a = makeTV () in a ->> a end;
-     val printVal  = mkSpecialFun "print" printType Print;
-   in
-     val U : unit = enterInnerVal ("print", printVal);
-   end;
-   
-   local
-     val makeStringType = let val a = makeTV () in a ->> String end;
-     val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
-   in
-     val U : unit = enterInnerVal ("makestring", makeStringVal);
-   end;
-   
-   local
-     val addOverloadType =
-	 	let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
-     val addOverloadVal  = mkSpecialFun "addOverload" addOverloadType AddOverload;
-   in
-     val U : unit = #enterVal PolyMLEnv ("addOverload", addOverloadVal);
-   end;
-   
-   local
-     val a = makeTV ();
-     val b = makeTV ();
-     
-     val printTupleType =
-       TYPETREE.mkProductType
-         [
-           String ->> Unit,      (* addString *)
-           Int ** Bool ->> Unit, (* beginBracket *)
-           Int ** Int ->> Unit,  (* space *)
-           Unit ->> Unit         (* endBracket *)
-         ];
-     val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
-     val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
-   in
-     val U : unit = enterInnerVal ("install_pp", installPPVal);
-   end;
+        (* This goes in RunCall since it's only for the basis library. *)
+        local
+            val addOverloadType =
+                let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
+            val addOverloadVal  = mkSpecialFun "addOverload" addOverloadType AddOverload;
+        in
+            val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
+        end;
 
 (*****************************************************************************)
-(*                  PolyML.profiling etc.                                    *)
+(*                  Namespace functions                                      *)
+(*****************************************************************************)
+        local
+        (* This version of the environment must match that used in the NameSpace
+           structure. *)
+            open TYPETREE
+            (* Create a new structure for them. *)
+            val nameSpace = makeEmptyGlobal "NameSpace";
+            val _ = #enterStruct polyMLEnv ("NameSpace", nameSpace);
+            val (Env nameSpaceEnv) = makeEnv (structSignat nameSpace);
+    
+            (* Types for the basic values.  These are opaque. *)
+            fun createType typeName =
+            let
+                val typeconstr = makeTypeConstrs(typeName, [], emptyType, makeFreeId (), false, 0);
+            in
+                #enterType nameSpaceEnv (typeName, typeconstr);
+                mkTypeConstruction (typeName, typeconstr, [])
+            end;
+    
+            val valueVal = createType "valueVal"
+            val typeVal = createType "typeVal"
+            val fixityVal = createType "fixityVal"
+            val signatureVal = createType "signatureVal"
+            val structureVal = createType "structureVal"
+            val functorVal = createType "functorVal"
+            
+            (* nameSpace type.  Labelled record. *)
+            fun createFields(name, vType): { name: string, typeof: types} list =
+            let
+                val enterFun = String ** vType ->> Unit
+                val lookupFun = String ->> Option vType
+                val allFun = Unit ->> List (String ** vType)
+            in
+                [mkLabelEntry("enter" ^ name, enterFun),
+                 mkLabelEntry("lookup" ^ name, lookupFun),
+                 mkLabelEntry("all" ^ name, allFun)]
+            end
+    
+            (* We have to use the same names as we use in the env type because we're
+               passing "env" values through the bootstrap. *)
+            val valTypes = 
+               [("Val", valueVal), ("Type", typeVal), ("Fix", fixityVal),
+                ("Struct", structureVal), ("Sig", signatureVal), ("Funct", functorVal)];
+    
+            val fields = List.foldl (fn (p,l) => createFields p @ l) [] valTypes
+    
+            val recordType =
+                makeTypeConstrs("nameSpace", [],
+                     mkLabelled(sortLabels(fields, fn _ => ()), true), makeFreeId (), false, 0);
+            val () = #enterType nameSpaceEnv ("nameSpace", recordType);
+    
+            val debugFields =
+                List.map (fn (n,v) => mkLabelEntry("lookup" ^ n, String ->> Option v)) valTypes
+            val debugRecord = mkLabelled(sortLabels(debugFields, fn _ => ()), true);
+            val debugType = (debugRecord ** (Unit ->> Bool)) ->> Unit
+            val setDbtype = debugType ->> Unit
+    
+            (* TODO: Functions to manipulate name spaces.
+                     Global name space itself. 
+                     Maybe these should be in a Bootstrap structure. *)
+         in
+            val nameSpaceType = mkTypeConstruction ("nameSpace", recordType, [])
+            (* Set the debugging shell.  When the debugger reaches a breakpoint it
+               calls this with the debugging environment. *)
+            val () = enterBootstrap ("setDebugShell",
+                         mkConst (toWord DEBUGGER.setDebugger), setDbtype)
+         end
+
+(*****************************************************************************)
+(*        PolyML.compiler etc                                                *)
 (*****************************************************************************)
 
-(* TODO: Now these are simply refs and not special database refs there's no need
-   for separate get- and set- functions.  However, these have been around
-   for so long it's probably better to leave them as they were. *)
-   local
-     fun setVbl (vbl: 'a ref) (n : 'a) : unit = vbl := n;
+        local
+            open TYPETREE
+            (* Construct the record type for the compiler arguments. *)
+            val fields = [
+                mkLabelEntry("nameSpace",  nameSpaceType),
+                mkLabelEntry("getChar",    Unit ->> Char),
+                mkLabelEntry("fileName",   String),
+                mkLabelEntry("lineNumber", Unit ->> Int),
+                mkLabelEntry("putString",  String ->> Unit)
+                ];
 
-     fun putSetFunction (name : string) (typ : types) (vbl: 'a ref) : unit = 
-     let
-       val setEntry = mkConst (toWord (setVbl vbl : 'a -> unit));
-       val setType  = typ ->> Unit;
-     in
-       enterInner (name, setEntry, setType)
-     end;
-   in
-     val U : unit = putSetFunction "profiling"   Int  DEBUG.profiling;
-     val U : unit = putSetFunction "timing"      Bool DEBUG.timing;
-     val U : unit = putSetFunction "print_depth" Int  DEBUG.printDepth;
-     val U : unit = putSetFunction "error_depth" Int  DEBUG.errorDepth;
-     val U : unit = putSetFunction "line_length" Int  DEBUG.lineLength;
-   end;
+            val compilerType : types =
+                mkLabelled(sortLabels(fields, fn _ => ()), true) ->> Unit ->> Unit;
 
-   local
-     fun getVbl (vbl: 'a ref) : unit -> 'a =  fn () => ! vbl;
-
-     fun putGetFunction (name : string) (typ : types) (vbl : 'a ref) : unit = 
-     let
-       val getEntry = mkConst (toWord (getVbl vbl : unit -> 'a));
-       val getType  = Unit ->> typ;
-       val getVal   = mkGvar (name, getType, getEntry)
-     in
-       enterInner (name, getEntry, getType)
-     end;
-   in
-     val U : unit = putGetFunction "get_profiling"   Int  DEBUG.profiling;
-     val U : unit = putGetFunction "get_timing"      Bool DEBUG.timing;
-     val U : unit = putGetFunction "get_print_depth" Int  DEBUG.printDepth;
-     val U : unit = putGetFunction "get_error_depth" Int  DEBUG.errorDepth;
-     val U : unit = putGetFunction "get_line_length" Int  DEBUG.lineLength;
-   end;
-
-(*****************************************************************************)
-(*        PolyML.{depends, make, use, compiler}                              *)
-(*****************************************************************************)
-
-(******************************************************************************
-The following functions all have globalTable bound in. This means that calling
-"use" in the secondary shell will side-effect the primary shell's environment,
-which is pretty sad. Unfortunately, I can't think of a way to get around
-this. Perhaps we should just make the shells explicitly share the
-same environment?
-
-SPF 1/6/95
-******************************************************************************)
-  local
-    fun addEnvFn (typ : types) (name : string, f : dbEnv -> 'a -> 'b) : unit =
-    let
-      val value : 'a -> 'b = f globalTable;
-    in
-      enterInner (name, mkConst (toWord value), typ)
-    end;
-  
-    val stringToUnit : types = String ->> Unit;
-    val unitToString : types = Unit ->> String;
-
-    (* For backwards compatibility include the old version.  *)
-    val compilerType : types = 
-      unitToString ** stringToUnit ->> Unit ->> Unit;
-	  
-	fun oldCompiler env (get, put) = runCompiler env (get, put, fn () => 0, "")
-	  
-    val compilerExType : types = 
-      TYPETREE.mkProductType[unitToString, stringToUnit, (Unit ->> Int), String]
-	        ->> Unit ->> Unit;
-	  
-  in
-    val U : unit = applyList (addEnvFn stringToUnit)
-      [
-        ("depends", dependsInEnv),
-        ("make",    makeIntoEnv),
-        ("use",     useIntoEnv)
-      ];
-      
-    val U : unit = 
-      addEnvFn compilerType ("compiler", oldCompiler);
-	  
-    val U : unit = 
-      addEnvFn compilerExType ("compilerEx", runCompiler);
-	  
-   end;
-
-
-    local
-        val rootType = Unit ->> Unit
-		val rootFunction = mkConst (toWord rootShell)
-	in
-	    val U: unit = enterInner ("rootFunction",   rootFunction,   rootType);
-	end;
-	
-   
-(*****************************************************************************)
-(*                  Exceptions                                               *)
-(*****************************************************************************)
-   local
-     fun addInnerExn (argtyp : types) (name : string, id : int) : unit =
-     let
-       val exConst = mkConst (toWord id);
-       val exVal   = mkGex (name, argtyp, exConst);
-     in
-       enterInnerVal (name, exVal)
-     end 
-   in
-     val U : unit = applyList (addInnerExn String)
-       [
- 		("XWindows",   EXC_XWindows),    (*  10 *)
-        ("Foreign",    EXC_foreign)      (*  23 *)
-       ];
-    end;
+        in
+            val () = enterBootstrap ("use", mkConst (toWord (useIntoEnv globalTable)), String ->> Unit)            
+            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toWord compiler)));
+            val () = enterPolyMLVal("setPrintEnv", mkGvar ("setPrintEnv", nameSpaceType ->> Unit, mkConst (toWord setPrintEnv)));
+            val () = enterBootstrap("globalSpace", mkConst (toWord(gEnvAsNameSpace globalTable)), nameSpaceType)
+        end;
 
 (*****************************************************************************)
 (*                  Overloaded functions.                                    *)
 (*****************************************************************************)
-
-  local
-    val ty      = TYPETREE.mkOverloadSet[]
-    val addType = ty ** ty ->> ty;
-    val negType = ty ->> ty;
-    val cmpType = ty ** ty ->> Bool;
-  in
-    val U : unit = enterGlobalValue ("+", mkOverloaded "+"   addType);
-    val U : unit = enterGlobalValue ("-", mkOverloaded "-"   addType);
-    val U : unit = enterGlobalValue ("*", mkOverloaded "*"   addType);
-    val U : unit = enterGlobalValue ("~", mkOverloaded "~"   negType);
-    val U : unit = enterGlobalValue ("abs", mkOverloaded "abs" negType);
-    val U : unit = enterGlobalValue (">=", mkOverloaded ">="  cmpType);
-    val U : unit = enterGlobalValue ("<=", mkOverloaded "<="  cmpType);
-    val U : unit = enterGlobalValue (">", mkOverloaded ">"   cmpType);
-    val U : unit = enterGlobalValue ("<", mkOverloaded "<"   cmpType);
-	(* The following overloads are added in ML97 *)
-    val U : unit = enterGlobalValue ("div", mkOverloaded "div"   addType);
-    val U : unit = enterGlobalValue ("mod", mkOverloaded "mod"   addType);
-    val U : unit = enterGlobalValue ("/", mkOverloaded "/"   addType);
-  end;
+        
+        local
+            val ty      = TYPETREE.mkOverloadSet[]
+            val addType = ty ** ty ->> ty;
+            val negType = ty ->> ty;
+            val cmpType = ty ** ty ->> Bool;
+        in
+            val () = enterGlobalValue ("+", mkOverloaded "+"   addType);
+            val () = enterGlobalValue ("-", mkOverloaded "-"   addType);
+            val () = enterGlobalValue ("*", mkOverloaded "*"   addType);
+            val () = enterGlobalValue ("~", mkOverloaded "~"   negType);
+            val () = enterGlobalValue ("abs", mkOverloaded "abs" negType);
+            val () = enterGlobalValue (">=", mkOverloaded ">="  cmpType);
+            val () = enterGlobalValue ("<=", mkOverloaded "<="  cmpType);
+            val () = enterGlobalValue (">", mkOverloaded ">"   cmpType);
+            val () = enterGlobalValue ("<", mkOverloaded "<"   cmpType);
+            (* The following overloads are added in ML97 *)
+            val () = enterGlobalValue ("div", mkOverloaded "div"   addType);
+            val () = enterGlobalValue ("mod", mkOverloaded "mod"   addType);
+            val () = enterGlobalValue ("/", mkOverloaded "/"   addType);
+        end;
 
 
 (*****************************************************************************)
@@ -1052,228 +1086,187 @@ SPF 1/6/95
       system to be passed into ML. Run_exception0 is used for exceptions without
       arguments, and Run_exception1 for exceptions that have arguments. *)
    (* functor Run_exception0(val ex_iden: int end) : sig exception ex end *)
-   
-   local
-     (* Argument signature. *)
-     local
-       (* make an anonymous, empty signature *)
-       val sig0    : signatures = makeSignatures "";
-       val (Env argEnv) = makeEnv sig0;
-       val exIdenVal : values = makeFormalV ("ex_iden", Int, 0);
-       val U : unit = #enterVal argEnv ("ex_iden", exIdenVal);
         
-      in
-       val argSig0 = makeCopy ("", sig0, 0, 0)
-     end
-       
-           
-     (* Result signature. *)
-     local
-       (* make an anonymous, empty signature *)
-       val sig0    = makeSignatures ""
-       val (Env resEnv) = makeEnv sig0;
-       val exType = emptyType;
-       val exVal = makeFormalEx ("ex", exType, 0);
-       val U : unit = #enterVal resEnv ("ex", exVal);
-     in
-        val resSig0 = makeCopy ("", sig0, 0, 0);
-     end
+        local
+            (* Argument signature. *)
+            local
+                (* make an anonymous, empty signature *)
+                val sig0    : signatures = makeSignatures "";
+                val (Env argEnv) = makeEnv sig0;
+                val exIdenVal : values = makeFormalV ("ex_iden", Int, 0);
+                val () = #enterVal argEnv ("ex_iden", exIdenVal);
+            
+            in
+                val argSig0 = makeCopy ("", sig0, 0, 0)
+            end
+
+            (* Result signature. *)
+            local
+                (* make an anonymous, empty signature *)
+                val sig0    = makeSignatures ""
+                val (Env resEnv) = makeEnv sig0;
+                val exType = emptyType;
+                val exVal = makeFormalEx ("ex", exType, 0);
+                val () = #enterVal resEnv ("ex", exVal);
+            in
+                val resSig0 = makeCopy ("", sig0, 0, 0);
+            end
                  
-    (* The functor turns the value into an exception by returning the argument. *)
-     val Run_exception0 = 
-       makeFunctor
-         (
-          "Run_exception0",
-          makeLocalStruct ("", argSig0),
-          resSig0,
-          makeGlobal (identityFunction "Run_exception0")
-         );
-   in
-     val U : unit = #enterFunct PolyMLEnv ("Run_exception0", Run_exception0);
-   end;
+            (* The functor turns the value into an exception by returning the argument. *)
+            val Run_exception0 = 
+                makeFunctor
+                (
+                    "Run_exception0",
+                    makeLocalStruct ("", argSig0),
+                    resSig0,
+                    makeGlobal (identityFunction "Run_exception0")
+                );
+        in
+            val () = #enterFunct runCallEnv ("Run_exception0", Run_exception0);
+        end;
    
 
 (*****************************************************************************)
-(*                  Funny functor PolyML.Run_exception1                      *)
+(*                  Funny functor RunCall.Run_exception1                     *)
 (*****************************************************************************)
    (* functor Run_exception1(sig type exType; val ex_iden: int end) :
-                             sig exception ex of exType end *) 
-   local
-     (* Make a nullary type constructor (the type of the exception) *)
-     val exTypeConstr = 
-       makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0);
-
-     (* Argument signature. *)
-     local
-       (* make an anonymous, empty signature *)
-       val sig1 = makeSignatures "";
-
-       val (Env argEnv) = makeEnv sig1;
-       
-       val exIdenVal = makeFormalV ("ex_iden", Int, 0);
-
-       val U : unit = #enterType argEnv ("ex_type", exTypeConstr);
-       val U : unit = #enterVal  argEnv ("ex_iden", exIdenVal);
-     in
-       (* Contains 1 bound type *)
-        val argSig1 = makeCopy ("", sig1, 0, 1);
-     end
-
-     (* Result signature. *)
-     local
-        (* make an anonymous, empty signature *)
-        val sig1 = makeSignatures "";
-        val (Env resEnv) = makeEnv sig1;
-       
-        (* get the actual type from the nullary type constructor *)
-        val exType = mkTypeConstruction ("ex_type", exTypeConstr, []);
-        val exVal  = makeFormalEx ("ex", exType, 0);
-          
-        val U : unit = #enterVal resEnv ("ex", exVal);
-     in      
-        (* 1 bound type inherited from argument sig *)
-        val resSig1 = makeCopy ("", sig1, 0, 1);
-     end
-                 
-     (* The functor turns the value into an exception by returning the argument. *)
-     val Run_exception1 = 
-       makeFunctor
-         (
-          "Run_exception1",
-          makeLocalStruct ("", argSig1),
-          resSig1,
-          makeGlobal (identityFunction "Run_exception1")
-         );
-   in
-     val U : unit = #enterFunct PolyMLEnv ("Run_exception1", Run_exception1);
-   end;
+             sig exception ex of exType end *) 
+        local
+            (* Make a nullary type constructor (the type of the exception) *)
+            val exTypeConstr = 
+                makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0);
+            
+            (* Argument signature. *)
+            local
+                (* make an anonymous, empty signature *)
+                val sig1 = makeSignatures "";
+                
+                val (Env argEnv) = makeEnv sig1;
+                
+                val exIdenVal = makeFormalV ("ex_iden", Int, 0);
+                
+                val () = #enterType argEnv ("ex_type", exTypeConstr);
+                val () = #enterVal  argEnv ("ex_iden", exIdenVal);
+            in
+                (* Contains 1 bound type *)
+                val argSig1 = makeCopy ("", sig1, 0, 1);
+            end
+            
+            (* Result signature. *)
+            local
+                (* make an anonymous, empty signature *)
+                val sig1 = makeSignatures "";
+                val (Env resEnv) = makeEnv sig1;
+                
+                (* get the actual type from the nullary type constructor *)
+                val exType = mkTypeConstruction ("ex_type", exTypeConstr, []);
+                val exVal  = makeFormalEx ("ex", exType, 0);
+                
+                val () = #enterVal resEnv ("ex", exVal);
+            in      
+                (* 1 bound type inherited from argument sig *)
+                val resSig1 = makeCopy ("", sig1, 0, 1);
+            end
+             
+            (* The functor turns the value into an exception by returning the argument. *)
+            val Run_exception1 = 
+                makeFunctor
+                    (
+                    "Run_exception1",
+                    makeLocalStruct ("", argSig1),
+                    resSig1,
+                    makeGlobal (identityFunction "Run_exception1")
+                    );
+        in
+            val () = #enterFunct runCallEnv ("Run_exception1", Run_exception1);
+        end;
    
 (*****************************************************************************)
 (*                  PolyML.Compiler structure                                *)
 (*****************************************************************************)
-    local
-      val Compiler = makeEmptyGlobal "Compiler";
-    in
-      val U : unit          = #enterStruct InnerEnv ("Compiler", Compiler);
-      val (Env CompilerEnv) = makeEnv (structSignat Compiler);
-      val enterCompilerVal  = #enterVal CompilerEnv;
-    end;
-
-    fun enterCompilerConst (name : string, value : word, typ : types) : unit =
-    let
-      val value = mkGvar (name, typ, mkConst value);
-    in
-      enterCompilerVal (name, value)
-    end;
+        local
+            val Compiler = makeEmptyGlobal "Compiler";
+        in
+            val ()          = #enterStruct polyMLEnv ("Compiler", Compiler);
+            val (Env CompilerEnv) = makeEnv (structSignat Compiler);
+            val enterCompilerVal  = #enterVal CompilerEnv;
+        end;
+        
+        fun enterCompilerConst (name : string, value : word, typ : types) : unit =
+        let
+            val value = mkGvar (name, typ, mkConst value);
+        in
+            enterCompilerVal (name, value)
+        end;
 
 (*****************************************************************************)
 (*                  PolyML.Compiler entries copied from DEBUG                *)
 (*****************************************************************************)
-   local
-     open DEBUG;
-   in
-     val U : unit = applyList enterCompilerConst
-       [
-         ("prompt1",             toWord prompt1,             Ref String),
-         ("prompt2",             toWord prompt2,             Ref String),
-         ("useRCS",              toWord useRCS,              Ref Bool),
-         ("suffixes",            toWord suffixes,            Ref (List String)),
-         ("maxInlineSize",       toWord maxInlineSize,       Ref Int),
-         ("assemblyCode",        toWord assemblyCode,        Ref Bool),
-         ("parsetree",           toWord parsetree,           Ref Bool),
-         ("codetree",            toWord codetree,            Ref Bool),
-         ("pstackTrace",         toWord pstackTrace,         Ref Bool),
-         ("codetreeAfterOpt",    toWord codetreeAfterOpt,    Ref Bool),
-         ("traceCompiler",       toWord traceCompiler,       Ref Bool),
-         ("inlineFunctors",      toWord inlineFunctors,      Ref Bool),
-         ("ml90",        		 toWord ml90,        		 Ref Bool),
-         ("debug",        		 toWord debug,        		 Ref Bool),
-         ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
-         ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
-         ("compilerVersion",     toWord VERSION.compilerVersion, String)
-      ]
-   end;
+        local
+            open DEBUG;
+        in
+            val () = applyList enterCompilerConst
+                [
+                ("maxInlineSize",       toWord maxInlineSize,       Ref Int),
+                ("assemblyCode",        toWord assemblyCode,        Ref Bool),
+                ("parsetree",           toWord parsetree,           Ref Bool),
+                ("codetree",            toWord codetree,            Ref Bool),
+                ("pstackTrace",         toWord pstackTrace,         Ref Bool),
+                ("codetreeAfterOpt",    toWord codetreeAfterOpt,    Ref Bool),
+                ("traceCompiler",       toWord traceCompiler,       Ref Bool),
+                ("inlineFunctors",      toWord inlineFunctors,      Ref Bool),
+                ("ml90",        		 toWord ml90,        		 Ref Bool),
+                ("debug",        		 toWord debug,        		 Ref Bool),
+                ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
+                ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
+                ("compilerVersion",     toWord VERSION.compilerVersion, String),
+                ("profiling",           toWord DEBUG.profiling,     Ref Int),
+                ("timing",              toWord DEBUG.timing,        Ref Bool),
+                ("printDepth",          toWord DEBUG.printDepth,    Ref Int),
+                ("errorDepth",          toWord DEBUG.errorDepth,    Ref Int),
+                ("lineLength",          toWord DEBUG.lineLength,    Ref Int)
+                ]
+        end;
 
 (*****************************************************************************)
 (*                  Debugger functions                                       *)
 (*****************************************************************************)
-   local
-   	  open DEBUGGER
-	  (* Create a new structure for them. *)
-      val Debug = makeEmptyGlobal "Debug";
-      val _ = #enterStruct InnerEnv ("Debug", Debug);
-      val (Env DebugEnv) = makeEnv (structSignat Debug);
-      val enterDebugVal  = #enterVal DebugEnv;
-
-      fun enterDebugConst (name : string, value : word, typ : types) : unit =
-      let
-        val value = mkGvar (name, typ, mkConst value);
-      in
-        enterDebugVal (name, value)
-      end;
-
-	  val unitToUnit = Unit ->> Unit
-	  val stringIntToUnit = (String ** Int) ->> Unit
-	  val stringToUnit = String ->> Unit
-   in
-   	  val _ = enterDebugConst ("step", toWord singleStep, unitToUnit);
-   	  val _ = enterDebugConst ("stepOver", toWord stepOver, unitToUnit);
-   	  val _ = enterDebugConst ("stepOut", toWord stepOut, unitToUnit);
-   	  val _ = enterDebugConst ("continue", toWord continue, unitToUnit);
-   	  val _ = enterDebugConst ("breakAt", toWord addLineBreak, stringIntToUnit);
-   	  val _ = enterDebugConst ("clearAt", toWord clearLineBreak, stringIntToUnit)
-   	  val _ = enterDebugConst ("breakIn", toWord addFnBreak, stringToUnit);
-   	  val _ = enterDebugConst ("clearIn", toWord clearFnBreak, stringToUnit)
-   	  val _ = enterDebugConst ("up", toWord upStack, unitToUnit)
-   	  val _ = enterDebugConst ("down", toWord downStack, unitToUnit)
-   	  val _ = enterDebugConst ("variables", toWord printVars, unitToUnit)
-   	  val _ = enterDebugConst ("stack", toWord stackTrace, unitToUnit)
-   	  val _ = enterDebugConst ("dump", toWord dumpStack, unitToUnit)
-   	  val _ = enterDebugConst ("trace", toWord traceFunctions, Bool ->> Unit)
-   end
-
-
-(*****************************************************************************)
-(*                  Forget functions etc.                                    *)
-(*****************************************************************************)
-(* N.B. these functions - like "use" and "make", operate on globalTable,
-   even if they are executed from within a subshell. This can give
-   *very* peculiar results. SPF 31/5/95. *)
-  local
-    fun addEnvFn (typ : types) (name : string, f : dbEnv -> 'a -> 'b) : unit =
-    let
-      val value : 'a -> 'b = f globalTable;
+        local
+            open DEBUGGER
+            (* Create a new structure for them. *)
+            val Debug = makeEmptyGlobal "Debug";
+            val _ = #enterStruct polyMLEnv ("Debug", Debug);
+            val (Env DebugEnv) = makeEnv (structSignat Debug);
+            val enterDebugVal  = #enterVal DebugEnv;
+            
+            fun enterDebugConst (name : string, value : word, typ : types) : unit =
+            let
+                val value = mkGvar (name, typ, mkConst value);
+            in
+                enterDebugVal (name, value)
+            end;
+            
+            val unitToUnit = Unit ->> Unit
+            val stringIntToUnit = (String ** Int) ->> Unit
+            val stringToUnit = String ->> Unit
+        in
+            val _ = enterDebugConst ("step", toWord singleStep, unitToUnit);
+            val _ = enterDebugConst ("stepOver", toWord stepOver, unitToUnit);
+            val _ = enterDebugConst ("stepOut", toWord stepOut, unitToUnit);
+            val _ = enterDebugConst ("continue", toWord continue, unitToUnit);
+            val _ = enterDebugConst ("breakAt", toWord addLineBreak, stringIntToUnit);
+            val _ = enterDebugConst ("clearAt", toWord clearLineBreak, stringIntToUnit)
+            val _ = enterDebugConst ("breakIn", toWord addFnBreak, stringToUnit);
+            val _ = enterDebugConst ("clearIn", toWord clearFnBreak, stringToUnit)
+            val _ = enterDebugConst ("up", toWord upStack, unitToUnit)
+            val _ = enterDebugConst ("down", toWord downStack, unitToUnit)
+            val _ = enterDebugConst ("variables", toWord printVars, unitToUnit)
+            val _ = enterDebugConst ("stack", toWord stackTrace, unitToUnit)
+            val _ = enterDebugConst ("dump", toWord dumpStack, unitToUnit)
+            val _ = enterDebugConst ("trace", toWord traceFunctions, Bool ->> Unit)
+        end
+   
     in
-      enterCompilerConst (name, toWord value, typ)
-    end;
-  in
-    val U : unit = applyList (addEnvFn (String ->> Unit))
-      [
-        ("forgetMakeInfo",  forgetMakeInfo),
-        ("forgetSignature", forgetSignature),
-        ("forgetStructure", forgetStructure),
-        ("forgetFunctor",   forgetFunctor),
-        ("forgetValue",     forgetValue),
-        ("forgetType",      forgetType),
-        ("forgetFixity",    forgetFixity)
-      ];
-      
-    val U : unit = applyList (addEnvFn (Unit->> List String))
-      [
-        ("signatureNames",  signatureNames),
-        ("structureNames",  structureNames),
-        ("functorNames",    functorNames),
-        ("valueNames",      valueNames),
-        ("typeNames",       typeNames),
-        ("fixityNames",     fixityNames)
-      ];
-
-    val U : unit = addEnvFn (String ->> List String)
-      ("dependencies", dependenciesInEnv);
-  end;
-in
-  ()
-end (* initGlobalEnv *);
-
-
+        ()
+    end (* initGlobalEnv *);
 end;

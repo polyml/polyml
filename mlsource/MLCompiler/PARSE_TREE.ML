@@ -201,13 +201,12 @@ sig
 
   datatype env = Env of
     {
-      lookupVal:    string -> values,
-      lookupType:   string -> typeConstrs,
-      lookupFix:    string -> fixStatus,
-      lookupStruct: string -> structVals,
-      lookupSig:    string -> signatures,
-      lookupFunct:  string -> functors,
-      lookupTvars:  string -> types,
+      lookupVal:    string -> values option,
+      lookupType:   string -> typeConstrs option,
+      lookupFix:    string -> fixStatus option,
+      lookupStruct: string -> structVals option,
+      lookupSig:    string -> signatures option,
+      lookupFunct:  string -> functors option,
       enterVal:     string * values      -> unit,
       enterType:    string * typeConstrs -> unit,
       enterFix:     string * fixStatus   -> unit,
@@ -215,8 +214,7 @@ sig
       enterSig:     string * signatures  -> unit,
       enterFunct:   string * functors    -> unit
     };
-
-        
+       
   type 'a tag;
   val structVar:     structVals  tag;
   val valueVar:      values      tag;
@@ -322,11 +320,9 @@ sig
 
   (* Code-generate. *)
   val mkExIden:       unit -> codetree
-  val codeVal:        values * int * types * lexan * int *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree
+  val codeVal:        values * int * types * lexan * int -> codetree
   val codeExFunction: values * int * types * lexan * int -> codetree
-  val applyFunction:  values * codetree * int * types * lexan * int *
-			{ lookupFix: string -> fixStatus, lookupExnById: word -> values option} -> codetree
+  val applyFunction:  values * codetree * int * types * lexan * int -> codetree
   val getOverloadInstance: string * types * bool * lexan * int -> codetree*string
   val isTheSameException: values * values -> bool
   val raiseBind:      codetree;
@@ -336,14 +332,14 @@ sig
  
   (* Look-up functions. *)
 
-  val lookupStructure:  string * {lookupStruct: string -> structVals} * 
+  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                         string * (string -> unit) -> structVals
                                            
-  val lookupValue:   string * {lookupVal: string -> values, lookupStruct: string -> structVals} * 
+  val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
                      string * (string -> unit) -> values
                                 
-  val lookupTyp:   {lookupType: string -> typeConstrs,
-                    lookupStruct: string -> structVals} * 
+  val lookupTyp:   {lookupType: string -> typeConstrs option,
+                    lookupStruct: string -> structVals option} * 
                    string * (string -> unit) -> typeConstrs
 end;
 
@@ -355,13 +351,13 @@ sig
   type lexan;
 
   val noDuplicates: (string -> unit) -> 
-                       { apply: (string * '_a -> unit) -> unit,
-                         enter:  string * '_a -> unit,
-                         lookup: string -> '_a };
+                       { apply: (string * 'a -> unit) -> unit,
+                         enter:  string * 'a -> unit,
+                         lookup: string -> 'a option};
     
-  val searchList: unit -> { apply: (string * '_a -> unit) -> unit,
-                            enter:  string * '_a -> unit,
-                            lookup: string -> '_a };
+  val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
+                            enter:  string * 'a -> unit,
+                            lookup: string -> 'a option };
 
   val checkForDots:  string * lexan * int -> unit;
 
@@ -396,28 +392,13 @@ structure MISC :
 sig
   (* These are handled in the compiler *)
   exception Conversion of string;     (* string to int conversion failure *)
-  exception ValueMissing of string;  (* table lookup failure *)
   
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list;
   
-  val forall  : ('a -> unit) -> 'a list -> unit;
-  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b;
-  
-  val isNil  : 'a list -> bool;
-  val nth : 'a list -> int -> 'a;
-  
-  val max : int -> int -> int;
-  
-  type 'a iter;
-  val upto        : int -> int -> int iter;
-  val overList    : 'a list -> 'a iter;
-  val for         : 'a iter -> ('a -> unit) -> unit;
-  val mapIterator : ('a -> 'b) -> 'a iter -> 'b list
-  
-  val lookupDefault :  ('a -> 'b) -> ('a -> 'b) -> 'a -> 'b;
+  val lookupDefault :  ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end (* MISC *);
 
 (*****************************************************************************)
@@ -452,7 +433,7 @@ structure ARRAY :
 sig
   type 'a array;
   
-  val array  : int * '_a -> '_a array;
+  val array  : int * 'a -> 'a array;
   val update : 'a array * int * 'a -> unit;
   val sub    : 'a array * int -> 'a;
 end;
@@ -611,22 +592,22 @@ sig
   val mkValDeclaration : 
        valbind list * 
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } ->  parsetree;
   
   val mkFunDeclaration : 
        fvalbind list *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } *
        {
-		 lookup: string -> types,
+		 lookup: string -> types option,
 		 apply: (string * types -> unit) -> unit
        } ->  parsetree;
 	
@@ -669,9 +650,7 @@ sig
 
   type debugenv = environEntry list * (int->codetree)
 
-  val gencode: parsetree * lexan * debugenv * int * int ref * string * int *
-  					{ lookupFix: string -> fixStatus, lookupExnById: word -> values option}
-					-> codetree list * debugenv;
+  val gencode: parsetree * lexan * debugenv * int * int ref * string * int -> codetree list * debugenv;
 
   (* only used for debugging and error messages! *)
   val ptDisplay: parsetree * int * prettyPrinter -> unit;
@@ -851,9 +830,9 @@ struct
    and valDecForm = 
      {
        dec:    valbind list,
-       explicit: {lookup: string -> types,
+       explicit: {lookup: string -> types option,
                apply: (string * types -> unit) -> unit },
-       implicit: {lookup: string -> types,
+       implicit: {lookup: string -> types option,
                apply: (string * types -> unit) -> unit },
 	   variables: values list ref (* list of variables declared *)
      } 
@@ -861,9 +840,9 @@ struct
    and funDecForm = 
      {
        dec:    fvalbind list,
-       explicit: {lookup: string -> types,
+       explicit: {lookup: string -> types option,
                apply: (string * types -> unit) -> unit },
-       implicit: {lookup: string -> types,
+       implicit: {lookup: string -> types option,
                apply: (string * types -> unit) -> unit }
      } 
 
@@ -1580,7 +1559,7 @@ struct
           ppAddString pprint "datatype";
           ppBreak pprint (1, 0);
 		  printList printDatatypeBind (typelist, "and", depth - 1);
-          if isNil withtypes then ()
+          if null withtypes then ()
           else
            (
             ppBreak pprint (1, 0);
@@ -1613,7 +1592,7 @@ struct
           ppBreak pprint (1, 0);
 		  printList printDatatypeBind (typelist, "and", depth - 1);
           ppBreak pprint (1, 0);
-          if isNil withtypes then ()
+          if null withtypes then ()
           else
            (
             ppAddString pprint "withtype";
@@ -1788,7 +1767,7 @@ struct
           ppAddString pprint "{";
           displayRecList (recList, depth - 1);
           if frozen then ()
-          else ppAddString pprint (if isNil recList then "..." else ", ...");
+          else ppAddString pprint (if null recList then "..." else ", ...");
           ppAddString pprint "}";
           ppEndBlock pprint ()
         end
@@ -1837,7 +1816,7 @@ struct
        declarations. It performs the type checking. "makeTypeId" is used
        to construct unique identifiers for types depending on the context
        (i.e. in a signature, structure or functor). *)
-    fun pass2 (v, makeTypeId, env as Env E, lex, line, strName) =
+    fun pass2 (v, makeTypeId, env, lex, line, strName) =
     let
       (* Returns a function which can be passed to unify or apply to
          print a bit of context info. *)
@@ -1864,7 +1843,7 @@ struct
 		 else ()
 
       (* parameters re-ordered SPF 22/10/94 *)
-      fun assignValues level letDepth line (env as Env E) near v  =
+      fun assignValues level letDepth line env near v  =
       let
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
@@ -1882,7 +1861,7 @@ struct
             (t,
              fn s => 
                lookupTyp 
-                 ({lookupType = #lookupType E, lookupStruct = #lookupStruct E},
+                 ({lookupType = #lookupType env, lookupStruct = #lookupStruct env},
                   s,
                   giveError (near, lex, line)),
             lex,
@@ -1929,12 +1908,12 @@ struct
 			then undefinedValue
 			else if #first names = ""
 			then (* Not qualified - may be a variable. *)
-			  lookupDefault (#lookupVal E) (fn _ => undefinedValue) name
+			  getOpt (#lookupVal env name, undefinedValue) 
 			  
 			else (* Qualified - cannot be a variable. *)
 			  lookupValue
 			    ("Constructor",
-			     {lookupVal= #lookupVal E, lookupStruct= #lookupStruct E},
+			     {lookupVal= #lookupVal env, lookupStruct= #lookupStruct env},
 			     name,
 			     giveError (pat, lex, line));
 			
@@ -2011,8 +1990,8 @@ struct
 			    val constrVal =
 			      lookupValue 
 					("Constructor",
-					 {lookupVal   = #lookupVal E, 
-					 lookupStruct = #lookupStruct E},
+					 {lookupVal   = #lookupVal env, 
+					 lookupStruct = #lookupStruct env},
 					 name,
 					 giveError (pat, lex, line));
 			  in
@@ -2162,7 +2141,7 @@ struct
 	      val expValue =
 		lookupValue 
 		  ("Value or constructor",
-		   {lookupVal = #lookupVal E, lookupStruct = #lookupStruct E},
+		   {lookupVal = #lookupVal env, lookupStruct = #lookupStruct env},
 		   name,
 		   giveError (near, lex, line));
 	      (* Set the value and type found. *)
@@ -2255,7 +2234,7 @@ struct
 		      (* First get the structures... *)
 		      fun findStructure ({name, ...}: structureIdentForm) = 
 			lookupStructure
-			  ("Structure", {lookupStruct = #lookupStruct E}, name,
+			  ("Structure", {lookupStruct = #lookupStruct env}, name,
 			    giveError (v, lex, line))
 	    
 		      val strs : structVals list = map findStructure ptl;
@@ -2282,7 +2261,7 @@ struct
 					   containing values which mask constructors. *)
 					val tcons = tagProject typeConstrVar dVal
 				  in
-				  	#enterType E (dName, 
+				  	#enterType env (dName, 
 					  	if null(tcConstructors tcons)
 						then tcons (* Not a datatype. *)
 						else mkSelectedType(tcons, tcName tcons, SOME str))
@@ -2296,7 +2275,7 @@ struct
 					  mkSelectedVar (tagProject valueVar dVal, str);
 			      in
 				    HashTable.hashSet(valTable, dName, selectedVar);
-					#enterVal E (dName, selectedVar)
+					#enterVal env (dName, selectedVar)
 			      end
 			      
 			    else if (tagIs structVar dVal)
@@ -2304,7 +2283,7 @@ struct
 					val selectedStruct = 
 					  makeSelectedStruct (tagProject structVar dVal, str);
 			      in
-					#enterStruct E (dName, selectedStruct)
+					#enterStruct env (dName, selectedStruct)
 			      end
 			    else ()
 			in
@@ -2312,7 +2291,7 @@ struct
 			end
 	
 		      (* ...then put them into the name space. *)
-		      val U : unit = forall copyEntries strs;
+		      val () = List.app copyEntries strs;
 		    in
 			  variables := HashTable.hashFold valTable (fn _ => fn v => fn t => v :: t) [];
 		      badType (* Does not return a type *)
@@ -2330,7 +2309,7 @@ struct
 		      fun processTypeBody (TypeBind {decType, ...}) =
 		            ptAssignTypes decType v line
 		        
-		      val U : unit = forall processTypeBody tlist;
+		      val () = List.app processTypeBody tlist;
 		      
 		      (* Can now declare the new types. *)
 		      fun processType (TypeBind {name, typeVars, decType, isEqtype}) =
@@ -2346,10 +2325,10 @@ struct
 		      in
 			checkForDots  (name, lex, line); (* Must not be qualified *)
 			#enter newEnv (name, tcon); (* Check for duplicates. *)
-			#enterType E  (name, tcon)  (* Put in the surrounding scope. *)
+			#enterType env  (name, tcon)  (* Put in the surrounding scope. *)
 		      end
 		           
-	              val U : unit = forall processType tlist;
+	              val () = List.app processType tlist;
 		    in
 		      badType (* Does not return a type *)
 		    end
@@ -2369,7 +2348,7 @@ struct
 			(* Look up the type constructor in the environment. *)
 				val oldTypeCons: typeConstrs =
 					lookupTyp 
-             			({lookupType = #lookupType E, lookupStruct = #lookupStruct E},
+             			({lookupType = #lookupType env, lookupStruct = #lookupStruct env},
               			oldType,
               			giveError (near, lex, line));
 
@@ -2379,7 +2358,7 @@ struct
 				val baseStruct =
 					if namePrefix = ""
 					then NONE
-					else SOME(lookupStructure("Structure", {lookupStruct = #lookupStruct E},
+					else SOME(lookupStructure("Structure", {lookupStruct = #lookupStruct env},
 								namePrefix, giveError (v, lex, line)))
 
 				(* Copy the datatype, converting any Formal constructors to Selected. *)
@@ -2392,9 +2371,9 @@ struct
 					[] => errorNear (lex, true, v, line, oldType ^ " is not a datatype")
 				|	_ => ();
 				(* Enter the value constrs in the environment. *)
-				List.app (fn c => (#enterVal E) (valName c, c)) newValConstrs;
+				List.app (fn c => (#enterVal env) (valName c, c)) newValConstrs;
 				(* Add this type constructor to the environment. *)
-				(#enterType E) (newType, newTypeCons);
+				(#enterType env) (newType, newTypeCons);
 				badType (* Does not return a type *)
 			end
 
@@ -2432,26 +2411,21 @@ struct
 		      (* The identifiers declared in the pattern are available in the
 			 body of the function. *)
 		      val bodyEnv =
-			let
-			  val Env E = env
-			in
-			  Env
 			    {
-			      lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal E),
-			      lookupType    = #lookupType E,
-			      lookupFix     = #lookupFix E,
-			      lookupStruct  = #lookupStruct E,
-			      lookupSig     = #lookupSig E,
-			      lookupFunct   = #lookupFunct E,
-			      lookupTvars   = #lookupTvars E,
-			      enterVal      = #enterVal E,
-			      enterType     = #enterType E,
-			      enterFix      = #enterFix E,
-			      enterStruct   = #enterStruct E,
-			      enterSig      = #enterSig E,
-			      enterFunct    = #enterFunct E
-			    }
-			 end;
+			      lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal env),
+			      lookupType    = #lookupType env,
+			      lookupFix     = #lookupFix env,
+			      lookupStruct  = #lookupStruct env,
+			      lookupSig     = #lookupSig env,
+			      lookupFunct   = #lookupFunct env,
+			      lookupTvars   = #lookupTvars env,
+			      enterVal      = #enterVal env,
+			      enterType     = #enterType env,
+			      enterFix      = #enterFix env,
+			      enterStruct   = #enterStruct env,
+			      enterSig      = #enterSig env,
+			      enterFunct    = #enterFunct env
+			    };
 	    
 		      (* Now the body. *)
 		      val expType = assignValues newLevel letDepth line bodyEnv v exp;
@@ -2479,20 +2453,16 @@ struct
 			  val newLetDepth = if loc then letDepth else letDepth+1;
 		      (* The environment for the local declarations. *)
 		      val localEnv =
-			let
-			  val Env E = env
-			in
-			  Env
 			    {
-			       lookupVal     = lookupDefault (#lookup newValEnv)  (#lookupVal E),
-			       lookupType    = lookupDefault (#lookup newTypeEnv) (#lookupType E),
-			       lookupFix     = #lookupFix E,
+			       lookupVal     = lookupDefault (#lookup newValEnv)  (#lookupVal env),
+			       lookupType    = lookupDefault (#lookup newTypeEnv) (#lookupType env),
+			       lookupFix     = #lookupFix env,
 			       (* This environment is needed if we open a 
 				  structure which has sub-structures. *)
-			       lookupStruct  = lookupDefault (#lookup newStrEnv) (#lookupStruct E),
-			       lookupSig     = #lookupSig E,
-			       lookupFunct   = #lookupFunct E,
-			       lookupTvars   = #lookupTvars E,
+			       lookupStruct  = lookupDefault (#lookup newStrEnv) (#lookupStruct env),
+			       lookupSig     = #lookupSig env,
+			       lookupFunct   = #lookupFunct env,
+			       lookupTvars   = #lookupTvars env,
 			       enterVal      = #enter newValEnv,
 			       enterType     = #enter newTypeEnv,
 				  (* Fixity has already been dealt with in the parsing process.  The only reason
@@ -2501,10 +2471,9 @@ struct
 					 are ignored. *)
 			       enterFix      = fn _ => (),
 			       enterStruct   = #enter newStrEnv,
-			       enterSig      = #enterSig E,
-			       enterFunct    = #enterFunct E
-			    }
-			end;
+			       enterSig      = #enterSig env,
+			       enterFunct    = #enterFunct env
+			    };
 	    
 		      (* Process the local declarations and discard the result. *)
 		      val U : types = assignSeq localEnv newLetDepth decs;
@@ -2513,37 +2482,32 @@ struct
 			 Declarations are added both to the local environment and to
 			 the surrounding scope. *)
 		      val bodyEnv =
-			let
-			  val Env L = localEnv
-			in
-			  Env
 			    { 
 			      (* Look-ups come from the local environment *)
-			      lookupVal     = #lookupVal L,
-			      lookupType    = #lookupType L,
-			      lookupFix     = #lookupFix L,
-			      lookupStruct  = #lookupStruct L,
-			      lookupSig     = #lookupSig L,
-			      lookupFunct   = #lookupFunct L,
-			      lookupTvars   = #lookupTvars L,
+			      lookupVal     = #lookupVal localEnv,
+			      lookupType    = #lookupType localEnv,
+			      lookupFix     = #lookupFix localEnv,
+			      lookupStruct  = #lookupStruct localEnv,
+			      lookupSig     = #lookupSig localEnv,
+			      lookupFunct   = #lookupFunct localEnv,
+			      lookupTvars   = #lookupTvars localEnv,
 			      enterVal      =
 					fn (pair as (name, v)) =>
 					  (varsInBody := v :: ! varsInBody;
 					   #enter newValEnv pair;
-					   #enterVal E      pair),
+					   #enterVal env      pair),
 			      enterType     =
 					fn (pair as (name, v)) =>
 					  (#enter newTypeEnv pair;
-					   #enterType E      pair),
-			      enterFix      = #enterFix E,
+					   #enterType env      pair),
+			      enterFix      = #enterFix env,
 			      enterStruct   =
 					fn (pair as (name, v)) =>
 					  (#enter newStrEnv pair;
-					   #enterStruct E   pair),
-			      enterSig      = #enterSig E,
-			      enterFunct    = #enterFunct E
-			    }
-			end;
+					   #enterStruct env   pair),
+			      enterSig      = #enterSig env,
+			      enterFunct    = #enterFunct env
+			    };
 		      (* Now the body, returning its result if it is an expression. *)
 				val resType = assignSeq bodyEnv newLetDepth body
 		    in
@@ -2595,8 +2559,8 @@ struct
 				    val prev = 
 				      lookupValue 
 					("Exception",
-					  {lookupVal= #lookupVal E,
-					  lookupStruct= #lookupStruct E},
+					  {lookupVal= #lookupVal env,
+					  lookupStruct= #lookupStruct env},
 					  prevName,
 					  giveError (v, lex, line))
 				  in
@@ -2623,10 +2587,10 @@ struct
 		checkForBuiltIn (name, v, lex, line, true) : unit;
 		
 		(* Put this exception into the env *)
-		#enterVal E (name, exValue) 
+		#enterVal env (name, exValue) 
 	      end
   
-	      val U : unit = forall processException tlist;
+	      val () = List.app processException tlist;
 	    in
 	      badType
 	    end (* ExDeclaration *)
@@ -2707,7 +2671,7 @@ struct
 		  		(
 				(* Infix declarations have already been processed by the parser.  We include
 				   them here merely so that we get all declarations in the correct order. *)
-				List.app (fn name => #enterFix E (name, fix)) tlist;
+				List.app (fn name => #enterFix env (name, fix)) tlist;
 				badType
 				)
 
@@ -2732,11 +2696,10 @@ struct
 	  (* For each implicit type variable associated with this value declaration,
 	     link it to any type variable with the same name in an outer
 	     scope. *)
-	  val U : unit = 
+	  val () = 
 	    #apply implicit
 	      (fn (name, tv) =>
-		 (linkTypeVars (#lookupTvars E name, tv)
-		    handle ValueMissing _ => setTvarLevel (tv, newLevel)));
+              case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
 		(* If it isn't there set the level of the type variable. *)
 
 	  (* Construct a new environment for the variables. *)
@@ -2804,55 +2767,49 @@ struct
 	      
 	    | checkTypes (d::dl) ((ValBind {dec, exp, line,...}) :: ptl) isRec =
 	      let
-		val newEnv =
-		  let
-		    val Env E = env
-		  in
-		    Env
+            val newEnv =
 		     { (* If this is recursive we find the recursive names
 			  and others in the surrounding scope. *)
 		       lookupVal     = 
-			 if isRec
-			 then lookupDefault (#lookup recEnv) (#lookupVal E)
-			 else #lookupVal E,
-		       lookupType    = #lookupType E,
-		       lookupFix     = #lookupFix E,
-		       lookupStruct  = #lookupStruct E,
-		       lookupSig     = #lookupSig E,
-		       lookupFunct   = #lookupFunct E,
+                  if isRec
+                  then lookupDefault (#lookup recEnv) (#lookupVal env)
+                  else #lookupVal env,
+		       lookupType    = #lookupType env,
+		       lookupFix     = #lookupFix env,
+		       lookupStruct  = #lookupStruct env,
+		       lookupSig     = #lookupSig env,
+		       lookupFunct   = #lookupFunct env,
 		       (* Extend the environment of type variables. *)
 		       lookupTvars   =
 			  	lookupDefault (#lookup explicit)
-					(lookupDefault (#lookup implicit) (#lookupTvars E)),
-		       enterVal      = #enterVal E,
-		       enterType     = #enterType E,
-		       enterFix      = #enterFix E,
-		       enterStruct   = #enterStruct E,
-		       enterSig      = #enterSig E,
-		       enterFunct    = #enterFunct E
+					(lookupDefault (#lookup implicit) (#lookupTvars env)),
+		       enterVal      = #enterVal env,
+		       enterType     = #enterType env,
+		       enterFix      = #enterFix env,
+		       enterStruct   = #enterStruct env,
+		       enterSig      = #enterSig env,
+		       enterFunct    = #enterFunct env
 		     }
-		  end
 
-
-		val typ = assignValues newLevel letDepth line newEnv exp exp;
+            val typ = assignValues newLevel letDepth line newEnv exp exp;
 		    
-		val U : unit = unify (d, typ, lex, line, foundNear v);
+            val U : unit = unify (d, typ, lex, line, foundNear v);
 		
-		(* true if the expression is a possibly-constrained fn-expression *)
-		fun isConstrainedFn (exp : parsetree) : bool =
-		  case exp of
-		    Constraint {value, ...} => isConstrainedFn value
-		  | Fn _  => true
-		  | _     => false;
-	      in
-		(* Must check that the expression is of the form FN match. *)
-		(* N.B. the code generator assumes this is true. *)
-		if isRec andalso not (isConstrainedFn exp)
-		then errorNear (lex, true, v, line, 
+            (* true if the expression is a possibly-constrained fn-expression *)
+            fun isConstrainedFn (exp : parsetree) : bool =
+            case exp of
+              Constraint {value, ...} => isConstrainedFn value
+            | Fn _  => true
+            | _     => false;
+          in
+            (* Must check that the expression is of the form FN match. *)
+            (* N.B. the code generator assumes this is true. *)
+            if isRec andalso not (isConstrainedFn exp)
+            then errorNear (lex, true, v, line, 
 		      "Recursive declaration is not of the form `fn match'")
-		else ();
+            else ();
 		
-		checkTypes dl ptl isRec
+            checkTypes dl ptl isRec
 	      end
 	      
 	    | checkTypes decs _ isRec =
@@ -2869,18 +2826,18 @@ struct
 	     | nonExpansive (Ident _) = true
 	     | nonExpansive (List []) = true
 		 | nonExpansive (List elems) = not (!ml90) andalso
-		 					revfold (fn v => fn a => a andalso nonExpansive v)
+		 					List.foldl (fn (v, a) => a andalso nonExpansive v)
 								true elems
 	     | nonExpansive (Constraint {value, ...}) = nonExpansive value
 		 | nonExpansive (Literal _) = true
 		 | nonExpansive Unit = true
 		 | nonExpansive (TupleTree elems) = 
 		 	   not (!ml90)
-			   	andalso revfold (fn v => fn a => a andalso nonExpansive v)
+			   	andalso List.foldl (fn (v, a) => a andalso nonExpansive v)
 							true elems
 		 | nonExpansive (Labelled{recList, ...}) =
 		 	   not (!ml90)
-			   	andalso revfold (fn (n, v) => fn a => a andalso nonExpansive v)
+			   	andalso List.foldl (fn ((n, v), a) => a andalso nonExpansive v)
 							true recList (* Every element must be non-expansive *)
 		 | nonExpansive (Applic{f, arg}) =
 		 	   not (!ml90) andalso isNonRefConstructor f andalso nonExpansive arg
@@ -2927,7 +2884,7 @@ struct
 	  val U : unit = allowGen decs valdecs;
 	  (* And declare the new names into the surrounding environment. *)
 	  val U : unit = #apply newEnv
-	  	(fn nv as (_, var) => (#enterVal E nv; variables := var :: !variables));
+	  	(fn nv as (_, var) => (#enterVal env nv; variables := var :: !variables));
 	in
 	  badType (* Type should not be used *)
 	end (* assValDeclaration *)
@@ -2943,11 +2900,10 @@ struct
 	  (* For each implicit type variable associated with this value declaration,
 	     link it to any type variable with the same name in an outer
 	     scope. *)
-	  val U : unit = 
+	  val () = 
 	    #apply implicit
 	      (fn (name, tv) =>
-		 (linkTypeVars (#lookupTvars E name, tv)
-		    handle ValueMissing _ => setTvarLevel (tv, funLevel)));
+              case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, funLevel));
 		(* If it isn't there set the level of the type variable. *)
 
 	  (* Construct a new environment for the variables. *)
@@ -3011,8 +2967,7 @@ struct
 
 	      (* Look up the name to check it isn't a constructor. *)
 		  (* This check no longer applies in ML97. *)
-	      val value =
-			lookupDefault (#lookupVal E) (fn s => undefinedValue) name;
+	      val value = getOpt(#lookupVal env  name, undefinedValue);
 	      val U :unit =
 			if !ml90 andalso isConstructor value
 			then errorNear (lex, true, v, line,
@@ -3030,7 +2985,7 @@ struct
 	  | findNameAndPatts _ = 
 	      raise InternalError "findNameAndPatts: badly-formed parse-tree";
 
-	  val U : unit = forall findNameAndPatts tlist;
+	  val () = List.app findNameAndPatts tlist;
 	  
 	 (* Can now process the clausal functions in the environment 
 	    of the function names and using the information about
@@ -3131,31 +3086,26 @@ struct
 		body of the function. Since it is recursive the function
 		names are also available. *)
 	      val bodyEnv =
-		let
-		  val Env E = env
-		in
-		  Env 
 		    { 
 		      lookupVal     = 
-			lookupDefault (#lookup varEnv)
-		       (lookupDefault (#lookup newEnv) (#lookupVal E)),
-		      lookupType    = #lookupType E,
-		      lookupFix     = #lookupFix E,
-		      lookupStruct  = #lookupStruct E,
-		      lookupSig     = #lookupSig E,
-		      lookupFunct   = #lookupFunct E,
+                lookupDefault (#lookup varEnv)
+                   (lookupDefault (#lookup newEnv) (#lookupVal env)),
+		      lookupType    = #lookupType env,
+		      lookupFix     = #lookupFix env,
+		      lookupStruct  = #lookupStruct env,
+		      lookupSig     = #lookupSig env,
+		      lookupFunct   = #lookupFunct env,
 		      (* Extend the environment of type variables. *)
 		      lookupTvars   =
 			  	lookupDefault (#lookup explicit)
-					(lookupDefault (#lookup implicit) (#lookupTvars E)),
-		      enterVal      = #enterVal E,
-		      enterType     = #enterType E,
-		      enterFix      = #enterFix E,
-		      enterStruct   = #enterStruct E,
-		      enterSig      = #enterSig E,
-		      enterFunct    = #enterFunct E
-		    }
-	       end;
+					(lookupDefault (#lookup implicit) (#lookupTvars env)),
+		      enterVal      = #enterVal env,
+		      enterType     = #enterType env,
+		      enterFix      = #enterFix env,
+		      enterStruct   = #enterStruct env,
+		      enterSig      = #enterSig env,
+		      enterFunct    = #enterFunct env
+		    };
 	       
 	      (* Now the body. *)
 	      (* The type from `doPatterns' is the effect of applying
@@ -3175,10 +3125,10 @@ struct
 	      unify (pattType, expTyp, lex, line, foundNear dec)
 	    end
 	  in (* body of processFun *)
-	    forall processClause clauses
+	    List.app processClause clauses
 	  end
 	      
-	  val U : unit = forall processFun tlist;
+	  val () = List.app processFun tlist;
 	  
 	  (* Now declare the new names into the surrounding environment,
 	     releasing the copy flags on the type variables. All fun
@@ -3196,7 +3146,7 @@ struct
 			val U: unit =
 				checkForLocalDatatypes(ty, letDepth, giveError (v, lex, line))
 	     in
-	       #enterVal E pair
+	       #enterVal env pair
 	     end);
 	in
 	  badType (* Type should not be used *)
@@ -3219,7 +3169,7 @@ struct
 	   (
 	    checkForDots  (typeName, lex, line) : unit; (* Must not be qualified *)
 	    #enter newEnv (typeName, tcon); (* Check for duplicates. *)
-	    #enterType E  (typeName, tcon)  (* and put in the enclosing scope *)
+	    #enterType env  (typeName, tcon)  (* and put in the enclosing scope *)
 	   );
 	   
 	   (* Make the type constructors and put them in a list. *)
@@ -3239,7 +3189,7 @@ struct
 	 (* First match all the types on the right-hand sides using the
 	     datatypes and the existing bindings. *)
 	  fun processType (TypeBind {decType, ...}) = ptAssignTypes decType v line
-	  val U : unit = forall processType withtypes;
+	  val () = List.app processType withtypes;
 
 	  (* Can now enter the `withtypes'. *)
 	  fun enterWithType (TypeBind {name, typeVars, decType, ...}) =
@@ -3252,7 +3202,7 @@ struct
 	    in
 	      enterType tcon name
 	    end
-	  val U: unit = forall enterWithType withtypes;
+	  val () = List.app enterWithType withtypes;
 	    
 	  (* For the constructors *)
 	  fun messFn name =
@@ -3297,7 +3247,7 @@ struct
 	    let
 	      (* Match up identifiers to type constructors. *)
 	      (* This side-effects "argtype" to set equivalence fields *)
-		  val _ = List.app(fn (_, t) => ptAssignTypes t v line) cs
+		  val () = List.app(fn (_, t) => ptAssignTypes t v line) cs
 
 		  (* Choose the representation for the constructors. *)
 	      val reprs = chooseConstrRepr cs;
@@ -3326,7 +3276,7 @@ struct
 	     themselves do not appear in the surrounding scope. *)
 	  val U : unit =
 	    if not isAbs
-	    then #apply consEnv (#enterVal E)
+	    then #apply consEnv (#enterVal env)
 	    else let   (* Abstract type *)
 	      (* The declarations have to be evaluated in an environment in
 		 which the constructors have been declared. When an identifier
@@ -3339,30 +3289,28 @@ struct
 		 where they will be available after this declaration. *)
 	      val decEnv =
 		let
-		  val Env E    = env
 		  val localEnv = searchList ();
 		  fun enterValFn (pair as (name, v)) = 
 		    (#enter localEnv pair;
-		     #enterVal E     pair);
+		     #enterVal env     pair);
 		  val lookupValFn = 
 		    lookupDefault (#lookup localEnv)
-		     (lookupDefault (#lookup consEnv) (#lookupVal E))
+		     (lookupDefault (#lookup consEnv) (#lookupVal env))
 		in
-		  Env
 		   { 
 		     lookupVal     = lookupValFn,
-		     lookupType    = #lookupType E,
-		     lookupFix     = #lookupFix E,
-		     lookupStruct  = #lookupStruct E,
-		     lookupSig     = #lookupSig E,
-		     lookupFunct   = #lookupFunct E,
-		     lookupTvars   = #lookupTvars E,
+		     lookupType    = #lookupType env,
+		     lookupFix     = #lookupFix env,
+		     lookupStruct  = #lookupStruct env,
+		     lookupSig     = #lookupSig env,
+		     lookupFunct   = #lookupFunct env,
+		     lookupTvars   = #lookupTvars env,
 		     enterVal      = enterValFn,
-		     enterType     = #enterType E,
-		     enterFix      = #enterFix E,
-		     enterStruct   = #enterStruct E,
-		     enterSig      = #enterSig E,
-		     enterFunct    = #enterFunct E
+		     enterType     = #enterType env,
+		     enterFix      = #enterFix env,
+		     enterStruct   = #enterStruct env,
+		     enterSig      = #enterSig env,
+		     enterFunct    = #enterFunct env
 		  }
 		end;
   
@@ -3383,7 +3331,7 @@ struct
 		 list for exhaustiveness checking of patterns inside the abstype
 		 declaration but we do exhaustiveness checking during the code
 		 generation phase. *)
-	      forall setConstructors typeList
+	      List.app setConstructors typeList
 	    end;
         in
 	  badType (* Does not return a type *)
@@ -3391,23 +3339,24 @@ struct
       in 
         assValues near v
       end (* assignValues *);
+
+      val Env gEnv = env
       
       val env = 
-        Env
           {
-            lookupVal     = #lookupVal E,
-            lookupType    = #lookupType E,
-            lookupFix     = #lookupFix E,
-            lookupStruct  = #lookupStruct E,
-            lookupSig     = #lookupSig E,
-            lookupFunct   = #lookupFunct E,
-            lookupTvars   = fn name => raise ValueMissing name,
-            enterVal      = #enterVal E,
-            enterType     = #enterType E,
-            enterFix      = #enterFix E,
-            enterStruct   = #enterStruct E,
-            enterSig      = #enterSig E,
-            enterFunct    = #enterFunct E
+            lookupVal     = #lookupVal gEnv,
+            lookupType    = #lookupType gEnv,
+            lookupFix     = #lookupFix gEnv,
+            lookupStruct  = #lookupStruct gEnv,
+            lookupSig     = #lookupSig gEnv,
+            lookupFunct   = #lookupFunct gEnv,
+            lookupTvars   = fn name => NONE,
+            enterVal      = #enterVal gEnv,
+            enterType     = #enterType gEnv,
+            enterFix      = #enterFix gEnv,
+            enterStruct   = #enterStruct gEnv,
+            enterSig      = #enterSig gEnv,
+            enterFunct    = #enterFunct gEnv
           };
     in
       assignValues 1 0 line env v v
@@ -3526,7 +3475,7 @@ struct
          to `gencode' to handle structure declarations containing applications
          of functors. *)
       fun gencode (pt : parsetree, lex: lexan, debugEnv: debugenv, level, 
-                   addresses, structName: string, line, globalEnv) : codetree list * debugenv =
+                   addresses, structName: string, line) : codetree list * debugenv =
       let
         fun mkAddr () = 
           let
@@ -3588,7 +3537,7 @@ struct
 					fun loadVar (var, (decs, env)) =
 						let
 							val loadVal =
-								codeVal (var, !level, valTypeOf var, lex, line, globalEnv)
+								codeVal (var, !level, valTypeOf var, lex, line)
 							val {dec, rtEnv, ctEnv} =
 								createDebugEntry(var, env, loadVal)
 						in
@@ -3686,7 +3635,7 @@ struct
           
           fun a ::: b = PatSet (a :: list b);
 
-          fun isEmpty (PatSet p) = isNil p;
+          fun isEmpty (PatSet p) = null p;
           fun first   (PatSet p) = hd p; 
           fun next    (PatSet p) = PatSet (tl p); 
           
@@ -3695,7 +3644,7 @@ struct
     
           fun stringOfSet p = 
             "[" ^ 
-            revfold (fn i => fn s => s ^ " " ^ Int.toString i) "" (list p) ^ 
+            List.foldl (fn (i, s) => s ^ " " ^ Int.toString i) "" (list p) ^ 
             "]";
 
           infix 3 plus;
@@ -4046,14 +3995,14 @@ struct
 		  | mergen (h :: t) n pat = h :: mergen t (n - 1) pat
 		  | mergen []       _ _   = raise InternalError "mergen";
 		
-		fun enterLabel ((name, value)) l = 
+		fun enterLabel ((name, value), l) = 
 		    (* Put this label in the appropriate place in the tree. *)
 		    mergen l (entryNumber (name, ! typeof)) value
 		      
-		val tupleList = revfold enterLabel wilds recList;
+            val tupleList = List.foldl enterLabel wilds recList;
 	      in
-		(* And process it as a tuple. *)
-		buildAot (TupleTree tupleList) tree patNo line
+             (* And process it as a tuple. *)
+             buildAot (TupleTree tupleList) tree patNo line
 	      end
   
             | Applic{f = Ident{value = ref applVal, ...}, arg} =>
@@ -4170,10 +4119,10 @@ struct
               end
               
             | TupleTree ptl =>
-                revfold findVars varl ptl
+                List.foldl (fn (v1, v2) => findVars v1 v2) varl ptl
               
             | Labelled {recList, ...} =>
-                revfold (fn (_, value) => findVars value) varl recList
+                List.foldl (fn ((_, value), v) => findVars value v) varl recList
               
              (* Application of a constructor: only the argument
                 can contain vars. *)
@@ -4181,7 +4130,7 @@ struct
                 findVars arg varl
               
             | List ptl =>
-                revfold findVars varl ptl
+                List.foldl (fn (v1, v2) => findVars v1 v2) varl ptl
               
             | Constraint {value, ...} =>
                 findVars value varl
@@ -4462,7 +4411,7 @@ struct
 				    fun pattDepth (Aot {patts, defaults,...}) =
 				      case patts of
 					TupleField pl =>
-					 revfold (fn t => fn d => max (pattDepth t) d) 0 pl
+					 List.foldl (fn (t, d) => Int.max(pattDepth t, d)) 0 pl
 					 
 				      | _ =>
 					let (* Wild cards, constructors etc. *)
@@ -4488,7 +4437,7 @@ struct
 				      then bestcol
 				      else if column inside colsToDo
 				      then let
-					val thisDepth = pattDepth (nth asTuples column);
+					val thisDepth = pattDepth (List.nth(asTuples, column));
 				      in
 					if thisDepth > depth
 					then findDeepest (column + 1) column thisDepth
@@ -4504,7 +4453,7 @@ struct
 				    else let
 				      val bestcol = findDeepest 0 0 0;
 				    in
-				      codePatt (nth asTuples bestcol) (mkInd (bestcol, load)) active
+				      codePatt (List.nth(asTuples, bestcol)) (mkInd (bestcol, load)) active
 					       (despatch (colsToDo diff (singleton bestcol)))
 						   def isBind env
 				    end
@@ -4716,7 +4665,7 @@ struct
 						  | _ => raise InternalError "codeMatch - badly formed parsetree"
 					  )
                       else let
-                        val thisVars    = nth allVars pattChosenIndex;
+                        val thisVars    = List.nth(allVars, pattChosenIndex);
                         val noOfArgs    = length thisVars;
                         val argsForCall = makeArglist thisVars noOfArgs;
                       in
@@ -4852,11 +4801,11 @@ struct
 						let
 							(* When using the constructor as a value we just want
 							   then second word. *)
-							val constrTuple = codeVal (v, !level, !typeof, lex, line, globalEnv)
+							val constrTuple = codeVal (v, !level, !typeof, lex, line)
 						in
 							mkInd(1, constrTuple)
 						end
-					|	_ => codeVal (v, !level, !typeof, lex, line, globalEnv)
+					|	_ => codeVal (v, !level, !typeof, lex, line)
 			      end
 		  
 		  	| Literal{converter, literal, typeof=ref instance} =>
@@ -4884,7 +4833,7 @@ struct
 				      val instanceType = !typeof;
 				    in
 				      applyFunction (function, argument,
-					     !level, instanceType, lex, line, globalEnv)  : codetree
+					     !level, instanceType, lex, line)  : codetree
 				    end
 				| _ => 
 				  mkEval (codegen (f, debugEnv, decName, line), [argument],
@@ -4922,7 +4871,7 @@ struct
 				   construct the tuple by asking for each entry in turn. *) 
 				fun declist [] look = 
 				  let
-				    val args = mapIterator look (upto 0 (recordSize - 1));
+				    val args = List.tabulate (recordSize, look);
 				  in
 				    [mkTuple args]
 				  end
@@ -5041,7 +4990,7 @@ struct
                       if defaults eq empty
                       then map (fn cons : consrec => 
                                    codeVal (#constructor cons, !level, emptyType, lex,
-								   			line, globalEnv))
+								   			line))
                              exList
                       else [CodeZero]
                   | _ => [CodeZero]
@@ -5171,7 +5120,7 @@ struct
           end (* codeProc *);
   
          in      (* codeSequence *)
-           if isNil dlist then ([], debugEnv)
+           if null dlist then ([], debugEnv)
            else let
 		     val lineChangeCode = changeLine(decName, debugEnv, #2 (hd dlist))
 
@@ -5208,7 +5157,7 @@ struct
 				   |   setAddr _ = raise InternalError "setAddr"
 
                  in 
-                   val U = forall setAddr tlist;
+                   val () = List.app setAddr tlist;
                  end
 
                      (* Now we can process the function bindings. *)
@@ -5265,8 +5214,7 @@ struct
 					 val extraArg = if resultTuple = 1 then 0 else 1
 
                      (* Count the total number of arguments needed. *)
-                     val totalArgs =
-					 	revfold (fn x => fn y => x + y) extraArg tupleSeq 
+                     val totalArgs = List.foldl (op +) extraArg tupleSeq 
 
                      (* The old test was "totalArgs = 1", but that's not really
                         right, because we could have one genuine arg plus a
@@ -5485,7 +5433,7 @@ struct
 				   	| setAddress _ =
 						raise InternalError "setAddress  - badly formed parsetree"
                  in
-                   val U = forall setAddress vars;
+                   val () = List.app setAddress vars;
                  end;
                  
                  val rest = codeRecursive ds
@@ -5524,7 +5472,7 @@ struct
                    val loaded = codeRecursive otherDecs;
                  in
                    (* If there is just one (may conceivably be none) *)
-                   if isNil loaded orelse isNil (tl loaded)
+                   if null loaded orelse null (tl loaded)
                    then loaded (* Return the declarations (as a list) *)
                    else (* Put the declarations into a package of mutual decs. *)
                      [mkMutualDecs loaded]
@@ -5613,7 +5561,7 @@ struct
 					  | Ident{value=ref prevVal, ...} =>
 				      		(* Copy the previous value. N.B. We want the exception
 							   identifier here so we can't call codegen. *)
-							codeVal (prevVal, !level, emptyType, lex, line, globalEnv)
+							codeVal (prevVal, !level, emptyType, lex, line)
 					  | _ => raise InternalError "codeEx"
 				     )
 				 end  (* codeEx *);
@@ -5632,8 +5580,8 @@ struct
                
                (* We have to put the constructors back onto the abstype
                   temporarily so that we can do exhaustiveness checking. *)
-               val UUU = 
-                  forall
+               val () = 
+                  List.app
                     (fn (DatatypeBind{tcon=ref tc, valueConstrs = ref vconstrs, ...}) =>
                        tcSetConstructors (tc, vconstrs)
                     )
@@ -5644,8 +5592,8 @@ struct
                val (code, newDebug) = codeSequence (declist, debugEnv, decName);
               
               (* Now we can take the constructors off again. *)
-               val U  : unit = 
-                 forall 
+               val () = 
+                 List.app 
                    (fn (DatatypeBind{tcon=ref tc, ...}) => tcSetConstructors (tc, []))
                    typeList;
              in
