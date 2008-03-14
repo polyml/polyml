@@ -639,8 +639,8 @@ local
 	fun printAF(p, _, _, _) _ _ x = p(Socket.AF.toString x)
 	fun printSK(p, _, _, _) _ _ x = p(Socket.SOCK.toString x)
 in
-	val it = RunCall.Inner.install_pp printAF
-	val it = RunCall.Inner.install_pp printSK
+	val () = PolyML.install_pp printAF
+	val () = PolyML.install_pp printSK
 end
 
 

@@ -514,8 +514,8 @@ local
 		and prettyLarge(p, _, _, _) _ _ x =
 			p("0wx" ^ Words.LargeWord.toString x)
 	in
-		val unused = RunCall.Inner.install_pp prettyWord
-		val unused = RunCall.Inner.install_pp prettyLarge
+		val () = PolyML.install_pp prettyWord
+		val () = PolyML.install_pp prettyLarge
 	end
 
 in

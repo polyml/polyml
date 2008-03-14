@@ -315,7 +315,7 @@ local
 	fun prettyInt(p, _, _, _) _ _ x =
 		p(Int.toString x)
 in
-	val unused = RunCall.Inner.install_pp prettyInt
+	val () = PolyML.install_pp prettyInt
 end;
 
 structure LargeInt = Int

@@ -163,8 +163,8 @@ local
 	(* Install the pretty printer for Word8.word *)
 	fun pretty(p, _, _, _) _ _ x = p("0wx" ^ Word8.toString x)
 in
-	val it: unit = RunCall.addOverload convWord "convWord"
-	val it: unit = RunCall.Inner.install_pp pretty
+	val () = RunCall.addOverload convWord "convWord"
+	val () = PolyML.install_pp pretty
 end;
 
 (* Add the overloaded operators. *)

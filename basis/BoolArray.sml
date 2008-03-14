@@ -378,7 +378,7 @@ in
 					nd()
 				end
 		in
-			val unused = RunCall.Inner.install_pp pretty
+			val () = PolyML.install_pp pretty
 		end
 	
 	end
@@ -546,7 +546,7 @@ in
 					nd()
 				end
 		in
-			val unused = RunCall.Inner.install_pp pretty
+			val () = PolyML.install_pp pretty
 		end
 	end
 end;

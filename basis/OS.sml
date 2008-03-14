@@ -1148,6 +1148,6 @@ local
 	fun printKind(p, _, _, _) _ _ x = p(kind_string x)
 	fun printSysError(p, _, _, _) _ _ x = p(OS.errorName x)
 in
-	val it = RunCall.Inner.install_pp printKind
-	val it = RunCall.Inner.install_pp printSysError
+	val () = PolyML.install_pp printKind
+	val () = PolyML.install_pp printSysError
 end

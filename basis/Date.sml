@@ -534,5 +534,5 @@ local
 	   done outside the structure because of the opaque matching. *)
 	fun pretty(p, _, _, _) _ _ x = p(Date.toString x)
 in
-	val it = RunCall.Inner.install_pp pretty
+	val () = PolyML.install_pp pretty
 end

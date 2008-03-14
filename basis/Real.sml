@@ -750,5 +750,5 @@ local
     fun print_real (put, beg, brk, nd) depth _ (r: real) =
         put(Real.fmt (StringCvt.GEN(SOME 10)) r)
 in
-    val it = RunCall.Inner.install_pp print_real;
+    val () = PolyML.install_pp print_real;
 end;

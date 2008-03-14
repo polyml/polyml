@@ -135,7 +135,7 @@ in
                     nd()
                 end
         in
-            val unused = RunCall.Inner.install_pp pretty
+            val unused = PolyML.install_pp pretty
         end
     
     end (* Vector *);
@@ -287,7 +287,7 @@ in
                     nd()
                 end
         in
-            val unused = RunCall.Inner.install_pp pretty
+            val unused = PolyML.install_pp pretty
         end
     end (* Word8Array *);
     
@@ -352,7 +352,7 @@ in
                 nd()
             end
     in
-        val _ = RunCall.Inner.install_pp pretty
+        val _ = PolyML.install_pp pretty
     end;
 
     structure Word8ArraySlice:> MONO_ARRAY_SLICE where type elem = Word8.word where type vector = Word8Vector.vector
@@ -451,7 +451,7 @@ in
                 nd()
             end
     in
-        val unused = RunCall.Inner.install_pp pretty
+        val unused = PolyML.install_pp pretty
     end
 
 end;

@@ -1650,7 +1650,7 @@ local
 	and puid(p, _, _, _) _ _ x = p(Int.toString(SysWord.toInt(Posix.ProcEnv.uidToWord x)))
 	and pgid(p, _, _, _) _ _ x = p(Int.toString(SysWord.toInt(Posix.ProcEnv.gidToWord x)))
 in
-	val it: unit = RunCall.Inner.install_pp ppid
-	val it: unit = RunCall.Inner.install_pp puid
-	val it: unit = RunCall.Inner.install_pp pgid
+	val () = PolyML.install_pp ppid
+	val () = PolyML.install_pp puid
+	val () = PolyML.install_pp pgid
 end;

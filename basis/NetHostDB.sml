@@ -257,7 +257,7 @@ local
 	fun printAddr(p, _, _, _) _ _ x = p(NetHostDB.toString x)
 	fun printNet(p, _, _, _) _ _ x = p(NetDB.toString x)
 in
-	val it = RunCall.Inner.install_pp printAddr
-	val it = RunCall.Inner.install_pp printNet
+	val () = PolyML.install_pp printAddr
+	val () = PolyML.install_pp printNet
 end
 

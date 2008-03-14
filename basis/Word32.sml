@@ -128,8 +128,8 @@ local
         (* Install the pretty printer for Word32.word *)
         fun pretty(p, _, _, _) _ _ x = p("0wx" ^ Word32.toString x)
 in
-        val it: unit = RunCall.addOverload convWord "convWord"
-        val it: unit = RunCall.Inner.install_pp pretty
+        val () = RunCall.addOverload convWord "convWord"
+        val () = PolyML.install_pp pretty
 end;
 
 

@@ -197,7 +197,7 @@ local
 	   done outside the structure because of the opaque matching. *)
 	fun pretty(p, _, _, _) _ _ x = p(Time.toString x)
 in
-	val it = RunCall.Inner.install_pp pretty
+	val it = PolyML.install_pp pretty
 	(* Add overloads for +, -, <= etc *)
 	val it = RunCall.addOverload Time.+ "+";
 	val it = RunCall.addOverload Time.- "-";

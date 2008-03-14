@@ -262,7 +262,7 @@ struct
 				nd()
 			end
 	in
-		val unused = RunCall.Inner.install_pp pretty
+		val unused = PolyML.install_pp pretty
 	end
 
 end (* Array *)
@@ -441,7 +441,7 @@ local
 			nd()
 		end
 in
-	val _ = RunCall.Inner.install_pp pretty
+	val _ = PolyML.install_pp pretty
 end
 
 (* Install overloaded equality functions.  This has two effects.

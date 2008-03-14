@@ -283,7 +283,7 @@ struct
 				nd()
 			end
 	in
-		val unused = RunCall.Inner.install_pp pretty
+		val unused = PolyML.install_pp pretty
 	end
 
 end (* Vector *)
@@ -494,7 +494,7 @@ local
 			nd()
 		end
 in
-	val _ = RunCall.Inner.install_pp pretty
+	val _ = PolyML.install_pp pretty
 end;
 
 

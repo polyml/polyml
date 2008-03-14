@@ -575,7 +575,7 @@ local
                 put("#\"" ^ toString c ^ "\"")
         in
             val unused: unit = RunCall.addOverload convChar "convChar";
-            val unused: unit = RunCall.Inner.install_pp print_char
+            val unused: unit = PolyML.install_pp print_char
         end
     
         (* Define the type-specific inequalities. *)
@@ -895,7 +895,7 @@ local
                 )
         in
             val unused: unit = RunCall.addOverload convString "convString";
-            val unused: unit = RunCall.Inner.install_pp print_string
+            val unused: unit = PolyML.install_pp print_string
         end
         
         (* True if s1 is a prefix of s2 *)
@@ -1228,7 +1228,7 @@ in
                     nd()
                 )
         in
-            val unused = RunCall.Inner.install_pp pretty
+            val unused = PolyML.install_pp pretty
         end
     end;
 
@@ -1581,7 +1581,7 @@ in
                 nd()
             )
     in
-        val _ = RunCall.Inner.install_pp pretty
+        val _ = PolyML.install_pp pretty
     end;
 
     structure CharArraySlice:> MONO_ARRAY_SLICE where type elem = char where type vector = string
@@ -1669,7 +1669,7 @@ in
                 nd()
             )
     in
-        val _ = RunCall.Inner.install_pp pretty
+        val _ = PolyML.install_pp pretty
     end
 
     structure CharVector: MONO_VECTOR = String

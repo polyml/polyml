@@ -81,7 +81,7 @@ local
    fun pretty (p, _, _, _) _ _ x = p (Int32.toString x)
 in
    val () = RunCall.addOverload convInt "convInt"
-   val () = RunCall.Inner.install_pp pretty
+   val () = PolyML.install_pp pretty
 end;
 
 RunCall.addOverload Int32.~ "~";
