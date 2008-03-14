@@ -188,16 +188,6 @@ end;
 structure MISC :
 sig
   exception InternalError of string;
-  
-  type 'a iter;
-  val overList : 'a list -> 'a iter;
-  val first : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
-  
-  val nth : 'a list -> int -> 'a
-  val isNil : 'a list -> bool
-  
-  val min : int -> int -> int
-  val max : int -> int -> int
 end;
 
 
@@ -761,7 +751,7 @@ struct
   end;
 
   (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-  fun findEntryInBlock (Recconstr recs) offset = nth recs offset
+  fun findEntryInBlock (Recconstr recs) offset = List.nth(recs, offset)
       
   |  findEntryInBlock (Constnt b) offset =
     ( 
@@ -1471,7 +1461,7 @@ DCJM 2000.
 			|	kills => Newenv(kills @ [bodyCode])
 
         in  (* body of preCode.copyCode.insert.copyLambda *)
-          if isNil (!newGrefs) (* no external references *)
+          if null (!newGrefs) (* no external references *)
           then let
            (* 
               Since we are code-generating the procedure before we
@@ -2085,8 +2075,8 @@ DCJM 2000.
 				 SOME newTags) =>
 	              if similar testDef test <> Different
 	              then
-				  	 CaseVal{tags = newTags @ tagsDef, min=min minC minDef,
-					 		 max=max maxC maxDef,
+				  	 CaseVal{tags = newTags @ tagsDef, min=Int.min(minC, minDef),
+					 		 max=Int.max(maxC, maxDef),
 							 (* Return the default test rather than the original because
 							    that might contain the last reference. *)
 							 test=testDef}
@@ -2163,8 +2153,8 @@ DCJM 2000.
 											(addKillSet(c, killThenOnly), l)) nextCases,
 		                  test    = caseTest, (* This will not be a last-ref *)
 		                  default = addKillSet(nextDefault, killThenOnly),
-		                  min     = min caseMin nextMin,
-		                  max     = max caseMax nextMax
+		                  min     = Int.min(caseMin, nextMin),
+		                  max     = Int.max(caseMax, nextMax)
 		                }
 					else (* It was in killElseOnly *)
 		              Case 
@@ -2174,8 +2164,8 @@ DCJM 2000.
 											(addKillSet(c, killThenOnly), l)) nextCases,
 		                  test    = nextTest, (* Last reference *)
 		                  default = addKillSet(nextDefault, killThenOnly),
-		                  min     = min caseMin nextMin,
-		                  max     = max caseMax nextMax
+		                  min     = Int.min(caseMin, nextMin),
+		                  max     = Int.max(caseMax, nextMax)
 		                }
 					end
 
@@ -2190,8 +2180,8 @@ DCJM 2000.
 									(addKillSet(c, killThenOnly), l)) nextCases,
 	                  test    = nextTest,
 	                  default = addKillSet(nextDefault, killThenOnly),
-	                  min     = min caseMin nextMin,
-	                  max     = max caseMax nextMax
+	                  min     = Int.min(caseMin, nextMin),
+	                  max     = Int.max(caseMax, nextMax)
 	                }
 	
 	            | Different => (* Two case expressions but they test different
@@ -4443,7 +4433,7 @@ DCJM 2000.
     end
         
     else (* There is something in "special". *)
-      if isNil decs
+      if null decs
       then  (* Simply return it - it can have no non-local references. *)
         (fn () => Global insertedCode)
         

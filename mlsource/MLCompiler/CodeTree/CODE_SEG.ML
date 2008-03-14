@@ -52,8 +52,6 @@ local
 structure MISC :
 sig
   exception InternalError of string;
-  val min : int -> int -> int;
-  val max : int -> int -> int;
 end = Misc;
 
 (*****************************************************************************)
@@ -323,7 +321,7 @@ struct
       val wordIndex  : int = byteIndex div wordSize;
       val minSize    : int = wordIndex + 1;
       
-      val newSize    : int = max expSize minSize;
+      val newSize    : int = Int.max(expSize, minSize);
       
       (* create temporary codeseg (with larger byte-vector) *)
       val newVec = alloc (toShort newSize, F_bytes, toWord 0);

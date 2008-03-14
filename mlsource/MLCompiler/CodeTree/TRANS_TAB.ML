@@ -146,7 +146,6 @@ sig
        } -> 'a iter
 
   val for : 'a iter -> ('a -> 'b) -> unit;
-  val revfold : ('a -> 'b -> 'b) -> 'b -> 'a list -> 'b
   val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
 end;
 
@@ -3444,9 +3443,9 @@ in (* local definitions *)
     (* Fix up a list of labels, using the same stack mark *)
     fun mergeList (labs, table, cvec, carry, mark) : mergeResult =
     let
-	  fun mergeLabs l carry = mergeLab (l, table, cvec, carry, mark)
+	  fun mergeLabs (l, carry) = mergeLab (l, table, cvec, carry, mark)
     
-      val mergeRes = revfold mergeLabs carry labs
+      val mergeRes = List.foldl mergeLabs carry labs
     in
 	  unmarkStack(table, mark);
 	  mergeRes

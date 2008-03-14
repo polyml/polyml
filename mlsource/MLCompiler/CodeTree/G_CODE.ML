@@ -316,12 +316,6 @@ end;
 structure MISC :
 sig
   exception InternalError of string;
-  
-  type 'a iter;
-  val overList : 'a list -> 'a iter;
-  val for : 'a iter -> ('a -> unit) -> unit
-  
-  val isNil  : 'a list -> bool;
 end;
 
 (*****************************************************************************)
@@ -1046,13 +1040,12 @@ struct
             (fn (exp : 'a codetree, labels : int list) =>
                (
                 ppBeginBlock pprint (1, true);
-                  for (overList labels) 
-                       (fn l =>
+                List.app (fn l =>
                          (
                           ppAddString pprint (Int.toString l ^ ":");
                           ppBreak pprint (1, 0)
                          )
-                       );
+                       ) labels;
                  pretty (exp, prettyOptVal, pprint);
                  ppEndBlock pprint ()
                 )
@@ -2225,7 +2218,7 @@ struct
 		     then exit ()
 		     else ();
 		 in
-		   if isNil cps
+		   if null cps
 		   then
 		   	  (
 				(*  Finished. *)
@@ -2259,7 +2252,7 @@ struct
 		val mark  = markStack (transtable, cvec, mergeResult);
 		
 		val lastCase = noDefault;
-		val lastTest = isNil cps;
+		val lastTest = null cps;
       
 		(* If this is not the last test we increment the use count for
 		   the case expression so that it will not be thrown away.
@@ -2386,7 +2379,7 @@ struct
 						 in (* Now time to do the other closures. *)
 						    genMutualDecs ds
 						 end,
-                       isNil ds, (* Last one? *)
+                       null ds, (* Last one? *)
                        ToPstack,
                        matchFailFn)
 	                in
