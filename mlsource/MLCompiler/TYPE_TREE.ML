@@ -2780,6 +2780,7 @@ struct
 						false
 						)
 		            else if newLevel = 1 andalso showError andalso (!ml90)
+		                        andalso not isOverloadSet
 		            then
 						(
 						giveError ("Type", "includes a free imperative type variable");
