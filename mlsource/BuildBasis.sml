@@ -2,6 +2,8 @@
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
 
+    Modified David C.J. Matthews 2008
+
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
 	License as published by the Free Software Foundation; either
@@ -18,23 +20,15 @@
 *)
 
 (* Install initial conversion functions. These can be replaced later on. *)
-PolyML.addOverload PolyML.convString PolyML.convStringName;
-PolyML.addOverload PolyML.convInt "convInt";
-PolyML.addOverload PolyML.convWord "convWord";
-
-PolyML.Inner.print_depth 1;
-PolyML.Inner.use "mlsource/prelude/RunCall";
-PolyML.Inner.use "mlsource/prelude/RuntimeCalls";
-PolyML.Inner.use "mlsource/prelude/prelude";
-PolyML.Inner.use "mlsource/prelude/prelude2";
-
-PolyML.use "mlsource/prelude/Universal";
+RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
+RunCall.addOverload Bootstrap.convInt "convInt";
+RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)
-PolyML.use "basis/build";
-(* Build the Process structure for backwards compatibility. *)
-PolyML.use "mlsource/prelude/processes";
+Bootstrap.use "basis/build.sml";
 
+(* We've now set up the new name space so everything has to be
+   compiled into that rather than the old space. *)
 PolyML.use "mlsource/prelude/Address";
 PolyML.make "mlsource/extra/CInterface";
 PolyML.use "mlsource/extra/CInterface/clean";
@@ -64,6 +58,3 @@ PolyML.print_depth 100;
 
 (* Set the inline level to 40 which seems optimal. *)
 PolyML.Compiler.maxInlineSize := 40;
-
-(* Do this last. *)
-PolyML.use "mlsource/prelude/ReplaceStdio";
