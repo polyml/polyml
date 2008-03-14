@@ -115,10 +115,6 @@ local
     (* The architecture-specific suffixes take precedence. *)
     val suffixes = ref [archSuffix, "",archSuffix^".ML", ".ML", archSuffix^".sml", ".sml"];
 
-    (* This character is used to indicate end-of-file.  This is not legal in ML
-       so if it occurs within the input the lexer will report an error and stop. *)
-    val eofChar         = Char.chr 4; (* ctrl/D *)
-
     (* isDir raises an exception if the file does not exist so this is
        an easy way to test for the file. *)
     fun fileDirExists (name : string) : bool =
@@ -151,15 +147,14 @@ local
         (* First in list is the name with no suffix. *)
         val (inStream, fileName) = trySuffixes("" :: ! suffixes)
         val lineNo   = ref 1;
-        fun getChar () : char =
+        fun getChar () : char option =
             case TextIO.input1 inStream of
-                NONE => (* end of file *) eofChar
-            |   SOME #"\n" =>
+                eoln as SOME #"\n" =>
                 (
                     lineNo := !lineNo + 1;
-                    #"\n"
+                    eoln
                 )
-            |   SOME c => c
+            |   c => c
     in
         while not (TextIO.endOfStream inStream) do
         let
@@ -446,39 +441,13 @@ local
                 let (* scope of exception handler to close inStream *)
                     val endOfStream = ref false;
                     val lineNo     = ref 1;
-                    val charBuffer = ref ""; (* Current buffer *)
-                    val ptrInBuf  = ref 0;    (* next character position in buffer *)
         
-                    fun getChar () : char =
-                    let
-                        fun inc r = r := !r + 1;
-                        val chars = !charBuffer;
-                        val pos   = !ptrInBuf;
-                    in
-                        if pos < size chars
-                        then
-                        let
-                            val nextch = String.sub(chars, pos)
-                        in
-                            if nextch = #"\n"
-                            then inc lineNo else ();
-                            inc ptrInBuf;
-                            nextch
-                        end
-                        else let (* text used up - get another chunk *)
-                            val chars = TextIO.input inStream
-                        in
-                            if chars = ""
-                            then (endOfStream := true; eofChar) (* End of file *)
-                            else
-                            (
-                                charBuffer := chars;
-                                ptrInBuf  := 0;
-                                getChar() (* Get the character from the buffer. *)
-                            )
-                        end
-                    end (* getChar *);
-                in
+                    fun getChar () : char option =
+                        case TextIO.input1 inStream of
+                            NONE => (endOfStream := true; NONE) (* End of file *)
+                        |   eoln as SOME #"\n" => (lineNo := !lineNo + 1; eoln)
+                        |   c => c
+                 in
                     while not (!endOfStream) do
                     let
                         val code = PolyML.compiler
@@ -609,6 +578,7 @@ local
         end
     end (* make *)
  
+    val prompt1 = ref "> " and prompt2 = ref "# ";
 
     (*****************************************************************************)
     (*                  shell                                                    *)
@@ -653,32 +623,29 @@ local
         val endOfFile    = ref false;
         val realDataRead = ref false;
         val lastWasEol   = ref true;
-        
-        val firstPrompt = if isDebug then "debug >" else "> "
-        and secondPrompt = if isDebug then "debug #" else "# "
 
         (* Each character typed is fed into the compiler but leading
            blank lines result in the prompt remaining as firstPrompt until
            significant characters are typed. *)
-        fun readin () : char =
+        fun readin () : char option =
         let
             val setPrompt : unit =
                 if !lastWasEol (* Start of line *)
                 then if !realDataRead
-                then print (secondPrompt)
-                else print (firstPrompt)
+                then print (if isDebug then "debug " ^ !prompt2 else !prompt2)
+                else print (if isDebug then "debug " ^ !prompt1 else !prompt1)
                 else ();
          in
             case TextIO.input1 TextIO.stdIn of
-                NONE => (endOfFile := true; eofChar (* control-D = End of file *))
-            |   SOME #"\n" => ( lastWasEol := true; #"\n" )
+                NONE => (endOfFile := true; NONE)
+            |   SOME #"\n" => ( lastWasEol := true; SOME #"\n" )
             |   SOME ch =>
                    (
                        lastWasEol := false;
                        if ch <> #" "
                        then realDataRead := true
                        else ();
-                       ch
+                       SOME ch
                    )
         end; (* readin *)
 
@@ -851,14 +818,16 @@ in
             and valueNames (): string list = #1(ListPair.unzip (#allVal globalNameSpace ()))
             and typeNames (): string list = #1(ListPair.unzip (#allType globalNameSpace ()))
             and fixityNames (): string list = #1(ListPair.unzip (#allFix globalNameSpace ()))
-             
+
+            val prompt1 = prompt1 and prompt2 = prompt2
         end
     end
 end (* PolyML. *);
 
+val use = PolyML.use;
 
 (* Copy everything out of the original name space. *)
-(* Do this AFTER we've finished compiling PolyML. *)
+(* Do this AFTER we've finished compiling PolyML and after adding "use". *)
 val () = List.app (#enterVal PolyML.globalNameSpace) (#allVal Bootstrap.globalSpace ())
 and () = List.app (#enterFix PolyML.globalNameSpace) (#allFix Bootstrap.globalSpace ())
 and () = List.app (#enterSig PolyML.globalNameSpace) (#allSig Bootstrap.globalSpace ())
@@ -868,7 +837,4 @@ and () = List.app (#enterStruct PolyML.globalNameSpace) (#allStruct Bootstrap.gl
 
 (* We don't want Bootstrap copied over. *)
 val () = PolyML.Compiler.forgetStructure "Bootstrap";
-
-val use = PolyML.use;
-
 
