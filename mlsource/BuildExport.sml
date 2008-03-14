@@ -21,9 +21,6 @@
 
 PolyML.print_depth 0;
 
-PolyML.use "mlsource/prelude/RuntimeCalls";
-PolyML.use "mlsource/prelude/Address";
-
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";
 
@@ -34,4 +31,5 @@ Debug.maxInlineSize := 50;
 
 PolyML.shareCommonData MLCompiler.shell;
 
-PolyML.exportPortable("polytemp", MLCompiler.shell);
+PolyML.exportPortable("polytemp",
+    fn () => (MLCompiler.shell(); OS.Process.exit OS.Process.success) handle _ => OS.Process.exit OS.Process.failure);
