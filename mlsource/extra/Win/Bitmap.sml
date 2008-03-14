@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2001
+	Copyright (c) 2001-7
 		David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
@@ -72,7 +72,7 @@ structure Bitmap:
        HDC * int * int * int * int * HDC * int * int *
        HBITMAP * int * int * QuaternaryRop -> unit
 
-    val PlgBlt : HDC * RECT * HDC * RECT * HBITMAP * int * int -> unit
+    (*val PlgBlt : HDC * RECT * HDC * RECT * HBITMAP * int * int -> unit*)
     val SetBitmapBits : HBITMAP * Word8Vector.vector -> unit
     val SetBitmapDimensionEx : HBITMAP * int * int * SIZE -> SIZE
     val SetPixel : HDC * int * int * COLORREF -> COLORREF
@@ -198,10 +198,10 @@ struct
 			call11(gdi "StretchBlt") 
 				(HDC,XCOORD,YCOORD,WIDTH,HEIGHT,HDC,XCOORD,YCOORD,WIDTH,HEIGHT,RASTEROPCODE)
 					(SUCCESSSTATE "StretchBlt")
-	                                     
 
-	    val PlgBlt = call7 (gdi "PlgBlt")(HDC,RECT,HDC,RECT,HBITMAP,XCOORD,YCOORD)
-				 (SUCCESSSTATE "PlgBlt")
+	    (* This definitely has the wrong type. *)
+	    (*val PlgBlt = call7 (gdi "PlgBlt")(HDC,RECT,HDC,RECT,HBITMAP,XCOORD,YCOORD)
+				 (SUCCESSSTATE "PlgBlt")*)
 										 
 
 	    val SetBitmapDimensionEx       = gdicall_IIIM "SetBitmapDimensionEx" (SUCCESSSTATE "SetBitmapDimensionEx")
