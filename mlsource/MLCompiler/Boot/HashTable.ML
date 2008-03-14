@@ -40,7 +40,7 @@ sig
   
   val hashMake: int -> '_a hash
   val hashSet: '_a hash * string * '_a -> unit
-  val hashSub: 'a hash * string -> 'a
+  val hashSub: 'a hash * string -> 'a option
   
   (* An iterator over the non-empty entries in the table. *)
   val hashOver: 'a hash -> (string * 'a) iter
@@ -103,12 +103,12 @@ in
          handle Size => 
             raise InternalError ("HashTable.hash: " ^ Int.toString n);
     
-    fun hashSub (Hash {entries = ref A, hash = ref hashN, ...}, name : string) : 'a =
+    fun hashSub (Hash {entries = ref A, hash = ref hashN, ...}, name : string) : 'a option =
       (* Searches the table starting from the position given by the hash value. *)
     let
         open Array
         (* Loops until it either finds an empty entry - in which case it
-           raises an exception, or it finds the name it is looking for.
+           returns NONE, or it finds the name it is looking for.
            There will always be several empty entries because we rehash
            if it gets too full. *)
         fun find i =
@@ -116,14 +116,14 @@ in
             val h = A sub i;
         in
             case h of
-                None => raise ValueMissing name
+                None => NONE
             |   Some (n,v) => 
-                    if name = n then v else find ((if i = 0 then length A else i) - 1)
+                    if name = n then SOME v else find ((if i = 0 then length A else i) - 1)
         end
     in
         find (hashN name)
     end
-  | hashSub (Frozen {entries = V, hash = hashN, ...}, name : string) : 'a =
+  | hashSub (Frozen {entries = V, hash = hashN, ...}, name : string) : 'a option =
     let
         open Vector
         
@@ -132,9 +132,9 @@ in
             val h = V sub i;
         in
             case h of
-                None => raise ValueMissing name
+                None => NONE
             |   Some (n,v) => 
-                    if name = n then v else find ((if i = 0 then length V else i) - 1)
+                    if name = n then SOME v else find ((if i = 0 then length V else i) - 1)
         end
     in
         find (hashN name)

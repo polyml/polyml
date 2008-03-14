@@ -27,7 +27,7 @@ sig
   val makeUnivTable:    unit -> univTable;
   
   val univEnter:        univTable * 'a tag * string * 'a -> unit;
-  val univLookup:       univTable * 'a tag * string -> 'a;
+  val univLookup:       univTable * 'a tag * string -> 'a option;
   val univDelete:       univTable * 'a tag * string -> unit;
   
   val univOver:         univTable -> (string * universal) iter;
@@ -55,12 +55,14 @@ struct
     with
       fun makeUnivTable() = Table (hashMake 10); (* Choose a number. *)
       
-      fun univLookup (Table tab, t:'a tag, name:string) : 'a =
+      fun univLookup (Table tab, t:'a tag, name:string) : 'a option =
       let
-        fun search []     = raise ValueMissing name
-        |   search (H::T) = if tagIs t H then (tagProject t H) else search T;
+        fun search []     = NONE
+        |   search (H::T) = if tagIs t H then SOME (tagProject t H) else search T;
       in
-        search (hashSub (tab, name))
+        case hashSub (tab, name) of
+            NONE => NONE
+        |   SOME t => search t
       end;
       
       fun univEnter (Table tab, t:'a tag, name:string, v:'a) : unit =
@@ -72,17 +74,23 @@ struct
   
         fun search []     = [u]
         |   search (H::T) = if tagIs t H then u :: T else H :: search T;
+        
+        val newList =
+            case hashSub (tab, name) of
+                SOME v => search v
+            |   NONE => [u]
       in
-        hashSet (tab, name,
-          search (hashSub (tab, name)) handle ValueMissing _ => [u])
+        hashSet (tab, name, newList)
       end;
       
       fun univDelete (Table tab, t:'a tag, name:string) : unit  =
       let
-        fun search []     = raise ValueMissing name
+        fun search []     = []
         |   search (H::T) = if tagIs t H then T else H :: search T;
       in
-        hashSet (tab, name, search (hashSub (tab, name)))
+         case hashSub (tab, name) of
+             SOME l => hashSet (tab, name, search l)
+         |   NONE => ()
       end;
       
       local
