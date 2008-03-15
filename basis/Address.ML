@@ -23,7 +23,7 @@ TODO: This duplicates some of the Word structure although it adds certain
 that we have the standard basis library.  DCJM June 2000.
 *)
 
-structure Address :
+structure Address :>
 
 (*****************************************************************************)
 (*                  Address export signature                                 *)
@@ -98,24 +98,13 @@ in
 (*                  Address structure body                                   *)
 (*****************************************************************************)
 struct
-  abstype word    = Word    of int (* a legal ML object (tag = 0 or 1) *)
-      and address = Addr    of int (* a normal pointer (tag = 0) *)
-      and handler = Handler of int (* pointer to exception handler (tag = 2!) *)
-  with
-  end; (* abstype *)
-  local
-    datatype short = Short of int; (* a 30-bit int  (tag = 1) *)
-  in
-     type short = short; (* short is an eqtype, the others aren't *)
-   end;
+  type word    = word (* a legal ML object (tag = 0 or 1) *)
+  and address  = word (* a normal pointer (tag = 0) *)
+  and handler  = word (* pointer to exception handler (tag = 2!) *)
+  and short    = word; (* a 31/63-bit int  (tag = 1) *)
 
   (* pointer equality *)
-  	local
-		val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
-	in
-		fun wordEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
-	end
-
+  val wordEq = PolyML.pointerEq
   val unsafeCast : 'a -> 'b = RunCall.unsafeCast;
 
   local
@@ -143,7 +132,7 @@ struct
 	  then call the garbage collector)
        
        loadWord should *not* be used with byte-objects
-	 (we might load somthing that's not a valid ML value,
+	 (we might load something that's not a valid ML value,
 	  then call the garbage collector)
 	  
     Violating these assertions may corrupt the heap and cause unpredictable
@@ -207,21 +196,21 @@ struct
     RunCall.run_call1 POLY_SYS_callcode_tupled;
 
 (* Used for flag manipulations(?) *)
-  val Or:  short * short -> short = RunCall.run_call2 POLY_SYS_or_word;
-  val And: short * short -> short = RunCall.run_call2 POLY_SYS_and_word; 
-  val Xor: short * short -> short = RunCall.run_call2 POLY_SYS_xor_word; 
-  val << : short * short -> short = RunCall.run_call2 POLY_SYS_shift_left_word; 
-  val >> : short * short -> short = RunCall.run_call2 POLY_SYS_shift_right_word; 
+  val Or:  short * short -> short = Word.orb;
+  val And: short * short -> short = Word.andb; 
+  val Xor: short * short -> short = Word.xorb; 
+  val << : short * short -> short = Word.<<; 
+  val >> : short * short -> short = Word.>>; 
   
 (* Some stuff for short arithmetic could be added here eventually *)
   
-  val F_words        : short = unsafeCast   0;
-  val F_bytes        : short = unsafeCast   1;
-  val F_code         : short = unsafeCast   2;
-  val F_stack        : short = unsafeCast   8;
-  val F_negative     : short = unsafeCast  32;
-  val F_mutable      : short = unsafeCast  64;
-  val F_gc           : short = unsafeCast 128;
+  val F_words        : short = 0wx00;
+  val F_bytes        : short = 0wx01;
+  val F_code         : short = 0wx02;
+  val F_stack        : short = 0wx08;
+  val F_negative     : short = 0wx20;
+  val F_mutable      : short = 0wx40;
+  val F_gc           : short = 0wx80;
 
   local
 		val doCall: int*address -> bool
@@ -237,7 +226,7 @@ struct
     RunCall.run_call2 POLY_SYS_offset_address;
   
   local
-    val typeMask : short = unsafeCast 255;
+    val typeMask : short = 0wx0f;
     nonfix And
     nonfix Or
 
