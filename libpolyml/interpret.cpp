@@ -99,6 +99,13 @@ public:
     POLYUNSIGNED allocWords; // The words to allocate.
 };*/
 
+// Special values for return addresses or in the address of an exception handler.
+// In an exception handler SPECIAL_PC_TRACE_EX means trace this exception, as
+// a return address it means exception_trace has returned.
+#define SPECIAL_PC_TRACE_EX    TAGGED(0)
+#define SPECIAL_PC_END_THREAD  TAGGED(1)
+
+
 class Interpreter : public MachineDependent {
 public:
     Interpreter() {}
@@ -154,14 +161,14 @@ void Interpreter::InitStackFrame(TaskData *taskData, Handle stackh, Handle proc,
     /* No previous handler so point it at itself. */
     stack->p_sp--;
     *(stack->p_sp) = PolyWord::FromStackAddr(stack->p_sp);
-    *(--stack->p_sp) = TAGGED(0); /* Default return address. */
+    *(--stack->p_sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
     *(--stack->p_sp) = TAGGED(0); /* Default handler. */
     stack->p_hr = stack->p_sp;
 
     /* If this function takes an argument store it on the stack. */
     if (arg != 0) *(--stack->p_sp) = DEREFWORD(arg);
 
-    *(--stack->p_sp) = TAGGED(0); /* Return address. */
+    *(--stack->p_sp) = SPECIAL_PC_END_THREAD; /* Return address. */
     *(--stack->p_sp) = closure; /* Closure address */
 }
 
@@ -613,10 +620,10 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         u = *sp; /* Procedure to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
                         *(--sp) = PolyWord::FromStackAddr(taskData->stack->p_hr); /* Push old handler */
-                        *(--sp) = TAGGED(0); /* Marks exception trace. */
+                        *(--sp) = SPECIAL_PC_TRACE_EX; /* Marks exception trace. */
                         *(--sp) = TAGGED(0); /* Catch everything. */
                         taskData->stack->p_hr = sp; /* Handler is here. */
-                        pc = TAGGED(1).AsCodePtr(); /* Special return address. */
+                        pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
                         *(--sp) = TAGGED(0); /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
                         goto CALL_CLOSURE;
@@ -658,20 +665,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 sp++; /* Remove the link/closure */
                 pc = (*sp++).AsCodePtr(); /* Return address */
                 sp += returnCount; /* Add on number of args. */
-                if (pc == TAGGED(0).AsCodePtr())
-                {
-                    try
-                    {
-                        exitThread(taskData); // This thread is exiting.
-                        // exitThread throws an exception because it can't
-                        // return normally - the thread is no longer there.
-                    }
-                    catch (IOException)
-                    {
-                    }
-                    goto RESTART;
-                }
-                else if (pc == TAGGED(1).AsCodePtr())
+                if (pc == (SPECIAL_PC_END_THREAD).AsCodePtr())
+                    exitThread(taskData); // This thread is exiting.
+                else if (pc == (SPECIAL_PC_TRACE_EX).AsCodePtr())
                 {
                     /* Return from a call to exception_trace when an exception
                        has not been raised. */
@@ -712,7 +708,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         t = (*t).AsStackAddr();
                 }
                 t++; /* Skip over the identifier to point at the code address. */
-                if (*t == TAGGED(0))
+                if (*t == SPECIAL_PC_TRACE_EX)
                 { /* Trace this exception. */ 
                     *sp = PolyWord::FromCodePtr(pc); /* So that this proc. will be included. */
                     t++; /* Next handler. */
@@ -725,7 +721,11 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     catch (IOException) {
                     }
                     taskData->saveVec.reset(marker);
+                    // This will have reraised the xception by calling SetException
+                    goto RESTART;
                 }
+                else if (*t == SPECIAL_PC_END_THREAD)
+                    exitThread(taskData);  // Default handler for thread.
                 taskData->stack->p_pc = (*t).AsCodePtr();
                 /* Now remove this handler. */
                 sp = t;
