@@ -31,8 +31,6 @@ structure Structures =
     structure UNIVERSAL = Universal
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG      = Debug
-    structure ADDRESS    = Address
-    structure ARRAY      = Array
     structure STRETCHARRAY = StretchArray
 	structure DEBUGGER   = Debugger
   );
