@@ -242,7 +242,6 @@ end (* STRUCTVALS *);
 (*****************************************************************************)
 structure VALUEOPS :
 sig
-  type word
   type types;
   type codetree;
   type values;
@@ -353,7 +352,6 @@ end (* TYPETREE *);
 (*****************************************************************************)
 structure PARSETREE :
 sig
-  type word
   type parsetree;
   type types;
   type lexan;
@@ -437,16 +435,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS:
-sig
-  type word
-  val toWord : 'a -> word
-end;
-
-
-(*****************************************************************************)
 (*                  PRETTYPRINTER                                            *)
 (*****************************************************************************)
 structure PRETTYPRINTER :
@@ -457,18 +445,6 @@ sig
   val ppBeginBlock : prettyPrinter -> int * bool -> unit
   val ppEndBlock   : prettyPrinter -> unit -> unit
   val ppBreak      : prettyPrinter -> int * int -> unit
-end;
-
-(*****************************************************************************)
-(*                  ARRAY                                                    *)
-(*****************************************************************************)
-structure ARRAY :
-sig
-  type 'a array
-  
-  val array  : int * '_a -> '_a array
-  val update : 'a array * int * 'a -> unit
-  val sub    : 'a array * int -> 'a
 end;
 
 (*****************************************************************************)
@@ -564,11 +540,8 @@ sharing type
 = PARSETREE.env
    
 sharing type
-  ADDRESS.word
-= CODETREE.word
+  CODETREE.word
 = DEBUGGER.word
-= VALUEOPS.word
-= PARSETREE.word
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -669,7 +642,6 @@ struct
   open PARSETREE;
   open UTILITIES;
   open DEBUG;
-  open ADDRESS;
   open UNIVERSALTABLE;
   open UNIVERSAL; (* for tag record selectors *)
   open DEBUGGER;
@@ -1555,7 +1527,7 @@ struct
   fun typeMatchTab (minOffset : int, size : int) : typeConstrs map =
   let
     (* Make a vector with an entry for each bound name. *)
-    val v = ARRAY.array (Int.max(0, size), undefType) ;
+    val v = Array.array (Int.max(0, size), undefType) ;
   in
     (* Return the entry corresponding to the name, unless it is empty
        when an exception is raised. *)
@@ -1572,7 +1544,7 @@ struct
               else
              let
                (* Must be a bound stamp. *)
-                val entry = ARRAY.sub (v, offsetId id);
+                val entry = Array.sub (v, offsetId id);
                                (* SPF 7/6/94 fixed off-by-one *)
               in
                 if isUnsetId (tcIdentifier entry) (* undefType *)
@@ -1587,7 +1559,7 @@ struct
            if isBoundId id andalso
               offsetId id >= minOffset andalso
               offsetId id < size
-           then ARRAY.update (v, offsetId id, value)
+           then Array.update (v, offsetId id, value)
            else ()
          )
     }
@@ -3835,7 +3807,6 @@ struct
      evaluation (structures, values and functors).  It now includes types, signatures and
 	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
   fun pass4Structs (results, strs, {enterVal,enterStruct,enterFunct,enterType,enterFix,enterSig}) =
-  PolyML.exception_trace(fn () =>
   let
 	(* Process the datatypes in the structure and turn their value constructors
 	   into Global entries.  We only need this in order to be able to print values
@@ -3988,5 +3959,5 @@ struct
     val lastAddr = List.foldl extractStruct 0 strs;
   in
     ()
-  end (* pass4Structs *))
+  end (* pass4Structs *)
 end;
