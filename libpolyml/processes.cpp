@@ -1167,7 +1167,8 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         for (unsigned i = 0; i < taskArraySize; i++)
         {
             ProcessTaskData *p = taskArray[i];
-            if (p) allDied = false;
+            // If the only thread left is the signal thread assume we're finished.
+            if (p && p != sigTask) allDied = false;
             if (p && p->inMLHeap)
             {
                 allStopped = false;
