@@ -28,7 +28,6 @@ Bootstrap.use "basis/build.sml";
    compiled into that rather than the old space. *)
 
 (* FFI. *)
-PolyML.use "basis/Address";
 PolyML.make "mlsource/extra/CInterface";
 PolyML.use "mlsource/extra/CInterface/clean";
 
