@@ -34,127 +34,9 @@ functor CODETREE (
 (*****************************************************************************)
 structure GCODE :
 sig
-  type word;     (* added 13/7/94 SPF *)
-  type prettyPrinter
-  
-  datatype inlineStatus =
-    NonInline
-  | MaybeInline
-  | SmallFunction
-  | OnlyInline
-  ;
-  
-  datatype 'a codetree =
-    MatchFail    (* Pattern-match failure *)
-    
-  | AltMatch of  (* Pattern-match alternative choices *)
-      'a codetree * 'a codetree
-  
-  | Declar of  (* Make a local declaration or push an argument *)
-      {
-        value:      'a codetree,
-        addr:       int,
-        references: int
-       }
-
-   | Newenv of  (* Start a block *)
-       'a codetree list
-       
-   | Constnt of (* Load a constant *)
-       word
-        
-   | Extract of (* Get a local variable, an argument or a closure value *)
-       {
-         addr : int, 
-         level: int, 
-         fpRel: bool,
-		 lastRef: bool
-        }
-     
-   | Indirect of 
-      { (* Load a value from a heap record *)
-       base:   'a codetree,
-       offset: int
-      }
-     
-   | Eval of (* Evaluate a function with an argument list. *)
-      {
-        function:  'a codetree,
-        argList:   'a codetree list,
-        earlyEval: bool
-       }
-       
-   | Lambda of (* Lambda expressions. *)
-     { 
-       body          : 'a codetree,
-       isInline      : inlineStatus,
-       name          : string,
-       closure       : 'a codetree list,
-       numArgs  	 : int,
-       level         : int,
-       closureRefs   : int,
-       makeClosure   : bool
-      } 
-
-   | MutualDecs of (* Set of mutually recursive declarations. *)
-       'a codetree list
-       
-   | Cond of (* If-statement *)
-       'a codetree * 'a codetree * 'a codetree
-   
-   | Case of (* Case expressions *)
-      {
-       cases   : ('a codetree * int list) list,
-       test    : 'a codetree,
-       default : 'a codetree,
-       min     : int,
-       max     : int
-      }
-   
-   | BeginLoop of (* Start of tail-recursive inline function. *)
-       'a codetree * 'a codetree list
-
-   | Loop of (* Jump back to start of tail-recursive function. *)
-       'a codetree list
-      
-   | Raise of (* Raise an exception *)
-       'a codetree
-       
-   | Ldexc (* Load the exception (used at the start of a handler) *)
-   
-   | Handle of (* Exception handler *)
-     { (* Exception handler. *)
-       exp      : 'a codetree,
-       taglist  : 'a codetree list,
-       handler  : 'a codetree
-      }
-
-   | Recconstr of (* Records (tuples) *)
-       'a codetree list
-
-   | Container of int (* Create a container for a tuple on the stack. *)
-
-   | SetContainer of (* Copy a tuple to a container. *)
-   	  {
-       container: 'a codetree,
-	   tuple:     'a codetree,
-	   size:      int
-	  }
-
-   | TupleFromContainer of (* Make a tuple from the contents of a container. *)
-	   'a codetree * int
-
-   | Global of 'a (* Global value *)
-   | CodeNil
-
-  (* Parameterised because GCODE doesn't know about optVals *)
-  val pretty  : 'a codetree * ('a * prettyPrinter -> unit) * prettyPrinter -> unit
-  val isSmall : 'a codetree * ('a * ('a codetree -> int) -> int) -> bool
-  
-  val gencode: 'a codetree -> unit -> word;
-  val structureEq: word * word -> bool;
-  
-
+    type machineWord
+    type codetree
+    val gencode: codetree -> unit -> machineWord;
 end (* GCODE *);
 
 (*****************************************************************************)
@@ -190,61 +72,64 @@ sig
   exception InternalError of string;
 end;
 
-
-(*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-(* This should be integrated with ADDRESS to form a low-level interface *)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b
-end;
-
 (* DCJM 8/8/00.  Previously Address was a global but we aren't allowed
    to have sharing constraints with globals in ML97.  We could use a
    "where type" constraint but then we couldn't bootstrap from ML90. *)
 structure ADDRESS :
 sig
-  type word;
-  type short;
+  type machineWord;
+  type short = Word.word;
   type address;
   
-  val alloc:       short * short * word -> address;
-  val call:        address * word -> word;
+  val alloc:       short * Word8.word * machineWord -> address;
+  val call:        address * machineWord -> machineWord;
   val length:      address -> short;
   
   val isShort:     'a -> bool;
   val toShort:     'a -> short;
-  val toInt:       short -> int;
-  val toWord:      'a -> word;
-  val toAddress:   word -> address;
+  val toMachineWord:      'a -> machineWord;
+  val toAddress:   machineWord -> address;
   
-  val wordEq:      word * word -> bool;
+  val wordEq:      machineWord * machineWord -> bool;
   
-  val isWords : address -> bool;
-  val isMutable: address -> bool;
+  val isWords :    address -> bool;
+  val isMutable:   address -> bool;
   
-  val assignWord:  address * short * word -> unit;
-  val loadWord:    address * short -> word;
-  val F_words:     short;
-  val F_mutable:   short;
-  val Or:          short * short -> short;
+  val assignWord:  address * short * machineWord -> unit;
+  val loadWord:    address * short -> machineWord;
+  val F_words:     Word8.word;
+  val F_mutable:   Word8.word;
   val lock:        address -> unit
 
   val isIoAddress : address -> bool
 end;
+
+
+structure STRUCTUREEQ:
+sig
+    type machineWord
+    val structureEq: machineWord * machineWord -> bool;
+end
+
+structure BASECODETREE: BaseCodeTreeSig
 
 (*****************************************************************************)
 (*                  CODETREE sharing constraints                             *)
 (*****************************************************************************)
 
 sharing type
-  ADDRESS.word
-= GCODE.word
+  ADDRESS.machineWord
+= BASECODETREE.machineWord
+= STRUCTUREEQ.machineWord
+= GCODE.machineWord
+
+sharing type
+  BASECODETREE.codetree
+= GCODE.codetree
 
 sharing type
   PRETTYPRINTER.prettyPrinter
-= GCODE.prettyPrinter
+= BASECODETREE.prettyPrinter
     
 ) :
 
@@ -252,7 +137,7 @@ sharing type
 (*                  CODETREE export signature                                *)
 (*****************************************************************************)
 sig
-  type word
+  type machineWord
   type codetree
   type prettyPrinter
      
@@ -267,7 +152,7 @@ sig
 
   val mkRecLoad:          int-> codetree;
   val mkLoad:             int * int -> codetree;
-  val mkConst:            word -> codetree;
+  val mkConst:            machineWord -> codetree;
   val mkDec:              int * codetree -> codetree;
   val mkInd:              int * codetree -> codetree;
   val mkProc:             codetree * int * int * string -> codetree;
@@ -298,10 +183,10 @@ sig
   val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
 
   val pretty:    codetree * prettyPrinter -> unit;
-  val evalue:    codetree -> word;
+  val evalue:    codetree -> machineWord;
   val genCode:   codetree -> (unit -> codetree);
 
-  val structureEq: word * word -> bool;
+  val structureEq: machineWord * machineWord -> bool;
 end (* CODETREE export signature *) =
 
 (*****************************************************************************)
@@ -310,11 +195,14 @@ end (* CODETREE export signature *) =
 struct
   open GCODE;
   open DEBUGSWITCH;
-  open PRETTYPRINTER;
   open ADDRESS;
   open StretchArray;
   open MISC; (* after ADDRESS, so we get MISC.length, not ADDRESS.length *)
   open RuntimeCalls; (* for POLY_SYS numbers and EXC_nil *)
+  open BASECODETREE;
+  open PRETTYPRINTER;
+  
+  val structureEq = STRUCTUREEQ.structureEq
   
   infix 9 sub;
 
@@ -337,51 +225,7 @@ struct
      the case of a declaration of a tuple, will contain a "load" instruction 
      to get the value.
   *)
-
-  (* N.B.  We use an abstype here.  The reason is that the compiler assumes that
-     datatypes within a structure could be matched to a datatype in a signature
-	 and so it has to use a less efficient representation (see Value_ops.ML
-	 for a full explanation). An abstype can't be so the more efficient
-	 representation can be used.  "optimise" allocates more store than anything
-	 else in the compiler it's quite important to use an optimised representation. *)
-  abstype optVal = (* Global values - Also used in the optimiser. *)
-    JustTheVal of optVal codetree
   
-  | ValWithDecs of {general : optVal codetree, decs : optVal codetree list}
-    
-  | OptVal of
-    {
-      (* Expression to load this value - always a constant in global values. *)
-      general : optVal codetree,
-      
-      (* If it is not CodeNil it is the code which generated the general
-          value - either an inline procedure, a type constructor or a tuple. *)
-      special : optVal codetree,
-      
-      (* Environment for the special value. *)
-      environ : loadForm * int * int -> optVal,
-      
-      (* Declarations to precede the value - Always nil for global values. *)
-      decs : optVal codetree list,
-
-	  (* A reference which is used to detect recursive inline expansions.
-	     The first version of this code had a bool ref here which was set
-		 to true while we were expanding the function.  This turned out to
-		 be expensive because assigning to a reference which has been
-		 stored in the database involves a trap.  This should be fixed. *)
-	  recCall: bool ref
-    }
-    
-   withtype 
-     loadForm = 
-       { (* Load a value. *)
-		 addr : int, 
-		 level: int, 
-		 fpRel: bool,
-		 lastRef: bool
-       }
-  with
-
     fun errorEnv (lf: loadForm, i1: int, i2: int) : optVal =
       raise InternalError "error env";
   
@@ -402,7 +246,7 @@ struct
     fun optRec     (OptVal {recCall,...})       = recCall
 	  | optRec	   _ = ref false; (* Generate a temporary. *)
   
-    val simpleOptVal : optVal codetree -> optVal = JustTheVal;
+    val simpleOptVal : codetree -> optVal = JustTheVal;
     
     fun optVal (ov as {general, special, environ, decs, recCall}) : optVal =
       if isCodeNil special
@@ -411,34 +255,9 @@ struct
 		  [] => JustTheVal general
 		| _  => ValWithDecs {general = general, decs = decs}
 	      else OptVal ov;
-      
-    fun prettyOptVal (ov : optVal, pprint : prettyPrinter) =
-      (
-         ppAddString pprint "(";
-         GCODE.pretty (optGeneral ov, prettyOptVal, pprint);
-         ppAddString pprint ", ";
-         ppBreak pprint (1, 0);
-         GCODE.pretty (optSpecial ov, prettyOptVal, pprint);
-         ppBreak pprint (1, 0);
-         ppAddString pprint ")"
-      )
-
-    fun sizeOptVal (ov : optVal, size: optVal codetree -> int) =
+          
+    fun sizeOptVal (ov : optVal, size: codetree -> int) =
       size (optGeneral ov);
-  end; (* optVal abstype *)
-  
-  (* This is the "codetree" type that the rest of the compiler sees. *)
-  type codetree = optVal codetree;
-
-  val pretty : codetree * prettyPrinter -> unit =
-    fn (ct : codetree, pprint: prettyPrinter) => 
-      GCODE.pretty (ct, prettyOptVal, pprint);
-
-  fun isSmall (ct : codetree) : bool =
-    GCODE.isSmall (ct, sizeOptVal);
-    
-
-
 
   (* minor HACKS *)
   type casePair = codetree * int list;
@@ -448,26 +267,24 @@ struct
   fun stringPrint (s: string) : unit = TextIO.output(TextIO.stdOut,s);
   
   (* gets a value from the run-time system *)
-  val ioOp : int -> word = RUNCALL.run_call1 POLY_SYS_io_operation; 
+  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation; 
 
   fun apply f [] = () | apply f (h::t) = (f h; apply f t);
 
-  val word0 = toWord 0;
-  val word1 = toWord 1;
+  val word0 = toMachineWord 0;
+  val word1 = toMachineWord 1;
   
   val False = word0;   
   val True  = word1;   
 
   (* since code generator relies on these representations,
      we may as well export them *)
-  val mkConst: word->codetree   = Constnt;
+  val mkConst: machineWord->codetree   = Constnt;
   val CodeFalse = mkConst False;
   val CodeTrue  = mkConst True;
   val CodeZero  = mkConst word0;
   
-  val F_mutable_words : short = Or (F_words, F_mutable);
-  
-(* copied from CTREE.ML for efficiency (local calls can be inlined) *)  
+  val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable);
 
   type evalForm = 
      { (* Evaluate a function with an argument list. *)
@@ -645,7 +462,7 @@ struct
   val mkRaise      = Raise;
   val mkMutualDecs = MutualDecs;
 
-  fun mkStr (strbuff:string) = mkConst (toWord strbuff);
+  fun mkStr (strbuff:string) = mkConst (toMachineWord strbuff);
 
   val mkContainer  = Container
 
@@ -728,7 +545,7 @@ struct
 		in
 		  copyToVec xp 0;
 		  lock vec;
-		  toWord vec
+		  toMachineWord vec
 		end
     | makeVal _ = raise InternalError "makeVal - not constant or record"
   in
@@ -763,8 +580,8 @@ struct
          optimiser does not fall over.  *)
       if isShort b
       orelse not (ADDRESS.isWords (toAddress b)) (* DCJM's bugfix SPF 25/1/95 *)
-      orelse toInt (ADDRESS.length (toAddress b)) <= offset
-      then mkRaise (mkTuple [mkConst (toWord EXC_Bind), mkStr "Bind", CodeZero])
+      orelse ADDRESS.length (toAddress b) <= Word.fromInt offset
+      then mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero])
       else mkConst (loadWord (toAddress b, toShort offset))
     )
     
@@ -808,8 +625,8 @@ struct
    |  mkInd (addr, base) = Indirect {base = base, offset = addr};
         
   (* Get the value from the code. *)
-  fun evalue (Constnt c) : word = c
-   |  evalue (Global g) : word = evalue(optGeneral g)
+  fun evalue (Constnt c) : machineWord = c
+   |  evalue (Global g) : machineWord = evalue(optGeneral g)
    |  evalue _ =
    		raise InternalError "evalue: Not a constant"
 
@@ -899,7 +716,7 @@ struct
   and testList []       = true
     | testList (h :: t) = sideEffectFree h andalso testList t
 
-  and sideEffectFreeRTSCall(function: word, args: codetree list): bool =
+  and sideEffectFreeRTSCall(function: machineWord, args: codetree list): bool =
     let
 	  fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioCall)
 	in
@@ -909,7 +726,7 @@ struct
 		   long arguments for the word operations. *)
 	  	(List.foldl isInList false divisionOperations andalso
 			(case args of
-			   [_, Constnt c] => not (isShort c) orelse toInt(toShort c) <> 0
+			   [_, Constnt c] => not (isShort c) orelse toShort c <> 0w0
 			 | _ => false)
 		)
 	end;
@@ -924,7 +741,7 @@ struct
    It's quite safe to evaluate a function which results in an exception.
    It isn't safe to evaluate a function which might have a side-effect. *)
 
-   fun earlyRtsCall(function: word, args: codetree list): bool =
+   fun earlyRtsCall(function: machineWord, args: codetree list): bool =
    let
       val safeForImmutable =
 	  	[POLY_SYS_get_flags, POLY_SYS_load_byte, POLY_SYS_load_word]
@@ -1018,7 +835,7 @@ struct
        (* this isn't a problem because we never execute an explicit    *)
        (* "raise" expression and none of the built-in functions can    *)
        (* raise Interrupt.                                             *)
-       fun callFunction (argTuple:word) = 
+       fun callFunction (argTuple:machineWord) = 
             mkConst (call (funcAddress, argTuple))
               handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
                    | _         => resultCode
@@ -1026,7 +843,7 @@ struct
        fun loadArgs (argVec : address) ([]:codetree list) locn =
           (
             lock argVec;
-            callFunction (toWord argVec)
+            callFunction (toMachineWord argVec)
           )
                
          | loadArgs (argVec : address) (h :: t) locn =
@@ -2020,7 +1837,7 @@ DCJM 2000.
                   [Constnt c1, arg2] =>
                     if isShort c1
                     then let
-                      val value : int = toInt (toShort c1);
+                      val value : int = Word.toIntX (toShort c1);
                     in
 					  CaseVal{tags=[value], min=value, max=value, test=arg2}
                     end
@@ -2029,7 +1846,7 @@ DCJM 2000.
                  | [arg1, Constnt c2] =>
                     if isShort c2
                     then let
-                      val value : int = toInt (toShort c2);
+                      val value : int = Word.toIntX (toShort c2);
                     in
 					  CaseVal{tags=[value], min=value, max=value, test=arg1}
                     end
