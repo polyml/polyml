@@ -179,7 +179,7 @@ structure MISC :
 (*                  CODECONS export signature                                *)
 (*****************************************************************************)
 sig
-  type word;  (* added 13/7/94 SPF *)
+  type machineWord;
   type short;
   type code;
   type reg;   (* Machine registers *)
@@ -248,11 +248,11 @@ sig
   
   (* Enquire about operations. *)
   val instrIsRR: instrs -> bool;         (* Is the general form implemented? *)
-  val instrIsRI: instrs * word -> bool; (* Is the immediate value ok? *)
+  val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
 
   (* Code generate operations. *)
   val genRR: instrs * reg * reg * reg * code -> unit;
-  val genRI: instrs * reg * word * reg * code -> unit;
+  val genRI: instrs * reg * machineWord * reg * code -> unit;
 
   type tests;
   
@@ -278,18 +278,18 @@ sig
   (* Compare and branch for fixed and arbitrary precision. *)
   
   val isCompRR: tests -> bool;
-  val isCompRI: tests * word -> bool;
+  val isCompRI: tests * machineWord -> bool;
   
   val compareAndBranchRR: reg * reg * tests * code -> labels;
-  val compareAndBranchRI: reg * word * tests * code -> labels;
+  val compareAndBranchRI: reg * machineWord * tests * code -> labels;
 
   datatype storeWidth = STORE_WORD | STORE_BYTE
 
   val genLoad:        int * reg * reg * code -> unit;
   val isIndexedStore: storeWidth -> bool
   val genStore:       reg * int * reg * storeWidth * reg * code -> unit;
-  val isStoreI:       word * storeWidth * bool -> bool;
-  val genStoreI:      word * int * reg * storeWidth * reg * code -> unit;
+  val isStoreI:       machineWord * storeWidth * bool -> bool;
+  val genStoreI:      machineWord * int * reg * storeWidth * reg * code -> unit;
   val inlineAssignments: bool
 
   val genPush:        reg * code -> unit;
@@ -297,13 +297,13 @@ sig
   val preferLoadPush: bool;
   val genLoadCoderef: code * reg * code -> unit;
 
-  val allocStore:      int * short * reg * code -> unit;
-  val setFlag:         reg * code * short -> unit;
+  val allocStore:      int * Word8.word * reg * code -> unit;
+  val setFlag:         reg * code * Word8.word -> unit;
   val completeSegment: code -> unit;
 
   datatype callKinds =
         Recursive
-    |   ConstantFun of word * bool
+    |   ConstantFun of machineWord * bool
     |   CodeFun of code
     |   FullCall
   
@@ -352,8 +352,8 @@ let
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word;    (* NB *not* eqtype, 'cos it might be a closure *)
-  eqtype short;
+  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
+  type short = Word.word;
   type address;
   type handler;
   val toAddress: 'a -> address
@@ -364,25 +364,19 @@ sig
   
   val isShort:  'a     -> bool;
   val toShort:  'a     -> short;
-  val toWord:   'a     -> word;
-  val toInt:     short -> int;
+  val toMachineWord:   'a     -> machineWord;
 
-  val loadByte:  address * short -> short 
-  val loadWord:  address * short -> word
+  val loadByte:  address * short -> Word8.word 
+  val loadWord:  address * short -> machineWord
   val unsafeCast: 'a -> 'b
-
-  val Or:  short * short -> short;
-  val And: short * short -> short; 
-  val << : short * short -> short; 
-  val >> : short * short -> short; 
   
   val offsetAddr : address * short -> handler
  
-  val alloc:  (short * short * word) -> address
+  val alloc:  (short * Word8.word * machineWord) -> address
   val length: address -> short
-  val flags:  address -> short
+  val flags:  address -> Word8.word
 
-  val F_words : short
+  val F_words : Word8.word
  
   val isWords : address -> bool;
   val isBytes : address -> bool;
@@ -396,20 +390,20 @@ end = Address;
 (*****************************************************************************)
 structure CODESEG :
 sig
-  type word;
-  type short;
+  type machineWord;
+  type short = Word.word;
   type address;
   type cseg;
   
   val csegMake:          int  -> cseg;
   val csegConvertToCode: cseg -> unit;
   val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> short;
-  val csegSet:           cseg * int * short -> unit;
-  val csegPutWord:       cseg * int * word -> unit;
+  val csegGet:           cseg * int -> Word8.word;
+  val csegSet:           cseg * int * Word8.word -> unit;
+  val csegPutWord:       cseg * int * machineWord -> unit;
   val csegCopySeg:       cseg * cseg * int * int -> unit;
   val csegAddr:          cseg -> address;
-  val csegPutConstant:   cseg * int * word * 'a -> unit;
+  val csegPutConstant:   cseg * int * machineWord * 'a -> unit;
 end = CodeSeg;
 
 in
@@ -423,13 +417,7 @@ struct
   open ADDRESS;
   open MISC;
 
-  fun applyList (f, [])   = ()
-    | applyList (f, h::t) =
-    let
-      val U : unit = f h;
-    in
-      applyList (f, t)
-    end;
+  val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
   
   fun applyCountList (f, n, [])   = ()
     | applyCountList (f, n, h::t) = 
@@ -562,7 +550,8 @@ struct
   val mask6Bits = short63;  (* least significant 6 bits *)
   val mask7Bits = short127; (* least significant 7 bits *)
   val mask8Bits = short255; (* least significant 8 bits *)
-  infix >> <<;
+  val >> = Word.>> and << = Word.<<
+  infix >> <<
 
 (*****************************************************************************)
 (*                  16-bit immediates                                        *)
@@ -1677,15 +1666,15 @@ struct
     val topHw    = toShort (w div exp2_16);
     val bottomHw = toShort (w mod exp2_16);
   in
-    Quad (topHw    >> short8, And (mask8Bits, topHw),
-          bottomHw >> short8, And (mask8Bits, bottomHw))
+    Quad (topHw    >> short8, Word.andb (mask8Bits, topHw),
+          bottomHw >> short8, Word.andb (mask8Bits, bottomHw))
   end;
 
   (* returns *unsigned* integer *)
   fun fromQuad (Quad (b1,b2,b3,b4)) : int =
   let
-    val topHw    = toInt (Or (b1 << short8, b2));
-    val bottomHw = toInt (Or (b3 << short8, b4));
+    val topHw    = toInt (Word.orb (b1 << short8, b2));
+    val bottomHw = toInt (Word.orb (b3 << short8, b4));
   in
     topHw * exp2_16 + bottomHw
   end;
@@ -1702,18 +1691,18 @@ struct
 
     val bits26_31 = op1_short << short2;  (* 6 bits *)
     val bits24_25 = li_short  >> short22; (* 2 bits *) 
-    val b1 = Or (bits24_25, bits26_31);
+    val b1 = Word.orb (bits24_25, bits26_31);
     
-    val bits16_23 = And (li_short >> short14, mask8Bits);
+    val bits16_23 = Word.andb (li_short >> short14, mask8Bits);
     val b2 = bits16_23;
    
-    val bits8_15 = And (li_short >> short6, mask8Bits);
+    val bits8_15 = Word.andb (li_short >> short6, mask8Bits);
     val b3 = bits8_15;
     
-    val bits2_7  = And (li_short, mask6Bits) << short2;
+    val bits2_7  = Word.andb (li_short, mask6Bits) << short2;
     val bits1_1  = aa_short << short1;
     val bits0_0  = lk_short;
-    val b4 = Or (bits0_0, Or (bits1_1, bits2_7));
+    val b4 = Word.orb (bits0_0, Word.orb (bits1_1, bits2_7));
   in
     Quad (b1, b2, b3, b4)
   end;
@@ -1729,19 +1718,19 @@ struct
 
     val bits26_31 = op1_short << short2;  (* 6 bits *)
     val bits24_25 = bo_short  >> short3;  (* 2 bits *)
-    val b1 = Or (bits24_25, bits26_31);
+    val b1 = Word.orb (bits24_25, bits26_31);
     
-    val bits21_23 = And (bo_short, mask3Bits) << short5 (* 3 bits *)
+    val bits21_23 = Word.andb (bo_short, mask3Bits) << short5 (* 3 bits *)
     val bits16_20 = bi_short;                            (* 5 bits *)
-    val b2 = Or (bits16_20, bits21_23);
+    val b2 = Word.orb (bits16_20, bits21_23);
    
-    val bits8_15 = And (bd_short >> short6, mask8Bits);
+    val bits8_15 = Word.andb (bd_short >> short6, mask8Bits);
     val b3 = bits8_15;
     
-    val bits2_7  = And (bd_short, mask6Bits) << short2;
+    val bits2_7  = Word.andb (bd_short, mask6Bits) << short2;
     val bits1_1  = aa_short << short1;
     val bits0_0  = lk_short;
-    val b4 = Or (bits0_0, Or (bits1_1, bits2_7));
+    val b4 = Word.orb (bits0_0, Word.orb (bits1_1, bits2_7));
   in
     Quad (b1, b2, b3, b4)
   end;
@@ -1756,16 +1745,16 @@ struct
 
     val bits26_31 = op1_short << short2; (* 6 bits *)
     val bits24_25 = rt_short  >> short3; (* 2 bits *) 
-    val b1 = Or (bits24_25, bits26_31);
+    val b1 = Word.orb (bits24_25, bits26_31);
     
-    val bits21_23 = And (rt_short, mask3Bits) << short5 (* 3 bits *)
+    val bits21_23 = Word.andb (rt_short, mask3Bits) << short5 (* 3 bits *)
     val bits16_20 = ra_short;                            (* 5 bits *)
-    val b2 = Or (bits16_20, bits21_23);
+    val b2 = Word.orb (bits16_20, bits21_23);
    
     val bits8_15 = si_short >> short8;  (* 8 bits *)
     val b3 = bits8_15;
     
-    val bits0_7   = And (si_short, mask8Bits); (* 8 bits *)
+    val bits0_7   = Word.andb (si_short, mask8Bits); (* 8 bits *)
     val b4 = bits0_7;
   in
     Quad (b1, b2, b3, b4)
@@ -1784,19 +1773,19 @@ struct
 
     val bits26_31 = op1_short << short2; (* 6 bits *)
     val bits24_25 = rt_short  >> short3; (* 2 bits *) 
-    val b1 = Or (bits24_25, bits26_31);
+    val b1 = Word.orb (bits24_25, bits26_31);
     
-    val bits21_23 = And (rt_short, mask3Bits) << short5 (* 3 bits *)
+    val bits21_23 = Word.andb (rt_short, mask3Bits) << short5 (* 3 bits *)
     val bits16_20 = ra_short;                           (* 5 bits *)
-    val b2 = Or (bits16_20, bits21_23);
+    val b2 = Word.orb (bits16_20, bits21_23);
    
     val bits11_15 = rb_short << short3  (* 5 bits *)
     val bits8_10  = xo_short >> short7; (* 3 bits *)
-    val b3 = Or (bits8_10, bits11_15);
+    val b3 = Word.orb (bits8_10, bits11_15);
     
-    val bits1_7   = And (xo_short, mask7Bits) << short1;  (* 7 bits *)
+    val bits1_7   = Word.andb (xo_short, mask7Bits) << short1;  (* 7 bits *)
     val bits0_0   = rc_short;                             (* 1 bit *)
-    val b4 = Or (bits0_0, bits1_7);
+    val b4 = Word.orb (bits0_0, bits1_7);
   in
     Quad (b1, b2, b3, b4)
   end;
@@ -1815,20 +1804,20 @@ struct
 
     val bits26_31 = op1_short << short2; (* 6 bits *)
     val bits24_25 = rs_short  >> short3; (* 2 bits *) 
-    val b1 = Or (bits24_25, bits26_31);
+    val b1 = Word.orb (bits24_25, bits26_31);
     
-    val bits21_23 = And (rs_short, mask3Bits) << short5 (* 3 bits *)
+    val bits21_23 = Word.andb (rs_short, mask3Bits) << short5 (* 3 bits *)
     val bits16_20 = ra_short;                           (* 5 bits *)
-    val b2 = Or (bits16_20, bits21_23);
+    val b2 = Word.orb (bits16_20, bits21_23);
    
     val bits11_15 = sh_short << short3   (* 5 bits *)
     val bits8_10  = mb_short >> short2;  (* 3 bits *)
-    val b3 = Or (bits8_10, bits11_15);
+    val b3 = Word.orb (bits8_10, bits11_15);
     
-    val bits6_7   = And (mb_short, mask2Bits) << short6;  (* 2 bits *)
+    val bits6_7   = Word.andb (mb_short, mask2Bits) << short6;  (* 2 bits *)
     val bits1_5   = me_short << short1;                   (* 5 bits *)
     val bits0_0   = rc_short;                             (* 1 bit *)
-    val b4 = Or (bits0_0, Or(bits1_5, bits6_7));
+    val b4 = Word.orb (bits0_0, Word.orb(bits1_5, bits6_7));
   in
     Quad (b1, b2, b3, b4)
   end;
@@ -2355,7 +2344,7 @@ struct
 (*                  The main "code" datatype                                 *)
 (*****************************************************************************)
   datatype const =
-      WVal of word        (* an existing constant *)
+      WVal of machineWord        (* an existing constant *)
     | CVal of code        (* a forward-reference to another function *)
     | HVal of addrs ref   (* a handler *)
 
@@ -2524,19 +2513,19 @@ struct
   let
     val a : int = getByteAddr addr;
   in
-    csegSet (seg, a,     b1);
-    csegSet (seg, a + 1, b2);
-    csegSet (seg, a + 2, b3);
-    csegSet (seg, a + 3, b4)
+    csegSet (seg, a,     Word8.fromLargeWord(Word.toLargeWord b1));
+    csegSet (seg, a + 1, Word8.fromLargeWord(Word.toLargeWord b2));
+    csegSet (seg, a + 2, Word8.fromLargeWord(Word.toLargeWord b3));
+    csegSet (seg, a + 3, Word8.fromLargeWord(Word.toLargeWord b4))
   end;
 
   fun getQuad (addr:addrs, seg:cseg) : quad =
   let
     val a : int = getByteAddr addr;
-    val b1  = csegGet (seg, a)
-    val b2  = csegGet (seg, a + 1)
-    val b3  = csegGet (seg, a + 2)
-    val b4  = csegGet (seg, a + 3)
+    val b1  = Word.fromLargeWord(Word8.toLargeWord(csegGet (seg, a)))
+    val b2  = Word.fromLargeWord(Word8.toLargeWord(csegGet (seg, a + 1)))
+    val b3  = Word.fromLargeWord(Word8.toLargeWord(csegGet (seg, a + 2)))
+    val b4  = Word.fromLargeWord(Word8.toLargeWord(csegGet (seg, a + 3)))
   in
     Quad (b1, b2, b3, b4)
   end;
@@ -2572,7 +2561,7 @@ struct
   (* reference but it may have been compiled already, in which case we can *)
   (* put the code address in now. *)
   fun codeConst (Code {resultSeg = ref(Set seg), ... }, into) =
-    (* Already done. *) WVal (toWord(csegAddr seg))
+    (* Already done. *) WVal (toMachineWord(csegAddr seg))
   |  codeConst (r, into)  = (* forward *)
       (* Add the referring procedure onto the list of the procedure
          referred to if it is not already there. This makes sure that when
@@ -2713,13 +2702,13 @@ struct
   end;
  
   fun reallyFixupBranches (target : addrs, l : labels, cvec : code) : unit =
-    applyList (fn (ref x) => reallyFixupBranch (x, target, cvec), l);
+    List.app (fn (ref x) => reallyFixupBranch (x, target, cvec)) l;
 
   (* Recursive branches can be treated just like ordinary branches. *)
   val fixupRecursiveBranches = reallyFixupBranches;
 
   fun fixupRecursiveCalls (target : addrs, l : addrs list, cvec : code) : unit =
-    applyList (fn (x : addrs) => reallyFixCall (x, target, cvec), l);
+    List.app (fn (x : addrs) => reallyFixCall (x, target, cvec)) l;
 
   (* Deal with a pending fix-up. *)
   fun reallyFixup cvec = 
@@ -2767,7 +2756,7 @@ struct
     end;
       
   fun genRawInstructionList (l : quad list, cvec : code) : unit =
-    applyList (fn (x : quad) => genRawInstruction (x, cvec), l);
+    List.app (fn (x : quad) => genRawInstruction (x, cvec)) l;
   
   (* This must use the raw instruction generator, because it's
      used by "fixup", which is called from "checkBranchList, which
@@ -3311,9 +3300,9 @@ struct
  
   (* Exported - Can we store the value without going through a register?
      No. *)
-  fun isStoreI (cnstnt: word, _, _) : bool = false;
+  fun isStoreI (cnstnt: machineWord, _, _) : bool = false;
 
-  fun genStoreI (cnstnt: word, offset: int, rb: reg, width, index: reg, cvec: code) : unit =
+  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, width, index: reg, cvec: code) : unit =
     raise InternalError "Not implemented: genStoreI";
 
   (* Store a value on the stack.  This is used when the registers need to be
@@ -3404,7 +3393,7 @@ struct
 ***************************************************************************)  
   datatype callKinds =
         Recursive           (* The function calls itself. *)
-    |   ConstantFun of word * bool (* A pre-compiled or io function. *)
+    |   ConstantFun of machineWord * bool (* A pre-compiled or io function. *)
     |   CodeFun of code     (* A static link call. *)
     |   FullCall            (* Full closure call *)
   
@@ -3614,13 +3603,13 @@ Calling conventions:
 
   (* Allocate store and put the resulting pointer in the result register. *)
   (* Corrupts regTemp1 and regTemp2 *)
-  fun allocStore (length : int, flag : short,
+  fun allocStore (length : int, flag : Word8.word,
           resultReg : reg, cvec : code) : unit =
     if length < 1 orelse exp2_24 <= length
     then raise InternalError "allocStore: bad length"
     else let
         val bytes : int      = (length + 1) * 4;
-        val lengthWord : int = length + (toInt flag * exp2_24);
+        val lengthWord : int = length + (Word8.toInt flag * exp2_24);
         val U : unit         = genPendingStackAdjustment cvec;
         (* Load r12 with the length word first.  This simplifies recovering if we
            get a trap since we then know how much space we actually wanted. *)
@@ -3641,9 +3630,9 @@ Calling conventions:
   
   (* Remove the mutable bit; only safe for word objects. *)
   (* corrupts regTemp1 and regTemp2 *)
-  fun setFlag (baseReg : reg, cvec : code, flag : short) : unit =
+  fun setFlag (baseReg : reg, cvec : code, flag : Word8.word) : unit =
   let
-    val flagRep : int = toInt flag;
+    val flagRep : int = Word8.toInt flag;
   in
     genLoadImmed (regTemp2, flagRep, cvec);
     genStoreByte (regTemp2, baseReg, ~4, regNone, cvec) (* corrupts regTemp1 *)
@@ -3804,7 +3793,7 @@ Calling conventions:
 
   (* Is this argument acceptable as an immediate or should it be *)
   (* loaded into a register? *) 
-  fun isCompRI (tc, cnstnt:word) : bool =
+  fun isCompRI (tc, cnstnt:machineWord) : bool =
     case tc of
       Short => true
     | Long  => true
@@ -3871,7 +3860,7 @@ Calling conventions:
        raise InternalError "compareAndBranchRR: Unimplemented test";
   
   
-  fun compareAndBranchRI (r:reg, cnstnt:word, tc, cvec) : labels =
+  fun compareAndBranchRI (r:reg, cnstnt:machineWord, tc, cvec) : labels =
     case tc of
       Short =>
       let
@@ -4190,7 +4179,7 @@ Calling conventions:
     
   (* Is this argument acceptable as an immediate
      or should it be loaded into a register? *) 
-  fun instrIsRI (instr : instrs, cnstnt : word) : bool =
+  fun instrIsRI (instr : instrs, cnstnt : machineWord) : bool =
      let
         fun isShiftable c = 0 < c andalso c < (32 - TAGBITS)
      in
@@ -4238,7 +4227,7 @@ Calling conventions:
      we have to tag the immediate value. *)
   (* Register/immediate operations.  In many of these operations
      we have to tag the immediate value. *)
-  fun genRI (instr : instrs, rs : reg, constnt : word, rd : reg, cvec) : unit =
+  fun genRI (instr : instrs, rs : reg, constnt : machineWord, rd : reg, cvec) : unit =
   let
     val U : unit =
       (* 
@@ -4293,8 +4282,8 @@ Calling conventions:
         val c = toInt (toShort constnt)
       in
         case c of 
-          ~1 => genRI (InstrRevSubA, rs, toWord 0, rd, cvec)
-        |  0 => genRI (InstrMove, regZero, toWord 0, rd, cvec)
+          ~1 => genRI (InstrRevSubA, rs, toMachineWord 0, rd, cvec)
+        |  0 => genRI (InstrMove, regZero, toMachineWord 0, rd, cvec)
         |  1 => genRR (InstrMove, rs, regZero, rd, cvec)
         |  2 => genRR (InstrAddA, rs, rs, rd, cvec)
         |  _ =>
@@ -4459,7 +4448,7 @@ Calling conventions:
         let
             (* If it's tagged the result is 1 otherwise we need to load
                the length word and tag it. *)
-            val l1 = compareAndBranchRI (rs, toWord 0 (* Unused *), Long, cvec)
+            val l1 = compareAndBranchRI (rs, toMachineWord 0 (* Unused *), Long, cvec)
             val _ = genLoadImmed (rd, tagged 1, cvec);
             val l2 = unconditionalBranch cvec
         in
@@ -4502,17 +4491,17 @@ Calling conventions:
   fun loadUnsigned (a : address, offset : int) : int =
   let (* Power PC is a big-endian machine *)
     val byteOffset : int = 4 * offset;
-    val b0 : short = loadByte (a, toShort byteOffset);
-    val b1 : short = loadByte (a, toShort (byteOffset + 1));
-    val b2 : short = loadByte (a, toShort (byteOffset + 2));
-    val b3 : short = loadByte (a, toShort (byteOffset + 3));
+    val b0 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort byteOffset)));
+    val b1 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 1))));
+    val b2 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 2))));
+    val b3 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 3))));
   in
     fromQuad (Quad (b0, b1, b2, b3))
   end;
  
   (* constLabels - fill in a constant in the code. *)
   fun constLabels (Code{resultSeg=ref rseg, pcOffset=ref offset, ...},
-                   addr: addrs, value:word) =
+                   addr: addrs, value:machineWord) =
   let
     val seg       = scSet rseg;
     val constAddr : addrs = addr wordAddrPlus offset;
@@ -4789,7 +4778,7 @@ not be decremented.
         (* This is so that profiling can print "<anon>". Note that a
            tagged zero *is* a legal string (it's "\000"). SPF 14/10/94 *)
         val name     : string = procName
-        val nameWord : word   = if name = "" then toWord 0 else toWord name;
+        val nameWord : machineWord   = if name = "" then toMachineWord 0 else toMachineWord name;
         val addr     : addrs  = endOfCode wordAddrPlus 2;
       in
         val U : unit = csegPutWord (seg, getWordAddr addr, nameWord)
@@ -4799,15 +4788,16 @@ not be decremented.
            as the one used for assembly code segments. *)
         fun encodeReg(r, n: short): short =
         let
-            infix << Or
-            val reg = toShort 1 << toShort (nReg r)
+            open Word
+		    infix << orb
+			val reg = 0w1 << Word.fromInt (nReg r)
         in
-            reg Or n
+            reg orb n
         end
-        val regSet = List.foldl encodeReg (toShort 0) registerSet
+        val regSet = List.foldl encodeReg 0w0 registerSet
       in
         val U : unit = csegPutWord (seg, 
-                getWordAddr(endOfCode wordAddrPlus 3), toWord regSet);
+                getWordAddr(endOfCode wordAddrPlus 3), toMachineWord regSet);
       end;
     end; (* scope of endofcode *)
   in
@@ -4828,7 +4818,7 @@ not be decremented.
               val handlerAddr : handler = 
               offsetAddr (csegAddr seg, toShort (handlerByteOffset + 2));
       in
-              constLabels (cvec, addr, toWord handlerAddr);
+              constLabels (cvec, addr, toMachineWord handlerAddr);
               numOfConsts := ! numOfConsts - 1
           end
 
@@ -4848,7 +4838,7 @@ not be decremented.
         if noClosure
         then csegAddr seg
         else let
-          val addr : address = alloc (short1, F_words, toWord (csegAddr seg));
+          val addr : address = alloc (short1, F_words, toMachineWord (csegAddr seg));
           
           (* Logically unnecessary; however the RTS currently allocates everything
              as mutable because Dave's code assumed that things were done this
@@ -4863,7 +4853,7 @@ not be decremented.
       (* Now we know the address of this object we can fix up
          any forward references outstanding. This is put in here
          because there may be directly recursive references. *)
-      val U : unit = fixOtherRefs (cvec, toWord addr);
+      val U : unit = fixOtherRefs (cvec, toMachineWord addr);
   
       val U : unit = 
         if !assemblyCode

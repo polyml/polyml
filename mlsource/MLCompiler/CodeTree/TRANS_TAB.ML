@@ -36,7 +36,7 @@ functor TRANS_TAB (
 (*****************************************************************************)
 structure CODECONS :
 sig
-  type word; (* added 13/7/94 SPF *)
+  type machineWord;
   type code;
   type reg;   (* Machine registers *)
   type addrs;
@@ -61,8 +61,8 @@ sig
 
   val genLoad:        int * reg * reg * code -> unit;
   val genStore:       reg * int * reg * storeWidth * reg * code -> unit;
-  val isStoreI:       word * storeWidth * bool -> bool;
-  val genStoreI:      word * int * reg * storeWidth * reg * code -> unit;
+  val isStoreI:       machineWord * storeWidth * bool -> bool;
+  val genStoreI:      machineWord * int * reg * storeWidth * reg * code -> unit;
   val genLoadCoderef: code * reg * code -> unit;
   val genLoadPush:    int * reg * code -> unit;
   val genPush:        reg * code -> unit;
@@ -74,14 +74,14 @@ sig
   val instrMove:    instrs;
   val instrPush:    instrs;
 
-  val instrIsRI: instrs * word -> bool; (* Is the immediate value ok? *)
+  val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
 
   val genRR: instrs * reg * reg * reg * code -> unit;
-  val genRI: instrs * reg * word * reg * code -> unit;
+  val genRI: instrs * reg * machineWord * reg * code -> unit;
 
   type tests;
   
-  val isCompRI: tests * word -> bool;
+  val isCompRI: tests * machineWord -> bool;
   
   val resetStack: int * code -> unit;  (* Set a pending reset *)
   val procName:   code -> string;      (* Name of the procedure. *)
@@ -91,7 +91,7 @@ sig
   val noJump: labels;
   
   val compareAndBranchRR: reg * reg * tests * code -> labels;
-  val compareAndBranchRI: reg * word * tests * code -> labels;
+  val compareAndBranchRI: reg * machineWord * tests * code -> labels;
 
   val unconditionalBranch: code -> labels;
 
@@ -110,7 +110,7 @@ sig
 
   datatype callKinds =
 		Recursive
-	|	ConstantFun of word * bool
+	|	ConstantFun of machineWord * bool
 	|	CodeFun of code
 	|	FullCall
   
@@ -154,24 +154,18 @@ end;
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word;
-  eqtype short;
+  type machineWord;
+  type short = Word.word;
   type address;
 
   val isShort : 'a -> bool;
-  val toInt   : short -> int;
   val toShort : 'a  -> short;
-  val toWord:   'a     -> word;
-  val toAddress:   word -> address;
-  val loadWord:    address * short -> word;
-  val wordEq  : word * word -> bool;
+  val toMachineWord:   'a     -> machineWord;
+  val toAddress:   machineWord -> address;
+  val loadWord:    address * short -> machineWord;
+  val wordEq  : machineWord * machineWord -> bool;
   val wordSize: int
-  val length:      address -> short;
-
-  val Or:  short * short -> short;
-  val And: short * short -> short; 
-  val << : short * short -> short; 
-  val >> : short * short -> short; 
+  val length:      address -> Word.word;
 end;
 
 
@@ -180,15 +174,15 @@ end;
 (*****************************************************************************)
 
 sharing type
-  ADDRESS.word
-= CODECONS.word
+  ADDRESS.machineWord
+= CODECONS.machineWord
 ) : 
    
 (*****************************************************************************)
 (*                  TRANSTAB export signature                                *)
 (*****************************************************************************)
 sig
-  type word; (* added 13/7/94 SPF *)
+  type machineWord;
 
   type ttab;
   type code;
@@ -221,7 +215,7 @@ sig
   (* Push entries *)
   val pushReg:      ttab * reg  -> stackIndex;
   val pushStack:    ttab * int  -> stackIndex;
-  val pushConst:    ttab * word -> stackIndex;
+  val pushConst:    ttab * machineWord -> stackIndex;
   val pushCodeRef:  ttab * code -> stackIndex;
   val pushNonLocal: ttab * ttab * stackIndex * (unit -> stackIndex) * code -> stackIndex;
   val pushAllBut:   ttab * code * ((stackIndex -> unit) -> unit) * regSet -> unit;
@@ -292,7 +286,7 @@ sig
   
   val chooseRegister : ttab -> reg
 
-  val getRegisterSet: word -> regSet
+  val getRegisterSet: machineWord -> regSet
   val getRegisterSetForCode: code -> regSet
   val allRegisters : regSet
   val regSetUnion: regSet * regSet -> regSet
@@ -486,7 +480,7 @@ local
 
   datatype stackUnion = 
     Register  of reg         (* In a register *)
-  | Literal   of word        (* A constant (was "int") *)
+  | Literal   of machineWord        (* A constant (was "int") *)
   | CodeRef   of code        (* Forward reference to code *)
   | Direct    of {base: reg, offset: int}  (* Register/Offset *)
   | Stack     of int         (* On the real stack. *)
@@ -825,7 +819,7 @@ local
           
       | Literal w =>
           if isShort w
-          then intPrint (toInt (toShort w))
+          then intPrint (Word.toIntX (toShort w))
           else stringPrint "?" (* ??? *)      
       
       | CodeRef si =>
@@ -1033,7 +1027,7 @@ in (* local definitions *)
      pushPstack table (Register reg) "pushReg";
 
   (* The top of the pseudo-stack is a constant *)
-  fun pushConst (table, v : word) : stackIndex = 
+  fun pushConst (table, v : machineWord) : stackIndex = 
     pushPstack table (Literal v) "pushConst";
 
 
@@ -2406,9 +2400,9 @@ in (* local definitions *)
 		     do an indirection on the dummyValue put on the pstack to represent the
 			 non-existent result of the "raise".  In that case we put in a dummy result
 			 of zero. *)
-		    if isShort i andalso toInt(toShort i) = 0
-			then pushConst(table, toWord 0)
-			else if isShort i orelse toInt (ADDRESS.length (toAddress i)) <= offSet div wordSize
+		    if isShort i andalso toShort i = 0w0
+			then pushConst(table, toMachineWord 0)
+			else if isShort i orelse ADDRESS.length (toAddress i) <= Word.fromInt(offSet div wordSize)
 			then raise InternalError "indirect - invalid constant address"
 			else
 			   (
@@ -2566,21 +2560,22 @@ in (* local definitions *)
      | _ => entry  (* return the original. *)
    end;
 
-  fun getRegisterSet (addr: word): regSet =
+  fun getRegisterSet (addr: machineWord): regSet =
   	(* The set of register modified by a function. *)
   let
-  	 val doCall: int*word -> short
+  	 val doCall: int*machineWord -> Word.word
 		= RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
 
 	 val rSet = doCall(103, addr) (* Get the bit pattern from the function. *)
   	 (* It would be much better to use Word.word here rather than
 		this Address type.  The only reason we still use it is just
 		in case we ever need to bootstrap from an old database. *)
-	 infix And <<
+     val andb = Word.andb and << = Word.<<
+	 infix andb <<
 
 	 fun decodeBits (i: int) (l: reg list) =
 	 	if i < 0 then l
-		else if (rSet And (toShort 1 << toShort i)) <> toShort 0
+		else if (rSet andb (0w1 << Word.fromInt i)) <> 0w0
 		then decodeBits (i-1) (regN i :: l)
 		else decodeBits (i-1) l
 
@@ -2594,7 +2589,7 @@ in (* local definitions *)
      have already been compiled. *)
   	case codeAddress cvec of
 		SOME addr => (* Now compiled - return the register set. *)
-			getRegisterSet (toWord addr)
+			getRegisterSet (toMachineWord addr)
 	|   NONE =>
 		 (* We haven't compiled this yet: assume worst case. *) allRegisters
 
@@ -3731,7 +3726,7 @@ in (* local definitions *)
 			(Literal litOffset, Literal litValue) =>
 				(* Constant offset and constant value to be assigned. *)
 			    let
-					val offsetInt = toInt (toShort litOffset) * unitSize
+					val offsetInt = Word.toInt (toShort litOffset) * unitSize
 				in
 					if isStoreI(litValue, width, false)
 					then
@@ -3747,7 +3742,7 @@ in (* local definitions *)
 
 		|	(Literal litOffset, _) =>
 				let
-					val offsetInt = toInt (toShort litOffset) * unitSize
+					val offsetInt = Word.toInt (toShort litOffset) * unitSize
 				in
 					(* Constant offset but general value to be assigned. *)
 					storeViaRegister offsetInt;
