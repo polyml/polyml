@@ -41,16 +41,19 @@
       
 functor PRINT_TABLE (
 
+structure CODETREE:
+sig
+    type machineWord;
+    type codetree
+end;
+
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
 structure STRUCTVALS :
 sig
-  type word
   type typeId;
   type typeConstrs
-  type codetree
-  
   val sameTypeId:   typeId * typeId -> bool;
   val tcIdentifier: typeConstrs -> typeId
 end;
@@ -67,16 +70,16 @@ end):
 (*                  PRINTTABLE export signature                              *)
 (*****************************************************************************)
 sig
-  type word
+  type machineWord
   type typeId;
   type prettyPrinter;
   type typeConstrs
   type codetree
   
   val addPp:    typeId * 
-  					(prettyPrinter -> int -> word -> word -> unit) -> unit;
+  					(prettyPrinter -> int -> machineWord -> machineWord -> unit) -> unit;
   val getPrint: typeId ->
-  					(prettyPrinter -> int -> word -> word -> unit);
+  					(prettyPrinter -> int -> machineWord -> machineWord -> unit);
   val addOverload: string * typeConstrs * codetree -> unit
   val getOverloads: string -> (typeConstrs * codetree) list
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
@@ -88,6 +91,7 @@ end =
 struct
   open STRUCTVALS;
   open PRETTYPRINTER;
+  open CODETREE
   type overloadEntry = string * typeConstrs * codetree;
 
   (* Create a ref to hold the list *)
@@ -134,7 +138,7 @@ struct
   (* TODO: Treat the pretty print functions as just another form of
      overloading except that we only want the most recent occurrence. *)
   type printEntry = typeId *
-  						(prettyPrinter -> int -> word -> word -> unit);
+  						(prettyPrinter -> int -> machineWord -> machineWord -> unit);
 
   (* Create a ref to hold the list.  *)
   val printTable : printEntry list ref = ref [];

@@ -48,7 +48,7 @@ end;
 
 structure CODETREE :
 sig
-  type word
+  type machineWord
   type codetree
 
   val CodeNil:       codetree
@@ -56,7 +56,7 @@ sig
   val Ldexc:         codetree
   val MatchFail:     codetree
   val mkAltMatch:    codetree * codetree -> codetree
-  val mkConst:       word -> codetree
+  val mkConst:       machineWord -> codetree
   val mkLoad:        int * int -> codetree
   val mkInd:         int * codetree -> codetree
   val mkProc:        codetree * int * int * string -> codetree
@@ -79,8 +79,8 @@ sig
   val mkTupleFromContainer: codetree * int -> codetree
 
   val multipleUses:  codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
-  val evalue:           codetree -> word;
-  val structureEq:      word * word -> bool
+  val evalue:           codetree -> machineWord;
+  val structureEq:      machineWord * machineWord -> bool
 end;
 
 
@@ -91,7 +91,6 @@ structure STRUCTVALS :
 sig
   (* Structures *)
 
-  type word; (* added 23/7/94 SPF *)
   type structVals;
   type signatures;
   type functors;
@@ -289,7 +288,7 @@ end;
 (*****************************************************************************)
 structure VALUEOPS :
 sig
-  type word;
+  type machineWord;
   type types;
   type codetree
   type values;
@@ -427,33 +426,12 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  ARRAY                                                    *)
-(*****************************************************************************)
-structure ARRAY :
-sig
-  type 'a array;
-  
-  val array  : int * 'a -> 'a array;
-  val update : 'a array * int * 'a -> unit;
-  val sub    : 'a array * int -> 'a;
-end;
-
-(*****************************************************************************)
 (*                  ADDRESS                                                  *)
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word;    (* any legal bit-pattern (tag = 0 or 1) *)
-  val toWord  : 'a -> word;
-  val unsafeCast: 'a -> 'b
-end;
-
-(*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b
+  type machineWord;    (* any legal bit-pattern (tag = 0 or 1) *)
+  val toMachineWord: 'a -> machineWord
 end;
 
 (*****************************************************************************)
@@ -462,7 +440,7 @@ end;
 structure DEBUGGER :
 sig
 	type types
-	type word
+	type machineWord
 
 	datatype environEntry =
 		EnvValue of string * types
@@ -471,9 +449,9 @@ sig
 	|	EnvStaticLevel
 
 	val debugFunction:
-		string * string * int -> environEntry list -> word list -> unit
+		string * string * int -> environEntry list -> machineWord list -> unit
 	val enterFunction: string -> unit -> unit
-	val leaveFunction: types -> word -> word
+	val leaveFunction: types -> machineWord -> machineWord
 	val exceptionFunction: exn -> 'a
 end;
 
@@ -522,11 +500,10 @@ sharing type
 = PRETTYPRINTER.prettyPrinter
 
 sharing type
-  ADDRESS.word
-= CODETREE.word
-= STRUCTVALS.word
-= DEBUGGER.word
-= VALUEOPS.word
+  ADDRESS.machineWord
+= CODETREE.machineWord
+= DEBUGGER.machineWord
+= VALUEOPS.machineWord
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -550,7 +527,7 @@ sharing type
 (*                  PARSETREE export signature                               *)
 (*****************************************************************************)
 sig
-  type word;
+  type machineWord;
   type types;
   type fixStatus;
   type lexan;
@@ -673,12 +650,10 @@ struct
   open UNIVERSAL;
   open PRETTYPRINTER;
   open ADDRESS;
-  open RUNCALL;
-  open ARRAY;
   open DEBUGGER;
   open RuntimeCalls; (* for POLY_SYS numbers *)
   
-  val ioOp : int -> word = RUNCALL.run_call1 POLY_SYS_io_operation;
+  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
           
   infix 9 sub;
   
@@ -3495,7 +3470,7 @@ struct
 					debugFunction(filename lex, decName, line) ctEnv
 			in
 				lastLine := line;
-				mkEval(mkConst(unsafeCast debugger), [rtEnv(!level)], false)
+				mkEval(mkConst(toMachineWord debugger), [rtEnv(!level)], false)
 			end
 
 		(* Add a debug call if line has changed.  This is used between
@@ -3556,9 +3531,9 @@ struct
 			if not (! debug) then body (* Return it unchanged. *)
 			else
 			let
-				val entryCode = unsafeCast (DEBUGGER.enterFunction name)
-				and exitCode = unsafeCast (DEBUGGER.leaveFunction restype)
-				and exceptionCode = unsafeCast DEBUGGER.exceptionFunction
+				val entryCode = toMachineWord (DEBUGGER.enterFunction name)
+				and exitCode = toMachineWord (DEBUGGER.leaveFunction restype)
+				and exceptionCode = toMachineWord DEBUGGER.exceptionFunction
 			in
 				mkEnv [
 					(* Call the enter code. *)
@@ -3577,12 +3552,12 @@ struct
 
 		(* Convert a literal constant. We can only do this once any overloading
 		   has been resolved. *)
-		fun getLiteralValue(converter, literal, instance, line, near): word option =
+		fun getLiteralValue(converter, literal, instance, line, near): machineWord option =
 			let
 		 	   val (conv, name) =
 			   	  getOverloadInstance(valName converter, instance, true, lex, line)
 			in
-				SOME(unsafeCast(evalue conv)(literal))
+				SOME(RunCall.unsafeCast(evalue conv) literal)
 					handle Match => NONE (* Overload error *)
 					  | Conversion s =>
 					  	    (
@@ -3731,7 +3706,7 @@ struct
         and sconsrec =
             {
 			  eqFun:   codetree,	(* Equality functions for this type*)
-			  specVal: word option,	(* The constant value. NONE here means we had
+			  specVal: machineWord option,	(* The constant value. NONE here means we had
 			  						   a conversion error. *)
               patts:   patSet       (* Patterns containing this value. *)
             };
@@ -3854,23 +3829,23 @@ struct
                     
               | Scons pl =>
                 let (* Must be scons *)
-		  (* Merge this constructor with other occurrences. *)
-		  fun addClist [] = (* Not there - add this on the end. *)
-		     [makeSconsrec eqFun cval (singleton patNo)]
-		   | addClist (ccl :: ccls) =
-		   		if (case (cval, #specVal ccl) of
-					  (SOME a, SOME b) => structureEq(a, b)
-					| _ => false)
-			  	(* N.B. It is essential that this equality is done using
-				   the general structure equality and NOT using an optimised
-				   word*word->bool version.  The constants could be pointers
-				   to strings or long integers. *)
-		      then (* Merge in. *)
-			makeSconsrec eqFun cval (singleton patNo plus #patts ccl) :: ccls
-		      else (* Carry on looking. *) ccl :: addClist ccls;
-		in
-			makeAot (Scons (addClist pl)) defaults 0 vars
-		end
+                    (* Merge this constructor with other occurrences. *)
+                    fun addClist [] = (* Not there - add this on the end. *)
+                        [makeSconsrec eqFun cval (singleton patNo)]
+                    | addClist (ccl :: ccls) =
+                        if (case (cval, #specVal ccl) of
+                            (SOME a, SOME b) => structureEq(a, b)
+                          | _ => false)
+                        (* N.B. It is essential that this equality is done using
+                           the general structure equality and NOT using an optimised
+                           machineWord*machineWord->bool version.  The constants could be pointers
+                           to strings or long integers. *)
+                    then (* Merge in. *)
+                        makeSconsrec eqFun cval (singleton patNo plus #patts ccl) :: ccls
+                    else (* Carry on looking. *) ccl :: addClist ccls;
+                in
+                    makeAot (Scons (addClist pl)) defaults 0 vars
+                end
 		
               | _ =>
                 raise InternalError "addSconstr: badly-formed and-or tree"
@@ -4069,7 +4044,7 @@ struct
 					  otherwise default to structure equality. *)
 			 	   val (equality, _) =
 				   	  getOverloadInstance("=", instance, false, lex, line)
-				   val litValue: word option =
+				   val litValue: machineWord option =
 				      getLiteralValue(converter, literal, instance, line, vars)
 				in
 					addSconstr equality litValue tree patNo
@@ -4545,6 +4520,7 @@ struct
               let
                 val noOfArgs = length vl;
                 val patNoIndex = patNo - 1;
+                open Array
                 val pattUses = uses sub patNoIndex;
                 
                 val U : unit =
@@ -4619,7 +4595,7 @@ struct
              (* Make an array to count the number of references to a pattern.
                 This is used to decide whether to use a function for certain
                 expressions or to make it inline. *)
-             val uses = array (noOfPats, 0);
+             val uses = Array.array (noOfPats, 0);
     
              (* Set to false if we find it is not exhaustive. *)
              val exhaustive = ref true;
@@ -4644,7 +4620,7 @@ struct
                       val pattChosenIndex = pattChosen - 1; 
                     in
                       (* Increment the count for this pattern. *)
-                      update (uses, pattChosenIndex,(uses sub pattChosenIndex) + 1);
+                      Array.update (uses, pattChosenIndex,(Array.sub(uses, pattChosenIndex)) + 1);
                       
                      (* If we have a single pattern it cannot be duplicated
                         so we can put the code in immediately, other cases

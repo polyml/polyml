@@ -21,6 +21,7 @@
 structure PrintTable  = 
   PRINT_TABLE
     (
+      structure CODETREE = CodeTree
       structure STRUCTVALS = StructVals
       structure PRETTYPRINTER = PrettyPrinter
     );

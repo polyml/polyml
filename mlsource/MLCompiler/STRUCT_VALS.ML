@@ -36,7 +36,6 @@ functor STRUCT_VALS (
 (*****************************************************************************)
 structure CODETREE :
 sig
-  type word
   type codetree
   val CodeZero : codetree
 end;
@@ -90,8 +89,6 @@ sharing type
 (*                  STRUCTVALS export signature                              *)
 (*****************************************************************************)
 sig
-  type word
-
   (* Structures *)
   type signatures;
   type codetree;

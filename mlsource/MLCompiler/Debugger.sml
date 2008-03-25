@@ -20,7 +20,6 @@
 
 structure Debugger =
 	DEBUGGER_(
-		structure ADDRESS = Address
 		structure STRUCTVALS = StructVals
 		structure DEBUG = Debug
 		structure CODETREE = CodeTree

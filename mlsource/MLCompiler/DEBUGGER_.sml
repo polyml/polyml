@@ -20,11 +20,6 @@
 
 functor DEBUGGER_ (
 
-structure ADDRESS :
-sig
-	type word
-end;
-
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
@@ -63,19 +58,19 @@ sig
   type fixStatus
   type structVals
   type prettyPrinter
-  type word
+  type machineWord
 
   val mkGvar:    string * types * codetree -> values
   val mkGex:     string * types * codetree -> values
   
-  val printStruct: word * types * int * prettyPrinter -> unit
+  val printStruct: machineWord * types * int * prettyPrinter -> unit
 end
 
 structure CODETREE :
 sig
-  type word
+  type machineWord
   type codetree
-  val mkConst:          word -> codetree;
+  val mkConst:          machineWord -> codetree;
 end
 
 (*****************************************************************************)
@@ -95,9 +90,8 @@ sig
 end;
 
 sharing type
-  ADDRESS.word
-= CODETREE.word
-= VALUEOPS.word
+  CODETREE.machineWord
+= VALUEOPS.machineWord
 
 sharing type
   CODETREE.codetree
@@ -120,7 +114,7 @@ sharing type
 sig
     type types
 	type values
-	type word
+	type machineWord
     type fixStatus
     type structVals
     type typeConstrs
@@ -134,9 +128,9 @@ sig
 	|	EnvStaticLevel
 
 	val debugFunction:
-		string * string * int -> environEntry list -> word list -> unit
+		string * string * int -> environEntry list -> machineWord list -> unit
 	val enterFunction: string -> unit -> unit
-	val leaveFunction: types -> word -> word
+	val leaveFunction: types -> machineWord -> machineWord
 	val exceptionFunction: exn -> 'a
 	val setDebugger: ({lookupVal: string -> values option, lookupType: string -> typeConstrs option,
                     lookupFix: string -> fixStatus option, lookupStruct: string -> structVals option,
@@ -159,7 +153,7 @@ sig
 end
 =
 struct
-    open STRUCTVALS DEBUG ADDRESS VALUEOPS CODETREE PRETTYPRINTER
+    open STRUCTVALS DEBUG VALUEOPS CODETREE PRETTYPRINTER
 
 	(* The debugger is actually the compiler itself but we need the
 	   address of the debugFunction within the compiler.  To close
@@ -192,7 +186,7 @@ struct
 		funName: string,
 		fileName: string,
 		ctEnv: environEntry list,
-		rtEnv: word list
+		rtEnv: machineWord list
 	}
 
 	val stack: stackEntry list ref = ref []
@@ -367,7 +361,7 @@ struct
 			printLine(fileName, lineNo, funName)
 		end
 
-	fun printValue pstream (t: types, v: word) =
+	fun printValue pstream (t: types, v: machineWord) =
 		printStruct(v, t, ! DEBUG.printDepth, pstream)
 
 	local

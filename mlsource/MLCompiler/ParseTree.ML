@@ -30,7 +30,6 @@ structure ParseTree =
     structure MISC          = Misc
     structure PRETTYPRINTER = PrettyPrinter
     structure DEBUG      = Debug
-    structure ARRAY      = Array
     structure ADDRESS    = Address
     structure RUNCALL    = RunCall
 	structure DEBUGGER = Debugger

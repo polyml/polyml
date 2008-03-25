@@ -59,8 +59,7 @@ end;
 (*****************************************************************************)
 structure STRUCTVALS : 
 sig
-  type word
-  
+
   (* Structures *)
   type structVals;
   type signatures;
@@ -194,7 +193,7 @@ end;
 (*****************************************************************************)
 structure CODETREE :
 sig
-  type word
+  type machineWord
   type codetree
      
   val CodeNil:          codetree;
@@ -203,7 +202,7 @@ sig
   val mkDec:            int * codetree -> codetree;
   val mkLoad:           int * int -> codetree;
   val mkInd:            int * codetree -> codetree;
-  val mkConst:          word -> codetree;
+  val mkConst:          machineWord -> codetree;
   val mkInlproc:        codetree * int * int * string -> codetree;
   val mkIf:             codetree * codetree * codetree -> codetree;
   val mkEval:           codetree * codetree list * bool -> codetree;
@@ -269,15 +268,8 @@ end;
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word
-  type short
-  val toWord : 'a -> word;
-  (* Used for flag manipulations *)
-  val Or:  short * short -> short;
-  
-  val F_words     : short;
-  val F_bytes     : short;
-  val F_mutable   : short;
+  type machineWord
+  val toMachineWord : 'a -> machineWord;
 end;
 
 (*****************************************************************************)
@@ -363,8 +355,8 @@ end;
 (*****************************************************************************)
 
 sharing type
-  ADDRESS.word
-= CODETREE.word
+  ADDRESS.machineWord
+= CODETREE.machineWord
     
 sharing type
   CODETREE.codetree
@@ -443,8 +435,8 @@ struct
 (*****************************************************************************)
         (* shouldn't these be imported from somewhere? *)
         fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
-        val intZero    = mkConst (toWord 0);
-        val realZero   = mkConst (toWord 0.0);
+        val intZero    = mkConst (toMachineWord 0);
+        val realZero   = mkConst (toMachineWord 0.0);
         
         fun loadArg n  = mkLoad (~ n, 0);
         fun mkEntry n  = mkConst (ioOp n);
@@ -838,7 +830,7 @@ struct
 (*****************************************************************************)
         local
             fun addVal (name : string, value : 'a, typ : types) : unit =
-                enterBootstrap (name, mkConst (toWord value), typ)
+                enterBootstrap (name, mkConst (toMachineWord value), typ)
 	  
         	(* These are only used during the bootstrap phase.  Replacements are installed once
         	   the appropriate modules of the basis library are compiled. *)
@@ -1025,7 +1017,7 @@ struct
             (* Set the debugging shell.  When the debugger reaches a breakpoint it
                calls this with the debugging environment. *)
             val () = enterBootstrap ("setDebugShell",
-                         mkConst (toWord DEBUGGER.setDebugger), setDbtype)
+                         mkConst (toMachineWord DEBUGGER.setDebugger), setDbtype)
          end
 
 (*****************************************************************************)
@@ -1047,10 +1039,10 @@ struct
                 mkLabelled(sortLabels(fields, fn _ => ()), true) ->> Unit ->> Unit;
 
         in
-            val () = enterBootstrap ("use", mkConst (toWord (useIntoEnv globalTable)), String ->> Unit)            
-            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toWord compiler)));
-            val () = enterPolyMLVal("setPrintEnv", mkGvar ("setPrintEnv", nameSpaceType ->> Unit, mkConst (toWord setPrintEnv)));
-            val () = enterBootstrap("globalSpace", mkConst (toWord(gEnvAsNameSpace globalTable)), nameSpaceType)
+            val () = enterBootstrap ("use", mkConst (toMachineWord (useIntoEnv globalTable)), String ->> Unit)            
+            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler)));
+            val () = enterPolyMLVal("setPrintEnv", mkGvar ("setPrintEnv", nameSpaceType ->> Unit, mkConst (toMachineWord setPrintEnv)));
+            val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable)), nameSpaceType)
         end;
 
 (*****************************************************************************)
@@ -1192,7 +1184,7 @@ struct
             val enterCompilerVal  = #enterVal CompilerEnv;
         end;
         
-        fun enterCompilerConst (name : string, value : word, typ : types) : unit =
+        fun enterCompilerConst (name : string, value : machineWord, typ : types) : unit =
         let
             val value = mkGvar (name, typ, mkConst value);
         in
@@ -1207,24 +1199,24 @@ struct
         in
             val () = applyList enterCompilerConst
                 [
-                ("maxInlineSize",       toWord maxInlineSize,       Ref Int),
-                ("assemblyCode",        toWord assemblyCode,        Ref Bool),
-                ("parsetree",           toWord parsetree,           Ref Bool),
-                ("codetree",            toWord codetree,            Ref Bool),
-                ("pstackTrace",         toWord pstackTrace,         Ref Bool),
-                ("codetreeAfterOpt",    toWord codetreeAfterOpt,    Ref Bool),
-                ("traceCompiler",       toWord traceCompiler,       Ref Bool),
-                ("inlineFunctors",      toWord inlineFunctors,      Ref Bool),
-                ("ml90",        		 toWord ml90,        		 Ref Bool),
-                ("debug",        		 toWord debug,        		 Ref Bool),
-                ("printInAlphabeticalOrder",    toWord printInAlphabeticalOrder,     Ref Bool),
-                ("printTypesWithStructureName", toWord printTypesWithStructureName,  Ref Bool),
-                ("compilerVersion",     toWord VERSION.compilerVersion, String),
-                ("profiling",           toWord DEBUG.profiling,     Ref Int),
-                ("timing",              toWord DEBUG.timing,        Ref Bool),
-                ("printDepth",          toWord DEBUG.printDepth,    Ref Int),
-                ("errorDepth",          toWord DEBUG.errorDepth,    Ref Int),
-                ("lineLength",          toWord DEBUG.lineLength,    Ref Int)
+                ("maxInlineSize",       toMachineWord maxInlineSize,       Ref Int),
+                ("assemblyCode",        toMachineWord assemblyCode,        Ref Bool),
+                ("parsetree",           toMachineWord parsetree,           Ref Bool),
+                ("codetree",            toMachineWord codetree,            Ref Bool),
+                ("pstackTrace",         toMachineWord pstackTrace,         Ref Bool),
+                ("codetreeAfterOpt",    toMachineWord codetreeAfterOpt,    Ref Bool),
+                ("traceCompiler",       toMachineWord traceCompiler,       Ref Bool),
+                ("inlineFunctors",      toMachineWord inlineFunctors,      Ref Bool),
+                ("ml90",        		 toMachineWord ml90,        		 Ref Bool),
+                ("debug",        		 toMachineWord debug,        		 Ref Bool),
+                ("printInAlphabeticalOrder",    toMachineWord printInAlphabeticalOrder,     Ref Bool),
+                ("printTypesWithStructureName", toMachineWord printTypesWithStructureName,  Ref Bool),
+                ("compilerVersion",     toMachineWord VERSION.compilerVersion, String),
+                ("profiling",           toMachineWord DEBUG.profiling,     Ref Int),
+                ("timing",              toMachineWord DEBUG.timing,        Ref Bool),
+                ("printDepth",          toMachineWord DEBUG.printDepth,    Ref Int),
+                ("errorDepth",          toMachineWord DEBUG.errorDepth,    Ref Int),
+                ("lineLength",          toMachineWord DEBUG.lineLength,    Ref Int)
                 ]
         end;
 
@@ -1239,7 +1231,7 @@ struct
             val (Env DebugEnv) = makeEnv (structSignat Debug);
             val enterDebugVal  = #enterVal DebugEnv;
             
-            fun enterDebugConst (name : string, value : word, typ : types) : unit =
+            fun enterDebugConst (name : string, value : machineWord, typ : types) : unit =
             let
                 val value = mkGvar (name, typ, mkConst value);
             in
@@ -1250,20 +1242,20 @@ struct
             val stringIntToUnit = (String ** Int) ->> Unit
             val stringToUnit = String ->> Unit
         in
-            val _ = enterDebugConst ("step", toWord singleStep, unitToUnit);
-            val _ = enterDebugConst ("stepOver", toWord stepOver, unitToUnit);
-            val _ = enterDebugConst ("stepOut", toWord stepOut, unitToUnit);
-            val _ = enterDebugConst ("continue", toWord continue, unitToUnit);
-            val _ = enterDebugConst ("breakAt", toWord addLineBreak, stringIntToUnit);
-            val _ = enterDebugConst ("clearAt", toWord clearLineBreak, stringIntToUnit)
-            val _ = enterDebugConst ("breakIn", toWord addFnBreak, stringToUnit);
-            val _ = enterDebugConst ("clearIn", toWord clearFnBreak, stringToUnit)
-            val _ = enterDebugConst ("up", toWord upStack, unitToUnit)
-            val _ = enterDebugConst ("down", toWord downStack, unitToUnit)
-            val _ = enterDebugConst ("variables", toWord printVars, unitToUnit)
-            val _ = enterDebugConst ("stack", toWord stackTrace, unitToUnit)
-            val _ = enterDebugConst ("dump", toWord dumpStack, unitToUnit)
-            val _ = enterDebugConst ("trace", toWord traceFunctions, Bool ->> Unit)
+            val _ = enterDebugConst ("step", toMachineWord singleStep, unitToUnit);
+            val _ = enterDebugConst ("stepOver", toMachineWord stepOver, unitToUnit);
+            val _ = enterDebugConst ("stepOut", toMachineWord stepOut, unitToUnit);
+            val _ = enterDebugConst ("continue", toMachineWord continue, unitToUnit);
+            val _ = enterDebugConst ("breakAt", toMachineWord addLineBreak, stringIntToUnit);
+            val _ = enterDebugConst ("clearAt", toMachineWord clearLineBreak, stringIntToUnit)
+            val _ = enterDebugConst ("breakIn", toMachineWord addFnBreak, stringToUnit);
+            val _ = enterDebugConst ("clearIn", toMachineWord clearFnBreak, stringToUnit)
+            val _ = enterDebugConst ("up", toMachineWord upStack, unitToUnit)
+            val _ = enterDebugConst ("down", toMachineWord downStack, unitToUnit)
+            val _ = enterDebugConst ("variables", toMachineWord printVars, unitToUnit)
+            val _ = enterDebugConst ("stack", toMachineWord stackTrace, unitToUnit)
+            val _ = enterDebugConst ("dump", toMachineWord dumpStack, unitToUnit)
+            val _ = enterDebugConst ("trace", toMachineWord traceFunctions, Bool ->> Unit)
         end
    
     in

@@ -42,7 +42,7 @@ end;
 (*****************************************************************************)
 structure CODETREE :
 sig
-  type word
+  type machineWord
   type codetree
   
   val CodeNil:          codetree;
@@ -53,7 +53,7 @@ sig
   val mkRecLoad:        int -> codetree;
   val mkLoad:           int * int -> codetree;
   val mkInd:            int * codetree -> codetree;
-  val mkConst:          word -> codetree;
+  val mkConst:          machineWord -> codetree;
   val mkEnv:            codetree list -> codetree;
   val mkProc:           codetree * int * int * string -> codetree;
   val mkInlproc:        codetree * int * int * string -> codetree;
@@ -70,9 +70,9 @@ sig
   val mkMutualDecs:       codetree list -> codetree;
   val mkIf:               codetree * codetree * codetree -> codetree;
   val mkDec:              int * codetree -> codetree;
-  val evalue:           codetree -> word;
+  val evalue:           codetree -> machineWord;
   
-  val structureEq:      word * word -> bool
+  val structureEq:      machineWord * machineWord -> bool
 
   val genCode:          codetree -> unit -> codetree
 end;
@@ -82,7 +82,6 @@ end;
 (*****************************************************************************)
 structure STRUCTVALS :
 sig
-  type word
   type structVals
   type codetree
   type signatures
@@ -280,14 +279,14 @@ end;
 (*****************************************************************************)
 structure PRINTTABLE :
 sig
-  type word
+  type machineWord
   type typeId
   type prettyPrinter
   type typeConstrs
   type codetree
   
-  val addPp:    typeId *  (prettyPrinter -> int -> word -> word -> unit) -> unit
-  val getPrint: typeId -> (prettyPrinter -> int -> word -> word -> unit)
+  val addPp:    typeId *  (prettyPrinter -> int -> machineWord -> machineWord -> unit) -> unit
+  val getPrint: typeId -> (prettyPrinter -> int -> machineWord -> machineWord -> unit)
   val addOverload: string * typeConstrs * codetree -> unit
   val getOverloads: string -> (typeConstrs * codetree) list
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
@@ -359,22 +358,14 @@ sig
   
 end;
 
-(*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b
-end;
-
 (* DCJM 8/8/00.  Previously Address was a global but we aren't allowed
    to have sharing constraints with globals in ML97.  We could use a
    "where type" constraint but then we couldn't bootstrap from ML90. *)
 structure ADDRESS :
 sig
-  type word;      (* any legal bit-pattern (tag = 0 or 1) *)
+  type machineWord;      (* any legal bit-pattern (tag = 0 or 1) *)
   type address;   (* an object that's represented as a pointer *) 
-  eqtype short;   (* an object that's represented as a 30-bit int *)
+  type short = Word.word;   (* an object that's represented as a 30-bit int *)
 
   val wordEq : 'a * 'a -> bool
 
@@ -383,30 +374,24 @@ sig
   val isShort   : 'a -> bool;
 
   (* The following casts are always safe *)
-  val toWord : 'a    -> word;
-  val toInt  : short -> int;
+  val toMachineWord : 'a    -> machineWord;
   
   (* The following casts are checked at run-time *)
   val toShort   : 'a -> short;
   val toAddress : 'a -> address;
   
-  val alloc:  (short * short * word)  -> address;
+  val alloc:  (short * Word8.word * machineWord)  -> address;
 
-  val loadByte:   (address * short) -> short;
-  val loadWord:   (address * short) -> word;
-  val assignWord: (address * short * word)  -> unit
+  val loadByte:   (address * short) -> Word8.word;
+  val loadWord:   (address * short) -> machineWord;
+  val assignWord: (address * short * machineWord)  -> unit
   val lock:       address -> unit
 
   val length: address -> short;
-  val flags:  address -> short;
-  
-  (* Used for flag manipulations *)
-  val Or:  short * short -> short;
-  val And: short * short -> short; 
-  
-  val F_words     : short;
-  val F_bytes     : short;
-  val F_mutable   : short;
+   
+  val F_words     : Word8.word;
+  val F_bytes     : Word8.word;
+  val F_mutable   : Word8.word;
 end;
 
 (*****************************************************************************)
@@ -457,10 +442,9 @@ sharing type
 = MISC.iter
     
 sharing type
-  ADDRESS.word 
-= CODETREE.word
-= STRUCTVALS.word
-= PRINTTABLE.word
+  ADDRESS.machineWord 
+= CODETREE.machineWord
+= PRINTTABLE.machineWord
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -479,7 +463,7 @@ sharing type
 (*                  VALUEOPS exports signature                               *)
 (*****************************************************************************)
 sig
-  type word            (* added 14/7/94 SPF *)
+  type machineWord
   type lexan
   type prettyPrinter
   type codetree
@@ -493,10 +477,9 @@ sig
   type fixStatus
   type univTable
   
-  (* added 7/11/95 SPF *)
-  val exnId    : exn -> word
+  val exnId    : exn -> machineWord
   val exnName  : exn -> string
-  val exnValue : exn -> word
+  val exnValue : exn -> machineWord
 
   val overloadType:	  values * bool -> types
   
@@ -522,10 +505,10 @@ sig
   val displayStructures: structVals * int * prettyPrinter -> unit
   val displayFunctors:   functors   * int * prettyPrinter -> unit
   val displayValues: values * int * prettyPrinter -> unit
-  val printStruct: word * types * int * prettyPrinter -> unit
+  val printStruct: machineWord * types * int * prettyPrinter -> unit
 
   val printerEnvironment:
-      { lookupFix: string -> fixStatus option, lookupExnById: word -> values option} ref
+      { lookupFix: string -> fixStatus option, lookupExnById: machineWord -> values option} ref
    
   val codeStruct:     structVals * int -> codetree
   val codeAccess:     valAccess  * int -> codetree
@@ -556,7 +539,7 @@ sig
                     lookupStruct: string -> structVals option} * 
                    string * (string -> unit) -> typeConstrs
 
-  val findException: (values list * structVals list) -> word -> values option
+  val findException: (values list * structVals list) -> machineWord -> values option
 
   type representations
   val RefForm:   representations;
@@ -567,52 +550,6 @@ sig
   val createUnaryConstructor: representations * string -> codetree
 
 end (* VALUEOPS exports signature *) =
-
-let
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type word;      (* any legal bit-pattern (tag = 0 or 1) *)
-  type address;   (* an object that's represented as a pointer *) 
-  eqtype short;   (* an object that's represented as a 30-bit int *)
-
-  val wordEq : 'a * 'a -> bool
-
-  val unsafeCast : 'a -> 'b;
-  
-  val isShort   : 'a -> bool;
-
-  (* The following casts are always safe *)
-  val toWord : 'a    -> word;
-  val toInt  : short -> int;
-  
-  (* The following casts are checked at run-time *)
-  val toShort   : 'a -> short;
-  val toAddress : 'a -> address;
-  
-  val alloc:  (short * short * word)  -> address;
-
-  val loadByte:   (address * short) -> short;
-  val loadWord:   (address * short) -> word;
-  val assignWord: (address * short * word)  -> unit
-  val lock:       address -> unit
-
-  val length: address -> short;
-  val flags:  address -> short;
-  
-  (* Used for flag manipulations *)
-  val Or:  short * short -> short;
-  val And: short * short -> short; 
-  
-  val F_words     : short;
-  val F_bytes     : short;
-  val F_mutable   : short;
-end = ADDRESS;
-
-in
 
 (*****************************************************************************)
 (*                  VALUEOPS functor body                                    *)
@@ -636,17 +573,13 @@ struct
   val lengthW  = ADDRESS.length;
   val length   = List.length;
   
-  val short0 : short = toShort 0;
-  val short1 : short = toShort 1;
-  val short2 : short = toShort 2;
-  
-  
   (* gets a value from the run-time system; 
     usually this is a closure, but sometimes it's an int.  *)
-  val ioOp : int -> word = RUNCALL.run_call1 POLY_SYS_io_operation;
-  
-  infix 6 And;
-  infix 7 Or;
+  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
+
+  val andb = Word8.andb and orb = Word8.orb
+  infix 6 andb;
+  infix 7 orb;
 
 (************* "types" constructors copied here to reduce garbage *********)
   fun isTypeVar          (TypeVar          _) = true
@@ -804,16 +737,16 @@ struct
 (*****************************************************************************)
 (*             Representation of Exceptions (incomplete!)                    *)
 (*****************************************************************************)
-  fun exnId (value : exn) : word = 
-    loadWord (toAddress value, short0);
+  fun exnId (value : exn) : machineWord = 
+    loadWord (toAddress value, 0w0);
 
   fun exnName (value : exn) : string = 
-    unsafeCast (loadWord (toAddress value, short1));
+    unsafeCast (loadWord (toAddress value, 0w1));
 
-  fun exnValue (value : exn) : word = 
-    unsafeCast (loadWord (toAddress value, short2));
+  fun exnValue (value : exn) : machineWord = 
+    unsafeCast (loadWord (toAddress value, 0w2));
 
-  val toExn : word -> exn = unsafeCast;
+  val toExn : machineWord -> exn = unsafeCast;
 
 (*****************************************************************************)
 (*             Representation of Datatype Constructors                       *)
@@ -829,7 +762,7 @@ struct
   | BoxedForm          (* Boxed but not tagged (only unary constructor) *)
   | UnboxedForm        (* Unboxed and untagged (only unary constructor) *)
 
-  | ConstForm of word         (* Constant - argument is a tagged value. *)
+  | ConstForm of machineWord         (* Constant - argument is a tagged value. *)
   | TaggedBox of int          (* Union - tagged and boxed.  i.e. the representation is a
 								 pair whose first word is the tag and second is the value. *)
   | TaggedTuple of int * int  (* Union - tagged but with in-line tuple. i.e. for a
@@ -870,33 +803,33 @@ struct
 ... because that gives the wrong test if the value isn't boxed. SPF 22/10/94 *)
 
   local
-    val mutableFlags = F_words Or F_mutable;
+    val mutableFlags = F_words orb F_mutable;
     
     fun abstract (doIt: codetree -> codetree) (name : string) : codetree =
       mkInlproc (doIt arg1, 0, 1, name);
   
     (* we use toShort to check that the tag actually fits in a 30-bit integer *)
-    fun mkTag (tag:int) : codetree = mkConst (toWord (toShort tag));
+    fun mkTag (tag:int) : codetree = mkConst (toMachineWord (toShort tag));
 
     (* tag now moved into first word SPF 22/10/94 *)
     (* get the tag from a TaggedBox or ConstForm *)
-    fun loadTag (u: word) : word = 
-      loadWord (toAddress u, short0); (* tag is first field *)
+    fun loadTag (u: machineWord) : machineWord = 
+      loadWord (toAddress u, 0w0); (* tag is first field *)
 
     (* get the data from a TaggedBox *)
-    fun loadTaggedBoxedValue (u: word) : word = 
-      loadWord (toAddress u, short1); (* contents is second field *)
+    fun loadTaggedBoxedValue (u: machineWord) : machineWord = 
+      loadWord (toAddress u, 0w1); (* contents is second field *)
 
     (* get the data from a BoxedForm or a RefForm *)
-    fun loadBoxedValue (u: word) : word = loadWord (toAddress u, short0);
+    fun loadBoxedValue (u: machineWord) : machineWord = loadWord (toAddress u, 0w0);
     
-    fun loadTaggedTupleValue (n: int) (u : word) : word =
+    fun loadTaggedTupleValue (n: int) (u : machineWord) : machineWord =
     let
-      val vec = alloc (toShort n, mutableFlags, toWord 0);
+      val vec = alloc (toShort n, mutableFlags, toMachineWord 0);
       
       fun copyField i =
       let
-        val w : word = loadWord (toAddress u, toShort (i + 1));
+        val w : machineWord = loadWord (toAddress u, toShort (i + 1));
       in
         assignWord (toAddress vec, toShort i, w) 
       end;
@@ -907,7 +840,7 @@ struct
       val U : unit = copyFields 0;
       val U : unit = lock vec;
     in
-      toWord vec
+      toMachineWord vec
     end;
 
     fun identityApplyCode v = v;  (* no-op *)
@@ -951,7 +884,7 @@ struct
     fun refApplyCode (v: codetree) =
       mkEval
         (mkConst (ioOp POLY_SYS_alloc_store),
-        [mkConst (toWord 1), mkConst (toWord mutableFlags), v],
+        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
         false);
 
     (* If we need to make a "real" functions, here's how *)
@@ -1000,7 +933,7 @@ struct
     | TaggedTuple (tag, n) => tagTupleCode tag n name
     | RefForm              => refCode
     | ConstForm c          => mkConst c (* tagged value. *)
-    | EnumForm tag         => mkConst (toWord (toShort tag))
+    | EnumForm tag         => mkConst (toMachineWord (toShort tag))
     | OnlyOne              => identityCode name
     | UnitForm             => CodeZero
     ;
@@ -1026,7 +959,7 @@ struct
     | EnumForm tag         => testTag tag value 
     | TaggedBox tag        => testBoxedTag tag value
     | TaggedTuple (tag, n) => testBoxedTag tag value
-    | ConstForm c          => testBoxedTag (toInt (toShort (loadTag c))) value
+    | ConstForm c          => testBoxedTag (Word.toIntX (* May be signed. *) (toShort (loadTag c))) value
     | OnlyOne              => CodeTrue
     | UnitForm             => CodeTrue
     ;
@@ -1037,9 +970,9 @@ struct
       UnboxedForm          => not (isShort value)
     | BoxedForm            => not (isShort value)
     | RefForm              => true
-    | EnumForm tag         => wordEq (value, toWord tag)
-    | TaggedBox tag        => wordEq (loadTag value, toWord tag)
-    | TaggedTuple (tag, n) => wordEq (loadTag value, toWord tag)
+    | EnumForm tag         => wordEq (value, toMachineWord tag)
+    | TaggedBox tag        => wordEq (loadTag value, toMachineWord tag)
+    | TaggedTuple (tag, n) => wordEq (loadTag value, toMachineWord tag)
     | ConstForm c          => wordEq (loadTag value, loadTag c)
     | OnlyOne              => true
     | UnitForm             => true
@@ -1062,7 +995,7 @@ struct
     ;
 
   (* The compile-time function to destruct a construction. *)
-(*  fun constrFetch (test: representations) (value: word) : word =
+(*  fun constrFetch (test: representations) (value: machineWord) : machineWord =
     case test of
       UnboxedForm         => value
     | BoxedForm           => loadBoxedValue value
@@ -1181,10 +1114,10 @@ struct
   let
     (* In the new datatype format, I've moved the tag word, so
        we only need a one-word object. SPF 26/5/95 *)
-    val vec : address = alloc (short1, F_words, toWord n);
+    val vec : address = alloc (0w1, F_words, toMachineWord n);
     val U : unit      = lock vec;
   in
-    ConstForm (toWord vec)
+    ConstForm (toMachineWord vec)
   end;
     
   (* Choose tags in the sequence 0, ~1, 1, ~2, 2, ... because that
@@ -1324,8 +1257,8 @@ struct
   
   (* Create exception values - Small integer values are used for
      run-time system exceptions but only (currently) up to 22. *)
-  val bindExceptionVal  = mkConst (toWord EXC_Bind);
-  val matchExceptionVal = mkConst (toWord EXC_Match);
+  val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
+  val matchExceptionVal = mkConst (toMachineWord EXC_Match);
  
 (*****************************************************************************)
 
@@ -1434,7 +1367,7 @@ struct
 
   (* This is used when printing values to look up fixity and exception packets. *)
   val printerEnvironment =
-     ref { lookupExnById = fn (w: word) => NONE: values option,
+     ref { lookupExnById = fn (w: machineWord) => NONE: values option,
            lookupFix = fn (s: string) => NONE: fixStatus option}
 
   (* Checks to see whether a labelled record is in the form of
@@ -1450,18 +1383,18 @@ struct
     | isProductType _ = false;
 
   (* This module prints a structure by following the type structure. *)
-  fun printStruct (value:word, types, depth, pprint:prettyPrinter) =
+  fun printStruct (value:machineWord, types, depth, pprint:prettyPrinter) =
   let
       val { lookupFix, lookupExnById} = ! printerEnvironment
  
-      fun pVec (num, value : word, [], separator, leftPrec, rightPrec, depth) doPrint = ()
+      fun pVec (num, value : machineWord, [], separator, leftPrec, rightPrec, depth) doPrint = ()
       
-	| pVec (num, value : word, [t], separator, leftPrec, rightPrec, depth) doPrint =
+	| pVec (num, value : machineWord, [t], separator, leftPrec, rightPrec, depth) doPrint =
 	    if num = 0 (* optimised unary tuples - no indirection! *)
 	    then doPrint (value, t, depth, rightPrec)
 	    else let
 	      val addr : address = toAddress value;
-	      val entryValue : word = loadWord (addr, toShort num);
+	      val entryValue : machineWord = loadWord (addr, toShort num);
 	    in
 	      doPrint (entryValue, t, depth, rightPrec)
 	    end
@@ -1472,7 +1405,7 @@ struct
 		else
 		  let
 		    val addr : address = toAddress value;
-		    val entryValue : word = loadWord (addr, toShort num);
+		    val entryValue : machineWord = loadWord (addr, toShort num);
 		  in
 		    doPrint (entryValue, t, depth, leftPrec);
 		    
@@ -1486,7 +1419,7 @@ struct
 		    pVec (num + 1, value, ts, separator, leftPrec, rightPrec, depth-1) doPrint
 		  end (* pVec *);
 
-    fun prints (value : word, types, depth, precedence, objList) : unit =
+    fun prints (value : machineWord, types, depth, precedence, objList) : unit =
     let (* Print out the contents of a tuple or labelled record. *)
 	  
       (* Print the constructor in infix notation if appropriate. *)
@@ -1559,7 +1492,7 @@ struct
 		let   (* Try this constructor *)
 			open ADDRESS
 			val base = toAddress (evalue code)
-			val test = loadWord(base, toShort 0) (* First word is the test. *)
+			val test = loadWord(base, 0w0) (* First word is the test. *)
 			val matches: bool = unsafeCast test value
 		in
 		  if not matches (* try the next *) then printConstruction typeArgs constrs
@@ -1573,8 +1506,8 @@ struct
 		  else let
 		   (* The test succeeded so this is the constructor that made
 		      this value  - get the value out. *)
-			val project = loadWord(base, toShort 2) (* Third word is projection fn. *)
-		    val v : word = unsafeCast project value
+			val project = loadWord(base, 0w2) (* Third word is projection fn. *)
+		    val v : machineWord = unsafeCast project value
 		   
 		    (* Find the argument type which gives this result when the
 		       constructor is applied. If we have, for example, a value of
@@ -1671,7 +1604,7 @@ struct
         		  		let
         					fun printArg(v, depth) = prints(v, argType, depth, ~1, value::objList)
         				in
-        					mkConst(toWord printArg)
+        					mkConst(toMachineWord printArg)
         				end
         			(* The easiest way to make a tuple is to use Codetree.mkTuple
         			   which makes a tuple immediately if all the arguments
@@ -1715,7 +1648,7 @@ struct
 			( ppBeginBlock pprint (3, true);  (* Print them as ( a = X, b = Y ... ) *)
 			  ppAddString pprint "{";
 			  pVec (0, value, recList, ",", ~1, ~1, depth)
-			  	(fn (value : word, {name, typeof}, depth, precedence) =>
+			  	(fn (value : machineWord, {name, typeof}, depth, precedence) =>
 					(
 					  ppBeginBlock pprint (0, false);
 					  ppAddString pprint (name ^ " =");
@@ -2060,7 +1993,7 @@ struct
 			TwoArgs wrappedCode
 		end
 
- 	val default = PairArg(fn _ => mkConst (toWord structureEq))
+ 	val default = PairArg(fn _ => mkConst (toMachineWord structureEq))
 
  	fun makeEq(ty: types, resKind: reskind,
 			   findTyVars: typeVarForm -> resfun): resfun =
@@ -2110,7 +2043,7 @@ struct
 				in
 					(* If the value is a short integer then we can check
 					   for equality using pointer equality. *)
-					isShort(loadWord(toAddress(evalue code), toShort 1))
+					isShort(loadWord(toAddress(evalue code), 0w1))
 				end
 			  | isEnum _ = false
 
@@ -2396,7 +2329,7 @@ struct
 		reduced to a single type.  *)
 	 fun notFound () =
 	 	if name = "=" (* Special case *)
-		then mkConst (toWord structureEq)
+		then mkConst (toMachineWord structureEq)
 		else
  		let
 			val ops = getOverloads name
@@ -2450,7 +2383,7 @@ struct
           );
            (* Coerce the procedure so that it can be put into the code. *)
        in
-         mkConst (toWord printProc)
+         mkConst (toMachineWord printProc)
        end 
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _) =
@@ -2471,7 +2404,7 @@ struct
            ! result
          end;
        in
-         mkConst (toWord makeString)
+         mkConst (toMachineWord makeString)
        end
 
   |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, _, _) =
@@ -2530,7 +2463,7 @@ struct
            (* break *)      (int * int -> unit) *
            (* endBlock *)   (unit -> unit);
 
-         fun installPp (pprint:pp -> int -> word -> word -> unit) =
+         fun installPp (pprint:pp -> int -> machineWord -> machineWord -> unit) =
          let  (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
                  different modules may be at different points in the chain. *)
@@ -2602,7 +2535,7 @@ struct
            | followTypes _ =
 				raise Fail "Invalid type (not a type construction)";
            
-           fun pproc (pretty:prettyPrinter) : int -> word -> word -> unit =
+           fun pproc (pretty:prettyPrinter) : int -> machineWord -> machineWord -> unit =
            let
              val addString  = ppAddString pretty;
              val beginBlock = ppBeginBlock pretty;
@@ -2616,7 +2549,7 @@ struct
          end (* installPp *);
            
        in
-         mkConst (toWord installPp)
+         mkConst (toMachineWord installPp)
        end
 
   |  codeVal (value as Value{access = Overloaded _, ...}, level, instance, lex, lineno) =
@@ -2761,7 +2694,7 @@ struct
 
 			(* This function is used if we can't get the codetree at
 			   compile time. *)
-			fun addOverloadGeneral (arg: word) =
+			fun addOverloadGeneral (arg: machineWord) =
 				addOverloading(mkConst arg)
 		in
 		(* This is messy but necessary for efficiency.  If we simply treat
@@ -2774,11 +2707,11 @@ struct
 		      or more usefully, a global value containing a constant and
 			  possibly a piece of codetree to inline. *)
 		   evalue(argument);
-		   mkConst (toWord (addOverloading argument))
+		   mkConst (toMachineWord (addOverloading argument))
 		   )
 		   handle SML90.Interrupt => raise SML90.Interrupt
 		     | _ =>
-		   	mkEval (mkConst (toWord addOverloadGeneral), [argument], false)
+		   	mkEval (mkConst (toMachineWord addOverloadGeneral), [argument], false)
 		end
 
 	  | _ => (* Print, MakeString, InstallPP *)
@@ -2865,7 +2798,7 @@ struct
 
 
     (* Find an exception with the given identifier. *)
-    fun findException (allValues: values list, allStructs: structVals list) (w: word): values option =
+    fun findException (allValues: values list, allStructs: structVals list) (w: machineWord): values option =
     let
         fun searchList f [] = NONE
 	    |   searchList f (hd::tl) =
@@ -2890,7 +2823,7 @@ struct
 		|	_ => NONE
 
         (* Search for the exception in a structure. *)
-        fun searchSpace(u: univTable, base: word) =
+        fun searchSpace(u: univTable, base: machineWord) =
         let
 	  	  (* Get a list of all the entries in this space. *)
 	  	  val decList = iterList (univOver u)
@@ -2921,7 +2854,7 @@ struct
 	  	  searchList findItem decList
 	  end
 
-        val globalBase = ADDRESS.toWord 0 (* Unused. *)
+        val globalBase = ADDRESS.toMachineWord 0 (* Unused. *)
     in
         (* First try the global values. *)
         case searchList (testValue globalBase) allValues of
@@ -2936,7 +2869,6 @@ struct
                     allStructs
 	end
 
-end (* body of VALUEOPS *)
+end (* body of VALUEOPS *);
 
-end; (* structure-level let *)
 

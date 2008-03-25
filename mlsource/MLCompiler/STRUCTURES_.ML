@@ -45,13 +45,13 @@ end;
 (*****************************************************************************)
 structure CODETREE :
 sig
-  type word;
+  type machineWord;
   type codetree;
   
   val CodeNil:      codetree;
   val CodeZero:     codetree;
   val mkLoad:       int * int -> codetree;
-  val mkConst:      word -> codetree;
+  val mkConst:      machineWord -> codetree;
   val mkDec:        int * codetree  -> codetree;
   val mkInd:        int * codetree  -> codetree;
   val mkProc:       codetree * int * int * string -> codetree;
@@ -465,7 +465,7 @@ end;
 structure DEBUGGER :
 sig
 	type types
-	type word
+	type machineWord
 
 	datatype environEntry =
 		EnvValue of string * types
@@ -474,7 +474,7 @@ sig
 	|	EnvStaticLevel
 
 	val debugFunction:
-		string * string * int -> environEntry list -> word list -> unit
+		string * string * int -> environEntry list -> machineWord list -> unit
 end;
 
 (*****************************************************************************)
@@ -540,8 +540,8 @@ sharing type
 = PARSETREE.env
    
 sharing type
-  CODETREE.word
-= DEBUGGER.word
+  CODETREE.machineWord
+= DEBUGGER.machineWord
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -579,7 +579,7 @@ sig
   type functors;
   type env;
   type sigBind and functorBind and structBind
-  type word
+  type machineWord
   type fixStatus
 
   val isEmptyStruct:      structs -> bool;

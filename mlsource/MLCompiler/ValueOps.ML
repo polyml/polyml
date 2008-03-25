@@ -30,6 +30,5 @@ structure ValueOps =
     structure MISC        = Misc
     structure PRETTYPRINTER = PrettyPrinter
     structure UNIVERSAL     = Universal
-    structure RUNCALL       = RunCall
 	structure UTILITIES		= Utilities
   ) ;

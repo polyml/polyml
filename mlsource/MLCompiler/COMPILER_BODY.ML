@@ -120,7 +120,7 @@ sig
   type functors
   type signatures
   type fixStatus
-  type word
+  type machineWord
   
   val exnName : exn -> string
   
@@ -130,10 +130,10 @@ sig
   val displayFunctors:   functors   * int * prettyPrinter -> unit
   val displayValues:     values * int * prettyPrinter-> unit
 
-  val findException: (values list * structVals list) -> word -> values option
+  val findException: (values list * structVals list) -> machineWord -> values option
 
   val printerEnvironment:
-      { lookupFix: string -> fixStatus option, lookupExnById: word -> values option} ref
+      { lookupFix: string -> fixStatus option, lookupExnById: machineWord -> values option} ref
 
 end;
 
@@ -851,7 +851,7 @@ struct
     let
         (* This function is bound into PolyML.print, PolyML.makeString and General.exnMessage
            to lookup exceptions.  This enables the contents of exception packets to be printed. *)
-        fun exceptionSearch (w: VALUEOPS.word) : values option =
+        fun exceptionSearch (w: VALUEOPS.machineWord) : values option =
         let
             val values = #allVal nameSpace ()
             and strs   = #allStruct nameSpace ()
