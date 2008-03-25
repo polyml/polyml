@@ -44,68 +44,14 @@
 *)
 
 
-local
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string;
-end = Misc;
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type word;
-  type short;
-  type address;
-  
-
-  val toShort     : int -> short; (* rather than 'a -> short *)
-  val toInt       : short -> int;
-  val toWord      : 'a  -> word;
-  
-  val wordSize    : int;
-  val alloc       : short * short * word    -> address;
-  val length      : address                 -> short;
-  val setFlags    : address * short         -> unit;
-  val call        : address * word          -> word;
-  
-  val loadByte    : address * short         -> short;
-  val loadWord    : address * short         -> word;
-  val assignByte  : address * short * short -> unit;
-  val assignWord  : address * short * word  -> unit;
-
-  val F_code    : short;
-  val F_bytes   : short;
-  val F_mutable : short;
-  val Or : short * short -> short;
-end = Address;
-
-in
-
-(* We want to make the body of CODESEG into a structure rather than
-   a functor, so that it doesn't lose the secondary entry points of
-   the functions it exports, which, in turn, makes CODECONS more
-   efficient. Unfortunately, the ML standard doesn't allow us to
-   have a strdec local to a fundec, so we have to do it "by hand".
-   Gnash! *)
-
-(* I rather think that this is no longer relevant and that
-   it would work equally well if we used a normal functor.
-   DCJM 1/6/01. *)
-
-structure LOCAL_CODESEG :
+structure CODE_SEG :
 (*****************************************************************************)
 (*                  CODESEG export signature                                 *)
 (*****************************************************************************)
 (* We use "int" rather than "short" for the indexes, to try to keep *)
 (* the interface complexity in this module. SPF 14/7/94             *)
 sig
-  type word;    (* added 14/7/94 SPF *)
+  type machineWord;    (* added 14/7/94 SPF *)
   type short;   (* added 15/7/94 SPF *)
   type address; (* added 14/7/94 SPF *)
   type cseg;
@@ -113,21 +59,21 @@ sig
   val csegMake:          int  -> cseg;
   val csegConvertToCode: cseg -> unit;
   val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> short;
-  val csegSet:           cseg * int * short -> unit;
-  val csegGetWord:       cseg * int -> word;
-  val csegPutWord:       cseg * int * word -> unit;
+  val csegGet:           cseg * int -> Word8.word;
+  val csegSet:           cseg * int * Word8.word -> unit;
+  val csegGetWord:       cseg * int -> machineWord;
+  val csegPutWord:       cseg * int * machineWord -> unit;
   val csegCopySeg:       cseg * cseg * int * int -> unit;
   val csegAddr:          cseg -> address;
-  val csegPutConstant:	 cseg * int * word * 'a -> unit;
+  val csegPutConstant:	 cseg * int * machineWord * 'a -> unit;
 end = 
 
 (*****************************************************************************)
 (*                  CODESEG functor body                                     *)
 (*****************************************************************************)
 struct
-  open ADDRESS;
-  open MISC;
+  open Address;
+  open Misc;
   
   datatype csegStatus =
     Bytes
@@ -136,16 +82,16 @@ struct
   
   type cseg = (csegStatus * address) ref;
   
-  fun objLength (a : address) : int = toInt (length a);
+  fun objLength (a : address) : int = Word.toInt (length a);
   
   val expansionFactor = 3; (* Factor by which to increase size of segment *)
 
-  val F_mutable_bytes : short = Or (F_mutable, F_bytes);
-  val F_mutable_code  : short = Or (F_mutable, F_code);
+  val F_mutable_bytes = Word8.orb (F_mutable, F_bytes);
+  val F_mutable_code  = Word8.orb (F_mutable, F_code);
 
   fun csegMake (size : int) : cseg =
   let
-    val vec : address = alloc (toShort size, F_mutable_bytes, toWord 0);
+    val vec : address = alloc (toShort size, F_mutable_bytes, toMachineWord 0);
   in
     ref (Bytes, vec)
   end;
@@ -203,10 +149,10 @@ struct
     fun copyBytes (fromPtr:int) (toPtr:int) =
       if fromPtr = lengthBytes then ()
       else let
-	val byte : short = loadByte (fromAddr, toShort fromPtr);
+        val byte = loadByte (fromAddr, toShort fromPtr);
       in
-	assignByte (toAddr, toShort toPtr, byte);
-	copyBytes (fromPtr + 1) (toPtr + 1)
+        assignByte (toAddr, toShort toPtr, byte);
+        copyBytes (fromPtr + 1) (toPtr + 1)
       end
       
     (* must check:
@@ -252,7 +198,7 @@ struct
     raise InternalError "csegCopySeg: can only copy between byte segements"
   
   (* Returns a value from the vector. *)
-  fun csegGet (ref (status, addr), byteIndex : int) : short =
+  fun csegGet (ref (status, addr), byteIndex : int) : Word8.word =
   let
     val lengthWords = objLength addr;
     val lengthBytes = wordSize * lengthWords;
@@ -273,39 +219,25 @@ struct
     end
   end;
        
-  fun csegSet (ref (LockedCode, addr), byteIndex:int, value:short) : unit =
+  fun csegSet (ref (LockedCode, addr), byteIndex:int, value:Word8.word) : unit =
     raise InternalError "csegSet: can't change locked code segement"
    
-    | csegSet (r as (ref (status, addr)), byteIndex:int, value:short) : unit =
+    | csegSet (r as (ref (status, addr)), byteIndex:int, value:Word8.word) : unit =
   let
     val lengthWords : int = objLength addr;
     val lengthBytes : int = wordSize * lengthWords;
-    val intVal : int      = toInt value
   in
-    if intVal < 0 orelse intVal > 255
-      then let
-	val msg = 
-	  concat
-	    [
-	      "csegSet: Value ",
-	       Int.toString intVal,
-	       " out of range 0..255"
-	    ]
+    if byteIndex < 0
+      then
+      let
+        val msg = concat
+            [
+                "csegSet: Index ",
+                Int.toString byteIndex,
+                " out of range 0..infinity" 
+            ]
       in
-	raise InternalError msg
-      end
-        
-    else if byteIndex < 0
-      then let
-	val msg = 
-	  concat
-	    [
-	      "csegSet: Index ",
-	       Int.toString byteIndex,
-	       " out of range 0..infinity" 
-	     ]
-      in
-	raise InternalError msg
+        raise InternalError msg
       end
     
     else if byteIndex < lengthBytes then
@@ -324,7 +256,7 @@ struct
       val newSize    : int = Int.max(expSize, minSize);
       
       (* create temporary codeseg (with larger byte-vector) *)
-      val newVec = alloc (toShort newSize, F_bytes, toWord 0);
+      val newVec = alloc (toShort newSize, F_bytes, toMachineWord 0);
       val newSeg = (Bytes, newVec);
     in
       (* copy the old code into the new codeseg *)
@@ -339,7 +271,7 @@ struct
   end;
 
   (* Puts in a word at a given word offset. Does not expand the segment. *)
-  fun csegPutWord (ref (UnlockedCode, addr), wordIndex:int, value:word) : unit =
+  fun csegPutWord (ref (UnlockedCode, addr), wordIndex:int, value:machineWord) : unit =
   let
     val lengthWords : int = objLength addr;
   in
@@ -362,7 +294,7 @@ struct
         raise InternalError "csegPutWord: not an unlocked code segment"
   
   (* Gets a word at a given word offset. Does not expand the segment. *)
-  fun csegGetWord (ref (status, addr), wordIndex : int) : word =
+  fun csegGetWord (ref (status, addr), wordIndex : int) : machineWord =
   let
     val lengthWords : int = objLength addr;
   in
@@ -390,7 +322,7 @@ struct
 	 This means that it has to be done by the RTS so as to be certain that
 	 we don't have a garbage collection with an invalid address.  DCJM 2/1/01. *)
   fun csegPutConstant (ref (UnlockedCode, addr), byteIndex:int,
-  					   value:word, data: 'a) : unit =
+  					   value:machineWord, data: 'a) : unit =
   let
     val lengthWords : int = objLength addr;
     val lengthBytes : int = wordSize * lengthWords;
@@ -412,12 +344,4 @@ struct
     | csegPutConstant _ =
         raise InternalError "csegPutConstant: not an unlocked code segment"
 
-end (* LOCAL_CODESEG *)
-
-end; (* structure-level let *)
-
-
-(*****************************************************************************)
-(*                  CODESEG functor                                          *)
-(*****************************************************************************)
-functor CODE_SEG () = LOCAL_CODESEG;
+end; (* CODE_SEG *)
