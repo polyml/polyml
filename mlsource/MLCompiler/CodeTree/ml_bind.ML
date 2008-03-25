@@ -25,6 +25,7 @@ structure CodeTree =
     structure MISC          = Boot.Misc
     structure STRETCHARRAY  = StretchArray
     structure ADDRESS       = Address
-    structure RUNCALL       = RunCall
+    structure STRUCTUREEQ   = StructureEquality
+    structure BASECODETREE  = BaseCodeTree
   );
 
