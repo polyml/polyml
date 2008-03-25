@@ -17,11 +17,7 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure CodeSeg =
-  CODE_SEG (
-    structure ADDRESS = Address
-    structure MISC    = Boot.Misc
- );
+structure CodeSeg = CODE_SEG;
 
 
 
