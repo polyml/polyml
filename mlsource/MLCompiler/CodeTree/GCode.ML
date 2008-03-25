@@ -21,12 +21,8 @@ structure GCode =
   G_CODE (
     structure CODECONS     = CodeCons
     structure TRANSTAB     = TransTab
-    structure DEBUGSWITCH   = Debug
-    structure PRETTYPRINTER = Boot.PrettyPrinter
+    structure BASECODETREE = BaseCodeTree
     structure MISC         = Boot.Misc
-    structure RUNCALL      = RunCall
-    structure ARRAY        = Array
-    structure STRETCHARRAY = StretchArray
     structure ADDRESS      = Address
   );
          

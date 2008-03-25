@@ -29,12 +29,8 @@ in
 structure GCode = 
   INTGCODE (
     structure CODECONS     = CodeCons
-    structure DEBUGSWITCH   = Debug
-    structure PRETTYPRINTER = Boot.PrettyPrinter
+    structure BASECODETREE = BaseCodeTree
     structure MISC         = Boot.Misc
-    structure RUNCALL      = RunCall
-    structure ARRAY        = Array
-    structure STRETCHARRAY = StretchArray
     structure ADDRESS      = Address
   )
  end;
