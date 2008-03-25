@@ -78,7 +78,7 @@ sharing type
 (*                  CODECONS export signature                                *)
 (*****************************************************************************)
 sig
-  type word;  (* added 13/7/94 SPF *)
+  type machineWord;
   type short;
   type code;
   type reg;   (* Machine registers *)
@@ -146,11 +146,11 @@ sig
   
   (* Enquire about operations. *)
   val instrIsRR: instrs -> bool;         (* Is the general form implemented? *)
-  val instrIsRI: instrs * word -> bool; (* Is the immediate value ok? *)
+  val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
 
   (* Code generate operations. *)
   val genRR: instrs * reg * reg * reg * code -> unit;
-  val genRI: instrs * reg * word * reg * code -> unit;
+  val genRI: instrs * reg * machineWord * reg * code -> unit;
 
   type tests;
   
@@ -176,31 +176,31 @@ sig
   (* Compare and branch for fixed and arbitrary precision. *)
   
   val isCompRR: tests -> bool;
-  val isCompRI: tests * word -> bool;
+  val isCompRI: tests * machineWord -> bool;
   
   val compareAndBranchRR: reg * reg  * tests * code -> labels;
-  val compareAndBranchRI: reg * word * tests * code -> labels;
+  val compareAndBranchRI: reg * machineWord * tests * code -> labels;
 
   datatype storeWidth = STORE_WORD | STORE_BYTE
 
   val genLoad:        int * reg * reg * code -> unit;
   val isIndexedStore: storeWidth -> bool
   val genStore:       reg * int * reg * storeWidth * reg * code -> unit;
-  val isStoreI:       word * storeWidth * bool -> bool;
-  val genStoreI:      word * int * reg * storeWidth * reg * code -> unit;
+  val isStoreI:       machineWord * storeWidth * bool -> bool;
+  val genStoreI:      machineWord * int * reg * storeWidth * reg * code -> unit;
   val genPush:        reg * code -> unit;
   val genLoadPush:    int * reg * code -> unit;
   val preferLoadPush: bool;
   val genLoadCoderef: code  * reg * code -> unit;
   val genStackOffset: reg * int * code -> unit;
 
-  val allocStore:      int * short * reg * code -> unit;
-  val setFlag:         reg * code * short -> unit;
+  val allocStore:      int * Word8.word * reg * code -> unit;
+  val setFlag:         reg * code * Word8.word -> unit;
   val completeSegment: code -> unit;
 
   datatype callKinds =
 		Recursive
-	|	ConstantFun of word * bool
+	|	ConstantFun of machineWord * bool
 	|	CodeFun of code
 	|	FullCall
   
@@ -252,27 +252,21 @@ let
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word;    (* NB *not* eqtype, 'cos it might be a closure *)
-  eqtype short;
+  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
+  type short = Word.word;
   type address;
   type handler;
 
-  val wordEq : word * word -> bool
+  val wordEq : machineWord * machineWord -> bool
   
   val isShort:  'a     -> bool;
   val toShort:  'a     -> short;
-  val toWord:   'a     -> word;
-  val toInt:     short -> int;
-
-  val Or:  short * short -> short;
-  val And: short * short -> short; 
-  val << : short * short -> short; 
-  val >> : short * short -> short; 
+  val toMachineWord:   'a     -> machineWord;
   
   val offsetAddr : address * short -> handler
   
-  val alloc:  (short * short * word) -> address
-  val F_words : short
+  val alloc:  (short * Word8.word * machineWord) -> address
+  val F_words : Word8.word
 
   val lock : address -> unit;
   
@@ -284,7 +278,7 @@ end = Address;
 (*****************************************************************************)
 structure CODESEG :
 sig
-  type word;
+  type machineWord;
   type short;
   type address;
   type cseg;
@@ -292,12 +286,12 @@ sig
   val csegMake:          int  -> cseg;
   val csegConvertToCode: cseg -> unit;
   val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> short;
-  val csegSet:           cseg * int * short -> unit;
-  val csegPutWord:       cseg * int * word -> unit;
+  val csegGet:           cseg * int -> Word8.word;
+  val csegSet:           cseg * int * Word8.word -> unit;
+  val csegPutWord:       cseg * int * machineWord -> unit;
   val csegCopySeg:       cseg * cseg * int * int -> unit;
   val csegAddr:          cseg -> address;
-  val csegPutConstant:	 cseg * int * word * 'a -> unit;
+  val csegPutConstant:	 cseg * int * machineWord * 'a -> unit;
 end = CodeSeg;
 
 in
@@ -310,8 +304,8 @@ struct
   open DEBUG;
   open ADDRESS;
   open MISC;
-  
-  val short1    = toShort 1;
+
+  val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
 
   val print = TextIO.print;
 
@@ -415,7 +409,7 @@ struct
      address of this code-vector put into it. *)
 
   datatype const =
-     WVal of word        (* an existing constant *)
+     WVal of machineWord        (* an existing constant *)
    | CVal of code        (* a forward-reference to another function *)
    | HVal of addrs ref   (* a handler *)
 
@@ -515,7 +509,7 @@ struct
   let
     val a = getAddr addr;
   in
-    csegSet (seg, a, toShort b)
+    csegSet (seg, a, Word8.fromInt b)
   end;
 
   (* Put 1 signed byte at a given offset in the segment. *)
@@ -524,24 +518,14 @@ struct
     val a = getAddr addr;
     val b' = if b < 0 then b + exp2_8 else b;
   in
-    csegSet (seg, a, toShort b')
+    csegSet (seg, a, Word8.fromInt b')
   end;
 
   (* Get 1 unsigned byte from the given offset in the segment. *)
-  fun get8u (a: int, seg: cseg) : int =
-  let
-    val b = toInt (csegGet (seg, a));
-  in
-    b
-  end;
+  fun get8u (a: int, seg: cseg) : int = Word8.toInt (csegGet (seg, a));
 
   (* Get 1 signed byte from the given offset in the segment. *)
-  fun get8s (a: int, seg: cseg) : int =
-  let
-    val b = toInt (csegGet (seg, a));
-  in
-    if b >= exp2_7 then b - exp2_8 else b
-  end;
+  fun get8s (a: int, seg: cseg) : int = Word8.toIntX (csegGet (seg, a));
  
   (* Put 4 bytes at a given offset in the segment. *)
   (* b0 is the least significant byte. *)
@@ -550,10 +534,10 @@ struct
     val a = getAddr addr;
   in
     (* Little-endian *)
-    csegSet (seg, a,     toShort b0);
-    csegSet (seg, a + 1, toShort b1);
-    csegSet (seg, a + 2, toShort b2);
-    csegSet (seg, a + 3, toShort b3)
+    csegSet (seg, a,     Word8.fromInt b0);
+    csegSet (seg, a + 1, Word8.fromInt b1);
+    csegSet (seg, a + 2, Word8.fromInt b2);
+    csegSet (seg, a + 3, Word8.fromInt b3)
   end;
 
   (* Put 1 unsigned word at a given offset in the segment. *)
@@ -586,10 +570,10 @@ struct
   (* Get 1 signed word from the given offset in the segment. *)
   fun get32s (a: int, seg: cseg) : int =
   let
-    val b0  = toInt (csegGet (seg, a));
-    val b1  = toInt (csegGet (seg, a + 1));
-    val b2  = toInt (csegGet (seg, a + 2));
-    val b3  = toInt (csegGet (seg, a + 3));
+    val b0  = Word8.toInt (csegGet (seg, a));
+    val b1  = Word8.toInt (csegGet (seg, a + 1));
+    val b2  = Word8.toInt (csegGet (seg, a + 2));
+    val b3  = Word8.toInt (csegGet (seg, a + 3));
     val b3' = if b3 >= exp2_7 then b3 - exp2_8 else b3;
     val topHw    = (b3' * exp2_8) + b2;
     val bottomHw = (b1 * exp2_8) + b0;
@@ -959,7 +943,7 @@ SS-relative addressing modes:
   (* Make a reference to another procedure. Usually this will be a forward reference but
      it may have been compiled already, in which case we can put the code address in now. *)
   fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
-    (* Already done. *) addConstToVec (WVal (toWord(csegAddr seg)), isRel, into)
+    (* Already done. *) addConstToVec (WVal (toMachineWord(csegAddr seg)), isRel, into)
 
   | codeConst (r as Code {otherCodes, ... }, isRel, into) = (* forward *)
       (* Add the referring procedure onto the list of the procedure
@@ -1041,7 +1025,7 @@ SS-relative addressing modes:
 		  if diff = 0
 		  then let
 		    val a    = getAddr addr;
-		    val nop  = toShort (opToInt NOP);
+		    val nop  = Word8.fromInt (opToInt NOP);
 		  in
 		    csegSet (cseg, a - 1, nop);
 		    csegSet (cseg, a,     nop);
@@ -1652,10 +1636,10 @@ SS-relative addressing modes:
   fun isIndexedStore _ = true (* Yes, for both word and byte. *)
 
   (* Exported - Can we store the value without going through a register? *)
-  fun isStoreI (cnstnt: word, _, _) = isShort cnstnt;
+  fun isStoreI (cnstnt: machineWord, _, _) = isShort cnstnt;
 
   (* Store an immediate value at a given address and offset. *)
-  fun genStoreI (cnstnt: word, offset: int, rb: reg, STORE_WORD, ri: reg,
+  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_WORD, ri: reg,
   				 cvec as Code{ic, ...}) =
   	(
   (*  We have a little problem here: we have to be very careful that
@@ -1695,10 +1679,10 @@ SS-relative addressing modes:
 	  if ri regEq regNone then genop2 (offset, rb, 0, cvec)
 	  else genIndexed (offset-2, rb, ri, Scale2, mkReg 0, cvec);
 	  if isShort cnstnt
-	  then gen32s (toInt (toShort cnstnt) * 2 + 1, cvec)
+	  then gen32s (Word.toIntX (toShort cnstnt) * 2 + 1, cvec)
 	  else addConstToVec (WVal cnstnt, false, cvec)
    )
-  | genStoreI (cnstnt: word, offset: int, rb: reg, STORE_BYTE, ri: reg, cvec) : unit =
+  | genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_BYTE, ri: reg, cvec) : unit =
   	if not (isShort cnstnt)
 	then (* This should never happen. *)
 		raise InternalError "genStoreI: storing long constant as a byte"
@@ -1903,7 +1887,7 @@ SS-relative addressing modes:
 
   datatype callKinds =
 		Recursive			(* The function calls itself. *)
-	|	ConstantFun of word * bool (* A pre-compiled or io function. *)
+	|	ConstantFun of machineWord * bool (* A pre-compiled or io function. *)
 	|	CodeFun of code		(* A static link call. *)
 	|	FullCall			(* Full closure call *)
   
@@ -2157,7 +2141,7 @@ Calling conventions:
   fun allocStore (size, flag, resultReg, cvec) : unit =
   let
     val bytes = (size + 1) * 4;
-    val lengthWord = size + (toInt flag * exp2_24); (* Size + mutable. *)
+    val lengthWord = size + (Word8.toInt flag * exp2_24); (* Size + mutable. *)
   in
     (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
 	   call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
@@ -2190,7 +2174,7 @@ Calling conventions:
 
   (* Remove the mutable bit by clearing the flag byte. *)
   fun setFlag (baseReg, cvec, flag) : unit =
-     genStoreI (toWord flag, ~1, baseReg, STORE_BYTE, regNone, cvec);
+     genStoreI (toMachineWord flag, ~1, baseReg, STORE_BYTE, regNone, cvec);
 
   (* Small tuples and closures are created by allocating the space and
      storing into it without setting the mutable bit.  This is safe
@@ -3073,13 +3057,21 @@ Calling conventions:
 			then (* Multiplying by 2. *)
 				(
 				genop (LEAL, cvec);
+                (* Using a base and index means the ~1 is just a byte. *)
 				genIndexed (~1, rs, rs, Scale1, rd, cvec)
 				)
 			else if log2c = 2
 			then (* Multiplying by 4 *)
 				(
 				genop (LEAL, cvec);
-				genIndexed (~4, regNone, rs, Scale4, rd, cvec)
+                (* No base register: ~3 is a full word. *)
+				genIndexed (~3, regNone, rs, Scale4, rd, cvec)
+				)
+			else if log2c = 3
+			then (* Multiplying by 8 *)
+				(
+				genop (LEAL, cvec);
+				genIndexed (~7, regNone, rs, Scale8, rd, cvec)
 				)
 			else (* Other powers of 2. *)
 				(
@@ -3193,7 +3185,7 @@ Calling conventions:
 		let
 			(* If it's tagged the result is 1 otherwise we need to load
 			   the length word and tag it. *)
-			val l1 = compareAndBranchRI (rs, toWord 0 (* Unused *), Long, cvec)
+			val l1 = compareAndBranchRI (rs, toMachineWord 0 (* Unused *), Long, cvec)
 			val _ = genMoveI (rd, tag 1, cvec);
 			val l2 = unconditionalBranch cvec
 		in
@@ -3381,8 +3373,8 @@ Calling conventions:
 
     fun get16s (a: int, seg: cseg) : int =
     let
-      val b0  = toInt (csegGet (seg, a));
-      val b1  = toInt (csegGet (seg, a + 1));
+      val b0  = Word8.toInt (csegGet (seg, a));
+      val b1  = Word8.toInt (csegGet (seg, a + 1));
       val b1' = if b1 >= exp2_7 then b1 - exp2_8 else b1;
     in
       (b1' * exp2_8) + b0
@@ -3415,7 +3407,7 @@ Calling conventions:
     (* Print an effective address. *)
     fun printEA  () =
     let
-      val modrm = toInt (csegGet (seg, !ptr));
+      val modrm = Word8.toInt (csegGet (seg, !ptr));
       val U : unit = (ptr +:= 1);
       val md = modrm div 64;
       val rm = modrm mod 8;
@@ -3425,7 +3417,7 @@ Calling conventions:
       
       else if rm = 4
       then let (* s-i-b present. *)
-        val sib = toInt (csegGet (seg, !ptr));
+        val sib = Word8.toInt (csegGet (seg, !ptr));
         val U : unit = (ptr +:= 1);
         val ss    = sib div 64;
         val index = (sib div 8) mod 8;
@@ -3499,7 +3491,7 @@ Calling conventions:
          opByte = opToInt Group1_32_A
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
       in
         printArith ((nb div 8) mod 8);
         print "_rev\t";
@@ -3567,7 +3559,7 @@ Calling conventions:
       else if opByte = opToInt MOVL_A_R
       then let
         (* Register is in next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val reg = (nb div 8) mod 8;
       in
         print "movl\t";
@@ -3580,7 +3572,7 @@ Calling conventions:
               opByte < 3 * 16 + 15 (* 0x3f *)
       then let
         (* Register is in next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val reg = (nb div 8) mod 8;
       in
         printArith ((opByte div 8) mod 8);
@@ -3593,7 +3585,7 @@ Calling conventions:
       else if opByte = opToInt MOVL_R_A
       then let
         (* Register is in next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val reg = (nb div 8) mod 8;
       in
         print "movl\t";
@@ -3605,7 +3597,7 @@ Calling conventions:
       else if opByte = opToInt MOVB_R_A
       then let
         (* Register is in next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val reg = (nb div 8) mod 8;
       in
         print "movb\t";
@@ -3638,7 +3630,7 @@ Calling conventions:
       else if opByte = opToInt LEAL
       then let
         (* Register is in next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val reg = (nb div 8) mod 8;
       in
         print "leal\t";
@@ -3683,7 +3675,7 @@ Calling conventions:
       else if opByte = opToInt Group5
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val opc = (nb div 8) mod 8;
       in
         print
@@ -3700,7 +3692,7 @@ Calling conventions:
       else if opByte = opToInt Group3_A
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val opc = (nb div 8) mod 8;
       in
         print
@@ -3721,7 +3713,7 @@ Calling conventions:
       else if opByte = opToInt Group3_a
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val opc = (nb div 8) mod 8;
       in
         print
@@ -3738,7 +3730,7 @@ Calling conventions:
       else if opByte = opToInt Group2_8_A
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val opc = (nb div 8) mod 8;
       in
         print
@@ -3757,7 +3749,7 @@ Calling conventions:
       else if opByte = opToInt Group2_1_A
       then let
         (* Opcode is determined by next byte. *)
-        val nb = toInt (csegGet (seg, !ptr));
+        val nb = Word8.toInt (csegGet (seg, !ptr));
         val opc = (nb div 8) mod 8;
       in
 	 print
@@ -3773,12 +3765,12 @@ Calling conventions:
        else if opByte = opToInt ESCAPE
        then let
 	 (* Opcode is in next byte. *)
-	 val opByte2  = toInt (csegGet (seg, !ptr));
+	 val opByte2  = Word8.toInt (csegGet (seg, !ptr));
 	 val U : unit = (ptr +:= 1);
        in
 	if opByte2 = 11 * 16 + 6 (* 0xb6 *)
 	then let
-	  val nb = toInt (csegGet (seg, !ptr));
+	  val nb = Word8.toInt (csegGet (seg, !ptr));
 	  val reg = (nb div 8) mod 8;
 	in
 	  print "movzl\t";
@@ -3849,7 +3841,7 @@ Calling conventions:
 
   (* constLabels - fill in a constant in the code. *)
   fun constLabels (Code{resultSeg=ref rseg, pcOffset=ref offset, ...},
-  				   addr : addrs, value : word, isRel: bool) : unit =
+  				   addr : addrs, value : machineWord, isRel: bool) : unit =
   let
     val seg       = scSet rseg; (* The address of the segment. *)
     val constAddr = addr addrPlus offset*4;
@@ -4043,7 +4035,7 @@ itself.
       let
         val a = !ptr
       in
-        csegSet (seg, a, toShort b);
+        csegSet (seg, a, Word8.fromInt b);
         ptr := a + 1
       end;
 
@@ -4090,7 +4082,7 @@ itself.
         (* why do we treat the empty string as a special case? SPF 15/7/94 *)
         (* This is so that profiling can print "<anon>". Note that a
            tagged zero *is* a legal string (it's "\000"). SPF 14/10/94 *)
-        val nameWord : word = if procName = "" then toWord 0 else toWord procName;
+        val nameWord : machineWord = if procName = "" then toMachineWord 0 else toMachineWord procName;
       in
         val _ = csegPutWord (seg, endOfCode + 2, nameWord);
       end;
@@ -4099,14 +4091,15 @@ itself.
 		   as the one used for assembly code segments. *)
 		fun encodeReg(r, n: short): short =
 		let
-		    infix << Or
-			val reg = toShort 1 << toShort (nReg r)
+            open Word
+		    infix << orb
+			val reg = 0w1 << Word.fromInt (nReg r)
 		in
-			reg Or n
+			reg orb n
 		end
-		val regSet = List.foldl encodeReg (toShort 0) registerSet
+		val regSet = List.foldl encodeReg 0w0 registerSet
       in
-        val U : unit = csegPutWord (seg, endOfCode + 3, toWord regSet);
+        val U : unit = csegPutWord (seg, endOfCode + 3, toMachineWord regSet);
       end;
     end;  (* scope of endOfCode *)
   in 
@@ -4128,9 +4121,9 @@ itself.
                This only works if the resulting value is 
                in a code segment and is on a word + 2 byte boundary. *)
             val handlerAddr : handler = 
-              offsetAddr (csegAddr seg, toShort handlerByteOffset);
+              offsetAddr (csegAddr seg, Word.fromInt handlerByteOffset);
           in
-		    constLabels (cvec, addr, toWord handlerAddr, isRel);
+		    constLabels (cvec, addr, toMachineWord handlerAddr, isRel);
             numOfConsts := ! numOfConsts - 1
           end
 
@@ -4149,7 +4142,7 @@ itself.
         if noClosure
         then csegAddr seg
         else let
-          val addr : address = alloc (short1, F_words, toWord (csegAddr seg));
+          val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg));
           
           (* Logically unnecessary; however the RTS currently allocates everything
              as mutable because Dave's code assumed that things were done this
@@ -4164,7 +4157,7 @@ itself.
       (* Now we know the address of this object we can fix up
          any forward references outstanding. This is put in here
          because there may be directly recursive references. *)
-      val U : unit = fixOtherRefs (cvec, toWord addr);
+      val U : unit = fixOtherRefs (cvec, toMachineWord addr);
   
       val U : unit = 
 		if !assemblyCode
