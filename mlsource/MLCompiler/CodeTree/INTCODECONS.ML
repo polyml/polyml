@@ -49,31 +49,13 @@ structure MISC :
     exception InternalError of string
   end
 
-(*****************************************************************************)
-(*                  CODECONS sharing constraints                             *)
-(*****************************************************************************)
-
-(* removed SPF 24/9/94 ...
-sharing type
-  ADDRESS.word
-= CODESEG.word
-       
-sharing type
-  ADDRESS.short
-= CODESEG.short
-       
-sharing type
-  ADDRESS.address
-= CODESEG.address
-... *)
-
 ) :
 
 (*****************************************************************************)
 (*                  CODECONS export signature                                *)
 (*****************************************************************************)
 sig
-  type word;
+  type machineWord;
   type address;
   type code;
   type opcode;
@@ -133,7 +115,7 @@ sig
    val genEnterIntCall  : code * int -> unit;
       
    (* pushConst - Generates code to push a constant. *)
-   val pushConst        : word * code -> unit;
+   val pushConst        : machineWord * code -> unit;
 
    (* genCallSl - Generate callSl instructions which refer to either
        constants or are forward references to procedures which have not yet
@@ -180,7 +162,7 @@ let
 (*****************************************************************************)
 structure CODESEG :
 sig
-  type word;
+  type machineWord;
   type short;
   type address;
   type cseg;
@@ -188,9 +170,9 @@ sig
   val csegMake:          int  -> cseg;
   val csegConvertToCode: cseg -> unit;
   val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> short;
-  val csegSet:           cseg * int * short -> unit;
-  val csegPutWord:       cseg * int * word -> unit;
+  val csegGet:           cseg * int -> Word8.word;
+  val csegSet:           cseg * int * Word8.word -> unit;
+  val csegPutWord:       cseg * int * machineWord -> unit;
   val csegCopySeg:       cseg * cseg * int * int -> unit;
   val csegAddr:          cseg -> address;
 end = CodeSeg;
@@ -200,8 +182,8 @@ end = CodeSeg;
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  type word;    (* NB *not* eqtype, 'cos it might be a closure *)
-  eqtype short;
+  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
+  type short = Word.word;
   type address;
   type handler;
 
@@ -209,25 +191,26 @@ sig
   
   val isShort:  'a     -> bool;
   val toShort:  'a     -> short;
-  val toWord:   'a     -> word;
-  val toInt:     short -> int;
+  val toMachineWord:   'a     -> machineWord;
   val toAddress: 'a -> address
 
-  val loadByte:  address * short -> short 
-  val loadWord:  address * short -> word
+  val loadByte:  address * short -> Word8.word 
+  val loadWord:  address * short -> machineWord
   val unsafeCast: 'a -> 'b
   
-  val alloc:  (short * short * word) -> address
+  val alloc:  (short * Word8.word * machineWord) -> address
   val length: address -> short
-  val flags:  address -> short
+  val flags:  address -> Word8.word
 
-  val F_words : short
+  val F_words : Word8.word
  
   val isWords : address -> bool;
   val isBytes : address -> bool;
   val isCode  : address -> bool;
   
   val lock : address -> unit;
+
+  val isIoAddress : address -> bool
 end = Address;
 
 in
@@ -296,39 +279,6 @@ struct
   (* prints a string representation of a number *)
   fun printHex (v : int) : unit = TextIO.print(Int.fmt StringCvt.HEX v);
 
-
-(*****************************************************************************)
-(*                  Useful constants                                         *)
-(*****************************************************************************)
-
-  (* These are defined here as explicit constants, so the     *)
-  (* code-generator can in-line them as immediates (I think). *)
-  val TAGBITS = 2; (* for now - maybe only 1 later *)
-
-  val exp2_8  =        256;
-  val exp2_15 =      32768;
-  val exp2_16 =      65536;
-  val exp2_29 =  536870912;
-    
-  (* Let's check that we got them right! *)
-  local
-    fun exp2 0 = 1
-      | exp2 n = 2 * exp2 (n - 1);
-  in
-    val U : bool = 
-      (
-        exp2_8  = exp2 8  andalso
-        exp2_15 = exp2 15 andalso
-        exp2_16 = exp2 16 andalso
-        exp2_29 = exp2 29
-      )
-         orelse raise InternalError "CodeCons: Powers of 2 incorrectly specified";
-  end;
-  
-  val short0 = toShort 0;
-  val short1 = toShort 1;
-  val short8 = toShort 8;
-
 (*****************************************************************************)
 (*                  Abstype for instruction addresses                        *)
 (*****************************************************************************)
@@ -352,7 +302,7 @@ struct
   fun getAddr (Addr a) = a; (* addr.down *)
   
   val addrZero = mkAddr 0;
-  val addrLast = mkAddr (exp2_29 - 1); (* A big number. *)
+  val addrLast = mkAddr (Word.toInt (Word.<<(0w1, 0w29)) - 1); (* A big number. *)
 
 (*****************************************************************************)
 (*                  Opcodes                                                  *)
@@ -524,7 +474,7 @@ struct
 
     local
       val repArray : string Array.array = 
-        Array.tabulate (exp2_8, fn (i : int) => "<UNKNOWN " ^ Int.toString i ^ ">");
+        Array.tabulate (256, fn (i : int) => "<UNKNOWN " ^ Int.toString i ^ ">");
       
       fun repUpdate (Opcode n, s) = Array.update (repArray, n, s);
 
@@ -668,7 +618,7 @@ struct
 
 
     local
-      val sizeArray : int Array.array = Array.array (exp2_8, 1);
+      val sizeArray : int Array.array = Array.array (256, 1);
       
       fun sizeUpdate (Opcode n, s) = Array.update (sizeArray, n, s);
 
@@ -757,7 +707,7 @@ struct
 (*****************************************************************************)
 
   datatype const =
-     WVal of word        (* an existing constant *)
+     WVal of machineWord        (* an existing constant *)
    | CVal of code        (* a forward-reference to another function *)
 
   and setCodeseg =
@@ -846,15 +796,15 @@ struct
 		(
 		csegSet(seg,
 			if littleEndian() then a+i else a+wordLength()-i-1,
-			toShort(value mod exp2_8));
-		putBytes(value div exp2_8, a, seg, i+1)
+			Word8.fromInt(value mod 256));
+		putBytes(value div 256, a, seg, i+1)
 		)
   in
   	putBytes(value, a, seg, 0)
   end;
 
   fun putByte (ival: int, Addr a, cvec: code) : unit =
-    csegSet(codeVec cvec, a, toShort (if ival < 0 then exp2_8 + ival else ival));
+    csegSet(codeVec cvec, a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
 
   fun genByte (ival: int, cvec: code) : unit = 
   let
@@ -866,10 +816,10 @@ struct
    
   fun genBytes (ival: int, length: int, cvec: code) : unit =
   let
-    val U : unit = genByte (ival mod exp2_8, cvec);
+    val U : unit = genByte (ival mod 256, cvec);
   in
     if length = 1 then ()
-    else genBytes (ival div exp2_8, length - 1, cvec)
+    else genBytes (ival div 256, length - 1, cvec)
   end;
 
   fun genWord (ival : int, cvec : code) : unit =
@@ -878,27 +828,27 @@ struct
   (* puts "length" bytes of "val" into locations "addr", "addr"+1... *)
   fun putBytes (ival : int, length : int, addr : addrs, cvec : code) : unit =
   let
-    val U : unit = putByte (ival mod exp2_8, addr, cvec);
+    val U : unit = putByte (ival mod 256, addr, cvec);
   in
     if length = 1 then ()
-    else putBytes (ival div exp2_8, length - 1, addr addrPlus 1, cvec)
+    else putBytes (ival div 256, length - 1, addr addrPlus 1, cvec)
   end;
 
   fun getByte (Addr a, cvec : code) : int =
-    toInt (csegGet (codeVec cvec, a));
+    Word8.toInt (csegGet (codeVec cvec, a));
 
   (* Gets "length" bytes from locations "addr", "addr"+1...
      Returns an unsigned number. *)
   fun getB (length : int, addr : int, seg: cseg) : int =
   let
-    val byte = toInt (csegGet (seg, addr));
+    val byte = Word8.toInt (csegGet (seg, addr));
   in
     if length = 1 (* Top byte *)
     then byte
     else let
       val rest = getB (length - 1, addr + 1, seg);
     in
-      rest * exp2_8 + byte
+      rest * 256 + byte
     end
   end;
 
@@ -991,7 +941,7 @@ struct
     val newOffset : int = target addrMinus (addr addrPlus 1);
     
     val U : unit = 
-      if 0 <= newOffset andalso newOffset < exp2_8 then ()
+      if 0 <= newOffset andalso newOffset < 256 then ()
       else raise InternalError "fixupOffset: jump too far (8-bit offset)"
     
     val oldOffset : int = getByte (addr, cvec);
@@ -1015,7 +965,7 @@ struct
     val newOffset     : int  = target addrMinus (addr addrPlus 2);
     
     val U : unit = 
-      if ~exp2_15 <= newOffset andalso newOffset < exp2_15 then ()
+      if ~32768 <= newOffset andalso newOffset < 32768 then ()
       else raise InternalError "fixupOffset: jump too far (16-bit offset)"
     
     val oldOffset : int = getBytes (2, addr, cvec);
@@ -1098,7 +1048,7 @@ struct
             val newOffset : int = here addrMinus (addr addrPlus 1);
 
             val U : unit = 
-              if 0 <= newOffset andalso newOffset < exp2_8 then ()
+              if 0 <= newOffset andalso newOffset < 256 then ()
               else raise InternalError "checkBranchList: offset too large to convert"
 
             val oldOffset : int = getByte (addr, cvec);
@@ -1174,7 +1124,7 @@ struct
   
 (* ...
     val U : unit =
-      if 0 <= opn andalso opn < exp2_8 andalso opn <> opcode_down opcode_booleanOr
+      if 0 <= opn andalso opn < 256 andalso opn <> opcode_down opcode_booleanOr
       then ()
       else raise InternalError ("genOpc: bad opcode: " ^ Int.toString opn);
 ... *)
@@ -1385,7 +1335,7 @@ struct
     val newOffset : int = !(ic cvec) addrMinus lab;
     
     val U : unit =
-      if newOffset < exp2_8
+      if newOffset < 256
       then let (* short *)
         (* For opcode_jumpBack, exceptionally, the offset is relative
            to the START of the instruction. Also, the offset is
@@ -1427,7 +1377,7 @@ struct
         val newOffset : int = constAddr addrMinus (fixupAddr addrPlus 2);
         
         val U : unit = 
-          if 0 <= newOffset andalso newOffset < exp2_16 then ()
+          if 0 <= newOffset andalso newOffset < 65536 then ()
           else raise InternalError "fixupConstantLoad: constant too distant (16-bit offset)"
       in
         putBytes (newOffset, 2, fixupAddr, cvec)
@@ -1467,10 +1417,10 @@ struct
     constLoads cvec := (fixupAddrs, constNum) :: !(constLoads cvec)
   end;
 
-  fun pushConst (value : word, cvec : code) : unit =
-    if isShort value andalso 0 <= toInt (toShort value) andalso toInt (toShort value) < exp2_15
+  fun pushConst (value : machineWord, cvec : code) : unit =
+    if isShort value andalso toShort value < 0w32768
     then let
-      val iVal: int = toInt (toShort value);
+      val iVal: int = Word.toInt (toShort value);
     in
       if iVal = 10
         then genOpc (opcode_const_10, 1, cvec)
@@ -1478,7 +1428,7 @@ struct
       else if iVal <= 4
         then genOpc (opcode_up (opcode_down opcode_const_0 + iVal), 1, cvec)
   
-      else if iVal < exp2_8
+      else if iVal < 256
       then let
         val U : unit = genOpc (opcode_constIntB, 2, cvec);
       in
@@ -1538,7 +1488,7 @@ struct
   end;
 
   fun genTailCall (toslide : int, slideby: int, cvec: code) : unit =
-    if toslide < exp2_8 andalso slideby < exp2_8
+    if toslide < 256 andalso slideby < 256
     then 
       case (toslide, slideby) of
         (3, 2) => 
@@ -1600,7 +1550,7 @@ struct
     then let
       val addr : address = csegAddr (scSet cseg);
     in
-      addConstToVec (WVal (toWord addr), into)
+      addConstToVec (WVal (toMachineWord addr), into)
     end
     
     else (* forward *)
@@ -1759,7 +1709,7 @@ struct
               
           else let (* It's an instruction. *)
             val U : unit  = printString "\t";
-            val opc : opcode = opcode_up (toInt (csegGet (seg, !ptr))); (* opcode *)
+            val opc : opcode = opcode_up (Word8.toInt (csegGet (seg, !ptr))); (* opcode *)
             val U : unit  = ptr := !ptr + 1;
             val U : unit  = printString (repr opc);
     
@@ -1887,8 +1837,8 @@ struct
 			val addr: int =
 				if littleEndian() then byteOffset + wordLength() - i - 1
 				else byteOffset + i;
-			val b: short = loadByte (a, toShort addr);
-			val acc' = acc*256 + toInt b
+			val b = loadByte (a, toShort addr);
+			val acc' = acc*256 + Word8.toInt b
 		in
 			loadBytes (i+1) acc'
 		end
@@ -1899,10 +1849,10 @@ struct
   (* Bootstrapping problems currently prevent us from using Address.nameOfCode *)
   fun nameOfCode (a : address) =
     let
-      val objLength  : int  = toInt (ADDRESS.length a);
+      val objLength  : int  = Word.toInt (ADDRESS.length a);
       val lastWord   : int  = objLength - 1;
       val constCount : int  = loadConstCount (a, lastWord);
-      val codeName   : word = loadWord (a, toShort (lastWord - constCount));
+      val codeName   : machineWord = loadWord (a, toShort (lastWord - constCount));
     in
       unsafeCast codeName
     end;
@@ -1915,7 +1865,7 @@ struct
   
   fun printWords (a : address) : unit =
     let
-      val objLength : int = toInt (ADDRESS.length a)
+      val objLength : int = Word.toInt (ADDRESS.length a)
     in
       if objLength = 1
       then printString ("long:\t1 word")
@@ -1924,7 +1874,7 @@ struct
   
   fun printBytes (a : address) : unit =
     let
-      val objLength  : int = toInt (ADDRESS.length a)
+      val objLength  : int = Word.toInt (ADDRESS.length a)
     in
       if objLength = 1
       then printString ("bytes:\t1 word")
@@ -1943,7 +1893,7 @@ struct
     | WVal w => 
 	if isShort w
 	then let
-	  val value : int = toInt (toShort w);
+	  val value : int = Word.toInt (toShort w);
 	  val U : unit = printString "short:\t";
 	  val U : unit = printHex value;
 	  val U : unit = printString " (";
@@ -1954,23 +1904,23 @@ struct
 	else let
 	  val a : address = toAddress w;
 	in
-	  if exp2_8 <= toInt (flags a)
+	  if isIoAddress a
 	    then printString "RTS entry"
 	  else if isCode a
 	    then printConstCode a
 	  else if isBytes a
 	    then printBytes a
-	  else if isWords a andalso 1 <= toInt (ADDRESS.length a)
+	  else if isWords a andalso 0w1 <= ADDRESS.length a
 	    then let
-	      val w' : word = loadWord (a, short0)
+	      val w' : machineWord = loadWord (a, 0w0)
 	    in
 	      if not (isShort w')
 	      then let
-		val a' : address = toAddress w';
+            val a' : address = toAddress w';
 	      in
-		if toInt (flags a') < exp2_8 andalso isCode a'
-		then printConstClosure a'
-		else printWords a (* First element of tuple is not a code segment *) 
+            if not (isIoAddress a') andalso isCode a'
+            then printConstClosure a'
+            else printWords a (* First element of tuple is not a code segment *) 
 	      end
 	      else printWords a (* First element of tuple is a short *)
 	    end
@@ -1989,7 +1939,7 @@ struct
   end;
 
   (* set the num'th constant in cvec to be value *)
-  fun constLabels (cvec : code, num : int, value : word) : unit =
+  fun constLabels (cvec : code, num : int, value : machineWord) : unit =
   let
     val seg       = scSet (!(resultSeg cvec));
 	(* The +2 in the next instruction is because ic is always the byte count of
@@ -2001,7 +1951,7 @@ struct
   end;
   
   (* Fix up references from other vectors to this one. *)
-  fun fixOtherRefs (refTo : code, value : word) : unit =
+  fun fixOtherRefs (refTo : code, value : machineWord) : unit =
   let
     fun fixRef (refFrom : code) : unit =
     let
@@ -2103,7 +2053,7 @@ struct
       (* This is so that profiling can print "<anon>". Note that a
          tagged zero *is* a legal string (it's "\000"). SPF 14/10/94 *)
       val name     : string = procName cvec;
-      val nameWord : word = if name = "" then toWord 0 else toWord name;
+      val nameWord : machineWord = if name = "" then toMachineWord 0 else toMachineWord name;
     in
       val U : unit = csegPutWord (seg, endOfCode + 2, nameWord)
     end;
@@ -2143,7 +2093,7 @@ struct
       if noClosure cvec
       then csegAddr seg
       else let
-	val addr : address = alloc (short1, F_words, toWord (csegAddr seg));
+	val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg));
 	
 	(* Logically unnecessary; however the RTS currently allocates everything
 	   as mutable because Dave's code assumed that things were done this
@@ -2158,7 +2108,7 @@ struct
     (* Now we know the address of this object we can fix up
        any forward references outstanding. This is put in here
        because there may be directly recursive references. *)
-    val U : unit = fixOtherRefs (cvec, toWord addr);
+    val U : unit = fixOtherRefs (cvec, toMachineWord addr);
 
     val U : unit = 
       if !assemblyCode

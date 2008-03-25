@@ -44,8 +44,8 @@ functor G_CODE (
 (*****************************************************************************)
 structure CODECONS :
 sig
-  type word;  (* added 13/7/94 SPF *)
-  type short;
+  type machineWord;
+  type short = Word.word;
   type address;
   type addrs; (* NB this is *not* the same as "address" *)
   type code;
@@ -91,7 +91,7 @@ sig
   type labels; (* The source of a jump. *)
   
   val isCompRR: tests -> bool; (* Is the general form implemented? *)
-  val isCompRI: tests * word -> bool; (* Is the immediate value ok? *)
+  val isCompRI: tests * machineWord -> bool; (* Is the immediate value ok? *)
 
   (* Binary operations. veclen isn't binary but it makes things easier. *)
   type instrs;
@@ -123,7 +123,7 @@ sig
   val instrBad:     instrs;
 
   val instrIsRR: instrs -> bool; (* Is the general form implemented? *)
-  val instrIsRI: instrs * word -> bool; (* Is the immediate value ok? *)
+  val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
   
   val genRR: instrs * reg * reg * reg * code -> unit;
 
@@ -131,8 +131,8 @@ sig
   val genPush:        reg * code -> unit;
 
  (* Store allocation. *)
-  val allocStore:      int  * short * reg * code -> unit;
-  val setFlag:         reg * code * short -> unit;
+  val allocStore:      int  * Word8.word * reg * code -> unit;
+  val setFlag:         reg * code * Word8.word -> unit;
   val completeSegment: code -> unit;
 
    (* Backward jumps. *)
@@ -141,7 +141,7 @@ sig
   (* Function call and linkage. *)
   datatype callKinds =
 		Recursive
-	|	ConstantFun of word * bool
+	|	ConstantFun of machineWord * bool
 	|	CodeFun of code
 	|	FullCall
   
@@ -168,7 +168,7 @@ end (* CODECONS *);
 (*****************************************************************************)
 structure TRANSTAB :
 sig
-  type word; (* added 13/7/94 *)
+  type machineWord;
   type ttab;
   type reg;
   type code;
@@ -195,7 +195,7 @@ sig
   (* Push entries *)
   val pushReg:      ttab * reg -> stackIndex;
   val pushStack:    ttab * int  -> stackIndex;
-  val pushConst:    ttab * word -> stackIndex;
+  val pushConst:    ttab * machineWord -> stackIndex;
   val pushCodeRef:  ttab * code -> stackIndex;
   val pushNonLocal: ttab * ttab * stackIndex * 
                        (unit -> stackIndex) * code -> stackIndex;
@@ -272,7 +272,7 @@ sig
   val chooseRegister : ttab -> reg
   val addRegUse : ttab * reg -> unit
 
-  val getRegisterSet: word -> regSet
+  val getRegisterSet: machineWord -> regSet
   val allRegisters : regSet
   val regSetUnion: regSet * regSet -> regSet
   val listToSet: reg list -> regSet
@@ -290,27 +290,6 @@ sig
 end (* TRANSTAB *);
 
 (*****************************************************************************)
-(*                  DEBUGSWITCH                                              *)
-(*****************************************************************************)
-structure DEBUGSWITCH :
-sig
-  val maxInlineSize: int ref
-end (* DEBUGSWITCH *);
-
-(*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
-(*****************************************************************************)
-structure PRETTYPRINTER :
-sig
-  type prettyPrinter 
-  
-  val ppAddString  : prettyPrinter -> string -> unit
-  val ppBeginBlock : prettyPrinter -> int * bool -> unit
-  val ppEndBlock   : prettyPrinter -> unit -> unit
-  val ppBreak      : prettyPrinter -> int * int -> unit
-end;
-
-(*****************************************************************************)
 (*                  MISC                                                     *)
 (*****************************************************************************)
 structure MISC :
@@ -318,22 +297,10 @@ sig
   exception InternalError of string;
 end;
 
-(*****************************************************************************)
-(*                  RUNCALL                                                  *)
-(*****************************************************************************)
-(* This should be integrated with ADDRESS to form a low-level interface *)
-structure RUNCALL :
-sig
-  val run_call1 : int -> 'a -> 'b
-end;
-
-(* DCJM 8/8/00.  Previously Address was a global but we aren't allowed
-   to have sharing constraints with globals in ML97.  We could use a
-   "where type" constraint but then we couldn't bootstrap from ML90. *)
 structure ADDRESS:
 sig
-  type word;  (* NB *not* an eqtype *)
-  type short;
+  type machineWord;  (* NB *not* an eqtype *)
+  type short = Word.word;
   type address;
   
   val wordEq:  'a * 'a -> bool;
@@ -341,34 +308,32 @@ sig
   
   val unsafeCast : 'a -> 'b;
 
-  val toWord:   'a  -> word;
-  val toInt:    short -> int;
+  val toMachineWord:   'a  -> machineWord;
   val toShort:  'a -> short;
-  val toAddress: word -> address;
+  val toAddress: machineWord -> address;
 
-  val loadByte:  (address * short) -> short;
-  val loadWord:  address * short -> word
-  val flags:     address -> short;
+  val loadByte:  (address * short) -> Word8.word;
+  val loadWord:  address * short -> machineWord
+  val flags:     address -> Word8.word;
   val length:    address -> short;
   
-  val F_words:   short;
-  val F_bytes :  short;
-  val F_mutable: short;
-  
-  val Or:        short * short -> short
-  val And:       short * short -> short; 
-
-  val alloc:     short * short * word -> address
+  val F_words:   Word8.word;
+  val F_bytes :  Word8.word;
+  val F_mutable: Word8.word;
+ 
+  val alloc:     short * Word8.word * machineWord -> address
   
   val isCode :   address -> bool
   val isWords :   address -> bool
 
-  val call: address * word -> word
+  val call: address * machineWord -> machineWord
 
   val wordSize: int
 
   val isIoAddress : address -> bool
 end;
+
+structure BASECODETREE: BaseCodeTreeSig
 
 (*****************************************************************************)
 (*                  GCODE sharing constraints                                *)
@@ -394,9 +359,10 @@ sharing type
 = TRANSTAB.addrs  
   
 sharing type
-  ADDRESS.word
-= CODECONS.word
-= TRANSTAB.word
+  ADDRESS.machineWord
+= CODECONS.machineWord
+= TRANSTAB.machineWord
+= BASECODETREE.machineWord
 
 sharing type
   ADDRESS.short
@@ -416,198 +382,10 @@ sharing type
 (*                  GCODE export signature                                   *)
 (*****************************************************************************)
 sig
-  type word;     (* added 13/7/94 SPF *)
-  type prettyPrinter
-  
-  datatype inlineStatus =
-    NonInline
-  | MaybeInline
-  | SmallFunction
-  | OnlyInline
-  ;
-
-  datatype 'a codetree =
-    MatchFail    (* Pattern-match failure *)
-    
-  | AltMatch of  (* Pattern-match alternative choices *)
-      'a codetree * 'a codetree
-  
-  | Declar of  (* Make a local declaration or push an argument *)
-      {
-        value:      'a codetree,
-        addr:       int,
-        references: int
-       }
-
-   | Newenv of  (* Start a block *)
-       'a codetree list
-       
-   | Constnt of (* Load a constant *)
-       word
-        
-   | Extract of (* Get a local variable, an argument or a closure value *)
-       {
-         addr : int, 
-         level: int, 
-         fpRel: bool,
-		 lastRef: bool
-        }
-     
-   | Indirect of 
-      { (* Load a value from a heap record *)
-       base:   'a codetree,
-       offset: int
-      }
-     
-   | Eval of (* Evaluate a function with an argument list. *)
-      {
-        function:  'a codetree,
-        argList:   'a codetree list,
-        earlyEval: bool
-       }
-       
-   | Lambda of (* Lambda expressions. *)
-     { 
-       body          : 'a codetree,
-       isInline      : inlineStatus,
-       name          : string,
-       closure       : 'a codetree list,
-       numArgs  	 : int,
-       level         : int,
-       closureRefs   : int,
-       makeClosure   : bool
-      } 
-
-   | MutualDecs of (* Set of mutually recursive declarations. *)
-       'a codetree list
-       
-   | Cond of (* If-statement *)
-       'a codetree * 'a codetree * 'a codetree
-   
-   | Case of (* Case expressions *)
-      {
-       cases   : ('a codetree * int list) list,
-       test    : 'a codetree,
-       default : 'a codetree,
-       min     : int,
-       max     : int
-      }
-
-   | BeginLoop of (* Start of tail-recursive inline function. *)
-       'a codetree * 'a codetree list
-
-   | Loop of (* Jump back to start of tail-recursive function. *)
-       'a codetree list
-
-   | Raise of (* Raise an exception *)
-       'a codetree
-       
-   | Ldexc (* Load the exception (used at the start of a handler) *)
-   
-   | Handle of (* Exception handler *)
-     { (* Exception handler. *)
-       exp      : 'a codetree,
-       taglist  : 'a codetree list,
-       handler  : 'a codetree
-      }
-
-   | Recconstr of (* Records (tuples) *)
-       'a codetree list
-
-   | Container of int (* Create a container for a tuple on the stack. *)
-
-   | SetContainer of (* Copy a tuple to a container. *)
-   	  {
-       container: 'a codetree,
-	   tuple:     'a codetree,
-	   size:      int
-	  }
-
-   | TupleFromContainer of (* Make a tuple from the contents of a container. *)
-	   'a codetree * int
-
-   | Global of 'a (* Global value *)
-   | CodeNil
-
-  (* Parameterised because GCODE doesn't know about optVals *)
-  val pretty  : 'a codetree * ('a * prettyPrinter -> unit) * prettyPrinter -> unit
-  val isSmall : 'a codetree * ('a * ('a codetree -> int) -> int) -> bool
-  
-  val gencode: 'a codetree -> unit -> word;
-  val structureEq: word * word -> bool;
+  type codetree
+  type machineWord
+  val gencode: codetree -> unit -> machineWord;
 end =
-
-let
-
-(*****************************************************************************)
-(*                  ARRAY                                                    *)
-(*****************************************************************************)
-structure ARRAY :
-sig
-  type 'a array;
-  
-  val array : int * '_a -> '_a array;
-  val update : 'a array * int * 'a -> unit;
-  val sub    : 'a array * int -> 'a;
-end = Array;
-
-(*****************************************************************************)
-(*                  STRETCHARRAY                                             *)
-(*****************************************************************************)
-structure STRETCHARRAY :
-sig
-  type 'a stretchArray;
-  
-  val stretchArray : int * '_a -> '_a stretchArray;
-  val update : '_a stretchArray * int * '_a -> unit;
-  val sub    : 'a stretchArray * int -> 'a;
-end = StretchArray;
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type word;  (* NB *not* an eqtype *)
-  type short;
-  type address;
-  
-  val wordEq:  'a * 'a -> bool;
-  val isShort: 'a -> bool;
-  
-  val unsafeCast : 'a -> 'b;
-
-  val toWord:   'a  -> word;
-  val toInt:    short -> int;
-  val toShort:  'a -> short;
-  val toAddress: word -> address;
-
-  val loadByte:  (address * short) -> short;
-  val loadWord:  address * short -> word
-  val flags:     address -> short;
-  val length:    address -> short;
-  
-  val F_words:   short;
-  val F_bytes :  short;
-  val F_mutable: short;
-  
-  val Or:        short * short -> short
-  val And:       short * short -> short; 
-
-  val alloc:     short * short * word -> address
-  
-  val isCode :   address -> bool
-  val isWords :  address -> bool
-
-  val call: address * word -> word
-
-  val wordSize: int
-  
-  val isIoAddress : address -> bool
-
-end = ADDRESS;
-
-in
 
 (*****************************************************************************)
 (*                  GCODE functor body                                       *)
@@ -615,687 +393,38 @@ in
 struct
   open CODECONS;
   open TRANSTAB;
-  open DEBUGSWITCH;
-  open PRETTYPRINTER;
   open ADDRESS;
   open MISC; (* after address, so we get MISC.length, not ADDRESS.length *)
   open RuntimeCalls; (* for POLY_SYS numbers *)
+  open BASECODETREE;
   
-  val F_mutable_words = Or (F_mutable, F_words);
-  val F_mutable_bytes = Or (F_mutable, F_bytes);
+  val F_mutable_words = Word8.orb (F_mutable, F_words);
+  val F_mutable_bytes = Word8.orb (F_mutable, F_bytes);
  
   val objLength = ADDRESS.length;
   
   infix 7 regEq regNeq;
 
-(* copied from CTREE.ML for efficiency (local calls can be inlined) *)  
-  datatype inlineStatus =
-    NonInline
-  | MaybeInline
-  | SmallFunction
-  | OnlyInline
-  ;
-  
-  datatype 'a codetree =
-    MatchFail    (* Pattern-match failure *)
-    
-  | AltMatch of  (* Pattern-match alternative choices *)
-      'a codetree * 'a codetree
-  
-  | Declar of  (* Make a local declaration or push an argument *)
-      {
-        value:      'a codetree,
-        addr:       int,
-        references: int
-       }
-
-   | Newenv of  (* Start a block *)
-       'a codetree list
-       
-   | Constnt of (* Load a constant *)
-       word
-        
-   | Extract of (* Get a local variable, an argument or a closure value *)
-       {
-         addr : int, 
-         level: int, 
-         fpRel: bool,
-		 lastRef: bool
-        }
-     
-   | Indirect of 
-      { (* Load a value from a heap record *)
-       base:   'a codetree,
-       offset: int
-      }
-     
-   | Eval of (* Evaluate a function with an argument list. *)
-      {
-        function:  'a codetree,
-        argList:   'a codetree list,
-        earlyEval: bool
-       }
-       
-   | Lambda of (* Lambda expressions. *)
-     { 
-       body          : 'a codetree,
-       isInline      : inlineStatus,
-       name          : string,
-       closure       : 'a codetree list,
-       numArgs  	 : int,
-       level         : int,
-       closureRefs   : int,
-       makeClosure   : bool
-      } 
-
-   | MutualDecs of (* Set of mutually recursive declarations. *)
-       'a codetree list
-       
-   | Cond of (* If-statement *)
-       'a codetree * 'a codetree * 'a codetree
-   
-   | Case of (* Case expressions *)
-      {
-       cases   : ('a codetree * int list) list,
-       test    : 'a codetree,
-       default : 'a codetree,
-       min     : int,
-       max     : int
-      }
-   
-   | BeginLoop of (* Start of tail-recursive inline function. *)
-       'a codetree * 'a codetree list
-
-   | Loop of (* Jump back to start of tail-recursive function. *)
-       'a codetree list
-
-   | Raise of (* Raise an exception *)
-       'a codetree
-       
-   | Ldexc (* Load the exception (used at the start of a handler) *)
-   
-   | Handle of (* Exception handler *)
-     { (* Exception handler. *)
-       exp      : 'a codetree,
-       taglist  : 'a codetree list,
-       handler  : 'a codetree
-      }
-
-   | Recconstr of (* Records (tuples) *)
-       'a codetree list
-
-   | Container of int (* Create a container for a tuple on the stack. *)
-
-   | SetContainer of (* Copy a tuple to a container. *)
-   	  {
-       container: 'a codetree,
-	   tuple:     'a codetree,
-	   size:      int
-	  }
-
-   | TupleFromContainer of (* Make a tuple from the contents of a container. *)
-	   'a codetree * int
-
-   | Global of 'a (* Global value *)
-   | CodeNil
-   
-(*****************************************************************************)
-(*                         codetree functions                                *)
-(*****************************************************************************)
-
-  type 'a declarForm = 
-     { (* Declare a value or push an argument. *)
-       value:      'a codetree,
-       addr:       int,
-       references: int
-      }
-
-  and loadForm = 
-     { (* Load a value. *)
-       addr : int, 
-       level: int, 
-       fpRel: bool,
-	   lastRef: bool
-      }
-
-   and 'a diadic = 
-     'a codetree * 'a codetree
-
-   and 'a triadic = 
-     'a codetree * 'a codetree * 'a codetree
-
-   and 'a lambdaForm =
-     { (* Lambda expressions. *)
-       body          : 'a codetree,
-       isInline      : inlineStatus,
-       name          : string,
-       closure       : 'a codetree list,
-       numArgs  	 : int,
-       level         : int,
-       closureRefs   : int,
-       makeClosure   : bool
-      };
-
-  
-
-(*****************************************************************************)
-(*                         diadic functions                                  *)
-(*****************************************************************************)
-  val diaFirst:  'a diadic -> 'a codetree = #1;
-  val diaSecond: 'a diadic -> 'a codetree = #2;
-
-(*****************************************************************************)
-(*                         triadic functions                                 *)
-(*****************************************************************************)
-  val triFirst:  'a triadic -> 'a codetree = #1;
-  val triSecond: 'a triadic -> 'a codetree = #2;
-  val triThird:  'a triadic -> 'a codetree = #3;
-
-
 (*************************** end of copied code *****************************)  
    
   (* gets a value from the run-time system; 
     usually this is a closure, but sometimes it's an int.  *)
-  val ioOp : int -> word = RUNCALL.run_call1 POLY_SYS_io_operation;
-
- (* stringify functions *)
-  fun stringOfBool true  = "true"
-    | stringOfBool false = "false";
-    
-  fun stringOfWord w =
-    if isShort w
-    then Int.toString (toInt (toShort w))
-    else if isIoAddress(toAddress w)
-	then (* RTS call - print the number. *)
-		let
-			fun matchIo n =
-				if n = 256 then raise InternalError "Unknown RTS entry"
-				else if wordEq (w, ioOp n)
-				then " RTS" ^ Int.toString n
-				else matchIo (n+1)
-		in
-			matchIo 0
-		end
-	else if isWords(toAddress w) andalso toInt(objLength(toAddress w)) >= 1
-	then (* If it's the closure of a function try to print that. *)
-		let
-			val firstWord = loadWord(toAddress w, toShort 0)
-			val doCall: int*word -> string
-				= RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-		in
-			if not (isShort firstWord) andalso isCode(toAddress firstWord)
-			then " (" ^ doCall(105, firstWord) ^ ")" (* Get the function name. *)
-			else "<long>"
-		end
-	else "<long>";
+  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
   
-  fun pretty (pt : 'a codetree,
-              prettyOptVal : ('a * prettyPrinter) -> unit,
-              pprint: prettyPrinter) : unit =
-  let
-    fun pList ([]: 'b list) (sep: string) (disp: 'b->unit) = ()
-      | pList [h]    sep disp = disp h
-      | pList (h::t) sep disp =
-        ( ppBeginBlock pprint (0, false);
-          disp h;
-          ppBreak pprint (0, 0);
-          ppAddString pprint sep;
-          ppEndBlock pprint ();
-          ppBreak pprint (1, 0);
-          pList t sep disp
-        );
-
-    fun printList start lst sep =
-    ( ppBeginBlock pprint (1, true);
-      ppAddString pprint (start ^ "(");
-      pList lst sep (fn x => (pretty (x, prettyOptVal, pprint)));
-      ppBreak pprint (0, 0);
-      ppAddString pprint (")");
-      ppEndBlock pprint ()
-    );
-      
-    fun printMonad name pt =
-    ( ppBeginBlock pprint (1, true);
-      ppAddString pprint (name^"(");
-      pretty (pt, prettyOptVal, pprint);
-      ppBreak pprint (0, 0);
-      ppAddString pprint (")");
-      ppEndBlock pprint ()
-    );
-      
-    fun printDiad name diad =
-    ( ppBeginBlock pprint (1, true);
-      ppAddString pprint (name^"(");
-      pretty (diaFirst diad, prettyOptVal, pprint);
-      ppAddString pprint ", ";
-      ppBreak pprint (0, 0);
-      pretty (diaSecond diad, prettyOptVal, pprint);
-      ppBreak pprint (0, 0);
-      ppAddString pprint (")");
-      ppEndBlock pprint ()
-    );
-
-    fun printTriad name triad =
-    ( ppBeginBlock pprint (1, true);
-      ppAddString pprint (name^"(");
-      pretty(triFirst triad, prettyOptVal, pprint);
-      ppAddString pprint ", ";
-      ppBreak pprint (0, 0);
-      pretty(triSecond triad, prettyOptVal, pprint);
-      ppAddString pprint ", ";
-      ppBreak pprint (0, 0);
-      pretty (triThird triad, prettyOptVal, pprint);
-      ppBreak pprint (0, 0);
-      ppAddString pprint (")");
-      ppEndBlock pprint ()
-    );
-
-  in
-    case pt of
-      CodeNil =>
-        ppAddString pprint "NIL"
-        
-    | MatchFail =>   
-        ppAddString pprint "MATCHFAIL"
-
-    | AltMatch pair =>   
-        printDiad "ALTMATCH" pair
-
-    | Eval {function, argList, earlyEval} =>
-    (
-      ppBeginBlock pprint (3, false);
-      pretty (function, prettyOptVal, pprint);
-      ppBreak pprint (0, 0);
-      if earlyEval
-      then
-      ( ppAddString pprint "{early}";
-        ppBreak pprint (0, 0)
-      ) 
-      else ();
-      printList "$" argList ",";
-      ppEndBlock pprint ()
-    )
-
-    | Declar {value, addr, references} =>
-    (
-      ppBeginBlock pprint (1, false);
-      ppAddString pprint (concat
-          ["DECL #",
-            Int.toString addr, 
-           "{",
-            Int.toString references,
-             " uses} ="]);
-      ppBreak pprint (1, 0);
-      pretty (value, prettyOptVal, pprint);
-      ppEndBlock pprint ()
-    )
-      
-    | Extract {addr, level, fpRel, lastRef} =>
-    let
-	  val last = if lastRef then ", last" else "";
-      val str : string =
-        if not fpRel
-          then concat ["CLOS(", Int.toString level, ",", Int.toString addr, last, ")"]
-        else if addr < 0
-          then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), last, ")"]
-          else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, last, ")"]
-    in
-      ppAddString pprint str
-    end
-     
-    | Indirect {base, offset} =>
-    let
-      val str = "INDIRECT(" ^ Int.toString offset ^ ", ";
-    in
-      ppAddString pprint str;
-      pretty (base, prettyOptVal, pprint);
-      ppAddString pprint ")"
-    end
-
-    | Lambda {body, isInline, name, closure, numArgs, level, closureRefs, makeClosure} =>
-    let
-      val inl = 
-        case isInline of
-          NonInline   => ""
-        | MaybeInline => "INLINE"
-		| SmallFunction => "SMALL"
-        | OnlyInline  => "ONLYINLINE"
-    in
-      ppBeginBlock pprint (1, true);
-      ppAddString pprint ("LAMBDA"^inl^"(");
-      ppBreak pprint (1, 0);
-      ppAddString pprint name;
-      ppBreak pprint (1, 0);
-      ppAddString pprint ( "CL="  ^ stringOfBool makeClosure);
-      ppAddString pprint (" CR="  ^ Int.toString closureRefs);
-      ppAddString pprint (" LEV=" ^ Int.toString level);
-      ppAddString pprint (" ARGS=" ^ Int.toString numArgs);
-      printList " CLOS=" closure ",";
-      ppBreak pprint (1, 0);
-      pretty (body, prettyOptVal, pprint);
-      ppAddString pprint "){LAMBDA}";
-      ppEndBlock pprint ()
-    end
-    
-    | Constnt w =>
-        ppAddString pprint ("LIT" ^ stringOfWord w)
-      
-    | Cond triple =>
-        printTriad "IF" triple
-      
-    | Newenv ptl =>
-        printList "BLOCK" ptl ";"
-
-	| BeginLoop(loopExp, args) =>
-	    (
-	      ppBeginBlock pprint (3, false);
-	      printList "BEGINLOOP" args ",";
-	      ppBreak pprint (0, 0);
-      	  ppAddString pprint "(";
-	      ppBreak pprint (0, 0);
-	      pretty (loopExp, prettyOptVal, pprint);
-	      ppBreak pprint (0, 0);
-      	  ppAddString pprint ")";
-	      ppEndBlock pprint ()
-	    )
-
-    | Loop ptl =>
-        printList "LOOP" ptl ","
-      
-    | Raise c =>
-       printMonad "RAISE" c
-      
-    | Handle {exp, taglist, handler} =>
-    (
-      ppBeginBlock pprint (3, false);
-      ppAddString pprint "HANDLE(";
-      pretty (exp, prettyOptVal, pprint);
-      ppAddString pprint "WITH";
-      ppBreak pprint (1, 0);
-      pretty (handler, prettyOptVal, pprint);
-      ppAddString pprint ")";
-      ppEndBlock pprint ()
-    )
-     
-    | Ldexc =>
-       ppAddString pprint "LDEXC"
-      
-    | Case {cases, test, default, min, max} =>
-    (
-      ppBeginBlock pprint (1, true);
-      ppAddString pprint
-       (concat 
-         ["CASE ",
-           Int.toString min,
-           "-",
-           Int.toString max,
-           "("
-          ]);
-      pretty (test, prettyOptVal, pprint);
-      ppAddString pprint ")";
-      ppBreak pprint (1, 0);
-      ppAddString pprint "(";
-      ppBreak pprint (1, 0);
-      pList cases ","
-            (fn (exp : 'a codetree, labels : int list) =>
-               (
-                ppBeginBlock pprint (1, true);
-                List.app (fn l =>
-                         (
-                          ppAddString pprint (Int.toString l ^ ":");
-                          ppBreak pprint (1, 0)
-                         )
-                       ) labels;
-                 pretty (exp, prettyOptVal, pprint);
-                 ppEndBlock pprint ()
-                )
-              );
-	  case default of
-	  	CodeNil => ()
-	   | _ =>
-	      ( ppBreak pprint (1, 0);
-	        ppBeginBlock pprint (1, false);
-	        ppAddString pprint "ELSE:";
-	        ppBreak pprint (1, 0);
-	        pretty (default, prettyOptVal, pprint);
-	        ppEndBlock pprint ()
-	      );
-      ppBreak pprint (1, 0);
-      ppAddString pprint (") {"^"CASE"^"}");
-      ppEndBlock pprint ()
-    )
-    
-    | MutualDecs ptl =>
-        printList "MUTUAL" ptl " AND "
-      
-    | Recconstr ptl =>
-        printList "RECCONSTR" ptl ","
-
-    | Container size =>
-      ppAddString pprint ("CONTAINER " ^ Int.toString size)
-    
-    | SetContainer{container, tuple, size} =>
-	    (
-	      ppBeginBlock pprint (3, false);
-	      ppAddString pprint ("SETCONTAINER(" ^ Int.toString size ^ ", ");
-	      pretty (container, prettyOptVal, pprint);
-	      ppBreak pprint (0, 0);
-      	  ppAddString pprint ",";
-	      ppBreak pprint (1, 0);
-	      pretty (tuple, prettyOptVal, pprint);
-	      ppBreak pprint (0, 0);
-      	  ppAddString pprint ")";
-	      ppEndBlock pprint ()
-	    )
-
-    | TupleFromContainer (container, size) =>
-	  (
-	      ppBeginBlock pprint (3, false);
-	      ppAddString pprint ("TUPLECONTAINER(" ^ Int.toString size ^ ", ");
-	      ppBreak pprint (0, 0);
-	      pretty (container, prettyOptVal, pprint);
-	      ppBreak pprint (0, 0);
-	      ppAddString pprint ")";
-	      ppEndBlock pprint ()
-	  )
-
-    | Global glob =>
-    (
-      ppBeginBlock pprint (1, true);
-      ppAddString pprint "GLOBAL ";
-      prettyOptVal (glob, pprint);
-      ppAddString pprint " (*GLOBAL*)";
-      ppEndBlock pprint ()
-    )
-    
-    (* That list should be exhaustive! *)
-  end (* pretty *);
-
-  (* Test whether a piece of code is "small".  This is used to decide whether a function
-     should be made inline.  *)
-  fun isSmall (pt, sizeOptVal) = 
-  let
-    fun sizeList [] = 0
-      | sizeList (c::cs) = size c + sizeList cs
-      
-    and sizeCaseList []           = 0
-      | sizeCaseList ((c,il)::cs) = size c + List.length il + sizeCaseList cs
-      
-    (* some very rough size estimates *)
-    and size pt =
-      case pt of
-	CodeNil                         => 0
-      | MatchFail                       => 1
-      | AltMatch (m1, m2)               => size m1 + size m2 + 1
-      | Declar {value, ...}             => size value
-      | Newenv cl                       => sizeList cl
-      | Constnt w                       => if isShort w then 0 else 1
-      | Extract _                       => 1  (* optimistic *)
-      | Indirect {base,...}             => size base + 1
-      | Lambda {body,numArgs,...}		=> size body + numArgs
-      | Eval {function,argList,...}     => size function + sizeList argList + 2
-      | MutualDecs decs                 => (*!maxInlineSize*) (* no inlining *)
-	  										sizeList decs
-      | Cond (i,t,e)                    => size i + size t + size e + 2
-      | BeginLoop (b, args)             => size b + sizeList args
-      | Loop args                       => sizeList args + 1
-      | Raise c                         => size c + 1
-      | Ldexc                           => 1
-      | Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
-      | Recconstr cl                    => sizeList cl + 2 (* optimistic *)
-	  | Container size                  => 1 (* optimistic *)
-	  | SetContainer{container, tuple = Recconstr cl, ...} =>
-	  									(* We can optimise this. *) sizeList cl + size container
-	  | SetContainer{container, tuple, size=len} => size container + size tuple + len
-	  | TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
-      | Global glob                     => sizeOptVal (glob, size)
-      | Case {test,default,cases,...}   =>
-	  size test + size default + sizeCaseList cases
-      ;
-   in
-   	 (* We previously treated functions which only contained Lambdas as always small.
-	    I've now taken that out because it caused the code to blow up if the Lambda
-		turned out to be a large function (e.g. fun f x = fn y => ...BIGCODE...).
-		There may be a case for lifting the inner lambda out much as we already do
-		with fun declarations but this needs to be done in the front end.  DCJM 14/3/02.  *)
-     size pt < !maxInlineSize
-   end;
-
-
   (* minor HACKS *)
   fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-  fun apply f [] = () | apply f (h::t) = (f h; apply f t);
+       
+  val word0 = toMachineWord 0;
+  val word1 = toMachineWord 1;
   
-  val short0 : short = toShort 0;
-  val short1 : short = toShort 1;
-  val short2 : short = toShort 2;
-      
-  val word0 = toWord 0;
-  val word1 = toWord 1;
-  
-  val DummyValue : word = word0; (* used as result of "raise e" etc. *)
-  val UnitValue : word = word0; (* unit *)
-  val False : word = word0;     (* false *)
-  val True  : word = word1;     (* true *)
-  val Zero  : word = word0;     (* 0 *)
+  val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
+  val UnitValue : machineWord = word0; (* unit *)
+  val False : machineWord = word0;     (* false *)
+  val True  : machineWord = word1;     (* true *)
+  val Zero  : machineWord = word0;     (* 0 *)
   
   val constntTrue  = Constnt True;
   val constntFalse = Constnt False;
-  
-(*****************************************************************************)
-(*                         code for structureEq                              *)
-(*****************************************************************************)
-  local
-    infix 6 And;
-    infix 7 Or;
-  
-   (* Compare two values for equality of their structures. Values with
-       the mutable bit set are assumed to be references and are only equal
-       if they are the same address. We assume that this will not be applied
-       to code segments or stacks. The address of this function is put
-       in the code to do the equality testing. *)
-  in
-    fun structureEq (a:word, b:word) =
-     if wordEq (a, b) then true
-     else 
-       (* If either is a short, then they cannot be equal unless a = b. 
-	   Other values are addresses so we have to use structural
-	   equality. *)
-	   
-       if isShort a then false else
-       if isShort b then false (* nil is a short now SPF 14/7/94 *)
-       else let
-	 (* we promise to be very careful! *)
-	 val toAddress : 'a -> address = unsafeCast;
-	 val toShort   : 'a -> short   = unsafeCast;
-       
-	 (* Both addresses *)
-	 val aa  : address = toAddress a;
-	 val bb  : address = toAddress b;
-	 val alw : short   = objLength aa;
-	 val blw : short   = objLength bb;
-       in
-	 if not (wordEq (alw, blw))
-	   then (* Must be same size and type. *) false
-	   
-	 else let
-	   val orFlags : short = flags aa Or flags bb
-	 in
-	   if not (wordEq (orFlags And F_mutable, short0))
-	      (* In ML mutable objects are equal only if addresses are.
-		 This avoids the need to check for circularity. *)
-	     then false
-		     
-	   else if not (wordEq (orFlags And F_bytes, short0))
-	     then let
-	       (* Byte vector. Each value is a byte and treated as equal
-		  only if each byte is equal. Can also arise when the garbage
-		  collector turns vectors of small integers into byte vectors
-		  to save repeated scans. *)
-	       (* Would it be more efficient to compare a word at a time?
-		  No, because byte-segments contain bit-patterns that 
-		   aren't proper "words"  SPF 14/7/94 *)
-	       fun compBytes i =
-		   	 if i < 0 then true
-			 else wordEq (loadByte (aa, toShort i), loadByte (bb, toShort i))
-			 andalso compBytes (i - 1);
-	     in
-	       compBytes (toInt alw * wordSize - 1)
-	     end
-	     
-	   else if wordEq (alw, short1)
-	     then structureEq (loadWord (aa, short0), loadWord (bb, short0))
-  
-	   else if wordEq (alw, short2)
-	   then let
-	     (* Most objects are list cells or tagged values. *)
-	     (* We want to avoid recursing if we can easily see that the
-		objects differ. Short integers differing mean that the
-		objects do differ, otherwise if they are different pointers
-		we have to follow them. *)
-	     val a0 : word = loadWord (aa, short0);
-	     val a1 : word = loadWord (aa, short1);
-	     val b0 : word = loadWord (bb, short0);
-	     val b1 : word = loadWord (bb, short1);
-	   in
-	     if isShort a0 
-	       then wordEq (a0, b0) andalso structureEq (a1, b1)
-	     
-	     else if isShort b0
-	       then false
-  
-	     else if isShort a1
-	       then wordEq (a1, b1) andalso structureEq (a0, b0)
-	       
-	     else if isShort b1
-	       then false
-	       
-	     else
-	       structureEq (a0, b0) andalso structureEq (a1, b1)
-	   end
-  
-	   else let
-	     (* Larger objects. *)
-	     (* Compare the words of the vector.  Work from the end back - this
-		is more efficient for tagged values. *)
-		 (* compWords is compiled down to a loop to check all but the first word. *)
-	     fun compWords 0 = true
-	       | compWords i =
-		   structureEq (loadWord (aa, toShort i), loadWord (bb, toShort i))
-		   andalso compWords (i - 1);
-	   in
-	     compWords (toInt alw - 1) andalso
-		 	(* Tail recurse on last entry. *)
-		 	structureEq (loadWord (aa, short0), loadWord (bb, short0))
-	   end
-	 end
-       end (* structureEq *);
-
-  end; (* local *)
-
-
-(*************************** end of code for structureEq *********************)  
-
   (* Where the result, if any, should go *)
   datatype whereTo =
     NoResult     (* discard result *)
@@ -1355,7 +484,7 @@ struct
 
   (* Code generate a procedure or global declaration *)
   fun codegen
-       (pt               : 'a codetree,
+       (pt               : codetree,
         cvec             : code,
         declOnPrevLevel  : int * (unit -> stackIndex) * ttab * code -> stackIndex,
         isStaticLink     : int -> bool,
@@ -1425,8 +554,8 @@ struct
 	val closureOrSlAddr = registerArg regClosure (if discardClosure then 0 else 1)
       
     (* A vector to map argument numbers into offsets on the pseudo stack. *)
-    val argRegTab : stackIndex ARRAY.array =
-      ARRAY.array (argRegs:int, noIndex: stackIndex);
+    val argRegTab : stackIndex Array.array =
+      Array.array (argRegs:int, noIndex: stackIndex);
 
     (* off-by-ones adjusted SPF 7/6/94 *)
     local
@@ -1434,7 +563,7 @@ struct
         if i < numOfArgs andalso i < argRegs
         then let
 		(* DCJM 29/11/99.  Changed to use lastRef rather than reference counts. *)
-          val U : unit = ARRAY.update (argRegTab, i, registerArg (argReg i) 1);
+          val U : unit = Array.update (argRegTab, i, registerArg (argReg i) 1);
         in
           pushArgRegs (i + 1) 
         end
@@ -1468,7 +597,7 @@ struct
       
 
     (* Allocate a segment of the required size. *)
-    fun callgetvec (csize, flag : short, whereto) : stackIndex =
+    fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex =
     let
        (* Get a register for the result. We cannot use the local ptr. for the
           result because it's supposed always to point to the bottom of the
@@ -1516,7 +645,7 @@ struct
           if argOffset < argRegs
           then
 		  	 let
-			 	val regEntry = ARRAY.sub (argRegTab, argOffset)
+			 	val regEntry = Array.sub (argRegTab, argOffset)
 			 in
 				(* If this is NOT the last reference we need to increment the
 				   use count on the entry. *)
@@ -1557,16 +686,16 @@ struct
      (* locaddr *);
     
     (* For each load of a local in the tree it calls the `add' procedure. *)
-    fun identifyLoads (expList : 'a codetree list, transtable) : (stackIndex -> unit) -> unit =
+    fun identifyLoads (expList : codetree list, transtable) : (stackIndex -> unit) -> unit =
       fn (add : stackIndex -> unit) =>
       let 
        (* Need to identify declarations within the current block.
           The declaration numbers are reused so we have to identify
           new declarations. *)
-        val newDecs : bool STRETCHARRAY.stretchArray =
-           STRETCHARRAY.stretchArray (4, false);
+        val newDecs : bool StretchArray.stretchArray =
+           StretchArray.stretchArray (4, false);
            
-        fun loads (pt: 'a codetree) : unit =
+        fun loads (pt: codetree) : unit =
           case pt of
             MatchFail => ()
             
@@ -1584,10 +713,10 @@ struct
                 val argOffset = numOfArgs + locn;
               in
                 if argOffset < argRegs andalso lastRef
-                then add (ARRAY.sub (argRegTab, argOffset)) (* SPF 7/6/94 *)
+                then add (Array.sub (argRegTab, argOffset)) (* SPF 7/6/94 *)
                 else ()
               end
-              else if not (STRETCHARRAY.sub (newDecs,locn)) andalso lastRef
+              else if not (StretchArray.sub (newDecs,locn)) andalso lastRef
                 (* Ignore new declarations. *)
                 then add (pstackForDec (transtable, locn))
               else ()
@@ -1604,43 +733,43 @@ struct
             let
               val U : unit = loads function;
             in
-              apply loads argList
+              List.app loads argList
             end
             
           | Declar {addr, value, ...} =>
             let
                (* Indicate that this is a new declaration. *)
-              val U : unit = STRETCHARRAY.update (newDecs, addr, true);
+              val U : unit = StretchArray.update (newDecs, addr, true);
             in
               loads value (* Check the expression. *)
             end
             
           | Indirect {base, ...} => loads base
             
-          | Newenv vl => apply loads vl
+          | Newenv vl => List.app loads vl
             
-          | Recconstr vl => apply loads vl
+          | Recconstr vl => List.app loads vl
 
-		  | BeginLoop(body, args) => (apply loads args; loads body)
+		  | BeginLoop(body, args) => (List.app loads args; loads body)
 
-		  | Loop argList => apply loads argList
+		  | Loop argList => List.app loads argList
 
 		  | Handle{exp, taglist, handler} =>
-		  		(apply loads taglist; loads exp; loads handler)
+		  		(List.app loads taglist; loads exp; loads handler)
 
 		  | MutualDecs decs =>
 		  		(
 				 (* First process the declarations to ensure that new declarations
 				    are marked as such then process the values being declared. *)
-				 apply(
-					fn Declar{addr, ...} => STRETCHARRAY.update (newDecs, addr, true)
+				 List.app(
+					fn Declar{addr, ...} => StretchArray.update (newDecs, addr, true)
 					 | _ => raise InternalError "MutualDecs: not Declar") decs;
-				 apply loads decs
+				 List.app loads decs
 				)
 
           | _ => ();
       in
-        apply loads expList
+        List.app loads expList
       end;
       
     (* code-generates code from the tree *)
@@ -1998,7 +1127,7 @@ struct
           (* Now it's on the real stack we can remove it from the pstack. *)
           val U : unit = removeStackEntry(transtable, oldIndex);
           
-          fun genTag (tag : 'a codetree) : handler =
+          fun genTag (tag : codetree) : handler =
           let
 		    (* Push address of new handler. *)
 		    val rsp         = realstackptr transtable;
@@ -2125,7 +1254,7 @@ struct
 
             (* Count the total number of cases. *)
             fun countCases [] = 0
-              | countCases ((caseExp : 'a codetree, caseLabels : int list) :: cps) =
+              | countCases ((caseExp : codetree, caseLabels : int list) :: cps) =
                 List.length caseLabels + countCases cps;
 
 	    (* This procedure decides whether to use a case instruction
@@ -2273,7 +1402,7 @@ struct
 		  | putInCases [x] =
 		      (* last one - skip if value does not match. *)
 		     let
-		       val locn = pushConst (transtable, toWord x);
+		       val locn = pushConst (transtable, toMachineWord x);
 		     in
 		       (* should do arbitrary precision test here? Yes. *)
 		       compareAndBranch (testValue, locn,
@@ -2289,7 +1418,7 @@ struct
 		     (* Increment the use count so it doesn't get
 			thrown away. *)
 		     val U    = incrUseCount (transtable, testValue, 1);
-		     val locn = pushConst (transtable, toWord x);
+		     val locn = pushConst (transtable, toMachineWord x);
 		     val lab  = 
 		       (* should do arbitrary precision test here???? SPF *)
 		       compareAndBranch (testValue, locn,
@@ -2302,7 +1431,7 @@ struct
 		     rLab
 		   end; (* putInCases *)
 		   
-		val (caseExp : 'a codetree, caseLabels : int list) = cp;
+		val (caseExp : codetree, caseLabels : int list) = cp;
 		
 		val lab = putInCases caseLabels;
 
@@ -2543,7 +1672,7 @@ struct
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : 'a codetree, matchFailFn) : stackIndex =
+    and genToStack (pt : codetree, matchFailFn) : stackIndex =
 		let
 			val res = gencde (pt, true, ToPstack, NotEnd, matchFailFn, NONE)
 		in
@@ -2617,7 +1746,7 @@ struct
        `lastDec' is true if there are no more mutually recursive declarations.
     *)
     and genProc ({ closure=closureList, makeClosure, name=lambdaName,
-				   body=lambdaBody, numArgs, closureRefs, ... }: 'a lambdaForm,
+				   body=lambdaBody, numArgs, closureRefs, ... }: lambdaForm,
 				 mutualRecursive, lastDec, whereto, matchFailFn) =
     let
       fun allConstnt [] = true
@@ -2683,7 +1812,7 @@ struct
 				val argOffset = numOfArgs + locn;
 		      in
 				if argOffset < argRegs
-				then pushNonLocal (transtable, newtab, ARRAY.sub (argRegTab, argOffset), makeSl, cvec)
+				then pushNonLocal (transtable, newtab, Array.sub (argRegTab, argOffset), makeSl, cvec)
 				else indirect (~locn * wordSize, makeSl (), cvec, newtab)
 		      end
 		      else (* on the stack *)
@@ -2720,7 +1849,7 @@ struct
                SPF 10/4/96
             *)
             case closureEntry of
-              Constnt (w : word) => isCode (toAddress w)
+              Constnt (w : machineWord) => isCode (toAddress w)
 
             | Extract {fpRel = true, addr = correctedLoc, ...} =>
 		        correctedLoc > 0 andalso isProcB (transtable, correctedLoc)
@@ -2778,7 +1907,7 @@ struct
             val closureEntry = findClosure closureList prevloc;
           in
             case closureEntry of
-              Constnt (w : word) => getRegisterSet w
+              Constnt (w : machineWord) => getRegisterSet w
             | Extract {fpRel = true, addr, ...} =>
 				if addr > 0
 				then getFunctionRegSet(pstackForDec (transtable, addr), transtable)
@@ -2801,7 +1930,7 @@ struct
 		      in
 				if argOffset < argRegs
 				then pushSpecificEntry(transtable, cvec,
-							ARRAY.sub (argRegTab, argOffset))
+							Array.sub (argRegTab, argOffset))
 				else ()
 		      end
 		      else (* on the stack *)
@@ -2916,7 +2045,7 @@ struct
 		      numArgs,
 		      closureRefs);
                 
-          val result = pushConst (transtable, toWord closureAddr);
+          val result = pushConst (transtable, toMachineWord closureAddr);
           
           val U : unit = mutualRecursive result;
         in
@@ -2984,7 +2113,7 @@ struct
 		    numArgs,
 		    closureRefs);
 		
-        val res : word = toWord codeAddr;
+        val res : machineWord = toMachineWord codeAddr;
       in
         if lastDec
         then let
@@ -3196,9 +2325,9 @@ struct
         *)
       | Case {cases = [(result, [tag])], test, default, min, max} =>
         let
-          val equalFun  : 'a codetree = Constnt (ioOp POLY_SYS_equala);
-          val arguments : 'a codetree list = [test, Constnt (toWord tag)];
-          val eqTest    : 'a codetree = 
+          val equalFun  : codetree = Constnt (ioOp POLY_SYS_equala);
+          val arguments : codetree list = [test, Constnt (toMachineWord tag)];
+          val eqTest    : codetree = 
              Eval {function = equalFun, argList = arguments, earlyEval = true};
         in
           genTest (Cond (eqTest, result, default), jumpOn, matchFailFn) 
@@ -3255,40 +2384,6 @@ struct
 		   else genOtherTests () 
 		end (* genCompare *);
 
-		(* Code for special cases of structure equality and inequality. *)
-	    fun genStructureComparison(Recconstr [arg1, arg2], t, f, _) =
-		     if (case arg1 of Constnt w => isShort w | _ => false) orelse
-				(case arg2 of Constnt w => isShort w | _ => false)
-		     then genCompare (arg1, arg2, t, f, t, f)
-		     else genOtherTests ()
-			 
-	    | genStructureComparison(Recconstr _, _, _, _) =
-             raise InternalError "genTest structureEq (tuple is not a pair)"
-
-	    | genStructureComparison(Constnt (w : word), _, _, structComp) =
-             (* If we have a constant, it should be a constant pair *)
-             if isShort w
-             then raise InternalError "genTest structureEq (argument is a short)"
-             else let 
-               val addr : address = toAddress w;
-               val fl   : short  = flags addr;
-             in
-               if wordEq (And (fl, F_mutable), F_mutable) orelse
-                  wordEq (And (fl, F_bytes),   F_bytes) orelse
-                  not (wordEq (objLength addr, short2))
-               then raise InternalError "genTest structureEq (argument is not a pair)"
-               else let
-                 val result : 'a codetree =
-                   if structComp (loadWord (addr, short0), loadWord (addr, short1))
-                   then constntTrue
-                   else constntFalse
-               in
-                 genTest (result, jumpOn, matchFailFn)
-               end
-             end
-                      
-	    | genStructureComparison _ = (* must make generic call *) genOtherTests ()
-
       in
         case args of
 		  [] => (* We don't currently have any nullary special cases *)
@@ -3303,7 +2398,7 @@ struct
 	    then
 	    (
 	      case arg of
-		Constnt (w : word) =>
+		Constnt (w : machineWord) =>
 		  if isShort w
 		  then genTest (constntTrue,  jumpOn, matchFailFn)
 		  else genTest (constntFalse, jumpOn, matchFailFn)
@@ -3322,9 +2417,6 @@ struct
 		end
 		else genOtherTests ()
 	    )
-
-	    else if wordEq (oper, toWord structureEq) (* SPF 19/6/95 *)
-	      then genStructureComparison(arg, testEqW, testNeqW, structureEq)
             
         else (* Non-special unary function.*)
               genOtherTests ()
@@ -3472,7 +2564,7 @@ struct
 
 	  (* First evaluate all the arguments to the pseudo stack.  This returns
 	     a list of pseudo-stack indexes for the registers. *)
-      fun evalArgs (argList : 'a codetree list) : stackIndex list =
+      fun evalArgs (argList : codetree list) : stackIndex list =
       let
         fun ldArgs []     (argNo : int) = []
           | ldArgs (h::t) (argNo : int) =
@@ -3747,7 +2839,7 @@ struct
           
           
       (* Call a closure function, i.e. not one that requires a static link. *)
-      fun callClosure (clos : 'a codetree option): mergeResult =
+      fun callClosure (clos : codetree option): mergeResult =
       let
         val tailCall = isEndOfProc tailKind;
         val bodyCall = not tailCall;
@@ -3822,10 +2914,10 @@ struct
 							(SOME(pushConst(transtable, w)), true, [], [])
 						else
 						let
-							val code : word = loadWord (addr, short0)
+							val code : machineWord = loadWord (addr, 0w0)
 							val codeLocn = pushConst(transtable, code)
 						in
-							if toInt (objLength addr) = 1
+							if objLength addr = 0w1
 							then (* The closure is just one word - we don't need to
 									put it in the closure register since the function
 									won't need it.  Do the indirection now. *)
@@ -3865,14 +2957,14 @@ struct
 
     in (* body of genEval *)
       case evalFun of
-        Constnt (oper : word) =>
+        Constnt (oper : machineWord) =>
 	let
 	  val args = argList;
 	  val addr = toAddress oper;
   
 	  (* Unary operations are generated as binary operations where the second
 	     argument is a constant.  e.g. neg(x) is generated as revsub(x, 0). *)
-	  fun genU i ri (constnt:word): mergeResult =
+	  fun genU i ri (constnt:machineWord): mergeResult =
 	    case args of
 	      [arg] => 
 	       (* Check that the instruction is implemented. *)
@@ -3921,14 +3013,14 @@ struct
 		 if isShort lengthCnst andalso isShort flagsCnst
 		 then let
 		   (* Allocstore always constructs mutable segments and sets the mutable bit. *)
-		   val flags : short = ADDRESS.Or(toShort flagsCnst, F_mutable);
+		   val flags = Word8.orb(Word8.fromLargeWord(Word.toLargeWord(toShort flagsCnst)), F_mutable);
 		 in
-		   if wordEq (flags, F_mutable_words)
+		   if flags = F_mutable_words
 			  (* Add byte segments if/when we have byte assignment. *)
 			 (* orelse
 		      wordEq (flags, F_mutable_bytes) *)
 		   then let (* only do easy cases *)
-		     val length : int = toInt (toShort lengthCnst);
+		     val length : int = Word.toInt (toShort lengthCnst);
 		   in
 		     (* only in-line small allocations (principally refs) *)
 		     if 0 < length andalso length < 5
@@ -4295,7 +3387,7 @@ struct
 	  numArgs,
 	  closureRefs);
 
-      val res : word = toWord closureAddr;
+      val res : machineWord = toMachineWord closureAddr;
     in
       (* Result is a procedure which returns the address of the procedure. *)
       (fn () => res)
@@ -4318,9 +3410,7 @@ struct
 	  0,    (* No args. *)
 	  0);    (* No recursive references *)
     in (* Result is a procedure to execute the code. *)
-      fn () => call (closureAddr, toWord ())
+      fn () => call (closureAddr, toMachineWord ())
     end (* gencode *);
     
-end (* GCODE functor body *)
-
-end; (* structure-level let *)
+end; (* GCODE functor body *)
