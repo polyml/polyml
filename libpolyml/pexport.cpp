@@ -734,7 +734,7 @@ bool PImport::DoImport()
             break;
 
         default:
-            fprintf(stderr, "Invalid object type");
+            fprintf(stderr, "Invalid object type\n");
             return false;
         }
 
@@ -781,7 +781,7 @@ bool PImport::DoImport()
         do
         {
             ch = getc(f);
-        } while (ch == 'M' || ch == 'N');
+        } while (ch == 'M' || ch == 'N' || ch == 'L' || ch == 'V' || ch == 'W');
 
         /* Object type. */
         switch (ch)
