@@ -186,6 +186,18 @@ struct
         exception Thread = ThreadEx.ex
     end
     
+    local
+        (* Create non-overwritable mutables for mutexes and condition variables.
+           A non-overwritable mutable in the executable or a saved state is not
+           overwritten when a saved state further down the hierarchy is loaded. *)
+		val F_non_overwrite_mutable : word = 0wx48;
+		val System_alloc: word*word*word->word  =
+			RunCall.run_call3 POLY_SYS_alloc_store
+    in
+        fun nvref (a: 'a) : 'a ref =
+            RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
+    end
+    
     structure Thread =
     struct
         
@@ -391,7 +403,7 @@ struct
     structure Mutex =
     struct
         type mutex = Word.word ref
-        fun mutex() = ref 0w1; (* Initially unlocked. *)
+        fun mutex() = nvref 0w1; (* Initially unlocked. *)
         val atomicIncr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_incr
         and atomicDecr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_decr
 
@@ -469,7 +481,7 @@ struct
         (* A condition variable contains a lock and a list of suspended threads. *)
         type conditionVar = { lock: Mutex.mutex, threads: thread list ref }
         fun conditionVar(): conditionVar =
-            { lock = Mutex.mutex(), threads = ref nil }
+            { lock = Mutex.mutex(), threads = nvref nil }
 
         (* To avoid duplicating the code we use zero to represent an infinite wait.
            Since that's a valid time in the past we check that it isn't used in
