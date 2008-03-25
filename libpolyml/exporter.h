@@ -92,7 +92,7 @@ public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
     // Default sizes of the segments.
-    POLYUNSIGNED defaultImmSize, defaultMutSize;
+    POLYUNSIGNED defaultImmSize, defaultMutSize, defaultNoOverSize;
     unsigned hierarchy;
 };
 

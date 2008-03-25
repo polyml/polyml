@@ -192,7 +192,7 @@ static Handle make_handle_entry(TaskData *taskData)
         }
     } while (handle_no >= maxHandleTab);
      
-    str_token = alloc_and_save(taskData, 1, F_BYTE_BIT);
+    str_token = alloc_and_save(taskData, 1, F_BYTE_OBJ);
     STREAMID(str_token) = handle_no;
 
     /* Clear the entry then set the token. */

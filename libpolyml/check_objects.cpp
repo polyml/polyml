@@ -85,10 +85,10 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
 
     byte flags = GetTypeBits(L);  /* discards GC flag and mutable bit */
 
-    if ((flags & ~F_NEGATIVE_BIT) == F_BYTE_BIT) /* possibly signed byte object */
+    if (flags == F_BYTE_OBJ) /* possibly signed byte object */
         return; /* Nothing more to do */
 
-    if (flags == F_STACK_BIT)
+    if (flags == F_STACK_OBJ)
     {
         StackObject *stack = (StackObject *) base;
         POLYUNSIGNED     skip  = stack->p_sp - (PolyWord*)base;
@@ -102,7 +102,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
         pt += skip; 
         n  -= skip;
     }
-    else if (flags == F_CODE_BIT) /* code object */
+    else if (flags == F_CODE_OBJ) /* code object */
     {
         ScanCheckAddress checkAddr;
         /* We flush the instruction cache here in case we change any of the

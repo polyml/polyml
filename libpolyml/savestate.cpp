@@ -149,6 +149,7 @@ typedef struct _savedStateSegmentDescr
 
 #define SSF_WRITABLE    1               // The segment contains mutable data
 #define SSF_OVERWRITE   2               // The segment overwrites the data (mutable) in a parent.
+#define SSF_NOOVERWRITE 4               // The segment must not be further overwritten
 
 typedef struct _relocationEntry
 {
@@ -368,7 +369,7 @@ void SaveRequest::Perform()
         for (unsigned i = 0; i < gMem.npSpaces; i++)
         {
             PermanentMemSpace *space = gMem.pSpaces[i];
-            if (space->isMutable)
+            if (space->isMutable && ! space->noOverwrite)
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
     }
@@ -402,7 +403,10 @@ void SaveRequest::Perform()
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
             if (space->isMutable)
+            {
                 entry->mtFlags = MTF_WRITEABLE;
+                if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+            }
             else
                 entry->mtFlags = MTF_EXECUTABLE;
         }
@@ -418,7 +422,10 @@ void SaveRequest::Perform()
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
         if (space->isMutable)
+        {
             entry->mtFlags = MTF_WRITEABLE;
+            if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+        }
         else
             entry->mtFlags = MTF_EXECUTABLE;
     }
@@ -486,7 +493,9 @@ void SaveRequest::Perform()
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
-            if (j < permanentEntries)
+            if (entry->mtFlags & MTF_NO_OVERWRITE)
+                descrs[j].segmentFlags |= SSF_NOOVERWRITE;
+            if (j < permanentEntries && (entry->mtFlags & MTF_NO_OVERWRITE) == 0)
                 descrs[j].segmentFlags |= SSF_OVERWRITE;
         }
     }
@@ -494,11 +503,14 @@ void SaveRequest::Perform()
     saveHeader.segmentDescr = ftell(exports.exportFile);
     fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
 
-    // Write out the relocations.
+    // Write out the relocations and the data.
     for (unsigned k = 1 /* Not IO area */; k < exports.memTableEntries; k++)
     {
         memoryTableEntry *entry = &exports.memTable[k];
-        if ((entry->mtFlags & MTF_WRITEABLE) != 0 || k >= permanentEntries)
+        // Write out the contents if this is new or if it is a normal, overwritable
+        // mutable area.
+        if (k >= permanentEntries ||
+            (entry->mtFlags & (MTF_WRITEABLE|MTF_NO_OVERWRITE)) == MTF_WRITEABLE)
         {
             descrs[k].relocations = ftell(exports.exportFile);
             // Have to write this out.
@@ -854,6 +866,7 @@ bool StateLoader::LoadFile()
             // At the moment we leave all segments with write access.
             space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord),
                         (descr->segmentFlags & SSF_WRITABLE) != 0,
+                        (descr->segmentFlags & SSF_NOOVERWRITE) != 0,
                         descr->segmentIndex, hierarchyDepth+1);
         }
     }

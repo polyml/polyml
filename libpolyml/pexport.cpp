@@ -154,6 +154,10 @@ void PExport::printObject(PolyObject *p)
         putc('M', exportFile);
     if (OBJ_IS_NEGATIVE(p->LengthWord()))
         putc('N', exportFile);
+    if (OBJ_IS_WEAKREF_OBJECT(p->LengthWord()))
+        putc('W', exportFile);
+    if (OBJ_IS_NO_OVERWRITE(p->LengthWord()))
+        putc('V', exportFile);
 
     if (p->IsByteObject())
     {
@@ -469,7 +473,7 @@ bool SpaceAlloc::AddToTable(void)
     if (base != 0)
     {
         // Add the new space to the permanent memory table.
-        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable, spaceIndex++);
+        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable, false, spaceIndex++);
         if (space == 0)
         {
             fprintf(stderr, "Insufficient memory\n");
@@ -684,32 +688,34 @@ bool PImport::DoImport()
         ASSERT(ch == ':');
         ASSERT(objNo < nObjects);
 
-        /* Modifiers, M or N. */
+        /* Modifiers, MNVW. */
         do
         {
             ch = getc(f);
             if (ch == 'M') { isMutable = true; objBits |= F_MUTABLE_BIT; }
             else if (ch == 'N') objBits |= F_NEGATIVE_BIT;
-        } while (ch == 'M' || ch == 'N' || ch == 'L');
+            if (ch == 'V') objBits |= F_NO_OVERWRITE;
+            if (ch == 'W') objBits |= F_WEAK_BIT;
+        } while (ch == 'M' || ch == 'N' || ch == 'L' || ch == 'V' || ch == 'W');
 
         /* Object type. */
         switch (ch)
         {
         case 'Q': /* Stack segment. */
-            objBits |= F_STACK_BIT;
+            objBits |= F_STACK_OBJ;
         case 'O': /* Simple object. */
             fscanf(f, "%lu", &nWords);
             break;
 
         case 'B': /* Byte segment. */
-            objBits |= F_BYTE_BIT;
+            objBits |= F_BYTE_OBJ;
             fscanf(f, "%lu", &nBytes);
             /* Round up to appropriate number of words. */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
 
         case 'S': /* String. */
-            objBits |= F_BYTE_BIT;
+            objBits |= F_BYTE_OBJ;
             /* The length is the number of characters. */
             fscanf(f, "%lu", &nBytes);
             /* Round up to appropriate number of words.  Need to add
@@ -718,7 +724,7 @@ bool PImport::DoImport()
             break;
 
         case 'C': /* Code segment. */
-            objBits |= F_CODE_BIT;
+            objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
             fscanf(f, "%lu,%lu", &nWords, &nBytes);

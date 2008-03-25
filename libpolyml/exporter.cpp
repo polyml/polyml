@@ -91,6 +91,7 @@ CopyScan::CopyScan(unsigned h): hierarchy(h)
     // the spaces too large may be a problem if we're very close to the maximum
     // address space.  Making them too small may increase the cost of linking.
     defaultImmSize = defaultMutSize = 0;
+    defaultNoOverSize = 4096; // This can be small.
     unsigned i;
     for (i = 0; i < gMem.npSpaces; i++)
     {
@@ -182,11 +183,13 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 
     PolyObject *newObj = 0;
     bool isMutableObj = obj->IsMutable();
+    bool isNoOverwrite = false;
+    if (isMutableObj) isNoOverwrite = obj->IsNoOverwriteObject();
     // Allocate a new address for the object.
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
         PermanentMemSpace *space = gMem.eSpaces[i];
-        if (isMutableObj == space->isMutable)
+        if (isMutableObj == space->isMutable && isNoOverwrite == space->noOverwrite)
         {
             ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
             POLYUNSIGNED spaceLeft = space->top - space->topPointer;
@@ -201,10 +204,13 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     if (newObj == 0)
     {
         // Didn't find room in the existing spaces.  Create a new space.
-        POLYUNSIGNED spaceWords = isMutableObj ? defaultMutSize : defaultImmSize;
+        POLYUNSIGNED spaceWords;
+        if (!isMutableObj) spaceWords = defaultImmSize;
+        else if (isNoOverwrite) spaceWords = defaultNoOverSize;
+        else spaceWords = defaultMutSize;
         if (spaceWords <= words)
             spaceWords = words+1; // Make sure there's space for this object.
-        PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj);
+        PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite);
         if (space == 0)
         {
             // Unable to allocate this.
@@ -375,7 +381,10 @@ void Exporter::RunExport(PolyObject *rootFunction)
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = i+1;
         if (space->isMutable)
+        {
             entry->mtFlags = MTF_WRITEABLE;
+            if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+        }
         else
             entry->mtFlags = MTF_EXECUTABLE;
     }

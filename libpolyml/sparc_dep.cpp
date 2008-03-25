@@ -1237,7 +1237,7 @@ void SparcDependent::InitInterfaceVector(void)
 Handle SparcDependent::BuildCodeSegment(TaskData *taskData, const unsigned *code, unsigned codeWords, char functionName)
 {
     POLYUNSIGNED words = codeWords + 6;
-    Handle codeHandle = alloc_and_save(taskData, words, F_CODE_BIT);
+    Handle codeHandle = alloc_and_save(taskData, words, F_CODE_OBJ);
     byte *cp = codeHandle->Word().AsCodePtr();
     memcpy(cp, code, codeWords*sizeof(PolyWord));
     codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(0)); // Marker word

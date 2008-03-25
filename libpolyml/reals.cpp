@@ -126,7 +126,7 @@ Handle real_result(TaskData *mdTaskData, double x)
     
     argx.dble = x;
     
-    PolyObject *v = alloc(mdTaskData, DBLE/sizeof(PolyWord), F_BYTE_BIT);
+    PolyObject *v = alloc(mdTaskData, DBLE/sizeof(PolyWord), F_BYTE_OBJ);
     /* Copy as words in case the alignment is wrong. */
     for(unsigned i = 0; i < DBLE; i++)
     {

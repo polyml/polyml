@@ -339,7 +339,7 @@ Handle make_stream_entry(TaskData *taskData)
         memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
     }
      
-    Handle str_token = alloc_and_save(taskData, 1, F_BYTE_BIT);
+    Handle str_token = alloc_and_save(taskData, 1, F_BYTE_OBJ);
     STREAMID(str_token) = stream_no;
 
     ASSERT(!isOpen(&basic_io_vector[stream_no]));

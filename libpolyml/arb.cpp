@@ -276,7 +276,7 @@ static Handle get_long(Handle x, Handle extend, int *sign)
 /******************************************************************************/
 static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
 {
-    Handle y = alloc_and_save(taskData, WORDS(lx+1), F_BYTE_BIT|F_MUTABLE_BIT);
+    Handle y = alloc_and_save(taskData, WORDS(lx+1), F_BYTE_OBJ|F_MUTABLE_BIT);
     
     // copy the bytes
     byte *u = DEREFBYTEHANDLE(x);  
@@ -329,7 +329,7 @@ static Handle make_canonical(TaskData *taskData, Handle x, int sign)
     
     /* The length word of the object is changed to reflect the new length.
        This is safe because any words thrown away must be zero. */
-    DEREFWORDHANDLE(x)->SetLengthWord(WORDS(size+1), F_BYTE_BIT | (sign < 0 ? F_NEGATIVE_BIT: 0));
+    DEREFWORDHANDLE(x)->SetLengthWord(WORDS(size+1), F_BYTE_OBJ | (sign < 0 ? F_NEGATIVE_BIT: 0));
     
     return x;
 } /* make_canonical */
@@ -356,7 +356,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
     // If the high order byte is non-zero add an extra word for the sign.
     if ((uval >> ((sizeof(long)-1)*8)) != 0) words++;
 
-    Handle y = alloc_and_save(taskData, words, ((val < 0) ? F_NEGATIVE_BIT : 0)| F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, ((val < 0) ? F_NEGATIVE_BIT : 0)| F_BYTE_OBJ);
 
     byte *v = DEREFBYTEHANDLE(y);
     for (POLYUNSIGNED i = 0; uval != 0; i++)
@@ -378,7 +378,7 @@ Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED uval)
     // If the high order byte is non-zero add an extra word for the sign.
     if ((uval >> ((sizeof(long)-1)*8)) != 0) words++;
 
-    Handle y = alloc_and_save(taskData, words, F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, F_BYTE_OBJ);
     
     byte *v = DEREFBYTEHANDLE(y);
     for (POLYUNSIGNED i = 0; uval != 0; i++)
@@ -401,7 +401,7 @@ Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo)
     // If the high order byte is non-zero add an extra word for the sign.
     if ((hi >> ((sizeof(hi)-1)*8)) != 0) words++;
     
-    Handle y = alloc_and_save(taskData, words, F_BYTE_BIT);
+    Handle y = alloc_and_save(taskData, words, F_BYTE_OBJ);
     
     byte *v = DEREFBYTEHANDLE(y);
     int i;
@@ -489,7 +489,7 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     {
         // Get result vector. It must be 1 byte longer than u
         // to have space for any carry, plus one byte for the sign.
-        z = alloc_and_save(taskData, WORDS(ly+2), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(ly+2), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(y); lu = ly;
@@ -500,7 +500,7 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     {
         // Get result vector. It must be 1 byte longer than u
         // to have space for any carry, plus one byte for the sign.
-        z = alloc_and_save(taskData, WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(x); lu = lx;
@@ -558,7 +558,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     if (lx < ly)
     {
         sign ^= -1; /* swap sign of result SPF 21/1/94 */
-        z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         
         /* now safe to dereference pointers */
@@ -567,7 +567,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     }
     else if (ly < lx)
     {
-        z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         /* now safe to dereference pointers */
         u = DEREFBYTEHANDLE(x); lu = lx;
@@ -584,7 +584,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         if (DEREFBYTEHANDLE(x)[i] < DEREFBYTEHANDLE(y)[i])
         {
             sign ^= -1; /* swap sign of result SPF 21/1/94 */
-            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(y); lu = ly;
@@ -592,7 +592,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         }
         else
         {
-            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(x); lu = lx;
@@ -725,7 +725,7 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     }
     
     /* Get space for result */
-    long_z = alloc_and_save(taskData, WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+    long_z = alloc_and_save(taskData, WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
     
     {
         /* Can now load the actual addresses because they will not change now. */
@@ -901,7 +901,7 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
         long_y = copy_long(taskData, long_y,ly); /* copy in case it needs shifting */
         
         /* vector for result - size of x + 3 */
-        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         div_unsigned_long
             (DEREFBYTEHANDLE(long_x), 
@@ -976,7 +976,7 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
         long_y = copy_long(taskData, long_y,ly);
         
         /* vector for result - size of x + 3 */
-        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_BIT);
+        long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_OBJ);
         
         div_unsigned_long
             (DEREFBYTEHANDLE(long_x),
@@ -1110,7 +1110,7 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, in
             // Get result vector. There can't be any carry at the end so
             // we just need to make this as large as the larger number
             // plus sign byte
-            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(y); lu = ly;
@@ -1121,7 +1121,7 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, in
         else
         {
             /* Get result vector. */
-            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_BIT);
+            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
             
             /* now safe to dereference pointers */
             u = DEREFBYTEHANDLE(x); lu = lx;

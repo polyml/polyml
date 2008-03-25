@@ -1299,7 +1299,7 @@ static Handle EmptyColormap
   else
   {
     Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Colormap_Object), F_MUTABLE_BIT);
-    Handle cmapHandle   = alloc_and_save(taskData, 1, F_MUTABLE_BIT | F_BYTE_BIT);
+    Handle cmapHandle   = alloc_and_save(taskData, 1, F_MUTABLE_BIT | F_BYTE_OBJ);
     
     /* Must do all allocations before we do the first dereference */
     X_Colormap_Object *object = (X_Colormap_Object *)DEREFHANDLE(objectHandle);
@@ -1355,7 +1355,7 @@ static Handle EmptyVisual
   /* else */
   {
     Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Visual_Object), F_MUTABLE_BIT);
-    Handle visualHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle visualHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
     
     /* Must do all allocations before we do the first dereference */
     X_Visual_Object *object = (X_Visual_Object *)DEREFHANDLE(objectHandle);
@@ -1410,7 +1410,7 @@ static Handle GetDefaultGC(TaskData *taskData, Handle dsHandle /* Handle to (X_D
   else
   {
     Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_GC_Object), F_MUTABLE_BIT);
-    Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
     
     /* Must do all allocations before we do the first dereference */
     X_GC_Object *object  = (X_GC_Object *)DEREFHANDLE(objectHandle);
@@ -1492,7 +1492,7 @@ static Handle CreateGC
 )
 {
   Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_GC_Object), F_MUTABLE_BIT);
-  Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle GCHandle     = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
   /* Must do all allocations before we do the first dereference */
   X_GC_Object *object  = (X_GC_Object *)DEREFHANDLE(objectHandle);
@@ -1562,8 +1562,8 @@ static Handle EmptyWindow
   {
   
     Handle objectHandle    = alloc_and_save(taskData, SIZEOF(X_Window_Object), F_MUTABLE_BIT);
-    Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
-    Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
     /* Must do all allocations before we do the first dereference */
     X_Window_Object *object    = DEREFWINDOWHANDLE(objectHandle);
@@ -1662,7 +1662,7 @@ static Handle EmptyPixmap
   else
   {
     Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Pixmap_Object), F_MUTABLE_BIT);
-    Handle pixmapHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle pixmapHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
     /* Must do all allocations before we do the first dereference */
     X_Pixmap_Object *object  = (X_Pixmap_Object *)DEREFHANDLE(objectHandle);
@@ -1793,8 +1793,8 @@ static Handle EmptyFont
   {
   
     Handle objectHandle  = alloc_and_save(taskData, SIZEOF(X_Font_Object), F_MUTABLE_BIT);
-    Handle fontHandle    = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
-    Handle FSHandle      = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle fontHandle    = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle FSHandle      = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
     /* Must do all allocations before we do the first dereference */
     X_Font_Object *object = (X_Font_Object *)DEREFHANDLE(objectHandle);
@@ -1860,7 +1860,7 @@ static Handle EmptyCursor
   {
   
     Handle objectHandle  = alloc_and_save(taskData, SIZEOF(X_Cursor_Object), F_MUTABLE_BIT);
-    Handle cursorHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle cursorHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
     /* Must do all allocations before we do the first dereference */
     X_Cursor_Object *object = (X_Cursor_Object *)DEREFHANDLE(objectHandle);
@@ -2007,7 +2007,7 @@ static Handle EmptyWidget
   {
   
     Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Widget_Object), F_MUTABLE_BIT);
-    Handle widgetHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+    Handle widgetHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
   
     /* Must do all allocations before we do the first dereference */
     X_Widget_Object *object = (X_Widget_Object *)DEREFHANDLE(objectHandle);
@@ -2124,8 +2124,8 @@ static Handle AddWindow
   Display *d = GetDisplay(taskData, DEREFXOBJECTHANDLE(parentHandle));
 
   Handle objectHandle    = alloc_and_save(taskData, SIZEOF(X_Window_Object), F_MUTABLE_BIT);
-  Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
-  Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle eventMaskHandle = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
+  Handle drawableHandle  = alloc_and_save(taskData, 1, F_MUTABLE_BIT|F_BYTE_OBJ);
 
   /* Must do all allocations before we do the first dereference */
   X_Window_Object *object    = DEREFWINDOWHANDLE(objectHandle);
@@ -2280,7 +2280,7 @@ static void DestroySubwindows(X_Object *W /* should be a Window object! */)
 /******************************************************************************/
 static Handle EmptyTrans(TaskData *taskData, XtTranslations table)
 {
-  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Trans_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Trans_Object), F_MUTABLE_BIT|F_BYTE_OBJ);
 
   /* Must do all allocations before we do the first dereference */
   X_Trans_Object *object = (X_Trans_Object *)DEREFHANDLE(objectHandle);
@@ -2306,7 +2306,7 @@ static XtTranslations GetTrans(TaskData *taskData, X_Object *P)
 static Handle EmptyAcc(TaskData *taskData, XtTranslations acc)
 {
 
-  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Acc_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+  Handle objectHandle = alloc_and_save(taskData, SIZEOF(X_Acc_Object), F_MUTABLE_BIT|F_BYTE_OBJ);
 
   /* Must do all allocations before we do the first dereference */
   X_Acc_Object *object = (X_Acc_Object *)DEREFHANDLE(objectHandle);
@@ -5695,7 +5695,7 @@ static Handle OpenDisplay(TaskData *taskData, PolyStringObject *string)
     /* I don't think this is needed.  DCJM 26/5/2000. */
     /* add_file_descr(display->fd); */
     
-    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_OBJ);
     
     debug1 ("%s display opened\n",DisplayString(display));
     
@@ -6185,7 +6185,7 @@ static Handle AppInitialise
     debug1 ("%x display fd\n",display->fd);
     
     /* ok to store C values because this is a BYTE object */
-    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_BIT);
+    dsHandle = alloc_and_save(taskData, SIZEOF(X_Display_Object), F_MUTABLE_BIT|F_BYTE_OBJ);
     DEREFDISPLAYHANDLE(dsHandle)->type        = TAGGED(X_Display);
     DEREFDISPLAYHANDLE(dsHandle)->display     = display;
     DEREFDISPLAYHANDLE(dsHandle)->screen      = DefaultScreen(display);

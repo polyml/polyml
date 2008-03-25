@@ -42,6 +42,7 @@ typedef struct _memTableEntry {
 
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
 #define MTF_EXECUTABLE        0x00000002  // The area contains executable code
+#define MTF_NO_OVERWRITE      0x00000004  // With MTF_WRITEABLE: Don't load over the top
 
 typedef struct _exportDescription {
     unsigned structLength;         // The length of this structure

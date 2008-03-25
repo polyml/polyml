@@ -70,7 +70,7 @@ PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, unsigned lengt
     
     /* Get the number of words required, plus 1 for length word,
        plus flag bit. */
-    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(length) + 1, F_BYTE_BIT));
+    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(length) + 1, F_BYTE_OBJ));
     
     /* Set length of string, then copy the characters. */
     result->length = length;
@@ -149,7 +149,7 @@ PolyWord C_string_to_Poly(const WCHAR *buffer)
     
     /* Get the number of words required, plus 1 for length word,
        plus flag bit. */
-    PolyStringObject *result = (PolyStringObject *)(alloc(WORDS(length) + 1, F_BYTE_BIT));
+    PolyStringObject *result = (PolyStringObject *)(alloc(WORDS(length) + 1, F_BYTE_OBJ));
     
     /* Set length of string, then copy the characters. */
     result->length = length;
@@ -281,7 +281,7 @@ Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
     
     /* Get store for combined string. Include rounding up to next word and
     room for the length word and add in the flag. */
-    result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_BIT);
+    result = alloc_and_save(mdTaskData, (len + sizeof(PolyWord)-1)/sizeof(PolyWord) + 1, F_BYTE_OBJ);
     
     DEREFSTRINGHANDLE(result)->length = len;
     

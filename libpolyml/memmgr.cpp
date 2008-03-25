@@ -153,13 +153,14 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
-                                             bool mut, unsigned index, unsigned hierarchy /*= 0*/)
+                                             bool mut, bool noOv, unsigned index, unsigned hierarchy /*= 0*/)
 {
     PermanentMemSpace *space = new PermanentMemSpace;
     space->bottom = base;
     space->topPointer = space->top = space->bottom + words;
     space->spaceType = ST_PERMANENT;
     space->isMutable = mut;
+    space->noOverwrite = noOv;
     space->index = index;
     space->hierarchy = hierarchy;
     if (index >= nextIndex) nextIndex = index+1;
@@ -209,11 +210,12 @@ MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 
 
 // Create and initialise a new export space and add it to the table.
-PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut)
+PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv)
 {
     PermanentMemSpace *space = new PermanentMemSpace;
     space->spaceType = ST_EXPORT;
     space->isMutable = mut;
+    space->noOverwrite = noOv;
     space->index = nextIndex++;
     // Allocate the memory itself.
     size_t iSpace = size*sizeof(PolyWord);
@@ -404,7 +406,7 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
         if (words > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
         else oSize = words-1;
         // Make this a byte object so it's always skipped.
-        ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_BIT);
+        ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_OBJ);
         words -= oSize+1;
         pDummy += oSize+1;
     }

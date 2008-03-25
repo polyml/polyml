@@ -663,7 +663,7 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
 {
     POLYUNSIGNED codeWords = (bytes + sizeof(PolyWord)-1) / sizeof(PolyWord);
     POLYUNSIGNED words = codeWords + 6;
-    Handle codeHandle = alloc_and_save(taskData, words, F_BYTE_BIT|F_MUTABLE_BIT);
+    Handle codeHandle = alloc_and_save(taskData, words, F_BYTE_OBJ|F_MUTABLE_BIT);
     byte *cp = codeHandle->Word().AsCodePtr();
     memcpy(cp, code, bytes);
     if (bytes % sizeof(PolyWord) != 0) // Fill unused bytes with NOPs
@@ -675,7 +675,7 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
     codeHandle->WordP()->Set(codeWords++, TAGGED(functionName)); // Name of function 
     codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // Register set
     codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(2)); // Number of constants
-    CodeSegmentFlags(taskData, taskData->saveVec.push(TAGGED(F_CODE_BIT)), codeHandle);
+    CodeSegmentFlags(taskData, taskData->saveVec.push(TAGGED(F_CODE_OBJ)), codeHandle);
     return codeHandle;
 }
 

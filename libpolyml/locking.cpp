@@ -103,7 +103,7 @@ bool PLock::Trylock(void)
     // This is not implemented properly in Windows.  There is
     // TryEnterCriticalSection in Win NT and later but that
     // returns TRUE if the current thread owns the mutex.
-   return TryEnterCriticalSection(&lock);
+   return TryEnterCriticalSection(&lock) == TRUE;
 #endif
 }
 

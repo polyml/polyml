@@ -62,10 +62,11 @@ public:
 class PermanentMemSpace: public MemSpace
 {
 protected:
-    PermanentMemSpace(): index(0), hierarchy(0), topPointer(0) {}
+    PermanentMemSpace(): index(0), hierarchy(0), noOverwrite(false), topPointer(0) {}
 public:
-    unsigned        index;      // An identifier for the space.  Used when saving and loading.
-    unsigned        hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
+    unsigned    index;      // An identifier for the space.  Used when saving and loading.
+    unsigned    hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
+    bool        noOverwrite; // Don't save this in deeper hierarchies.
 
     // When exporting or saving state we copy data into a new area.
     // This area grows upwards unlike the local areas that grow down.
@@ -110,7 +111,7 @@ public:
     LocalMemSpace *NewLocalSpace(POLYUNSIGNED size, bool mut);
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words, bool mut,
-        unsigned index, unsigned hierarchy = 0);
+        bool noOv, unsigned index, unsigned hierarchy = 0);
     // Create an entry for the IO space.
     MemSpace   *InitIOSpace(PolyWord *base, POLYUNSIGNED words);
     // Delete a local space
@@ -126,7 +127,7 @@ public:
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
     // Create and delete export spaces
-    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut);
+    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv);
     void DeleteExportSpaces(void);
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.

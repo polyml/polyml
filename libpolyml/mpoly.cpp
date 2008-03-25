@@ -337,6 +337,7 @@ void InitHeaderFromExport(exportDescription *exports)
             (void)gMem.InitIOSpace((PolyWord*)memTable[i].mtAddr, memTable[i].mtLength/sizeof(PolyWord));
         else
             (void)gMem.NewPermanentSpace((PolyWord*)memTable[i].mtAddr,
-                memTable[i].mtLength/sizeof(PolyWord), (memTable[i].mtFlags & MTF_WRITEABLE) != 0, memTable[i].mtIndex);
+                memTable[i].mtLength/sizeof(PolyWord), (memTable[i].mtFlags & MTF_WRITEABLE) != 0,
+                 (memTable[i].mtFlags & MTF_NO_OVERWRITE) != 0, memTable[i].mtIndex);
     }
 }

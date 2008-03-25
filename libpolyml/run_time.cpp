@@ -883,7 +883,7 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
 
     /* Must make a new frame and copy the data over. */
     StackObject *new_stack = // N.B.  May throw a C++ exception.
-        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
     CopyStackFrame(taskData->stack, new_stack);
     taskData->stack = new_stack;
 }
@@ -916,7 +916,7 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
     if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
 
     /* Must make a new frame and copy the data over. */
-    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_BIT);
+    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
     CopyStackFrame(taskData->stack, new_stack);
     taskData->stack = new_stack;    
     return SAVE(TAGGED(0));

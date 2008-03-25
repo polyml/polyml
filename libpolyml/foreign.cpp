@@ -308,7 +308,7 @@ public:
 /* Allocate a new "vol" in the table and in ML space and returns a pointer to the ML "vol". */
 static Handle vol_alloc (TaskData *taskData)
 {
-    PolyVolData* v = (PolyVolData*)alloc(taskData, VOL_BOX_SIZE, F_MUTABLE_BIT|F_BYTE_BIT);
+    PolyVolData* v = (PolyVolData*)alloc(taskData, VOL_BOX_SIZE, F_MUTABLE_BIT|F_BYTE_OBJ);
     Handle result = SAVE(v);
     
     trace(("index=<%lu>\n",next_vol));

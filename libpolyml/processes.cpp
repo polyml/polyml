@@ -1115,7 +1115,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     taskArray[0] = taskData;
 
     Handle stack =
-        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_BIT);
+        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
     taskData->stack = (StackObject *)DEREFHANDLE(stack);
     machineDependent->InitStackFrame(taskData, stack,
             taskData->saveVec.push(rootFunction), (Handle)0);
@@ -1276,7 +1276,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
     schedLock.Unlock();
 
     Handle stack = // Allocate the stack in the parent's heap.
-        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_BIT);
+        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
     newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
     // Also allocate anything needed for the new stack in the parent's heap.
     // The child still has inMLHeap set so mustn't GC.
