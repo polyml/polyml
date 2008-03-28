@@ -242,56 +242,56 @@ in
   
   fun RGB (XColor {red,green,blue,...}) = (red,green,blue);
   
-  fun Not (a:int):int = xcall (XCALL_Not,a);
+  fun Not (a:int):int = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_Not,a);
 
   infix 9 And Or Xor >> <<;
 
-  fun a And b = xcall (XCALL_And,a:int,b:int):int;
-  fun a Or  b = xcall (XCALL_Or,a:int,b:int):int;
-  fun a Xor b = xcall (XCALL_Xor,a:int,b:int):int;
-  fun a >>  b = xcall (XCALL_DownShift,a:int,b:int):int;
-  fun a <<  b = xcall (XCALL_UpShift,a:int,b:int):int;
+  fun a And b = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_And,a:int,b:int):int;
+  fun a Or  b = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_Or,a:int,b:int):int;
+  fun a Xor b = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_Xor,a:int,b:int):int;
+  fun a >>  b = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DownShift,a:int,b:int):int;
+  fun a <<  b = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpShift,a:int,b:int):int;
   
   fun XAllocColor (cmap:Colormap) (x:XColor):XColor
-    = xcall (XCALL_XAllocColor,cmap,x);
+    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAllocColor,cmap,x);
 
   fun XAllocColorCells (cmap:Colormap) (contig:bool) (nplanes:int) (ncolors:int):(int list * int list)
-    = xcall (XCALL_XAllocColorCells,cmap,contig,nplanes,ncolors);
+    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAllocColorCells,cmap,contig,nplanes,ncolors);
 
   fun XAllocColorPlanes (cmap:Colormap) (contig:bool) (ncolors:int) (nreds:int) (ngreens:int) (nblues:int):(int list * int * int * int) =
   (
-    xcall (XCALL_XAllocColorPlanes,cmap,contig,ncolors,nreds,ngreens,nblues)
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAllocColorPlanes,cmap,contig,ncolors,nreds,ngreens,nblues)
   );
 
   fun XAllocNamedColor (cmap:Colormap) (name:string):(XColor * XColor) =
-    xcall (XCALL_XAllocNamedColor,cmap,name);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAllocNamedColor,cmap,name);
   
   fun XFreeColors (cmap:Colormap) (pixels:int list) (planes:int):unit =
-    xcall (XCALL_XFreeColors,cmap,pixels,planes);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFreeColors,cmap,pixels,planes);
 
   fun XLookupColor (cmap:Colormap) (name:string):(XColor * XColor) =
-     xcall (XCALL_XLookupColor,cmap,name);
+     RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XLookupColor,cmap,name);
 
   fun XParseColor (cmap:Colormap) (name:string):XColor =
-    xcall (XCALL_XParseColor,cmap,name);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XParseColor,cmap,name);
 
   fun XQueryColor (cmap:Colormap) (pixel:int):XColor =
-    xcall (XCALL_XQueryColor,cmap,pixel);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryColor,cmap,pixel);
 
   fun XQueryColors (cmap:Colormap) (pixels:int list):XColor list =
-    xcall (XCALL_XQueryColors,cmap,pixels);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryColors,cmap,pixels);
 
   fun XStoreColor (cmap:Colormap) (x:XColor):unit =
-    xcall (XCALL_XStoreColor,cmap,x);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XStoreColor,cmap,x);
   
   fun XStoreColors (cmap:Colormap) (L:XColor list):unit =
-    xcall (XCALL_XStoreColors,cmap,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XStoreColors,cmap,L);
 
   fun XStoreNamedColor (cmap:Colormap) (name:string) (pixel:int) (r:bool,g:bool,b:bool):unit =
-    xcall (XCALL_XStoreNamedColor,cmap,name,pixel,r,g,b);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XStoreNamedColor,cmap,name,pixel,r,g,b);
 
-  fun BlackPixel (d:Display) = xcall (XCALL_BlackPixel,d);
-  fun WhitePixel (d:Display) = xcall (XCALL_WhitePixel,d);
+  fun BlackPixel (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_BlackPixel,d);
+  fun WhitePixel (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_WhitePixel,d);
 
   (* Colormaps 150 *)
   
@@ -310,23 +310,23 @@ in
                                                       basePixel: int };
 
   fun XCopyColormapAndFree (cmap:Colormap):Colormap =
-    xcall (XCALL_XCopyColormapAndFree,cmap);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCopyColormapAndFree,cmap);
 
   fun XCreateColormap (d:Drawable) (v:Visual) (a:AllocType):Colormap =
-    xcall (XCALL_XCreateColormap,d,v,fromAllocType a);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateColormap,d,v,fromAllocType a);
 
   fun XInstallColormap (cmap:Colormap):unit =
-    xcall (XCALL_XInstallColormap,cmap);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XInstallColormap,cmap);
 
   fun XListInstalledColormaps (d:Drawable):Colormap list =
-    xcall (XCALL_XListInstalledColormaps,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XListInstalledColormaps,d);
 
   fun XUninstallColormap (cmap:Colormap):unit =
-    xcall (XCALL_XUninstallColormap,cmap);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XUninstallColormap,cmap);
 
-  fun DefaultColormap (d:Display) = xcall (XCALL_DefaultColormap,d) : Colormap;
-  fun DefaultVisual (d:Display)   = xcall (XCALL_DefaultVisual,d) : Visual;
-  fun DisplayCells (d:Display)    = xcall (XCALL_DisplayCells,d) : int;
+  fun DefaultColormap (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DefaultColormap,d) : Colormap;
+  fun DefaultVisual (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DefaultVisual,d) : Visual;
+  fun DisplayCells (d:Display)    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayCells,d) : int;
   
   datatype VisualClass = 
      StaticGray
@@ -337,7 +337,7 @@ in
    | DirectColor;
   
   fun VisualClass (v:Visual) =
-    case xcall (XCALL_VisualClass,v) of
+    case RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_VisualClass,v) of
       0 => StaticGray
     | 1 => GrayScale
     | 2 => StaticColor
@@ -345,36 +345,36 @@ in
     | 4 => TrueColor
     | _ => DirectColor;
 
-  fun VisualRedMask   (v:Visual):int = xcall (XCALL_VisualRedMask,v);
-  fun VisualGreenMask (v:Visual):int = xcall (XCALL_VisualGreenMask,v);
-  fun VisualBlueMask  (v:Visual):int = xcall (XCALL_VisualBlueMask,v);
+  fun VisualRedMask   (v:Visual):int = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_VisualRedMask,v);
+  fun VisualGreenMask (v:Visual):int = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_VisualGreenMask,v);
+  fun VisualBlueMask  (v:Visual):int = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_VisualBlueMask,v);
   
   (* Cursors 200 *)
 
   fun XCreateFontCursor (d:Display) (n:int):Cursor =
-    xcall (XCALL_XCreateFontCursor,d,n);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateFontCursor,d,n);
 
   fun XCreateGlyphCursor (sf:Font) (mf:Font) (sc:int) (mc:int) (fg:XColor) (bg:XColor):Cursor =
-    xcall (XCALL_XCreateGlyphCursor,sf,mf,sc,mc,fg,bg);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateGlyphCursor,sf,mf,sc,mc,fg,bg);
 
   fun XCreatePixmapCursor (src:Drawable)
                           (mask:Drawable)
                           (fg:XColor)
                           (bg:XColor)
                           (hotspot:XPoint):Cursor =
-    xcall (XCALL_XCreatePixmapCursor,src,mask,fg,bg,hotspot);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreatePixmapCursor,src,mask,fg,bg,hotspot);
 
   fun XDefineCursor (d:Drawable) (c:Cursor):unit =
-    xcall(XCALL_XDefineCursor,d,c);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows(XCALL_XDefineCursor,d,c);
 
   fun XQueryBestCursor (d:Drawable) (r:XRectangle):XRectangle =
-    xcall (XCALL_XQueryBestCursor,d,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryBestCursor,d,r);
 
   fun XRecolorCursor (c:Cursor) (fg:XColor) (bg:XColor) =
-    xcall (XCALL_XRecolorCursor,c,fg,bg);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XRecolorCursor,c,fg,bg);
   
   fun XUndefineCursor (d:Drawable):unit =
-    xcall (XCALL_XUndefineCursor,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XUndefineCursor,d);
 
   (* Display Specifications 250 *)
   
@@ -473,30 +473,30 @@ in
   
   val AllPlanes = Not 0;
 
-  fun CellsOfScreen (d:Display)   = xcall (XCALL_CellsOfScreen,d) : int;
-  fun DefaultDepth (d:Display)    = xcall (XCALL_DefaultDepth,d) : int;
-  fun DisplayHeight (d:Display)   = xcall (XCALL_DisplayHeight,d) : int;
-  fun DisplayHeightMM (d:Display) = xcall (XCALL_DisplayHeightMM,d) : int;
-  fun DisplayPlanes (d:Display)   = xcall (XCALL_DisplayPlanes,d) : int;
-  fun DisplayString (d:Display)   = xcall (XCALL_DisplayString,d) : string;
-  fun DisplayWidth (d:Display)    = xcall (XCALL_DisplayWidth,d) : int;
-  fun DisplayWidthMM (d:Display)  = xcall (XCALL_DisplayWidthMM,d) : int;
+  fun CellsOfScreen (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_CellsOfScreen,d) : int;
+  fun DefaultDepth (d:Display)    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DefaultDepth,d) : int;
+  fun DisplayHeight (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayHeight,d) : int;
+  fun DisplayHeightMM (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayHeightMM,d) : int;
+  fun DisplayPlanes (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayPlanes,d) : int;
+  fun DisplayString (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayString,d) : string;
+  fun DisplayWidth (d:Display)    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayWidth,d) : int;
+  fun DisplayWidthMM (d:Display)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DisplayWidthMM,d) : int;
 
   fun DoesBackingStore (d:Display) = 
-    toBackingStore (xcall (XCALL_DoesBackingStore,d));
+    toBackingStore (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DoesBackingStore,d));
 
   fun DoesSaveUnders (d:Display) =
-    xcall (XCALL_DoesSaveUnders,d) : bool;
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DoesSaveUnders,d) : bool;
   
   fun EventMaskOfScreen (d:Display) =
-    toEventMask (xcall (XCALL_EventMaskOfScreen,d));
+    toEventMask (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_EventMaskOfScreen,d));
   
-  fun MaxCmapsOfScreen (d:Display)  = xcall (XCALL_MaxCmapsOfScreen,d) : int;
-  fun MinCmapsOfScreen (d:Display)  = xcall (XCALL_MinCmapsOfScreen,d) : int;
-  fun ProtocolRevision (d:Display)  = xcall (XCALL_ProtocolRevision,d) : int;
-  fun ProtocolVersion (d:Display)   = xcall (XCALL_ProtocolVersion,d) : int;
-  fun ServerVendor (d:Display)      = xcall (XCALL_ServerVendor,d) : string;
-  fun VendorRelease (d:Display)     = xcall (XCALL_VendorRelease,d) : int;
+  fun MaxCmapsOfScreen (d:Display)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_MaxCmapsOfScreen,d) : int;
+  fun MinCmapsOfScreen (d:Display)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_MinCmapsOfScreen,d) : int;
+  fun ProtocolRevision (d:Display)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ProtocolRevision,d) : int;
+  fun ProtocolVersion (d:Display)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ProtocolVersion,d) : int;
+  fun ServerVendor (d:Display)      = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ServerVendor,d) : string;
+  fun VendorRelease (d:Display)     = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_VendorRelease,d) : int;
 
   (* Drawing Primitives 300 *)
   
@@ -517,76 +517,76 @@ in
   |   fromPolyShape Convex    = 2;
 
   fun XClearArea (d:Drawable) (r:XRectangle) (e:bool):unit =
-    xcall (XCALL_XClearArea,d,r,e);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XClearArea,d,r,e);
 
   fun XClearWindow (d:Drawable):unit =
-    xcall (XCALL_XClearWindow,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XClearWindow,d);
 
   fun XCopyArea (src:Drawable) (dst:Drawable) (gc:GC) (P:XPoint) (r:XRectangle):unit = 
-    xcall (XCALL_XCopyArea,src,dst,gc,P,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCopyArea,src,dst,gc,P,r);
 
   fun XCopyPlane (src:Drawable) (dst:Drawable) (gc:GC) (P:XPoint) (r:XRectangle) (plane:int):unit =
-     xcall (XCALL_XCopyPlane,src,dst,gc,P,r,plane);
+     RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCopyPlane,src,dst,gc,P,r,plane);
 
   fun XDrawArc (d:Drawable) (gc:GC) (a:XArc):unit =
-    xcall (XCALL_XDrawArc,d,gc,a);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawArc,d,gc,a);
 
   fun XDrawArcs (d:Drawable) (gc:GC) (L:XArc list):unit =
-    xcall (XCALL_XDrawArcs,d,gc,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawArcs,d,gc,L);
 
   fun XDrawImageString (d:Drawable) (gc:GC) (p:XPoint) (s:string):unit =
-    xcall (XCALL_XDrawImageString,d,gc,p,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawImageString,d,gc,p,s);
 
   fun XDrawImageString16 (d:Drawable) (gc:GC) (p:XPoint) (L:int list):unit =
-    xcall (XCALL_XDrawImageString16,d,gc,p,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawImageString16,d,gc,p,L);
 
   fun XDrawLine (d:Drawable) (gc:GC) (p1:XPoint) (p2:XPoint):unit =
-    xcall (XCALL_XDrawLine,d,gc,p1,p2);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawLine,d,gc,p1,p2);
 
   fun XDrawLines (d:Drawable) (gc:GC) (L:XPoint list) (mode:CoordMode):unit =
-    xcall (XCALL_XDrawLines,d,gc,L,fromCoordMode mode);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawLines,d,gc,L,fromCoordMode mode);
 
   fun XDrawPoint (d:Drawable) (gc:GC) (p:XPoint):unit =
-    xcall (XCALL_XDrawPoint,d,gc,p);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawPoint,d,gc,p);
 
   fun XDrawPoints (d:Drawable) (gc:GC) (L:XPoint list) (mode:CoordMode):unit =
-    xcall (XCALL_XDrawPoints,d,gc,L,fromCoordMode mode);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawPoints,d,gc,L,fromCoordMode mode);
 
   fun XDrawRectangle (d:Drawable) (gc:GC) (r:XRectangle):unit =
-    xcall (XCALL_XDrawRectangle,d,gc,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawRectangle,d,gc,r);
 
   fun XDrawRectangles (d:Drawable) (gc:GC) (L:XRectangle list):unit =
-    xcall (XCALL_XDrawRectangles,d,gc,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawRectangles,d,gc,L);
 
   fun XDrawSegments (d:Drawable) (gc:GC) (L:(XPoint * XPoint) list):unit =
-    xcall (XCALL_XDrawSegments,d,gc,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawSegments,d,gc,L);
 
   fun XDrawString (d:Drawable) (gc:GC) (p:XPoint) (s:string):unit =
-    xcall (XCALL_XDrawString,d,gc,p,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawString,d,gc,p,s);
 
   fun XDrawString16 (d:Drawable) (gc:GC) (p:XPoint) (s:int list):unit =
-    xcall (XCALL_XDrawString16,d,gc,p,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawString16,d,gc,p,s);
 
   fun XDrawText (d:Drawable) (gc:GC) (p:XPoint) (L:XTextItem list):unit =
-    xcall (XCALL_XDrawText,d,gc,p,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawText,d,gc,p,L);
 
   fun XDrawText16 (d:Drawable) (gc:GC) (p:XPoint) (L:XTextItem16 list):unit =
-  xcall (XCALL_XDrawText16,d,gc,p,L);
+  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDrawText16,d,gc,p,L);
 
   fun XFillArc (d:Drawable) (gc:GC) (a:XArc):unit =
-    xcall (XCALL_XFillArc,d,gc,a);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFillArc,d,gc,a);
 
   fun XFillArcs (d:Drawable) (gc:GC) (L:XArc list):unit =
-    xcall (XCALL_XFillArcs,d,gc,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFillArcs,d,gc,L);
 
   fun XFillPolygon (d:Drawable) (gc:GC) (L:XPoint list) (shape:PolyShape) (mode:CoordMode):unit =
-    xcall (XCALL_XFillPolygon,d,gc,L,fromPolyShape shape,fromCoordMode mode);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFillPolygon,d,gc,L,fromPolyShape shape,fromCoordMode mode);
 
   fun XFillRectangle (d:Drawable) (gc:GC) (r:XRectangle):unit =
-    xcall (XCALL_XFillRectangle,d,gc,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFillRectangle,d,gc,r);
 
   fun XFillRectangles (d:Drawable) (gc:GC) (L:XRectangle list):unit =
-    xcall (XCALL_XFillRectangles,d,gc,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFillRectangles,d,gc,L);
 
   (* Events 350 *)
   
@@ -932,23 +932,23 @@ in
                      | NoEvent
 
   fun XSelectInput (d:Drawable) (m:EventMask list):unit =
-    xcall (XCALL_XSelectInput,d,fromEventMask m);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSelectInput,d,fromEventMask m);
   
   fun XSynchronize (d:Display) (n:int):unit =
-    xcall (XCALL_XSynchronize,d,n);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSynchronize,d,n);
   
   fun XSetHandler (drawable:Drawable) (Handler:'a XEvent * 'b -> 'b) (initialState:'b) =
   (
-    xcall (XCALL_SetState,drawable,Handler,initialState);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_SetState,drawable,Handler,initialState);
     
     fn (ms:int) => fn (alpha:'a) =>
-      xcall (XCALL_InsertTimeout,drawable,ms,alpha,Handler) 
+      RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_InsertTimeout,drawable,ms,alpha,Handler) 
   );
   
   fun NullHandler (e,s) = s;
 
   local
-    fun Exists x = xcall (XCALL_ResourceExists,x):bool;
+    fun Exists x = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ResourceExists,x):bool;
   in
     val ColormapExists = Exists : Colormap -> bool;
     val CursorExists   = Exists : Cursor   -> bool;
@@ -960,7 +960,7 @@ in
   end;
   
   local
-    fun GetDisplay x = xcall (XCALL_GetDisplay,x):Display;
+    fun GetDisplay x = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetDisplay,x):Display;
   in
     val ColormapDisplay = GetDisplay : Colormap -> Display;
     val CursorDisplay   = GetDisplay : Cursor   -> Display;
@@ -1238,42 +1238,42 @@ in
     fun NextEvent display =
     let
       val (data as (etype,_,window,_,callbacks, events)) =
-	  	xcall (XCALL_NextEvent,display);
+	  	RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NextEvent,display);
     
       val event = case etype of
-                    2   => KeyPress         (MakeXKeyEvent              data)
-                  | 3   => KeyRelease       (MakeXKeyEvent              data)
-                  | 4   => ButtonPress      (MakeXButtonEvent           data)
-                  | 5   => ButtonRelease    (MakeXButtonEvent           data)
-                  | 6   => MotionNotify     (MakeXMotionEvent           data)
-                  | 7   => EnterNotify      (MakeXCrossingEvent         data)
-                  | 8   => LeaveNotify      (MakeXCrossingEvent         data)
-                  | 9   => FocusIn          (MakeXFocusChangeEvent      data)
-                  | 10  => FocusOut         (MakeXFocusChangeEvent      data)
-                  | 11  => KeymapNotify     (MakeXKeymapEvent           data)
-                  | 12  => Expose           (MakeXExposeEvent           data)
-                  | 13  => GraphicsExpose   (MakeXGraphicsExposeEvent   data)
-                  | 14  => NoExpose         (MakeXNoExposeEvent         data)
-                  | 15  => VisibilityNotify (MakeXVisibilityEvent       data)
-                  | 16  => CreateNotify     (MakeXCreateWindowEvent     data)
-                  | 17  => DestroyNotify    (MakeXDestroyWindowEvent    data)
-                  | 18  => UnmapNotify      (MakeXUnmapEvent            data)
-                  | 19  => MapNotify        (MakeXMapEvent              data)
-                  | 22  => ConfigureNotify  (MakeXConfigureEvent        data)
-                  | 20  => MapRequest       (MakeXMapRequestEvent       data)
-                  | 21  => ReparentNotify   (MakeXReparentEvent         data)
-                  | 23  => ConfigureRequest (MakeXConfigureRequestEvent data)
-                  | 24  => GravityNotify    (MakeXGravityEvent          data)
-                  | 25  => ResizeRequest    (MakeXResizeRequestEvent    data)
-                  | 26  => CirculateNotify  (MakeXCirculateEvent        data)
-                  | 27  => CirculateRequest (MakeXCirculateRequestEvent data)
-                  | 29  => SelectionClear   (MakeXSelectionClearEvent   data)
-                  | 30  => SelectionRequest (MakeXSelectionRequestEvent data)
-                  | 31  => SelectionNotify  (MakeXSelectionEvent        data)
-                  | 32  => ColormapNotify   (MakeXColormapEvent         data)
-                  | 42  => ButtonClick      (MakeXClickEvent            data)
-                  | 43  => DeleteRequest    (MakeDeleteEvent            data)
-                  | 99  => Message          (MakeMessageEvent           data)
+                    2   => KeyPress         (MakeXKeyEvent              (RunCall.unsafeCast data))
+                  | 3   => KeyRelease       (MakeXKeyEvent              (RunCall.unsafeCast data))
+                  | 4   => ButtonPress      (MakeXButtonEvent           (RunCall.unsafeCast data))
+                  | 5   => ButtonRelease    (MakeXButtonEvent           (RunCall.unsafeCast data))
+                  | 6   => MotionNotify     (MakeXMotionEvent           (RunCall.unsafeCast data))
+                  | 7   => EnterNotify      (MakeXCrossingEvent         (RunCall.unsafeCast data))
+                  | 8   => LeaveNotify      (MakeXCrossingEvent         (RunCall.unsafeCast data))
+                  | 9   => FocusIn          (MakeXFocusChangeEvent      (RunCall.unsafeCast data))
+                  | 10  => FocusOut         (MakeXFocusChangeEvent      (RunCall.unsafeCast data))
+                  | 11  => KeymapNotify     (MakeXKeymapEvent           (RunCall.unsafeCast data))
+                  | 12  => Expose           (MakeXExposeEvent           (RunCall.unsafeCast data))
+                  | 13  => GraphicsExpose   (MakeXGraphicsExposeEvent   (RunCall.unsafeCast data))
+                  | 14  => NoExpose         (MakeXNoExposeEvent         (RunCall.unsafeCast data))
+                  | 15  => VisibilityNotify (MakeXVisibilityEvent       (RunCall.unsafeCast data))
+                  | 16  => CreateNotify     (MakeXCreateWindowEvent     (RunCall.unsafeCast data))
+                  | 17  => DestroyNotify    (MakeXDestroyWindowEvent    (RunCall.unsafeCast data))
+                  | 18  => UnmapNotify      (MakeXUnmapEvent            (RunCall.unsafeCast data))
+                  | 19  => MapNotify        (MakeXMapEvent              (RunCall.unsafeCast data))
+                  | 22  => ConfigureNotify  (MakeXConfigureEvent        (RunCall.unsafeCast data))
+                  | 20  => MapRequest       (MakeXMapRequestEvent       (RunCall.unsafeCast data))
+                  | 21  => ReparentNotify   (MakeXReparentEvent         (RunCall.unsafeCast data))
+                  | 23  => ConfigureRequest (MakeXConfigureRequestEvent (RunCall.unsafeCast data))
+                  | 24  => GravityNotify    (MakeXGravityEvent          (RunCall.unsafeCast data))
+                  | 25  => ResizeRequest    (MakeXResizeRequestEvent    (RunCall.unsafeCast data))
+                  | 26  => CirculateNotify  (MakeXCirculateEvent        (RunCall.unsafeCast data))
+                  | 27  => CirculateRequest (MakeXCirculateRequestEvent (RunCall.unsafeCast data))
+                  | 29  => SelectionClear   (MakeXSelectionClearEvent   (RunCall.unsafeCast data))
+                  | 30  => SelectionRequest (MakeXSelectionRequestEvent (RunCall.unsafeCast data))
+                  | 31  => SelectionNotify  (MakeXSelectionEvent        (RunCall.unsafeCast data))
+                  | 32  => ColormapNotify   (MakeXColormapEvent         (RunCall.unsafeCast data))
+                  | 42  => ButtonClick      (MakeXClickEvent            (RunCall.unsafeCast data))
+                  | 43  => DeleteRequest    (MakeDeleteEvent            (RunCall.unsafeCast data))
+                  | 99  => Message          (MakeMessageEvent           (RunCall.unsafeCast data))
                   | 100 => NoEvent
                   
                   | _  => raise XWindows "Bad event type";
@@ -1283,16 +1283,17 @@ in
     
     fun ProcessEvent (event,window,[],[]) () =
       let
-        val (handler,state) = xcall (XCALL_GetState,window);
+        val (handler,state) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetState,window);
             
         val newState = handler (event,state);
       in
         if DrawableExists window
         then
           let
-            val (newHandler,_) = xcall (XCALL_GetState,window);
+            val (newHandler,_) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetState,window);
           in
-            if handler = newHandler then xcall (XCALL_SetState,window,nil,newState) else ()
+            if PolyML.pointerEq(handler, newHandler)
+            then RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_SetState,window,nil,newState) else ()
           end
         else ()
       end
@@ -1302,7 +1303,7 @@ in
         |   Call ((w,f)::T) = 
             (
               Call T;
-              xcall (XCALL_SetWidgetState,w,f (w,event,xcall (XCALL_GetWidgetState,w)))
+              RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_SetWidgetState,w,f (w,event,RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetWidgetState,w)))
             );
         fun call [] = ()
         |   call ((w,f)::T) = (call T; f (w, event))
@@ -1335,7 +1336,7 @@ in
     
     fun XOpenDisplay (s:string):Display =
     let
-      val display = xcall (XCALL_XOpenDisplay,s);
+      val display = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XOpenDisplay,s);
     in
       XStartDisplayHandler display;
       display
@@ -1356,35 +1357,35 @@ in
   |   toRevertCode _ = RevertToParent;
   
   fun XSetInputFocus (d:Display) (w:Drawable) (r:RevertCode) (t:int) = 
-    xcall (XCALL_XSetInputFocus,d,w,fromRevertCode r,t);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetInputFocus,d,w,fromRevertCode r,t);
   
   fun XGetInputFocus (d:Display):(Drawable * RevertCode) =
   let
-    val (w,r) = xcall (XCALL_XGetInputFocus,d);
+    val (w,r) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetInputFocus,d);
   in
     (w,toRevertCode r)
   end;
   
   fun XSetSelectionOwner (d:Display) (selection:int) (owner:Drawable) (time:int):unit =
-    xcall (XCALL_XSetSelectionOwner,d,selection,owner,time);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetSelectionOwner,d,selection,owner,time);
   
   fun XGetSelectionOwner (d:Display) (selection:int):Drawable =
-    xcall (XCALL_XGetSelectionOwner,d,selection);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetSelectionOwner,d,selection);
   
   fun XConvertSelection {selection:int,target:int,property:int,requestor:Drawable,time:int}:unit =
-    xcall (XCALL_XConvertSelection,selection,target,property,requestor,time);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XConvertSelection,selection,target,property,requestor,time);
   
   fun XSendSelectionNotify {selection:int,target:int,property:int,requestor:Drawable,time:int}:unit =
-    xcall (XCALL_XSendSelectionNotify,selection,target,property,requestor,time);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSendSelectionNotify,selection,target,property,requestor,time);
   
   fun XDeleteProperty (requestor:Drawable) (property:int):unit =
-    xcall (XCALL_XDeleteProperty,requestor,property);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDeleteProperty,requestor,property);
   
   fun XInternAtom (d:Display) (name:string) (onlyIfExists:bool):int =
-    xcall (XCALL_XInternAtom,d,name,onlyIfExists);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XInternAtom,d,name,onlyIfExists);
   
   fun XGetAtomName (d:Display) (atom:int):string =
-    xcall (XCALL_XGetAtomName,d,atom);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetAtomName,d,atom);
   
   (* Fonts 400 *)
   
@@ -1412,25 +1413,25 @@ in
                                           descent:       int };
 
   fun XGetFontPath (d:Display):string list =
-    xcall (XCALL_XGetFontPath,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetFontPath,d);
   
   fun XListFonts (d:Display) (s:string) (n:int):string list =
-    xcall (XCALL_XListFonts,d,s,n);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XListFonts,d,s,n);
   
   fun XListFontsWithInfo (d:Display) (s:string) (n:int):(string list * XFontStruct list) =
-    xcall (XCALL_XListFontsWithInfo,d,s,n);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XListFontsWithInfo,d,s,n);
 
   fun XLoadFont (d:Display) (s:string):Font =
-    xcall (XCALL_XLoadFont,d,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XLoadFont,d,s);
   
   fun XLoadQueryFont (d:Display) (s:string):XFontStruct =
-    xcall (XCALL_XLoadQueryFont,d,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XLoadQueryFont,d,s);
   
   fun XQueryFont (f:Font):XFontStruct =
-    xcall (XCALL_XQueryFont,f);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryFont,f);
 
   fun XSetFontPath (d:Display) (L:string list):unit =
-    xcall (XCALL_XSetFontPath,d,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetFontPath,d,L);
 
   (* Grabbing 450 *)
   
@@ -1506,7 +1507,7 @@ in
   fun fromSubwindowMode ClipByChildren   = 0
   |   fromSubwindowMode IncludeInferiors = 1;
   
-  fun DefaultGC (d:Display) = xcall (XCALL_DefaultGC,d) : GC;
+  fun DefaultGC (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DefaultGC,d) : GC;
 
   datatype XGCValue = GCFunction          of GCFunction
                     | GCPlaneMask         of int
@@ -1530,34 +1531,34 @@ in
                     | GCDashList          of int
                     | GCArcMode           of GCArcMode;
 
-  fun UpdateGC gc (GCFunction f)                =  xcall (XCALL_UpdateGC,gc,0 ,fromFunction f)
-  |   UpdateGC gc (GCPlaneMask mask)            =  xcall (XCALL_UpdateGC,gc,1 ,mask)
-  |   UpdateGC gc (GCForeground fg)             =  xcall (XCALL_UpdateGC,gc,2 ,fg)
-  |   UpdateGC gc (GCBackground bg)             =  xcall (XCALL_UpdateGC,gc,3 ,bg)
-  |   UpdateGC gc (GCLineWidth w)               =  xcall (XCALL_UpdateGC,gc,4 ,w)
-  |   UpdateGC gc (GCLineStyle ls)              =  xcall (XCALL_UpdateGC,gc,5 ,fromLineStyle ls)
-  |   UpdateGC gc (GCCapStyle cs)               =  xcall (XCALL_UpdateGC,gc,6 ,fromCapStyle  cs)
-  |   UpdateGC gc (GCJoinStyle js)              =  xcall (XCALL_UpdateGC,gc,7 ,fromJoinStyle js)
-  |   UpdateGC gc (GCFillStyle fs)              =  xcall (XCALL_UpdateGC,gc,8 ,fromFillStyle fs)
-  |   UpdateGC gc (GCFillRule rule)             =  xcall (XCALL_UpdateGC,gc,9 ,fromFillRule  rule)
-  |   UpdateGC gc (GCTile tile)                 =  xcall (XCALL_UpdateGC,gc,10,tile)
-  |   UpdateGC gc (GCStipple stipple)           =  xcall (XCALL_UpdateGC,gc,11,stipple)
-  |   UpdateGC gc (GCTSOrigin (XPoint {x,y}))   = (xcall (XCALL_UpdateGC,gc,12,x); xcall (XCALL_UpdateGC,gc,13,y))
-  |   UpdateGC gc (GCFont font)                 =  xcall (XCALL_UpdateGC,gc,14,font)
-  |   UpdateGC gc (GCSubwindowMode mode)        =  xcall (XCALL_UpdateGC,gc,15,fromSubwindowMode mode)
-  |   UpdateGC gc (GCGraphicsExposures ex)      =  xcall (XCALL_UpdateGC,gc,16,ex)
-  |   UpdateGC gc (GCClipOrigin (XPoint {x,y})) = (xcall (XCALL_UpdateGC,gc,17,x); xcall (XCALL_UpdateGC,gc,18,y))
-  |   UpdateGC gc (GCClipMask mask)             =  xcall (XCALL_UpdateGC,gc,19,mask)
-  |   UpdateGC gc (GCDashOffset offset)         =  xcall (XCALL_UpdateGC,gc,20,offset)
-  |   UpdateGC gc (GCDashList dashes)           =  xcall (XCALL_UpdateGC,gc,21,dashes)
-  |   UpdateGC gc (GCArcMode mode)              =  xcall (XCALL_UpdateGC,gc,22,fromArcMode mode);
+  fun UpdateGC gc (GCFunction f)                =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,0 ,fromFunction f)
+  |   UpdateGC gc (GCPlaneMask mask)            =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,1 ,mask)
+  |   UpdateGC gc (GCForeground fg)             =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,2 ,fg)
+  |   UpdateGC gc (GCBackground bg)             =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,3 ,bg)
+  |   UpdateGC gc (GCLineWidth w)               =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,4 ,w)
+  |   UpdateGC gc (GCLineStyle ls)              =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,5 ,fromLineStyle ls)
+  |   UpdateGC gc (GCCapStyle cs)               =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,6 ,fromCapStyle  cs)
+  |   UpdateGC gc (GCJoinStyle js)              =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,7 ,fromJoinStyle js)
+  |   UpdateGC gc (GCFillStyle fs)              =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,8 ,fromFillStyle fs)
+  |   UpdateGC gc (GCFillRule rule)             =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,9 ,fromFillRule  rule)
+  |   UpdateGC gc (GCTile tile)                 =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,10,tile)
+  |   UpdateGC gc (GCStipple stipple)           =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,11,stipple)
+  |   UpdateGC gc (GCTSOrigin (XPoint {x,y}))   = (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,12,x); RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,13,y))
+  |   UpdateGC gc (GCFont font)                 =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,14,font)
+  |   UpdateGC gc (GCSubwindowMode mode)        =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,15,fromSubwindowMode mode)
+  |   UpdateGC gc (GCGraphicsExposures ex)      =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,16,ex)
+  |   UpdateGC gc (GCClipOrigin (XPoint {x,y})) = (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,17,x); RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,18,y))
+  |   UpdateGC gc (GCClipMask mask)             =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,19,mask)
+  |   UpdateGC gc (GCDashOffset offset)         =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,20,offset)
+  |   UpdateGC gc (GCDashList dashes)           =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,21,dashes)
+  |   UpdateGC gc (GCArcMode mode)              =  RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_UpdateGC,gc,22,fromArcMode mode);
   
   fun XChangeGC gc []     = ()
   |   XChangeGC gc (H::T) = (UpdateGC gc H; XChangeGC gc T);
   
   fun XCreateGC (d:Drawable) (values:XGCValue list):GC =
   let
-    val gc = xcall (XCALL_XCreateGC,d);
+    val gc = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateGC,d);
   in
     XChangeGC gc values;
     gc
@@ -1583,10 +1584,10 @@ in
   fun XSetState          gc fg bg f  mask = XChangeGC gc [GCForeground fg,GCBackground bg,GCFunction f, GCPlaneMask mask];
 
   fun XSetClipRectangles (gc:GC) (p:XPoint) (L:XRectangle list) (order:GCOrder):unit =
-    xcall (XCALL_XSetClipRectangles,gc,p,L,fromOrder order);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetClipRectangles,gc,p,L,fromOrder order);
   
   fun XSetDashes (gc:GC) (offset:int) (dashes:int list) =
-    xcall (XCALL_XSetDashes,gc,offset,dashes);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetDashes,gc,offset,dashes);
   
   (* Images 550 *)
   
@@ -1614,7 +1615,7 @@ in
   (* XImages need to be mutable for XAddPixel, XGetSubImage and XPutPixel to work properly *)
   
   fun XAddPixel (d:Display) (i:XImage) (a:int):unit =
-    xcall (XCALL_XAddPixel,d,i,a);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAddPixel,d,i,a);
 
   fun XCreateImage v depth format xoffset data size bitmapPad bytesPerLine =
   (
@@ -1635,27 +1636,27 @@ in
   );
 
   fun XGetImage (d:Drawable) (r:XRectangle) (mask:int) (f:ImageFormat) =
-    XImage (xcall (XCALL_XGetImage,d,r,mask,f));
+    XImage (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetImage,d,r,mask,f));
 
   fun XGetPixel (d:Display) (i:XImage) (point:XPoint):int =
-    xcall (XCALL_XGetPixel,d,i,point);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetPixel,d,i,point);
 
   fun XGetSubImage (d:Drawable) (r:XRectangle) (mask:int) (f:ImageFormat) (i:XImage) (point:XPoint):unit =
-    xcall (XCALL_XGetSubImage,d,r,mask,f,i,point);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetSubImage,d,r,mask,f,i,point);
   
   fun XPutImage (d:Drawable) (gc:GC) (i:XImage) (p:XPoint) (r:XRectangle):unit =
-    xcall (XCALL_XPutImage,d,gc,i,p,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XPutImage,d,gc,i,p,r);
 
   fun XPutPixel (d:Display) (i:XImage) (point:XPoint) (pixel:int):unit =
-    xcall (XCALL_XPutPixel,d,i,point,pixel);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XPutPixel,d,i,point,pixel);
 
   fun XSubImage (d:Display) (i:XImage) (r:XRectangle) =
-    XImage (xcall (XCALL_XSubImage,d,i,r));
+    XImage (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSubImage,d,i,r));
       
-  fun BitmapBitOrder (d:Display) = xcall (XCALL_BitmapBitOrder,d) : ImageOrder;
-  fun BitmapPad (d:Display)      = xcall (XCALL_BitmapPad,d) : int;
-  fun BitmapUnit (d:Display)     = xcall (XCALL_BitmapUnit,d) : int;
-  fun ByteOrder (d:Display)      = xcall (XCALL_ByteOrder,d) : ImageOrder;
+  fun BitmapBitOrder (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_BitmapBitOrder,d) : ImageOrder;
+  fun BitmapPad (d:Display)      = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_BitmapPad,d) : int;
+  fun BitmapUnit (d:Display)     = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_BitmapUnit,d) : int;
+  fun ByteOrder (d:Display)      = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ByteOrder,d) : ImageOrder;
   
   fun ImageByteOrder (XImage {byteOrder,...}) = byteOrder;
   fun ImageSize      (XImage {size,...})      = size;
@@ -1666,29 +1667,29 @@ in
   (* keysym values are integers, and are defined in other signatures *)
 
   fun XLookupString (d:Drawable) (keycode:int) (modifiers:Modifier list):(string * int) =
-     xcall (XCALL_XLookupString,d,keycode,fromModifier modifiers);
+     RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XLookupString,d,keycode,fromModifier modifiers);
   
-  fun XQueryKeymap (d:Display):bool list = xcall (XCALL_XQueryKeymap,d);
+  fun XQueryKeymap (d:Display):bool list = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryKeymap,d);
 
-  fun IsCursorKey       (k:int):bool = xcall (XCALL_IsCursorKey,k);
-  fun IsFunctionKey     (k:int):bool = xcall (XCALL_IsFunctionKey,k);
-  fun IsKeypadKey       (k:int):bool = xcall (XCALL_IsKeypadKey,k);
-  fun IsMiscFunctionKey (k:int):bool = xcall (XCALL_IsMiscFunctionKey,k);
-  fun IsModifierKey     (k:int):bool = xcall (XCALL_IsModifierKey,k);
-  fun IsPFKey           (k:int):bool = xcall (XCALL_IsPFKey,k);
+  fun IsCursorKey       (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsCursorKey,k);
+  fun IsFunctionKey     (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsFunctionKey,k);
+  fun IsKeypadKey       (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsKeypadKey,k);
+  fun IsMiscFunctionKey (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsMiscFunctionKey,k);
+  fun IsModifierKey     (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsModifierKey,k);
+  fun IsPFKey           (k:int):bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_IsPFKey,k);
   
   (* Output Buffer 650 *)
   
-  fun XFlush (d:Display):unit = xcall (XCALL_XFlush,d);
+  fun XFlush (d:Display):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XFlush,d);
   
-  fun XSync (d:Display) (b:bool):unit = xcall (XCALL_XSync,d,b);
+  fun XSync (d:Display) (b:bool):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSync,d,b);
 
   (* Pointers 700 *)
   
   fun XQueryPointer (d:Drawable) =
   let
     val (s:bool,root:Drawable,child:Drawable,r:XPoint,w:XPoint,m) =
-      xcall (XCALL_XQueryPointer,d);
+      RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryPointer,d);
   in
     (s,root,child,r,w,toModifier m)
   end;
@@ -1725,47 +1726,47 @@ in
   |   fromExposures DefaultExposures   = 2;
   
   fun XActivateScreenSaver (d:Display):unit =
-    xcall (XCALL_XActivateScreenSaver,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XActivateScreenSaver,d);
 
   fun XForceScreenSaver (d:Display) (s:SaveMode):unit =
-    xcall (XCALL_XForceScreenSaver,d,fromSaveMode s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XForceScreenSaver,d,fromSaveMode s);
   
   fun XGetScreenSaver (d:Display) =
   let
     val (timeout,interval,blanking,exposures) =
-      xcall (XCALL_XGetScreenSaver,d);
+      RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetScreenSaver,d);
   in
     (timeout:int,interval:int,toBlanking blanking,toExposures exposures)
   end;
 
   fun XResetScreenSaver (d:Display):unit =
-    xcall (XCALL_XResetScreenSaver,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XResetScreenSaver,d);
 
   fun XSetScreenSaver (d:Display)
                       (timeout:int)
                       (interval:int)
                       (blanking:Blanking)
                       (exposures:Exposures) =
-    xcall (XCALL_XSetScreenSaver,d,timeout,interval,fromBlanking blanking,fromExposures exposures);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetScreenSaver,d,timeout,interval,fromBlanking blanking,fromExposures exposures);
 
   (* Standard Geometry 900 *)
   
   fun XTranslateCoordinates (src:Drawable) (dst:Drawable) (p:XPoint):(XPoint * Drawable) =
-    xcall (XCALL_XTranslateCoordinates,src,dst,p);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XTranslateCoordinates,src,dst,p);
   
   (* Text 950 *)
   
   fun XTextExtents (fs:XFontStruct) (s:string):(FontDirection * int * int * XCharStruct) =
-    xcall (XCALL_XTextExtents,fs,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XTextExtents,fs,s);
 
   fun XTextExtents16 (fs:XFontStruct) (L:int list):(FontDirection * int * int * XCharStruct) =
-    xcall (XCALL_XTextExtents16,fs,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XTextExtents16,fs,L);
 
   fun XTextWidth (fs:XFontStruct) (s:string):int =
-    xcall (XCALL_XTextWidth,fs,s);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XTextWidth,fs,s);
 
   fun XTextWidth16 (fs:XFontStruct) (L:int list):int =
-    xcall (XCALL_XTextWidth16,fs,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XTextWidth16,fs,L);
 
   (* Tiles, Pixmaps, Stipples and Bitmaps 1000 *)
   
@@ -1775,10 +1776,10 @@ in
                         | BitmapSuccess of Drawable * XRectangle * XPoint;
   
   fun XCreateBitmapFromData (d:Drawable) (s:string) (r:XRectangle):Drawable =
-    xcall (XCALL_XCreateBitmapFromData,d,s,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateBitmapFromData,d,s,r);
 
   fun XCreatePixmap (d:Drawable) (r:XRectangle) (depth:int):Drawable =
-    xcall (XCALL_XCreatePixmap,d,r,depth);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreatePixmap,d,r,depth);
 
   fun XCreatePixmapFromBitmapData (d:Drawable)
                                   (s:string)
@@ -1786,13 +1787,13 @@ in
                                   (fg:int)
                                   (bg:int)
                                   (depth:int):Drawable =
-    xcall (XCALL_XCreatePixmapFromBitmapData,d,s,r,fg,bg,depth);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreatePixmapFromBitmapData,d,s,r,fg,bg,depth);
 
   fun XQueryBestStipple (d:Drawable) (r:XRectangle):XRectangle =
-    xcall (XCALL_XQueryBestStipple,d,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryBestStipple,d,r);
     
   fun XQueryBestTile    (d:Drawable) (r:XRectangle):XRectangle =
-    xcall (XCALL_XQueryBestTile,d,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryBestTile,d,r);
 
   datatype ShapeClass = CursorShape | TileShape | StippleShape;
   
@@ -1802,7 +1803,7 @@ in
                                             
   fun XReadBitmapFile (d:Drawable) (s:string) =
   let
-    val (status,bitmap,size,hotspot) = xcall (XCALL_XReadBitmapFile,d,s);
+    val (status,bitmap,size,hotspot) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XReadBitmapFile,d,s);
   in
     case status of
       0 => BitmapSuccess (bitmap,size,hotspot)
@@ -1813,7 +1814,7 @@ in
 
   fun XWriteBitmapFile (s:string) (bitmap:Drawable) (size:XRectangle) (hotspot:XPoint) =
   let
-    val status = xcall (XCALL_XWriteBitmapFile,s,bitmap,size,hotspot);
+    val status = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XWriteBitmapFile,s,bitmap,size,hotspot);
   in
     case status of
       0 => BitmapSuccess (bitmap,size,hotspot)
@@ -1824,13 +1825,13 @@ in
 
   (* User Preferences 1050 *)
   
-  fun XAutoRepeatOff (d:Display):unit = xcall (XCALL_XAutoRepeatOff,d);
-  fun XAutoRepeatOn  (d:Display):unit = xcall (XCALL_XAutoRepeatOn,d);
+  fun XAutoRepeatOff (d:Display):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAutoRepeatOff,d);
+  fun XAutoRepeatOn  (d:Display):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XAutoRepeatOn,d);
 
-  fun XBell (d:Display) (n:int):unit = xcall (XCALL_XBell,d,n);
+  fun XBell (d:Display) (n:int):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XBell,d,n);
 
   fun XGetDefault (d:Display) (program:string) (option:string):string =
-     xcall (XCALL_XGetDefault,d,program,option);
+     RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetDefault,d,program,option);
 
   (* Window Attributes 1100 *)
   
@@ -1922,27 +1923,27 @@ in
                                  overrideRedirect:   bool
                                };
   
-  fun ChangeWindow d (CWBackPixmap pixmap)   = xcall (XCALL_ChangeWindow,d,0 ,pixmap)
-  |   ChangeWindow d (CWBackPixel pixel)     = xcall (XCALL_ChangeWindow,d,1 ,pixel)
-  |   ChangeWindow d (CWBorderPixmap pixmap) = xcall (XCALL_ChangeWindow,d,2 ,pixmap)
-  |   ChangeWindow d (CWBorderPixel pixel)   = xcall (XCALL_ChangeWindow,d,3 ,pixel)
-  |   ChangeWindow d (CWBitGravity gravity)  = xcall (XCALL_ChangeWindow,d,4 ,fromGravity gravity)
-  |   ChangeWindow d (CWWinGravity gravity)  = xcall (XCALL_ChangeWindow,d,5 ,fromGravity gravity)
-  |   ChangeWindow d (CWBackingStore  bs)    = xcall (XCALL_ChangeWindow,d,6 ,fromBackingStore bs)
-  |   ChangeWindow d (CWBackingPlanes mask)  = xcall (XCALL_ChangeWindow,d,7 ,mask)
-  |   ChangeWindow d (CWBackingPixel pixel)  = xcall (XCALL_ChangeWindow,d,8 ,pixel)
-  |   ChangeWindow d (CWOverrideRedirect b)  = xcall (XCALL_ChangeWindow,d,9 ,b)
-  |   ChangeWindow d (CWSaveUnder b)         = xcall (XCALL_ChangeWindow,d,10,b)
-  |   ChangeWindow d (CWEventMask mask)      = xcall (XCALL_ChangeWindow,d,11,fromEventMask mask)
-  |   ChangeWindow d (CWDontPropagate mask)  = xcall (XCALL_ChangeWindow,d,12,fromEventMask mask)
-  |   ChangeWindow d (CWColormap cmap)       = xcall (XCALL_ChangeWindow,d,13,cmap)
-  |   ChangeWindow d (CWCursor cursor)       = xcall (XCALL_ChangeWindow,d,14,cursor);
+  fun ChangeWindow d (CWBackPixmap pixmap)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,0 ,pixmap)
+  |   ChangeWindow d (CWBackPixel pixel)     = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,1 ,pixel)
+  |   ChangeWindow d (CWBorderPixmap pixmap) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,2 ,pixmap)
+  |   ChangeWindow d (CWBorderPixel pixel)   = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,3 ,pixel)
+  |   ChangeWindow d (CWBitGravity gravity)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,4 ,fromGravity gravity)
+  |   ChangeWindow d (CWWinGravity gravity)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,5 ,fromGravity gravity)
+  |   ChangeWindow d (CWBackingStore  bs)    = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,6 ,fromBackingStore bs)
+  |   ChangeWindow d (CWBackingPlanes mask)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,7 ,mask)
+  |   ChangeWindow d (CWBackingPixel pixel)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,8 ,pixel)
+  |   ChangeWindow d (CWOverrideRedirect b)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,9 ,b)
+  |   ChangeWindow d (CWSaveUnder b)         = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,10,b)
+  |   ChangeWindow d (CWEventMask mask)      = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,11,fromEventMask mask)
+  |   ChangeWindow d (CWDontPropagate mask)  = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,12,fromEventMask mask)
+  |   ChangeWindow d (CWColormap cmap)       = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,13,cmap)
+  |   ChangeWindow d (CWCursor cursor)       = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_ChangeWindow,d,14,cursor);
 
   fun XChangeWindowAttributes d []     = ()
   |   XChangeWindowAttributes d (H::T) = (ChangeWindow d H; XChangeWindowAttributes d T);
   
   fun XGetGeometry (d:Drawable):(Drawable * XPoint * XRectangle * int * int) =
-    xcall (XCALL_XGetGeometry,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetGeometry,d);
 
   fun XGetWindowAttributes (d:Drawable) =
   let
@@ -1950,7 +1951,7 @@ in
          bitGravity,winGravity,backingStore,backingPlanes,
          backingPixel,saveUnder,colormap,mapInstalled,mapState,
          allEventMasks,yourEventMask,doNotPropagateMask,overrideRedirect) =
-      xcall (XCALL_XGetWindowAttributes,d);
+      RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetWindowAttributes,d);
   in
     XWindowAttributes { position           = position,
                         size               = size,
@@ -1981,16 +1982,16 @@ in
   fun XSetWindowColormap         d cmap   = ChangeWindow d (CWColormap     cmap);
 
   fun XSetWindowBorderWidth (d:Drawable) (width:int):unit =
-    xcall (XCALL_XSetWindowBorderWidth,d,width);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetWindowBorderWidth,d,width);
   
   (* Window Configuration 1150 *)
   
-  val NoDrawable           = xcall (XCALL_NoDrawable,0) : Drawable;
-  val ParentRelative       = xcall (XCALL_NoDrawable,1) : Drawable;
-  val NoCursor             = xcall (XCALL_NoCursor,0) : Cursor;
-  val NoFont               = xcall (XCALL_NoFont,0) : Font;
-  val NoColormap           = xcall (XCALL_NoColormap,0) : Colormap;
-  val NoVisual             = xcall (XCALL_NoVisual,0) : Visual;
+  val NoDrawable           = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoDrawable,0) : Drawable;
+  val ParentRelative       = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoDrawable,1) : Drawable;
+  val NoCursor             = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoCursor,0) : Cursor;
+  val NoFont               = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoFont,0) : Font;
+  val NoColormap           = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoColormap,0) : Colormap;
+  val NoVisual             = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_NoVisual,0) : Visual;
 
   val CopyFromParentDrawable = NoDrawable;
   val CopyFromParentVisual   = NoVisual;
@@ -2013,7 +2014,7 @@ in
                           | CWSibling     of Drawable;
   
   fun XCirculateSubwindows (d:Drawable) (dir:CirculateDirection):unit =
-    xcall (XCALL_XCirculateSubwindows,d,fromCirculateDirection dir);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCirculateSubwindows,d,fromCirculateDirection dir);
   
   fun XCirculateSubwindowsDown d = XCirculateSubwindows d LowerHighest;
   fun XCirculateSubwindowsUp   d = XCirculateSubwindows d RaiseLowest;
@@ -2029,47 +2030,47 @@ in
     |   Trans ((CWSibling     d)::T) (P,S,w,_,s,m) = Trans T (P,S,w,d,s,AddIn m 32)
     |   Trans ((CWStackMode   s)::T) (P,S,w,d,_,m) = Trans T (P,S,w,d,fromStackMode s,AddIn m 64);
   in
-    xcall (XCALL_XConfigureWindow,win,Trans L (origin,a1,0,NoDrawable,0,0))
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XConfigureWindow,win,Trans L (origin,a1,0,NoDrawable,0,0))
   end;
 
-  fun XLowerWindow (d:Drawable):unit = xcall (XCALL_XLowerWindow,d);
+  fun XLowerWindow (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XLowerWindow,d);
 
-  fun XMapRaised (d:Drawable):unit = xcall (XCALL_XMapRaised,d);
+  fun XMapRaised (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XMapRaised,d);
 
-  fun XMapSubwindows (d:Drawable):unit = xcall (XCALL_XMapSubwindows,d);
+  fun XMapSubwindows (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XMapSubwindows,d);
 
-  fun XMapWindow (d:Drawable):unit = xcall (XCALL_XMapWindow,d);
+  fun XMapWindow (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XMapWindow,d);
 
   fun XMoveResizeWindow (d:Drawable) (p:XPoint) (r:XRectangle):unit =
-    xcall (XCALL_XMoveResizeWindow,d,p,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XMoveResizeWindow,d,p,r);
 
-  fun XMoveWindow (d:Drawable) (p:XPoint):unit = xcall (XCALL_XMoveWindow,d,p);
+  fun XMoveWindow (d:Drawable) (p:XPoint):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XMoveWindow,d,p);
 
   fun XQueryTree (d:Drawable):(Drawable * Drawable * Drawable list) =
-    xcall (XCALL_XQueryTree,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XQueryTree,d);
 
-  fun XRaiseWindow (d:Drawable):unit = xcall (XCALL_XRaiseWindow,d);
+  fun XRaiseWindow (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XRaiseWindow,d);
 
   fun XReparentWindow (win:Drawable) (parent:Drawable) (p:XPoint):unit =
-    xcall (XCALL_XReparentWindow,win,parent,p);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XReparentWindow,win,parent,p);
 
   fun XResizeWindow (d:Drawable) (r:XRectangle):unit =
-    xcall (XCALL_XResizeWindow,d,r);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XResizeWindow,d,r);
 
   fun XRestackWindows (L:Drawable list):unit =
-    xcall (XCALL_XRestackWindows,L);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XRestackWindows,L);
 
   fun XUnmapSubwindows (d:Drawable):unit =
-    xcall (XCALL_XUnmapSubwindows,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XUnmapSubwindows,d);
 
   fun XUnmapWindow (d:Drawable):unit =
-    xcall (XCALL_XUnmapWindow,d);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XUnmapWindow,d);
   
   (* Window Existence 1200 *)
   
-  fun RootWindow (d:Display) = xcall (XCALL_RootWindow,d) : Drawable;
+  fun RootWindow (d:Display) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_RootWindow,d) : Drawable;
 
-  fun DestroyXObject x = xcall (XCALL_DestroyXObject,x):unit;
+  fun DestroyXObject x = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_DestroyXObject,x):unit;
 
   val XDestroyWindow = DestroyXObject : Drawable -> unit;
   val XFreeGC        = DestroyXObject : GC       -> unit;
@@ -2080,11 +2081,11 @@ in
 
   fun XFreeFont (XFontStruct {font,...}) = XUnloadFont font;
 
-  fun XDestroySubwindows (d:Drawable):unit = xcall (XCALL_XDestroySubwindows,d);
+  fun XDestroySubwindows (d:Drawable):unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XDestroySubwindows,d);
 
   fun XCreateSimpleWindow (parent:Drawable) (position:XPoint) (size:XRectangle) (borderWidth:int) (border:int) (background:int): Drawable =
   (
-    xcall (XCALL_XCreateSimpleWindow,parent,position,size,borderWidth,border,background,NullHandler,42)
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateSimpleWindow,parent,position,size,borderWidth,border,background,NullHandler,42)
   );
 
   fun XCreateWindow (parent:Drawable)
@@ -2096,7 +2097,7 @@ in
                     (visual:Visual)
                     (L:XSetWindowAttributes list): Drawable =
   let
-    val w = xcall (XCALL_XCreateWindow,parent,position,size,borderWidth,depth,fromWindowClass class,visual,NullHandler,42);
+    val w = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XCreateWindow,parent,position,size,borderWidth,depth,fromWindowClass class,visual,NullHandler,42);
   in
     XChangeWindowAttributes w L;
     w
@@ -2208,28 +2209,28 @@ in
   fun XSetProperty (w:Drawable) (property:int) (v:PropertyValue) (t:int):unit =
   (
     case v of
-      PropertyArc         L => xcall (XCALL_XSetProperty,w,property,t,L,XA_ARC)
-    | PropertyAtom        L => xcall (XCALL_XSetProperty,w,property,t,L,XA_ATOM)
-    | PropertyBitmap      L => xcall (XCALL_XSetProperty,w,property,t,L,XA_BITMAP)
-    | PropertyColormap    L => xcall (XCALL_XSetProperty,w,property,t,L,XA_COLORMAP)
-    | PropertyCursor      L => xcall (XCALL_XSetProperty,w,property,t,L,XA_CURSOR)
-    | PropertyDrawable    L => xcall (XCALL_XSetProperty,w,property,t,L,XA_DRAWABLE)
-    | PropertyFont        L => xcall (XCALL_XSetProperty,w,property,t,L,XA_FONT)
-    | PropertyInteger     L => xcall (XCALL_XSetProperty,w,property,t,L,XA_INTEGER)
-    | PropertyPixmap      L => xcall (XCALL_XSetProperty,w,property,t,L,XA_PIXMAP)
-    | PropertyPoint       L => xcall (XCALL_XSetProperty,w,property,t,L,XA_POINT)
-    | PropertyRectangle   L => xcall (XCALL_XSetProperty,w,property,t,L,XA_RECTANGLE)
-    | PropertyString      s => xcall (XCALL_XSetProperty,w,property,t,s,XA_STRING)
-    | PropertyVisual      L => xcall (XCALL_XSetProperty,w,property,t,L,XA_VISUALID)
-    | PropertyWindow      L => xcall (XCALL_XSetProperty,w,property,t,L,XA_WINDOW)
-    | PropertyRGBColormap L => xcall (XCALL_XSetProperty,w,property,t,fromXStandardColormaps L,XA_RGB_COLOR_MAP)
-    | PropertyWMHints     L => xcall (XCALL_XSetProperty,w,property,t,[fromXWMHints L],XA_WM_HINTS)
-    | PropertyWMSizeHints L => xcall (XCALL_XSetProperty,w,property,t,[fromXWMSizeHints L],XA_WM_SIZE_HINTS)
-    | PropertyWMIconSizes L => xcall (XCALL_XSetProperty,w,property,t,L,XA_WM_ICON_SIZE)
+      PropertyArc         L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_ARC)
+    | PropertyAtom        L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_ATOM)
+    | PropertyBitmap      L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_BITMAP)
+    | PropertyColormap    L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_COLORMAP)
+    | PropertyCursor      L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_CURSOR)
+    | PropertyDrawable    L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_DRAWABLE)
+    | PropertyFont        L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_FONT)
+    | PropertyInteger     L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_INTEGER)
+    | PropertyPixmap      L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_PIXMAP)
+    | PropertyPoint       L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_POINT)
+    | PropertyRectangle   L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_RECTANGLE)
+    | PropertyString      s => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,s,XA_STRING)
+    | PropertyVisual      L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_VISUALID)
+    | PropertyWindow      L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_WINDOW)
+    | PropertyRGBColormap L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,fromXStandardColormaps L,XA_RGB_COLOR_MAP)
+    | PropertyWMHints     L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,[fromXWMHints L],XA_WM_HINTS)
+    | PropertyWMSizeHints L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,[fromXWMSizeHints L],XA_WM_SIZE_HINTS)
+    | PropertyWMIconSizes L => RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XSetProperty,w,property,t,L,XA_WM_ICON_SIZE)
   );
   
   fun XGetTextProperty (w:Drawable) (property:int):(string * int * int * int) =
-    xcall (XCALL_XGetTextProperty,w,property);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetTextProperty,w,property);
   
   fun GetSet property exceptionName =
   let
@@ -2276,7 +2277,7 @@ in
   
   fun XGetWMHints (win:Drawable) =
   let
-    val (i,s,p,w,P,m,f) = xcall (XCALL_XGetWMHints,win);
+    val (i,s,p,w,P,m,f) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetWMHints,win);
     
     val s = toXWMStateHint s;
   in
@@ -2292,7 +2293,7 @@ in
   
   fun XGetWMSizeHints (win:Drawable) (property:int) =
   let
-    val (p,s,min,max,inc,a,bs,wg,f) = xcall (XCALL_XGetWMSizeHints,win,property);
+    val (p,s,min,max,inc,a,bs,wg,f) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetWMSizeHints,win,property);
     
     val wg = toGravity wg;
   in
@@ -2327,12 +2328,12 @@ in
   fun XSetIconSizes w sizes = XSetProperty w XA_WM_ICON_SIZE (PropertyWMIconSizes sizes) XA_WM_ICON_SIZE;
   
   fun XGetIconSizes (w:Drawable):(XRectangle * XRectangle * XRectangle) list =
-    xcall (XCALL_XGetIconSizes,w);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetIconSizes,w);
   
   fun XSetTransientForHint transient main = XSetProperty transient XA_WM_TRANSIENT_FOR (PropertyWindow [main]) XA_WINDOW;
   
   fun XGetTransientForHint (w:Drawable):Drawable =
-    xcall (XCALL_XGetTransientForHint,w);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetTransientForHint,w);
   
   fun XSetWMColormapWindows w subwins =
   let
@@ -2345,7 +2346,7 @@ in
   end;
   
   fun XGetWMColormapWindows (w:Drawable):Drawable list =
-    xcall (XCALL_XGetWMColormapWindows,w);
+    RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetWMColormapWindows,w);
   
   fun XSetRGBColormaps w property L = XSetProperty w property (PropertyRGBColormap L) XA_RGB_COLOR_MAP;
   
@@ -2364,12 +2365,12 @@ in
                           visual    = visual }
     );
   in
-    map Trans (xcall (XCALL_XGetRGBColormaps,w,property))
+    map Trans (RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XGetRGBColormaps,w,property))
   end;
   
   fun XWMGeometry (d:Display) (user:string) (def:string) (borderWidth:int) (L:XWMSizeHint list):(XPoint * XRectangle * Gravity) =
   let
-    val (p,r,g) = xcall (XCALL_XWMGeometry,d,user,def,borderWidth,fromXWMSizeHints L);
+    val (p,r,g) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_XWMGeometry,d,user,def,borderWidth,fromXWMSizeHints L);
   in
     (p,r,toGravity g)
   end;
@@ -2377,7 +2378,7 @@ in
   (* Miscellaneous and Convenience functions 1300 *)
   
   local
-    fun GetID x = xcall (XCALL_GetID,x):int;
+    fun GetID x = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetID,x):int;
   in
     val ColormapID = GetID : Colormap -> int;
     val CursorID   = GetID : Cursor   -> int;
@@ -2399,7 +2400,7 @@ in
   fun XGetWindowParent      w = #2 (XQueryTree w);
   fun XGetWindowChildren    w = #3 (XQueryTree w);
   
-  fun GetTimeOfDay():(int * int) = xcall (XCALL_GetTimeOfDay,0);
+  fun GetTimeOfDay():(int * int) = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows (XCALL_GetTimeOfDay,0);
 
   fun FSFont          (XFontStruct {font         ,...}) = font;
   fun FSDirection     (XFontStruct {direction    ,...}) = direction;

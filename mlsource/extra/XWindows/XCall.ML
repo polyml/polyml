@@ -19,10 +19,6 @@
 
 structure XCall =
 struct
-  (* This won't compile in ML97.  In ML90 xcall could have type 'a->'b
-     but that's not possible in ML97. *)
-  val xcall = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows;
-
   local
     structure Type =
     struct
