@@ -42,12 +42,7 @@ in
    if isX
    then
    	(
-   	(* We have to compile this in ML90 mode because it assumes
-   	   that the xcall function can be polymorphic. *)
-   	PolyML.Compiler.ml90 := true;
-   	PolyML.make "mlsource/extra/XWindows"
-   		handle exn => (PolyML.Compiler.ml90 := false; raise exn);
-   	PolyML.Compiler.ml90 := false;
+   	PolyML.make "mlsource/extra/XWindows";
    	PolyML.make "mlsource/extra/Motif"
    	)
    else ()
