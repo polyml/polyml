@@ -413,7 +413,7 @@ struct
     fun I x = x;
     
     (* This version can be inlined for greater efficiency. SPF 1/6/95 *)
-    val Cast : 'a -> 'b = Address.unsafeCast;
+    val Cast : 'a -> 'b = RunCall.unsafeCast;
 
 	val toInt : 'a -> int = Cast (* we could make this any type. *)
 
