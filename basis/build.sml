@@ -93,8 +93,6 @@ Bootstrap.use "basis/Signal.sml";
 Bootstrap.use "basis/SysWord.sml";
 Bootstrap.use "basis/BIT_FLAGS.sml";
 
-Bootstrap.printString := print;
-
 (* Build Windows or Unix structure as appropriate. *)
 let
 	val getOS: int =
