@@ -86,19 +86,31 @@ in
 
 	exception Domain and Span and Chr
 
-	(* Exception packets.  The first word is the code, the second is
+	(* Exception packets.  The first word is the code, a unique id; the second is
 	   the exception name and the third is the exception argument. *)
 	fun exnName (ex: exn) = System_loadw(ex, 1)
 	
-	(* PolyML.makestring now works for exception packets. *)
-	fun exnMessage (ex: exn) = PolyML.makestring ex
+	(* exnMessage is contained in the Bootstrap.ExnMessage structure and is
+       actually just the same as PolyML.makeString.  However we have to make
+       sure that we don't capture the namespace that is being used to compile
+       the code at this point.
+       Since exception packets don't contain any description of the type of the
+       exception argument if we want to be able to print it we have to find the
+       type by using the unique id.  We can search all the declared exceptions
+       and all the exceptions in structures to find the unique id and if we find
+       it we can use the type information there.  That requires a name space and
+       the best choice of name space is the one used to compile the code that
+       contains the CALL to exnMessage, not the one used to declare it here. *)
+    open Bootstrap.ExnMessage
+    
+	(* fun exnMessage (ex: exn) = PolyML.makestring ex *)
 	
     datatype order = LESS | EQUAL | GREATER
 	
 	fun op before (a, b) = a
 	fun ignore a = ()
 	
-	structure General: GENERAL =
+	structure General (*: GENERAL *) (* Don't use a signature here. *) =
 		struct
 		type unit = unit (* This has to be primitive because its value is given by () *)
 		type exn = exn
@@ -106,9 +118,11 @@ in
 		exception Overflow = Overflow and Domain= Domain and Fail = Fail
 		exception Span = Span and Subscript = Subscript and Size = Size
 
-		val exnName = exnName and exnMessage = exnMessage
+		val exnName = exnName
 		and op := = op := and ! = ! and op o = op o
 		and op before = op before and ignore = ignore
+
+        open Bootstrap.ExnMessage
 		
 	    datatype order = datatype order
 	end
