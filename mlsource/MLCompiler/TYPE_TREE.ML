@@ -44,9 +44,10 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val errorDepth: int ref
-  val ml90: bool ref
-  val printTypesWithStructureName : bool ref;
+    val ml90Tag: bool Universal.tag
+    val errorDepthTag: int Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 (*****************************************************************************)
@@ -61,6 +62,8 @@ sig
   val errorMessage: lexan * int * string -> unit;
   val warningMessage: lexan * int * string -> unit;
   val lineno:       lexan -> int;
+
+  val debugParams: lexan -> Universal.universal list
 end;
     
 (*****************************************************************************)
@@ -278,13 +281,13 @@ sig
   val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
 
   (* Print it out prettily *)
-  val display: types * int * prettyPrinter -> unit;
+  val display: types * int * prettyPrinter * bool -> unit;
 
   (* Print out a type constructor. *)
-  val displayTypeConstrs: typeConstrs * int * prettyPrinter -> unit;
+  val displayTypeConstrs: typeConstrs * int * prettyPrinter * bool -> unit;
 
   (* A list of type variables. *)
-  val displayTypeVariables: types list * int * prettyPrinter -> unit;
+  val displayTypeVariables: types list * int * prettyPrinter * bool -> unit;
 
   (* Create an instance of an overloaded type. *)
   val generaliseOverload: types * typeConstrs list * bool -> types;
@@ -381,7 +384,6 @@ end (* TYPETREE export signature *) =
 (*                  TYPETREE functor body                                    *)
 (*****************************************************************************)
 struct
-  open DEBUG;
   open MISC;
   open PRETTYPRINTER;
   
@@ -764,7 +766,8 @@ struct
     (t : types, 
      depth : int,
      pprint: prettyPrinter,
-     typeVarName : typeVarForm -> string)
+     typeVarName : typeVarForm -> string,
+     withStructName)
     : unit =
   let
     (* prints a block of items *)
@@ -836,9 +839,10 @@ struct
 	 	 let
 		 	val constrName = if isUndefined(pling value) then name else tcName(pling value)
 		 in
-		 	(* When printing a type constructor we remove any structure name if  *)
+		 	(* When printing a type constructor we remove any structure name if the option
+               is not set. *)
             ppAddString pprint
-				(if ! printTypesWithStructureName then constrName else #second(splitString constrName))
+				(if withStructName then constrName else #second(splitString constrName))
 		 end
         
      (* Type construction with one or more arguments - print out as (a, b, c) cons *)
@@ -1015,7 +1019,7 @@ struct
     			      ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
                 val () = nameNum := !nameNum + 1;
     	        val n = (if tvEquality var then "''" else "'") ^
-    			     (if !ml90 andalso tvWeak var then "_" else "") ^ name(!nameNum);
+    			     (*(if ml90 lex andalso tvWeak var then "_" else "") ^*) name(!nameNum);
     	        (* Should explicit type variables be distinguished? *)
     	    in
     		    gNameList := Names{name=n, entry=var} :: !gNameList;
@@ -1027,15 +1031,17 @@ struct
   
 
   (* Print a type (as a block of items) *)
-  fun display (t : types, depth : int, pprint : prettyPrinter) = 
-    tDisp (t, depth, pprint, varNameSequence ());
+  fun display (t : types, depth : int, pprint : prettyPrinter, withStruct) =
+      tDisp (t, depth, pprint, varNameSequence (), withStruct)
+
 
   (* Print out one or more type variables (unblocked) *)
   fun printTypeVars
      (vars : types list,
       depth : int,
       typeV : typeVarForm -> string,
-      pprint : prettyPrinter)
+      pprint : prettyPrinter,
+      withStruct)
      : unit =
   let
     val numOfVars = length vars;
@@ -1044,7 +1050,7 @@ struct
     if numOfVars = 1 
     then 
     (
-      tDisp (hd vars, depth, pprint, typeV); 
+      tDisp (hd vars, depth, pprint, typeV, withStruct); 
       ppBreak pprint (1, 0)
     )
     else 
@@ -1064,7 +1070,7 @@ struct
             else if not (null vars)
                  then  
                  (
-                   tDisp (hd vars, depth, pprint, typeV);
+                   tDisp (hd vars, depth, pprint, typeV, withStruct);
                    ppBreak pprint (0, 0);
                    if not (null (tl vars))
                    then
@@ -1093,9 +1099,9 @@ struct
   fun displayTypeVariables
      (vars : types list,
       depth : int,
-      pprint : prettyPrinter) 
+      pprint : prettyPrinter, withStruct) 
     : unit =
-       printTypeVars (vars, depth, varNameSequence (), pprint);
+       printTypeVars (vars, depth, varNameSequence (), pprint, withStruct);
     
     
   (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
@@ -1104,7 +1110,8 @@ struct
   fun displayTypeConstrs 
      (tCons : typeConstrs,
       depth : int, 
-      pprint : prettyPrinter)
+      pprint : prettyPrinter,
+      withStruct)
      : unit =
   let
     val typeV : typeVarForm -> string = varNameSequence ();
@@ -1155,7 +1162,7 @@ struct
 		   ( 
 		       ppBreak pprint (1, 4);
 		       (* print the type as a single block of output *)
-		       tDisp (#arg (typesFunctionType typeOf), depth - 1, pprint, typeV)
+		       tDisp (#arg (typesFunctionType typeOf), depth - 1, pprint, typeV, withStruct)
 		     )
 		   else ();
 		   
@@ -1189,7 +1196,7 @@ struct
          
          ppAddString pprint "datatype";
          ppBreak pprint (1, 2);
-         printTypeVars (tcTypeVars tCons, depth, typeV, pprint);
+         printTypeVars (tcTypeVars tCons, depth, typeV, pprint, withStruct);
          ppAddString pprint (tcname ^ " =");
          pValConstrList (tcConstructors tCons, depth - 1);
          
@@ -1204,7 +1211,7 @@ struct
            ppBeginBlock pprint (3, false);
            ppAddString pprint (if tcEquality tCons then "eqtype" else "type");
            ppBreak pprint (1, 0);
-           printTypeVars (tcTypeVars tCons, depth, typeV, pprint);
+           printTypeVars (tcTypeVars tCons, depth, typeV, pprint, withStruct);
            ppAddString pprint tcname;
            (* Don't try to print the type it is equivalent to, it will probably
               be confusing if this is the result of a functor application. *)
@@ -1231,15 +1238,18 @@ struct
        let
          (* Use a single sequence. *)
          val vars : typeVarForm -> string = varNameSequence ();
+         open DEBUG
+         val parameters = LEX.debugParams lex
+         val errorDepth = getParameter errorDepthTag parameters
        in
          ppBeginBlock pprint (3, false);
          ppAddString pprint s1;
          ppBreak pprint (1, 0);
-         tDisp (alpha, ! errorDepth, pprint, vars);
+         tDisp (alpha, errorDepth, pprint, vars, true);
          ppBreak pprint (1, 0);
          ppAddString pprint s2;
          ppBreak pprint (1, 0);
-         tDisp (beta, ! errorDepth, pprint, vars);
+         tDisp (beta, errorDepth, pprint, vars, true);
          ppBreak pprint (1, 0);
          ppAddString pprint s3;
          ppBreak pprint (1, 0);
@@ -1691,7 +1701,7 @@ struct
 
 	(* "real" is an equality type in ML90 but not in ML97. *)
 	else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.realType)
-	  then if !ml90 then Yes else No
+	  then (*if ml90 lex then Yes else *)No
 	  
         (* Others apart from ref and real *)
 	else if tcEquality constr (* Equality allowed. *)
@@ -2166,7 +2176,7 @@ struct
 			   don't admit equality. *)
 			case oldValue of
 			   OverloadSet{typeset} =>
-			  		if ! ml90
+			  		(*if ml90 lex
 					then (* real admits equality in ML90 but not in ML97.  I am
 							assuming here that we will not try overloading on any
 							other type which would not admit equality.  *)
@@ -2174,7 +2184,7 @@ struct
 						tvSetValue (typesTypeVar newTv, oldValue);
 						Yes
 						)
-					else
+					else*)
 			   		let
 			   		(* Remove any types which do not admit equality. *)
 					   fun filter [] = []
@@ -2636,10 +2646,10 @@ struct
 							tcons
 							)
 					in
-						if !ml90 andalso not isConverter
+						(*if ml90 lex andalso not isConverter
 						then undefType (* No defaulting on functions in ML 90
 										  but allow defaulting on literals *)
-						else if isInSet(STRUCTVALS.intType, typeset)
+						else *)if isInSet(STRUCTVALS.intType, typeset)
 						then freezeType STRUCTVALS.intType
 						else if isInSet(STRUCTVALS.realType, typeset)
 						then freezeType STRUCTVALS.realType
@@ -2677,6 +2687,9 @@ struct
     (* Get the first arg if there are more than one, and see if
        it is matched to anything. *)
     val arg = firstArg t
+     open DEBUG
+     val parameters = debugParams lex
+     val errorDepth = getParameter errorDepthTag parameters
   in
     if isTypeVar arg (* Unresolved *)
     then errorMessage (lex, lineno, "Unable to resolve overloading for " ^ opName)
@@ -2687,7 +2700,7 @@ struct
            ppBeginBlock pprint (3, true);
            ppAddString pprint
               (opName ^ " is overloaded on " ^ types ^ " but not ");
-           display (arg, ! errorDepth, pprint);
+           display (arg, errorDepth, pprint, true);
            ppEndBlock pprint ()
          ))
   end (* overloadError *);
@@ -2730,11 +2743,14 @@ struct
 				let
 		         (* Use a single sequence. *)
 		         val vars : typeVarForm -> string = varNameSequence ();
+                 open DEBUG
+                 val parameters = debugParams lex
+                 val errorDepth = getParameter errorDepthTag parameters
 				in
 		         ppBeginBlock pprint (3, false);
 		         ppAddString pprint s1;
 		         ppBreak pprint (1, 0);
-		         tDisp (t, ! errorDepth, pprint, vars);
+		         tDisp (t, errorDepth, pprint, vars, true);
 		         ppBreak pprint (1, 0);
 		         ppAddString pprint s2;
 		         ppBreak pprint (1, 0);
@@ -2760,12 +2776,14 @@ struct
 				   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
 				   would be take the default type (in this case int).
 				   DCJM 1/9/00. *)
+                val ml90 = DEBUG.getParameter DEBUG.ml90Tag (debugParams lex)
 	            val nonCopiable =
-					(not nonExpansive andalso (tvWeak tvar orelse not(!ml90)))
+					(not nonExpansive andalso (tvWeak tvar orelse not ml90))
 					orelse isOverloadSet;
 	            val newLevel =
 	               if nonCopiable then level-1 else generalisable (* copiable *);
 
+                val ml90 = DEBUG.getParameter DEBUG.ml90Tag (debugParams lex)
 				val isOk =
 					(* If the type variable has top-level scope then we have
 	                   a free type variable.  We only want to generate this
@@ -2779,7 +2797,7 @@ struct
 						giveError("Type", "includes a free type variable");
 						false
 						)
-		            else if newLevel = 1 andalso showError andalso (!ml90)
+		            else if newLevel = 1 andalso showError andalso ml90
 		                        andalso not isOverloadSet
 		            then
 						(
@@ -3051,10 +3069,10 @@ struct
       in
 		    (* In ML90 we are allowed to unify a rigid and a flexible type.
 			   In ML97 both must be flexible. *)
-		if not (isVariableId (tcIdentifier typeA)) andalso not (! ml90)
+		if not (isVariableId (tcIdentifier typeA)) (*andalso not (ml90 lex)*)
 		then cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not flexible")
 
-		else if not (isVariableId (tcIdentifier typeB)) andalso not (! ml90)
+		else if not (isVariableId (tcIdentifier typeB)) (*andalso not (ml90 lex)*)
 		then cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not flexible")
 
         else if isVariableId (tcIdentifier typeA) andalso not AIsDatatype

@@ -29,4 +29,5 @@ structure Initialise =
   structure MISC       = Misc
   structure DEBUGGER   = Debugger
   structure VERSION    = CompilerVersion
+  structure PRETTYPRINTER = PrettyPrinter
 );

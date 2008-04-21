@@ -24,6 +24,6 @@ structure Make =
     structure LEX = Lex;
     structure COMPILERBODY = CompilerBody;
     structure MISC = Misc;
-    structure UNIVERSAL = Universal
     structure UNIVERSALTABLE = UniversalTable
+    structure DEBUG = Debug
   ); 

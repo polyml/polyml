@@ -100,9 +100,7 @@ sig
   val maxsym:       sys;
   
   val repr: sys -> string;
-  
-  val print: sys -> unit;
-  
+
   val lookup: string -> sys;
   
   val eq:   sys * sys -> bool;
@@ -272,8 +270,6 @@ struct
                        "unknown symbol"];
 
     fun repr sym = resw sub (down sym);
-
-    fun print sym = TextIO.output (TextIO.stdOut,repr sym);
 
     local
       open Boot.HashTable;

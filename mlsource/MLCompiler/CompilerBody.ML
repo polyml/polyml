@@ -31,15 +31,11 @@ structure CompilerBody =
     structure CODETREE   = CodeTree
     structure STRUCTVALS = StructVals
     structure VALUEOPS   = ValueOps
-    structure TYPETREE   = TypeTree
     structure STRUCTURES = Structures
     structure PARSEDEC   = ParseDec
     structure DEBUG      = Debug
     structure UTILITIES  = Utilities
     structure MISC       = Misc
     structure PRETTYPRINTER = PrettyPrinter
-    structure POLYML     = PolyML
-    structure ADDRESS    = Address
-    structure RUNCALL    = RunCall
 ) ;
 

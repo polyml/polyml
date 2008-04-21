@@ -38,6 +38,8 @@ sig
   val warningProc:  lexan * int * (prettyPrinter -> unit) -> unit;
   val lineno:       lexan -> int;
   val nullLex:      lexan; (* Used when no errors are expected - streams raise exceptions. *)
+
+  val debugParams: lexan -> Universal.universal list
 end;
 
 (*****************************************************************************)
@@ -334,10 +336,10 @@ sig
                         lookup: typeId -> typeConstrs option} *
 						(types -> types) * string -> typeConstrs;
 
-  val display:              types * int * prettyPrinter -> unit;
-  val displayTypeConstrs:   typeConstrs * int * prettyPrinter -> unit;
+  val display:              types * int * prettyPrinter * bool -> unit;
+  val displayTypeConstrs:   typeConstrs * int * prettyPrinter * bool -> unit;
   (* A list of type variables. *)
-  val displayTypeVariables: types list * int * prettyPrinter -> unit;
+  val displayTypeVariables: types list * int * prettyPrinter * bool -> unit;
   
   (* added SPF 16/4/95 *)  
   val sameTypeVar : types * types -> bool;
@@ -429,9 +431,11 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val errorDepth: int ref;
-  val inlineFunctors: bool ref;
-  val ml90: bool ref;
+    val ml90Tag: bool Universal.tag
+    val inlineFunctorsTag: bool Universal.tag
+    val errorDepthTag : int Universal.tag
+    val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a 
 end;
 
 (*****************************************************************************)
@@ -457,24 +461,6 @@ sig
   val stretchArray : int * '_a -> '_a stretchArray
   val update : '_a stretchArray * int * '_a -> unit
   val sub    : 'a stretchArray * int -> 'a
-end;
-
-(*****************************************************************************)
-(*                  DEBUGGER                                                  *)
-(*****************************************************************************)
-structure DEBUGGER :
-sig
-	type types
-	type machineWord
-
-	datatype environEntry =
-		EnvValue of string * types
-	|	EnvException of string * types
-	|	EnvVConstr of string * types * bool
-	|	EnvStaticLevel
-
-	val debugFunction:
-		string * string * int -> environEntry list -> machineWord list -> unit
 end;
 
 (*****************************************************************************)
@@ -504,7 +490,6 @@ sharing type
 = VALUEOPS.types
 = TYPETREE.types
 = PARSETREE.types
-= DEBUGGER.types
 
 sharing type
   STRUCTVALS.values
@@ -538,10 +523,6 @@ sharing type
 sharing type
   STRUCTVALS.env 
 = PARSETREE.env
-   
-sharing type
-  CODETREE.machineWord
-= DEBUGGER.machineWord
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -550,10 +531,6 @@ sharing type
 sharing type 
   UNIVERSALTABLE.universal
 = UNIVERSAL.universal;
-
-sharing type
-  PARSETREE.environEntry
-= DEBUGGER.environEntry
 
 sharing type
   STRUCTVALS.fixStatus
@@ -612,15 +589,10 @@ sig
 		((string*functors->unit)->unit) * lexan -> unit
 
   val pass4Structs:
-    codetree * structs list *
-     {
-       enterVal:     string * values      -> unit,
-       enterStruct:  string * structVals  -> unit,
-       enterFunct:   string * functors    -> unit,
-       enterFix:     string * fixStatus   -> unit,
-       enterType:    string * typeConstrs -> unit,
-       enterSig:     string * signatures  -> unit
-     } -> unit;
+    codetree * structs list ->
+       { fixes: (string * fixStatus) list, values: (string * values) list,
+         structures: (string * structVals) list, signatures: (string * signatures) list,
+         functors: (string * functors) list, types: (string* typeConstrs) list };
 
   val gencodeStructs: structs list * lexan -> codetree;
 
@@ -644,7 +616,6 @@ struct
   open DEBUG;
   open UNIVERSALTABLE;
   open UNIVERSAL; (* for tag record selectors *)
-  open DEBUGGER;
 
   val displayType = TYPETREE.display;
 
@@ -1047,7 +1018,7 @@ struct
           ppBreak pprint (1, 1);
           ppAddString pprint (name ^ " :");
           ppBreak pprint (1, 0);
-          displayType (typeof, depth - 1, pprint);
+          displayType (typeof, depth - 1, pprint, true);
           ppEndBlock pprint ()
         end
 
@@ -1059,7 +1030,7 @@ struct
           ppBreak pprint (1, 1);
           ppAddString pprint (name ^ " :");
           ppBreak pprint (1, 0);
-          displayType (typeof, depth - 1, pprint);
+          displayType (typeof, depth - 1, pprint, true);
           ppEndBlock pprint ()
         end
 
@@ -1148,12 +1119,12 @@ struct
 			ppBreak pprint (1, 0);
 			ppAddString pprint "type";
 			ppBreak pprint (1, 0);
-			displayTypeVariables (typeVars, depth, pprint);
+			displayTypeVariables (typeVars, depth, pprint, true);
 			ppAddString pprint typeName;
 			ppBreak pprint (1, 0);
 			ppAddString pprint "=";
 			ppBreak pprint (1, 0);
-            displayType (realisation, depth - 1, pprint);
+            displayType (realisation, depth - 1, pprint, true);
 			ppEndBlock pprint ()
 		)
 
@@ -1209,28 +1180,34 @@ struct
       (lex,
        lno,
        fn (pprint: prettyPrinter) =>
-         (
-           ppBeginBlock pprint (0, false);
-           ppAddString pprint message;
-           ppBreak pprint (3, 0);
-           ppBeginBlock pprint (0, false);
-           ppAddString pprint "Found near";
-           ppBreak pprint (1, 0);
-           displayStructs ([near], ! errorDepth, pprint);
-           ppEndBlock pprint ();
-           ppEndBlock pprint ()
-         ))
+            let
+                val parameters = debugParams lex
+                val errorDepth = getParameter errorDepthTag parameters
+            in
+                ppBeginBlock pprint (0, false);
+                ppAddString pprint message;
+                ppBreak pprint (3, 0);
+                ppBeginBlock pprint (0, false);
+                ppAddString pprint "Found near";
+                ppBreak pprint (1, 0);
+                displayStructs ([near], errorDepth, pprint);
+                ppEndBlock pprint ();
+                ppEndBlock pprint ()
+            end)
   end;
 
   (* Returns a function which can be passed to typetree.match to
      print a bit of context information. *)
-  fun foundNear (sVal : structs, name : string) : prettyPrinter -> unit =
+  fun foundNear (sVal : structs, name : string, lex) : prettyPrinter -> unit =
     fn (pprint: prettyPrinter) =>
-      ( 
-        ppAddString pprint ("While checking (" ^ name ^ ") near");
-        ppBreak pprint (1, 2);
-        displayStructs ([sVal], ! errorDepth, pprint)
-      );
+        let
+            val parameters = debugParams lex
+            val errorDepth = getParameter errorDepthTag parameters
+        in
+            ppAddString pprint ("While checking (" ^ name ^ ") near");
+            ppBreak pprint (1, 2);
+            displayStructs ([sVal], errorDepth, pprint)
+        end;
 
   (* Error message routine for lookupType and lookupStructure. *)
   fun giveError (sVal : structs, lno : int, lex : lexan) : string -> unit =
@@ -1316,7 +1293,7 @@ struct
            targTypeMap,
            lex,
            lno,
-           foundNear (near, targetName));
+           foundNear (near, targetName, lex));
           
       val candidConstrs : values list = tcConstructors candid;
       val targetConstrs : values list = tcConstructors target;
@@ -1438,7 +1415,7 @@ struct
                            target,
                            lookupType,
                            fn (c, t, n) =>
-                             matchTypes (c, t, lookupType, lex, lno, foundNear (near, n)),
+                             matchTypes (c, t, lookupType, lex, lno, foundNear (near, n, lex)),
                            lex,
                            near,
                            lno)
@@ -1501,13 +1478,13 @@ struct
                       in
                         matchTypes
                           (candidType, valTypeOf v, lookupType,
-                           lex, lno, foundNear (near, dName))
+                           lex, lno, foundNear (near, dName, lex))
                       end
                       
                     else
                       matchTypes
                         (valTypeOf candid, valTypeOf v, lookupType,
-                         lex, lno, foundNear (near, dName))
+                         lex, lno, foundNear (near, dName, lex))
                   end
                 | NONE =>
                       errorNear (lex, true, near, lno, 
@@ -2228,7 +2205,7 @@ struct
 
 			(* ML 97 does not allow multiple declarations in a signature. *)
 			fun checkAndEnter enter lookup kind (s: string, v) =
-				if !ml90 then enter(s, v)
+				if getParameter ml90Tag (debugParams lex) then enter(s, v)
 				else case lookup s of
                        SOME _ => (* Already there. *)
 					     errorNear (lex, true, str, lno, 
@@ -2351,7 +2328,7 @@ struct
                      errorFn);
                 in  (* If the type is not found give an error. *)
 				  (* Check for rebinding of built-ins.  "it" is allowed here. *)
-			  	  if !ml90 then ()
+			  	  if getParameter ml90Tag (debugParams lex) then ()
 			      else if name = "true" orelse name = "false" orelse name = "nil"
 				  orelse name = "::" orelse name = "ref"
 				  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
@@ -2381,7 +2358,7 @@ struct
                      errorFn);
                 in  (* If the type is not found give an error. *)
 				  (* Check for rebinding of built-ins. "it" is not allowed. *)
-			  	  if !ml90 then ()
+			  	  if getParameter ml90Tag (debugParams lex) then ()
 			      else if name = "true" orelse name = "false" orelse name = "nil"
 				  orelse name = "::" orelse name = "ref" orelse name = "it"
 				  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
@@ -2410,7 +2387,7 @@ struct
 				    in scope.  In ML97 sharing is restricted to identifiers
 					in the "spec". *)
 			  	 val envForSharing =
-				 	if !ml90
+				 	if getParameter ml90Tag (debugParams lex)
 					then Env
 			             {
 			              lookupVal     = #lookupVal    structEnv,
@@ -3715,7 +3692,7 @@ struct
               
               (* Process the body and make a procedure out of it. *)
               val functorCode : codetree =
-                (if !inlineFunctors then mkMacroProc else mkProc)
+                (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
                 (structureCode (body, functorResult func, name ^ "().", debugEnv),
                  !level, 1, name);
                   
@@ -3806,7 +3783,7 @@ struct
   (* This previously only processed declarations which required some code-generation and
      evaluation (structures, values and functors).  It now includes types, signatures and
 	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
-  fun pass4Structs (results, strs, {enterVal,enterStruct,enterFunct,enterType,enterFix,enterSig}) =
+  fun pass4Structs (results, strs) =
   let
 	(* Process the datatypes in the structure and turn their value constructors
 	   into Global entries.  We only need this in order to be able to print values
@@ -3865,12 +3842,12 @@ struct
         ), (* end fn *)
        ()
       ) (* end extractValsToSig *);
-
-    fun extractStruct(str, addr) =
+      
+    fun extractStruct(str, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
       case str of
         FunctorDec (structList : functorBind list) =>
         let
-          fun extractFunctorBind ({name, valRef, ...}: functorBind, addr) =
+          fun extractFunctorBind ({name, valRef, ...}: functorBind, (addr, funcs)) =
             let
               val code = mkInd (addr, results);
               val func = !valRef;
@@ -3880,19 +3857,19 @@ struct
                   functorArg func,
                   functorResult func,
                   makeGlobal code);
-
-              val U : unit = enterFunct (name, funcTree);
             in
-              addr + 1
+              (addr + 1, (name, funcTree) :: funcs)
             end
-        in
           (* Get the functor values. *)
-          List.foldl extractFunctorBind addr structList
+          val (newAddr, newfunctors ) = List.foldl extractFunctorBind (addr, functors) structList
+        in
+          (newAddr, { functors=newfunctors, fixes=fixes, values=values,
+                      signatures=signatures, structures=structures, types=types })
         end
  
       | StructureDec (structList : structBind list) =>
         let
-          fun extractStructureBind ({name, valRef, ...}: structBind, addr) =
+          fun extractStructureBind ({name, valRef, ...}: structBind, (addr, structures)) =
             let
               val resultSig = structSignat (!valRef);
 			  val structCode = mkInd (addr, results)
@@ -3900,24 +3877,26 @@ struct
 			  (* Convert the values to global.  More importantly convert any datatypes
 			     with non-global value constructors. *)
 			  extractValsToSig (structCode, resultSig);
-              (* Make a global structure and put it in the global table. *)
-              enterStruct (name, makeGlobalStruct (name, resultSig, structCode));
-              addr + 1
+              (* Make a global structure. *)
+              (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode)) :: structures)
             end
+          val (newAddr, newstructures) = List.foldl extractStructureBind (addr, structures) structList
         in
-          List.foldl extractStructureBind addr structList
+          (newAddr, { structures=newstructures, functors=functors, signatures=signatures,
+                      fixes=fixes, values=values, types=types })
         end
  
       | Localdec {body, ...} =>
-          List.foldl extractStruct addr body
+          List.foldl extractStruct args body
  
       (* Value, exception or type declaration at the top level. *)
       | Singleton {vars, ...} =>
         let (* Enter the values and exceptions. *)
-		  fun makeDecs (CoreValue dec, addr) =
+		  fun makeDecs (CoreValue dec, (addr, { fixes, values, structures, signatures, functors, types } )) =
                  ( case dec of
 				 	Value{access=Overloaded _, ...} => (* enter it as it is. *) 
-                     	enterVal (valName dec, dec)
+                     	(addr+1, { fixes=fixes, values=(valName dec, dec) :: values, structures=structures,
+                                   signatures=signatures, functors=functors, types=types })
 					| Value{class, name, typeOf, ...} =>
 						(* take the value out of the result vector. *)
 	                   let
@@ -3926,38 +3905,51 @@ struct
 	                     val val' =
 						 	Value{class=class, name=name, typeOf=typeOf, access=Global codeVal}
 	                   in
-	                     enterVal (name, val')
-	                   end;
-                   addr + 1
+                         (addr+1, { fixes=fixes, values=(name, val') :: values, structures=structures,
+                                    signatures=signatures, functors=functors, types=types } )
+	                   end
                  )
-		  |  makeDecs (CoreStruct dec, addr) =
+		  |  makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
 	          (* Any structures will only come from "open A" where A contains
 	             sub-structures. "A" must be global otherwise the open would
 	             not be global, so all the sub-structures must be global. *)
-				 (
-				   enterStruct (structName dec, dec);
-				   addr
-				 )
-		  |   makeDecs (CoreFix pair, addr) = (enterFix pair; addr)
-		  |   makeDecs (CoreType dec, addr) =
-		  		(enterType(#second(splitString(tcName dec)), dec); addr)
+                 (addr, { fixes=fixes, values=values, structures=(structName dec, dec) :: structures,
+                          signatures=signatures, functors=functors, types=types } )
+		  |   makeDecs (CoreFix pair, (addr, {fixes, values, structures, signatures, functors, types})) =
+                 (addr, { fixes=pair :: fixes, values=values, structures=structures,
+                          signatures=signatures, functors=functors, types=types } )
+		  |   makeDecs (CoreType dec, (addr, {fixes, values, structures, signatures, functors, types})) =
+                 (addr, { fixes=fixes, values=values, structures=structures,
+                          signatures=signatures, functors=functors, types=(#second(splitString(tcName dec)), dec) :: types } )
         in
-          List.foldl makeDecs addr (!vars)
+          List.foldl makeDecs args (!vars)
         end
 
      | SignatureDec (structList : sigBind list) =>
 		let
-			fun decSig ({sigRef=ref s, name, ...}: sigBind) = enterSig(name, s)
+            val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, s)) structList
 		in
-		    List.app decSig structList;
-			addr
+           (addr, { fixes=fixes, values=values, structures=structures,
+                    signatures=newSigs @ signatures, functors=functors, types=types } )
 		end
 
-     | _ =>
-       addr; (* end extractStruct *)
-     
-    val lastAddr = List.foldl extractStruct 0 strs;
+     | _ => args; (* end extractStruct *)
+
+    val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
+    val (lastAddr, result) = List.foldl extractStruct (0, empty) strs;
+    (* The entries in "result" are in reverse order of declaration and may contain duplicates.
+       We need to reverse and filter the lists so that we end up with the lists in order
+       and with duplicates removed. *)
+    fun revFilter result [] = result
+     |  revFilter result ((nameValue as (name, _)) ::rest) =
+    let
+        (* Remove any entries further down the list if they have the same name. *)
+        val filtered = List.filter (fn (n,_) => name <> n) rest
+    in
+        revFilter (nameValue :: result) filtered
+    end
   in
-    ()
+    { fixes=revFilter [] (#fixes result), values=revFilter [] (#values result), structures=revFilter [] (#structures result),
+      functors=revFilter [] (#functors result), types=revFilter [] (#types result), signatures=revFilter [] (#signatures result) }
   end (* pass4Structs *)
 end;

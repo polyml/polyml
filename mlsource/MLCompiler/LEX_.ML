@@ -84,6 +84,14 @@ sig
   val neq : sys * sys -> bool;
 end
 
+structure DEBUG:
+sig
+    val errorMessageProcTag: (string * bool * int -> unit) Universal.tag
+    val lineNumberTag: (unit -> int) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
+end
+
 ) :
 
 
@@ -96,17 +104,15 @@ sig
   type prettyPrinter;
      
   val insymbol: lexan -> unit;
-  val lexPrint : lexan -> string -> unit;
      
   (* insymbol sets sy and id which are exported as "read-only" *)
      
   val sy:     lexan -> sys;
   val id:     lexan -> string;
   val lineno: lexan -> int;
-  val filename: lexan -> string;
   val pushBackSymbol: lexan * sys -> unit;
      
-  val initial: (unit -> char option) * string * (unit -> int) * (string -> unit) -> lexan;
+  val initial: (unit -> char option) * Universal.universal list -> lexan;
 
   (* Error handling *)
      
@@ -120,6 +126,10 @@ sig
   val flushLexan:    lexan -> unit;
 
   val nullLex: lexan; (* Used when no errors are expected - streams raise exceptions. *)
+  
+  (* To save passing an extra argument to many functions we include the
+     debug/control parameters here. *)
+  val debugParams: lexan -> Universal.universal list
 end (* LEX export signature *) =
 
 (*****************************************************************************)
@@ -135,23 +145,21 @@ struct
   type lexan = 
     {
       stream:   unit -> char option,
-      filename: string,
       lineno:   unit -> int,
       ch:       char ref,
       sy:       sys ref,
       id:       string ref,
-      print:    string -> unit,
+      messageOut: string * bool * int -> unit,
       errors:   bool ref,
       pushedSym: sys ref,
-      extraChars: char list ref
+      extraChars: char list ref,
+      debugParams: Universal.universal list
     };
     
   (* The lexical analyser reads characters from the stream and updates the
      references in the lexan structure.  That's not perhaps very ML-like
      but the lexical analyser can be a hot-spot in the compiler unless it's
      made as fast as possible. *)
-
-  val lexPrint : lexan -> string -> unit = #print;
 
   val eofChar         = Char.chr 4; (* ctrl/D *)
 
@@ -165,29 +173,28 @@ struct
 
   val isOperator = Char.contains ":=<>+*!^/|&%~-?`@\\$#";
 
- (* The initial state looks like we've just processed a complete ML declaration *)
-  fun initial (stream, filename, lineno, print) : lexan =
-    {
-      stream   = stream,
-      filename = filename,
-      lineno   = lineno,
-      ch       = ref #" ",   (* " " - we've just "clobbered the ";" *)
-      sy       = ref semicolon,  (* ";"  *)
-      id       = ref "",
-      print    = print,
-      errors   = ref false,
-      pushedSym = ref othersy,
-      extraChars = ref []
-    };
+    (* The initial state looks like we've just processed a complete ML declaration *)
+    fun initial (stream, parameters) : lexan =
+    let
+        open DEBUG
+        val errorMessageProc = getParameter errorMessageProcTag parameters
+        val lineno = getParameter lineNumberTag parameters
+    in
+        {
+          stream   = stream,
+          lineno   = lineno,
+          ch       = ref #" ",   (* " " - we've just "clobbered the ";" *)
+          sy       = ref semicolon,  (* ";"  *)
+          id       = ref "",
+          messageOut = errorMessageProc,
+          errors   = ref false,
+          pushedSym = ref othersy,
+          extraChars = ref [],
+          debugParams = parameters
+        }
+    end
 
-   val nullLex = 
-     initial
-       (
-         fn () => NONE,
-         "",
-         fn () => 0, 
-         fn _ => raise InternalError "no stream"
-       );
+   val nullLex = initial (fn () => NONE, []);
 
    (* Error messages *)
 
@@ -205,31 +212,21 @@ struct
       extraChars := []);
 
    fun lineno ({lineno,...}:lexan) = lineno();
-   val filename: lexan -> string = #filename
 
-   fun ewProc ({filename,print,errors,...} : lexan) hardError line eproc =
+   fun ewProc ({messageOut,errors,...} : lexan) hardError line eproc =
    let
-     val pprint    = prettyPrint(77, print);
-     val fname     = filename;
-     val errorWarn = if hardError then "Error:" else "Warning:";
-     val message =
-        concat
-            (errorWarn ::
-             (if fname = "" then []
-              else " in '" :: fname :: "'" ::
-                (if line = 0 then [] else [", line ", Int.toString line, "."])
-             ))
+     val message = ref [] (* Build up the context in here. *)
+     val pprint    = prettyPrint(77, fn s => message := s :: !message);
    in
      (* If this is a hard error we have to set the flag
         to prevent further passes. *)
      if hardError then errors := true else ();
      (* Print out the message *)
      ppBeginBlock pprint (0, false);
-     ppAddString pprint message;
-     ppBreak pprint (1, 0);
      eproc pprint;
-     ppLineBreak pprint (); (* Blank line between entries. *)
-     ppEndBlock pprint ()
+     ppEndBlock pprint ();
+
+     messageOut(concat(List.rev (!message)), hardError, line)
    end;
    
    (* General purpose error messages typically including
@@ -663,5 +660,7 @@ struct
         if pushed neq othersy then pushed else sy;
 
    fun id ({id=ref id,...}:lexan) = id;
+   
+   val debugParams = #debugParams
 
 end (* LEX functor body *);

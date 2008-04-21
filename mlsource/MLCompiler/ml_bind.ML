@@ -23,8 +23,6 @@ struct
         open RuntimeCalls;
         (* Create the global environment. *)
         val globalTable : Make.gEnv = Make.makeGEnv ();
-        (* Set this as the printing environment. *)
-        val () = Make.setPrintEnv(Make.gEnvAsNameSpace globalTable)
         
         val mainShell = Make.shellProc globalTable;
         

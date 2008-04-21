@@ -23,4 +23,5 @@ structure Lex =
       structure SYMBOLS = Symbols
       structure MISC = Misc
       structure PRETTYPRINTER = PrettyPrinter
+      structure DEBUG = Debug
     );

@@ -190,6 +190,8 @@ sig
   (* Error handling *)
   val errorMessage:   lexan * int * string -> unit
   val warningMessage: lexan * int * string -> unit
+
+  val debugParams: lexan -> Universal.universal list
 end;
 
 (*****************************************************************************)
@@ -426,7 +428,9 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val ml90: bool ref;
+    val ml90Tag: bool Universal.tag
+    val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a 
 end;
 
 (*****************************************************************************)
@@ -586,8 +590,8 @@ struct
 
  (* All explicit type variables are weak in ML97.  This provides
     compatibility with ML90.  *)
- fun isWeak name =
- 	not (! ml90) orelse
+ fun isWeak (name, lex) =
+ 	not (getParameter ml90Tag (debugParams lex)) orelse
 	(size name > 1 andalso String.str(String.sub(name, 1)) = "_") orelse
     (isEqtype name andalso size name > 2
 		andalso String.str(String.sub(name, 2)) = "_");
@@ -631,7 +635,7 @@ struct
 	   (* DCJM 11/2/00.  isDatatype is now true for tyvarseqs in fun and val.
 	      I don't think it matters what it is set to in datatypes. *)
 	   val isEqtype = isDatatype andalso isEqtype iden;
-	   val isWeak = isDatatype andalso isWeak iden;
+	   val isWeak = isDatatype andalso isWeak (iden, lex);
 	   val tyVar = mkTypeVar (generalisable, isEqtype, true, isWeak);
 	in
 	   enter (iden, tyVar);
@@ -873,7 +877,7 @@ struct
        let
          (* These type variables are not unifiable until they are generalised. *)
          val newTypeVar =
-           mkTypeVar (generalisable, isEqtype name, true, isWeak name);
+           mkTypeVar (generalisable, isEqtype name, true, isWeak(name, lex));
            
          val U : unit = enter (name, newTypeVar);
        in
@@ -993,7 +997,7 @@ struct
 			val U: unit =
 				(* In ML97 two operators of the same precedence must both be
 				   left associative or both right associative. *)
-				if !ml90 then ()
+				if getParameter ml90Tag (debugParams lex) then ()
 				else if #preclevl next = preclevl andalso right <> #right next
 				then errorMessage (lex, lineno lex,
 					"Mixed right and left associative operators of the same precedence.")
@@ -1003,7 +1007,7 @@ struct
                if #preclevl next > preclevl orelse
                   (* next operator is more binding-it must be processed first *)
                   right andalso
-				  	(if !ml90
+				  	(if getParameter ml90Tag (debugParams lex)
 					 then #operator next = operator
 					 else #preclevl next = preclevl) 
                   (* next operator is same as previous and right assoc.
@@ -1193,7 +1197,7 @@ struct
            then
 		   	   (
 			   (* Real literals were allowed in patterns in ML90. *)
-			   if ! ml90 then ()
+			   if getParameter ml90Tag (debugParams lex) then ()
 			   else errorMessage (lex, lineno lex,
 			   			"Real constants not allowed in patterns");
 			   getConstant mkReal
@@ -2037,7 +2041,7 @@ struct
 	                   shares :: getList (SYMBOLS.equalsSign, ident, lex, getShare),
 	                   lno)
                in
-			   	  if (sy lex) eq SYMBOLS.andSy andalso not (! ml90)
+			   	  if (sy lex) eq SYMBOLS.andSy andalso not (getParameter ml90Tag (debugParams lex))
 				  then errorMessage (lex, lineno lex,
                                  "sharing ... and ... is not allowed in ML97")
 				  else ();
@@ -2332,7 +2336,7 @@ struct
       (* Is this the same kind of topdec as the previous one?
 	     This is no longer required in ML97. *)
       val U : unit =
-        if not (startSym inside okStartSet) andalso ! ml90
+        if not (startSym inside okStartSet) andalso getParameter ml90Tag (debugParams lex)
         then warningMessage (lex, lineno lex,
                "ML Standard requires ';' between different kinds of top-level declaration.")
 	    else ();

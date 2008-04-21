@@ -68,22 +68,11 @@ sig
 
     (* The completed compiler. *)
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
-          lineNumber: unit->int, putString: string->unit }
-       -> unit -> unit;         (* the function to actually execute *)
+        nameSpace * (unit->char option) * Universal.universal list -> unit ->
+       { fixes: (string * fixStatus) list, values: (string * values) list,
+         structures: (string * structVals) list, signatures: (string * signatures) list,
+         functors: (string * functors) list, types: (string * typeConstrs) list };
 
-    (* Function to set the environment used by PolyML.print etc to look
-       up infix status and exceptions.  *)
-    val setPrintEnv : nameSpace -> unit
-end;
-
-(*****************************************************************************)
-(*                  UNIVERSAL                                                *)
-(*****************************************************************************)
-structure UNIVERSAL :
-sig
-  type 'a tag
-  val tag : unit -> 'a tag
 end;
 
 (*****************************************************************************)
@@ -107,7 +96,7 @@ end;
 (*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
-  type 'a tag;
+  type 'a tag = 'a Universal.tag;
   type univTable;
   type 'a iter;
   
@@ -123,7 +112,7 @@ end;
 (*****************************************************************************)
 structure STRUCTVALS :
 sig
-  type 'a tag;
+  type 'a tag = 'a Universal.tag;
   
   type types;
   type values;
@@ -159,9 +148,6 @@ sig
   val functorVar:    functors    tag;
 end;
 
-(* DCJM 8/8/00.  Previously Misc was a global but we aren't allowed
-   to have sharing constraints with globals in ML97.  We could use a
-   "where type" constraint but then we couldn't bootstrap from ML90. *)
 structure MISC :
 sig
   type 'a iter
@@ -174,14 +160,17 @@ sig
   val iterList : 'a iter -> 'a list
 end;
 
+structure DEBUG:
+sig
+    val errorMessageProcTag: (string * bool * int -> unit) Universal.tag
+    val compilerOutputTag: (string->unit) Universal.tag
+    val lineNumberTag: (unit->int) Universal.tag
+    val maxInlineSizeTag: int Universal.tag
+end
+
 (*****************************************************************************)
 (*                  MAKE sharing constraints                                 *)
 (*****************************************************************************)
-
-sharing type
-  UNIVERSAL.tag
-= UNIVERSALTABLE.tag
-= STRUCTVALS.tag
 
 sharing type
   MISC.iter
@@ -252,12 +241,10 @@ sig
         allFunct:     unit -> (string*functors) list
       };
       
-    val compiler :
-        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
-          lineNumber: unit->int, putString: string->unit }
-       -> unit -> unit;
-
-    val setPrintEnv : nameSpace -> unit
+    val compiler : nameSpace * (unit->char option) * Universal.universal list -> unit ->
+       { fixes: (string * fixStatus) list, values: (string * values) list,
+         structures: (string * structVals) list, signatures: (string * signatures) list,
+         functors: (string * functors) list, types: (string * typeConstrs) list };
 
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
@@ -423,18 +410,42 @@ struct
                 )
             |   NONE => (eof := true; NONE)
             |   c => c
-        
+
+            fun errorProc (message, hard, line) =
+               TextIO.print(concat
+                   [if hard then "Error-" else "Warning-",
+                    " in '", fileName, "', line ", Int.toString line, ".\n",
+                    message])
         in
             (
                 while not (! eof) do
                 let
+                    open DEBUG Universal
+                    
                     (* Compile  the code *)
-                    val code : unit -> unit = COMPILERBODY.compiler
-                    { nameSpace = useEnv, getChar = getChar, fileName = fileName,
-                      lineNumber = fn () => !lineNo, putString = print }
+                    val code = COMPILERBODY.compiler
+                        (useEnv, getChar,
+                          [
+                             tagInject compilerOutputTag print,
+                             tagInject lineNumberTag (fn () => !lineNo),
+                             tagInject errorMessageProcTag errorProc,
+                             (* Set the debug level to 50 while compiling the basis.  This makes
+                                sure that String.foldr can be expanded inline which reduces the
+                                garbage in the hashValue function. *)
+                             tagInject maxInlineSizeTag 50
+                             (* Need printer environment so that when we compile General.exnMessage
+                                it all works. *)
+                          ] )
+                    (* execute the code and get the resulting declarations. *)
+                    val { fixes, values, structures, signatures, functors, types } = code ()
                 in
-                    (* execute the code *)
-                    code ()
+                    (* Just enter the values in the environment without printing. *)
+                    List.app (#enterFix useEnv) fixes;
+                    List.app (#enterVal useEnv) values;
+                    List.app (#enterStruct useEnv) structures;
+                    List.app (#enterSig useEnv) signatures;
+                    List.app (#enterFunct useEnv) functors;
+                    List.app (#enterType useEnv) types
                 end
             )
             handle Fail s => (* E.g. syntax error. *)

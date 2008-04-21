@@ -2,6 +2,9 @@
 	Copyright (c) 2000
 		Cambridge University Technical Services Limited
 
+    Further development:
+    Copyright (c) 2000-8 David C.J. Matthews
+
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
 	License as published by the Free Software Foundation; either
@@ -35,8 +38,8 @@ sig
 
   val errorProc:     lexan  * int * (prettyPrinter -> unit) -> unit;
   val warningProc:   lexan  * int * (prettyPrinter -> unit) -> unit;
-  val filename: lexan -> string;
 
+  val debugParams: lexan -> Universal.universal list
 end;
 
 (*****************************************************************************)
@@ -264,10 +267,10 @@ sig
   val assignTypes: types * (string -> typeConstrs) * lexan * int -> unit;
 
   (* Print out a type structure. *)
-  val display: types * int * prettyPrinter -> unit;
+  val display: types * int * prettyPrinter * bool -> unit;
 
   (* A list of type variables. *)
-  val displayTypeVariables: types list * int * prettyPrinter -> unit;
+  val displayTypeVariables: types list * int * prettyPrinter * bool -> unit;
   
   (* Standard types. *)
   val boolType:   types;
@@ -379,13 +382,16 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val errorDepth: int ref;
-  val ml90: bool ref
-  val debug: bool ref
+    val ml90Tag: bool Universal.tag
+    val debugTag: bool Universal.tag
+    val errorDepthTag : int Universal.tag
+    val fileNameTag: string Universal.tag
+    val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a 
 end;
 
 (*****************************************************************************)
-(*                  MISC                                                    *)
+(*                  MISC                                                     *)
 (*****************************************************************************)
 structure MISC :
 sig
@@ -439,7 +445,7 @@ end;
 (*****************************************************************************)
 structure DEBUGGER :
 sig
-	type types
+    type types
 	type machineWord
 
 	datatype environEntry =
@@ -448,11 +454,20 @@ sig
 	|	EnvVConstr of string * types * bool
 	|	EnvStaticLevel
 
+    type debugger;
+    val nullDebug: debugger
+
+    val debuggerFunTag : debugger Universal.tag
+    
+    datatype debugReason =
+        DebugEnter of machineWord * types
+    |   DebugLeave of machineWord * types
+    |   DebugException of exn
+    |   DebugStep
+
+    (* Functions inserted into the compiled code. *)
 	val debugFunction:
-		string * string * int -> environEntry list -> machineWord list -> unit
-	val enterFunction: string -> unit -> unit
-	val leaveFunction: types -> machineWord -> machineWord
-	val exceptionFunction: exn -> 'a
+		debugger * debugReason * string * string * int -> environEntry list -> machineWord list -> unit
 end;
 
 (*****************************************************************************)
@@ -465,10 +480,6 @@ sharing type
 = TYPETREE.lexan
 = VALUEOPS.lexan
 = UTILITIES.lexan
-  
-sharing type
-  STRUCTVALS.types
-= TYPETREE.types
 
 sharing type
   STRUCTVALS.typeConstrs
@@ -483,6 +494,7 @@ sharing type
   STRUCTVALS.types
 = VALUEOPS.types
 = DEBUGGER.types
+= TYPETREE.types
 
 sharing type
   STRUCTVALS.values
@@ -650,7 +662,6 @@ struct
   open UNIVERSAL;
   open PRETTYPRINTER;
   open ADDRESS;
-  open DEBUGGER;
   open RuntimeCalls; (* for POLY_SYS numbers *)
   
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
@@ -725,6 +736,7 @@ struct
 	       clauses:     fvalclause list, 
 	       numOfPatts:  int ref,
 	       functVar:    values ref,
+           argType:     types ref,
 		   resultType:  types ref
 	     }
 
@@ -852,6 +864,7 @@ struct
        vars: parsetree,
        exp: parsetree,
        line: int,
+       argType: types ref,
 	   resType: types ref
      } 
 
@@ -1044,6 +1057,7 @@ struct
            clauses    = clauses,
            numOfPatts = ref 0,
            functVar   = ref undefinedValue,
+		   argType    = ref badType,
 		   resultType = ref badType
          }; 
 
@@ -1079,6 +1093,7 @@ struct
           vars = vars,
           exp  = exp,
           line = line,
+          argType = ref badType,
 		  resType = ref badType
         };
   
@@ -1254,7 +1269,7 @@ struct
 		fun printTypeBind (TypeBind{name, typeVars, decType, ...}, depth, pprint) =
 		        (
 		          ppBeginBlock pprint (3, true);
-		          displayTypeVariables (typeVars, depth, pprint);
+		          displayTypeVariables (typeVars, depth, pprint, true);
 		          ppAddString pprint name;
 				  (* The type may be missing if this is a signature. *)
 				  case decType of
@@ -1264,7 +1279,7 @@ struct
 						ppBreak pprint (1, 0);
 						ppAddString pprint "=";
 						ppBreak pprint (1, 0);
-						display (decType, depth, pprint)
+						display (decType, depth, pprint, true)
 						);
 				  ppEndBlock pprint ()
 		        )
@@ -1272,7 +1287,7 @@ struct
 		and printDatatypeBind (DatatypeBind{name, typeVars, constrs, ...}, depth, pprint) =
 		        (
 		          ppBeginBlock pprint (3, true);
-		          displayTypeVariables (typeVars, depth, pprint);
+		          displayTypeVariables (typeVars, depth, pprint, true);
 		          ppAddString pprint name;
 		          ppBreak pprint (1, 0);
 		          ppAddString pprint "=";
@@ -1290,7 +1305,7 @@ struct
 	            ppBreak pprint (1, 0);
 	            ppAddString pprint "of";
 	            ppBreak pprint (1, 0);
-	            display (argtype, depth, pprint)
+	            display (argtype, depth, pprint, true)
 	           );
 	          ppEndBlock pprint ()
 	        )
@@ -1365,15 +1380,15 @@ struct
         )
 
       | TupleTree ptl =>
-	(
-	 ppBeginBlock pprint (3, true);
-	 ppAddString pprint "(";
-	 ppBreak pprint (1, 0);
-	 displayList (ptl, ",", depth - 1);
-	 ppBreak pprint (0, 0);
-	 ppAddString pprint ")";
-	 ppEndBlock pprint ()
-	)
+        (
+          ppBeginBlock pprint (3, true);
+          ppAddString pprint "(";
+          ppBreak pprint (1, 0);
+          displayList (ptl, ",", depth - 1);
+          ppBreak pprint (0, 0);
+          ppAddString pprint ")";
+          ppEndBlock pprint ()
+        )
 
       | ValDeclaration {dec, explicit, ...} =>
 	  	let
@@ -1439,15 +1454,15 @@ struct
 		end
 
       | List ptl =>
-	(
-	  ppBeginBlock pprint (3, true);
-	  ppAddString pprint "[";
-	  ppBreak pprint (1, 0);
-	  displayList (ptl, ",", depth - 1);
-	  ppBreak pprint (0, 0);
-	  ppAddString pprint "]";
-	  ppEndBlock pprint ()
-	)
+        (
+          ppBeginBlock pprint (3, true);
+          ppAddString pprint "[";
+          ppBreak pprint (1, 0);
+          displayList (ptl, ",", depth - 1);
+          ppBreak pprint (0, 0);
+          ppAddString pprint "]";
+          ppEndBlock pprint ()
+        )
 
       | Constraint {value, given} =>
         (
@@ -1456,7 +1471,7 @@ struct
           ppBreak pprint (1, 0);
           ppAddString pprint ":";
           ppBreak pprint (1, 0);
-          display (given, depth, pprint);
+          display (given, depth, pprint, true);
           ppEndBlock pprint ()
         )
 
@@ -1615,7 +1630,7 @@ struct
 		              ppBreak pprint (1, 0);
 		              ppAddString pprint "of";
 		              ppBreak pprint (1, 0);
-		              display (typeof, depth, pprint)
+		              display (typeof, depth, pprint, true)
 		            );
 		          if isEmptyTree previous then ()
 		          else 
@@ -1636,13 +1651,13 @@ struct
 		end
 
       | Raise pt =>
-	(
-	  ppBeginBlock pprint (0, false);
-	  ppAddString pprint "raise";
-	  ppBreak pprint (1, 0);
-	  ptDisplay (pt, depth - 1, pprint);
-	  ppEndBlock pprint ()
-	)
+        (
+          ppBeginBlock pprint (0, false);
+          ppAddString pprint "raise";
+          ppBreak pprint (1, 0);
+          ptDisplay (pt, depth - 1, pprint);
+          ppEndBlock pprint ()
+        )
 
       | HandleTree {exp, hrules} =>
         (
@@ -1765,15 +1780,20 @@ struct
        (lex,
         line,
         fn (pprint:prettyPrinter) =>
-          (ppBeginBlock pprint (0, false);
-           ppAddString pprint message;
-           ppBreak pprint (3, 0);
-           ppBeginBlock pprint (0, false);
-           ppAddString pprint "Found near";
-           ppBreak pprint (1, 0);
-           ptDisplay (near, ! errorDepth, pprint);
-           ppEndBlock pprint ();
-           ppEndBlock pprint ()))
+            let
+                val parameters = debugParams lex
+                val errorDepth = getParameter errorDepthTag parameters
+            in
+                ppBeginBlock pprint (0, false);
+                ppAddString pprint message;
+                ppBreak pprint (3, 0);
+                ppBeginBlock pprint (0, false);
+                ppAddString pprint "Found near";
+                ppBreak pprint (1, 0);
+                ptDisplay (near, errorDepth, pprint);
+                ppEndBlock pprint ();
+                ppEndBlock pprint ()
+            end)
     end;
 
 
@@ -1796,11 +1816,14 @@ struct
       (* Returns a function which can be passed to unify or apply to
          print a bit of context info. *)
       fun foundNear v (pprint: prettyPrinter) =
-        (
-          ppAddString pprint "Found near";
-          ppBreak pprint (1, 0);
-          ptDisplay (v, ! errorDepth, pprint)
-        );
+      let
+            val parameters = debugParams lex
+            val errorDepth = getParameter errorDepthTag parameters
+      in
+            ppAddString pprint "Found near";
+            ppBreak pprint (1, 0);
+            ptDisplay (v, errorDepth, pprint)
+      end;
 
       (* A simpler error message routine for lookup_... where the message
          does not involve pretty-printing anything. *)
@@ -1810,7 +1833,7 @@ struct
 	  fun checkForBuiltIn (name, v, lex, lineno, isConstr) =
 	  (* ML97 does not allow the standard constructors to be rebound and does
 	     not allow "it" to become a constructor. *)
-	  	 if !ml90 then ()
+	  	 if getParameter ml90Tag (debugParams lex) then ()
 	     else if name = "true" orelse name = "false" orelse name = "nil"
 		 orelse name = "::" orelse name = "ref" orelse (isConstr andalso name = "it")
 		 then errorNear(lex, true, v, lineno,
@@ -1879,7 +1902,7 @@ struct
 			 we don't check for constructor status. *)
 	      val names   = splitString name;
 	      val nameVal =
-		    if not (! ml90) andalso isRec
+		    if not (getParameter ml90Tag (debugParams lex)) andalso isRec
 			then undefinedValue
 			else if #first names = ""
 			then (* Not qualified - may be a variable. *)
@@ -2368,7 +2391,7 @@ struct
           | Fn ptl =>  (* Must unify the types of each of the alternatives.*)
               assignList ptl 
 
-          | MatchTree {vars, exp, line, resType} =>
+          | MatchTree {vars, exp, line, resType, argType} =>
 		    let 
 		      (* A match is a function from the pattern to the expression *)
 		      
@@ -2384,7 +2407,7 @@ struct
 		      val decs     = processPattern vars (#enter newEnv) newLevel false false line;
 	    
 		      (* The identifiers declared in the pattern are available in the
-			 body of the function. *)
+                 body of the function. *)
 		      val bodyEnv =
 			    {
 			      lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal env),
@@ -2406,14 +2429,14 @@ struct
 		      val expType = assignValues newLevel letDepth line bodyEnv v exp;
 		    in
 			  resType := expType;
+              argType := decs;
 			  (* Check the type of parameters to the function to make
 			     sure they have not been unified with local datatypes.
 				 We don't need to check the result type because the check
 				 in "Localdec" will do that. *)
 			  checkForLocalDatatypes(decs, letDepth, giveError (v, lex, line));
 		      (* Result is a function from the type of the pattern to the type
-			 of the body. This previously generalised the resulting type.
-			  Why? *)
+                 of the body. This previously generalised the resulting type. Why? *)
 		      mkFunctionType (decs, expType)
 		    end (* MatchTree *)
 
@@ -2722,7 +2745,7 @@ struct
 				(* Give a warning if no variables are declared, except at
 				   top level.  This check was removed in ML97. *)
 		      in
-				if !nothingEntered andalso level <> 1 andalso !ml90
+				if !nothingEntered andalso level <> 1 andalso getParameter ml90Tag (debugParams lex)
 				then errorNear (lex, false, dec, line,
 					      "Pattern does not declare any variables.")
 				else ();
@@ -2800,23 +2823,23 @@ struct
 	   fun nonExpansive (Fn _)   = true
 	     | nonExpansive (Ident _) = true
 	     | nonExpansive (List []) = true
-		 | nonExpansive (List elems) = not (!ml90) andalso
+		 | nonExpansive (List elems) = not (getParameter ml90Tag (debugParams lex)) andalso
 		 					List.foldl (fn (v, a) => a andalso nonExpansive v)
 								true elems
 	     | nonExpansive (Constraint {value, ...}) = nonExpansive value
 		 | nonExpansive (Literal _) = true
 		 | nonExpansive Unit = true
 		 | nonExpansive (TupleTree elems) = 
-		 	   not (!ml90)
+		 	   not (getParameter ml90Tag (debugParams lex))
 			   	andalso List.foldl (fn (v, a) => a andalso nonExpansive v)
 							true elems
 		 | nonExpansive (Labelled{recList, ...}) =
-		 	   not (!ml90)
+		 	   not (getParameter ml90Tag (debugParams lex))
 			   	andalso List.foldl (fn ((n, v), a) => a andalso nonExpansive v)
 							true recList (* Every element must be non-expansive *)
 		 | nonExpansive (Applic{f, arg}) =
-		 	   not (!ml90) andalso isNonRefConstructor f andalso nonExpansive arg
-		 | nonExpansive (Selector _) = not (!ml90) (* derived from fn {..} => ...*)
+		 	   not (getParameter ml90Tag (debugParams lex)) andalso isNonRefConstructor f andalso nonExpansive arg
+		 | nonExpansive (Selector _) = not (getParameter ml90Tag (debugParams lex)) (* derived from fn {..} => ...*)
 	     | nonExpansive _       = false
 
 		(* An application is non-expansive only if it is a, possibly
@@ -2944,7 +2967,7 @@ struct
 		  (* This check no longer applies in ML97. *)
 	      val value = getOpt(#lookupVal env  name, undefinedValue);
 	      val U :unit =
-			if !ml90 andalso isConstructor value
+			if getParameter ml90Tag (debugParams lex) andalso isConstructor value
 			then errorNear (lex, true, v, line,
 			       "Variable " ^ String.toString name ^
 				 " already declared as a constructor")
@@ -2965,7 +2988,7 @@ struct
 	 (* Can now process the clausal functions in the environment 
 	    of the function names and using the information about
 	    function name and number of patterns we have saved. *)
-	  fun processFun (FValBind {clauses, numOfPatts, functVar, resultType})=
+	  fun processFun (FValBind {clauses, numOfPatts, functVar, argType, resultType})=
 	  let
 	    val functVar  = !functVar;
 
@@ -2974,35 +2997,35 @@ struct
 	      number of patterns and a unifiable type. *)
 	    fun processClause (FValClause {dec, exp, line}) =
 	    let 
-	      (* Each clause is a val binding with the function 
-		and patterns as the `pattern' and the function body
-		as the `expression' *)
+          (* Each clause is a val binding with the function 
+             and patterns as the `pattern' and the function body
+             as the `expression' *)
 	      
-	     (* Construct a new environment for the variables
-		in the patts. *)
+          (* Construct a new environment for the variables
+             in the patts. *)
 	     fun messFn name =
 	       errorNear (lex, true, dec, line,
-		 name ^ " has already been bound in this clause.");
+               name ^ " has already been bound in this clause.");
 	      
 	      val varEnv = noDuplicates messFn;
 	      
 	      val varLevel = funLevel + 1; (* Level for variables. *)
 
-	      (* Processes a single alternative. Similar to processPattern. 
-		 A variable for the function being declared is passed as a
-		 parameter so that its type can be used for the result. *)
-	      fun doPatterns pat numOfPats : types =
+         (* Processes a single alternative. Similar to processPattern. 
+            A variable for the function being declared is passed as a
+            parameter so that its type can be used for the result. *)
+	      fun doPatterns pat numOfPats : types * types list =
 		case pat of
 		  Constraint {value, given} => 
 		  let (* Check the constraint against the returned type. *) 
-		    val patType  = doPatterns value numOfPats;
+		    val (patType, argTypes)  = doPatterns value numOfPats;
 		    val U : unit = ptAssignTypes given pat line;
 		    
 		    (* These must be unifiable. *)
 		    val U : unit =
 		      unify (patType, given, lex, line, foundNear dec);
 		  in
-		    given
+		    (patType, argTypes)
 		  end
 
 		| Applic {f, arg} =>
@@ -3013,11 +3036,11 @@ struct
 		       type of the pattern to some other type yet to be
 		       determined. This type will be found when we unify
 		       with the body of the function. *)
-		    val funType = doPatterns f (numOfPats - 1);
+		    val (funType, argTypes) = doPatterns f (numOfPats - 1);
 		    val argType = 
 		      processPattern arg (#enter varEnv) varLevel false false line;
 		  in
-		    apply (funType, argType, lex, line, foundNear dec)
+		     (apply (funType, argType, lex, line, foundNear dec), argType :: argTypes)
 		  end
 
 		| Ident {name, value, ...} =>
@@ -3039,11 +3062,11 @@ struct
 			     "different numbers of patterns");
 		    
 		    value := functVar;
-		    valTypeOf functVar (* Return function type. *)
+		    (valTypeOf functVar, []) (* Return function type. *)
 		  end
 		
 		| EmptyTree =>
-		    badType
+		    (badType, [])
 		  
 		| _ =>
 		  let (* error *)
@@ -3051,11 +3074,16 @@ struct
 		       errorNear (lex, true, pat, line,
 			     "Start of clausal function is not a variable")
 		  in
-		    badType
+		    (badType, [])
 		  end
 	      (* end doPatterns *);
 
-	      val pattType = doPatterns dec (!numOfPatts);
+	      val (pattType, argTypeList) = doPatterns dec (!numOfPatts);
+          val () = argType :=
+              (case argTypeList of
+                  [] => badType (* error *)
+              |   [single] => single
+              |   multiple => mkProductType(List.rev multiple))
 
 	     (* The identifiers declared in the pattern are available in the
 		body of the function. Since it is recursive the function
@@ -3345,6 +3373,9 @@ struct
 ******************************************************************************)
 
           (* Generate code from ML parse tree. *)
+  
+    datatype environEntry = datatype DEBUGGER.environEntry
+  
     local (* gencode *)
 
       (* Generates a block from a sequence of declarations/statements, unless
@@ -3462,12 +3493,22 @@ struct
 
         val level = ref level;  (* Incremented by one for each nested proc. *)
 		val lastLine = ref 0 (* The last line for which we produced debug info. *)
+        val fileName = getParameter fileNameTag (debugParams lex)
+
+        (* Debugging control and debug function. *)
+        val debugging = getParameter debugTag (debugParams lex)
+        
+        val debuggerFun =
+            case List.find (Universal.tagIs DEBUGGER.debuggerFunTag) (LEX.debugParams lex) of
+                SOME f => Universal.tagProject DEBUGGER.debuggerFunTag f
+            |   NONE => DEBUGGER.nullDebug
 
 		(* Add a call to the debugger. *)
 		fun addDebugCall (decName: string, (ctEnv, rtEnv), line: int) : codetree =
 			let
+                open DEBUGGER
 				val debugger =
-					debugFunction(filename lex, decName, line) ctEnv
+					debugFunction(debuggerFun, DebugStep, fileName, decName, line) ctEnv
 			in
 				lastLine := line;
 				mkEval(mkConst(toMachineWord debugger), [rtEnv(!level)], false)
@@ -3477,11 +3518,11 @@ struct
 		   declarations and expression sequences to avoid more than one
 		   call on a line. *)
 		fun changeLine (decName, env, line) =
-			if not(!debug) orelse line = !lastLine then []
+			if not debugging orelse line = !lastLine then []
 			else [addDebugCall(decName, env, line)]
 
 		fun createDebugEntry (v: values, (ctEnv, rtEnv), loadVal) =
-			if not (!debug)
+			if not debugging
 			then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
 			else let
 					val newEnv =
@@ -3506,7 +3547,7 @@ struct
 	    fun newDebugLevel (ctEnv, rtEnv) = (EnvStaticLevel :: ctEnv, rtEnv)
 
 		fun makeDebugEntries (vars: values list, debugEnv: debugenv) =
-		 	if ! debug
+		 	if debugging
 			then
 				let
 					fun loadVar (var, (decs, env)) =
@@ -3527,23 +3568,33 @@ struct
 		   function entry and exit.  It would be simpler to wrap the whole function
 		   in a debug function (i.e. loop the call through the debugger) but that
 		   would prevent us from using certain call optimisations. *)
-		fun wrapFunctionInDebug(body: codetree, name: string, restype: types): codetree =
-			if not (! debug) then body (* Return it unchanged. *)
+		fun wrapFunctionInDebug(body: codetree, name: string, argCode: codetree,
+                                argType: types, restype: types, (ctEnv, rtEnv)): codetree =
+			if not debugging then body (* Return it unchanged. *)
 			else
 			let
-				val entryCode = toMachineWord (DEBUGGER.enterFunction name)
-				and exitCode = toMachineWord (DEBUGGER.leaveFunction restype)
-				and exceptionCode = toMachineWord DEBUGGER.exceptionFunction
+                open DEBUGGER
+                (* At the moment we can't deal with function arguments. *)
+                fun enterFunction (rtEnv, args) =
+					debugFunction(debuggerFun, DebugEnter(args, argType), fileName, name, line) ctEnv rtEnv
+                and leaveFunction (rtEnv, result) =
+					(debugFunction(debuggerFun, DebugLeave(result, restype), fileName, name, line) ctEnv rtEnv; result)
+                and exceptionFunction (rtEnv, exn) =
+					(debugFunction(debuggerFun, DebugException exn, fileName, name, line) ctEnv rtEnv; raise exn)
+
+				val entryCode = toMachineWord enterFunction
+				and exitCode = toMachineWord leaveFunction
+				and exceptionCode = toMachineWord exceptionFunction
 			in
 				mkEnv [
 					(* Call the enter code. *)
-					mkEval(mkConst entryCode, [CodeZero (* unit *)], false),
+					mkEval(mkConst entryCode, [mkTuple[rtEnv(!level), argCode]], false),
 					(* Call the exit code with the function result. The
 					   function is wrapped in a handler that catches all
 					   exceptions and calls the exception code. *)
 					mkEval(mkConst exitCode,
-						[mkHandle (body, [CodeZero (* all exceptions *)],
-							mkEval(mkConst exceptionCode, [Ldexc], false))
+						[mkTuple[rtEnv(!level), mkHandle (body, [CodeZero (* all exceptions *)],
+							mkEval(mkConst exceptionCode, [mkTuple[rtEnv(!level), Ldexc]], false))]
 						], false)
 				]
 			end
@@ -4743,7 +4794,7 @@ struct
 			  	 (* Insert a call to the debugger in each arm of the match after
 				    the variables have been bound but before the body. *)
 			  	 fun cgExp (c: parsetree, debugEnv: debugenv, decName: string, line: int) =
-				 	if (! debug)
+				 	if debugging
 					then mkEnv[addDebugCall(decName, debugEnv, line),
 							   codegen(c, debugEnv, decName, line)]
 					else codegen(c, debugEnv, decName, line) 
@@ -5021,9 +5072,9 @@ struct
             val U        = level := !level + 1; (* This function comprises a new declaration level*)
             val oldAddr  = !addresses;
             val U        = addresses := 1;
-            val (firstPat, resType) = 
+            val (firstPat, resType, argType) = 
               case f of 
-                MatchTree {vars, resType = ref rtype,...} :: _  => (vars, rtype)
+                MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
               | _ => raise InternalError "codeProc: body of fn is not a clause list";
 
 			val tupleSize = tupleWidth firstPat
@@ -5039,11 +5090,12 @@ struct
               val newDecName : string = decName ^ "(" ^ Int.toString tupleSize ^ ")";
 			  val newDebugEnv = newDebugLevel debugEnv
 
+              val argumentCode = mkArgTuple tupleSize 1
               val mainProc =
                  mkProc
 				 	(wrapFunctionInDebug
-	                   (codeAlt (c, f, mkArgTuple tupleSize 1, newDecName, newDebugEnv),
-					    newDecName, resType), 
+	                   (codeAlt (c, f, argumentCode, newDecName, newDebugEnv),
+					    newDecName, argumentCode, argType, resType, newDebugEnv), 
 					!level, tupleSize, newDecName);
                      
               (* Reset level and addresses *)
@@ -5087,7 +5139,7 @@ struct
               let
                 val pr =
 					mkProc (
-						wrapFunctionInDebug(alt, newDecName, resType),
+						wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType, newDebug),
 						!level + 1, 1, newDecName);
               in
                 [if isRecursive then mkDec (addr, pr) else pr]
@@ -5139,7 +5191,7 @@ struct
                      (* Now we can process the function bindings. *)
                  fun loadFunDecs []               = []
                    | loadFunDecs ((FValBind{numOfPatts = ref numOfPats,
-				   						    functVar = ref var, clauses,
+				   						    functVar = ref var, clauses, argType = ref aType,
 											resultType = ref resType})::otherDecs) =
                    let
                      (* Make up the function, and if there are several mutually
@@ -5185,7 +5237,7 @@ struct
 
 					 (* If we're debugging we want the result of the
 						function so we don't do this optimisation. *)
-					 val resultTuple = if !debug then 1 else resultTuples
+					 val resultTuple = if debugging then 1 else resultTuples
 
 					 val extraArg = if resultTuple = 1 then 0 else 1
 
@@ -5290,7 +5342,7 @@ struct
                      val U = addresses := oldAddr;
         
                      val innerFun : codetree = 
-                       mkProc (wrapFunctionInDebug(bodyCode, procName, resType),
+                       mkProc (wrapFunctionInDebug(bodyCode, procName, argList, aType, resType, newDebugLevel debugEnv),
 					   	!level + 1, totalArgs, innerProcName);
                           
                      (* We now have a function which can be applied to the
@@ -5360,7 +5412,7 @@ struct
              val loaded = loadFunDecs tlist;
 
 			 (* Construct the debugging environment by loading all variables.
-			    This won't be won't be available recursively in the
+			    This won't be available recursively in the
 				functions but it will be in the rest of the scope. *)
 			 val vars = map (fn(FValBind{functVar, ...}) => !functVar) tlist
 			 val (decEnv, newDebugEnv) = makeDebugEntries(vars, debugEnv)

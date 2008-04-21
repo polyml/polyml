@@ -52,6 +52,10 @@ sig
   val unitType:   types;
   val charType:   types;
   val wordType:   types;
+  val exnType:    types;
+  
+  type prettyPrinter
+  val displayTypeConstrs: typeConstrs * int * prettyPrinter * bool -> unit
 end;
 
 (*****************************************************************************)
@@ -119,7 +123,9 @@ sig
   
   datatype typeDependent =
     Print
+  | PrintSpace
   | MakeString
+  | MakeStringSpace
   | InstallPP
   | Equal
   | NotEqual
@@ -169,6 +175,13 @@ sig
   type types
   type values
   type representations
+  type prettyPrinter
+  type structVals
+  type functors
+  type signatures
+  type fixStatus
+  type typeConstrs
+  type nameSpace;
   
   (* Construction functions. *)
   val mkGvar:    string * types * codetree -> values
@@ -185,6 +198,17 @@ sig
 
   val createNullaryConstructor: representations * string -> codetree
   val createUnaryConstructor: representations * string -> codetree
+  
+  val displayFixStatus:  fixStatus  * int * prettyPrinter -> unit
+  (* nameSpace arg is used to get fixity and for exception packets. bool arg is ture if we
+     should print type with the structure name. *)
+  val displaySignatures: signatures * int * prettyPrinter * nameSpace * bool -> unit
+  val displayStructures: structVals * int * prettyPrinter * nameSpace * bool -> unit
+  val displayFunctors:   functors   * int * prettyPrinter * nameSpace * bool -> unit
+  val displayValues:     values * int * prettyPrinter * nameSpace * bool -> unit
+  val printValues: values * int * prettyPrinter * nameSpace -> unit
+
+  val printSpaceTag: nameSpace Universal.tag
 
 end;
 
@@ -227,29 +251,7 @@ sig
     type signatures;
     type functors;
 
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
+    type nameSpace;
   
     val gEnvAsEnv    : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
@@ -257,10 +259,10 @@ sig
     val useIntoEnv   : gEnv -> string -> unit
 
     val compiler :
-        { nameSpace: nameSpace, getChar: unit->char option, fileName: string,
-          lineNumber: unit->int, putString: string->unit }
-       -> unit -> unit;
-    val setPrintEnv : nameSpace -> unit  
+        nameSpace * (unit->char option) * Universal.universal list -> unit ->
+       { fixes: (string * fixStatus) list, values: (string * values) list,
+         structures: (string * structVals) list, signatures: (string * signatures) list,
+         functors: (string * functors) list, types: (string* typeConstrs) list };
 end;
 
 (*****************************************************************************)
@@ -277,27 +279,28 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val profiling  : int ref;
-  val timing     : bool ref;
-  val printDepth : int ref;
-  val errorDepth : int ref;
-  val lineLength : int ref;
+  val errorMessageProcTag: (string * bool * int -> unit) Universal.tag
+  val compilerOutputTag: (string->unit) Universal.tag
+  val lineNumberTag: (unit->int) Universal.tag
+  val fileNameTag: string Universal.tag
+  val profilingTag  : int Universal.tag;
+  val timingTag     : bool Universal.tag;
+  val printDepthFunTag : (unit->int) Universal.tag;
+  val errorDepthTag : int Universal.tag;
+  val lineLengthTag : int Universal.tag;
   
-  val assemblyCode        : bool ref;
-  val parsetree           : bool ref;
-  val codetree            : bool ref;
-  val pstackTrace         : bool ref;
-  val codetreeAfterOpt    : bool ref;
-  val traceCompiler       : bool ref;
-  val inlineFunctors      : bool ref;
-  val maxInlineSize       : int ref;
-  val ml90				  : bool ref;
-  val debug				  : bool ref;
+  val assemblyCodeTag        : bool Universal.tag;
+  val parsetreeTag           : bool Universal.tag;
+  val codetreeTag            : bool Universal.tag;
+  val pstackTraceTag         : bool Universal.tag;
+  val codetreeAfterOptTag    : bool Universal.tag;
+  val traceCompilerTag       : bool Universal.tag;
+  val inlineFunctorsTag      : bool Universal.tag;
+  val maxInlineSizeTag       : int Universal.tag;
+  val ml90Tag				  : bool Universal.tag;
+  val debugTag				  : bool Universal.tag;
 
-  val printInAlphabeticalOrder : bool ref;
-  val printTypesWithStructureName : bool ref;
-
-  val printString : (string->unit) ref;
+  val printStringTag : (string->unit) Universal.tag;
 end;
 
 (*****************************************************************************)
@@ -317,32 +320,23 @@ end;
 (*****************************************************************************)
 structure DEBUGGER :
 sig
-	type values
-    type fixStatus
-    type structVals
-    type typeConstrs
-    type signatures
-    type functors
+    type values;
+    type nameSpace;
 
-	val singleStep: unit -> unit
-	val stepOver: unit -> unit
-	val stepOut: unit -> unit
-	val addLineBreak: string * int -> unit
-	val clearLineBreak: string * int -> unit
-	val addFnBreak: string -> unit
-	val clearFnBreak: string -> unit
-	val continue: unit -> unit
-	val upStack: unit -> unit
-	val downStack: unit -> unit
-	val dumpStack: unit -> unit
-	val printVars: unit -> unit
-	val stackTrace: unit -> unit
-	val traceFunctions: bool -> unit
+    (* The debugger function supplied to the compiler. *)
+    type debugger = int * values * int * string * string * nameSpace -> unit
 
-	val setDebugger: ({lookupVal: string -> values option, lookupType: string -> typeConstrs option,
-                    lookupFix: string -> fixStatus option, lookupStruct: string -> structVals option,
-                    lookupSig: string -> signatures option, lookupFunct:  string -> functors option }
-                    *(unit->bool)->unit) -> unit
+    val debuggerFunTag : debugger Universal.tag
+end;
+
+(*****************************************************************************)
+(*                  PRETTYPRINTER                                            *)
+(*****************************************************************************)
+structure PRETTYPRINTER :
+sig
+  type prettyPrinter 
+  val prettyPrint : int * (string -> unit) -> prettyPrinter; 
+  val uglyPrint   : (string -> unit) -> prettyPrinter; 
 end;
 
 structure VERSION:
@@ -377,6 +371,7 @@ sharing type
   TYPETREE.typeConstrs
 = STRUCTVALS.typeConstrs 
 = MAKE.typeConstrs
+= VALUEOPS.typeConstrs
 
 sharing type
   STRUCTVALS.env
@@ -385,14 +380,31 @@ sharing type
 sharing type
   STRUCTVALS.functors
 = MAKE.functors
+= VALUEOPS.functors
+
+sharing type
+  STRUCTVALS.structVals
+= MAKE.structVals
+= VALUEOPS.structVals
 
 sharing type
   STRUCTVALS.signatures
 = MAKE.signatures
+= VALUEOPS.signatures
 
 sharing type
   STRUCTVALS.fixStatus
 = MAKE.fixStatus
+= VALUEOPS.fixStatus
+
+sharing type
+  VALUEOPS.prettyPrinter
+= TYPETREE.prettyPrinter
+= PRETTYPRINTER.prettyPrinter
+
+sharing type
+  MAKE.nameSpace
+= VALUEOPS.nameSpace
 
 ) : 
 
@@ -866,9 +878,6 @@ struct
         	(* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString, String ->> String);
 
-        	(* The output stream used for PolyML.print must be set to use TextIO.stdOut
-               once it has been compiled. *)
-        	val () = addVal ("printString", DEBUG.printString, Ref(String->>Unit));
         end;
 
 (*****************************************************************************)
@@ -897,9 +906,9 @@ struct
         in
             val () = enterGlobalValue ("<>", neqVal);
         end;        
-    
+
 (*****************************************************************************)
-(*              Funny polymorphic functions (in structure PolyML)            *)
+(*                  PolyML structure                                         *)
 (*****************************************************************************)
         local
             val polyml = makeEmptyGlobal "PolyML";
@@ -907,47 +916,6 @@ struct
             val ()             = #enterStruct globalEnv ("PolyML", polyml);
             val (Env polyMLEnv) = makeEnv (structSignat polyml);
             val enterPolyMLVal  = #enterVal polyMLEnv;
-        end;
-        
-        local
-            val printType = let val a = makeTV () in a ->> a end;
-            val printVal  = mkSpecialFun "print" printType Print;
-        in
-            val () = enterPolyMLVal ("print", printVal);
-        end;
-        
-        local
-            val makeStringType = let val a = makeTV () in a ->> String end;
-            val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
-        in
-            val () = enterPolyMLVal ("makestring", makeStringVal);
-        end;
-    
-        local
-            val a = makeTV ();
-            val b = makeTV ();
-        
-            val printTupleType =
-                TYPETREE.mkProductType
-                 [
-                   String ->> Unit,      (* addString *)
-                   Int ** Bool ->> Unit, (* beginBracket *)
-                   Int ** Int ->> Unit,  (* space *)
-                   Unit ->> Unit         (* endBracket *)
-                 ];
-            val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
-            val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
-        in
-            val () = enterPolyMLVal ("install_pp", installPPVal);
-        end;
-
-        (* This goes in RunCall since it's only for the basis library. *)
-        local
-            val addOverloadType =
-                let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
-            val addOverloadVal  = mkSpecialFun "addOverload" addOverloadType AddOverload;
-        in
-            val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
         end;
 
 (*****************************************************************************)
@@ -1008,17 +976,141 @@ struct
             val debugRecord = mkLabelled(sortLabels(debugFields, fn _ => ()), true);
             val debugType = (debugRecord ** (Unit ->> Bool)) ->> Unit
             val setDbtype = debugType ->> Unit
-    
-            (* TODO: Functions to manipulate name spaces.
-                     Global name space itself. 
-                     Maybe these should be in a Bootstrap structure. *)
-         in
+            
+            (* The result type of the compiler includes valueVal etc. *)
+            val resultFields = List.map TYPETREE.mkLabelEntry
+                [("values", List(String ** valueVal)),
+                 ("fixes", List(String ** fixityVal)),
+                 ("types", List(String ** typeVal)),
+                 ("structures", List(String ** structureVal)),
+                 ("signatures", List(String ** signatureVal)),
+                 ("functors", List(String ** functorVal))]
+          in
             val nameSpaceType = mkTypeConstruction ("nameSpace", recordType, [])
-            (* Set the debugging shell.  When the debugger reaches a breakpoint it
-               calls this with the debugging environment. *)
-            val () = enterBootstrap ("setDebugShell",
-                         mkConst (toMachineWord DEBUGGER.setDebugger), setDbtype)
+            val execResult = mkLabelled(sortLabels(resultFields, fn _ => ()), true)
+
+            val valueVal = valueVal
+            val typeVal = typeVal
+            val fixityVal = fixityVal
+            val signatureVal = signatureVal
+            val structureVal = structureVal
+            val functorVal = functorVal
          end
+
+(*****************************************************************************)
+(*              Funny polymorphic functions (in structure PolyML)            *)
+(*****************************************************************************)
+        local
+            val printType = let val a = makeTV () in a ->> a end;
+            val printVal  = mkSpecialFun "print" printType Print;
+        in
+            val () = enterPolyMLVal ("print", printVal);
+        end;
+
+        local
+            val printType =
+                let val a = makeTV () in TYPETREE.mkProductType[a, nameSpaceType, String ->> Unit, Int] ->> Unit end;
+            val printVal  = mkSpecialFun "printInNameSpace" printType PrintSpace;
+        in
+            val () = enterPolyMLVal ("printInNameSpace", printVal);
+        end;
+
+        local
+            val makeStringType = let val a = makeTV () in a ->> String end;
+            val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
+        in
+            val () = enterPolyMLVal ("makestring", makeStringVal);
+        end;
+
+        local
+            val makeStringType = let val a = makeTV () in a ** nameSpaceType ->> String end;
+            val makeStringVal  = mkSpecialFun "makestringInNameSpace" makeStringType MakeStringSpace;
+        in
+            val () = enterPolyMLVal ("makestringInNameSpace", makeStringVal);
+        end;
+        
+        local
+            val a = makeTV ();
+            val b = makeTV ();
+        
+            val printTupleType =
+                TYPETREE.mkProductType
+                 [
+                   String ->> Unit,      (* addString *)
+                   Int ** Bool ->> Unit, (* beginBracket *)
+                   Int ** Int ->> Unit,  (* space *)
+                   Unit ->> Unit         (* endBracket *)
+                 ];
+            val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
+            val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
+        in
+            val () = enterPolyMLVal ("install_pp", installPPVal);
+        end;
+
+        (* This goes in RunCall since it's only for the basis library. *)
+        local
+            val addOverloadType =
+                let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
+            val addOverloadVal  = mkSpecialFun "addOverload" addOverloadType AddOverload;
+        in
+            val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
+        end;
+
+(*****************************************************************************)
+(*                  Bootstrap.Universal                                      *)
+(*****************************************************************************)
+        local
+            (* This is used as one of the arguments to the compiler function. *)
+            open TYPETREE
+            val uniStruct = makeEmptyGlobal "Universal";
+            val _ = #enterStruct bootstrapEnv ("Universal", uniStruct);
+            val (Env uniStructEnv) = makeEnv (structSignat uniStruct);
+
+            fun enterUniversal (name : string, entry : codetree, typ : types) : unit =
+            let
+                val value = mkGvar (name, typ, entry);
+            in
+                #enterVal uniStructEnv (name, value)
+            end;
+
+            (* type 'a tag *)
+            val tagConstr = makeTypeConstrs("tag", [makeTV()], emptyType, makeFreeId (), false, 0);
+            val () = #enterType uniStructEnv ("tag", tagConstr);
+
+            (* type universal *)
+            val univConstr = makeTypeConstrs("universal", [], emptyType, makeFreeId (), false, 0);
+            val () = #enterType uniStructEnv ("universal", univConstr);
+
+            fun Tag base = mkTypeConstruction ("tag", tagConstr, [base])
+            val Universal = mkTypeConstruction ("universal", univConstr, [])
+
+            (* val tagInject  : 'a tag -> 'a -> universal *)
+            val injectType = let val a = makeTV() in Tag a ->> a ->> Universal end
+            val () = enterUniversal ("tagInject", mkConst (toMachineWord Universal.tagInject), injectType)
+            (* We don't actually need tagIs and tagProject since this is only used for
+               the compiler.  Universal is redefined in the basis library. *)          
+            val projectType = let val a = makeTV() in Tag a ->> Universal ->> a end
+            val () = enterUniversal ("tagProject", mkConst (toMachineWord Universal.tagProject), projectType)
+            val testType = let val a = makeTV() in Tag a ->> Universal ->> Bool end
+            val () = enterUniversal ("tagIs", mkConst (toMachineWord Universal.tagIs), testType)
+         in
+            val Tag = Tag and Universal = Universal
+        end
+
+(*****************************************************************************)
+(*                  Bootstrap.ExnMessage                                     *)
+(*****************************************************************************)
+(* This wraps PolyML.makestring to allow it to be used in General.exnMessage
+   without capturing the environment at that point. *)
+        local
+            open TYPETREE
+            val exnStruct = makeEmptyGlobal "ExnMessage";
+            val _ = #enterStruct bootstrapEnv ("ExnMessage", exnStruct);
+            val (Env exnStructEnv) = makeEnv (structSignat exnStruct);
+        in
+            val () = #enterVal exnStructEnv
+                ("exnMessage", makeOverloaded("exnMessage", exnType ->> String, MakeString))
+        end
 
 (*****************************************************************************)
 (*        PolyML.compiler etc                                                *)
@@ -1026,22 +1118,12 @@ struct
 
         local
             open TYPETREE
-            (* Construct the record type for the compiler arguments. *)
-            val fields = [
-                mkLabelEntry("nameSpace",  nameSpaceType),
-                mkLabelEntry("getChar",    Unit ->> Option Char),
-                mkLabelEntry("fileName",   String),
-                mkLabelEntry("lineNumber", Unit ->> Int),
-                mkLabelEntry("putString",  String ->> Unit)
-                ];
-
+ 
             val compilerType : types =
-                mkLabelled(sortLabels(fields, fn _ => ()), true) ->> Unit ->> Unit;
-
+                mkProductType[nameSpaceType, Unit ->> Option Char, List Universal] ->> Unit ->> execResult;
         in
             val () = enterBootstrap ("use", mkConst (toMachineWord (useIntoEnv globalTable)), String ->> Unit)            
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler)));
-            val () = enterPolyMLVal("setPrintEnv", mkGvar ("setPrintEnv", nameSpaceType ->> Unit, mkConst (toMachineWord setPrintEnv)));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable)), nameSpaceType)
         end;
 
@@ -1174,90 +1256,89 @@ struct
         end;
    
 (*****************************************************************************)
-(*                  PolyML.Compiler structure                                *)
-(*****************************************************************************)
-        local
-            val Compiler = makeEmptyGlobal "Compiler";
-        in
-            val ()          = #enterStruct polyMLEnv ("Compiler", Compiler);
-            val (Env CompilerEnv) = makeEnv (structSignat Compiler);
-            val enterCompilerVal  = #enterVal CompilerEnv;
-        end;
-        
-        fun enterCompilerConst (name : string, value : machineWord, typ : types) : unit =
-        let
-            val value = mkGvar (name, typ, mkConst value);
-        in
-            enterCompilerVal (name, value)
-        end;
-
-(*****************************************************************************)
-(*                  PolyML.Compiler entries copied from DEBUG                *)
+(*                  Bootstrap entries copied from DEBUG                *)
 (*****************************************************************************)
         local
             open DEBUG;
+            val debuggerType =
+                TYPETREE.mkProductType[Int, valueVal, Int, String, String, nameSpaceType] ->> Unit
         in
-            val () = applyList enterCompilerConst
+            val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [
-                ("maxInlineSize",       toMachineWord maxInlineSize,       Ref Int),
-                ("assemblyCode",        toMachineWord assemblyCode,        Ref Bool),
-                ("parsetree",           toMachineWord parsetree,           Ref Bool),
-                ("codetree",            toMachineWord codetree,            Ref Bool),
-                ("pstackTrace",         toMachineWord pstackTrace,         Ref Bool),
-                ("codetreeAfterOpt",    toMachineWord codetreeAfterOpt,    Ref Bool),
-                ("traceCompiler",       toMachineWord traceCompiler,       Ref Bool),
-                ("inlineFunctors",      toMachineWord inlineFunctors,      Ref Bool),
-                ("ml90",        		 toMachineWord ml90,        		 Ref Bool),
-                ("debug",        		 toMachineWord debug,        		 Ref Bool),
-                ("printInAlphabeticalOrder",    toMachineWord printInAlphabeticalOrder,     Ref Bool),
-                ("printTypesWithStructureName", toMachineWord printTypesWithStructureName,  Ref Bool),
-                ("compilerVersion",     toMachineWord VERSION.compilerVersion, String),
-                ("profiling",           toMachineWord DEBUG.profiling,     Ref Int),
-                ("timing",              toMachineWord DEBUG.timing,        Ref Bool),
-                ("printDepth",          toMachineWord DEBUG.printDepth,    Ref Int),
-                ("errorDepth",          toMachineWord DEBUG.errorDepth,    Ref Int),
-                ("lineLength",          toMachineWord DEBUG.lineLength,    Ref Int)
+                ("compilerVersion",        toMachineWord VERSION.compilerVersion, String),
+
+                ("errorMessageProcTag",    toMachineWord errorMessageProcTag,
+                     Tag (TYPETREE.mkProductType[String, Bool, Int] ->> Unit)),
+                ("compilerOutputTag", toMachineWord compilerOutputTag,  Tag (String->>Unit)),
+                ("lineNumberTag", toMachineWord lineNumberTag,  Tag (Unit->>Int)),
+                ("fileNameTag", toMachineWord fileNameTag,  Tag String),
+                ("maxInlineSizeTag",       toMachineWord maxInlineSizeTag,       Tag Int),
+                ("assemblyCodeTag",        toMachineWord assemblyCodeTag,        Tag Bool),
+                ("parsetreeTag",           toMachineWord parsetreeTag,           Tag Bool),
+                ("codetreeTag",            toMachineWord codetreeTag,            Tag Bool),
+                ("pstackTraceTag",         toMachineWord pstackTraceTag,         Tag Bool),
+                ("codetreeAfterOptTag",    toMachineWord codetreeAfterOptTag,    Tag Bool),
+                ("traceCompilerTag",       toMachineWord traceCompilerTag,       Tag Bool),
+                ("inlineFunctorsTag",      toMachineWord inlineFunctorsTag,      Tag Bool),
+                ("ml90Tag",        		   toMachineWord ml90Tag,        		 Tag Bool),
+                ("debugTag",               toMachineWord debugTag,        		 Tag Bool),
+                ("profilingTag",           toMachineWord DEBUG.profilingTag,     Tag Int),
+                ("timingTag",              toMachineWord DEBUG.timingTag,        Tag Bool),
+                ("printDepthFunTag",       toMachineWord DEBUG.printDepthFunTag, Tag (Unit->>Int)),
+                ("errorDepthTag",          toMachineWord DEBUG.errorDepthTag,    Tag Int),
+                ("lineLengthTag",          toMachineWord DEBUG.lineLengthTag,    Tag Int),
+        	    ("printStringTag",         toMachineWord DEBUG.printStringTag,   Tag (String->>Unit)),
+                ("printEnvironTag",        toMachineWord VALUEOPS.printSpaceTag, Tag nameSpaceType),
+                ("debuggerTag",            toMachineWord DEBUGGER.debuggerFunTag, Tag debuggerType)
+                ]
+        end;
+ 
+(*****************************************************************************)
+(*                  Bootstrap entries for printing                           *)
+(*****************************************************************************)
+        local
+            open TYPETREE PRETTYPRINTER
+            fun displayFix(f: fixStatus, stream: string->unit) =
+                displayFixStatus(f, 999 (* Actually unused. *), prettyPrint (77, stream))
+
+            and displaySig(s: signatures, depth: int, space: nameSpace, withStruct: bool, stream: string->unit) =
+                displaySignatures(s, depth, prettyPrint (77, stream), space, withStruct)
+
+            and displayStruct(s: structVals, depth: int, space: nameSpace, withStruct: bool, stream: string->unit) =
+                displayStructures(s, depth, prettyPrint (77, stream), space, withStruct)
+
+            and displayFunct(f: functors, depth: int, space: nameSpace, withStruct: bool, stream: string->unit) =
+                displayFunctors(f, depth, prettyPrint (77, stream), space, withStruct)
+
+            and displayVal(v: values, depth: int, space: nameSpace, withStruct: bool, stream: string->unit) =
+                displayValues(v, depth, prettyPrint (77, stream), space, withStruct)
+
+            and displayType(t: typeConstrs, depth: int, withStruct: bool, stream: string->unit) =
+                displayTypeConstrs(t, depth, prettyPrint (77, stream), withStruct)
+
+            (* Used to print values in the debugger.  Use uglyPrint here to keep it
+               simple and on one line. *)
+            and printVal(v: values, depth: int, space: nameSpace, stream: string->unit) =
+                printValues(v, depth, uglyPrint stream, space)
+        in
+            val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
+                [
+                ("displayFix",             toMachineWord displayFix, fixityVal ** (String ->> Unit) ->>Unit),
+                ("displaySig",             toMachineWord displaySig,
+                    mkProductType[signatureVal, Int, nameSpaceType, Bool, (String ->> Unit)] ->> Unit),
+                ("displayStruct",             toMachineWord displayStruct,
+                    mkProductType[structureVal, Int, nameSpaceType, Bool, (String ->> Unit)] ->> Unit),
+                ("displayFunct",             toMachineWord displayFunct,
+                    mkProductType[functorVal, Int, nameSpaceType, Bool, (String ->> Unit)] ->> Unit),
+                ("displayVal",             toMachineWord displayVal,
+                    mkProductType[valueVal, Int, nameSpaceType, Bool, (String ->> Unit)] ->> Unit),
+                ("printVal",             toMachineWord printVal,
+                    mkProductType[valueVal, Int, nameSpaceType, (String ->> Unit)] ->> Unit),
+                ("displayType",             toMachineWord displayType,
+                    mkProductType[typeVal, Int, Bool, (String ->> Unit)] ->> Unit)
                 ]
         end;
 
-(*****************************************************************************)
-(*                  Debugger functions                                       *)
-(*****************************************************************************)
-        local
-            open DEBUGGER
-            (* Create a new structure for them. *)
-            val Debug = makeEmptyGlobal "Debug";
-            val _ = #enterStruct polyMLEnv ("Debug", Debug);
-            val (Env DebugEnv) = makeEnv (structSignat Debug);
-            val enterDebugVal  = #enterVal DebugEnv;
-            
-            fun enterDebugConst (name : string, value : machineWord, typ : types) : unit =
-            let
-                val value = mkGvar (name, typ, mkConst value);
-            in
-                enterDebugVal (name, value)
-            end;
-            
-            val unitToUnit = Unit ->> Unit
-            val stringIntToUnit = (String ** Int) ->> Unit
-            val stringToUnit = String ->> Unit
-        in
-            val _ = enterDebugConst ("step", toMachineWord singleStep, unitToUnit);
-            val _ = enterDebugConst ("stepOver", toMachineWord stepOver, unitToUnit);
-            val _ = enterDebugConst ("stepOut", toMachineWord stepOut, unitToUnit);
-            val _ = enterDebugConst ("continue", toMachineWord continue, unitToUnit);
-            val _ = enterDebugConst ("breakAt", toMachineWord addLineBreak, stringIntToUnit);
-            val _ = enterDebugConst ("clearAt", toMachineWord clearLineBreak, stringIntToUnit)
-            val _ = enterDebugConst ("breakIn", toMachineWord addFnBreak, stringToUnit);
-            val _ = enterDebugConst ("clearIn", toMachineWord clearFnBreak, stringToUnit)
-            val _ = enterDebugConst ("up", toMachineWord upStack, unitToUnit)
-            val _ = enterDebugConst ("down", toMachineWord downStack, unitToUnit)
-            val _ = enterDebugConst ("variables", toMachineWord printVars, unitToUnit)
-            val _ = enterDebugConst ("stack", toMachineWord stackTrace, unitToUnit)
-            val _ = enterDebugConst ("dump", toMachineWord dumpStack, unitToUnit)
-            val _ = enterDebugConst ("trace", toMachineWord traceFunctions, Bool ->> Unit)
-        end
-   
     in
         ()
     end (* initGlobalEnv *);

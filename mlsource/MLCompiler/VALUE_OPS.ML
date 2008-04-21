@@ -35,6 +35,7 @@ sig
   type lexan
   
   val nullLex:     lexan
+  val debugParams: lexan -> Universal.universal list
 end;
 
 (*****************************************************************************)
@@ -74,7 +75,7 @@ sig
   
   val structureEq:      machineWord * machineWord -> bool
 
-  val genCode:          codetree -> unit -> codetree
+  val genCode:          codetree * Universal.universal list -> unit -> codetree
 end;
     
 (*****************************************************************************)
@@ -143,7 +144,9 @@ sig
 
   and typeDependent =
     Print
+  | PrintSpace
   | MakeString
+  | MakeStringSpace
   | InstallPP
   | Equal
   | NotEqual
@@ -236,7 +239,7 @@ sig
 
   val makeEnv: signatures -> env;
   
-  type 'a tag;
+  type 'a tag = 'a Universal.tag;
 
   val signatureVar:  signatures  tag
   val structVar:     structVals  tag
@@ -266,8 +269,8 @@ sig
   val typeConstrFromOverload: types * bool -> typeConstrs;
   val makeEquivalent:     typeConstrs * types list -> types
   val constructorResult:  types * types list -> types
-  val display:            types * int * prettyPrinter -> unit
-  val displayTypeConstrs: typeConstrs * int * prettyPrinter -> unit
+  val display:            types * int * prettyPrinter * bool -> unit
+  val displayTypeConstrs: typeConstrs * int * prettyPrinter * bool -> unit
   val sameTypeVar : 	  types * types -> bool;
   val firstArg:			  types -> types;
 
@@ -297,7 +300,7 @@ end;
 (*****************************************************************************)
 structure UNIVERSALTABLE:
 sig
-  type universal
+  type universal = Universal.universal
   type univTable
   type 'a iter
 
@@ -309,9 +312,10 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val printDepth  : int ref;
-  val maxPacking  : int ref;
-  val printString : (string->unit) ref;
+    val printDepthFunTag : (unit->int) Universal.tag
+    val printStringTag : (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 (*****************************************************************************)
@@ -343,19 +347,6 @@ sig
   
   val prettyPrint : int * (string -> unit) -> prettyPrinter; 
   val uglyPrint   : (string -> unit) -> prettyPrinter; 
-end;
-
-(*****************************************************************************)
-(*                  UNIVERSAL                                            *)
-(*****************************************************************************)
-structure UNIVERSAL :
-sig
-  type universal
-  type 'a tag
-  
-  val tagIs      : 'a tag -> universal -> bool
-  val tagProject : 'a tag -> universal -> 'a
-  
 end;
 
 (* DCJM 8/8/00.  Previously Address was a global but we aren't allowed
@@ -449,14 +440,6 @@ sharing type
 sharing type
   UNIVERSALTABLE.univTable
 = STRUCTVALS.univTable
-
-sharing type
-  UNIVERSAL.universal
-= UNIVERSALTABLE.universal
-
-sharing type
-  UNIVERSAL.tag
-= STRUCTVALS.tag
 ) : 
   
 (*****************************************************************************)
@@ -498,17 +481,44 @@ sig
   (* Standard values *)
   val nilConstructor:  values;
   val consConstructor: values;
+  
+
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      };
+
 
   (* Print values. *)
   val displayFixStatus:  fixStatus  * int * prettyPrinter -> unit
-  val displaySignatures: signatures * int * prettyPrinter -> unit
-  val displayStructures: structVals * int * prettyPrinter -> unit
-  val displayFunctors:   functors   * int * prettyPrinter -> unit
-  val displayValues: values * int * prettyPrinter -> unit
-  val printStruct: machineWord * types * int * prettyPrinter -> unit
-
-  val printerEnvironment:
-      { lookupFix: string -> fixStatus option, lookupExnById: machineWord -> values option} ref
+  val displaySignatures: signatures * int * prettyPrinter * nameSpace * bool -> unit
+  val displayStructures: structVals * int * prettyPrinter * nameSpace * bool -> unit
+  val displayFunctors:   functors   * int * prettyPrinter * nameSpace * bool -> unit
+  val displayValues: values * int * prettyPrinter * nameSpace * bool -> unit
+  val printStruct: machineWord * types * int * prettyPrinter * nameSpace -> unit
+  val printValues: values * int * prettyPrinter * nameSpace -> unit
+  
+  val printSpaceTag: nameSpace Universal.tag
+  val nullEnvironment : nameSpace
    
   val codeStruct:     structVals * int -> codetree
   val codeAccess:     valAccess  * int -> codetree
@@ -539,8 +549,6 @@ sig
                     lookupStruct: string -> structVals option} * 
                    string * (string -> unit) -> typeConstrs
 
-  val findException: (values list * structVals list) -> machineWord -> values option
-
   type representations
   val RefForm:   representations;
   val BoxedForm: representations;
@@ -566,7 +574,7 @@ struct
   open DEBUG;
   open ADDRESS;
   open UNIVERSALTABLE;
-  open UNIVERSAL; (* for tag etc. *)
+  open Universal; (* for tag etc. *)
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
   
@@ -1043,7 +1051,7 @@ struct
 		   the code but more importantly allows us to be able to print values of
 		   this datatype (printstruct uses evalue and that only works if we have
 		   a constant). *)
-	  	genCode code ()
+	  	genCode (code, [] (* No debugging output *)) ()
 	  end
 	
 	  fun createUnaryConstructor(test: representations, name: string): codetree =
@@ -1054,7 +1062,7 @@ struct
 			    mkInlproc(constrDestruct test arg1, 0, 1, name) (* Projection function. *)]
 	  in
 	    (* Code generate the tuple now. *)
-	  	genCode code ()
+	  	genCode (code, [] (* No debugging output *)) ()
 	  end
 
  	 (* Construct a nex execption identifier - it's really just a unit ref. *)
@@ -1163,7 +1171,7 @@ struct
       | (UnaryFunction, name) => createUnaryConstructor(TaggedBox n, name)
       | (UnaryTupled i, name) =>
 			createUnaryConstructor(
-	  			if i <= !maxPacking then TaggedTuple (n, i) else TaggedBox n, name)
+	  			if i <= 4 (*!maxPacking*) then TaggedTuple (n, i) else TaggedBox n, name)
   in
     repr :: chooseOptimisedRepr2 (nextTag n) t
   end;
@@ -1365,10 +1373,54 @@ struct
  
       (* Printing. *)
 
-  (* This is used when printing values to look up fixity and exception packets. *)
-  val printerEnvironment =
-     ref { lookupExnById = fn (w: machineWord) => NONE: values option,
-           lookupFix = fn (s: string) => NONE: fixStatus option}
+    type nameSpace =
+      { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+      };
+
+  val nullEnvironment : nameSpace =
+     {
+        lookupVal = fn (s: string) => NONE,
+        lookupType = fn (s: string) => NONE,
+        lookupFix = fn (s: string) => NONE,
+        lookupStruct = fn (s: string) => NONE,
+        lookupSig = fn (s: string) => NONE,
+        lookupFunct = fn (s: string) => NONE,
+        enterVal = fn _ => (),
+        enterType = fn _ => (),
+        enterFix = fn _ => (),
+        enterStruct = fn _ => (),
+        enterSig = fn _ => (),
+        enterFunct = fn _ => (),
+        allVal = fn () => [],
+        allType = fn () => [],
+        allFix = fn () => [],
+        allStruct = fn () => [],
+        allSig = fn () => [],
+        allFunct = fn () => []
+        }
+
+    (* Debug tag for the name space for the printer environment. *)
+    val printSpaceTag: nameSpace tag = Universal.tag()
 
   (* Checks to see whether a labelled record is in the form of
      a product i.e. 1=, 2=   We only need this for prettyprinting. *)
@@ -1382,10 +1434,92 @@ struct
 	end
     | isProductType _ = false;
 
+    (* Find an exception with the given identifier. *)
+    fun findException (allValues: values list, allStructs: structVals list) (w: machineWord): values option =
+    let
+        fun searchList f [] = NONE
+	    |   searchList f (hd::tl) =
+			case f hd of
+				NONE => searchList f tl
+			|	result => result
+
+	  	open ADDRESS
+
+        (* Test a value to see if it's the exception we want. *)
+        fun testValue base valu =
+		case valu of
+			(* Top-level exception *)
+			Value{class = Exception, access = Global code, ...} =>
+				if wordEq(evalue code, w) then SOME valu else NONE
+
+			(* Exception in a structure. *)
+		|	Value{class = Exception, access=Formal addr, ...} =>
+				if wordEq(loadWord(toAddress base, toShort addr), w)
+				then SOME valu else NONE
+
+		|	_ => NONE
+
+        (* Search for the exception in a structure. *)
+        fun searchSpace(u: univTable, base: machineWord) =
+        let
+	  	  (* Get a list of all the entries in this space. *)
+	  	  val decList = iterList (univOver u)
+
+		  fun findItem (s: string, u: universal): values option =
+		  	 if tagIs valueVar u (* Values *)
+			 then testValue base (tagProject valueVar u)
+
+			 else if tagIs structVar u
+			 then (* Search this structure recursively. *)
+			 let
+			 	val str = tagProject structVar u
+				val access = structAccess str
+			 in
+			 	case access of
+					Global code => (* Top-level structures. *)
+						searchSpace(sigTab (structSignat str), evalue code)
+
+				|	Formal addr => (* Sub-structures. *)
+						searchSpace(sigTab (structSignat str),
+							loadWord(toAddress base, toShort addr))
+
+				|	_ => NONE
+			 end
+
+			 else NONE (* Not a structure or a value. *)
+	  in
+	  	  searchList findItem decList
+	  end
+
+        val globalBase = ADDRESS.toMachineWord 0 (* Unused. *)
+    in
+        (* First try the global values. *)
+        case searchList (testValue globalBase) allValues of
+            ex as SOME _ => ex (* found *)
+        |   NONE => (* Not found; try in the structures. *)
+                searchList (
+                    fn s =>
+                        case structAccess s of
+                            Global code =>
+                                searchSpace(sigTab (structSignat s), evalue code)
+                        | _ => NONE (* Should just be globals. *))
+                    allStructs
+	end
+
   (* This module prints a structure by following the type structure. *)
-  fun printStruct (value:machineWord, types, depth, pprint:prettyPrinter) =
+  fun printStruct (value:machineWord, types, depth, pprint:prettyPrinter, nameSpace: nameSpace) =
   let
-      val { lookupFix, lookupExnById} = ! printerEnvironment
+        fun exceptionSearch (w: machineWord) : values option =
+        let
+            val values = #allVal nameSpace ()
+            and strs   = #allStruct nameSpace ()
+            (* Filter out the strings.  Order doesn't matter. *)
+            fun getVal []            l = l
+            |   getVal ((_, v) :: r) l = getVal r (v::l)
+        in
+            findException(getVal values [], getVal strs []) w
+        end
+      val { lookupFix, lookupExnById} = { lookupFix = #lookupFix nameSpace, lookupExnById = exceptionSearch }
  
       fun pVec (num, value : machineWord, [], separator, leftPrec, rightPrec, depth) doPrint = ()
       
@@ -1691,7 +1825,7 @@ struct
 			);
  
   (* displays value as a block, with no external formatting *)
-  fun displayValues (Value{name, typeOf, class, access}, depth, pprint: prettyPrinter) =
+  fun displayValues (Value{name, typeOf, class, access}, depth, pprint: prettyPrinter, nameSpace, parameters) =
     if depth <= 0 
       then ppAddString pprint "..."
 
@@ -1699,22 +1833,21 @@ struct
 		(SimpleValue, Global code) =>
       (
 		ppBeginBlock pprint (0, false);
-		ppAddString pprint "val"; (* was "value" SPF 7/6/94 *)
+		ppAddString pprint "val";
 		ppBreak pprint (1, 0);
 		ppAddString pprint (name ^ " =");
 		ppBreak pprint (1, 3);
-		(
-		    printStruct (evalue code, typeOf, depth, pprint)
-		      handle SML90.Interrupt => raise SML90.Interrupt | _ => ppAddString pprint "<undefined>"
+		printStruct (evalue code, typeOf, depth, pprint, nameSpace)
+		      handle SML90.Interrupt => raise SML90.Interrupt | _ => ppAddString pprint "<undefined>";
 		      (* evalue will fail for "undefined" *)
-		);
+
 		ppBreak pprint (1, 0);
 		(* Put in a block to keep the colon with the type if we've had
 		   to break the block. *)
 		ppBeginBlock pprint (0, false);
 		ppAddString pprint ":";
 		ppBreak pprint (1, 3);
-		display (typeOf, depth, pprint);
+		display (typeOf, depth, pprint, parameters);
 		ppEndBlock pprint ();
 		ppEndBlock pprint ()
       )
@@ -1725,7 +1858,7 @@ struct
 		ppBeginBlock pprint (0, false);
 		ppAddString pprint ("val " ^ name ^ " :");
 		ppBreak pprint (1, 3);
-		display (typeOf, depth, pprint);
+		display (typeOf, depth, pprint, parameters);
 		ppEndBlock pprint ()
       )
 
@@ -1741,7 +1874,7 @@ struct
 		  ppBreak pprint (1, 1);
 		  ppAddString pprint "of";
 		  ppBreak pprint (1, 3);
-		  display (typeOf, depth, pprint)
+		  display (typeOf, depth, pprint, parameters)
 		) 
 		else ();
 		ppEndBlock pprint ()
@@ -1749,8 +1882,15 @@ struct
       
     | _ => ()
 
+  (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
+  fun printValues (Value{name, typeOf, class, access}, depth, pprint: prettyPrinter, nameSpace) =
+        case (class, access) of
+		    (SimpleValue, Global code) =>
+                printStruct (evalue code, typeOf, depth, pprint, nameSpace)
+        | _ => ()
+
   (* Prints "sig ... end" as a block, with no external formatting *)
-  fun displaySig (str, depth : int, pprint: prettyPrinter, space : int) : unit =
+  fun displaySig (str, depth : int, pprint: prettyPrinter, space : int, nameSpace, parameters) : unit =
   let
     fun break () : unit = ppBreak pprint (1, 2);
       
@@ -1759,21 +1899,21 @@ struct
       then 
 	(
 	  break ();
-	  displaySignatures (tagProject signatureVar value, depth - 1, pprint)
+	  displaySignatures (tagProject signatureVar value, depth - 1, pprint, nameSpace, parameters)
 	)
 		   
       else if (tagIs structVar value)
       then 
 	(
 	  break ();
-	  displayStructures (tagProject structVar value, depth - 1, pprint)
+	  displayStructures (tagProject structVar value, depth - 1, pprint, nameSpace, parameters)
 	)
 		       
       else if (tagIs typeConstrVar value)
       then 
 	(
 	  break ();
-	  displayTypeConstrs (tagProject typeConstrVar value, depth, pprint)
+	  displayTypeConstrs (tagProject typeConstrVar value, depth, pprint, parameters)
 	)
       
       else if (tagIs valueVar value)
@@ -1789,7 +1929,7 @@ struct
 		  (* We lookup the infix status and any exception in the global environment
 		     only.  Infix status isn't a property of a structure and it's too
 			 much trouble to look up exceptions in the structure. *)
-		  displayValues (value, depth, pprint)
+		  displayValues (value, depth, pprint, nameSpace, parameters)
 		  )
       end
       
@@ -1830,19 +1970,19 @@ struct
   end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str, depth : int, pprint: prettyPrinter) : unit =
+  and displaySignatures (str, depth : int, pprint: prettyPrinter, nameSpace, parameters) : unit =
     if depth <= 0 then ppAddString pprint "..."
     else
     (
       ppBeginBlock pprint (0, false);
       ppAddString pprint ("signature " ^ sigName str ^ " =");
       ppBreak pprint (1, 2);
-      displaySig (str, depth, pprint, 1);
+      displaySig (str, depth, pprint, 1, nameSpace, parameters);
       ppEndBlock pprint ()
     )
 
   (* print structure in a block (no external spacing) *)
-  and displayStructures (str, depth, pprint: prettyPrinter) =
+  and displayStructures (str, depth, pprint: prettyPrinter, nameSpace, parameters) =
   let
   in
     if depth <= 0 then ppAddString pprint "..."
@@ -1856,12 +1996,12 @@ struct
 	  ppBreak pprint (1, 2);
       if signatureName <> ""
 	  then ppAddString pprint signatureName
-      else displaySig (structSignat str, depth - 1, pprint, 1);
+      else displaySig (structSignat str, depth - 1, pprint, 1, nameSpace, parameters);
       ppEndBlock pprint ()
     end
   end;
 
- fun displayFunctors (funct, depth, pprint: prettyPrinter) =
+ fun displayFunctors (funct, depth, pprint: prettyPrinter, nameSpace, parameters) =
    if depth <= 0 then ppAddString pprint "..."
    else 
    (
@@ -1875,10 +2015,10 @@ struct
        ppBreak pprint (1, 3)
      )
      else ();
-     displaySig (structSignat (functorArg funct), depth - 1, pprint, 0);
+     displaySig (structSignat (functorArg funct), depth - 1, pprint, 0, nameSpace, parameters);
      ppAddString pprint ") :";
 	 ppBreak pprint (1, 3);
-     displaySig (functorResult funct, depth - 1, pprint, 1);
+     displaySig (functorResult funct, depth - 1, pprint, 1, nameSpace, parameters);
      ppEndBlock pprint ()
    );
    
@@ -2370,15 +2510,26 @@ struct
   |  codeVal (Value{access = Formal _, ...}, level, _, _, _) =
   		raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, _, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, lex, _) =
         let 
          (* "instance" should be 'a -> 'a. We need to get the 'a. *)
          val argType = if not (isFunctionType instance) then badType
                        else ffArg (typesFunctionType instance);
+         open DEBUG
+         (* The parameter is the reference used to control the print depth
+            when the value is actually printed. *)
+         val printDepthFun = getParameter printDepthFunTag (LEX.debugParams lex)
+         and printString = getParameter printStringTag (LEX.debugParams lex)
+
+         val printSpace =
+            case List.find (Universal.tagIs printSpaceTag) (LEX.debugParams lex) of
+                SOME a => Universal.tagProject printSpaceTag a
+            |   NONE => nullEnvironment
+
          fun printProc value =
          (
-           printStruct (value, argType, ! printDepth,
-                        prettyPrint (77, ! DEBUG.printString));
+           printStruct (value, argType, printDepthFun(),
+                        prettyPrint (77, printString), printSpace);
             value
           );
            (* Coerce the procedure so that it can be put into the code. *)
@@ -2386,26 +2537,70 @@ struct
          mkConst (toMachineWord printProc)
        end 
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _) =
+  |  codeVal (Value{access = Overloaded PrintSpace, ...}, level, instance, _, _) =
+        let 
+            (* "instance" should be 'a * namespace * printer * int -> 'a. We need to get the 'a. *)
+            val argType =
+                case instance of
+                    FunctionType{arg= LabelledType { recList = {typeof, ...} ::_, ...}, ...} =>
+                        typeof
+                |   _ => badType
+
+            fun printProc (value, namespace, printer, depth): unit =
+            (
+                printStruct (value, argType, depth,
+                        prettyPrint (77, printer), namespace)
+            )
+        in
+            mkConst (toMachineWord printProc)
+        end 
+
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, lex, _) =
        let 
          (* "instance" should be 'a -> string. We need to get the 'a. *)
          val argType =
             if not (isFunctionType instance)
             then badType
             else ffArg (typesFunctionType instance);
-            
+
+         val printSpace =
+            case List.find (Universal.tagIs printSpaceTag) (LEX.debugParams lex) of
+                SOME a => Universal.tagProject printSpaceTag a
+            |   NONE => nullEnvironment
+
          fun makeString value =
          let
            val result = ref ""; (* Accumulate results in this *)
            val pp = uglyPrint (fn s => result := !result ^ s);
            val U : unit = 
-             printStruct (value, argType, ! printDepth, pp);
+             printStruct (value, argType, 10000, pp, printSpace);
          in
            ! result
          end;
        in
          mkConst (toMachineWord makeString)
        end
+
+  |  codeVal (Value{access = Overloaded MakeStringSpace, ...}, level, instance, lex, _) =
+        let 
+            (* "instance" should be 'a * namespace -> string. We need to get the 'a. *)
+            val argType =
+                case instance of
+                    FunctionType{arg= LabelledType { recList = {typeof, ...} ::_, ...}, ...} =>
+                        typeof
+                |   _ => badType
+
+            fun printProc (value, namespace, printer) =
+            let
+                val result = ref ""; (* Accumulate results in this *)
+                val pp = uglyPrint (fn s => result := !result ^ s);
+                val () = printStruct (value, argType, 10000, pp, namespace);
+            in
+                !result
+            end
+        in
+            mkConst (toMachineWord printProc)
+        end
 
   |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, _, _) =
          let 
@@ -2796,78 +2991,6 @@ struct
 
   |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
 
-
-    (* Find an exception with the given identifier. *)
-    fun findException (allValues: values list, allStructs: structVals list) (w: machineWord): values option =
-    let
-        fun searchList f [] = NONE
-	    |   searchList f (hd::tl) =
-			case f hd of
-				NONE => searchList f tl
-			|	result => result
-
-	  	open ADDRESS
-
-        (* Test a value to see if it's the exception we want. *)
-        fun testValue base valu =
-		case valu of
-			(* Top-level exception *)
-			Value{class = Exception, access = Global code, ...} =>
-				if wordEq(evalue code, w) then SOME valu else NONE
-
-			(* Exception in a structure. *)
-		|	Value{class = Exception, access=Formal addr, ...} =>
-				if wordEq(loadWord(toAddress base, toShort addr), w)
-				then SOME valu else NONE
-
-		|	_ => NONE
-
-        (* Search for the exception in a structure. *)
-        fun searchSpace(u: univTable, base: machineWord) =
-        let
-	  	  (* Get a list of all the entries in this space. *)
-	  	  val decList = iterList (univOver u)
-
-		  fun findItem (s: string, u: universal): values option =
-		  	 if tagIs valueVar u (* Values *)
-			 then testValue base (tagProject valueVar u)
-
-			 else if tagIs structVar u
-			 then (* Search this structure recursively. *)
-			 let
-			 	val str = tagProject structVar u
-				val access = structAccess str
-			 in
-			 	case access of
-					Global code => (* Top-level structures. *)
-						searchSpace(sigTab (structSignat str), evalue code)
-
-				|	Formal addr => (* Sub-structures. *)
-						searchSpace(sigTab (structSignat str),
-							loadWord(toAddress base, toShort addr))
-
-				|	_ => NONE
-			 end
-
-			 else NONE (* Not a structure or a value. *)
-	  in
-	  	  searchList findItem decList
-	  end
-
-        val globalBase = ADDRESS.toMachineWord 0 (* Unused. *)
-    in
-        (* First try the global values. *)
-        case searchList (testValue globalBase) allValues of
-            ex as SOME _ => ex (* found *)
-        |   NONE => (* Not found; try in the structures. *)
-                searchList (
-                    fn s =>
-                        case structAccess s of
-                            Global code =>
-                                searchSpace(sigTab (structSignat s), evalue code)
-                        | _ => NONE (* Should just be globals. *))
-                    allStructs
-	end
 
 end (* body of VALUEOPS *);
 
