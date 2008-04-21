@@ -35,9 +35,8 @@ and TextIO.stdOut.
 This contains the top-level read-eval-print loop as well as "use" and
 Poly/ML's "make".
 *)
-
 local
-
+    open PolyML.NameSpace
     (*****************************************************************************)
     (*                  top-level name space                                     *)
     (*****************************************************************************)
@@ -45,7 +44,7 @@ local
     and tableMutex = Thread.Mutex.mutex() (* Lock to protect the table. *)
  
     local
-        open PolyML.NameSpace Universal UniversalArray Thread.Thread Thread.Mutex
+        open Universal UniversalArray Thread.Thread Thread.Mutex
         (* Create universal tags for the name space. *)
         (* Should these be kept private here or included in the PolyML
            structure? *)
@@ -110,6 +109,611 @@ local
         and forgetStruct = forget globalTable structureTag
     end
 
+    (* PolyML.compiler takes a list of these parameter values.  They all
+       default so it's possible to pass only those that are actually
+       needed. *)
+    datatype compilerParameters =
+        CPOutStream of string->unit
+        (* Output stream for debugging and other output from the compiler.
+           Provides a default stream for other output.  Default: TextIO.print *)
+    |   CPNameSpace of PolyML.NameSpace.nameSpace
+        (* Name space to look up and enter results.  Default: globalNameSpace *)
+    |   CPErrorMessageProc of string * bool * int -> unit
+        (* Called by the compiler to generate error messages.
+           Arguments (message, isHard, lineNo).  message is the message with
+           context information.  isHard is true if this is an error, false if
+           a warning.  lineNo is the line number passed in.
+           Default: print this to CPOutStream value using CPLineNo and CPFileName. *)
+    |   CPLineNo of unit -> int
+        (* Called by the compiler to get the current "line number".  This is passed
+           to CPErrorMessageProc and the debugger.  It may actually be a more general
+           location than a source line.  Default: fn () => 0 i.e. no line numbering. *)
+    |   CPFileName of string
+        (* The current file being compiled.  This is used by the default CPErrorMessageProc
+           and the debugger.  Default: "" i.e. interactive stream. *)
+    |   CPPrintInAlphabeticalOrder of bool
+        (* Whether to sort the results by alphabetical order before printing them.  Applies
+           only to the default CPResultFun.  Default value of printInAlphabeticalOrder. *)
+    |   CPPrintTypesWithStructure of bool
+        (* Whether when printing the type of a value to include any structure name
+           with the type constructors.  Default value of printTypesWithStructureName. *)
+    |   CPResultFun of {
+            fixes: (string * fixityVal) list, values: (string * valueVal) list,
+            structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+            functors: (string * functorVal) list, types: (string * typeVal) list} -> unit
+        (* Function to apply to the result of compiling and running the code.
+           Default: print and enter the values into CPNameSpace. *)
+    |   CPProfiling of int
+        (* Control profiling.  0 is no profiling, 1 is time etc.  Default is value of PolyML.profiling. *)
+    |   CPTiming of bool
+        (* Control whether the compiler should time various phases of the
+           compilation and also the run time. Default: value of PolyML.timing. *)
+    |   CPDebug of bool
+        (* Control whether calls to the debugger should be inserted into the compiled
+           code.  This allows breakpoints to be set, values to be examined and printed
+           and functions to be traced at the cost of a very large run-time overhead.
+           Default: value of PolyML.Compiler.debug *)
+    |   CPPrintDepth of unit->int
+        (* This controls the depth of printing if the default CPResultFun is used.  It
+           is also bound into any use of PolyML.print in the compiled code and will
+           be called to get the print depth whenever that code is executed.
+           Default: Get the current value of PolyML.print_depth. *)
+    |   CPPrintStream of string->unit
+        (* This is bound into any occurrence of PolyML.print and is used to produce
+           the outut.  Default: CPOutStream. *)
+    |   CPPrinterNameSpace of PolyML.NameSpace.nameSpace
+        (* This is bound into any occurrence of PolyML.print, PolyML.makestring or
+           General.exnMessage.  It is used to search for an exception identifier in
+           order to print the argument of an exception packet.  It is also used to find
+           infixed datatype constructors when printing values. e.g. it might print
+           1::2 rather than ::(1,2) if lists weren't treated specially.
+           Default: CPNameSpace *)
+    |   CPErrorDepth of int
+        (* Controls the depth of context to produce in error messages.
+           Default : value of PolyML.error_depth. *)
+    |   CPLineLength of int
+        (* Bound into any occurrences of PolyML.print.  This is the length of a line
+           used in the pretty printer.  Default: value of PolyML.line_length. *)
+
+    (* References for control and debugging. *)
+    val profiling = ref 0
+    and timing = ref false
+    and printDepth = ref 0
+    and errorDepth = ref 6
+    and lineLength = ref 77
+    
+    val assemblyCode = ref false
+    and codetree = ref false
+    and codetreeAfterOpt = ref false
+    and pstackTrace = ref false
+    and parsetree = ref false
+    
+    val debug = ref false
+    val inlineFunctors = ref false
+    val maxInlineSize = ref 40
+    val ml90 = ref false
+    val printInAlphabeticalOrder = ref true
+    val printTypesWithStructureName = ref true
+    val traceCompiler = ref false
+
+    (* Top-level prompts. *)
+    val prompt1 = ref "> " and prompt2 = ref "# ";
+    
+    (* Debugger control. *)
+
+	(* Whenever we enter a function we push information onto this stack. *)
+	type debugStackEntry =
+	{
+		lineNo: int,
+		funName: string,
+		fileName: string,
+        space: PolyML.NameSpace.nameSpace,
+        arguments: PolyML.NameSpace.valueVal
+	}
+    (* With the exception of the stack, which is thread-specific, all these are
+       global variables and apply to any thread. Perhaps they should be thread-specific
+       in which case the debugger will only be entered if the thread that set a breakpoint
+       encounters it. *)
+    local
+	    val stackTag: debugStackEntry list ref Universal.tag = Universal.tag()
+    in
+        (* Get the stack of previous calls.  Create a new one if necessary.*)
+        fun getStack(): debugStackEntry list ref =
+            case Thread.Thread.getLocal stackTag of
+                NONE => let val stack = ref [] in Thread.Thread.setLocal(stackTag, stack); stack end
+            |   SOME stack => stack
+    end
+	val debugLevel = ref 0
+    (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
+	val exitLoop = ref false;
+	(* Call tracing. *)
+    val tracing = ref false;
+    val breakNext = ref false;
+	(* Single stepping. *)
+	val stepDebug = ref false;
+	val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
+	(* Break points.  We have two breakpoint lists: a list of file-line
+	   pairs and a list of function names. *)
+	val lineBreakPoints = ref []
+	and fnBreakPoints = ref []
+
+   	fun checkLineBreak (file, line) =
+    	let
+    		fun findBreak [] = false
+    		 |  findBreak ((f, l) :: rest) =
+    		 	  (l = line andalso f = file) orelse findBreak rest
+    	in
+    		findBreak (! lineBreakPoints)
+    	end
+
+	fun checkFnBreak exact name =
+	let
+		(* When matching a function name we allow match if the name
+		   we're looking for matches the last component of the name
+		   we have.  e.g. if we set a break for "f" we match F().S.f . *)
+		fun matchName n =
+			if name = n then true
+			else if exact then false
+			else
+			let
+				val nameLen = size name
+				and nLen = size n
+				fun isSeparator #"-" = true
+				 |  isSeparator #")" = true
+				 |  isSeparator #"." = true
+				 |  isSeparator _    = false
+			in
+				nameLen > nLen andalso String.substring(name, nameLen - nLen, nLen) = n
+				andalso isSeparator(String.sub(name, nameLen - nLen - 1))
+			end
+	in
+		List.exists matchName (! fnBreakPoints)
+	end
+
+	(* Try to print the appropriate line from the file.  Used in the debugger
+       and debug functions. *)
+	fun printSourceLine(fileName: string, line: int, funName: string) =
+	let
+        open TextIO
+    in
+    	(* First just print where we are. *)
+        if fileName = "" then () else print(concat[fileName, " "]);
+        if line = 0 then () else print(concat[" line:", Int.toString line, " "]);
+    	print(concat["function:", funName, "\n"]);
+    	(* Try to print it.  This may fail if the file name was not a full path
+    	   name and we're not in the correct directory. *)
+        if fileName = "" then ()
+        else
+    	let
+    		val fd = openIn fileName
+    		fun pLine n =
+    			case inputLine fd of
+    				NONE => ()
+    			|	SOME s => if n = 1 then print s else pLine(n-1)
+    	in
+    		pLine line;
+    		closeIn fd
+    	end handle IO.Io _ => () (* If it failed simply ignore the error. *)
+    end
+
+    local
+        open Bootstrap Bootstrap.Universal
+        (* To allow for the possibility of changing the representation we don't make Universal
+           be the same as Bootstrap.Universal. *)
+        (* Default error message function. *)
+        fun defaultErrorProc fileName (message: string, hard: bool, line: int) =
+           TextIO.print(concat
+               ( (if hard then ["Error-"] else ["Warning-"]) @
+                 (if fileName = "" then [] else [" in '", fileName, "',"]) @
+                 (if line = 0 then [] else [" line ", Int.toString line]) @
+                 (if line = 0 andalso fileName = "" then [] else [".\n"]) @
+                 [message]))
+
+        (* Default function to print and enter a value. *)
+        fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
+                           stream: string->unit, depth: int, withStruct: bool)
+            { fixes: (string * fixityVal) list, values: (string * valueVal) list,
+              structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+              functors: (string * functorVal) list, types: (string * typeVal) list}: unit =
+        let
+            (* We need to merge the lists to sort them alphabetically. *)
+            datatype decKind =
+                FixStatusKind of fixityVal
+            |   TypeConstrKind of typeVal
+            |   SignatureKind of signatureVal
+            |   StructureKind of structureVal
+            |   FunctorKind of functorVal
+            |   ValueKind of valueVal
+
+            val decList =
+                map (fn (s, f) => (s, FixStatusKind f)) fixes @
+                map (fn (s, f) => (s, TypeConstrKind f)) types @
+                map (fn (s, f) => (s, SignatureKind f)) signatures @
+                map (fn (s, f) => (s, StructureKind f)) structures @
+                map (fn (s, f) => (s, FunctorKind f)) functors @
+                map (fn (s, f) => (s, ValueKind f)) values
+
+			fun kindToInt(FixStatusKind _) = 0
+			|   kindToInt(TypeConstrKind _) = 1
+			|   kindToInt(SignatureKind _) = 2
+			|   kindToInt(StructureKind _) = 3
+			|   kindToInt(FunctorKind _) = 4
+			|   kindToInt(ValueKind _) = 5
+
+			fun order (s1: string, k1) (s2, k2) =
+					if s1 = s2 then kindToInt k1 <= kindToInt k2
+					else s1 <= s2
+
+            fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
+            |   quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
+            |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
+            let
+                val (after, befor) = List.partition (leq h) t
+            in
+                quickSort leq befor @ (h :: quickSort leq after)
+            end;
+
+			(* Don't sort the declarations if we want them in declaration order. *)
+			val sortedDecs =
+				if inOrder then quickSort order decList else decList
+
+			fun printDec(n, FixStatusKind f) =
+                (
+                    if depth > 0 then displayFix(f, stream) else ();
+                    #enterFix space (n,f)
+                )
+			|   printDec(n, TypeConstrKind t) =
+                (
+                    if depth > 0 then displayType(t, depth, withStruct, stream) else ();
+                    #enterType space (n,t)
+                )
+			|   printDec(n, SignatureKind s) =
+                (
+                    if depth > 0 then displaySig(s, depth, space, withStruct, stream) else ();
+                    #enterSig space (n,s)
+                )
+			|   printDec(n, StructureKind s) =
+                (
+                    if depth > 0 then displayStruct(s, depth, space, withStruct, stream) else ();
+                    #enterStruct space (n,s)
+                )
+			|   printDec(n, FunctorKind f) =
+                (
+                    if depth > 0 then displayFunct(f, depth, space, withStruct, stream) else ();
+                    #enterFunct space (n,f)
+                )
+			|   printDec(n, ValueKind v) =
+                (
+                    if depth > 0 then displayVal(v, depth, space, withStruct, stream) else ();
+                    #enterVal space (n,v)
+                )
+        in
+            List.app printDec sortedDecs
+        end
+    in
+        fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
+        let
+            (* Find the first item that matches or return the default. *)
+            fun find f def [] = def
+              | find f def (hd::tl) =
+                  case f hd of
+                      SOME s => s
+                  |   NONE => find f def tl
+        
+            val outstream = find (fn CPOutStream s => SOME s | _ => NONE) TextIO.print parameters
+            val nameSpace = find (fn CPNameSpace n => SOME n | _ => NONE) globalNameSpace parameters
+            val lineNo = find (fn CPLineNo l => SOME l | _ => NONE) (fn () => 0) parameters
+            val fileName = find (fn CPFileName s => SOME s | _ => NONE) "" parameters
+            val printInOrder = find (fn CPPrintInAlphabeticalOrder t => SOME t | _ => NONE)
+                                (! printInAlphabeticalOrder) parameters
+            val profiling = find (fn CPProfiling i => SOME i | _ => NONE) (!profiling) parameters
+            val timing = find  (fn CPTiming b => SOME b | _ => NONE) (!timing) parameters
+            val printDepth = find (fn CPPrintDepth f => SOME f | _ => NONE) (fn () => !printDepth) parameters
+            val printWithStruct = find (fn CPPrintTypesWithStructure t => SOME t | _ => NONE)
+                                (! printTypesWithStructureName) parameters
+            val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
+               (printAndEnter(printInOrder, nameSpace, outstream, printDepth(), printWithStruct)) parameters
+            val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
+            val printenv = find (fn CPPrinterNameSpace s => SOME s | _ => NONE) nameSpace parameters
+            val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE)
+                                (defaultErrorProc fileName) parameters
+            val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
+
+            (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)
+            val code =
+                PolyML.compiler(nameSpace, getChar,
+                    [
+                    tagInject errorMessageProcTag errorProc,
+                    tagInject compilerOutputTag outstream,
+                    tagInject lineNumberTag lineNo,
+                    tagInject fileNameTag fileName,
+                    tagInject inlineFunctorsTag (! inlineFunctors),
+                    tagInject maxInlineSizeTag (! maxInlineSize),
+                    tagInject parsetreeTag (! parsetree),
+                    tagInject codetreeTag (! codetree),
+                    tagInject pstackTraceTag (! pstackTrace),
+                    tagInject assemblyCodeTag (! assemblyCode),
+                    tagInject codetreeAfterOptTag (! codetreeAfterOpt),
+                    tagInject timingTag timing,
+                    tagInject profilingTag profiling,
+                    tagInject errorDepthTag (! errorDepth),
+                    tagInject printDepthFunTag printDepth,
+                    tagInject lineLengthTag (! lineLength),
+                    tagInject traceCompilerTag (! traceCompiler),
+                    tagInject ml90Tag (! ml90),
+                    tagInject debugTag debugging,
+                    tagInject printStringTag printString,
+                    tagInject printEnvironTag printenv,
+                    tagInject debuggerTag debugFunction
+                    ])
+        in
+            fn () => resultFun(code())
+        end
+ 
+        (* Top-level read-eval-print loop.  This is the normal top-level loop but is
+           also used for the debugger so has to be mutually recursively defined with it. *)
+        and topLevel isDebug (nameSpace, exitLoop) : unit =
+        let
+            (* This is used as the main read-eval-print loop.  It is also invoked
+               by running code that has been compiled with the debug option on
+               when it stops at a breakpoint.  In that case debugEnv contains an
+               environment formed from the local variables.  This is placed in front
+               of the normal top-level environment. *)
+           
+            (* Don't use the end_of_stream because it may have been set by typing
+               EOT to the command we were running. *)
+            val endOfFile    = ref false;
+            val realDataRead = ref false;
+            val lastWasEol   = ref true;
+    
+            (* Each character typed is fed into the compiler but leading
+               blank lines result in the prompt remaining as firstPrompt until
+               significant characters are typed. *)
+            fun readin () : char option =
+            let
+                val setPrompt : unit =
+                    if !lastWasEol (* Start of line *)
+                    then if !realDataRead
+                    then print (if isDebug then "debug " ^ !prompt2 else !prompt2)
+                    else print (if isDebug then "debug " ^ !prompt1 else !prompt1)
+                    else ();
+             in
+                case TextIO.input1 TextIO.stdIn of
+                    NONE => (endOfFile := true; NONE)
+                |   SOME #"\n" => ( lastWasEol := true; SOME #"\n" )
+                |   SOME ch =>
+                       (
+                           lastWasEol := false;
+                           if ch <> #" "
+                           then realDataRead := true
+                           else ();
+                           SOME ch
+                       )
+            end; (* readin *)
+    
+            (* Remove all buffered but unread input. *)
+            fun flushInput () =
+                case TextIO.canInput(TextIO.stdIn, 1) of
+                    SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
+                |   _ => (* No input waiting or we're at EOF. *) ()
+    
+            fun readEvalPrint () : unit =
+            let
+                (* If we have executed a deeply recursive function the stack will have
+                   extended to be very large.  It's better to reduce the stack if we
+                   can.  This is RISKY.  Each function checks on entry that the stack has
+                   sufficient space for everything it will allocate and assumes the stack
+                   will not shrink.  It's unlikely that any of the functions here will
+                   have asked for very much but as a precaution we allow for an extra 8k words. *)
+                fun shrink_stack (newsize : int) : unit = 
+                    RunCall.run_call1 RuntimeCalls.POLY_SYS_shrink_stack newsize
+                val () = if isDebug then () else shrink_stack 8000;
+            in
+                realDataRead := false;
+                (* Compile and then run the code. *)
+                let
+                    val code =
+                        polyCompiler(readin, [CPNameSpace nameSpace])
+                        handle Fail s => 
+                        (
+                            print(s ^ "\n");
+                            flushInput();
+                            lastWasEol := true;
+                            raise Fail s
+                        )
+                in
+                    code ()
+                    (* Report exceptions in running code. *)
+                        handle  exn =>
+                        (
+                            print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                            raise exn
+                        )
+                end
+            end; (* readEvalPrint *)
+            
+            (* If we are debugging we may pass exceptions back to the
+               debugged function. *) 
+            fun handleDebuggingException () =
+            let
+                val () = print "Pass exception to function being debugged (y/n)?";
+                val () = flushInput ();
+                val response =
+                    case TextIO.input1 TextIO.stdIn of
+                        NONE => false
+                    |   SOME #"y" => false
+                    |   SOME #"n" => true
+                    |   _ => handleDebuggingException()
+            in
+                flushInput();
+                response
+            end
+            
+            fun handledLoop () : unit =
+            (
+                (* Process a single top-level command. *)
+                readEvalPrint()
+                    handle exn =>
+                        if not isDebug orelse handleDebuggingException()
+                        then ()
+                        else raise exn;
+                (* Exit if we've seen end-of-file or we're in the debugger
+                   and we've run "continue". *)
+                if !endOfFile orelse exitLoop() then ()
+                else handledLoop ()
+            )
+        in
+            handledLoop ()  
+        end
+
+        (* Debug function.  Calls to this function are inserted in the compiled code
+           if the code is compiled with debugging on. *)
+        and debugFunction(code, value, line, file, name, debugEnv) =
+        let
+            val stack: debugStackEntry list ref = getStack()
+            fun printVal v = Bootstrap.printVal(v, !printDepth, globalNameSpace, TextIO.print)
+
+            fun enterDebugger ()=
+            let
+                (* Remove any type-ahead. *)
+                fun flushInput () =
+                    case TextIO.canInput(TextIO.stdIn, 1) of
+                        SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
+                    |   _ => ()
+                val () = flushInput ()
+
+				val () = exitLoop := false;
+				val () = debugLevel := 0;
+                val () = breakNext := false;
+				val () =
+                    case !stack of
+                        {lineNo, fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
+                    |   [] => () (* Shouldn't happen. *)
+
+                val compositeNameSpace = (* Compose any debugEnv with the global environment *)
+                let
+                    (* The debugging environment depends on the currently selected stack frame. *)
+                    fun debugEnv() = #space (List.nth(!stack, !debugLevel))
+                    fun dolookup f s = case f (debugEnv()) s of NONE => f globalNameSpace s | v => v
+                    fun getAll f () = f (debugEnv()) () @ f globalNameSpace ()
+                in
+                    {
+                    lookupFix    = dolookup #lookupFix,
+                    lookupSig    = dolookup #lookupSig,
+                    lookupVal    = dolookup #lookupVal,
+                    lookupType   = dolookup #lookupType,
+                    lookupFunct  = dolookup #lookupFunct,
+                    lookupStruct = dolookup #lookupStruct,
+                    enterFix     = #enterFix globalNameSpace,
+                    enterSig     = #enterSig globalNameSpace,
+                    enterVal     = #enterVal globalNameSpace,
+                    enterType    = #enterType globalNameSpace,
+                    enterFunct   = #enterFunct globalNameSpace,
+                    enterStruct  = #enterStruct globalNameSpace,
+                    allFix       = getAll #allFix,
+                    allSig       = getAll #allSig,
+                    allVal       = getAll #allVal,
+                    allType      = getAll #allType,
+                    allFunct     = getAll #allFunct,
+                    allStruct    = getAll #allStruct
+                    }
+                end
+            in
+                topLevel true (compositeNameSpace, fn _ => ! exitLoop)
+            end
+
+            fun printSpaces () =
+            let
+                fun printSp 0 = () | printSp n = (print " "; printSp (n-1))
+                val depth = List.length(! stack)
+            in
+                if depth > 50
+                then printSp 50
+                else if depth = 0
+                then ()
+                else printSp (depth-1)
+            end
+                
+         in
+            case code of
+                1 => (* Entry to function *)
+                let
+                    (* Push this onto the stack. *)
+                    val newStackEntry: debugStackEntry =
+                        { lineNo = line, funName = name, fileName = file,
+                          space = debugEnv, arguments = value}
+                in
+                    stack := newStackEntry :: !stack;
+                    if ! tracing
+                    then (printSpaces(); print name; print " "; printVal value; print "\n")
+                    else ();
+                    (* We don't actually break here because at this stage we don't
+                       have any variables declared. *)
+                    if checkLineBreak (name, line) orelse checkFnBreak false name
+                    then breakNext := true
+                    else ()
+                end
+
+            |   2 => (* Return from function. *)
+                let
+                     val (args, stackTail) =
+                        case !stack of
+                            [] => (value, []) (* Use the passed in value for the arg. *)
+                        |   {arguments, ...} ::tl => (arguments, tl)
+                in
+                    if ! tracing
+                    then (printSpaces(); print name; print " "; printVal args; print " = "; printVal value; print "\n")
+                    else ();
+                    (* Pop the stack. *)
+                    stack := stackTail
+                end
+
+            |   3 => (* Function raised an exception. *)
+                let
+                     val (args, stackTail) =
+                        case !stack of
+                            [] => (value, []) (* Use the passed in value for the arg. *)
+                        |   {arguments, ...} ::tl => (arguments, tl)
+                in
+                    if ! tracing
+                    then (printSpaces(); print name; print " "; printVal args; print " raised "; printVal value; print "\n")
+                    else ();
+                    (* Pop the stack. *)
+                    stack := (case !stack of [] => [] | _::tl => tl)
+                end
+
+            |   4 => (* Change of line within a function *)
+                let
+                    val (args, stackTail) =
+                        (* If this is top-level code the stack may be empty. *)
+                        case !stack of
+                            [] => (value, []) (* Use the passed in value for the arg. *)
+                        |   {arguments, ...} ::tl => (arguments, tl);
+
+                    (* Update the entry but include the original arguments. *)
+                    val newStackEntry: debugStackEntry =
+                        { lineNo = line, funName = name, fileName = file,
+                          space = debugEnv, arguments = args}
+                in
+                    (* Update the stack.  If this is top-level code the stack may be empty. *)
+                    stack := newStackEntry :: stackTail;
+        			(* We need to enter the debugger if we are single stepping or
+        			   we have a break at this line or we've just entered a function with a
+                       break point. *)
+        			if (!stepDebug andalso (!stepDepth < 0 orelse List.length(!stack) <= !stepDepth)) orelse
+        			   checkLineBreak (name, line) orelse ! breakNext
+                    then enterDebugger ()
+                    else () 
+                end
+            |   _ => ()
+        end
+
+        (* Normal, non-debugging top-level loop. *)
+        fun shell () = topLevel false (globalNameSpace, fn _ => false)
+
+    end
+
+
     val bindName = ref "ml_bind";
     val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
     (* The architecture-specific suffixes take precedence. *)
@@ -158,16 +762,13 @@ local
     in
         while not (TextIO.endOfStream inStream) do
         let
-            val code = PolyML.compiler
-                    { nameSpace = globalNameSpace, getChar = getChar, fileName = fileName,
-                      lineNumber = fn () => !lineNo, putString = TextIO.print }
+            val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                 handle exn => (TextIO.closeIn inStream; raise exn)
         in
             code() handle exn =>
             (
-                (* Report exceptions in running code.
-                   N.B. General.exnMessage uses the environment set by setPrintEnv *)
-                TextIO.print ("Exception- " ^ General.exnMessage exn ^ " raised\n");
+                (* Report exceptions in running code. *)
+                TextIO.print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
                 TextIO.closeIn inStream;
                 raise exn
             )
@@ -450,15 +1051,14 @@ local
                  in
                     while not (!endOfStream) do
                     let
-                        val code = PolyML.compiler
-                           { nameSpace = makeEnv, getChar = getChar, fileName = fileName,
-                             lineNumber = fn () => !lineNo, putString = print }
+                        val code = polyCompiler(getChar,
+                            [CPNameSpace makeEnv, CPFileName fileName, CPLineNo(fn () => !lineNo)])
                     in
                         code ()
                             handle exn as Fail _ => raise exn
                             |  exn =>
                             (
-                                print ("Exception- " ^ General.exnMessage exn ^ " raised\n");
+                                print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
                                 raise exn
                             )
                     end
@@ -577,161 +1177,6 @@ local
                 )
         end
     end (* make *)
- 
-    val prompt1 = ref "> " and prompt2 = ref "# ";
-
-    (*****************************************************************************)
-    (*                  shell                                                    *)
-    (*****************************************************************************)
-    fun topLevel isDebug (debugEnv, exitLoop) : unit =
-    let
-        (* This is used as the main read-eval-print loop.  It is also invoked
-           by running code that has been compiled with the debug option on
-           when it stops at a breakpoint.  In that case debugEnv contains an
-           environment formed from the local variables.  This is placed in front
-           of the normal top-level environment. *)
-        val compositeNameSpace = (* Compose any debugEnv with the global environment *)
-        let
-            infix ++
-            (* Compose lookup functions. *)
-            fun (a ++ b) s = case a s of NONE => b s | v => v
-        in
-            {
-            lookupFix    = (#lookupFix debugEnv) ++ (#lookupFix globalNameSpace),
-            lookupSig    = (#lookupSig debugEnv) ++ (#lookupSig globalNameSpace),
-            lookupVal    = (#lookupVal debugEnv) ++ (#lookupVal globalNameSpace),
-            lookupType   = (#lookupType debugEnv) ++ (#lookupType globalNameSpace),
-            lookupFunct  = (#lookupFunct debugEnv) ++ (#lookupFunct globalNameSpace),
-            lookupStruct = (#lookupStruct debugEnv) ++ (#lookupStruct globalNameSpace),
-            enterFix     = #enterFix globalNameSpace,
-            enterSig     = #enterSig globalNameSpace,
-            enterVal     = #enterVal globalNameSpace,
-            enterType    = #enterType globalNameSpace,
-            enterFunct   = #enterFunct globalNameSpace,
-            enterStruct  = #enterStruct globalNameSpace,
-            allFix       = #allFix globalNameSpace,
-            allSig       = #allSig globalNameSpace,
-            allVal       = #allVal globalNameSpace,
-            allType      = #allType globalNameSpace,
-            allFunct     = #allFunct globalNameSpace,
-            allStruct    = #allStruct globalNameSpace
-            }
-        end
-        
-        (* Don't use the end_of_stream because it may have been set by typing
-           EOT to the command we were running. *)
-        val endOfFile    = ref false;
-        val realDataRead = ref false;
-        val lastWasEol   = ref true;
-
-        (* Each character typed is fed into the compiler but leading
-           blank lines result in the prompt remaining as firstPrompt until
-           significant characters are typed. *)
-        fun readin () : char option =
-        let
-            val setPrompt : unit =
-                if !lastWasEol (* Start of line *)
-                then if !realDataRead
-                then print (if isDebug then "debug " ^ !prompt2 else !prompt2)
-                else print (if isDebug then "debug " ^ !prompt1 else !prompt1)
-                else ();
-         in
-            case TextIO.input1 TextIO.stdIn of
-                NONE => (endOfFile := true; NONE)
-            |   SOME #"\n" => ( lastWasEol := true; SOME #"\n" )
-            |   SOME ch =>
-                   (
-                       lastWasEol := false;
-                       if ch <> #" "
-                       then realDataRead := true
-                       else ();
-                       SOME ch
-                   )
-        end; (* readin *)
-
-        (* Remove all buffered but unread input. *)
-        fun flushInput () =
-            case TextIO.canInput(TextIO.stdIn, 1) of
-                SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
-            |   _ => (* No input waiting or we're at EOF. *) ()
-
-        fun readEvalPrint () : unit =
-        let
-            (* If we have executed a deeply recursive function the stack will have
-               extended to be very large.  It's better to reduce the stack if we
-               can.  This is RISKY.  Each function checks on entry that the stack has
-               sufficient space for everything it will allocate and assumes the stack
-               will not shrink.  It's unlikely that any of the functions here will
-               have asked for very much but as a precaution we allow for an extra 8k words. *)
-            fun shrink_stack (newsize : int) : unit = 
-                RunCall.run_call1 RuntimeCalls.POLY_SYS_shrink_stack newsize
-            val () = if isDebug then () else shrink_stack 8000;
-        in
-            realDataRead := false;
-            (* Compile and then run the code. *)
-            let
-                val code =
-                    PolyML.compiler
-                        { nameSpace = compositeNameSpace, getChar = readin, fileName = "",
-                          lineNumber = fn () => 0, putString = print }
-                    handle Fail s => 
-                    (
-                        print(s ^ "\n");
-                        flushInput();
-                        lastWasEol := true;
-                        raise Fail s
-                    )
-            in
-                code ()
-                (* Report exceptions in running code.
-                   N.B. General.exnMessage uses the environment set by setPrintEnv *)
-                    handle  exn =>
-                    (
-                        print ("Exception- " ^ General.exnMessage exn ^ " raised\n");
-                        raise exn
-                    )
-            end
-        end; (* readEvalPrint *)
-        
-        (* If we are debugging we may pass exceptions back to the
-           debugged function. *) 
-        fun handleDebuggingException () =
-        let
-            val _ = print "Pass exception to function being debugged (y/n)?";
-        in
-            flushInput ();
-            case TextIO.input1 TextIO.stdIn of
-                NONE => false
-            |   SOME #"y" => false
-            |   SOME #"n" => true
-            |   _ => handleDebuggingException()
-        end
-        
-        fun handledLoop () : unit =
-        (
-            (* Process a single top-level command. *)
-            readEvalPrint()
-                handle exn =>
-                    if not isDebug orelse handleDebuggingException()
-                    then ()
-                    else raise exn;
-            (* Exit if we've seen end-of-file or we're in the debugger
-               and we've run "continue". *)
-            if !endOfFile orelse exitLoop() then ()
-            else handledLoop ()
-        )
-    in
-        handledLoop ()  
-    end
-
-    (* Normal, non-debugging top-level loop. *)
-    fun shell () = 
-        topLevel false
-            ({ lookupFix = fn _ => NONE, lookupSig = fn _ => NONE, lookupVal = fn _ => NONE,
-               lookupType = fn _ => NONE, lookupFunct = fn _ => NONE, lookupStruct = fn _ => NONE},
-             fn _ => false)
-
-    val () = Bootstrap.setDebugShell (topLevel true)
 
     (* This is the root function to run the Poly/ML top level. *)
     fun rootShell () =
@@ -743,13 +1188,13 @@ local
     in
 	    if List.exists(fn s => s = "-v") argList
 		then (* -v option : Print version information and exit *)
-    		print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
+    		print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, 
 			                     "    RTS version: ", rtsRelease(), "\n"])
 
 		else if List.exists(fn s => s = "--help") argList
 		then (* --help option: Print argument information and exit. *)
 		   (
-     		print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+     		print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
 			print "Compiler arguments:\n";
 			print "\n";
 			print "-v        Print the version of Poly/ML and exit\n";
@@ -764,7 +1209,7 @@ local
             val () =
         	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
         		then ()
-        		else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+        		else print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
             (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
                If a handler has been set up by an initialisation function don't replace it. *)
             val () =
@@ -786,25 +1231,20 @@ in
            will be given polymorphic types and will only produce "?" *)
 
         val globalNameSpace = globalNameSpace
-        (* This is used to look up exceptions and infixes. *)
-        val () = setPrintEnv globalNameSpace
 
         val use = use and make = make
         val suffixes = suffixes
+        val compiler = polyCompiler
 
         (* Main root function: run the main loop. *)
         val rootFunction: unit->unit = rootShell
 
-        (* Original print_depth etc functions. *)
-        fun profiling   i = Compiler.profiling := i
-        and timing      b = Compiler.timing := b
-        and print_depth i = Compiler.printDepth := i
-        and error_depth i = Compiler.errorDepth := i
-        and line_length i = Compiler.lineLength := i
-
         structure Compiler =
         struct
-            open Compiler
+            datatype compilerParameters = datatype compilerParameters
+
+            val compilerVersion = Bootstrap.compilerVersion
+
             val forgetSignature: string -> unit = forgetSig
             and forgetStructure: string -> unit = forgetStruct
             and forgetFunctor: string -> unit = forgetFunct
@@ -819,8 +1259,136 @@ in
             and typeNames (): string list = #1(ListPair.unzip (#allType globalNameSpace ()))
             and fixityNames (): string list = #1(ListPair.unzip (#allFix globalNameSpace ()))
 
-            val prompt1 = prompt1 and prompt2 = prompt2
+            val prompt1 = prompt1 and prompt2 = prompt2 and profiling = profiling
+            and timing = timing and printDepth = printDepth
+            and errorDepth = errorDepth and lineLength = lineLength
+            
+            val assemblyCode = assemblyCode and codetree = codetree
+            and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
+            and parsetree = parsetree
+            
+            val debug = debug
+            val inlineFunctors = inlineFunctors
+            val maxInlineSize = maxInlineSize
+            val ml90 = ml90
+            val printInAlphabeticalOrder = printInAlphabeticalOrder
+            val printTypesWithStructureName = printTypesWithStructureName
+            val traceCompiler = traceCompiler
         end
+        
+        and Debug =
+        struct
+        	(* singleStep causes the debugger to be entered on the next call.
+        	   stepOver enters the debugger on the next call when the stack is no larger
+        	   than it is at present.
+        	   stepOut enters the debugger on the next call when the stack is smaller
+        	   than it is at present. *)
+        	fun step () = (stepDebug := true; stepDepth := ~1; exitLoop := true)
+        	and stepOver() = (stepDebug := true; stepDepth := List.length(!(getStack())); exitLoop := true)
+        	and stepOut() = (stepDebug := true; stepDepth := List.length(!(getStack())) - 1; exitLoop := true)
+        	and continue () = (stepDebug := false; stepDepth := ~1; exitLoop := true)
+        	and trace b = tracing := b
+
+        	fun breakAt (file, line) =
+        		if checkLineBreak(file, line) then () (* Already there. *)
+        		else lineBreakPoints := (file, line) :: ! lineBreakPoints
+        
+        	fun clearAt (file, line) =
+        	let
+        		fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+        		 |  findBreak ((f, l) :: rest) =
+        		 	  if l = line andalso f = file
+        			  then rest else (f, l) :: findBreak rest
+        	in
+        		lineBreakPoints := findBreak (! lineBreakPoints)
+        	end
+         
+        	fun breakIn name =
+        		if checkFnBreak true name then () (* Already there. *)
+        		else fnBreakPoints := name :: ! fnBreakPoints
+        
+        	fun clearIn name =
+        	let
+        		fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+        		 |  findBreak (n :: rest) =
+        		 	  if name = n then rest else n :: findBreak rest
+        	in
+        		fnBreakPoints := findBreak (! fnBreakPoints)
+        	end
+        
+        	(* Stack traversal. *)
+        	fun up () =
+            let
+                val stack = getStack()
+            in
+        		if !debugLevel < List.length (!stack) -1
+        		then
+        		let
+        			val _ = debugLevel := !debugLevel + 1;
+        			val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
+        		in
+        			printSourceLine(fileName, lineNo, funName)
+        		end
+        		else TextIO.print "Top of stack.\n"
+            end
+        
+        	and down () =
+            let
+                val stack = getStack()
+            in
+        		if !debugLevel = 0
+        		then TextIO.print "Bottom of stack.\n"
+        		else
+        		let
+        			val () = debugLevel := !debugLevel - 1;
+        			val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
+        		in
+        			printSourceLine(fileName, lineNo, funName)
+        		end
+            end
+
+            (* Just print the functions without any other context. *)
+    		fun stack () : unit =
+    		let
+       			fun printTrace {funName, lineNo, fileName, ...} =
+				(
+                    if fileName = "" then () else TextIO.print(concat[fileName, " "]);
+                    if lineNo = 0 then () else TextIO.print(concat[" line:", Int.toString lineNo, " "]);
+                	TextIO.print(concat["function:", funName, "\n"])
+                )
+     		in
+                List.app printTrace (! (getStack()))
+    		end
+
+            local
+                fun printVal v =
+                    Bootstrap.displayVal(v, !printDepth, globalNameSpace, ! printTypesWithStructureName, TextIO.print)
+                fun printStack stack =
+                    List.app (fn (_,v) => printVal v) (#allVal (#space stack) ())
+            in
+                (* Print all variables at the current level. *)
+                fun variables() = printStack (List.nth(!(getStack()), !debugLevel))
+                (* Print all the levels. *)
+                and dump() =
+                let
+                    fun printLevel (stack as {funName, ...}) =
+                    (
+                        TextIO.print(concat["Function ", funName, ":"]);
+                        printStack stack;
+                        TextIO.print "\n"
+                    )
+                in
+                    List.app printLevel (!(getStack()))
+                end
+            end
+        end
+        
+        (* Original print_depth etc functions. *)
+        fun profiling   i = Compiler.profiling := i
+        and timing      b = Compiler.timing := b
+        and print_depth i = Compiler.printDepth := i
+        and error_depth i = Compiler.errorDepth := i
+        and line_length i = Compiler.lineLength := i
     end
 end (* PolyML. *);
 
