@@ -24,11 +24,6 @@ PolyML.print_depth 0;
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";
 
-(* Set the debug level to 50 while compiling the basis.  This makes
-   sure that String.foldr can be expanded inline which reduces the
-   garbage in the hashValue function. *)
-Debug.maxInlineSize := 50;
-
 (* Compile the prelude and basis in the new compiler. *)
 MLCompiler.use "mlsource/BuildBasis.sml";
 
