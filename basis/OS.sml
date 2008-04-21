@@ -528,10 +528,10 @@ struct
 					else
 						case collapse b of
 						[] => [a]
-					  | (x :: y) =>
-					  		if x = parentArc
-							then (* Remove "a". *) y
-					  		else a :: x :: y
+					  | b' as (x :: y) =>
+					  		if x = parentArc andalso not (a = parentArc)
+							then (* Remove "a" and "x". *) y
+					  		else a :: b'
 
 			val collapsed = collapse arcs
 
