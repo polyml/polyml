@@ -30,6 +30,8 @@ struct
   in
     exception XWindows = E.ex;
   end;
+  
+  fun xcall n = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows n
 
 (* The following XCALL numbers should match those in xcall_numbers.h *)
 (* in the Poly/ML run-time system.                                   *)
