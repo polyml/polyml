@@ -21,9 +21,8 @@
 structure Debugger =
 	DEBUGGER_(
 		structure STRUCTVALS = StructVals
-		structure DEBUG = Debug
 		structure CODETREE = CodeTree
 		structure VALUEOPS = ValueOps
-		structure PRETTYPRINTER = PrettyPrinter
-        structure UNIVERSAL = Universal
+		structure TYPETREE = TypeTree
+        structure ADDRESS = Address
 	);
