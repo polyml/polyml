@@ -157,6 +157,6 @@ sig
 
     type prettyPrinter
     val pretty : codetree * prettyPrinter -> unit
-    val isSmall : codetree -> bool
+    val isSmall : codetree * int -> bool
 
 end;

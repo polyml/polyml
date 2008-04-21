@@ -65,7 +65,7 @@ sig
   val regEq  : reg * reg -> bool
   val regNeq : reg * reg -> bool
 
-  val codeCreate: bool * string -> code;  (* create - Makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* create - Makes the initial segment. *)
   val copyCode:   code * int * reg list -> address;
 
   val resetStack: int * code -> unit; (* Set a pending reset *)
@@ -178,7 +178,7 @@ sig
   type storeWidth;
   type regSet;
   
-  val ttabCreate: unit -> ttab;
+  val ttabCreate: Universal.universal list -> ttab;
   
   (* Register allocation *)
   val getRegister:    ttab * code * reg -> unit;
@@ -384,7 +384,7 @@ sharing type
 sig
   type codetree
   type machineWord
-  val gencode: codetree -> unit -> machineWord;
+  val gencode: codetree * Universal.universal list -> unit -> machineWord;
 end =
 
 (*****************************************************************************)
@@ -492,12 +492,13 @@ struct
 		staticLinkRegSet : int -> regSet,
         discardClosure   : bool,
         numOfArgs		 : int,
-        closureRefs      : int)      : address =
+        closureRefs      : int,
+        debugSwitches    : Universal.universal list) : address =
   let
     fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
     (* make the translation table *)
-    val transtable = ttabCreate();
+    val transtable = ttabCreate debugSwitches;
 
     (* Header code for procedure. *)
     
@@ -1771,7 +1772,7 @@ struct
            not decrement the use count so that the stack values remain on the
            stack to be referenced by the procedure, and are only removed when
            the containing block is removed. *)
-        val newCode = codeCreate (true (* just the code *), lambdaName);
+        val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
         
         (* Generates code for non-local references or recursive references. *)
         fun previous (prevloc, makeSl, newtab, cvec) =
@@ -1967,7 +1968,8 @@ struct
 			slRegSet,
 		    false,  (* Presumably we need the static link, so don't discard regClosure. *)
 		    numArgs, 
-		    closureRefs);
+		    closureRefs,
+            debugSwitches);
 		(* Note: we could sometimes discard the static link, but it's difficult
 		   to work out when this would be safe. That's because it would be unsafe
 		   if loadSl were ever called. This is in contrast to the "closure" case below,
@@ -2016,7 +2018,7 @@ struct
                   calling convention
             SPF 2/1/97
           *)
-          val newCode = codeCreate (false (* make a closure *), lambdaName);
+          val newCode = codeCreate (false (* make a closure *), lambdaName, debugSwitches);
 
           (* Should "previous" decrement the reference count for closureOrSlAddr?
              Probably, but I'm not quite sure that it's safe yet. It would be
@@ -2043,7 +2045,8 @@ struct
 		      fn _ => raise InternalError "Not static link",
 		      true, (* Discard regClosure *)
 		      numArgs,
-		      closureRefs);
+		      closureRefs,
+              debugSwitches);
                 
           val result = pushConst (transtable, toMachineWord closureAddr);
           
@@ -2099,7 +2102,7 @@ struct
             end
           end;
         
-        val newCode = codeCreate (true (* just the code *), lambdaName);
+        val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
         
         val codeAddr : address = (* code-gen procedure *)
 		  codegen 
@@ -2111,7 +2114,8 @@ struct
 		    fn _ => raise InternalError "Not static link",
 		    false, (* We need regClosure *)
 		    numArgs,
-		    closureRefs);
+		    closureRefs,
+            debugSwitches);
 		
         val res : machineWord = toMachineWord codeAddr;
       in
@@ -3358,34 +3362,35 @@ struct
     copyCode (cvec, maxstack transtable, getModifedRegSet transtable)
   end (* codegen *);
 
-  fun gencode (Lambda { name, body, numArgs, closureRefs, ...}) =
+  fun gencode (Lambda { name, body, numArgs, closureRefs, ...}, debugSwitches) =
     let (* We are compiling a procedure. *)
       (* It is not essential to treat this specially, but it saves generating
          a piece of code whose only function is to return the address of the
          procedure. *)
        
       (* make the code buffer for the new procedure. *)
-      val newCode = codeCreate (false (* make a closure *), name); 
+      val newCode = codeCreate (false (* make a closure *), name, debugSwitches); 
 
      (* The only non-local references will be references to the
-	closure itself. We have to fetch these from the constants
-	section because:
-	  (1) we don't save the closure register in the function body
-	  (2) we don't even initialise it if we use the PureCode
-	      calling convention
-	SPF 2/1/97
+        closure itself. We have to fetch these from the constants
+        section because:
+	    (1) we don't save the closure register in the function body
+        (2) we don't even initialise it if we use the PureCode
+        calling convention
+        SPF 2/1/97
       *)
       val closureAddr : address =
         codegen
-	 (body,
-	  newCode,
-	  fn (i , _, newtab, code) => pushCodeRef (newtab, newCode),
-	  fn i => false,
-	  fn (i,  _, tt, c) => raise InternalError "Not static link",
-	  fn _ => raise InternalError "Not static link",
-	  true, (* Discard regClosure *)
-	  numArgs,
-	  closureRefs);
+            (body,
+            newCode,
+            fn (i , _, newtab, code) => pushCodeRef (newtab, newCode),
+            fn i => false,
+            fn (i,  _, tt, c) => raise InternalError "Not static link",
+            fn _ => raise InternalError "Not static link",
+            true, (* Discard regClosure *)
+            numArgs,
+            closureRefs,
+            debugSwitches);
 
       val res : machineWord = toMachineWord closureAddr;
     in
@@ -3393,22 +3398,23 @@ struct
       (fn () => res)
     end
  
-  | gencode pt =
+  | gencode (pt, debugSwitches) =
     let (* Compile a top-level expression. *)
-      val newCode = codeCreate (false (* make a closure *), "<top level>");
+      val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
 
      (* There should be *no* non-local references. SPF 2/1/97 *)
       val closureAddr : address =
         codegen 
-         (pt,
-	  newCode,
-	  fn (i, _, tt, c) => raise InternalError "top level reached",
-	  fn i => false,
-	  fn (i, _, tt, c) => raise InternalError "Not static link",
-	  fn _ => raise InternalError "Not static link",
-	  true,  (* Discard regClosure *)
-	  0,    (* No args. *)
-	  0);    (* No recursive references *)
+            (pt,
+            newCode,
+            fn (i, _, tt, c) => raise InternalError "top level reached",
+            fn i => false,
+            fn (i, _, tt, c) => raise InternalError "Not static link",
+            fn _ => raise InternalError "Not static link",
+            true,  (* Discard regClosure *)
+            0,    (* No args. *)
+            0,    (* No recursive references *)
+            debugSwitches);
     in (* Result is a procedure to execute the code. *)
       fn () => call (closureAddr, toMachineWord ())
     end (* gencode *);

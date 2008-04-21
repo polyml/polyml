@@ -20,7 +20,7 @@
 structure CodeTree = 
   CODETREE (
     structure GCODE         = GCode
-    structure DEBUGSWITCH   = Debug
+    structure DEBUG         = Debug
     structure PRETTYPRINTER = Boot.PrettyPrinter
     structure MISC          = Boot.Misc
     structure STRETCHARRAY  = StretchArray

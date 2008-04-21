@@ -477,7 +477,7 @@ struct
     
     (* Test whether a piece of code is "small".  This is used to decide whether a function
        should be made inline.  *)
-    fun isSmall pt = 
+    fun isSmall (pt, maxSize) = 
     let
         fun sizeList [] = 0
         |   sizeList (c::cs) = size c + sizeList cs
@@ -525,7 +525,7 @@ struct
            turned out to be a large function (e.g. fun f x = fn y => ...BIGCODE...).
            There may be a case for lifting the inner lambda out much as we already do
            with fun declarations but this needs to be done in the front end.  DCJM 14/3/02.  *)
-        size pt < !Debug.maxInlineSize
+        size pt < maxSize
     end;
 
 

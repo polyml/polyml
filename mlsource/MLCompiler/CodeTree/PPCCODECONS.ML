@@ -162,7 +162,10 @@ functor PPCCODECONS (
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val assemblyCode:    bool ref;
+    val assemblyCodeTag : bool Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 (*****************************************************************************)
@@ -203,11 +206,11 @@ sig
   val regEq:    reg * reg -> bool;
   val regNeq:   reg * reg -> bool;
   
-  val regPrint: reg -> unit;
+  val regRepr: reg -> string;
 
   type addrs
 
-  val codeCreate: bool * string -> code;  (* makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
 
   (* Operations. *)
   type instrs;
@@ -426,14 +429,6 @@ struct
     in
       applyCountList (f, n + 1, t)
     end;
-  
-  (* Temporary *)
-  fun printString (s: string) = TextIO.output(TextIO.stdOut,s);
-  
-  fun printHex v = TextIO.print(Int.fmt StringCvt.HEX v)
-  (* prints a string representation of a number, padded to width characters *)
-  fun printHexN (width : int, n : int) =
-    TextIO.print(StringCvt.padLeft #"0" width (Int.fmt StringCvt.HEX n))
 
 (*****************************************************************************)
 (*                  Useful constants                                         *)
@@ -962,7 +957,6 @@ struct
 
     fun regRepr (Reg n) = "r" ^ Int.toString n;
     
-    fun regPrint r = TextIO.output (TextIO.stdOut, regRepr r);
     val argRegs = 4;
 
     (* Args 0, 1, 2, 3 correspond to r3, r4, r5, r6. *)
@@ -1133,12 +1127,17 @@ struct
 (*****************************************************************************)
 (*                  Disassembler (unfinished)                                *)
 (*****************************************************************************)
+  fun printHex(v, printStream) = printStream(Int.fmt StringCvt.HEX v)
+  (* prints a string representation of a number, padded to width characters *)
+  fun printHexN (width : int, n : int, printStream) =
+      printStream(StringCvt.padLeft #"0" width (Int.fmt StringCvt.HEX n))
+
   local
-    fun printHex24 (n : int) = printHexN (6, n);
-    fun printHex16 (n : int) = printHexN (4, n);
-    fun printHex14 (n : int) = printHexN (4, n);
-    fun printHex5  (n : int) = printHexN (2, n);
-    fun printHex3  (n : int) = printHexN (1, n);
+
+    fun printHex24 (n : int, printStream) = printHexN (6, n, printStream);
+    fun printHex16 (n : int, printStream) = printHexN (4, n, printStream);
+    fun printHex14 (n : int, printStream) = printHexN (4, n, printStream);
+    fun printHex5  (n : int, printStream) = printHexN (2, n, printStream);
 
     fun splitMform (bits0_31 : int) : int * int * int * int * int * bool =
     let
@@ -1214,96 +1213,96 @@ struct
       (bits21_25, bits16_20, bits11_15, bits1_10, bits0_0 = 1)
     end;
 
-    fun printUnknown (instr : int) : unit = 
+    fun printUnknown (instr : int, printStream) : unit = 
     let
     in
-      printString "??????\t"
+      printStream "??????\t"
     end;
     
-    fun printArithmeticDform (name : string, instr : int) : unit = 
+    fun printArithmeticDform (name : string, instr : int, printStream) : unit = 
     let
       val (RT : int, RA : int, SI : int) = splitDform instr;
     in
-      printString name;
-      printString "\t";
-      regPrint (mkReg RT);
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 SI
+      printStream name;
+      printStream "\t";
+      printStream(regRepr (mkReg RT));
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(SI, printStream)
     end;
     
-    fun printArithmeticXform (name : string, instr : int) : unit = 
+    fun printArithmeticXform (name : string, instr : int, printStream) : unit = 
     let
       val (RT : int, RA : int, RB : int, op2: int, Rc : bool) = 
         splitXform instr;
     in
-      printString name;
-      if Rc then printString "." else ();
-      printString "\t";
-      regPrint (mkReg RT);
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      regPrint (mkReg RB)
+      printStream name;
+      if Rc then printStream "." else ();
+      printStream "\t";
+      printStream(regRepr (mkReg RT));
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printStream(regRepr (mkReg RB))
     end;
     
-    fun printLogicalDform (name : string, instr : int) : unit = 
+    fun printLogicalDform (name : string, instr : int, printStream) : unit = 
     let
       val (RS : int, RA : int, UI : int) = splitDform instr;
     in
-      printString name;
-      printString "\t";
-      regPrint (mkReg RA);
-      printString ",";
-      regPrint (mkReg RS);
-      printString ",";
-      printHex16 UI
+      printStream name;
+      printStream "\t";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printStream(regRepr (mkReg RS));
+      printStream ",";
+      printHex16(UI, printStream)
     end;
     
-    fun printLogicalXform (name : string, instr : int) : unit = 
+    fun printLogicalXform (name : string, instr : int, printStream) : unit = 
     let
       val (RS : int, RA : int, RB : int, op2: int, Rc : bool) = 
         splitXform instr;
     in
-      printString name;
-      if Rc then printString "." else ();
-      printString "\t";
-      regPrint (mkReg RA);
-      printString ",";
-      regPrint (mkReg RS);
-      printString ",";
-      regPrint (mkReg RB)
+      printStream name;
+      if Rc then printStream "." else ();
+      printStream "\t";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printStream(regRepr (mkReg RS));
+      printStream ",";
+      printStream(regRepr (mkReg RB))
     end;
     
-    fun printStorageDform (name : string, instr : int) : unit = 
+    fun printStorageDform (name : string, instr : int, printStream) : unit = 
     let
       val (RS : int, RA : int, D : int) = splitDform instr;
     in
-      printString name;
-      printString "\t";
-      regPrint (mkReg RS);
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 D
+      printStream name;
+      printStream "\t";
+      printStream(regRepr (mkReg RS));
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(D, printStream)
     end;
     
-    fun printStorageXform (name : string, instr : int) : unit = 
+    fun printStorageXform (name : string, instr : int, printStream) : unit = 
     let
       val (RT : int, RA : int, RB : int, op2: int, Rc : bool) = 
         splitXform instr;
     in
-      printString name;
-      printString "\t";
-      regPrint (mkReg RT);
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      regPrint (mkReg RB)
+      printStream name;
+      printStream "\t";
+      printStream(regRepr (mkReg RT));
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printStream(regRepr (mkReg RB))
     end;
     
-    fun printExt19 (instr : int) : unit = 
+    fun printExt19 (instr : int, printStream) : unit = 
     let
       val (BO : int, BI : int, _ : int, OP2 : int, LK : bool) = 
         splitXform instr;
@@ -1312,26 +1311,26 @@ struct
          16 => (* BCLR *)
         let
         in
-          printString (if LK then "bclrl\t" else "bclr\t");
-          printHex5 BO;
-          printString ",";
-          printHex5 BI
+          printStream (if LK then "bclrl\t" else "bclr\t");
+          printHex5(BO, printStream);
+          printStream ",";
+          printHex5(BI, printStream)
         end
          
       | 528 => (* BCCTR *)
         let
         in
-          printString (if LK then "bcctrl\t" else "bcctr\t");
-          printHex5 BO;
-          printString ",";
-          printHex5 BI
+          printStream (if LK then "bcctrl\t" else "bcctr\t");
+          printHex5(BO, printStream);
+          printStream ",";
+          printHex5(BI, printStream)
         end
 
       |   _ =>
-         printUnknown instr
+         printUnknown(instr, printStream)
     end;
     
-    fun printExt31 (instr : int) : unit = 
+    fun printExt31 (instr : int, printStream) : unit = 
     let
       val (F1 : int, F2 : int, F3 : int, OP2 : int, F4 : bool) = 
         splitXform instr;
@@ -1340,147 +1339,147 @@ struct
           0 => (* CMP *)
       let
       in
-    printString "cmp\t";
-    printHex5 F1;
-    printString ",";
-    regPrint (mkReg F2);
-    printString ",";
-    regPrint (mkReg F3)
+    printStream "cmp\t";
+    printHex5(F1, printStream);
+    printStream ",";
+    printStream(regRepr (mkReg F2));
+    printStream ",";
+    printStream(regRepr (mkReg F3))
       end
       
       |   4 => (* TW *)
       let
       in
-    printString "tw\t";
-    printHex5 F1;
-    printString ",";
-    regPrint (mkReg F2);
-    printString ",";
-    regPrint (mkReg F3)
+    printStream "tw\t";
+    printHex5(F1, printStream);
+    printStream ",";
+    printStream(regRepr (mkReg F2));
+    printStream ",";
+    printStream(regRepr (mkReg F3))
       end
       
      |   8 => (* SUBFC *)
-        printArithmeticXform ("subfc", instr)
+        printArithmeticXform ("subfc", instr, printStream)
       
       |  23 => (* LWZX *)
-        printStorageXform ("lwzx", instr)
+        printStorageXform ("lwzx", instr, printStream)
     
       |  28 => (* AND *)
-        printLogicalXform ("and", instr)
+        printLogicalXform ("and", instr, printStream)
     
       |  32 => (* CMPL *)
       let
       in
-    printString "cmpl\t";
-    printHex5 F1;
-    printString ",";
-    regPrint (mkReg F2);
-    printString ",";
-    regPrint (mkReg F3)
+    printStream "cmpl\t";
+    printHex5(F1, printStream);
+    printStream ",";
+    printStream(regRepr (mkReg F2));
+    printStream ",";
+    printStream(regRepr (mkReg F3))
       end
 
       |  87 => (* LBZX *)
-        printStorageXform ("lbzx", instr)
+        printStorageXform ("lbzx", instr, printStream)
     
       | 151 => (* STWX *)
-        printStorageXform ("stwx", instr)
+        printStorageXform ("stwx", instr, printStream)
     
       | 215 => (* STBX *)
-        printStorageXform ("stbx", instr)
+        printStorageXform ("stbx", instr, printStream)
     
       | 266 => (* ADD *)
-        printArithmeticXform ("add", instr)
+        printArithmeticXform ("add", instr, printStream)
 
       | 316 => (* XOR *)
-        printLogicalXform ("xor", instr)
+        printLogicalXform ("xor", instr, printStream)
 
       | 339 => (* MFSPR *)
       (
         case (F3, F2) of
           (0, 8) =>
           (
-            printString "mflr\t";
-            regPrint (mkReg F1)
+            printStream "mflr\t";
+            printStream(regRepr (mkReg F1))
           )
           
         | (0, 9) =>
           (
-            printString "mfctr\t";
-            regPrint (mkReg F1)
+            printStream "mfctr\t";
+            printStream(regRepr (mkReg F1))
           )
           
         | _      =>
       (
-        printString "mfspr\t";
-        regPrint (mkReg F1);
-        printString ",";
-        printHex5 F2;
-        printString ",";
-        printHex5 F3
+        printStream "mfspr\t";
+        printStream(regRepr (mkReg F1));
+        printStream ",";
+        printHex5(F2, printStream);
+        printStream ",";
+        printHex5(F3, printStream)
       )
       )
 
       | 444 => (* OR *)
-        printLogicalXform ("or", instr)
+        printLogicalXform ("or", instr, printStream)
 
       | 467 => (* MTSPR *)
       (
         case (F3, F2) of
           (0, 8) =>
           (
-            printString "mtlr\t";
-            regPrint (mkReg F1)
+            printStream "mtlr\t";
+            printStream(regRepr (mkReg F1))
           )
           
         | (0, 9) =>
           (
-            printString "mtctr\t";
-            regPrint (mkReg F1)
+            printStream "mtctr\t";
+            printStream(regRepr (mkReg F1))
           )
           
         | _      =>
       (
-        printString "mtspr\t";
-        regPrint (mkReg F1);
-        printString ",";
-        printHex5 F2;
-        printString ",";
-        printHex5 F3
+        printStream "mtspr\t";
+        printStream(regRepr (mkReg F1));
+        printStream ",";
+        printHex5(F2, printStream);
+        printStream ",";
+        printHex5(F3, printStream)
       )
       )
 
       | 520 => (* SUBFCO *)
-        printArithmeticXform ("subfco", instr)
+        printArithmeticXform ("subfco", instr, printStream)
 
       | 778 => (* ADDO *)
-        printArithmeticXform ("addo", instr)
+        printArithmeticXform ("addo", instr, printStream)
 
       | 824 => (* SRAWI *)
       let
       in
         (* "logical therefore backwards" register ordering *)
-    printString "srawi\t";
-    regPrint (mkReg F2);
-    printString ",";
-    regPrint (mkReg F1);
-    printString ",";
-    printHex5 F3
+    printStream "srawi\t";
+    printStream(regRepr (mkReg F2));
+    printStream ",";
+    printStream(regRepr (mkReg F1));
+    printStream ",";
+    printHex5(F3, printStream)
       end
 
       | 235 => (* MULLW *)
-        printArithmeticXform ("mullw", instr)
+        printArithmeticXform ("mullw", instr, printStream)
 
       | 747 => (* MULLWO *)
-        printArithmeticXform ("mullwo", instr)
+        printArithmeticXform ("mullwo", instr, printStream)
 
       | 459 => (* DIVWU *)
-        printArithmeticXform ("divwu", instr)
+        printArithmeticXform ("divwu", instr, printStream)
 
       |   _ =>
-        printUnknown instr
+        printUnknown(instr, printStream)
     end; (* printExt31 *)
   in
-    fun printInstr (addr : int, instr : int) : unit = 
+    fun printInstr (addr : int, instr : int, printStream) : unit = 
     let
       val OPCD_field : int = instr div exp2_26; (* MSB 6 bits *)
     in
@@ -1489,55 +1488,55 @@ struct
     let
       val (TO : int, RA : int, SI : int) = splitDform instr;
     in
-      printString "twi\t";
-      printHex5 TO;
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 SI
+      printStream "twi\t";
+      printHex5(TO, printStream);
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(SI, printStream)
     end
      
      | 7 => (* MULLI *)
     let
       val (TO : int, RA : int, SI : int) = splitDform instr;
     in
-      printString "mulli\t";
-      printHex5 TO;
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 SI
+      printStream "mulli\t";
+      printHex5(TO, printStream);
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(SI, printStream)
     end
      
       | 10 => (* CMPLI *)
     let
       val (TO : int, RA : int, UI : int) = splitDform instr;
     in
-      printString "cmpli\t";
-      printHex5 TO;
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 UI
+      printStream "cmpli\t";
+      printHex5(TO, printStream);
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(UI, printStream)
     end
 
       | 11 => (* CMPI *)
     let
       val (TO : int, RA : int, SI : int) = splitDform instr;
     in
-      printString "cmpi\t";
-      printHex5 TO;
-      printString ",";
-      regPrint (mkReg RA);
-      printString ",";
-      printHex16 SI
+      printStream "cmpi\t";
+      printHex5(TO, printStream);
+      printStream ",";
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printHex16(SI, printStream)
     end
       
       | 14 => (* ADDI *)
-      printArithmeticDform ("addi", instr)
+      printArithmeticDform ("addi", instr, printStream)
       
       | 15 => (* ADDIS *)
-      printArithmeticDform ("addis", instr)
+      printArithmeticDform ("addis", instr, printStream)
       
       | 16 => (* BC *)
     let
@@ -1545,20 +1544,20 @@ struct
         splitBform instr;
       val offset = if BD < exp2_13 then BD else BD - exp2_14;
     in
-      printString
+      printStream
         (case (AA, LK) of
            (false, false) => "bc\t"
         |  (false, true)  => "bcl\t"
         |  (true,  false) => "bca\t"
         |  (true,  true)  => "bcla\t");
-      printHex5 BO;
-      printString ",";
-      printHex5 BI;
-      printString ",";
-      printHex14 BD;
+      printHex5(BO, printStream);
+      printStream ",";
+      printHex5(BI, printStream);
+      printStream ",";
+      printHex14(BD, printStream);
       if AA
-      then printString "\t;!!! absolute addressing ???"
-      else (printString "\t;to "; printHex (addr + 4 * offset))
+      then printStream "\t;!!! absolute addressing ???"
+      else (printStream "\t;to "; printHex (addr + 4 * offset, printStream))
     end
       
       | 18 => (* B *)
@@ -1566,76 +1565,76 @@ struct
       val (LI : int, AA : bool, LK : bool) = splitIform instr;
       val offset = if LI < exp2_23 then LI else LI - exp2_24;
     in
-      printString
+      printStream
         (case (AA, LK) of
            (false, false) => "b\t"
         |  (false, true)  => "bl\t"
         |  (true,  false) => "ba\t"
         |  (true,  true)  => "bla\t");
-      printHex24 LI;
+      printHex24(LI, printStream);
       if AA
-      then printString "\t\t;!!! absolute addressing ???"
-      else (printString "\t\t;to "; printHex (addr + 4 * offset))
+      then printStream "\t\t;!!! absolute addressing ???"
+      else (printStream "\t\t;to "; printHex (addr + 4 * offset, printStream))
     end
       
       | 19 =>  (* EXT19 *)
-      printExt19 instr
+      printExt19(instr, printStream)
       
       | 21 => (* RLWINM *)
     let
       val (RS : int, RA : int, SH : int, MB : int, ME : int, Rc : bool) = 
        splitMform instr;
     in
-      printString (if Rc then "rlwinm.\t" else "rlwinm\t");
-      regPrint (mkReg RA);
-      printString ",";
-      regPrint (mkReg RS);
-      printString ",";
-      printHex5 SH;
-      printString ",";
-      printHex5 MB;
-      printString ",";
-      printHex5 ME
+      printStream (if Rc then "rlwinm.\t" else "rlwinm\t");
+      printStream(regRepr (mkReg RA));
+      printStream ",";
+      printStream(regRepr (mkReg RS));
+      printStream ",";
+      printHex5(SH, printStream);
+      printStream ",";
+      printHex5(MB, printStream);
+      printStream ",";
+      printHex5(ME, printStream)
     end
       
       | 24 => (* ORI *)
-      printLogicalDform ("ori", instr)
+      printLogicalDform ("ori", instr, printStream)
      
       | 25 => (* ORIS *)
-      printLogicalDform ("oris", instr)
+      printLogicalDform ("oris", instr, printStream)
      
       | 26 => (* XORI *)
-      printLogicalDform ("xori", instr)
+      printLogicalDform ("xori", instr, printStream)
      
       | 27 => (* XORIS *)
-      printLogicalDform ("xoris", instr)
+      printLogicalDform ("xoris", instr, printStream)
      
       | 28 => (* ANDIDOT *)
-      printLogicalDform ("andi.", instr)
+      printLogicalDform ("andi.", instr, printStream)
      
       | 29 => (* ANDISDOT *)
-      printLogicalDform ("andis.", instr)
+      printLogicalDform ("andis.", instr, printStream)
      
       | 31 => (* EXT31 *)
-      printExt31 instr
+      printExt31(instr, printStream)
 
       | 32 => (* LWZ *)
-      printStorageDform ("lwz", instr)
+      printStorageDform ("lwz", instr, printStream)
      
       | 34 => (* LBZ *)
-      printStorageDform ("lbz", instr)
+      printStorageDform ("lbz", instr, printStream)
      
       | 36 => (* STW *)
-      printStorageDform ("stw", instr)
+      printStorageDform ("stw", instr, printStream)
      
       | 37 => (* STWU *)
-      printStorageDform ("stwu", instr)
+      printStorageDform ("stwu", instr, printStream)
      
       | 38 => (* STB *)
-      printStorageDform ("stb", instr)
+      printStorageDform ("stb", instr, printStream)
      
       |  _ =>
-      printUnknown instr
+      printUnknown(instr, printStream)
     end; (* printInstr *)
   end;
 
@@ -2382,7 +2381,9 @@ struct
       selfJumps:      labels ref,     (* List of recursive tail-calls to patch up. *)
       noClosure:      bool,           (* should we make a closure from this? *)
       cacheState:     cacheState ref,  (* Do we know anything useful here? *)
-      needReturn:     bool ref        (* Do we need to load regReturn in the prelude? *)
+      needReturn:     bool ref,        (* Do we need to load regReturn in the prelude? *)
+      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+      printStream:    string->unit    (* The stream to use *)
     };
  (* Invariant: the cached information in the justComeFrom list
      does *not* get incorporated into the cacheState until
@@ -2435,7 +2436,7 @@ struct
   val codesize = 32; (* bytes. Initial size of segment. *)
 
   (* create and initialise a code segment *)
-  fun codeCreate (noClosure, name) : code = 
+  fun codeCreate (noClosure, name, parameters) : code = 
   let
     val words = codesize div 4
   in
@@ -2458,7 +2459,9 @@ struct
          selfJumps        = ref [],
          noClosure        = noClosure,
          cacheState       = ref (Reachable true),
-         needReturn       = ref false
+         needReturn       = ref false,
+        printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
       }
   end;
   
@@ -4465,12 +4468,13 @@ Calling conventions:
     
   end; (* genRI *)
   
-  fun printCode (seg, procName : string, lastAddr : addrs) : unit =
+  fun printCode (seg, procName : string, lastAddr : addrs, printStream) : unit =
   let
     val ptr = ref addrZero;
+  
   in
-    if procName = "" (* No name *) then printString "?" else  printString procName;
-    printString ":\n";
+    if procName = "" (* No name *) then printStream "?" else printStream procName;
+    printStream ":\n";
     while !ptr addrLt lastAddr do
     let 
       val thisAddr : addrs = !ptr;
@@ -4478,13 +4482,13 @@ Calling conventions:
       
       val byteAddr : int = getByteAddr thisAddr;
       val instr : int = fromQuad (getQuad (thisAddr, seg));
-      val U : unit = printHex byteAddr;    (* The address. *)
-      val U : unit = printString "\t";
-      val U : unit = printHexN (8, instr);  (* The naked instruction. *)
-      val U : unit = printString "\t";
-      val U : unit = printInstr (byteAddr, instr); (* The decoded instruction. *)
+      val U : unit = printHex(byteAddr, printStream);    (* The address. *)
+      val U : unit = printStream "\t";
+      val U : unit = printHexN (8, instr, printStream);  (* The naked instruction. *)
+      val U : unit = printStream "\t";
+      val U : unit = printInstr (byteAddr, instr, printStream); (* The decoded instruction. *)
     in
-      printString "\n"
+      printStream "\n"
     end
   end; (* printCode *)
   
@@ -4564,6 +4568,8 @@ Calling conventions:
                          constVec = ref constVec,
                          resultSeg,
                          procName,
+                         printAssemblyCode,
+                         printStream,
                          ...},
                 stackRequired, registerSet) : address =
    let
@@ -4856,15 +4862,15 @@ not be decremented.
       val U : unit = fixOtherRefs (cvec, toMachineWord addr);
   
       val U : unit = 
-        if !assemblyCode
+        if printAssemblyCode
         then let (* print out the code *)
           (* endcode is the address of the end-of-code marker word. *)
           val lastAddr : addrs = endIC wordAddrPlus offset;
         in
-          printCode (seg, procName, lastAddr);
-          printString "Register set = [";
-          List.app (fn r => (print " "; regPrint r)) registerSet;
-          printString "]\n\n"
+          printCode (seg, procName, lastAddr, printStream);
+          printStream "Register set = [";
+          List.app (fn r => (print " "; printStream(regRepr r))) registerSet;
+          printStream "]\n\n"
         end
         else ();
     in

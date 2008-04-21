@@ -84,7 +84,10 @@ functor SPARCCODECONS (
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val assemblyCode:    bool ref;
+    val assemblyCodeTag : bool Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 
@@ -125,11 +128,11 @@ sig
   val regEq:    reg * reg -> bool;
   val regNeq:   reg * reg -> bool;
   
-  val regPrint: reg -> unit;
+  val regRepr: reg -> string;
 
   type addrs
 
-  val codeCreate: bool * string -> code;  (* makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
 
   (* Operations. *)
   type instrs;
@@ -347,9 +350,6 @@ struct
       applyCountList (f, n + 1, t)
     end;
   
-  (* Temporary *)
-  fun printString (s: string) = TextIO.print s;
-  
   (* added SPF - take numbers OUT of code *)
   (* These are defined here as explicit constants, so the     *)
   (* code-generator can in-line them as immediates (I think). *)
@@ -531,7 +531,6 @@ struct
       else "i" ^ Int.toString (r regMinus i0) (* use in *)
     );
          
-    fun regPrint r = TextIO.print (regRepr r);
     val argRegs = 4;
 
     (* Args 0, 1, 2, 3 correspond to o0, o1, o2, o3. *)
@@ -630,7 +629,9 @@ struct
       selfCalls:      labels ref,     (* List of recursive calls to patch up. *)
       selfJumps:      labels ref,     (* List of recursive tail-calls to patch up. *)
       accCache:       CacheState ref, (* i4 contains the untagged value of what register? *)
-      constLoads:     (addrs * reg * reg * int) list ref (* where do we load constants? *)
+      constLoads:     (addrs * reg * reg * int) list ref, (* where do we load constants? *)
+      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+      printStream:    string->unit    (* The stream to use *)
     };
 
   fun codeVec        (Code {codeVec,...})        = codeVec;
@@ -675,7 +676,7 @@ struct
     | sameConst (_,       _)       = false;
 
   (* create and initialise a code segment *)
-  fun codeCreate (noClosure, name) : code = 
+  fun codeCreate (noClosure, name, parameters) : code = 
     Code
       { 
          procName       = name,
@@ -693,7 +694,9 @@ struct
          selfCalls      = ref [],
          selfJumps      = ref [],
          accCache       = ref Empty,
-         constLoads     = ref []
+         constLoads     = ref [],
+         printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+         printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
       };
   
   datatype quad =  (* the 4 bytes of the instruction word *)
@@ -768,11 +771,6 @@ struct
 
   fun isSet (Set _) = true | isSet _ = false
   fun scSet (Set x) = x | scSet _ = raise Match;
-
-  (* Find the offset in the constant area of a constant. *)
-  (* The first has offset 0.                             *)
-  (* prints a string representation of a number *)
-  fun printHex v = TextIO.print(Int.fmt StringCvt.HEX v)
 
   (* Test condition codes. *)
   abstype testCode = Test of int 
@@ -3059,15 +3057,19 @@ Calling conventions:
   (* genRI *);
 
   (* this could be made more efficient (and readable??) using shorts *)
-  fun printCode (seg : cseg, procName : string, lastAddr : addrs) : unit =
+  fun printCode (seg : cseg, procName : string, lastAddr : addrs, printStream) : unit =
   let
+    (* prints a string representation of a number *)
+    fun printHex v = printStream(Int.fmt StringCvt.HEX v)
+    fun regPrint r = printStream(regRepr r)
+
     fun printRimm iOp =
       if (iOp div exp2_13) mod 2 = 1 (* Set if immediate. *)
       then printHex (signed13 (iOp mod exp2_13))
       else regPrint (mkReg (iOp mod exp2_5));
   in
-    if procName = "" (* No name *) then printString "?" else  printString procName;
-    printString ":\n";
+    if procName = "" (* No name *) then printStream "?" else  printStream procName;
+    printStream ":\n";
     let
       val ptr = ref addrZero;
     in
@@ -3082,7 +3084,7 @@ Calling conventions:
 	val format   : int = topByte div exp2_6;
 		  
         val U : unit = printHex byteAddr; (* The real address. *)
-        val U : unit = printString "\t";
+        val U : unit = printStream "\t";
       
         val U : unit =
           if format = 0
@@ -3092,11 +3094,11 @@ Calling conventions:
             case op2 of
               4 => (* setHi *)
                 if instr = fromQuad nopQuad (* nop is sethi 0,%g0 *)
-                then printString "nop"
+                then printStream "nop"
                 else
-                   ( printString "sethi\t";
+                   ( printStream "sethi\t";
                      printHex (instr mod exp2_22);
-                     printString ",";
+                     printStream ",";
                      regPrint (mkReg (instr div exp2_25 mod exp2_5))
                    )
                      
@@ -3105,17 +3107,17 @@ Calling conventions:
                 val disp22 = signed22 (instr mod exp2_22);
                 val byteDisp = disp22 * wordSize;
               in
-                 printString ("b" ^ tstRepr (mkTest ((instr div exp2_25) mod exp2_4)));
-                 if instr div exp2_29 = 1 (* annul bit *) then printString ",a" else (); 
-                 printString "\t";
+                 printStream ("b" ^ tstRepr (mkTest ((instr div exp2_25) mod exp2_4)));
+                 if instr div exp2_29 = 1 (* annul bit *) then printStream ",a" else (); 
+                 printStream "\t";
                  printHex disp22; (* signed *)
-                 printString "\t\t;to ";
+                 printStream "\t\t;to ";
                  printHex (byteAddr + byteDisp)
               end
               
             | 0 => (* unimp *)
-                (printString "unimp";
-                 printString "\t";
+                (printStream "unimp";
+                 printStream "\t";
                  printHex instr)
                 
             | _ => printHex instr
@@ -3126,9 +3128,9 @@ Calling conventions:
              val disp30   = signed30 (instr - exp2_30);
              val byteDisp = disp30 * wordSize;
            in
-             printString "call\t";
+             printStream "call\t";
              printHex disp30;
-             printString "\t\t;to ";
+             printStream "\t\t;to ";
              printHex (byteAddr + byteDisp)
            end
           
@@ -3160,7 +3162,7 @@ Calling conventions:
               
                 fun printFromTable x []         = printHex op3
                   | printFromTable x ((y,s)::t) = 
-                     if x = op3_2ToInt y then printString s else printFromTable op3 t
+                     if x = op3_2ToInt y then printStream s else printFromTable op3 t
               
              in
                fun printOp3String x = printFromTable x table
@@ -3170,18 +3172,18 @@ Calling conventions:
             val isTrap = (op3 = op3_2ToInt Ticc);
           in
             if isMov
-              then printString "mov"
+              then printStream "mov"
             else if isTrap
-              then printString ("t" ^ tstRepr (mkTest ((getReg rd) mod exp2_4)))
+              then printStream ("t" ^ tstRepr (mkTest ((getReg rd) mod exp2_4)))
             else printOp3String op3;
             
-            printString "\t";
+            printStream "\t";
             
-            if isMov then () else (regPrint rs; printString ",");
+            if isMov then () else (regPrint rs; printStream ",");
             
             printRimm instr;
             
-            if isTrap then () else (printString ","; regPrint rd)
+            if isTrap then () else (printStream ","; regPrint rd)
           end
           
           else let (* 3 *)
@@ -3191,37 +3193,37 @@ Calling conventions:
           in
             if op3 = 0 orelse op3 = 1
             then
-            ( (if op3 = 0 then printString "ld" else printString "ldub");
-              printString "\t[";
+            ( (if op3 = 0 then printStream "ld" else printStream "ldub");
+              printStream "\t[";
               regPrint rs;
-              printString "+";
+              printStream "+";
               printRimm instr;
-              printString "],";
+              printStream "],";
               regPrint rd
             )
             else if op3 = 4 orelse op3 = 5
             then
-            ( printString (if op3 = 4 then "st" else "stb");
-              printString "\t";
+            ( printStream (if op3 = 4 then "st" else "stb");
+              printStream "\t";
               regPrint rd;
-              printString ",[";
+              printStream ",[";
               regPrint rs;
-              printString "+";
+              printStream "+";
               printRimm instr;
-              printString "]" 
+              printStream "]" 
             )
             else
             ( printHex op3;
-              printString "\t";
+              printStream "\t";
               regPrint rs;
-              printString ",";
+              printStream ",";
               printRimm instr;
-              printString ",";
+              printStream ",";
               regPrint rd
             )
           end;
       in
-	printString "\n"
+	printStream "\n"
       end (* while *)
     end (* scope of ptr *)
   end (* printCode *);
@@ -3248,82 +3250,7 @@ Calling conventions:
       unsafeCast codeName
     end;
 
-  fun printConstCode (a : address) : unit =
-    printString ("code:\t" ^ nameOfCode a);
-  
-  fun printConstClosure (a : address) : unit =
-    printString ("clos:\t" ^ nameOfCode a);
-  
-  fun printWords (a : address) : unit =
-    let
-      val objLength : int = toInt (ADDRESS.length a)
-    in
-      if objLength = 1
-      then printString ("words:\t1 word")
-      else printString ("words:\t" ^ Int.toString objLength ^ " words")
-    end;
-  
-  fun printBytes (a : address) : unit =
-    let
-      val objLength  : int = toInt (ADDRESS.length a)
-    in
-      if objLength = 1
-      then printString ("bytes:\t1 word")
-      else printString ("bytes:\t" ^ Int.toString objLength ^ " words")
-    end;
-
-  fun printConst (byteOffset : int, (n : int, c : const)) : unit =
-    case c of
-      CVal c =>
-        let
-          val U : unit = printString (if noClosure c then "code:\t" else "clos:\t");
-        in
-          printString (procName c)
-        end
-    | HVal h =>
-        let
-          val U : unit = printString "handle:\t";
-        in
-          printHex (getByteAddr (! h) + byteOffset)
-        end
-    | WVal w => 
-	if isShort w
-	then let
-	  val value : int = toInt (toShort w);
-	  val U : unit = printString "short:\t";
-	  val U : unit = printHex value;
-	  val U : unit = printString " (";
-	  val U : unit = printString (Int.toString value);
-	in
-	  printString ")"
-	end
-	      
-	else let
-	  val a : address = toAddress w;
-	in
-	  if isIoAddress a
-	    then printString "RTS entry"
-	  else if isCode a
-	    then printConstCode a
-	  else if isBytes a
-	    then printBytes a
-	  else if isWords a andalso 0w1 <= ADDRESS.length a
-	    then let
-	      val w' : machineWord = loadWord (a, 0w0)
-	    in
-	      if not (isShort w')
-	      then let
-            val a' : address = toAddress w';
-	      in
-            if not (isIoAddress a') andalso isCode a'
-            then printConstClosure a'
-            else printWords a (* First element of tuple is not a code segment *) 
-	      end
-	      else printWords a (* First element of tuple is a short *)
-	    end
-	    else printWords a (* Not a proper tuple (shouldn't occur) *)
-	end;
-          
+        
   (* set the num'th constant in cvec to be value *)
   fun constLabels (cvec : code, addr: addrs, value : machineWord) : unit =
   let
@@ -3376,7 +3303,7 @@ Calling conventions:
   val minStackCheck = 20; 
   
   (* Adds the constants onto the code, and copies the code into a new segment *)
-  fun copyCode (cvec, stackRequired, registerSet) : address =
+  fun copyCode (cvec as Code{printAssemblyCode, printStream, ...}, stackRequired, registerSet) : address =
   let
     val endIC      = !(ic cvec); (* Remember end *)
     val callsAProc = !(mustCheckStack cvec);
@@ -3668,11 +3595,11 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
     val U : unit = fixOtherRefs (cvec, toMachineWord addr);
 
     val U : unit = 
-      if !assemblyCode
+      if printAssemblyCode
       then let (* print out the code *)
-	val U : unit = printCode (seg, procName cvec, lastAddr);
+	val U : unit = printCode (seg, procName cvec, lastAddr, printStream);
      in
-	printString "\n"
+	printStream "\n"
       end
       else ();
   in

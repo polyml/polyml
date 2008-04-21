@@ -57,7 +57,7 @@ sig
   val regEq:    reg * reg -> bool;
   val regNeq:   reg * reg -> bool;
   
-  val regPrint: reg -> unit;  
+  val regRepr: reg -> string;
 
   val genLoad:        int * reg * reg * code -> unit;
   val genStore:       reg * int * reg * storeWidth * reg * code -> unit;
@@ -125,8 +125,11 @@ end (* CODECONS *);
 (*****************************************************************************)
 structure DEBUG :
 sig
-  (* Produce debugging output. *)
-  val pstackTrace: bool ref;
+    (* Produce debugging output. *)
+    val pstackTraceTag : bool Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 (*****************************************************************************)
@@ -194,7 +197,7 @@ sig
   type storeWidth;
   type regSet
   
-  val ttabCreate: unit -> ttab;
+  val ttabCreate: Universal.universal list -> ttab;
   
   (* Register allocation *)
   val getRegister:    ttab * code * reg -> unit;
@@ -426,10 +429,7 @@ struct
  
 
 local
-  (* minor HACKS *)
-  val stringPrint : string -> unit = fn s => TextIO.output(TextIO.stdOut,s);
-  val intPrint    : int    -> unit = fn i => stringPrint (Int.toString i);
-  
+ 
   val cFixup  = CODECONS.fixup;
   val cFixupH = CODECONS.fixupHandler;
   
@@ -459,8 +459,6 @@ local
     fun stackIndex n = StackIndex n;
     val first = stackIndex 0;
 	val noIndex = stackIndex ~1; (* An invalid index. *)
-    
-    val indexPrint = intPrint o getIndex;
   
     infix 4 indexEq indexNeq;
     
@@ -604,8 +602,7 @@ local
   fun getReg rset = getAcceptableRegister(rset, allRegisters)
 
   (* Print the allocated registers. *)
-  (* SPF 7/6/94 fixed off-by-one problem *)
-  fun printRegs regs =
+  fun printRegs printStream regs =
   let
     fun printReg i =
     let
@@ -614,8 +611,8 @@ local
       if useCount > 0
       then
         (
-          stringPrint " "; regPrint (regN i);
-          stringPrint "="; intPrint useCount;
+          printStream " "; printStream (regRepr (regN i));
+          printStream "="; printStream(Int.toString useCount);
           {}
         )
       else ()
@@ -704,10 +701,12 @@ local
        exited:       bool ref,
 	   branched:	 bool ref,
        marker:       stackIndex ref,
-       lowestDirect: stackIndex ref
+       lowestDirect: stackIndex ref,
+       pstackTrace:  bool,
+       printStream:  string->unit
      };
 
-  fun ttabCreate () = 
+  fun ttabCreate debugSwitches = 
     Ttab
       {
         decToPstack  = stretchArray (initTrans,noIndex),
@@ -720,7 +719,9 @@ local
         exited       = ref false,
 		branched	 = ref false,
         marker       = ref first,
-        lowestDirect = ref first
+        lowestDirect = ref first,
+        pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
+        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag debugSwitches
       };
 
   fun decToPstack  (Ttab {decToPstack ,...}) = decToPstack;
@@ -812,81 +813,81 @@ local
       mkIter (next ~1)
     end (* overStack *);
    
-   fun printStackUnion stackun =
+   fun printStackUnion printStream stackun =
       case stackun of
         Register reg => 
-          regPrint reg
+          printStream(regRepr reg)
           
       | Literal w =>
           if isShort w
-          then intPrint (Word.toIntX (toShort w))
-          else stringPrint "?" (* ??? *)      
+          then printStream(Int.toString (Word.toIntX (toShort w)))
+          else printStream "?" (* ??? *)      
       
       | CodeRef si =>
           (
-            stringPrint "(";
-            stringPrint (procName si);
-            stringPrint ")"
+            printStream "(";
+            printStream (procName si);
+            printStream ")"
           )
 
      | Direct {base, offset} =>
          (
-           regPrint base;
-           stringPrint "@(";
-           intPrint offset;
-           stringPrint ")"
+           printStream(regRepr base);
+           printStream "@(";
+           printStream(Int.toString offset);
+           printStream ")"
          ) 
 
      | Stack i =>
         (
-          stringPrint "base@(";
-          intPrint i;
-          stringPrint ")"
+          printStream "base@(";
+          printStream(Int.toString i);
+          printStream ")"
         )
 
      | Container l =>
         (
-          stringPrint "[";
-          List.app (fn i => (indexPrint i; stringPrint " ")) l;
-          stringPrint "]"
+          printStream "[";
+          List.app (fn i => (printStream(Int.toString(getIndex i)); printStream " ")) l;
+          printStream "]"
         )
 
-  fun printEntry NoStackEntry entry = ()
-    | printEntry (StackEntry {ent, uses, cache, destStack}) entry =
+  fun printEntry printStream NoStackEntry entry = ()
+    | printEntry printStream (StackEntry {ent, uses, cache, destStack}) entry =
     (
-      indexPrint entry;
-      stringPrint " ";
+      printStream(Int.toString(getIndex entry));
+      printStream " ";
       
-      intPrint uses;
-      stringPrint " ";
+      printStream(Int.toString uses);
+      printStream " ";
       
-      printStackUnion ent;
+      printStackUnion printStream ent;
       
       if cache regNeq regNone
-      then (stringPrint " in "; regPrint cache) 
+      then (printStream " in "; printStream(regRepr cache)) 
       else ();
 
 	  if destStack = ~1 then ()
-	  else (stringPrint " to base@("; intPrint(destStack* ~wordSize); stringPrint")");
+	  else (printStream " to base@("; printStream(Int.toString(destStack* ~wordSize)); printStream")");
         
-      stringPrint "\n"
+      printStream "\n"
     );
 
-  fun printStack table why whereTo =
+  fun printStack (table as Ttab {printStream, ...}) why whereTo =
   ( 
-    stringPrint ("\n" ^ why ^ " (" ^ whereTo ^ ")\n"); 
-    stringPrint "psp=";
-    indexPrint (pstackVal table);
-    stringPrint " lim=";
-    indexPrint (markerVal table);
-    stringPrint " rsp="; 
-    intPrint (realstackVal table);
-    stringPrint "\n";
-    stringPrint "regs=";
-    printRegs (regset table);
-    stringPrint "\n";
+    printStream ("\n" ^ why ^ " (" ^ whereTo ^ ")\n"); 
+    printStream "psp=";
+    printStream(Int.toString(getIndex (pstackVal table)));
+    printStream " lim=";
+    printStream(Int.toString(getIndex (markerVal table)));
+    printStream " rsp="; 
+    printStream (Int.toString(realstackVal table));
+    printStream "\n";
+    printStream "regs=";
+    printRegs printStream (regset table);
+    printStream "\n";
     for (overStack table true (* downwards *))
-        (fn entry => printEntry (pstackEntry table entry) entry)
+        (fn entry => printEntry printStream (pstackEntry table entry) entry)
   );
   
   (* Removes empty entries from the top of the stack. *)
@@ -985,7 +986,7 @@ local
     ;
 
   (* Push a value on the stack and return its location. *)
-  fun pushPstack (table as Ttab{pstack, ...}) entry name =
+  fun pushPstack (table as Ttab{pstack, pstackTrace, ...}) entry name =
   let
     val stacktop = pstackVal table;
     val psp      = getIndex stacktop;
@@ -996,7 +997,7 @@ local
   in
     stretchUpdate (pstack, psp, makeStackEntry entry regNone 1 destStack);
     pstackptr table := stacktop indexPlus 1;
-    if (!pstackTrace) then printStack table name "" else ();
+    if pstackTrace then printStack table name "" else ();
     stacktop
   end;
 
@@ -1044,18 +1045,18 @@ in (* local definitions *)
      we attempt to load the second value.  This doesn't prevent the register
      being pushed onto the stack but it does prevent the register being
      reused. *)
-   fun lockRegister (table, reg) = 
+   fun lockRegister (table as Ttab{pstackTrace, ...}, reg) = 
    let
      val U : unit = addRegUse (table, reg);
    in
-     if !pstackTrace then printStack table "lockRegister" "" else ()
+     if pstackTrace then printStack table "lockRegister" "" else ()
    end;
 
-   fun unlockRegister (table, reg) : unit =
+   fun unlockRegister (table as Ttab{pstackTrace, ...}, reg) : unit =
    let
      val U : unit = free (regset table) reg;
    in
-     if !pstackTrace then printStack table "unlockRegister" "" else ()
+     if pstackTrace then printStack table "unlockRegister" "" else ()
    end;
 
   (* Puts a value in the real stack onto the pseudo-stack.
@@ -1146,9 +1147,9 @@ in (* local definitions *)
   	incrUseCount(table, index, ~1)
 
   (* Reset the real stack stack pointer after a function call. *)
-  fun decsp (table, args) = 
+  fun decsp (table as Ttab{pstackTrace, ...}, args) = 
   ( realstackptr table := realstackVal table - args;
-    if !pstackTrace then printStack table "decsp" "" else () 
+    if pstackTrace then printStack table "decsp" "" else () 
   );
 
   (* Returns the pstack offset for a particular declaration number. *)
@@ -1167,7 +1168,7 @@ in (* local definitions *)
      either to clear all registers or just to free a particular one.
 	 `loadIfPoss' is true if it is sufficient to move the entry to
 	 another register. *)
-  fun pushRegisters (table as Ttab{pstack, ...}) cvec regSet selectEntry loadIfPoss =
+  fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}) cvec regSet selectEntry loadIfPoss =
   let
 	
     fun pushEntries entry =
@@ -1389,7 +1390,7 @@ in (* local definitions *)
       else () (* end pushEntries *);
   in
     pushEntries first;
-	if !pstackTrace then printStack table "pushRegisters" "" else ()
+	if pstackTrace then printStack table "pushRegisters" "" else ()
   end
 
   and pushAnyEntryAtCurrentSP(table, cvec): bool =
@@ -1609,7 +1610,7 @@ in (* local definitions *)
 
 
 (* bugfixed makeEntry added 30/3/95 *)
-  fun makeEntry (table : ttab, cvec : code, index, locn, use, isP) : unit =
+  fun makeEntry (table as Ttab{pstackTrace, printStream, ...}, cvec : code, index, locn, use, isP) : unit =
   ( 
     stretchUpdate (isProc table, locn, isP);
     stretchUpdate (decToPstack table, locn, index);
@@ -1634,16 +1635,16 @@ in (* local definitions *)
     (* Add the number of uses (less one since the use-count will
        normally be one) to the use count. *)
     incrUseCount (table, index, use - 1);
-	if (!pstackTrace)
+	if pstackTrace
 	then
 	   (
-	    stringPrint "makeEntry: index=";
-		indexPrint index;
-		stringPrint " locn=";
-		intPrint locn;
-		stringPrint " use=";
-		intPrint use;
-		stringPrint "\n"
+	    printStream "makeEntry: index=";
+		printStream(Int.toString(getIndex index));
+		printStream " locn=";
+		printStream(Int.toString locn);
+		printStream " use=";
+		printStream(Int.toString use);
+		printStream "\n"
 		)
 	else ()
   );
@@ -1665,17 +1666,17 @@ in (* local definitions *)
   fun pStackEntry (table : savedState) (locn:stackIndex) : stackEntry = 
     stretchSub (pStack table, getIndex locn);
   
-  fun printState (save: savedState as {pStackPtr, realStackPtr, context, ... }) name =
-  ( stringPrint name;
-    stringPrint "\n";
-	stringPrint "context="; stringPrint context;
-    stringPrint " psp=";
-    indexPrint pStackPtr;
-    stringPrint " rsp=";
-    intPrint realStackPtr;
-    stringPrint "\n";
+  fun printState printStream (save: savedState as {pStackPtr, realStackPtr, context, ... }) name =
+  ( printStream name;
+    printStream "\n";
+	printStream "context="; printStream context;
+    printStream " psp=";
+    printStream(Int.toString(getIndex pStackPtr));
+    printStream " rsp=";
+    printStream(Int.toString realStackPtr);
+    printStream "\n";
     for (indDownto pStackPtr first)
-        (fn entry => printEntry (pStackEntry save entry) entry)
+        (fn entry => printEntry printStream (pStackEntry save entry) entry)
   );
 
   (* Returns the real entry from a chain of "copy" entries. 
@@ -1696,7 +1697,7 @@ in (* local definitions *)
   (* Sets the pseudo stack into a state to which it can be restored later.
      It is used when there are conditional branches to ensure that the state
      is the same if the branch falls through or is taken. *)
-  fun saveState (table, cvec) : savedState =
+  fun saveState (table as Ttab{pstackTrace, printStream, ...}, cvec) : savedState =
   let
     val maxIndex  = getIndex (pstackVal table);
     val saveStack = stretchArray (maxIndex, NoStackEntry);
@@ -1720,12 +1721,12 @@ in (* local definitions *)
 	    }
   in
     copyState first;
-	if !pstackTrace then printState state "saveState" else ();
+	if pstackTrace then printState printStream state "saveState" else ();
   	state
   end;
 
   (* Tries first of all, then pushes all the registers and tries again. *)
-  fun getAnyRegister (table, cvec) : reg =
+  fun getAnyRegister (table as Ttab{pstackTrace, ...}, cvec) : reg =
   (let 
     (* First see if there is one free and grab that. *)
     val r = getReg (regset table);
@@ -1765,7 +1766,7 @@ in (* local definitions *)
 	  end
       end
   in 
-    if !pstackTrace
+    if pstackTrace
     then printStack table "getAnyRegister" (traceContext cvec )
     else ();
     r
@@ -1784,7 +1785,7 @@ in (* local definitions *)
 	 spill a register after, say, pushing one parameter and while computing
 	 another, we must reload any spilled values and set the real stack pointer
 	 correctly before continuing. *)
-  fun resetButReload (cvec, table as Ttab{pstack, ...}, stackOffset) : unit =
+  fun resetButReload (cvec, table as Ttab{pstack, pstackTrace, ...}, stackOffset) : unit =
   let
     val oldSp = realstackVal table;
     
@@ -1834,10 +1835,10 @@ in (* local definitions *)
     resetStack (realstackVal table - stackOffset, cvec);
     realstackptr table := stackOffset;
     
-    if !pstackTrace then printStack table "resetButReload" (traceContext cvec) else ()
+    if pstackTrace then printStack table "resetButReload" (traceContext cvec) else ()
   end;
 
-  fun getRegister (table, cvec, reg) : unit =
+  fun getRegister (table as Ttab{pstackTrace, ...}, cvec, reg) : unit =
   let (* Get it out of wherever it is being used. *)
     fun inUse ()  = usage (regset table) reg > 0
 	val thisReg = singleton reg
@@ -1848,7 +1849,7 @@ in (* local definitions *)
     (* Should now be free. *)
     getRset (regset table) reg;
     
-    if !pstackTrace then printStack table "getRegister" (traceContext cvec) else ()
+    if pstackTrace then printStack table "getRegister" (traceContext cvec) else ()
   end;
 
   fun freeRegister (table, reg) : unit = free (regset table) reg;
@@ -1907,7 +1908,7 @@ in (* local definitions *)
   (* Generates code for an entry on the pseudo-stack. *)
   (* Moves the entry (at locn) into destReg, decrementing the
      use-count for entry. Doesn't push anything new on the pstack. *)
-  fun loadPstackEntry table locn (* Offset on the stack *) destReg cvec =
+  fun loadPstackEntry (table as Ttab{pstackTrace, ...}) locn (* Offset on the stack *) destReg cvec =
     let
       val (realLoc, {cache = cacheReg, ent, ...}) = pstackRealEntry table locn
     in
@@ -1956,7 +1957,7 @@ in (* local definitions *)
        (* Decrement use count and remove if done. *)
        incrUseCount (table, locn, ~1);
 
-       if !pstackTrace then printStack table "loadPstackEntry" (traceContext cvec) else ()
+       if pstackTrace then printStack table "loadPstackEntry" (traceContext cvec) else ()
     end (* loadPstackEntry *) 
 
   (* Pushes a new pstack entry; loads value into register;
@@ -2627,10 +2628,10 @@ in (* local definitions *)
 
 
   (* Set the state to the saved values. *) 
-  fun setState (save : savedState, table as Ttab{pstack, ...}, cvec, carry, mark, isMerge): mergeResult =
+  fun setState (save : savedState, table as Ttab{pstack, pstackTrace, printStream, ...}, cvec, carry, mark, isMerge): mergeResult =
   let 
     val U : unit = 
-      if !pstackTrace then printState save "setState" else ();
+      if pstackTrace then printState printStream save "setState" else ();
     
     (* This is logically unnecessary, but increases the likelihood
        that values moved out of resultReg (for example) are moved
@@ -2802,7 +2803,7 @@ in (* local definitions *)
 		      )
 	        | NoMerge => NoMerge
     in
-      if !pstackTrace then printStack table "setState" (traceContext cvec) else ();
+      if pstackTrace then printStack table "setState" (traceContext cvec) else ();
 	  result
     end
   end;
@@ -2920,14 +2921,14 @@ in (* local definitions *)
 	 DCJM 29/6/2000.
 	 *)
   fun mergeState (save : savedState, savedResult: mergeResult,
-  				  table as Ttab{pstack, ...}, currentResult: mergeResult, cvec, mark) : bool*mergeResult =
+  				  table as Ttab{pstack, pstackTrace, printStream, ...}, currentResult: mergeResult, cvec, mark) : bool*mergeResult =
   let
     val needOtherWay = ref false;
   in
-    if !pstackTrace
+    if pstackTrace
     then
     ( printStack table ("mergeState") (traceContext cvec);
-      printState save "saved state" 
+      printState printStream save "saved state" 
     ) 
     else ();
     if (markerVal table) indexNeq (newMark mark)
@@ -3363,7 +3364,7 @@ in (* local definitions *)
 					MergeIndex _ => MergeIndex(pushReg (table, topReg))
 				  | NoMerge => NoMerge
         in
-        if !pstackTrace then printStack table "mergeState" (traceContext cvec) else ();
+        if pstackTrace then printStack table "mergeState" (traceContext cvec) else ();
  
         (!needOtherWay, result)
 		end
@@ -3373,7 +3374,7 @@ in (* local definitions *)
 	  | e =>
       (
         printStack table "mergeState" (traceContext cvec);
-        printState save "saved state";
+        printState printStream save "saved state";
         raise e
      );
 
@@ -3485,7 +3486,7 @@ in (* local definitions *)
   );
 
   (* Generate a binary operation. *)
-  fun binaryOp (arg1, arg2, instr, revinstr, table, cvec, hint) : stackIndex =
+  fun binaryOp (arg1, arg2, instr, revinstr, table as Ttab{pstackTrace, ...}, cvec, hint) : stackIndex =
   let (* If the operand is a short constant we don't need to put it in a register. *)
     val (_,{ent = firstEnt, ...})  = 
        pstackRealEntry table arg1;
@@ -3681,7 +3682,7 @@ in (* local definitions *)
      | (_,_) =>
           genBinaryRR ();
 
-    val U : unit = if !pstackTrace then printStack table "binaryOp" "" else ();
+    val U : unit = if pstackTrace then printStack table "binaryOp" "" else ();
   in 
     result
   end;
@@ -3776,7 +3777,7 @@ in (* local definitions *)
 
 
   (* Generate a binary compare and jump operation. *)
-  fun compareAndBranch (arg1, arg2, t, revt, table, cvec) : labels =
+  fun compareAndBranch (arg1, arg2, t, revt, table as Ttab{pstackTrace, ...}, cvec) : labels =
   let
     (* val U : unit                  = loadDirectEntries table cvec; *)
     val (_,{ent = firstEnt,...})  = pstackRealEntry table arg1;
@@ -3837,7 +3838,7 @@ in (* local definitions *)
       | (_, _) =>
            genCompRR t
   in
-    if !pstackTrace then printStack table "compareAndBranch" "" else ();
+    if pstackTrace then printStack table "compareAndBranch" "" else ();
 
     (* Package the label up with the state. *)
     makeLabels NoMerge lab (saveState (table, cvec))

@@ -36,7 +36,10 @@ functor INTCODECONS (
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val assemblyCode: bool ref;
+    val assemblyCodeTag : bool Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 
@@ -72,7 +75,7 @@ sig
   val addrPlus  : addrs * int -> addrs;
   val addrMinus : addrs * addrs -> int;
   
-  val codeCreate: bool * string -> code;  (* makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
       
   (* ic - Address for the next instruction in the segment. *)
   val ic: code -> addrs;
@@ -271,13 +274,6 @@ struct
     in
       applyCountList (f, n + 1, t)
     end;
-  
-
-  (* Temporary *)
-  fun printString (s: string) = TextIO.output(TextIO.stdOut, s);
-
-  (* prints a string representation of a number *)
-  fun printHex (v : int) : unit = TextIO.print(Int.fmt StringCvt.HEX v);
 
 (*****************************************************************************)
 (*                  Abstype for instruction addresses                        *)
@@ -730,7 +726,9 @@ struct
       otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
       noClosure:      bool,           (* should we make a closure from this? *)
-      constLoads:     (addrs * int) list ref (* where do we load constants? *)
+      constLoads:     (addrs * int) list ref, (* where do we load constants? *)
+      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+      printStream:    string->unit    (* The stream to use *)
     };
 
 (*****************************************************************************)
@@ -766,7 +764,7 @@ struct
     | sameConst (_,       _)       = false;
 
   (* create and initialise a code segment *)
-  fun codeCreate (noClosure : bool, name : string) : code = 
+  fun codeCreate (noClosure : bool, name : string, parameters) : code = 
   let
     val words : int = codesize div wordLength();
   in
@@ -784,7 +782,9 @@ struct
          otherCodes       = ref [],
          resultSeg        = ref Unset,   (* Not yet done *)
          noClosure        = noClosure,
-         constLoads       = ref []
+         constLoads       = ref [],
+         printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+         printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
       }
   end;
 
@@ -1644,12 +1644,15 @@ struct
      carry cvec := carryValue
   end;
 
-  fun printCode (seg: cseg, procName: string, endcode : int) : unit =
+  fun printCode (seg: cseg, procName: string, endcode : int, printStream) : unit =
   let
-    val U : unit = printString "\n";
+    val U : unit = printStream "\n";
     val U : unit =
-     if procName = "" (* No name *) then printString "?" else printString procName;
-    val U : unit = printString ":\n";
+     if procName = "" (* No name *) then printStream "?" else printStream procName;
+    val U : unit = printStream ":\n";
+
+    (* prints a string representation of a number *)
+    fun printHex (v : int) : unit = printStream(Int.fmt StringCvt.HEX v);
  
     val ptr = ref 0;
  
@@ -1676,7 +1679,7 @@ struct
     let
       val ad : int = getB(len, !ptr, seg) + !ptr + len;
       val U : unit = if addToList then addInd ad else ();
-      val U : unit = printString spacer;
+      val U : unit = printStream spacer;
       val U : unit = printHex ad;
     in
       ptr := !ptr + len
@@ -1685,7 +1688,7 @@ struct
     (* Prints an operand of an instruction *)
     fun printOp (len: int, spacer : string) : unit =
     let
-      val U : unit = printString spacer;
+      val U : unit = printStream spacer;
       val U : unit = printHex (getB (len, !ptr, seg));
     in
       ptr := !ptr + len
@@ -1708,10 +1711,10 @@ struct
           end
               
           else let (* It's an instruction. *)
-            val U : unit  = printString "\t";
+            val U : unit  = printStream "\t";
             val opc : opcode = opcode_up (Word8.toInt (csegGet (seg, !ptr))); (* opcode *)
             val U : unit  = ptr := !ptr + 1;
-            val U : unit  = printString (repr opc);
+            val U : unit  = printStream (repr opc);
     
             val sz : int = size opc;
           in
@@ -1732,7 +1735,7 @@ struct
               
             else if opc = opcode_jumpBack (* Should be negative *)
               then let
-                val U : unit = printString "\t";
+                val U : unit = printStream "\t";
                 val U : unit = printHex((!ptr - 1) - getB(1,!ptr,seg));
               in
                 ptr := !ptr + 1
@@ -1787,7 +1790,7 @@ struct
                 
                 fun printEntry (i : int) =
                 let
-                  val U : unit = printString "\n\t";
+                  val U : unit = printStream "\n\t";
                   val U : unit = printHex(base + getB(2, !ptr, seg));
                 in
                   ptr := !ptr + 2
@@ -1819,7 +1822,7 @@ struct
              else printOp (sz - 1, "\t")
           end; (* an instruction. *)
       in
-        printString "\n"
+        printStream "\n"
       end (* main loop *)  
   in (* body of printCode *)
     ()
@@ -1857,59 +1860,62 @@ struct
       unsafeCast codeName
     end;
 
-  fun printConstCode (a : address) : unit =
-    printString ("code:\t" ^ nameOfCode a);
+  (* prints a string representation of a number *)
+  fun printHex (v : int, printStream) : unit = printStream(Int.fmt StringCvt.HEX v);
+
+  fun printConstCode (a : address, printStream) : unit =
+    printStream ("code:\t" ^ nameOfCode a);
   
-  fun printConstClosure (a : address) : unit =
-    printString ("clos:\t" ^ nameOfCode a);
+  fun printConstClosure (a : address, printStream) : unit =
+    printStream ("clos:\t" ^ nameOfCode a);
   
-  fun printWords (a : address) : unit =
+  fun printWords (a : address, printStream) : unit =
     let
       val objLength : int = Word.toInt (ADDRESS.length a)
     in
       if objLength = 1
-      then printString ("long:\t1 word")
-      else printString ("long:\t" ^ Int.toString objLength ^ " words")
+      then printStream ("long:\t1 word")
+      else printStream ("long:\t" ^ Int.toString objLength ^ " words")
     end;
   
-  fun printBytes (a : address) : unit =
+  fun printBytes (a : address, printStream) : unit =
     let
       val objLength  : int = Word.toInt (ADDRESS.length a)
     in
       if objLength = 1
-      then printString ("bytes:\t1 word")
-      else printString ("bytes:\t" ^ Int.toString objLength ^ " words")
+      then printStream ("bytes:\t1 word")
+      else printStream ("bytes:\t" ^ Int.toString objLength ^ " words")
     end;
 
-  fun printConst (c : const) : unit =
+  fun printConst (c : const, printStream) : unit =
     case c of
       CVal c =>
         let
-          val U : unit = printString (if noClosure c then "code:\t" else "clos:\t");
+          val U : unit = printStream(if noClosure c then "code:\t" else "clos:\t");
         in
-          printString (procName c)
+           printStream(procName c)
         end
 
     | WVal w => 
 	if isShort w
 	then let
 	  val value : int = Word.toInt (toShort w);
-	  val U : unit = printString "short:\t";
-	  val U : unit = printHex value;
-	  val U : unit = printString " (";
-	  val U : unit = printString (Int.toString value);
+	  val U : unit = printStream "short:\t";
+	  val U : unit = printHex(value, printStream);
+	  val U : unit = printStream " (";
+	  val U : unit = printStream (Int.toString value);
 	in
-	  printString ")"
+	  printStream ")"
 	end
 	else let
 	  val a : address = toAddress w;
 	in
 	  if isIoAddress a
-	    then printString "RTS entry"
+	    then printStream "RTS entry"
 	  else if isCode a
-	    then printConstCode a
+	    then printConstCode(a, printStream)
 	  else if isBytes a
-	    then printBytes a
+	    then printBytes(a, printStream)
 	  else if isWords a andalso 0w1 <= ADDRESS.length a
 	    then let
 	      val w' : machineWord = loadWord (a, 0w0)
@@ -1919,23 +1925,23 @@ struct
             val a' : address = toAddress w';
 	      in
             if not (isIoAddress a') andalso isCode a'
-            then printConstClosure a'
-            else printWords a (* First element of tuple is not a code segment *) 
+            then printConstClosure(a', printStream)
+            else printWords(a, printStream) (* First element of tuple is not a code segment *) 
 	      end
-	      else printWords a (* First element of tuple is a short *)
+	      else printWords(a, printStream) (* First element of tuple is a short *)
 	    end
-	    else printWords a (* Not a proper tuple (shouldn't occur) *)
+	    else printWords(a, printStream) (* Not a proper tuple (shouldn't occur) *)
 	end;
            
-  fun printConstants (addr : int, [] : const list) : unit = ()
-    | printConstants (addr : int, h :: t) : unit =
+  fun printConstants (addr : int, [] : const list, printStream) : unit = ()
+    | printConstants (addr : int, h :: t, printStream) : unit =
   let
-    val U : unit = printHex addr;
-    val U : unit = printString "\t";
-    val U : unit = printConst h;
-    val U : unit = printString "\n";
+    val U : unit = printHex(addr, printStream);
+    val U : unit = printStream "\t";
+    val U : unit = printConst(h, printStream);
+    val U : unit = printStream "\n";
   in
-    printConstants (addr + wordLength(), t)
+    printConstants (addr + wordLength(), t, printStream)
   end;
 
   (* set the num'th constant in cvec to be value *)
@@ -1987,7 +1993,7 @@ struct
   end; (* fixOtherRefs *)
 
    (* Adds the constants onto the code, and copies the code into a new segment *)
-  fun copyCode (cvec: code) : address =
+  fun copyCode (cvec: code as Code{ printAssemblyCode, printStream, ...}) : address =
   let
     (* Pad out to long word boundary. Don't just leave as zero because, if
        the last instruction (return) had a zero argument, this could give
@@ -2111,18 +2117,18 @@ struct
     val U : unit = fixOtherRefs (cvec, toMachineWord addr);
 
     val U : unit = 
-      if !assemblyCode
+      if printAssemblyCode
       then let (* print out the code *)
-	val U : unit = printCode (seg, procName cvec, getAddr endIC);
+	val U : unit = printCode (seg, procName cvec, getAddr endIC, printStream);
 	(* Skip: byte offset of start of code segment, 
 		 number of constants,
 		 profiling word,
 		 name of code segment
 	*)
 	val constants : const list = ! (constVec cvec);
-	val U : unit = printConstants (getAddr endIC + 4*wordLength(), constants);
+	val U : unit = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
       in
-	printString "\n"
+         printStream"\n"
       end
       else ();
   in

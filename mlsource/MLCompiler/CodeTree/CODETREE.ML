@@ -36,18 +36,21 @@ structure GCODE :
 sig
     type machineWord
     type codetree
-    val gencode: codetree -> unit -> machineWord;
+    val gencode: codetree * Universal.universal list -> unit -> machineWord;
 end (* GCODE *);
 
 (*****************************************************************************)
-(*                  DEBUGSWITCH                                              *)
+(*                  DEBUG                                                    *)
 (*****************************************************************************)
-structure DEBUGSWITCH :
+structure DEBUG :
 sig
-  val alwaysUseClosure:    bool ref (* If true do not use static-link calling. *)
-  val codetree:            bool ref (* If true then print the original code. *)
-  val codetreeAfterOpt:    bool ref (* If true then print the optimised code. *)
-end (* DEBUGSWITCH *);
+    val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
+    val codetreeAfterOptTag:    bool Universal.tag (* If true then print the optimised code. *)
+    val maxInlineSizeTag:       int  Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
+end (* DEBUG *);
 
 (*****************************************************************************)
 (*                  PRETTYPRINTER                                            *)
@@ -184,7 +187,7 @@ sig
 
   val pretty:    codetree * prettyPrinter -> unit;
   val evalue:    codetree -> machineWord;
-  val genCode:   codetree -> (unit -> codetree);
+  val genCode:   codetree * Universal.universal list -> (unit -> codetree);
 
   val structureEq: machineWord * machineWord -> bool;
 end (* CODETREE export signature *) =
@@ -194,7 +197,6 @@ end (* CODETREE export signature *) =
 (*****************************************************************************)
 struct
   open GCODE;
-  open DEBUGSWITCH;
   open ADDRESS;
   open StretchArray;
   open MISC; (* after ADDRESS, so we get MISC.length, not ADDRESS.length *)
@@ -263,8 +265,6 @@ struct
   type casePair = codetree * int list;
   
   val codegen = gencode;
-  
-  fun stringPrint (s: string) : unit = TextIO.output(TextIO.stdOut,s);
   
   (* gets a value from the run-time system *)
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation; 
@@ -1402,7 +1402,7 @@ DCJM 2000.
 				fun declareArg(Declar{addr=caddr, ...}) =
 					(
 					update (localUses, caddr, false);
-					update (closuresForLocals, caddr, !alwaysUseClosure);
+					update (closuresForLocals, caddr, false);
 					update (localConsts, caddr, NONE)
 					)
 				|	declareArg _ = raise InternalError "declareArg: not a declaration"
@@ -1452,7 +1452,7 @@ DCJM 2000.
 			  (* DCJM 1/12/99.  I think the reason for this is in case we have
 			     reused the address in a different block. *)
               val U = update (localUses, caddr, false); (* needed? *)
-              val U = update (closuresForLocals, caddr, !alwaysUseClosure);
+              val U = update (closuresForLocals, caddr, false);
 
 		      val U : unit =
 			  	case pt of
@@ -1520,7 +1520,7 @@ DCJM 2000.
                   | _ => ();
                    
                   update (localUses, caddr, false);
-                  update (closuresForLocals, caddr, !alwaysUseClosure)
+                  update (closuresForLocals, caddr, false)
                 )
 				| applyFn _ = raise InternalError "applyFn: not a Declar"               
                   
@@ -2348,7 +2348,7 @@ DCJM 2000.
 			(* The code we produce in these inline functions is very limited. *)
 			let
 			   (* If we add something else it's very useful to know what it is. *)
-			   val pprint = prettyPrint(77, stringPrint);
+			   val pprint = prettyPrint(77, fn s => TextIO.output(TextIO.stdOut,s));
 			in
                ppBeginBlock pprint (1, false);
                pretty (code,  pprint);
@@ -2396,7 +2396,8 @@ DCJM 2000.
      evaluate : codetree -> codetree,
 	 tailCallEntry: bool ref option,
 	 recursiveExpansions:
-	 	((codetree list * bool * int -> codetree list) * bool ref) list) =
+	 	((codetree list * bool * int -> codetree list) * bool ref) list,
+     maxInlineSize: int) =
   (* earlyInline is true if we are expanding a procedure declared 
      "early inline". *)
   (* spval is the Declaration counter. Normally ref(1) except when expanding
@@ -2725,7 +2726,8 @@ DCJM 2000.
 		               earlyInline orelse earlyEval,
 		               evaluate,
 					   tailCall,
-					   recursiveExpansions)
+					   recursiveExpansions,
+                       maxInlineSize)
 				  end
 
 				else (* It's a "small" function. *)
@@ -2912,7 +2914,8 @@ DCJM 2000.
 			                   earlyInline orelse earlyEval,
 			                   evaluate,
 							   NONE, (* Don't generate loop instructions. *)
-							   (filterArgs, foptRec) :: recursiveExpansions)
+							   (filterArgs, foptRec) :: recursiveExpansions,
+                               maxInlineSize)
 
 						val newModCount = countSet 0 nArgs
 					in
@@ -2978,7 +2981,8 @@ DCJM 2000.
 			                   earlyInline orelse earlyEval,
 			                   evaluate,
 							   SOME foptRec,
-							   (filterArgs, foptRec) :: recursiveExpansions)
+							   (filterArgs, foptRec) :: recursiveExpansions,
+                               maxInlineSize)
 					in
 						if ! needsRecursiveCall
 						then (* We need a fully recursive call. *)
@@ -3123,7 +3127,8 @@ DCJM 2000.
                 false,
                 evaluate,
 				NONE,
-				recursiveExpansions);
+				recursiveExpansions,
+                maxInlineSize);
 
           (* nonLocals - a list of the non-local references made by this
 		     function.  If this is empty the function can be code-generated
@@ -3240,7 +3245,7 @@ DCJM 2000.
 						that case it's worth inlining it anyway. *)
 			  let
 				  val inlineType =
-				  	if lambdaInline = NonInline andalso isSmall cleanedBody
+				  	if lambdaInline = NonInline andalso isSmall(cleanedBody, maxInlineSize)
 					then SmallFunction
 					else lambdaInline
 
@@ -3311,7 +3316,8 @@ DCJM 2000.
 	              (mkEnv(args @ [body]), lookupNewAddr, lookupOldAddr,
 				   enterDec, enterNewDec, nestingOfThisProcedure,
 				   spval, earlyInline, evaluate, SOME foptRec,
-				   (filterArgs, foptRec) :: recursiveExpansions)
+				   (filterArgs, foptRec) :: recursiveExpansions,
+                   maxInlineSize)
 		in
 			if not (! loops)
 			then (* The Loop instructions have been optimised away.  Since there's
@@ -3338,7 +3344,7 @@ DCJM 2000.
 				 	optimiseProc 
 		              (body, lookupNewAddr, lookupOldAddr, enterDec, enterNewDec,
 					   nestingOfThisProcedure, spval, earlyInline, evaluate, SOME foptRec,
-					   (filterArgs, foptRec) :: recursiveExpansions)
+					   (filterArgs, foptRec) :: recursiveExpansions, maxInlineSize)
 			in
 	 			simpleOptVal (BeginLoop (getGeneral beginBody, declArgs))
 			end
@@ -3929,7 +3935,8 @@ DCJM 2000.
 	                earlyInline,
 	                evaluate,
 					NONE,
-					recursiveExpansions);
+					recursiveExpansions,
+                    maxInlineSize);
 	        in
 	          optVal 
 	            {
@@ -4116,35 +4123,34 @@ DCJM 2000.
 (*****************************************************************************)
 (*                  genCode                                                  *)
 (*****************************************************************************)
-  fun genCode pt =
+  fun genCode(pt, debugSwitches) =
   let
+    val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
+    and printCodeTreeAfter = DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
+    and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
+    and stringPrint        = DEBUG.getParameter DEBUG.compilerOutputTag debugSwitches
+
     (* This ensures that everything is printed just before
        it is code-generated. *)
     val codeGenAndPrint =
-      if !codetreeAfterOpt 
+      if printCodeTreeAfter
       then (fn code =>
              let
                val pprint = prettyPrint(77, stringPrint);
              in
                pretty (code,  pprint);
-               codegen code
+               codegen(code, debugSwitches)
              end
            )
-      else codegen;
+      else fn code => codegen(code, debugSwitches);
     
     fun preCodeAndPrint code =
-    let
-      val U : unit = 
-	if !codetree
-	then let
-	  val pprint = prettyPrint(77, stringPrint);
-	in
-	  pretty (code, pprint)
-	end
-	else ();
-    in
-      preCode (codeGenAndPrint, code)
-    end;
+    (
+        if printCodeTree
+        then pretty (code, prettyPrint(77, stringPrint))
+        else ();
+        preCode (codeGenAndPrint, code)
+    )
 
     (* Optimise it. *)
     val oldAddrTab = stretchArray (initTrans, NONE);
@@ -4182,7 +4188,7 @@ DCJM 2000.
 		);
       
       fun eval pt = evaluate (preCodeAndPrint pt) codeGenAndPrint;
-	  
+
 	  val resultCode =
           optimiseProc
             (pt,
@@ -4195,7 +4201,8 @@ DCJM 2000.
              false, (*Not inline*)
              eval,
     		 NONE,
-    		 [])
+    		 [],
+             maxInlineSize)
     in
 	    (* Turn the arrays into vectors. *)
 		StretchArray.freeze oldAddrTab;

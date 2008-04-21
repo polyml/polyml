@@ -51,7 +51,7 @@ sig
   val addrPlus  : addrs * int -> addrs;
   val addrMinus : addrs * addrs -> int;
   
-  val codeCreate: bool * string -> code;  (* makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
       
   (* ic - Address for the next instruction in the segment. *)
   val ic: code -> addrs;
@@ -201,7 +201,7 @@ sharing type
 sig
    type codetree
   type machineWord
-  val gencode: codetree -> unit -> machineWord;
+  val gencode: codetree * Universal.universal list -> unit -> machineWord;
 end =
 
 let
@@ -299,7 +299,7 @@ struct
        (pt : codetree,
         cvec : code,
         loadStaticLink : int * int -> slValue,
-        numOfArgs: int) : address =
+        numOfArgs: int, parameters) : address =
   let
     fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
@@ -448,7 +448,7 @@ struct
 	   (case value of
 	      Lambda (lam as {makeClosure = false, name, ...}) => 
 	      let
-		val newCode : code = codeCreate (true, name);
+		val newCode : code = codeCreate (true, name, parameters);
 		val U : unit =
 		  STRETCHARRAY.update (decVec, addr, ProcConst newCode);
 	      in
@@ -819,7 +819,7 @@ struct
 
       else if (case #closure lam of [] => true | _ => false)
       then let
-        val newCode : code = codeCreate(false, #name lam);
+        val newCode : code = codeCreate(false, #name lam, parameters);
         
         (* The only global references are recursive ones (?) *)
         fun loadRecLink (addr : int, level : int) : slValue =
@@ -827,7 +827,7 @@ struct
         
         (* Code-gen procedure. No non-local references. *)
          val res : address =
-           codegen (#body lam, newCode, loadRecLink, #numArgs lam);
+           codegen (#body lam, newCode, loadRecLink, #numArgs lam, parameters);
 
         val U : unit = pushConst(toMachineWord res, cvec);
         val U : unit = incsp();
@@ -847,11 +847,11 @@ struct
 	  else (* Return an entry in the closure. *)
 	    Address (addr, level);
 
-        val newCode : code = codeCreate (true, #name lam);
+        val newCode : code = codeCreate (true, #name lam, parameters);
 
         (* Code-gen procedure. *)
         val res : address =
-          codegen (#body lam, newCode, loadSl, #numArgs lam);
+          codegen (#body lam, newCode, loadSl, #numArgs lam, parameters);
 
         val sizeOfClosure = List.length (#closure lam) + 1;
       in
@@ -946,7 +946,7 @@ struct
      (* Now code-generate the procedure. We can throw away the result because
         it will be assigned into the value we have just returned. *)
      val U : address =
-       codegen (#body lam, newCode, loadSl, #numArgs lam)
+       codegen (#body lam, newCode, loadSl, #numArgs lam, parameters)
    in
      ()
    end (* genSlProc*)
@@ -1351,7 +1351,7 @@ struct
 	   then let (* Static link. *)
 	     (* Create a code-segment and put it in the table in case of
 		 mutually recursive references. *)
-	     val newCode : code = codeCreate(true, #name lam);
+	     val newCode : code = codeCreate(true, #name lam, parameters);
 	     val U : unit = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
 	     (* Deal with any other possible references. *)
 	     val U : unit = genMutualDecs (otherDecs, matchFailFn);
@@ -1404,7 +1404,7 @@ struct
  end (* codegen *);
 
 
-  fun gencode (pt: codetree) : unit -> machineWord =
+  fun gencode (pt: codetree, parameters) : unit -> machineWord =
     case pt of
       Lambda lam => (* We are compiling a procedure. *)
       let
@@ -1412,7 +1412,7 @@ struct
            a piece of code whose only function is to return the address of the
            procedure. *)
         (* make the code buffer for the new procedure. *)
-        val newCode : code = codeCreate (false, #name lam);
+        val newCode : code = codeCreate (false, #name lam, parameters);
 
         (* The only global references are recursive ones (?) *)
         fun loadRecLink (level : int, addr : int) : slValue =
@@ -1420,7 +1420,7 @@ struct
 
         (* This procedure must have no non-local references. *)
         val closureAddr : address =
-          codegen (#body lam, newCode, loadRecLink, #numArgs lam);
+          codegen (#body lam, newCode, loadRecLink, #numArgs lam, parameters);
             
         val res : machineWord = toMachineWord closureAddr;
       in
@@ -1430,14 +1430,14 @@ struct
       
    | _ =>
      let (* Compile a top-level expression. *)
-       val newCode : code = codeCreate(false, "<top level>");
+       val newCode : code = codeCreate(false, "<top level>", parameters);
 
         (* There ane *no*  global references at all *)
         fun loadRecLink (level : int, addr : int) : slValue =
           raise InternalError "top level reached";
 
        val closureAddr : address =
-	 codegen (pt, newCode, loadRecLink, 0)
+	 codegen (pt, newCode, loadRecLink, 0, parameters)
      in
        (* Result is a procedure to execute the code. *)
        fn () => call (closureAddr, toMachineWord ())

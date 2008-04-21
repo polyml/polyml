@@ -41,7 +41,10 @@ functor I386CODECONS (
 (*****************************************************************************)
 structure DEBUG :
 sig
-  val assemblyCode:    bool ref;
+    val assemblyCodeTag : bool Universal.tag
+    val compilerOutputTag:      (string->unit) Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
 end;
 
 
@@ -101,11 +104,11 @@ sig
   val regEq:    reg * reg -> bool;
   val regNeq:   reg * reg -> bool;
   
-  val regPrint: reg -> unit;
+  val regRepr: reg -> string;
 
   type addrs
 
-  val codeCreate: bool * string -> code;  (* makes the initial segment. *)
+  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
 
   (* Operations. *)
   type instrs;
@@ -306,11 +309,6 @@ struct
   open MISC;
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
-
-  val print = TextIO.print;
-
-  (* prints a string representation of a number *)
-  fun printHex v = TextIO.print(Int.fmt StringCvt.HEX v)
  
   (* added SPF - take numbers OUT of code *)
   (* These are defined here as explicit constants, so the     *)
@@ -434,9 +432,11 @@ struct
       selfCalls:      addrs list ref, (* List of recursive calls to patch up. *)
       selfJumps:      labels ref,     (* List of recursive tail-calls to patch up. *)
       noClosure:      bool,           (* should we make a closure from this? *)
-	  branchCheck:    addrs ref       (* the address we last fixed up to.  I added
+	  branchCheck:    addrs ref,      (* the address we last fixed up to.  I added
                                          this to track down a bug and I've left it
 										 in for security.  DCJM 19/1/01. *)
+      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+      printStream:    string->unit    (* The stream to use *)
     };
 
   (* procName is exported. *)
@@ -476,7 +476,7 @@ struct
   fun (Code{pcOffset=a, ...}) is (Code{pcOffset=b, ...}) = a=b;
   
   (* create and initialise a code segment *)
-  fun codeCreate (noClosure : bool, name : string) : code =
+  fun codeCreate (noClosure : bool, name : string, parameters) : code =
   let
     val words = codesize div 4
   in
@@ -499,7 +499,9 @@ struct
         selfCalls      = ref [],
         selfJumps      = ref [],
         noClosure      = noClosure,
-		branchCheck    = ref addrZero
+		branchCheck    = ref addrZero,
+        printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
       }
     end;
            
@@ -765,8 +767,6 @@ struct
       if r regEq esi then "%esi" else
       if r regEq edi then "%edi" else
          "r" ^ Int.toString (getReg r);
-         
-    fun regPrint r = TextIO.output (TextIO.stdOut, regRepr r);
     
     (* Arguments are passed in eax and ebx. *)
     val argRegs = 2;
@@ -3339,9 +3339,12 @@ Calling conventions:
   end;
 
 
-  fun printCode (Code{procName, numOfConsts, pcOffset, constVec, ...}) seg endcode =
-  let 
+  fun printCode (Code{procName, numOfConsts, pcOffset, constVec, printStream, ...}) seg endcode =
+  let
+    val print = printStream
     val ptr = ref 0;
+    (* prints a string representation of a number *)
+    fun printHex v = print(Int.fmt StringCvt.HEX v)
  
     infix 3 +:= ;
     fun (x +:= y) = (x := !x + (y:int));
@@ -3905,6 +3908,8 @@ Calling conventions:
 						 constVec = ref constVec,
 						 resultSeg,
 						 procName,
+                         printAssemblyCode,
+                         printStream,
 						 ...},
   			    stackRequired, registerSet) : address =
   let
@@ -4160,13 +4165,13 @@ itself.
       val U : unit = fixOtherRefs (cvec, toMachineWord addr);
   
       val U : unit = 
-		if !assemblyCode
+		if printAssemblyCode
 		then (* print out the code *)
 		  (
 		  printCode cvec seg ((getAddr endic) + offset * 4);
-		  print "Register set = [";
-		  List.app (fn r => (print " "; regPrint r)) registerSet;
-		  print "]\n\n"
+		  printStream "Register set = [";
+		  List.app (fn r => (printStream " "; printStream(regRepr r))) registerSet;
+		  printStream "]\n\n"
 		  )
 		else ();
     in
