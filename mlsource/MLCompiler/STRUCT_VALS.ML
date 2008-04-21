@@ -173,7 +173,9 @@ sig
   (* Values. *)
   and typeDependent =
     Print
+  | PrintSpace
   | MakeString
+  | MakeStringSpace
   | InstallPP
   | Equal
   | NotEqual
@@ -550,7 +552,9 @@ struct
      *, + etc  which are overloaded on a limited range of types. *)  
   and typeDependent =
     Print
+  | PrintSpace
   | MakeString
+  | MakeStringSpace
   | InstallPP
   | Equal
   | NotEqual
