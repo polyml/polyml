@@ -568,8 +568,13 @@ struct
   end;
 
   (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-  fun findEntryInBlock (Recconstr recs) offset = List.nth(recs, offset)
-      
+  fun findEntryInBlock (Recconstr recs) offset =
+      if offset < List.length recs
+      then List.nth(recs, offset)
+      else (* This can arise if we're processing a branch of a case discriminating on
+              a datatype which won't actually match at run-time. *)
+          mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero])
+
   |  findEntryInBlock (Constnt b) offset =
     ( 
       (* The ML compiler may generate loads from invalid addresses as a
