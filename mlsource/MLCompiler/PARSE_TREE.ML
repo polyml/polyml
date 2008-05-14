@@ -5132,15 +5132,15 @@ struct
               val newDecName : string  = decName ^ "(1)";
 			  val newDebug = newDebugLevel debugEnv
               val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug);
+              (* If we're debugging add the debug info before resetting the level. *)
+              val wrapped =
+                  wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType, newDebug)
             in
               varAddr   := addr;        (* Reset the address *)
               level     := !level - 1;  (* Reset level and addresses *)
               addresses := oldAddr;
               let
-                val pr =
-					mkProc (
-						wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType, newDebug),
-						!level + 1, 1, newDecName);
+                val pr = mkProc (wrapped, !level + 1, 1, newDecName);
               in
                 [if isRecursive then mkDec (addr, pr) else pr]
               end
@@ -5336,14 +5336,15 @@ struct
 							   pushed onto the stack within the function than an
 							   argument which may have its last use early on. *)
 							mkSetContainer(mkLoad(~1, 0), codeMatches, resultTuple)
-  
+
+                     (* If we're debugging add the debug info before resetting the level. *)
+                     val wrapped =
+                         wrapFunctionInDebug(bodyCode, procName, argList, aType, resType, newDebugLevel debugEnv)
                      (* Reset level and addresses *)
                      val U = level := !level - 1;
                      val U = addresses := oldAddr;
         
-                     val innerFun : codetree = 
-                       mkProc (wrapFunctionInDebug(bodyCode, procName, argList, aType, resType, newDebugLevel debugEnv),
-					   	!level + 1, totalArgs, innerProcName);
+                     val innerFun : codetree = mkProc (wrapped, !level + 1, totalArgs, innerProcName);
                           
                      (* We now have a function which can be applied to the
                         arguments once we have them. If the function is curried 
