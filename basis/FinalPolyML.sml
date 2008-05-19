@@ -189,7 +189,7 @@ local
     and parsetree = ref false
     
     val debug = ref false
-    val inlineFunctors = ref false
+    val inlineFunctors = ref true
     val maxInlineSize = ref 40
     val ml90 = ref false
     val printInAlphabeticalOrder = ref true
