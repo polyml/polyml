@@ -1113,7 +1113,7 @@ struct
 			and eOK = getConst 158 and fOK = getConst 159
 			fun abit A_READ = rOK
 			 |  abit A_WRITE = wOK
-			 |  abit A_EXEC = wOK
+			 |  abit A_EXEC = eOK
 			val abits = List.foldl (fn (a, b) => SysWord.orb(abit a,b)) 0w0
 		in
 			(* If the bits are nil it tests for existence of the file. *)
