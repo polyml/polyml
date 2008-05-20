@@ -78,41 +78,57 @@ struct
     fun kill({pid, ... }: ('a, 'b) proc, signal) =
         Posix.Process.kill(Posix.Process.K_PROC pid, signal)
 
-    (* The definition is a bit vague about whether we are supposed to
-       search the path or treat this as a command to be run under a
-       shell. *)
+    (* Create a new process running a command and with pipes connecting the
+       standard input and output.
+       The command is supposed to be an executable and we should raise an
+       exception if it is not.  Since the exece is only done in the child we
+       need to test whether we have an executable at the beginning.
+       The definition does not say whether the first of the user-supplied
+       arguments includes the command or not.  Assume that only the "real"
+       arguments are provided and pass the last component of the command
+       name in the exece call. *)
     fun executeInEnv (cmd, args, env) =
     let
-        val toChild = Posix.IO.pipe()
-        and fromChild = Posix.IO.pipe()
+        open Posix
+        (* Test first for presence of the file and then that we
+           have correct access rights. *)
+        val s = FileSys.stat cmd
+            handle OS.SysErr(_, e) =>
+               raise OS.SysErr("File does not exist", e)
+        val () =
+           if not (FileSys.ST.isReg s) orelse not (FileSys.access(cmd, [FileSys.A_EXEC]))
+           then raise OS.SysErr("Cannot execute file", SOME Error.acces)
+           else ()
+        val toChild = IO.pipe()
+        and fromChild = IO.pipe()
     in
-        case Posix.Process.fork() of
+        case Process.fork() of
             NONE => (* In the child *)
             ((
             (* Should really clean up the signals here and
                turn off timers. *)
             (* Close the unwanted ends of the pipes and
                set the required ends up as stdin and stdout. *)
-            Posix.IO.close(#outfd toChild);
-            Posix.IO.close(#infd fromChild);
-            Posix.IO.dup2{old= #infd toChild,
-                      new=Posix.FileSys.wordToFD 0w0};
-            Posix.IO.dup2{old= #outfd fromChild,
-                      new= Posix.FileSys.wordToFD 0w1};
-            Posix.IO.close(#infd toChild);
-            Posix.IO.close(#outfd fromChild);
+            IO.close(#outfd toChild);
+            IO.close(#infd fromChild);
+            IO.dup2{old= #infd toChild,
+                      new=FileSys.wordToFD 0w0};
+            IO.dup2{old= #outfd fromChild,
+                      new= FileSys.wordToFD 0w1};
+            IO.close(#infd toChild);
+            IO.close(#outfd fromChild);
             (* Run the command. *)
-            Posix.Process.exece(cmd, args, env);
+            Process.exece(cmd, OS.Path.file cmd :: args, env);
             (* If we get here the exec must have failed -
                terminate this process.  We're supposed to
-                           set the error code to 126 in this case. *)
-            Posix.Process.exit 0w126
-            ) handle _ => Posix.Process.exit 0w126)
+               set the error code to 126 in this case. *)
+            Process.exit 0w126
+            ) handle _ => Process.exit 0w126)
 
         |   SOME pid => (* In the parent *)
             (
-            Posix.IO.close(#infd toChild);
-            Posix.IO.close(#outfd fromChild);
+            IO.close(#infd toChild);
+            IO.close(#outfd fromChild);
             {pid=pid, infd= #infd fromChild, outfd= #outfd toChild, result = ref NONE}
             )
     end
