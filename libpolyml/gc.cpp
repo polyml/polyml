@@ -1076,7 +1076,7 @@ static bool BufferIsReallyFull(bool mutableRegion, POLYUNSIGNED wordsNeeded, con
         if (space->isMutable == mutableRegion)
         {
             POLYUNSIGNED currentlyFree = space->pointer - space->bottom;
-            if (currentlyFree > wordsNeeded)
+            if (currentlyFree >= wordsNeeded)
             {
                 currentlyFree -= wordsNeeded;
                 wordsNeeded = 0;
