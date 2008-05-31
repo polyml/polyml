@@ -337,6 +337,10 @@ sig
   type prettyPrinter 
   val prettyPrint : int * (string -> unit) -> prettyPrinter; 
   val uglyPrint   : (string -> unit) -> prettyPrinter; 
+  val ppAddString  : prettyPrinter -> string -> unit
+  val ppBeginBlock : prettyPrinter -> int * bool -> unit
+  val ppEndBlock   : prettyPrinter -> unit -> unit
+  val ppBreak      : prettyPrinter -> int * int -> unit
 end;
 
 structure VERSION:
@@ -1298,8 +1302,16 @@ struct
 (*****************************************************************************)
         local
             open TYPETREE PRETTYPRINTER
-            fun displayFix(f: fixStatus, stream: string->unit) =
-                displayFixStatus(f, 999 (* Actually unused. *), prettyPrint (77, stream))
+            fun displayFix((name: string, f: fixStatus), stream: string->unit) =
+            let
+                val pstream = prettyPrint (77, stream)
+            in
+                ppBeginBlock pstream (0, false);
+                displayFixStatus (f, 999 (* Actually unused. *), pstream);
+                ppBreak pstream (1, 0);
+                ppAddString pstream name;
+                ppEndBlock pstream ()
+            end
 
             and displaySig(s: signatures, depth: int, space: nameSpace, withStruct: bool, stream: string->unit) =
                 displaySignatures(s, depth, prettyPrint (77, stream), space, withStruct)
@@ -1323,7 +1335,7 @@ struct
         in
             val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [
-                ("displayFix",             toMachineWord displayFix, fixityVal ** (String ->> Unit) ->>Unit),
+                ("displayFix",             toMachineWord displayFix, (String ** fixityVal) ** (String ->> Unit) ->>Unit),
                 ("displaySig",             toMachineWord displaySig,
                     mkProductType[signatureVal, Int, nameSpaceType, Bool, (String ->> Unit)] ->> Unit),
                 ("displayStruct",             toMachineWord displayStruct,
