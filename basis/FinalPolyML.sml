@@ -3,19 +3,19 @@
     Author:     David Matthews
     Copyright   David Matthews 2008
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -201,21 +201,21 @@ local
     
     (* Debugger control. *)
 
-	(* Whenever we enter a function we push information onto this stack. *)
-	type debugStackEntry =
-	{
-		lineNo: int,
-		funName: string,
-		fileName: string,
+    (* Whenever we enter a function we push information onto this stack. *)
+    type debugStackEntry =
+    {
+        lineNo: int,
+        funName: string,
+        fileName: string,
         space: PolyML.NameSpace.nameSpace,
         arguments: PolyML.NameSpace.valueVal
-	}
+    }
     (* With the exception of the stack, which is thread-specific, all these are
        global variables and apply to any thread. Perhaps they should be thread-specific
        in which case the debugger will only be entered if the thread that set a breakpoint
        encounters it. *)
     local
-	    val stackTag: debugStackEntry list ref Universal.tag = Universal.tag()
+        val stackTag: debugStackEntry list ref Universal.tag = Universal.tag()
     in
         (* Get the stack of previous calls.  Create a new one if necessary.*)
         fun getStack(): debugStackEntry list ref =
@@ -223,77 +223,96 @@ local
                 NONE => let val stack = ref [] in Thread.Thread.setLocal(stackTag, stack); stack end
             |   SOME stack => stack
     end
-	val debugLevel = ref 0
+    val debugLevel = ref 0
     (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
-	val exitLoop = ref false;
-	(* Call tracing. *)
+    val exitLoop = ref false;
+    (* Call tracing. *)
     val tracing = ref false;
     val breakNext = ref false;
-	(* Single stepping. *)
-	val stepDebug = ref false;
-	val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
-	(* Break points.  We have two breakpoint lists: a list of file-line
-	   pairs and a list of function names. *)
-	val lineBreakPoints = ref []
-	and fnBreakPoints = ref []
+    (* Single stepping. *)
+    val stepDebug = ref false;
+    val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
+    (* Break points.  We have two breakpoint lists: a list of file-line
+       pairs and a list of function names. *)
+    val lineBreakPoints = ref []
+    and fnBreakPoints = ref []
 
-   	fun checkLineBreak (file, line) =
-    	let
-    		fun findBreak [] = false
-    		 |  findBreak ((f, l) :: rest) =
-    		 	  (l = line andalso f = file) orelse findBreak rest
-    	in
-    		findBreak (! lineBreakPoints)
-    	end
+    fun checkLineBreak (file, line) =
+        let
+            fun findBreak [] = false
+             |  findBreak ((f, l) :: rest) =
+                  (l = line andalso f = file) orelse findBreak rest
+        in
+            findBreak (! lineBreakPoints)
+        end
 
-	fun checkFnBreak exact name =
-	let
-		(* When matching a function name we allow match if the name
-		   we're looking for matches the last component of the name
-		   we have.  e.g. if we set a break for "f" we match F().S.f . *)
-		fun matchName n =
-			if name = n then true
-			else if exact then false
-			else
-			let
-				val nameLen = size name
-				and nLen = size n
-				fun isSeparator #"-" = true
-				 |  isSeparator #")" = true
-				 |  isSeparator #"." = true
-				 |  isSeparator _    = false
-			in
-				nameLen > nLen andalso String.substring(name, nameLen - nLen, nLen) = n
-				andalso isSeparator(String.sub(name, nameLen - nLen - 1))
-			end
-	in
-		List.exists matchName (! fnBreakPoints)
-	end
+    fun checkFnBreak exact name =
+    let
+        (* When matching a function name we allow match if the name
+           we're looking for matches the last component of the name
+           we have.  e.g. if we set a break for "f" we match F().S.f . *)
+        fun matchName n =
+            if name = n then true
+            else if exact then false
+            else
+            let
+                val nameLen = size name
+                and nLen = size n
+                fun isSeparator #"-" = true
+                 |  isSeparator #")" = true
+                 |  isSeparator #"." = true
+                 |  isSeparator _    = false
+            in
+                nameLen > nLen andalso String.substring(name, nameLen - nLen, nLen) = n
+                andalso isSeparator(String.sub(name, nameLen - nLen - 1))
+            end
+    in
+        List.exists matchName (! fnBreakPoints)
+    end
 
-	(* Try to print the appropriate line from the file.  Used in the debugger
+    fun printOut s =
+        TextIO.print s
+        (* If we get an exception while writing to stdOut we've got
+           a big problem and can't continue.  It could happen if
+           we have closed stdOut.  Try reporting the error through
+           stdErr and exit. *)
+        handle SML90.Interrupt => raise SML90.Interrupt
+        |     exn =>
+            (
+                (
+                    TextIO.output(TextIO.stdErr,
+                        concat["Exception ", exnName exn,
+                      	       " raised while writing to stdOut.\n"]);
+                    TextIO.flushOut TextIO.stdErr (* probably unnecessary. *)
+                ) handle _ => ();
+                (* Get out without trying to do anything else. *)
+                OS.Process.terminate OS.Process.failure
+            )
+
+    (* Try to print the appropriate line from the file.  Used in the debugger
        and debug functions. *)
-	fun printSourceLine(fileName: string, line: int, funName: string) =
-	let
+    fun printSourceLine(fileName: string, line: int, funName: string) =
+    let
         open TextIO
     in
-    	(* First just print where we are. *)
-        if fileName = "" then () else print(concat[fileName, " "]);
-        if line = 0 then () else print(concat[" line:", Int.toString line, " "]);
-    	print(concat["function:", funName, "\n"]);
-    	(* Try to print it.  This may fail if the file name was not a full path
-    	   name and we're not in the correct directory. *)
+        (* First just print where we are. *)
+        if fileName = "" then () else printOut(concat[fileName, " "]);
+        if line = 0 then () else printOut(concat[" line:", Int.toString line, " "]);
+        printOut(concat["function:", funName, "\n"]);
+        (* Try to print it.  This may fail if the file name was not a full path
+           name and we're not in the correct directory. *)
         if fileName = "" then ()
         else
-    	let
-    		val fd = openIn fileName
-    		fun pLine n =
-    			case inputLine fd of
-    				NONE => ()
-    			|	SOME s => if n = 1 then print s else pLine(n-1)
-    	in
-    		pLine line;
-    		closeIn fd
-    	end handle IO.Io _ => () (* If it failed simply ignore the error. *)
+        let
+            val fd = openIn fileName
+            fun pLine n =
+                case inputLine fd of
+                    NONE => ()
+                |   SOME s => if n = 1 then printOut s else pLine(n-1)
+        in
+            pLine line;
+            closeIn fd
+        end handle IO.Io _ => () (* If it failed simply ignore the error. *)
     end
 
     local
@@ -302,7 +321,7 @@ local
            be the same as Bootstrap.Universal. *)
         (* Default error message function. *)
         fun defaultErrorProc fileName (message: string, hard: bool, line: int) =
-           TextIO.print(concat
+           printOut(concat
                ( (if hard then ["Error-"] else ["Warning-"]) @
                  (if fileName = "" then [] else [" in '", fileName, "',"]) @
                  (if line = 0 then [] else [" line ", Int.toString line]) @
@@ -333,16 +352,16 @@ local
                 map (fn (s, f) => (s, FunctorKind f)) functors @
                 map (fn (s, f) => (s, ValueKind f)) values
 
-			fun kindToInt(FixStatusKind _) = 0
-			|   kindToInt(TypeConstrKind _) = 1
-			|   kindToInt(SignatureKind _) = 2
-			|   kindToInt(StructureKind _) = 3
-			|   kindToInt(FunctorKind _) = 4
-			|   kindToInt(ValueKind _) = 5
+            fun kindToInt(FixStatusKind _) = 0
+            |   kindToInt(TypeConstrKind _) = 1
+            |   kindToInt(SignatureKind _) = 2
+            |   kindToInt(StructureKind _) = 3
+            |   kindToInt(FunctorKind _) = 4
+            |   kindToInt(ValueKind _) = 5
 
-			fun order (s1: string, k1) (s2, k2) =
-					if s1 = s2 then kindToInt k1 <= kindToInt k2
-					else s1 <= s2
+            fun order (s1: string, k1) (s2, k2) =
+                    if s1 = s2 then kindToInt k1 <= kindToInt k2
+                    else s1 <= s2
 
             fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
             |   quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
@@ -353,36 +372,36 @@ local
                 quickSort leq befor @ (h :: quickSort leq after)
             end;
 
-			(* Don't sort the declarations if we want them in declaration order. *)
-			val sortedDecs =
-				if inOrder then quickSort order decList else decList
+            (* Don't sort the declarations if we want them in declaration order. *)
+            val sortedDecs =
+                if inOrder then quickSort order decList else decList
 
-			fun printDec(n, FixStatusKind f) =
+            fun printDec(n, FixStatusKind f) =
                 (
-                    if depth > 0 then displayFix(f, stream) else ();
+                    if depth > 0 then displayFix((n,f), stream) else ();
                     #enterFix space (n,f)
                 )
-			|   printDec(n, TypeConstrKind t) =
+            |   printDec(n, TypeConstrKind t) =
                 (
                     if depth > 0 then displayType(t, depth, withStruct, stream) else ();
                     #enterType space (n,t)
                 )
-			|   printDec(n, SignatureKind s) =
+            |   printDec(n, SignatureKind s) =
                 (
                     if depth > 0 then displaySig(s, depth, space, withStruct, stream) else ();
                     #enterSig space (n,s)
                 )
-			|   printDec(n, StructureKind s) =
+            |   printDec(n, StructureKind s) =
                 (
                     if depth > 0 then displayStruct(s, depth, space, withStruct, stream) else ();
                     #enterStruct space (n,s)
                 )
-			|   printDec(n, FunctorKind f) =
+            |   printDec(n, FunctorKind f) =
                 (
                     if depth > 0 then displayFunct(f, depth, space, withStruct, stream) else ();
                     #enterFunct space (n,f)
                 )
-			|   printDec(n, ValueKind v) =
+            |   printDec(n, ValueKind v) =
                 (
                     if depth > 0 then displayVal(v, depth, space, withStruct, stream) else ();
                     #enterVal space (n,v)
@@ -474,8 +493,8 @@ local
                 val setPrompt : unit =
                     if !lastWasEol (* Start of line *)
                     then if !realDataRead
-                    then print (if isDebug then "debug " ^ !prompt2 else !prompt2)
-                    else print (if isDebug then "debug " ^ !prompt1 else !prompt1)
+                    then printOut (if isDebug then "debug " ^ !prompt2 else !prompt2)
+                    else printOut (if isDebug then "debug " ^ !prompt1 else !prompt1)
                     else ();
              in
                 case TextIO.input1 TextIO.stdIn of
@@ -513,10 +532,10 @@ local
                 (* Compile and then run the code. *)
                 let
                     val code =
-                        polyCompiler(readin, [CPNameSpace nameSpace])
+                        polyCompiler(readin, [CPNameSpace nameSpace, CPOutStream printOut])
                         handle Fail s => 
                         (
-                            print(s ^ "\n");
+                            printOut(s ^ "\n");
                             flushInput();
                             lastWasEol := true;
                             raise Fail s
@@ -526,7 +545,7 @@ local
                     (* Report exceptions in running code. *)
                         handle  exn =>
                         (
-                            print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                            printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
                             raise exn
                         )
                 end
@@ -536,7 +555,7 @@ local
                debugged function. *) 
             fun handleDebuggingException () =
             let
-                val () = print "Pass exception to function being debugged (y/n)?";
+                val () = printOut "Pass exception to function being debugged (y/n)?";
                 val () = flushInput ();
                 val response =
                     case TextIO.input1 TextIO.stdIn of
@@ -582,10 +601,10 @@ local
                     |   _ => ()
                 val () = flushInput ()
 
-				val () = exitLoop := false;
-				val () = debugLevel := 0;
+                val () = exitLoop := false;
+                val () = debugLevel := 0;
                 val () = breakNext := false;
-				val () =
+                val () =
                     case !stack of
                         {lineNo, fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
                     |   [] => () (* Shouldn't happen. *)
@@ -697,11 +716,11 @@ local
                 in
                     (* Update the stack.  If this is top-level code the stack may be empty. *)
                     stack := newStackEntry :: stackTail;
-        			(* We need to enter the debugger if we are single stepping or
-        			   we have a break at this line or we've just entered a function with a
+                    (* We need to enter the debugger if we are single stepping or
+                       we have a break at this line or we've just entered a function with a
                        break point. *)
-        			if (!stepDebug andalso (!stepDepth < 0 orelse List.length(!stack) <= !stepDepth)) orelse
-        			   checkLineBreak (name, line) orelse ! breakNext
+                    if (!stepDebug andalso (!stepDepth < 0 orelse List.length(!stack) <= !stepDepth)) orelse
+                       checkLineBreak (name, line) orelse ! breakNext
                     then enterDebugger ()
                     else () 
                 end
@@ -1180,36 +1199,36 @@ local
 
     (* This is the root function to run the Poly/ML top level. *)
     fun rootShell () =
-	let
+    let
         val argList = CommandLine.arguments();
-		fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
-		fun rtsCopyright() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (11, ())
-		fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
+        fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
+        fun rtsCopyright() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (11, ())
+        fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
     in
-	    if List.exists(fn s => s = "-v") argList
-		then (* -v option : Print version information and exit *)
-    		print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, 
-			                     "    RTS version: ", rtsRelease(), "\n"])
+        if List.exists(fn s => s = "-v") argList
+        then (* -v option : Print version information and exit *)
+            print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, 
+                                 "    RTS version: ", rtsRelease(), "\n"])
 
-		else if List.exists(fn s => s = "--help") argList
-		then (* --help option: Print argument information and exit. *)
-		   (
-     		print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
-			print "Compiler arguments:\n";
-			print "\n";
-			print "-v        Print the version of Poly/ML and exit\n";
-			print "--help    Print this message and exit\n";
-			print "-q        Suppress the start-up message\n";
-			print "\nRun time system arguments:\n";
-			print (rtsHelp())
-		   )
-		else (* Enter Poly/ML. *)
+        else if List.exists(fn s => s = "--help") argList
+        then (* --help option: Print argument information and exit. *)
+           (
+            print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
+            print "Compiler arguments:\n";
+            print "\n";
+            print "-v        Print the version of Poly/ML and exit\n";
+            print "--help    Print this message and exit\n";
+            print "-q        Suppress the start-up message\n";
+            print "\nRun time system arguments:\n";
+            print (rtsHelp())
+           )
+        else (* Enter Poly/ML. *)
         let
             open Signal;
             val () =
-        	    if List.exists(fn s => s = "-q") (CommandLine.arguments())
-        		then ()
-        		else print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
+                if List.exists(fn s => s = "-q") (CommandLine.arguments())
+                then ()
+                else print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
             (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
                If a handler has been set up by an initialisation function don't replace it. *)
             val () =
@@ -1221,7 +1240,7 @@ local
             shell();
             OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
         end
-	end;
+    end;
 
 in
     structure PolyML =
@@ -1278,87 +1297,87 @@ in
         
         and Debug =
         struct
-        	(* singleStep causes the debugger to be entered on the next call.
-        	   stepOver enters the debugger on the next call when the stack is no larger
-        	   than it is at present.
-        	   stepOut enters the debugger on the next call when the stack is smaller
-        	   than it is at present. *)
-        	fun step () = (stepDebug := true; stepDepth := ~1; exitLoop := true)
-        	and stepOver() = (stepDebug := true; stepDepth := List.length(!(getStack())); exitLoop := true)
-        	and stepOut() = (stepDebug := true; stepDepth := List.length(!(getStack())) - 1; exitLoop := true)
-        	and continue () = (stepDebug := false; stepDepth := ~1; exitLoop := true)
-        	and trace b = tracing := b
+            (* singleStep causes the debugger to be entered on the next call.
+               stepOver enters the debugger on the next call when the stack is no larger
+               than it is at present.
+               stepOut enters the debugger on the next call when the stack is smaller
+               than it is at present. *)
+            fun step () = (stepDebug := true; stepDepth := ~1; exitLoop := true)
+            and stepOver() = (stepDebug := true; stepDepth := List.length(!(getStack())); exitLoop := true)
+            and stepOut() = (stepDebug := true; stepDepth := List.length(!(getStack())) - 1; exitLoop := true)
+            and continue () = (stepDebug := false; stepDepth := ~1; exitLoop := true)
+            and trace b = tracing := b
 
-        	fun breakAt (file, line) =
-        		if checkLineBreak(file, line) then () (* Already there. *)
-        		else lineBreakPoints := (file, line) :: ! lineBreakPoints
+            fun breakAt (file, line) =
+                if checkLineBreak(file, line) then () (* Already there. *)
+                else lineBreakPoints := (file, line) :: ! lineBreakPoints
         
-        	fun clearAt (file, line) =
-        	let
-        		fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
-        		 |  findBreak ((f, l) :: rest) =
-        		 	  if l = line andalso f = file
-        			  then rest else (f, l) :: findBreak rest
-        	in
-        		lineBreakPoints := findBreak (! lineBreakPoints)
-        	end
-         
-        	fun breakIn name =
-        		if checkFnBreak true name then () (* Already there. *)
-        		else fnBreakPoints := name :: ! fnBreakPoints
-        
-        	fun clearIn name =
-        	let
-        		fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
-        		 |  findBreak (n :: rest) =
-        		 	  if name = n then rest else n :: findBreak rest
-        	in
-        		fnBreakPoints := findBreak (! fnBreakPoints)
-        	end
-        
-        	(* Stack traversal. *)
-        	fun up () =
+            fun clearAt (file, line) =
             let
-                val stack = getStack()
+                fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+                 |  findBreak ((f, l) :: rest) =
+                      if l = line andalso f = file
+                      then rest else (f, l) :: findBreak rest
             in
-        		if !debugLevel < List.length (!stack) -1
-        		then
-        		let
-        			val _ = debugLevel := !debugLevel + 1;
-        			val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
-        		in
-        			printSourceLine(fileName, lineNo, funName)
-        		end
-        		else TextIO.print "Top of stack.\n"
+                lineBreakPoints := findBreak (! lineBreakPoints)
+            end
+         
+            fun breakIn name =
+                if checkFnBreak true name then () (* Already there. *)
+                else fnBreakPoints := name :: ! fnBreakPoints
+        
+            fun clearIn name =
+            let
+                fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+                 |  findBreak (n :: rest) =
+                      if name = n then rest else n :: findBreak rest
+            in
+                fnBreakPoints := findBreak (! fnBreakPoints)
             end
         
-        	and down () =
+            (* Stack traversal. *)
+            fun up () =
             let
                 val stack = getStack()
             in
-        		if !debugLevel = 0
-        		then TextIO.print "Bottom of stack.\n"
-        		else
-        		let
-        			val () = debugLevel := !debugLevel - 1;
-        			val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
-        		in
-        			printSourceLine(fileName, lineNo, funName)
-        		end
+                if !debugLevel < List.length (!stack) -1
+                then
+                let
+                    val _ = debugLevel := !debugLevel + 1;
+                    val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
+                in
+                    printSourceLine(fileName, lineNo, funName)
+                end
+                else TextIO.print "Top of stack.\n"
+            end
+        
+            and down () =
+            let
+                val stack = getStack()
+            in
+                if !debugLevel = 0
+                then TextIO.print "Bottom of stack.\n"
+                else
+                let
+                    val () = debugLevel := !debugLevel - 1;
+                    val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
+                in
+                    printSourceLine(fileName, lineNo, funName)
+                end
             end
 
             (* Just print the functions without any other context. *)
-    		fun stack () : unit =
-    		let
-       			fun printTrace {funName, lineNo, fileName, ...} =
-				(
+            fun stack () : unit =
+            let
+                fun printTrace {funName, lineNo, fileName, ...} =
+                (
                     if fileName = "" then () else TextIO.print(concat[fileName, " "]);
                     if lineNo = 0 then () else TextIO.print(concat[" line:", Int.toString lineNo, " "]);
-                	TextIO.print(concat["function:", funName, "\n"])
+                    TextIO.print(concat["function:", funName, "\n"])
                 )
-     		in
+            in
                 List.app printTrace (! (getStack()))
-    		end
+            end
 
             local
                 fun printVal v =
