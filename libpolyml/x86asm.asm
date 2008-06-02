@@ -2153,7 +2153,11 @@ IFDEF WINDOWS
 	FILD    dword ptr RealTemp[Rebp]
 	FSTP    qword ptr [Recx]
 ELSE
+IFDEF HOSTARCHITECTURE_X86_64
+    FILDQ   RealTemp[Rebp]
+ELSE
 	FILDL   RealTemp[Rebp]
+ENDIF
 	FSTPL   [Recx]
 ENDIF
 	MOVL    Recx,Reax
