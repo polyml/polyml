@@ -351,28 +351,23 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 {
     double result;
     int i;
-    char string_buffer[30], *finish;
-    
-    Poly_string_to_C(DEREFHANDLE(str), string_buffer, 30);
+    char *finish;
+    char *string_buffer = Poly_string_to_C_alloc(DEREFHANDLE(str));
     
     /* Scan the string turning '~' into '-' */
     for(i = 0; string_buffer[i] != '\0'; i ++)
     {
-        if (string_buffer[i] == '~')
-        {
-          string_buffer[i] = '-';
-        }
+        if (string_buffer[i] == '~') string_buffer[i] = '-';
     }
         
     /* Now convert it */
     result = strtod(string_buffer, &finish);
+    bool isError = *finish != '\0'; // Test before deallocating
+    free(string_buffer);
     // We no longer detect overflow and underflow and instead return
     // (signed) zeros for underflow and (signed) infinities for overflow.
-    if (*finish != '\0')
-    {
-       raise_exception_string(mdTaskData, EXC_conversion, "");
-    }
-    
+    if (isError) raise_exception_string(mdTaskData, EXC_conversion, "");
+
     return real_result(mdTaskData, result);
 }/* Real_conv */
 
