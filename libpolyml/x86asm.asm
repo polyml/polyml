@@ -2016,12 +2016,14 @@ CALLMACRO INLINE_ROUTINE real_neg
 	jb      real_neg_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
-	FLDZ
+;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
 IFDEF WINDOWS
-	FSUB    qword ptr [Reax]
+	FLD     qword ptr [Reax]
+	FCHS
 	FSTP    qword ptr [Recx]
 ELSE
-	FSUBL   [Reax]
+	FLDL    [Reax]
+	FCHS
 	FSTPL   [Recx]
 ENDIF
 	MOVL    Recx,Reax
