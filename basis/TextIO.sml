@@ -414,9 +414,18 @@ structure TextIO :> TEXT_IO = struct
                     buflimit := savedBufLimit
                 end
             | _ => doLoad() (* Ignore this case for the moment. *)
+        (* On startup truncate the buffer in case there was some pending input when
+           we exported.  Also install the onLoad function. *)
+        fun onStartUp () =
+        (
+           case stdIn of
+               InStream(ref(Direct{bufp, buflimit, ...}),_) => (bufp := 0; buflimit := ~1)
+           |  _ => ();
+           PolyML.onLoad onLoad
+        )
     in
         (* Set up an onEntry handler so that this is always installed. *)
-        val () = PolyML.onEntry (fn () => PolyML.onLoad onLoad);
+        val () = PolyML.onEntry onStartUp;
         (* Install it now. *)
         val () = PolyML.onLoad onLoad
     end;
