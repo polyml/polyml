@@ -405,7 +405,9 @@ structure TextIO :> TEXT_IO = struct
                 let
                     (* Have to extract the contents and save it in a local variable. *)
                     val savedBuff =
-                        CharArraySlice.vector(
+                        if savedBufLimit < 0
+                        then ""
+                        else CharArraySlice.vector(
                             CharArraySlice.slice(buffer, savedBufp, SOME(savedBufLimit - savedBufp)));
                 in
                     doLoad();
