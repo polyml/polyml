@@ -238,6 +238,10 @@ AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darw
    [#include "signal.h"
 #include "ucontext.h"])
 
+# FreeBSD includes a sun_len member in struct sockaddr_un
+AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
+   [#include <sys/un.h>])
+
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 

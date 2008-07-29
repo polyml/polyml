@@ -357,6 +357,9 @@
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
+/* Define to 1 if `sun_len' is member of `struct sockaddr_un'. */
+#undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
+
 /* Define to 1 if `ss' is member of `struct __darwin_mcontext32'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
 
