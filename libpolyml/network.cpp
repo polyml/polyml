@@ -1220,8 +1220,8 @@ TryAgain:
             int length;
             memset(&addr, 0, sizeof(addr));
             addr.sun_family = AF_UNIX;
-#ifdef FREEBSD
-            addr.sun_len = sizeof(addr);
+#ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
+            addr.sun_len = sizeof(addr); // Used in FreeBSD only.
 #endif
             length = Poly_string_to_C(DEREFWORD(args),
                         addr.sun_path, sizeof(addr.sun_path));
