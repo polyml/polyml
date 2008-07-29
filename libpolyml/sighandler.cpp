@@ -357,7 +357,9 @@ void initThreadSignals(TaskData *taskData)
     struct sigaltstack ex_stack;
 #endif
     memset(&ex_stack, 0, sizeof(ex_stack));
-    ex_stack.ss_sp    = taskData->signalStack;
+    // Cast to char* because ss_sp is char* in FreeBSD.
+    // Linux simply casts it back to void*.
+    ex_stack.ss_sp    = (char*)taskData->signalStack;
     ex_stack.ss_size  = SIGSTKSZ;
     ex_stack.ss_flags = 0; /* not SS_DISABLE */
     int sigaltstack_result = sigaltstack(&ex_stack, NULL);
@@ -526,7 +528,11 @@ void SigHandler::Init(void)
     pthread_attr_init(&attrs);
     pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
 #ifdef PTHREAD_STACK_MIN
+#if (PTHREAD_STACK_MIN < 4096)
+    pthread_attr_setstacksize(&attrs, 4096); // But not too small: FreeBSD makes it 2k
+#else
     pthread_attr_setstacksize(&attrs, PTHREAD_STACK_MIN); // Only small stack.
+#endif
 #endif
     pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0);
     pthread_attr_destroy(&attrs);
