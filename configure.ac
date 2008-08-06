@@ -151,7 +151,7 @@ AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h sys/termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
-AC_CHECK_HEADERS([windows.h tchar.h pthread.h])
+AC_CHECK_HEADERS([windows.h tchar.h pthread.h semaphore.h])
 
 # Suppress the check for the X headers if the user said --without-x.
 # That will disable the x-windows module.

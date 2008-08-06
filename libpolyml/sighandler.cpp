@@ -64,32 +64,14 @@
 #include <stdlib.h> // For malloc
 #endif
 
+#ifdef HAVE_SEMAPHORE_H
+#include <semaphore.h>
+#endif
+
 /*
-Signal handling is complicated in a multi-threading environment
-and because it differs between versions of Unix.
-
-Signal handlers as such are not used.  Instead we use sigwait to
-detect signals synchronously on a separate signal detection thread.
-For this to work, the signals we are interested in must be blocked
-from delivery to any thread.  Signals set to SIG_IGN or SIG_DFL must
-not be completely blocked otherwise they will be queued.  To enable
-a signal's state to be changed we block all signals, with the exception
-of signals such as SIGSEGV that indicate an error or SIGVTALRM that are
-used by the RTS.  Signals that are not handled are unblocked on the
-main thread.
-
-In Linux if a signal is unblocked on any thread and
-set to SIG_DFL the default action will be performed.  In Mac OS X
-that only happens if the signal is unblocked in the main thread.
-
-This is messier still because of what seems like a bug in Cygwin.
-In Cygwin if a signal is included in the signal mask argument it
-is blocked and is delivered as the result of sigwait even if it is
-not otherwise blocked.  So, we can only include signals in the
-argument to sigwait if there is currently a handler installed and
-we need to wake up sigwait, by sending it a SIGUSR1, if a handler
-is installed or removed.
-DCJM Feb 2008.
+Signal handling is complicated in a multi-threaded environment.
+The pthread mutex and condition variables are not safe to use in a
+signal handler so we need to use POSIX semaphores which are safe.
 */
 
 
@@ -137,9 +119,12 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 // not the "handler" field.
 static PLock sigLock;
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 pthread_t detectionThreadId; // Thread processing signals.
+sem_t lockSema, waitSema;
+int lastSignal;
 #endif
+
 
 // This must not be called from an asynchronous signal handler.
 static void signalArrived(int sig)
@@ -186,7 +171,7 @@ void RequestConsoleInterrupt(void)
 }
 #endif
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 // Request the main thread to change the blocking state of a signal.
 class SignalRequest: public MainThreadRequest
 {
@@ -197,33 +182,35 @@ public:
     int signl, state;
 };
 
+// Called whenever a signal is received.
+static void handle_signal(SIG_HANDLER_ARGS(s, c))
+{
+    // Block if we still have a signal that hasn't been picked up.
+    while (sem_wait(&lockSema) == -1 && errno == EINTR);
+    lastSignal = s;
+    // Wake the signal detection thread.
+    sem_post(&waitSema);
+}
+
 void SignalRequest::Perform()
 {
-    sigset_t sigset;
-    sigemptyset(&sigset);
-    sigaddset(&sigset, signl);
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
 
     switch (state)
     {
     case DEFAULT_SIG:
-        pthread_sigmask(SIG_UNBLOCK, &sigset, NULL);
-        signal(signl, SIG_DFL);
+        action.sa_handler = SIG_DFL;
+        sigaction(signl, &action, 0);
         break;
     case IGNORE_SIG:
-        pthread_sigmask(SIG_UNBLOCK, &sigset, NULL);
-        signal(signl, SIG_IGN);
+        action.sa_handler = SIG_IGN;
+        sigaction(signl, &action, 0);
         break;
     case HANDLE_SIG:
-        pthread_sigmask(SIG_BLOCK, &sigset, NULL);
-        signal(signl, SIG_DFL);
+        setSignalHandler(signl, handle_signal);
         break;
     }
-#ifdef __CYGWIN__
-    // Send a SIGUSR1 to wake up the signal detection thread and
-    // allow it to change its mask.
-    sigData[SIGUSR1].signalCount--;
-    pthread_kill(detectionThreadId, SIGUSR1);
-#endif
 }
 #endif
 
@@ -248,8 +235,8 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 // Lock while we look at the signal vector but release
                 // it before making a root request.
                 PLocker locker(&sigLock);
-                // We have to pass this to the main thread to ensure there
-                // is only one thread that blocks and unblocks signals.
+                // We have to pass this to the main thread to 
+                // set up the signal handler.
                 sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
                 /* Decode the action if it is Ignore or Default. */
                 if (IS_INT(DEREFHANDLE(args)->Get(1)))
@@ -269,7 +256,7 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
             // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
             if (! sigData[sign].nonMaskable)
             {
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
                 SignalRequest request(sign, action);
                 processes->MakeRootRequest(taskData, &request);
 #endif
@@ -454,55 +441,40 @@ class SigHandler: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Reinit(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 };
 
 // Declare this.  It will be automatically added to the table.
 static SigHandler sighandlerModule;
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-// This thread simply detects signals synchronously.  It is unsafe
-// to call pthread functions from an asynchronous signal handler
-// so this waits for the signal and then passes this on to the ML
-// signal handler thread.
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+// This thread is really only to convert between POSIX semaphores and
+// pthread condition variables.  It waits for a semphore to be released by the
+// signal handler running on the main thread and then wakes up the ML handler
+// thread.  The ML thread must not wait directly on a POSIX semaphore because it
+// may also be woken by other events, particularly a kill request when the program
+// exits.
 static void *SignalDetectionThread(void *)
 {
-    // Block all signals so they will be picked up by sigwait.
+    // Block all signals so they will be delivered to the main thread.
     sigset_t active_signals;    
     sigfillset(&active_signals);
     pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
 
     while (true)
     {
-#ifdef __CYGWIN__
-        // Work around for Cygwin bug.  In Cygwin, if a signal is included
-        // in the signal set argument to sigwait it will be blocked from 
-        // being handled by default even if it another thread has it
-        // unblocked.
-        sigLock.Lock();
-        sigemptyset(&active_signals);
-        sigaddset(&active_signals, SIGUSR1); // We need this to be able to wake up.
-        signal(SIGUSR1, SIG_DFL);
-        int i;
-        // First compute the mask.
-        for (i = 0; i < NSIG; i++)
+        // Wait until we are woken up by an arriving signal.
+        while (sem_wait(&waitSema) == -1)
         {
-            if (! IS_INT(sigData[i].handler)) // There's a handler.
-                sigaddset(&active_signals, i);
+            if (errno != EINTR)
+                return 0;
         }
-        sigLock.Unlock();
-#endif
-
-        int sig = -1;
-        int result = sigwait(&active_signals, &sig);
-        if (result == 0)
+        int sig = lastSignal;
+        lastSignal = 0;
+        // Release the lock now the signal has been picked up.
+        sem_post(&lockSema);
+        if (sig != 0)
             signalArrived(sig);
-        else if (result != EINTR) // Can get EINTR when running in gdb.
-        {
-            fprintf(stderr, "sigwait returned with %d.  errno = %d\n", result, errno);
-            return 0;
-        }
     }
 }
 #endif
@@ -521,7 +493,11 @@ void SigHandler::Init(void)
 #ifdef SIGILL
     sigData[SIGILL].nonMaskable = true;
 #endif
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+    // Initialise the "wait" semaphore so that it blocks immediately and the
+    // lock semaphore so that blocks after a single lock.
+    if (sem_init(&waitSema, 0, 0) < 0) return;
+    if (sem_init(&lockSema, 0, 1) < 0) return;
     // Create a new thread to handle signals synchronously.
     // for it to finish.
     pthread_attr_t attrs;
@@ -537,26 +513,6 @@ void SigHandler::Init(void)
     pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0);
     pthread_attr_destroy(&attrs);
 #endif
-}
-
-void SigHandler::Reinit(void)
-{
-    // Reset the signal vector and determine the initial settings.
-    for (unsigned i = 0; i < NSIG; i++)
-    {
-        if (sigData[i].nonMaskable)
-            // Don't mess with any installed signal handlers.
-            sigData[i].handler = TAGGED(IGNORE_SIG);
-        else
-        {
-            void (*old_status)(int) = signal(i, SIG_IGN);
-            if (old_status != SIG_ERR)
-                signal(i, old_status);
-            if (old_status == SIG_IGN)
-                sigData[i].handler = TAGGED(IGNORE_SIG);
-            else sigData[i].handler = TAGGED(DEFAULT_SIG);
-        }
-    }
 }
 
 void SigHandler::GarbageCollect(ScanAddress *process)
