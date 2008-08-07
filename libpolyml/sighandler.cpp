@@ -68,6 +68,20 @@
 #include <semaphore.h>
 #endif
 
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+
+
+
 /*
 Signal handling is complicated in a multi-threaded environment.
 The pthread mutex and condition variables are not safe to use in a
@@ -120,9 +134,9 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 static PLock sigLock;
 
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
-pthread_t detectionThreadId; // Thread processing signals.
-sem_t lockSema, waitSema;
-int lastSignal;
+static pthread_t detectionThreadId; // Thread processing signals.
+static sem_t *lockSema, *waitSema;
+static int lastSignal;
 #endif
 
 
@@ -185,11 +199,14 @@ public:
 // Called whenever a signal is received.
 static void handle_signal(SIG_HANDLER_ARGS(s, c))
 {
-    // Block if we still have a signal that hasn't been picked up.
-    while (sem_wait(&lockSema) == -1 && errno == EINTR);
-    lastSignal = s;
-    // Wake the signal detection thread.
-    sem_post(&waitSema);
+    if (lockSema != 0 && waitSema != 0)
+    {
+        // Block if we still have a signal that hasn't been picked up.
+        while (sem_wait(lockSema) == -1 && errno == EINTR);
+        lastSignal = s;
+        // Wake the signal detection thread.
+        sem_post(waitSema);
+    }
 }
 
 void SignalRequest::Perform()
@@ -463,8 +480,10 @@ static void *SignalDetectionThread(void *)
 
     while (true)
     {
+        if (waitSema == 0 || lockSema == 0)
+            return 0;
         // Wait until we are woken up by an arriving signal.
-        while (sem_wait(&waitSema) == -1)
+        while (sem_wait(waitSema) == -1)
         {
             if (errno != EINTR)
                 return 0;
@@ -472,13 +491,32 @@ static void *SignalDetectionThread(void *)
         int sig = lastSignal;
         lastSignal = 0;
         // Release the lock now the signal has been picked up.
-        sem_post(&lockSema);
+        sem_post(lockSema);
         if (sig != 0)
             signalArrived(sig);
     }
 }
 #endif
 
+#if (defined(HAVE_SEMAPHORE_H))
+static sem_t lockSemaphore, waitSemaphore;
+
+// Initialise a semphore.  Tries to create an unnamed semaphore if
+// it can but tries a named semaphore if it can't.  Mac OS X only
+// supports named semaphores.
+static sem_t *init_semaphore(sem_t *sema, int init)
+{
+    if (sem_init(sema, 0, init) == 0)
+        return sema;
+    char semname[30];
+    static int count=0;
+    sprintf(semname, "poly%0d-%0d", getpid(), count++);
+    sema = sem_open(semname, O_CREAT|O_EXCL, 00666, init);
+    if (sema == SEM_FAILED) return 0;
+    sem_unlink(semname);
+    return sema;
+}
+#endif
 
 void SigHandler::Init(void)
 {
@@ -496,8 +534,9 @@ void SigHandler::Init(void)
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
     // Initialise the "wait" semaphore so that it blocks immediately and the
     // lock semaphore so that blocks after a single lock.
-    if (sem_init(&waitSema, 0, 0) < 0) return;
-    if (sem_init(&lockSema, 0, 1) < 0) return;
+    lockSema = init_semaphore(&lockSemaphore, 1);
+    waitSema = init_semaphore(&waitSemaphore, 0);
+    if (lockSema == 0 || waitSema == 0) return;
     // Create a new thread to handle signals synchronously.
     // for it to finish.
     pthread_attr_t attrs;
