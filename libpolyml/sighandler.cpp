@@ -85,7 +85,7 @@
 /*
 Signal handling is complicated in a multi-threaded environment.
 The pthread mutex and condition variables are not safe to use in a
-signal handler so we need to use POSIX semaphores which are safe.
+signal handler so we need to use POSIX semaphores since sem_post is safe.
 */
 
 
@@ -135,8 +135,8 @@ static PLock sigLock;
 
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 static pthread_t detectionThreadId; // Thread processing signals.
-static sem_t *lockSema, *waitSema;
-static int lastSignal;
+static sem_t *waitSema;
+static int lastSignals[NSIG];
 #endif
 
 
@@ -199,11 +199,9 @@ public:
 // Called whenever a signal is received.
 static void handle_signal(SIG_HANDLER_ARGS(s, c))
 {
-    if (lockSema != 0 && waitSema != 0)
+    if (waitSema != 0)
     {
-        // Block if we still have a signal that hasn't been picked up.
-        while (sem_wait(lockSema) == -1 && errno == EINTR);
-        lastSignal = s;
+        lastSignals[s]++; // Assume this is atomic with respect to reading.
         // Wake the signal detection thread.
         sem_post(waitSema);
     }
@@ -477,29 +475,35 @@ static void *SignalDetectionThread(void *)
     sigset_t active_signals;    
     sigfillset(&active_signals);
     pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
+    int readSignals[NSIG];
+    memset(readSignals, 0, sizeof(readSignals));
 
     while (true)
     {
-        if (waitSema == 0 || lockSema == 0)
+        if (waitSema == 0)
             return 0;
         // Wait until we are woken up by an arriving signal.
+        // waitSema will be incremented for each signal so we should
+        // not block until we have processed them all.
         while (sem_wait(waitSema) == -1)
         {
             if (errno != EINTR)
                 return 0;
         }
-        int sig = lastSignal;
-        lastSignal = 0;
-        // Release the lock now the signal has been picked up.
-        sem_post(lockSema);
-        if (sig != 0)
-            signalArrived(sig);
+        for (int j = 1; j < NSIG; j++)
+        {
+            if (readSignals[j] < lastSignals[j])
+            {
+                readSignals[j]++;
+                signalArrived(j);
+            }
+        }
     }
 }
 #endif
 
 #if (defined(HAVE_SEMAPHORE_H))
-static sem_t lockSemaphore, waitSemaphore;
+static sem_t waitSemaphore;
 
 // Initialise a semphore.  Tries to create an unnamed semaphore if
 // it can but tries a named semaphore if it can't.  Mac OS X only
@@ -532,11 +536,9 @@ void SigHandler::Init(void)
     sigData[SIGILL].nonMaskable = true;
 #endif
 #if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
-    // Initialise the "wait" semaphore so that it blocks immediately and the
-    // lock semaphore so that blocks after a single lock.
-    lockSema = init_semaphore(&lockSemaphore, 1);
+    // Initialise the "wait" semaphore so that it blocks immediately.
     waitSema = init_semaphore(&waitSemaphore, 0);
-    if (lockSema == 0 || waitSema == 0) return;
+    if (waitSema == 0) return;
     // Create a new thread to handle signals synchronously.
     // for it to finish.
     pthread_attr_t attrs;
