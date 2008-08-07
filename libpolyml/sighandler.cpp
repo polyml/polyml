@@ -512,6 +512,11 @@ static sem_t *init_semaphore(sem_t *sema, int init)
 {
     if (sem_init(sema, 0, init) == 0)
         return sema;
+#if (defined(__CYGWIN__))
+    // Cygwin doesn't define sem_unlink but that doesn't matter
+    // since sem_init works.
+    return 0;
+#else
     char semname[30];
     static int count=0;
     sprintf(semname, "poly%0d-%0d", (int)getpid(), count++);
@@ -519,6 +524,7 @@ static sem_t *init_semaphore(sem_t *sema, int init)
     if (sema == (sem_t*)SEM_FAILED) return 0;
     sem_unlink(semname);
     return sema;
+#endif
 }
 #endif
 
