@@ -91,11 +91,12 @@ AC_CHECK_LIB(pthread, pthread_create)
 # The next two are only used with mingw
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
-# Solaris needs -lsocket and -lnsl
+# Solaris needs -lsocket, -lnsl and -lrt
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
 AC_CHECK_FUNC(gethostbyname, , AC_CHECK_LIB(nsl, gethostbyname))
 AC_CHECK_FUNC(getsockopt, , AC_CHECK_LIB(socket, getsockopt))
+AC_CHECK_FUNC(sem_wait, , AC_CHECK_LIB(rt, sem_wait))
 
 # Check for X and Motif headers and libraries
 AC_PATH_X
