@@ -510,9 +510,9 @@ static sem_t *init_semaphore(sem_t *sema, int init)
         return sema;
     char semname[30];
     static int count=0;
-    sprintf(semname, "poly%0d-%0d", getpid(), count++);
+    sprintf(semname, "poly%0d-%0d", (int)getpid(), count++);
     sema = sem_open(semname, O_CREAT|O_EXCL, 00666, init);
-    if (sema == SEM_FAILED) return 0;
+    if (sema == (sem_t*)SEM_FAILED) return 0;
     sem_unlink(semname);
     return sema;
 }
