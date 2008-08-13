@@ -264,12 +264,17 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
 // though, get multiple levels of forwarding if there is an object
 // that has been shifted up by a garbage collection, leaving a forwarding
 // pointer and then that object has been moved to the export region.
+// We mustn't turn locally forwarded values back into ordinary objects
+// because they could contain addresses that are no longer valid.
 static POLYUNSIGNED GetObjLength(PolyObject *obj)
 {
     if (obj->ContainsForwardingPtr())
     {
-        POLYUNSIGNED length = GetObjLength(obj->GetForwardingPtr());
-        obj->SetLengthWord(length);
+        PolyObject *forwardedTo = obj->GetForwardingPtr();
+        POLYUNSIGNED length = GetObjLength(forwardedTo);
+        MemSpace *space = gMem.SpaceForAddress(forwardedTo);
+        if (space->spaceType == ST_EXPORT)
+            obj->SetLengthWord(length);
         return length;
     }
     else return obj->LengthWord();
