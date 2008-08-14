@@ -246,7 +246,7 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include "basicio.h" // For process_may_block.
 
 /* The following are only forward so we can declare attributes */
-static void RaiseXWindows(TaskData *taskData, char *s) __attribute__((noreturn));
+static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((noreturn));
 
 
 #define ButtonClickMask (((unsigned)1 << 31))
@@ -310,7 +310,7 @@ static Handle FINISHED(TaskData *taskData, Handle P)
 }
 
 
-static void RaiseXWindows(TaskData *taskData, char *s)
+static void RaiseXWindows(TaskData *taskData, const char *s)
 {
   if (gc_phase == 0)
     {
@@ -1027,7 +1027,7 @@ static void DestroyXObject(X_Object *P)
 
 #define CheckExists(P,resource) \
 {\
-  if (! ResourceExists(P)) RaiseXWindows(taskData, "Non-existent " #resource); \
+  if (! ResourceExists(P)) RaiseXWindows(taskData, (char*) "Non-existent " #resource); \
 }
 
 static X_Font_Object *FontObject(X_Object *P)
@@ -2875,7 +2875,7 @@ static Handle QueryKeymap(TaskData *taskData, Display *d)
 /******************************************************************************/
 typedef struct
 {
-  char *name;
+  const char *name;
   int   type;
 } EventName;
 
@@ -2918,7 +2918,7 @@ static EventName EventNames[] =
 
 #define NEVENTS (sizeof(EventNames)/sizeof(EventName))
 
-static char *DebugEventName(int type)
+static const char *DebugEventName(int type)
 {
     for(unsigned i = 0; i < NEVENTS; i++)
     {
@@ -5825,7 +5825,7 @@ static void GetXmString(TaskData *taskData, PolyWord w, void *v, unsigned )
     XmString *p = (XmString *)v;
     char *s;
     CopyString(taskData, w, &s, 0);
-    *p = XmStringCreateLtoR(s,XmSTRING_DEFAULT_CHARSET);
+    *p = XmStringCreateLtoR(s, (char *)XmSTRING_DEFAULT_CHARSET);
     free(s);
 }
 
@@ -6287,27 +6287,27 @@ static void SetValues(TaskData *taskData, Widget w, Handle list)
 
 typedef struct
 {
-  char *listName;
+  const char *listName;
   char *intName;
 } StringPair;
 
 static StringPair listTypes[] =
 {
-  {"argv"                  ,"argc"},
-  {"buttonAccelerators"    ,"buttonCount"},
-  {"buttonAcceleratorText" ,"buttonCount"},
-  {"buttonMnemonicCharSets","buttonCount"},
-  {"buttonMnemonics"       ,"buttonCount"},
-  {"buttons"               ,"buttonCount"},
-  {"buttonType"            ,"buttonCount"},
-  {"children"              ,"numChildren"},
-  {"dirListItems"          ,"dirListItemCount"},
-  {"fileListItems"         ,"fileListItemCount"},
-  {"historyItems"          ,"historyItemCount"},
-  {"items"                 ,"itemCount"},
-  {"listItems"             ,"listItemCount"},
-  {"selectedItems"         ,"selectedItemCount"},
-  {"selectionArray"        ,"selectionArrayCount"},
+  {"argv"                  ,(char *) "argc"},
+  {"buttonAccelerators"    ,(char *) "buttonCount"},
+  {"buttonAcceleratorText" ,(char *) "buttonCount"},
+  {"buttonMnemonicCharSets",(char *) "buttonCount"},
+  {"buttonMnemonics"       ,(char *) "buttonCount"},
+  {"buttons"               ,(char *) "buttonCount"},
+  {"buttonType"            ,(char *) "buttonCount"},
+  {"children"              ,(char *) "numChildren"},
+  {"dirListItems"          ,(char *) "dirListItemCount"},
+  {"fileListItems"         ,(char *) "fileListItemCount"},
+  {"historyItems"          ,(char *) "historyItemCount"},
+  {"items"                 ,(char *) "itemCount"},
+  {"listItems"             ,(char *) "listItemCount"},
+  {"selectedItems"         ,(char *) "selectedItemCount"},
+  {"selectionArray"        ,(char *) "selectionArrayCount"},
 };
 
 #define MAXListTYPES (sizeof(listTypes)/sizeof(listTypes[0]))
@@ -6345,7 +6345,7 @@ static void GetArgType
         
         if (i == MAXListTYPES) Crash ("Bad list resource name %s",T->name);
         
-        arg.name  = listTypes[i].intName;
+	arg.name = listTypes[i].intName;
         arg.value = (XtArgVal) &result;
         /* Bug fix here which only appeared in OpenMotif and LessTif.  We need
            to pass the address of an integer here to receive the result.
@@ -6367,7 +6367,7 @@ static Handle CreateXmString(TaskData *taskData, void *t)
     char  *s;
     Handle S;
     
-    XmStringGetLtoR(*(XmString *)t,XmSTRING_DEFAULT_CHARSET,&s);
+    XmStringGetLtoR(*(XmString *)t,(char *) XmSTRING_DEFAULT_CHARSET,&s);
     
     S = Make_string(s);
     
@@ -8591,11 +8591,11 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         break;
         
     case XCALL_XtMapWidget:
-        XtMapWidget(GetRealizedWidget(taskData, "XtMapWidget",XP1));
+        XtMapWidget(GetRealizedWidget(taskData, (char *) "XtMapWidget",XP1));
         break;
         
     case XCALL_XtUnmapWidget:
-        XtUnmapWidget(GetRealizedWidget(taskData, "XtUnmapWidget",XP1));
+        XtUnmapWidget(GetRealizedWidget(taskData, (char *) "XtUnmapWidget",XP1));
         break;
         
     case XCALL_XtIsManaged:
@@ -8621,11 +8621,11 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         /* Motif 4000 */
         
 #define XMCREATE(number,name) \
-    case number: return CreateXm(taskData, name, \
-#name " failed", \
+	case number: return CreateXm(taskData, name, (char *)	\
+#name   " failed",	\
     GetDS(taskData, XP1), \
     GetWidget(taskData, XP1), \
-    GetString(P2), \
+    GetString(P2),      \
         SAVE(P3))
         
         XMCREATE(XCALL_XmCreateArrowButton,XmCreateArrowButton);
@@ -8771,33 +8771,33 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
 #define TextWidgetToLong(func) \
         case XCALL_ ## func : \
-            return(WidgetToLong(taskData,#func,GetTextWidget,func,XP1))
+            return(WidgetToLong(taskData,(char *) #func,GetTextWidget,func,XP1))
             
 #define TextWidgetToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetToInt(taskData,#func,GetTextWidget,func,XP1))
+            return(WidgetToInt(taskData,(char *) #func,GetTextWidget,func,XP1))
             
 #define TextWidgetToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetToBool(taskData,#func,GetTextWidget,func,XP1))
+            return(WidgetToBool(taskData,(char *) #func,GetTextWidget,func,XP1))
             
 #define TextWidgetToString(func) \
         case XCALL_ ## func : \
-            return(WidgetToString(taskData,#func,GetTextWidget,func,XP1))
+            return(WidgetToString(taskData,(char *) #func,GetTextWidget,func,XP1))
             
 #define TextWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(taskData,#func,GetTextWidget,func,XP1,P2); \
+        WidgetIntAction(taskData,(char *) #func,GetTextWidget,func,XP1,P2); \
             break
             
 #define TextWidgetLongAction(func) \
         case XCALL_ ## func : \
-        WidgetLongAction(taskData,#func,GetTextWidget,func,XP1,P2); \
+        WidgetLongAction(taskData,(char *) #func,GetTextWidget,func,XP1,P2); \
             break
             
 #define TextWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(taskData,#func,GetTextWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData,(char *) #func,GetTextWidget,func,XP1,P2); \
             break
             
             
@@ -8825,7 +8825,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextInsert:
             {
-                Widget w = GetTextWidget(taskData, "XmTextInsert",XP1);
+	      Widget w = GetTextWidget(taskData, (char *) "XmTextInsert",XP1);
                 {
                     unsigned pos = get_C_ulong(taskData, P2);
                     PolyStringObject *s    = GetString(P3);
@@ -8844,7 +8844,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextReplace:
             {
-                Widget w = GetTextWidget(taskData, "XmTextReplace",XP1);
+	      Widget w = GetTextWidget(taskData, (char *) "XmTextReplace",XP1);
                 {
                     unsigned from_pos = get_C_ulong(taskData, P2);
                     unsigned to_pos   = get_C_ulong(taskData, P3);
@@ -8872,7 +8872,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             /* inlined SPF 15/2/94 */
         case XCALL_XmTextSetString:
             {
-                Widget w = GetTextWidget(taskData, "XmTextSetString",XP1);
+	      Widget w = GetTextWidget(taskData, (char *) "XmTextSetString",XP1);
                 {
                     PolyStringObject *s    = GetString(P2);
                     int   size   = s->length + 1;
@@ -8889,7 +8889,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextXYToPos:
             {
-                Widget w = GetTextWidget(taskData, "XmTextXYToPos",XP1);
+                Widget w = GetTextWidget(taskData, (char *) "XmTextXYToPos",XP1);
                 {
                     int x = get_C_long(taskData, P2);
                     int y = get_C_long(taskData, P3);
@@ -8912,34 +8912,34 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
 #define TextFieldWidgetToLong(func) \
         case XCALL_ ## func : \
-            return(WidgetToLong(taskData, #func,GetTextFieldWidget,func,XP1))
+            return(WidgetToLong(taskData, (char *) #func,GetTextFieldWidget,func,XP1))
             
             
 #define TextFieldWidgetToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetToInt(taskData, #func,GetTextFieldWidget,func,XP1))
+            return(WidgetToInt(taskData, (char *) #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetToBool(taskData, #func,GetTextFieldWidget,func,XP1))
+            return(WidgetToBool(taskData, (char *) #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetToString(func) \
         case XCALL_ ## func : \
-            return(WidgetToString(taskData, #func,GetTextFieldWidget,func,XP1))
+            return(WidgetToString(taskData, (char *) #func,GetTextFieldWidget,func,XP1))
             
 #define TextFieldWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetIntAction(taskData, (char *) #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
 #define TextFieldWidgetLongAction(func) \
         case XCALL_ ## func : \
-        WidgetLongAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetLongAction(taskData, (char *) #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
 #define TextFieldWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(taskData, #func,GetTextFieldWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData, (char *) #func,GetTextFieldWidget,func,XP1,P2); \
             break
             
             
@@ -8966,7 +8966,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextFieldInsert:
             {
-                Widget w = GetTextFieldWidget(taskData, "XmTextFieldInsert",XP1);
+                Widget w = GetTextFieldWidget(taskData, (char *) "XmTextFieldInsert",XP1);
                 {
                     unsigned pos = get_C_ulong(taskData, P2);
                     PolyStringObject *s    = GetString(P3);
@@ -8985,7 +8985,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextFieldReplace:
             {
-                Widget w = GetTextFieldWidget(taskData, "XmTextFieldReplace",XP1);
+                Widget w = GetTextFieldWidget(taskData, (char *) "XmTextFieldReplace",XP1);
                 {
                     unsigned from_pos = get_C_ulong(taskData, P2);
                     unsigned to_pos   = get_C_ulong(taskData, P3);
@@ -9011,7 +9011,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             /* inlined SPF 15/2/94 */
         case XCALL_XmTextFieldSetString:
             {
-                Widget w = GetTextFieldWidget(taskData, "XmTextFieldSetString",XP1);
+                Widget w = GetTextFieldWidget(taskData, (char *) "XmTextFieldSetString",XP1);
                 {
                     PolyStringObject *s    = GetString(P2);
                     int   size   = s->length + 1;
@@ -9027,7 +9027,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextFieldXYToPos:
             {
-                Widget w = GetTextFieldWidget(taskData, "XmTextFieldXYToPos",XP1);
+                Widget w = GetTextFieldWidget(taskData, (char *) "XmTextFieldXYToPos",XP1);
                 {
                     int x = get_C_long(taskData, P2);
                     int y = get_C_long(taskData, P3);
@@ -9059,69 +9059,69 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
 #define ListWidgetAction(func) \
         case XCALL_ ## func : \
-        WidgetAction(taskData, #func,GetListWidget,func,XP1); \
+        WidgetAction(taskData, (char *) #func,GetListWidget,func,XP1); \
             break
             
 #define ListWidgetBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetBoolAction(taskData, #func,GetListWidget,func,XP1,P2); \
+        WidgetBoolAction(taskData, (char *) #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetXmstringAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringAction(taskData, #func,GetListWidget,func,XP1,P2); \
+        WidgetXmstringAction(taskData, (char *) #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetXmstringlistAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringlistAction(taskData, #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2); \
+        WidgetXmstringlistAction(taskData, (char *)  #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2); \
             break
             
 #define ListWidgetIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntAction(taskData, #func,GetListWidget,func,XP1,P2); \
+	  WidgetIntAction(taskData, (char *) #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetIntIntAction(func) \
         case XCALL_ ## func : \
-        WidgetIntIntAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
+        WidgetIntIntAction(taskData, (char *) #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringIntAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringIntAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
+        WidgetXmstringIntAction(taskData, (char *) #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetIntBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetIntBoolAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
+        WidgetIntBoolAction(taskData, (char *) #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringBoolAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringBoolAction(taskData, #func,GetListWidget,func,XP1,P2,P3); \
+        WidgetXmstringBoolAction(taskData, (char *) #func,GetListWidget,func,XP1,P2,P3); \
             break
             
 #define ListWidgetXmstringlistIntAction(func) \
         case XCALL_ ## func : \
-        WidgetXmstringlistIntAction(taskData, #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2,P3); \
+        WidgetXmstringlistIntAction(taskData, (char *) #func,GetListWidget,func,XP1,(ML_Cons_Cell *)XP2,P3); \
             break
             
 #define ListWidgetXmstringToIntlist(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToIntlist(taskData, #func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToIntlist(taskData, (char *)  #func,GetListWidget,func,XP1,P2))
             
 #define ListWidgetToIntlist(func) \
         case XCALL_ ## func : \
-            return(WidgetToIntlist(taskData, #func,GetListWidget,func,XP1))
+            return(WidgetToIntlist(taskData, (char *) #func,GetListWidget,func,XP1))
             
 #define ListWidgetXmstringToBool(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToBool(taskData, #func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToBool(taskData, (char *) #func,GetListWidget,func,XP1,P2))
             
 #define ListWidgetXmstringToInt(func) \
         case XCALL_ ## func : \
-            return(WidgetXmstringToInt(taskData, #func,GetListWidget,func,XP1,P2))
+            return(WidgetXmstringToInt(taskData, (char *)  #func,GetListWidget,func,XP1,P2))
             
             /************************* Adding Items to List *******************************/
             ListWidgetXmstringIntAction(XmListAddItem);
@@ -9151,7 +9151,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
     case XCALL_XmListReplaceItems: 
         /* Unpairing the strings is done in the ML, because it's easier there. */
         {
-            Widget w = GetListWidget(taskData, "XmListReplaceItems",XP1);
+	  Widget w = GetListWidget(taskData, (char *) "XmListReplaceItems",XP1);
             unsigned n    = ListLength(P2);
             unsigned n2   = ListLength(P3);
             
@@ -9222,7 +9222,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
 typedef struct
 {
   int   code;
-  char *name;
+  const char *name;
 } CodeName;
 
 static CodeName ProtocolNames[] =
@@ -9373,8 +9373,8 @@ static CodeName ProtocolErrors[] =
 
 static int XWindowsError(Display *display, XErrorEvent *error)
 {
-  char *errorName   = "unknown";
-  char *requestName = "unknown";
+  const char *errorName   = "unknown";
+  const char *requestName = "unknown";
   int   i,n;
   char  buffer[500];
   
