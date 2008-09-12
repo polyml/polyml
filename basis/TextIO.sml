@@ -227,7 +227,12 @@ structure TextIO :> TEXT_IO = struct
        a lot of overhead.  I've changed it to use the underlying
        layers if required but otherwise to use the file descriptor
        directly.  This isn't such a problem with output so we use
-       the lower layers directly. *)
+       the lower layers directly.
+       
+       Stream IO has now been reimplemented to be much more
+       efficient.  It seems there is still some speed advantage
+       in using the low-level directly but there's much less
+       difference than there used to be. *)
 
     (* The type of a stream without the layers in between. If we extract
        the lower level this gets replaced. *)
@@ -350,8 +355,7 @@ structure TextIO :> TEXT_IO = struct
         val k = OS.IO.kind f        
     in
         wrapOutFileDescr (f, s,
-            if k = OS.IO.Kind.tty orelse k = OS.IO.Kind.pipe orelse k = OS.IO.Kind.device
-            then IO.LINE_BUF else IO.BLOCK_BUF,
+            if k = OS.IO.Kind.tty then IO.LINE_BUF else IO.BLOCK_BUF,
             false (* Not append *))
     end
 
@@ -363,8 +367,7 @@ structure TextIO :> TEXT_IO = struct
         val k = OS.IO.kind f        
     in
         wrapOutFileDescr (f, s,
-            if k = OS.IO.Kind.tty orelse k = OS.IO.Kind.pipe orelse k = OS.IO.Kind.device
-            then IO.LINE_BUF else IO.BLOCK_BUF,
+            if k = OS.IO.Kind.tty then IO.LINE_BUF else IO.BLOCK_BUF,
             true (* setPos will not work. *))
     end
 
@@ -466,26 +469,8 @@ structure TextIO :> TEXT_IO = struct
             false)
     end
 
-    (* Lock the mutex during any lookup or entry. This code should be in a library. *)
-    fun protect f (InStream(r, m)) =
-    let
-        (* Set this to handle interrupts synchronously except if we are blocking
-           them.  We don't want to get an asynchronous interrupt while we are
-           actually locking or unlocking the mutex but if we have to block to do
-           IO then we should allow an interrupt at that point. *)
-        val oldAttrs = getAttributes()
-        val () =
-           case List.find (fn InterruptState _ => true | _ => false) oldAttrs of
-               SOME(InterruptState InterruptDefer) => ()
-             | _ => setAttributes[InterruptState InterruptSynch];
-        val () = lock m
-        val result = f r
-            handle exn => (unlock m; setAttributes oldAttrs; raise exn)
-    in
-        unlock m;
-        setAttributes oldAttrs;
-        result
-    end
+    (* Lock the mutex during any lookup or entry. *)
+    fun protect f (InStream(r, m)) = LibraryIOSupport.protect m f r
 
     (* Read something into the buffer. *)
     fun fillBuffer({buffer=Array(length, addr), bufp, buflimit, descr, name, ...}: textInstream) : unit =
