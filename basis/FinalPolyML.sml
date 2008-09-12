@@ -57,20 +57,8 @@ local
         
         (* Lock the mutex during any lookup or entry.  This is primarily to
            avoid the underlying hash table from being rehashed by different
-           threads at the same time.  This code should be in a library. *)
-        fun protect mutx f =
-        let
-            (* Turn off interrupts while we have the lock. *)
-            val oldAttrs = getAttributes()
-            val () = setAttributes[InterruptState InterruptDefer]
-              val () = lock mutx
-            val result = f()
-                handle exn => (unlock mutx; setAttributes oldAttrs; raise exn)
-        in
-            unlock mutx;
-            setAttributes oldAttrs;
-            result
-        end
+           threads at the same time. *)
+        fun protect mutx f = LibraryIOSupport.protect mutx f ()
         
         fun lookup t s = protect tableMutex (fn () => sub(globalTable, t, s));
         fun enter t (s,v) = protect tableMutex (fn () => update(globalTable, t, s, v));
