@@ -38,6 +38,7 @@ val readBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
 val writeBinVec: OS.IO.iodesc * Word8VectorSlice.slice -> int
 val writeBinArray: OS.IO.iodesc * Word8ArraySlice.slice -> int
 val nonBlocking : ('a->'b) -> 'a ->'b option
+val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
 end
 =
 struct
@@ -264,7 +265,7 @@ struct
 				ioDesc = (SOME fd) : OS.IO.iodesc option
 			}
 	in
-		textPrimRd
+		TextPrimIO.augmentReader textPrimRd
 	end
 
 	fun wrapOutFileDescr {fd, name, appendMode, initBlkMode, chunkSize} =
@@ -329,7 +330,7 @@ struct
 				ioDesc = (SOME fd) : OS.IO.iodesc option
 			}
 	in
-		textPrimWr
+		TextPrimIO.augmentWriter textPrimWr
 	end
 
 	fun wrapBinInFileDescr{fd, name, initBlkMode} =
@@ -379,7 +380,7 @@ struct
 				ioDesc = SOME fd
 			}
 	in
-		binPrimRd
+		BinPrimIO.augmentReader binPrimRd
 	end
 
 	fun wrapBinOutFileDescr{fd, name, appendMode, initBlkMode, chunkSize} =
@@ -419,7 +420,32 @@ struct
 				ioDesc = SOME fd
 			}
 	in
-		binPrimWr
+		BinPrimIO.augmentWriter binPrimWr
 	end
+
+    (* Many of the IO functions need a mutex so we include this here.
+       This applies a function while a mutex is being held. *)
+    fun protect m f a =
+    let
+        open Thread.Thread Thread.Mutex
+        (* Set this to handle interrupts synchronously except if we are blocking
+           them.  We don't want to get an asynchronous interrupt while we are
+           actually locking or unlocking the mutex but if we have to block to do
+           IO then we should allow an interrupt at that point. *)
+        val oldAttrs = getAttributes()
+        val () =
+           case List.find (fn InterruptState _ => true | _ => false) oldAttrs of
+               SOME(InterruptState InterruptDefer) => ()
+             | _ => setAttributes[InterruptState InterruptSynch];
+        val () = setAttributes[InterruptState InterruptSynch]
+        val () = lock m
+        val result = f a
+            handle exn => (unlock m; setAttributes oldAttrs; raise exn)
+    in
+        unlock m;
+        setAttributes oldAttrs;
+        result
+    end
+
 end;
 
