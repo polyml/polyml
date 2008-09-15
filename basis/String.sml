@@ -1389,21 +1389,30 @@ in
             end
 
         fun isPrefix (s1: string) (Slice{vector=s2, start=i, length=l}) =
-            let
+        let
             val size_s1 = sizeAsWord s1
-            in
-            if size_s1 <= l
-            then byteMatch s1 s2 0w0 i size_s1
-            else false
-            end
+        in
+            if size_s1 > l
+            then false
+            else if size_s1 = 0w1
+            then if System_isShort s2
+            then vecAsChar s1 = vecAsChar s2
+            else vecAsChar s1 = System_loadb(s2, i + wordSize)
+            else byteMatch s1 s2 0w0 i size_s1
+        end
 
         (* True if s1 is a suffix of s2 *)
         fun isSuffix s1 (Slice{vector=s2, start=i, length=l}) =
         let
             val size_s1 = sizeAsWord s1
         in
-            if size_s1 <= l then byteMatch s1 s2 0w0 (l + i - size_s1) size_s1
-            else false
+            if size_s1 > l
+            then false
+            else if size_s1 = 0w1
+            then if System_isShort s2
+            then vecAsChar s1 = vecAsChar s2
+            else vecAsChar s1 = System_loadb(s2, i + l - 0w1 + wordSize)
+            else byteMatch s1 s2 0w0 (l + i - size_s1) size_s1
         end
 
         (* True if s1 is a substring of s2 *)
@@ -1413,11 +1422,17 @@ in
             (* Start at the beginning and compare until we get a match. *)
             fun doMatch i s =
             if s < size_s1 then false (* The remainder of the string is too small to match. *)
-            else if byteMatch s1 s2 0w0 i size_s1
+            else if (
+               if size_s1 = 0w1
+               then vecAsChar s1 = System_loadb(s2, i + wordSize)
+               else byteMatch s1 s2 0w0 i size_s1
+               )
             then true
             else doMatch (i+0w1) (s-0w1)
         in
-            doMatch start length
+            if System_isShort s2
+            then size_s1 = 0w0 orelse (size_s1 = 0w1 andalso vecAsChar s1 = vecAsChar s2)
+            else doMatch start length
         end
 
         (* TODO: This would be quicker with an RTS function to scan for a
