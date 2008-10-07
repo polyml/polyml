@@ -488,9 +488,34 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             //      an explicit wake up.
             //      an interrupt, either direct or broadcast
             //      a trap i.e. a request to handle an asynchronous event.
-            schedLock.Lock();
             Handle mutexH = SAVE(args->WordP()->Get(0));
             Handle wakeTime = SAVE(args->WordP()->Get(1));
+            // We pass zero as the wake time to represent infinity.
+            bool isInfinite = compareLong(taskData, wakeTime, SAVE(TAGGED(0))) == 0;
+
+            // Convert the time into the correct format for WaitUntil before acquiring
+            // schedLock.  div_longc could do a GC which requires schedLock.
+#ifdef HAVE_PTHREAD
+            struct timespec tWake;
+            if (! isInfinite)
+            {
+                // On Unix we represent times as a number of microseconds.
+                Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
+                tWake.tv_sec =
+                    get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, wakeTime)));
+                tWake.tv_nsec =
+                    1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
+            }
+#elif defined(HAVE_WINDOWS_H)
+            // On Windows it is the number of 100ns units since the epoch
+            FILETIME tWake;
+            if (! isInfinite)
+            {
+                get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
+                    (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
+            }
+#endif
+            schedLock.Lock();
             // Atomically release the mutex.  This is atomic because we hold schedLock
             // so no other thread can call signal or broadcast.
             Handle decrResult = machineDependent->AtomicIncrement(taskData, mutexH);
@@ -514,28 +539,9 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                 // Now release the ML memory.  A GC can start.
                 ThreadReleaseMLMemoryWithSchedLock(ptaskData);
                 // We pass zero as the wake time to represent infinity.
-                if (compareLong(taskData, wakeTime, SAVE(TAGGED(0))) == 0)
+                if (isInfinite)
                     ptaskData->threadLock.Wait(&schedLock);
-                else
-                {
-#ifdef HAVE_PTHREAD
-                    struct timespec tWake;
-                    // On Unix we represent times as a number of microseconds.
-                    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-                    tWake.tv_sec =
-                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, wakeTime)));
-                    tWake.tv_nsec =
-                        1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
-                    (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
-#elif defined(HAVE_WINDOWS_H)
-                    // On Windows it is the number of 100ns units since the epoch
-                    FILETIME tWake;
-                    get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
-                        (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
-                    (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
-#endif
-                    // get_C_ulong and get_C_pair could possibly raise exceptions.
-                }
+                else (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
                 // We want to use the memory again.
                 ThreadUseMLMemoryWithSchedLock(ptaskData);
             }
