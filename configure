@@ -22441,7 +22441,7 @@ echo "${ECHO_T}libraries $x_libraries, headers $x_includes" >&6; }
 fi
 
 
-if test "$no_x" != "yes"; then
+if test "${with_x+set}" = set; then
 
 	if test "$x_includes" != "" ; then
 	if test  "$x_includes" != "NONE" ; then
@@ -25102,9 +25102,8 @@ fi
 done
 
 
-# Suppress the check for the X headers if the user said --without-x.
-# That will disable the x-windows module.
-if test "$no_x" != "yes"; then
+# Only check for the X headers if the user said --with-x.
+if test "${with_x+set}" = set; then
 
 
 for ac_header in X11/Xlib.h Xm/Xm.h

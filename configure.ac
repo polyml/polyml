@@ -101,7 +101,7 @@ AC_CHECK_FUNC(sem_wait, , AC_CHECK_LIB(rt, sem_wait))
 # Check for X and Motif headers and libraries
 AC_PATH_X
 
-if test "$no_x" != "yes"; then
+if test "${with_x+set}" = set; then
 	
 	if test "$x_includes" != "" ; then
 	if test  "$x_includes" != "NONE" ; then
@@ -154,9 +154,8 @@ AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
 AC_CHECK_HEADERS([windows.h tchar.h pthread.h semaphore.h])
 
-# Suppress the check for the X headers if the user said --without-x.
-# That will disable the x-windows module.
-if test "$no_x" != "yes"; then
+# Only check for the X headers if the user said --with-x.
+if test "${with_x+set}" = set; then
     AC_CHECK_HEADERS([X11/Xlib.h Xm/Xm.h])
 fi
 
