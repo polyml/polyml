@@ -512,7 +512,11 @@ static BOOL CALLBACK AboutProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
         if (wParam == IDOK)
         {
             EndDialog(hwndDlg, IDOK);
+            return 1;
         }
+    case WM_CLOSE:
+        EndDialog(hwndDlg, IDOK);
+        return 1;
     default: return 0;
     }
 }
