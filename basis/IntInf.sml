@@ -114,7 +114,7 @@ struct
 			if i = 0 then raise Div
 			else if i = 1 then 1
 			else if i = ~1
-			then if Int.quot(j, 2) = 0 then (*even*) 1 else (*odd*) ~1
+			then if andb(j, 1) = 0 then (*even*) 1 else (*odd*) ~1
 			else 0
 			)
 		else power(1, i, j)
