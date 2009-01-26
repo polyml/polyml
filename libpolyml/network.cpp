@@ -373,6 +373,28 @@ static int GetError()
 #define MAPERROR(x) (x)
 #endif
 
+class WaitNet: public Waiter {
+public:
+    WaitNet(SOCKET sock, bool isOOB = false) : m_sock(sock), m_isOOB(isOOB) {}
+    void Wait(unsigned maxMillisecs);
+private:
+    SOCKET m_sock;
+    bool m_isOOB;
+};
+
+// Use "select" in both Windows and Unix.  In Windows that means we
+// don't watch hWakeupEvent but that's only a hint.
+void WaitNet::Wait(unsigned maxMillisecs)
+{
+    fd_set readFds, writeFds, exceptFds;
+    struct timeval toWait = { 0, 0 };
+    toWait.tv_usec = maxMillisecs * 1000;
+    FD_ZERO(&readFds);
+    FD_ZERO(&writeFds);
+    FD_ZERO(&exceptFds);
+    FD_SET(m_sock, m_isOOB ? &exceptFds : &readFds);
+    select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &toWait);
+}
 
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -840,8 +862,10 @@ TryAgain:
                         /* If the socket is in non-blocking mode we pass
                            this back to the caller.  If it is blocking we
                            suspend this process and try again later. */
-                        if (c == 46 /* blocking version. */)
-                            processes->BlockAndRestart(taskData, strm->device.sock, false, POLY_SYS_network);
+                        if (c == 46 /* blocking version. */) {
+                            WaitNet waiter(strm->device.sock);
+                            processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
+                        }
                         /* else drop through. */
                     default:
                         raise_syscall(taskData, "accept failed", GETERROR);
@@ -911,7 +935,7 @@ TryAgain:
                     else if (sel == 0)
                     {
                         /* Nothing yet */
-                        processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
+                        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
                             /* -1 => not for reading. */
                     }
                     else /* Definite result. */
@@ -936,7 +960,7 @@ TryAgain:
                     if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
                     {
                         strm->ioBits |= IO_BIT_INPROGRESS;
-                        processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
+                        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
                             /* -1 => not for reading. */
                     }
                     else if (err != EINTR)
@@ -1008,7 +1032,7 @@ TryAgain:
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 51 /* blocking */)
                 {
-                    processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
                         /* -1 => not for reading */
                     ASSERT(0); /* Must not have returned. */
                 }
@@ -1056,7 +1080,7 @@ TryAgain:
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 52 /* blocking */)
                 {
-                    processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
+                    processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
@@ -1092,8 +1116,8 @@ TryAgain:
                 if (err == EWOULDBLOCK && c == 53 /* blocking */)
                 {
                     /* Block until something arrives. */
-                    processes->BlockAndRestart(taskData, outOfBand ? -1 : strm->device.sock,
-                        false, POLY_SYS_network);
+                    WaitNet waiter(strm->device.sock, outOfBand != 0);
+                    processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
@@ -1139,8 +1163,8 @@ TryAgain:
                 }
                 if (err == EWOULDBLOCK && c == 54 /* blocking */)
                 {
-                    processes->BlockAndRestart(taskData, outOfBand ? -1 : strm->device.sock,
-                        false, POLY_SYS_network);
+                    WaitNet waiter(strm->device.sock, outOfBand != 0);
+                    processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
                     ASSERT(0); /* Must not have returned. */
                 }
                 else if (err != EINTR)
@@ -1585,7 +1609,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 #endif
         }
         case 1: /* Block until one of the descriptors is ready. */
-            processes->BlockAndRestart(taskData, -1, false, POLY_SYS_network);
+            processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
             /*NOTREACHED*/
         case 2: /* Just a simple poll - drop through. */
             break;
