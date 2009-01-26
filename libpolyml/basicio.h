@@ -29,8 +29,4 @@ class TaskData;
 extern Handle IO_dispatch_c(TaskData *mdTaskData, Handle args, Handle strm, Handle code);
 extern Handle change_dirc(TaskData *mdTaskData, Handle name);
 
-#ifndef WINDOWS_PC
-extern void process_may_block(TaskData *taskData, int fd, int ioCall);
-#endif
-
 #endif /* BASICIO_H */
