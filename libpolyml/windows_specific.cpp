@@ -105,7 +105,7 @@ typedef struct {
 
         struct {
             /* Process and IO channels. */
-            HANDLE hProcess, hInput, hOutput;
+            HANDLE hProcess, hInput, hOutput, hEvent;
             PolyObject *readToken, *writeToken;
         } process;
         HCONV hcDDEConv; /* DDE Conversation. */
@@ -133,6 +133,8 @@ static void close_handle(PHANDLETAB pTab)
             CloseHandle(pTab->entry.process.hInput);
         if (pTab->entry.process.hOutput != INVALID_HANDLE_VALUE)
             CloseHandle(pTab->entry.process.hOutput);
+        if (pTab->entry.process.hEvent)
+            CloseHandle(pTab->entry.process.hEvent);
         break;
 
     case HE_DDECONVERSATION:
@@ -319,7 +321,6 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 1005: /* Get result of process. */
         {
             PHANDLETAB hnd = get_handle(DEREFWORD(args), HE_PROCESS);
-            DWORD dwResult;
             if (hnd == 0)
                 raise_syscall(taskData, "Process is closed", EINVAL);
             // Close the streams. Either of them may have been
@@ -327,6 +328,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (hnd->entry.process.hInput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->entry.process.hInput);
             hnd->entry.process.hInput = INVALID_HANDLE_VALUE;
+            if (hnd->entry.process.hEvent)
+                CloseHandle(hnd->entry.process.hEvent);
+            hnd->entry.process.hEvent = NULL;
             if (hnd->entry.process.readToken)
             {
                 PIOSTRUCT strm =
@@ -344,21 +348,25 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 if (strm != NULL) close_stream(strm);
             }
             hnd->entry.process.writeToken = 0;
+
             // See if it's finished.
-            if (GetExitCodeProcess(hnd->entry.process.hProcess,
-                    &dwResult) == 0)
-                raise_syscall(taskData, "GetExitCodeProcess failed",
-                        -(int)GetLastError());
-            if (dwResult == STILL_ACTIVE)
-                /* Run some other ML processes and come back in at
-                   the top some time later*/
-                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_os_specific);
-            /* Finished - return the result. */
-            /* Note: we haven't closed the handle because we might want to ask
-               for the result again.  We only close it when we've garbage-collected
-               the token.  Doing this runs the risk of running out of handles.
-               Maybe change it and remember the result in ML. */
-            return Make_unsigned(taskData, dwResult);
+            while (true) {
+                DWORD dwResult;
+                if (GetExitCodeProcess(hnd->entry.process.hProcess, &dwResult) == 0)
+                    raise_syscall(taskData, "GetExitCodeProcess failed",
+                            -(int)GetLastError());
+                if (dwResult != STILL_ACTIVE) {
+                    /* Finished - return the result. */
+                    /* Note: we haven't closed the handle because we might want to ask
+                       for the result again.  We only close it when we've garbage-collected
+                       the token.  Doing this runs the risk of running out of handles.
+                       Maybe change it and remember the result in ML. */
+                    return Make_unsigned(taskData, dwResult);
+                }
+                // Block and try again.
+                WaitHandle waiter(hnd->entry.process.hProcess);
+                processes->ThreadPauseForIO(taskData, &waiter);
+            }
         }
 
     case 1006: /* Return a constant. */
@@ -790,7 +798,15 @@ set up in the parent.  As with Unix we create two pipes and pass one end of each
 pipe to the child.  The end we pass to the child is "inheritable" (i.e. duplicated
 in the child as with Unix file descriptors) while the ends we keep in the parent
 are non-inheritable (i.e. not duplicated in the child). 
-DCJM: December 1999.  
+DCJM: December 1999.
+This is now further complicated to improve the performance.  In Unix we can pass
+the file ID to "select" which will return immediately when input is available (we
+ignore blocking on output at the moment).  That allows the ML process to respond
+immediately.  There's no easy way to do that in Windows since the pipe handle is
+signalled whether there is input available or not.  One possibility would be to
+use overlapped IO but that requires using the ReadFile call directly and some
+contortions to create a pipe with overlapped IO.  The other, taken here, is to
+interpose a thread which can signal an event when input is available. 
 */
 static Handle execute(TaskData *taskData, Handle args)
 {
@@ -800,6 +816,7 @@ static Handle execute(TaskData *taskData, Handle args)
            hReadFromParent = INVALID_HANDLE_VALUE,
            hWriteToParent = INVALID_HANDLE_VALUE,
            hReadFromChild = INVALID_HANDLE_VALUE;
+    HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     HANDLE hTemp;
     STARTUPINFO startupInfo;
     PROCESS_INFORMATION processInfo;
@@ -823,6 +840,13 @@ static Handle execute(TaskData *taskData, Handle args)
         lpszError = "Could not create pipe";
         goto error;
     }
+    // Create the copying thread.
+    hTemp = CreateCopyPipe(hReadFromChild, hEvent);
+    if (hTemp == NULL) {
+        lpszError = "Could not create pipe";
+        goto error;
+    }
+    hReadFromChild = hTemp;
     // Convert the handles we want to pass to the child into inheritable
     // handles by duplicating and replacing them with the duplicates.
     if (! DuplicateHandle(GetCurrentProcess(), hWriteToParent, GetCurrentProcess(),
@@ -875,6 +899,7 @@ static Handle execute(TaskData *taskData, Handle args)
     pTab->entry.process.hProcess = processInfo.hProcess;
     pTab->entry.process.hInput = hReadFromChild;
     pTab->entry.process.hOutput = hWriteToChild;
+    pTab->entry.process.hEvent = hEvent;
     pTab->entry.process.readToken = 0;
     pTab->entry.process.writeToken = 0;
 
@@ -890,6 +915,7 @@ error:
         if (hReadFromParent != INVALID_HANDLE_VALUE) CloseHandle(hReadFromParent);
         if (hWriteToParent != INVALID_HANDLE_VALUE) CloseHandle(hWriteToParent);
         if (hReadFromChild != INVALID_HANDLE_VALUE) CloseHandle(hReadFromChild);
+        if (hEvent) CloseHandle(hEvent);
         raise_syscall(taskData, lpszError, -err);
         return NULL; // Never reached.
     }
@@ -952,6 +978,7 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     // We only use the process handle entry.
     pTab->entry.process.hInput = INVALID_HANDLE_VALUE;
     pTab->entry.process.hOutput = INVALID_HANDLE_VALUE;
+    pTab->entry.process.hEvent = NULL;
     pTab->entry.process.readToken = 0;
     pTab->entry.process.writeToken = 0;
 
@@ -992,6 +1019,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     if (strm->device.ioDesc == -1)
         raise_syscall(taskData, "_open_osfhandle failed", errno);
     strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
+
     /* The responsibility for closing the handle is passed to
        the stream package.  We need to retain a pointer to the
        stream entry so that we can close the stream in "reap". */
@@ -999,6 +1027,9 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     {
         hnd->entry.process.hInput = INVALID_HANDLE_VALUE;
         hnd->entry.process.readToken = strm->token;
+        // Pass the "input available" event.
+        strm->hAvailable = hnd->entry.process.hEvent;
+        hnd->entry.process.hEvent = NULL;
     }
     else
     {
