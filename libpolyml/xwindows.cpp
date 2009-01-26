@@ -162,6 +162,10 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include <alloca.h>
 #endif
 
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+
 /* what goes wrong? ... gid, fd, private15 inaccessible */
 /* THIS NEEDS TO BE FIXED!!!! */
 #define XLIB_ILLEGAL_ACCESS 1       /* We need access to some opaque structures */
