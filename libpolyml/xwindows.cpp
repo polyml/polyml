@@ -30,8 +30,8 @@
 #endif
 #endif
 
-#if (defined(HAVE_LIBXM) && defined(HAVE_LIBXEXT) && defined(HAVE_LIBXT) && defined(HAVE_X11_XLIB_H) && defined(HAVE_XM_XM_H))
-// Then we have enough for X-windows
+#if (defined(WITH_XWINDOWS))
+// X-Windows is required.
 
 /* xwindows.c */
 
