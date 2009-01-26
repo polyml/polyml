@@ -577,7 +577,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             /* This never returns.  When a signal is handled it will
                be interrupted. */
-            processes->BlockAndRestart(taskData, -1, true /* Interruptable. */, POLY_SYS_os_specific);
+            processes->BlockAndRestart(taskData, NULL, true /* Interruptable. */, POLY_SYS_os_specific);
         }
 
     case 22: /* Sleep until given time or until a signal.  Note: this is called
@@ -600,7 +600,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                by a signal. */
             if ((unsigned long)tv.tv_sec < secs ||
                 ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec < usecs))
-                processes->BlockAndRestart(taskData, -1, true /* Interruptable. */, POLY_SYS_os_specific);
+                processes->BlockAndRestart(taskData, NULL, true /* Interruptable. */, POLY_SYS_os_specific);
             return Make_arbitrary_precision(taskData, 0);
         }
     
@@ -1252,7 +1252,7 @@ TryAgain:
        wasn't a child process waiting we have to block
        and come back here later. */
     if (pres == 0 && !(callFlags & WNOHANG))
-        processes->BlockAndRestart(taskData, -1, false, POLY_SYS_os_specific);
+        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_os_specific);
 
     /* Construct the result tuple. */
     {
