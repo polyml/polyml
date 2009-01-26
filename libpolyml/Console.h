@@ -25,12 +25,16 @@
 #include <windows.h>
 
 /* Test whether input is available. */
-extern int isConsoleInput(void);
+extern bool isConsoleInput(void);
 /* Read characters from the input.  Only returns zero on EOF. */
-extern int getConsoleInput(char *buff, int nChars);
+extern unsigned getConsoleInput(char *buff, int nChars);
+
+// Create a copying thread that can also signal an event.
+// This is used both in stdin and also in Windows.execute.
+extern HANDLE CreateCopyPipe(HANDLE hInput, HANDLE hEvent);
 
 extern HWND hMainWindow; /* Handle to main window - NULL if none. */
-extern int useConsole; /* non-zero if we should use the console for input. */
+extern bool useConsole; /* non-zero if we should use the console for input. */
 extern HINSTANCE hApplicationInstance; /* Application instance */
 
 /* DDE requests. */
@@ -39,5 +43,6 @@ extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
 extern HANDLE hMainThread; /* Handle to main thread. */
+extern HANDLE hInputEvent; // Handle to console input event
 
 #endif

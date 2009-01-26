@@ -83,7 +83,7 @@ DCJM 30/5/2000.
 
 HANDLE hMainThread = NULL; // Handle to ML thread.
 HWND hMainWindow = NULL; // Main window - exported.
-int useConsole;         // Zero if callers should read from stdin.
+bool useConsole;         // False if callers should read from stdin.
 HINSTANCE hApplicationInstance;     // Application instance (exported)
 static HANDLE  hReadFromML; // Handles to pipe from ML thread
 static WNDPROC  wpOrigEditProc; // Saved window proc.
@@ -94,9 +94,8 @@ static int  nBuffLen;       // Length of input buffer.
 static int  nNextPosn;      // Position to add input. (<= nBuffLen)
 static int  nAvailable;     // Position of "committed" input (<= nNextPosn)
 static int  nReadPosn;      // Position of last read (<= nAvailable)
-static BOOL fCtrlC;         // TRUE if we have just pressed ctrl-C.
 static CRITICAL_SECTION csIOInterlock;
-static HANDLE hInputEvent;  // Signalled when input is available.
+HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
 
 static char *lpszServiceName;
@@ -122,34 +121,23 @@ static bool isActive = false;
 
 /* These functions are called by the I/O routines to test for input and
    to read from the keyboard. */
-int isConsoleInput(void)
+bool isConsoleInput(void)
 {
-    int nRes;
     if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
     EnterCriticalSection(&csIOInterlock);
-    nRes = (nAvailable != nReadPosn) || fCtrlC;
+    bool nRes = nAvailable != nReadPosn;
     LeaveCriticalSection(&csIOInterlock);
     return nRes;
 }
 
 /* Read characters from the input.  Only returns zero on EOF. */
-int getConsoleInput(char *buff, int nChars)
+unsigned getConsoleInput(char *buff, int nChars)
 {
-    int nRes = 0;
+    unsigned nRes = 0;
     if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
     EnterCriticalSection(&csIOInterlock);
-    while (nAvailable == nReadPosn || fCtrlC)
+    while (nAvailable == nReadPosn)
     {
-        if (fCtrlC)
-        {
-            // If we had a control-C we treat it much as an interrupted
-            // system call in Unix.
-            fCtrlC = FALSE;
-            if (nAvailable == nReadPosn) ResetEvent(hInputEvent);
-            LeaveCriticalSection(&csIOInterlock);
-            errno = EINTR;
-            return -1;
-        }
         ResetEvent(hInputEvent);
         /* Must block until there is input.
            This will only actually happen when called from HandleINT
@@ -423,10 +411,6 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
                     // Discard any type-ahead.
                     nNextPosn = nAvailable = nReadPosn = 0;
                     RequestConsoleInterrupt();
-                    // Set the ctrl-C flag and make sure the ML thread
-                    // is unblocked.
-                    fCtrlC = TRUE;
-                    SetEvent(hInputEvent);
                 }
             }
             else if (wParam >= ' ' || wParam == '\r' || wParam == '\t' ||
@@ -651,10 +635,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 // Discard any type-ahead.
                 nNextPosn = nAvailable = nReadPosn = 0;
                 RequestConsoleInterrupt();
-                // Set the ctrl-C flag and make sure the ML thread
-                // is unblocked.
-                fCtrlC = TRUE;
-                SetEvent(hInputEvent);
                 return 0;
 
             default: return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -717,6 +697,7 @@ static DWORD WINAPI MainThrdProc(LPVOID lpParameter)
     exportDescription *exports = (exportDescription *)lpParameter;
     return polymain(nArgs, lpArgs, exports);
 }
+
 
 int PolyWinMain(
   HINSTANCE hInstance,
@@ -795,6 +776,7 @@ int PolyWinMain(
 
         // Create a thread to manage the output from ML.
         HANDLE hInThread = CreateThread(NULL, 0, InThrdProc, 0, 0, &dwInId);
+        if (hInThread == NULL) return 1;
         CloseHandle(hInThread);
         wndClass.cbSize = sizeof(wndClass);
         wndClass.style = 0;
@@ -839,14 +821,30 @@ int PolyWinMain(
         // read from or write to the main window.  That way if we are
         // actually using another window this will never get displayed.
         nInitialShow = nCmdShow;
-        useConsole = 1;
+        useConsole = true;
     }
     else {
-        // If we're not creating a window it's possible that we could still
-        // call getConsoleInput if the handle underlying stdin is closed for
-        // some reason.  Set the event so that we return EOF in that case.
-        SetEvent(hInputEvent);
-        useConsole = 0;
+        // We're using the stdin passed in by the caller.  This may well
+        // be a pipe and in order to get reasonable performance we need
+        // to interpose a thread.  This is the only way to be able to have
+        // something we can pass to MsgWaitForMultipleObjects, in this case
+        // hInputEvent, which will indicate the input is available.
+        HANDLE hOldStdin;
+        // Duplicate the handle because we're going to close this.
+        if (! DuplicateHandle(GetCurrentProcess(), GetStdHandle(STD_INPUT_HANDLE),
+                              GetCurrentProcess(), &hOldStdin, 0, TRUE, // inheritable
+                              DUPLICATE_SAME_ACCESS ))
+            return 1;
+
+        HANDLE hNewStdin = CreateCopyPipe(hOldStdin, hInputEvent);
+        if (hNewStdin == NULL) return 1;
+
+        // Replace the current stdin with the output from the pipe.
+        fclose(stdin);
+        int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
+        if (newstdin != 0) _dup2(newstdin, 0);
+        fdopen(0, "rt");
+        useConsole = false;
     }
 
     // Convert the command line into Unix-style arguments.
@@ -1008,3 +1006,104 @@ static void uninitDDEControl(void)
     // Unitialise DDE.
     DdeUninitialize(dwDDEInstance);
 }
+
+class CopyPipe {
+public:
+    CopyPipe():
+      hOriginal(NULL), hOutput(NULL), hEvent(NULL) {}
+
+    HANDLE RunPipe(HANDLE hIn, HANDLE hEv);
+private:
+    ~CopyPipe();
+
+    void threadFunction(void);
+
+    HANDLE hOriginal;
+    HANDLE hOutput;
+    HANDLE hEvent;
+
+    friend DWORD WINAPI copyThread(LPVOID lpParameter);
+};
+
+CopyPipe::~CopyPipe()
+{
+    if (hOutput) CloseHandle(hOutput);
+    if (hOriginal) CloseHandle(hOriginal);
+    if (hEvent) CloseHandle(hEvent);
+}
+
+static DWORD WINAPI copyThread(LPVOID lpParameter)
+{
+    CopyPipe *cp = (CopyPipe *)lpParameter;
+    cp->threadFunction();
+    delete cp;
+    return 0;
+}
+
+// This thread is used when the caller has provided a standard input
+// stream and we're using that and not out console.  It copies the
+// standard input to a pipe and the ML code uses that as its input.
+// This way we can set hInputEvent whenever input is available.
+void CopyPipe::threadFunction()
+{
+    // Duplicate the event handle so that we can close it when we've finished
+    char buffer[4096];
+
+    while (true) {
+        DWORD dwRead;
+        if (! ReadFile(hOriginal, buffer, sizeof(buffer), &dwRead, NULL))
+        {
+            SetEvent(hEvent);
+            return;
+        }
+
+        if (dwRead == 0) // End-of-stream
+        {
+            // Normal exit.  Indicate EOF
+            SetEvent(hEvent);
+            return;
+        }
+
+        SetEvent(hEvent); // Signal input has arrived
+        char *b = buffer;
+        do {
+            DWORD dwWritten;
+            if (! WriteFile(hOutput, b, dwRead, &dwWritten, NULL))
+            {
+                SetEvent(hEvent);
+                return;
+            }
+            b += dwWritten;
+            dwRead -= dwWritten;
+        } while (dwRead != 0);
+    }
+}
+
+HANDLE CopyPipe::RunPipe(HANDLE hIn, HANDLE hEv)
+{
+    HANDLE hNewInput = NULL;
+    hOriginal = hIn;
+
+    if (!CreatePipe(&hNewInput, &hOutput, NULL, 0)) return NULL;
+
+    if (! DuplicateHandle(GetCurrentProcess(), hEv, GetCurrentProcess(),
+                    &hEvent, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        return NULL;
+
+    DWORD dwInId;
+    HANDLE hInThread = CreateThread(NULL, 0, copyThread, this, 0, &dwInId);
+    if (hInThread == NULL) return NULL;
+    CloseHandle(hInThread);
+
+    return hNewInput;
+}
+
+// Create a pipe and a thread to read the input thread and signal the
+// event when input is available.  Returns a handle to a pipe that
+// supplies a copy of the original input.
+HANDLE CreateCopyPipe(HANDLE hInput, HANDLE hEvent)
+{
+    CopyPipe *cp = new CopyPipe();
+    return cp->RunPipe(hInput, hEvent);
+}
+
