@@ -236,6 +236,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     case WAIT_FAILED:
                         raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
                     }
+                    // Wait for the process to exit or for the timeout
+                    WaitHandle waiter((HANDLE)pid);
+                    processes->ThreadPauseForIO(mdTaskData, &waiter);
 #else
                     int wRes = waitpid(pid, &res, WNOHANG);
                     if (wRes > 0)
@@ -244,8 +247,12 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     {
                         raise_syscall(mdTaskData, "Function system failed", errno);
                     }
-#endif
+                    // In Unix the best we can do is wait.  This may be interrupted
+                    // by SIGCHLD depending on where signals are processed.
+                    // One possibility is for the main thread to somehow wake-up
+                    // the thread when it processes a SIGCHLD.
                     processes->ThreadPause(mdTaskData);
+#endif
                 }
                 catch (...)
                 {
