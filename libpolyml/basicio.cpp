@@ -187,45 +187,55 @@ PIOSTRUCT basic_io_vector;
 PLock ioLock; // Currently this just protects against two threads using the same entry
 
 #ifdef WINDOWS_PC
+class WaitStream: public WaitHandle
+{
+public:
+    WaitStream(PIOSTRUCT strm): WaitHandle(strm == NULL ? NULL : strm->hAvailable) {}
+};
+
+#else
+
+class WaitStream: public WaitInputFD
+{
+public:
+    WaitStream(PIOSTRUCT strm): WaitInputFD(strm == NULL ? -1 : strm->device.ioDesc) {}
+};
+#endif
+
+#ifdef WINDOWS_PC
 
 /* Deal with the various cases to see if input is available. */
-static int isAvailable(TaskData *taskData, PIOSTRUCT strm)
+static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
 {
     HANDLE  hFile = (HANDLE)_get_osfhandle(strm->device.ioDesc);
+
     if (isPipe(strm))
     {
         DWORD dwAvail;
         int err;
         if (PeekNamedPipe(hFile, NULL, 0, NULL, &dwAvail, NULL))
-        {
-            return (dwAvail == 0 ? 0 : 1);
-        }
+            return dwAvail != 0;
         err = GetLastError();
         /* Windows returns ERROR_BROKEN_PIPE on input whereas Unix
            only returns it on output and treats it as EOF.  We
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
-            return 1; /* At EOF - will not block. */
+            return true; /* At EOF - will not block. */
         else raise_syscall(taskData, "PeekNamedPipe failed", -err);
         /*NOTREACHED*/
     }
+
     else if (isConsole(strm)) return isConsoleInput();
+
     else if (isDevice(strm))
-    {
-        if (WaitForSingleObject(hFile, 0) == WAIT_OBJECT_0)
-            return 1;
-        else return 0;
-    }
+        return WaitForSingleObject(hFile, 0) == WAIT_OBJECT_0;
     else
         /* File - We may be at end-of-file but we won't block. */
-        return 1;
+        return true;
 }
 
 #else
-// Test whether input is available and block if it is not.
-// This is also used in xwindows.cpp
-// N.B.  There may be a GC while in here.
-void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
+static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
 {
 #ifdef __CYGWIN__
       static struct timeval poll = {0,1};
@@ -234,21 +244,15 @@ void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
 #endif
       fd_set read_fds;
       int selRes;
+      FD_ZERO(&read_fds);
+      FD_SET((int)strm->device.ioDesc, &read_fds);
 
-      while (1)
-      {
-  
-          FD_ZERO(&read_fds);
-          FD_SET((int)fd,&read_fds);
-
-          /* If there is something there we can return. */
-          selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
-          if (selRes > 0) return; /* Something waiting. */
-          else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-              raise_syscall(taskData, "select failed %d\n", errno);
-          // Wait for activity.
-          processes->ThreadPauseForIO(taskData, fd);
-      }
+      /* If there is something there we can return. */
+      selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
+      if (selRes > 0) return true; /* Something waiting. */
+      else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
+          raise_syscall(taskData, "select failed %d\n", errno);
+      else return false;
 }
 
 #endif
@@ -287,6 +291,10 @@ void close_stream(PIOSTRUCT str)
     str->ioBits = 0;
     str->token = 0;
     emfileFlag = false;
+#ifdef WINDOWS_PC
+    if (str->hAvailable) CloseHandle(str->hAvailable);
+    str->hAvailable = NULL;
+#endif
 }
 
 
@@ -489,6 +497,8 @@ static Handle close_file(TaskData *taskData, Handle stream)
 } /* close_file */
 
 /* Read into an array. */
+// We can't combine readArray and readString because we mustn't compute the
+// destination of the data in readArray until after any GC.
 static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     /* The isText argument is ignored in both Unix and Windows but
@@ -499,33 +509,30 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
     {
         // First test to see if we have input available.
         // These tests may result in a GC if another thread is running.
-        PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
-        /* Raise an exception if the stream has been closed. */
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-        int fd = strm->device.ioDesc;
+        // First test to see if we have input available.
+        // These tests may result in a GC if another thread is running.
+        PIOSTRUCT   strm;
+
+        while (true) {
+            strm = get_stream(DEREFHANDLE(stream));
+            /* Raise an exception if the stream has been closed. */
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (isAvailable(taskData, strm))
+                break;
+            WaitStream waiter(strm);
+            processes->ThreadPauseForIO(taskData, &waiter);
+        }
+
 #ifdef WINDOWS_PC
-        if (isConsole(strm))
-        {
-            while (! isConsoleInput())
-                processes->ThreadPause(taskData);
-        }
-        else
-        {
-            while (! isAvailable(taskData, strm))
-            {
-                processes->ThreadPauseForIO(taskData, strm->device.ioDesc);
-                strm = get_stream(DEREFHANDLE(stream)); // Could have been closed.
-            }
-        }
-#else
-        /* Unix. */
-        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
+        if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
 #endif
         // We can now try to read without blocking.
-        strm = get_stream(DEREFHANDLE(stream));
-        /* Raise an exception if the stream has been closed. */
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-        fd = strm->device.ioDesc;
+        // Actually there's a race here in the unlikely situation that there
+        // are multiple threads sharing the same low-level reader.  They could
+        // both detect that input is available but only one may succeed in
+        // reading without blocking.  This doesn't apply where the threads use
+        // the higher-level IO interfaces in ML which have their own mutexes.
+        int fd = strm->device.ioDesc;
         byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
         POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
         POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
@@ -563,31 +570,24 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
     {
         // First test to see if we have input available.
         // These tests may result in a GC if another thread is running.
-        PIOSTRUCT   strm = get_stream(DEREFHANDLE(stream));
-        /* Raise an exception if the stream has been closed. */
-        if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-        int fd = strm->device.ioDesc;
+        PIOSTRUCT   strm;
+
+        while (true) {
+            strm = get_stream(DEREFHANDLE(stream));
+            /* Raise an exception if the stream has been closed. */
+            if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            if (isAvailable(taskData, strm))
+                break;
+            WaitStream waiter(strm);
+            processes->ThreadPauseForIO(taskData, &waiter);
+        }
+
 #ifdef WINDOWS_PC
-        if (isConsole(strm))
-        {
-            while (! isConsoleInput())
-                processes->ThreadPause(taskData);
-        }
-        else
-        {
-            while (! isAvailable(taskData, strm))
-            {
-                processes->ThreadPauseForIO(taskData, strm->device.ioDesc);
-                strm = get_stream(DEREFHANDLE(stream)); // Could have been closed.
-            }
-        }
-#else
-        /* Unix. */
-        process_may_block(taskData, fd, POLY_SYS_io_dispatch);
+        if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
 #endif
+
         // We can now try to read without blocking.
-        strm = get_stream(DEREFHANDLE(stream));
-        fd = strm->device.ioDesc;
+        int fd = strm->device.ioDesc;
         // We previously allocated the buffer on the stack but that caused
         // problems with multi-threading at least on Mac OS X because of
         // stack exhaustion.  We limit the space to 100k. */
@@ -637,7 +637,6 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
     /* We don't actually handle cases of blocking on output. */
-    /* process_may_block(strm); */
     byte *toWrite;
     if (IS_INT(base))
     {
@@ -656,59 +655,33 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     return Make_arbitrary_precision(taskData, haveWritten);
 }
 
-
-/* Test whether we can read without blocking.  Returns 0 if it will block,
-   1 if it will not. */
-static int canInput(TaskData *taskData, Handle stream)
-{
-    PIOSTRUCT strm = get_stream(stream->WordP());
-    if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-
-#ifdef WINDOWS_PC
-    return isAvailable(taskData, strm);
-#else
-    {
-        /* Unix - use "select" to find out if there is input available. */
-        struct timeval delay = { 0, 0 };
-        fd_set read_fds;
-        int sel;
-        FD_ZERO(&read_fds);
-        FD_SET(strm->device.ioDesc, &read_fds);
-        sel = select(FD_SETSIZE, &read_fds, NULL, NULL, &delay);
-        if (sel < 0 && errno != EINTR)
-            raise_syscall(taskData, "select failed", errno);
-        else if (sel > 0) return 1;
-        else return 0;
-    }
-#endif
-}
-
-/* Test whether we can write without blocking.  Returns 0 if it will block,
-   1 if it will not. */
-static int canOutput(TaskData *taskData, Handle stream)
+// Test whether we can write without blocking.  Returns false if it will block,
+// true if it will not.
+static bool canOutput(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
 #ifdef WINDOWS_PC
     /* There's no way I can see of doing this in Windows. */
-    return 1;
+    return true;
 #else
-    {
-        /* Unix - use "select" to find out if output is possible. */
-        struct timeval delay = { 0, 0 };
-        fd_set read_fds, write_fds, except_fds;
-        int sel;
-        FD_ZERO(&read_fds);
-        FD_ZERO(&write_fds);
-        FD_ZERO(&except_fds);
-        FD_SET(strm->device.ioDesc, &write_fds);
-        sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&delay);
-        if (sel < 0 && errno != EINTR)
-            raise_syscall(taskData, "select failed", errno);
-        else if (sel > 0) return 1;
-        else return 0;
-    }
+    /* Unix - use "select" to find out if output is possible. */
+#ifdef __CYGWIN__
+    static struct timeval poll = {0,1};
+#else
+    static struct timeval poll = {0,0};
+#endif
+    fd_set read_fds, write_fds, except_fds;
+    int sel;
+    FD_ZERO(&read_fds);
+    FD_ZERO(&write_fds);
+    FD_ZERO(&except_fds);
+    FD_SET(strm->device.ioDesc, &write_fds);
+    sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&poll);
+    if (sel < 0 && errno != EINTR)
+        raise_syscall(taskData, "select failed", errno);
+    return sel > 0;
 #endif
 }
 
@@ -910,7 +883,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else drop through and block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
@@ -968,7 +941,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
@@ -1039,7 +1012,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
+                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
@@ -1545,8 +1518,14 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
            the moment. */
         /* Try increasing to 4k. */
         return Make_arbitrary_precision(taskData, /*1024*/4096);
+
     case 16: /* See if we can get some input. */
-        return Make_arbitrary_precision(taskData, canInput(taskData, strm));
+        {
+            PIOSTRUCT str = get_stream(strm->WordP());
+            if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+            return Make_arbitrary_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
+        }
+
     case 17: /* Return the number of bytes available.  */
         return bytesAvailable(taskData, strm);
 
@@ -1602,22 +1581,26 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         return readString(taskData, strm, args, false);
 
     case 27: /* Block until input is available. */
-        {
+        while (true) {
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (canInput(taskData, strm) == 0)
-                processes->BlockAndRestart(taskData, str->device.ioDesc, false, POLY_SYS_io_dispatch);
-            return Make_arbitrary_precision(taskData, 0);
+            if (isAvailable(taskData, str))
+                Make_arbitrary_precision(taskData, 0);
+            WaitStream waiter(str);
+            processes->ThreadPauseForIO(taskData, &waiter);
         }
 
     case 28: /* Test whether output is possible. */
-        return Make_arbitrary_precision(taskData, canOutput(taskData, strm));
+        return Make_arbitrary_precision(taskData, canOutput(taskData, strm) ? 1:0);
 
     case 29: /* Block until output is possible. */
-        if (canOutput(taskData, strm) == 0)
-            processes->BlockAndRestart(taskData, -1, false, POLY_SYS_io_dispatch);
-        return Make_arbitrary_precision(taskData, 0);
-
+        while (true) {
+            if (canOutput(taskData, strm))
+                return Make_arbitrary_precision(taskData, 0);
+            // Use the default waiter for the moment since we don't have
+            // one to test for output.
+            processes->ThreadPauseForIO(taskData, Waiter::defaultWaiter);
+        }
 
         /* Functions added for Posix structure. */
     case 30: /* Return underlying file descriptor. */
@@ -1895,13 +1878,17 @@ void BasicIO::Init(void)
 
 void BasicIO::Reinit(void)
 {
-    /* The interface map is recreated after the database
-       is committed. */
     basic_io_vector[0].token  = (PolyObject*)IoEntry(POLY_SYS_stdin);
     basic_io_vector[0].device.ioDesc = 0;
     basic_io_vector[0].ioBits = IO_BIT_OPEN | IO_BIT_READ;
 #ifdef WINDOWS_PC
     basic_io_vector[0].ioBits |= getFileType(0);
+    // Set this to a duplicate of the handle so it can be closed when we
+    // close the stream.
+    HANDLE hDup;
+    if (DuplicateHandle(GetCurrentProcess(), hInputEvent, GetCurrentProcess(),
+                        &hDup, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        basic_io_vector[0].hAvailable = hDup;
 #endif
 
     basic_io_vector[1].token  = (PolyObject*)IoEntry(POLY_SYS_stdout);
