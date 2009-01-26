@@ -43,6 +43,10 @@ class ScanAddress;
 class MDTaskData;
 class Exporter;
 
+#ifdef HAVE_WINDOWS_H
+typedef void *HANDLE;
+#endif
+
 #define MIN_HEAP_SIZE   4096 // Minimum and initial heap segment size (words)
 
 // This is the ML "thread identifier" object.  The fields
@@ -114,6 +118,57 @@ public:
 
 class PLock;
 
+// Class to wait for a given time or for an event, whichever comes first.
+//
+// A pointer to this class or a subclass is passed to ThreadPauseForIO.
+// Because a thread may be interrupted or killed by another ML thread we
+// don't allow any thread to block indefinitely.  Instead whenever a
+// thread wants to do an operation that may block we have it enter a
+// loop that polls for the desired condition and if it is not ready it
+// calls ThreadPauseForIO.  The default action is to block for a short
+// period and then return so that the caller can poll again.  That can
+// limit performance when, for example, reading from a pipe so where possible
+// we use a sub-class that waits until either input is available or it times
+// out, whichever comes first, using "select" in Unix or MsgWaitForMultipleObjects
+// in Windows.
+// During a call to Waiter::Wait the thread is set as "not using ML memory"
+// so a GC can happen while this thread is blocked.
+class Waiter
+{
+public:
+    Waiter() {}
+    virtual ~Waiter() {}
+    virtual void Wait(unsigned maxMillisecs);
+    static Waiter *defaultWaiter;
+#ifdef HAVE_WINDOWS_H
+    static HANDLE hWakeupEvent;
+#endif
+};
+
+#ifdef HAVE_WINDOWS_H
+class WaitHandle: public Waiter
+{
+public:
+    WaitHandle(HANDLE h): m_Handle(h) {}
+    virtual void Wait(unsigned maxMillisecs);
+private:
+    HANDLE m_Handle;
+};
+#endif
+
+#ifndef WINDOWS_PC
+// Unix: Wait until a file descriptor is available for input
+class WaitInputFD: public Waiter
+{
+public:
+    WaitInputFD(int fd): m_waitFD(fd) {}
+    virtual void Wait(unsigned maxMillisecs);
+private:
+    int m_waitFD;
+};
+#endif
+
+
 // External interface to the Process module.  These functions are all implemented
 // by the Processes class.
 class ProcessExternal
@@ -132,13 +187,13 @@ public:
 
     virtual void BeginRootThread(PolyObject *rootFunction) = 0;
     // Called when a thread may block.  Never returns.  May cause a retry.
-    virtual NORETURNFN(void BlockAndRestart(TaskData *taskData, int fd,
+    virtual NORETURNFN(void BlockAndRestart(TaskData *taskData, Waiter *pWait,
                     bool posixInterruptable, int ioCall)) = 0;
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
-    virtual void ThreadPauseForIO(TaskData *taskData, int fd) = 0;
-    // As ThreadPauseForIO but when there is no file descriptor
-    virtual void ThreadPause(TaskData *taskData) { ThreadPauseForIO(taskData, -1); }
+    virtual void ThreadPauseForIO(TaskData *taskData, Waiter *pWait) = 0;
+    // As ThreadPauseForIO but when there is no stream
+    virtual void ThreadPause(TaskData *taskData) { ThreadPauseForIO(taskData, Waiter::defaultWaiter); }
 
     // If a thread is blocking for some time it should release its use
     // of the ML memory.  That allows a GC. ThreadUseMLMemory returns true if

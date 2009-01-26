@@ -195,12 +195,10 @@ public:
     // Called when a thread has completed - doesn't return.
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
 
-    void BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall);
+    void BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInterruptable, int ioCall);
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
-    virtual void ThreadPauseForIO(TaskData *taskData, int fd);
-
-    void SwitchSubShells(void);
+    virtual void ThreadPauseForIO(TaskData *taskData, Waiter *pWait);
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
     // ForkFromRTS.  Creates a new thread from within the RTS.
@@ -280,10 +278,6 @@ public:
     DWORD tlsId;
 #endif
 
-#ifdef HAVE_WINDOWS_H
-    HANDLE hWakeupEvent; // Pulsed to wake up any threads waiting for IO.
-#endif
-
     // We make an exception packet for Interrupt and store it here.
     // This exception can be raised if we run out of store so we need to
     // make sure we have the packet before we do.
@@ -327,7 +321,7 @@ Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0), i
     crowbarRunning(false), sigTask(0)
 {
 #ifdef HAVE_WINDOWS_H
-    hWakeupEvent = NULL;
+    Waiter::hWakeupEvent = NULL;
     hStopEvent = NULL;
     profilingHd = NULL;
     lastCPUTime = 0;
@@ -752,7 +746,7 @@ void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
     }
 #ifdef HAVE_WINDOWS_H
     // Wake any threads waiting for IO
-    PulseEvent(hWakeupEvent);
+    PulseEvent(Waiter::hWakeupEvent);
 #endif
 }
 
@@ -946,46 +940,15 @@ Handle exitThread(TaskData *taskData)
 }
 
 /* Called when a thread is about to block, usually because of IO.
-   fd may be negative if the file descriptor value is not relevant.
    If this is interruptable (currently only used for Posix functions)
    the process will be set to raise an exception if any signal is handled.
    It may also raise an exception if another thread has called
    broadcastInterrupt. */
-void Processes::ThreadPauseForIO(TaskData *taskData, int fd)
+void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
 {
     TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
     ThreadReleaseMLMemory(taskData);
-#ifdef WINDOWS_PC
-    /* It's too complicated in Windows to try and wait for a stream.
-       We simply wait for half a second or until a Windows message
-       arrives. */
-
-    /* We seem to need to reset the queue before calling
-       MsgWaitForMultipleObjects otherwise it frequently returns
-       immediately, often saying there is a message with a message ID
-       of 0x118 which doesn't correspond to any listed message.
-       While calling PeekMessage afterwards might be better this doesn't
-       seem to work properly.  We need to use MsgWaitForMultipleObjects
-       here so that we get a reasonable response with the Windows GUI. */
-    MSG msg;
-    // N.B.  It seems that calling PeekMessage may result in a callback
-    // to a window proc directly without a call to DispatchMessage.  That
-    // could result in a recursive call here if we have installed an ML
-    // window proc.
-    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
-
-    // Wait until we get input or we're woken up.
-    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, 100, QS_ALLINPUT);
-#else
-    fd_set read_fds, write_fds, except_fds;
-    struct timeval toWait = { 0, 100000 }; /* 100ms. */
-
-    FD_ZERO(&read_fds);
-    if (fd >= 0) FD_SET(fd, &read_fds);
-    FD_ZERO(&write_fds);
-    FD_ZERO(&except_fds);
-    select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait);
-#endif
+    pWait->Wait(1000); // Wait up to a second
     ThreadUseMLMemory(taskData);
     TestSynchronousRequests(taskData); // Check if we've been interrupted.
     if (ProcessAsynchRequests(taskData))
@@ -1000,11 +963,12 @@ void Processes::ThreadPauseForIO(TaskData *taskData, int fd)
 // repeatedly come back here and if a signal happens while we're in
 // ThreadPauseForIO we will raise the exception.  If the signal happens at
 // another point we won't.
-void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterruptable, int ioCall)
+void Processes::BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInterruptable, int ioCall)
 {
+    if (pWait == NULL) pWait = Waiter::defaultWaiter;
     machineDependent->SetForRetry(taskData, ioCall);
     unsigned lastSigCount = receivedSignalCount;
-    ThreadPauseForIO(taskData, fd);
+    ThreadPauseForIO(taskData, pWait);
     // If this is an interruptible Posix function we raise an exception if
     // there has been a signal.
     if (posixInterruptable && lastSigCount != receivedSignalCount)
@@ -1012,6 +976,80 @@ void Processes::BlockAndRestart(TaskData *taskData, int fd, bool posixInterrupta
     throw IOException(EXC_EXCEPTION);
     /* NOTREACHED */
 }
+
+// Default waiter: simply wait for the time.  In the case of Windows it
+// is also woken up if the event is signalled.  In Unix it may be woken
+// up by a signal.
+void Waiter::Wait(unsigned maxMillisecs)
+{
+    // Since this is used only when we can't monitor the source directly
+    // we set this to 100ms so that we're not waiting too long.
+    if (maxMillisecs > 100) maxMillisecs = 100;
+#ifdef WINDOWS_PC
+    /* We seem to need to reset the queue before calling
+       MsgWaitForMultipleObjects otherwise it frequently returns
+       immediately, often saying there is a message with a message ID
+       of 0x118 which doesn't correspond to any listed message.
+       While calling PeekMessage afterwards might be better this doesn't
+       seem to work properly.  We need to use MsgWaitForMultipleObjects
+       here so that we get a reasonable response with the Windows GUI. */
+    MSG msg;
+    // N.B.  It seems that calling PeekMessage may result in a callback
+    // to a window proc directly without a call to DispatchMessage.  That
+    // could result in a recursive call here if we have installed an ML
+    // window proc.
+    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
+    // Wait until we get input or we're woken up.
+    MsgWaitForMultipleObjects(1, &hWakeupEvent, FALSE, maxMillisecs, QS_ALLINPUT);
+#else
+    // Unix
+    fd_set read_fds, write_fds, except_fds;
+    struct timeval toWait = { 0, 0 };
+    toWait.tv_usec = maxMillisecs * 1000;
+    FD_ZERO(&read_fds);
+    FD_ZERO(&write_fds);
+    FD_ZERO(&except_fds);
+    select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait);
+#endif
+}
+
+static Waiter defWait;
+Waiter *Waiter::defaultWaiter = &defWait;
+
+#ifdef HAVE_WINDOWS_H
+// Windows and Cygwin
+HANDLE Waiter::hWakeupEvent; // Pulsed to wake up any threads waiting for IO.
+
+// Wait for the specified handle to be signalled.
+void WaitHandle::Wait(unsigned maxMillisecs)
+{
+    MSG msg;
+    PeekMessage(&msg, 0, 0, 0, PM_NOREMOVE);
+
+    HANDLE hEvents[2];
+    DWORD dwEvents = 0;
+    hEvents[dwEvents++] = Waiter::hWakeupEvent;
+    if (m_Handle != NULL)
+        hEvents[dwEvents++] = m_Handle;
+    // Wait until we get input or we're woken up.
+    MsgWaitForMultipleObjects(dwEvents, hEvents, FALSE, maxMillisecs, QS_ALLINPUT);
+}
+#endif
+
+#ifndef WINDOWS_PC
+// Unix and Cygwin: Wait for a file descriptor on input.
+void WaitInputFD::Wait(unsigned maxMillisecs)
+{
+    fd_set read_fds, write_fds, except_fds;
+    struct timeval toWait = { 0, 0 };
+    toWait.tv_usec = maxMillisecs * 1000;
+    FD_ZERO(&read_fds);
+    if (m_waitFD >= 0) FD_SET(m_waitFD, &read_fds);
+    FD_ZERO(&write_fds);
+    FD_ZERO(&except_fds);
+    select(FD_SETSIZE, &read_fds, &write_fds, &except_fds, &toWait);
+}
+#endif
 
 // Get the task data for the current thread.  This is held in
 // thread-local storage.  Normally this is passed in taskData but
@@ -1690,7 +1728,7 @@ void Processes::Init(void)
 {
 #ifdef HAVE_WINDOWS_H
     // Create event to wake up from IO sleeping.
-    hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    Waiter::hWakeupEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 #endif
 
 #ifdef HAVE_PTHREAD
@@ -1735,12 +1773,12 @@ void Processes::Reinit(void)
 void Processes::Uninit(void)
 {     
 #ifdef HAVE_WINDOWS_H
-    if (hWakeupEvent) SetEvent(hWakeupEvent);
+    if (Waiter::hWakeupEvent) SetEvent(Waiter::hWakeupEvent);
 #endif
 
 #ifdef HAVE_WINDOWS_H
-    if (hWakeupEvent) CloseHandle(hWakeupEvent);
-    hWakeupEvent = NULL;
+    if (Waiter::hWakeupEvent) CloseHandle(Waiter::hWakeupEvent);
+    Waiter::hWakeupEvent = NULL;
 #endif
 
 #ifdef HAVE_PTHREAD
