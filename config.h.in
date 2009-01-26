@@ -601,6 +601,9 @@
 /* Version number of package */
 #undef VERSION
 
+/* Define if the X-Windows interface should be built */
+#undef WITH_XWINDOWS
+
 /* Define like PROTOTYPES; this can be used by system headers. */
 #undef __PROTOTYPES
 

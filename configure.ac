@@ -102,6 +102,8 @@ AC_CHECK_FUNC(sem_wait, , AC_CHECK_LIB(rt, sem_wait))
 AC_PATH_X
 
 if test "${with_x+set}" = set; then
+
+	AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
 	
 	if test "$x_includes" != "" ; then
 	if test  "$x_includes" != "NONE" ; then
@@ -281,6 +283,25 @@ esac
 if test "$ac_cv_with_portable" = "yes"; then
        AC_DEFINE([INTERPRETED], [1], [Define if using the interpreter] )
        polyarch=interpret
+fi
+
+# Put this test at the end where it's less likely to be missed.
+# If we're compiling on Cygwin (and mingw?) and /usr/bin/file is not present
+# the link step will produce some strange warning messages of the form:
+# "Warning: linker path does not have real file for library -lXXX".  I think
+# that's really a bug in autoconf but to explain what's happening to the user
+# add a test here.
+if test "$lt_cv_file_magic_cmd" = "func_win32_libid";
+then
+    if test \! -x /usr/bin/file;
+    then
+        echo ""
+        echo "*** Warning: You are building Poly/ML on Cygwin/Mingw but '/usr/bin/file' cannot be found."
+        echo "*** You can still go ahead and build Poly/ML but libpolyml will not be built as a"
+        echo "*** shared library and you may get strange warning messages from the linker step."
+        echo "*** Install the 'file' package to correct this problem."
+        echo ""
+    fi
 fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
