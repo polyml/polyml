@@ -243,7 +243,6 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include "memmgr.h"
 #include "machine_dep.h"
 #include "processes.h"
-#include "basicio.h" // For process_may_block.
 
 /* The following are only forward so we can declare attributes */
 static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((noreturn));
@@ -4691,6 +4690,36 @@ static void InsertWidgetTimeout
     newp->expired       = 0;
     
     *tail = newp;
+}
+
+// Test whether input is available and block if it is not.
+// N.B.  There may be a GC while in here.
+// This was previously in basicio.cpp but has been moved here
+// since this is the only place it's used now.
+static void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
+{
+#ifdef __CYGWIN__
+      static struct timeval poll = {0,1};
+#else
+      static struct timeval poll = {0,0};
+#endif
+      fd_set read_fds;
+      int selRes;
+
+      while (1)
+      {
+  
+          FD_ZERO(&read_fds);
+          FD_SET((int)fd,&read_fds);
+
+          /* If there is something there we can return. */
+          selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
+          if (selRes > 0) return; /* Something waiting. */
+          else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
+              raise_syscall(taskData, "select failed %d\n", errno);
+          WaitInputFD waiter(fd);
+          processes->ThreadPauseForIO(taskData, &waiter);
+      }
 }
 
 static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Display_Object *) */)
