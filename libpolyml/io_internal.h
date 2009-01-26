@@ -87,8 +87,9 @@ typedef struct basic_io_struct
         DIR *ioDir; /* Directory entry. */
 #endif
     } device;
-    char    lookAheadChar; /* Temporarily.  This is needed for
-                              the old IO functions. */
+#ifdef WINDOWS_PC
+    HANDLE hAvailable; // Used to signal available data
+#endif
 } IOSTRUCT, *PIOSTRUCT;
 
 class TaskData;
