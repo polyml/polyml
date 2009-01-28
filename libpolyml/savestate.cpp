@@ -70,6 +70,7 @@
 #include "exporter.h" // For CopyScan
 #include "machine_dep.h"
 #include "osmem.h"
+#include "gc.h" // For FullGC.
 
 #if(!defined(MAXPATHLEN) && defined(MAX_PATH))
 #define MAXPATHLEN MAX_PATH
@@ -444,7 +445,10 @@ void SaveRequest::Perform()
 
     // Update the global memory space table.  Old segments at the same level
     // or lower are removed.  The new segments become permanent.
-    if (! success || ! gMem.PromoteExportSpaces(newHierarchy))
+    // Try to promote the spaces even if we've had a failure because export
+    // spaces are deleted in ~CopyScan and we may have already copied
+    // some objects there.
+    if (! gMem.PromoteExportSpaces(newHierarchy) || ! success)
     {
         errorMessage = "Out of Memory";
         errCode = ENOMEM;
@@ -568,9 +572,15 @@ Handle SaveState(TaskData *taskData, Handle args)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
     // The value of depth is zero for top-level save so we need to add one for hierarchy.
     unsigned newHierarchy = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)) + 1;
-    // We don't support hierarchical saving at the moment.
+
     if (newHierarchy > hierarchyDepth+1)
         raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
+
+    // Request a full GC first.  The main reason is to avoid running out of memory as a
+    // result of repeated saves.  Old export spaces are turned into local spaces and
+    // the GC will delete them if they are completely empty
+    FullGC(taskData);
+
     SaveRequest request(fileNameBuff, newHierarchy);
     processes->MakeRootRequest(taskData, &request);
     if (request.errorMessage)
