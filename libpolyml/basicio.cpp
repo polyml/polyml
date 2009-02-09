@@ -1674,8 +1674,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 			   raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
 #else
             if (mkdir(string_buffer, 0777) != 0)
-#endif
                 raise_syscall(taskData, "mkdir failed", errno);
+#endif
 
             return Make_arbitrary_precision(taskData, 0);
         }
