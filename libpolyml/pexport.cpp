@@ -49,7 +49,7 @@
 #include "machine_dep.h"
 #include "scanaddrs.h"
 #include "run_time.h"
-#include "polyexports.h"
+#include "../polyexports.h"
 #include "version.h"
 #include "sys.h"
 #include "polystring.h"

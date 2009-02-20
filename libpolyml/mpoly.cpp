@@ -60,7 +60,7 @@
 #include "mpoly.h"
 #include "scanaddrs.h"
 #include "save_vec.h"
-#include "polyexports.h"
+#include "../polyexports.h"
 #include "memmgr.h"
 #include "pexport.h"
 

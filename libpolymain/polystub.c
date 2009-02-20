@@ -29,7 +29,7 @@
 #error "No configuration file"
 #endif
 
-#include "polyexports.h"
+#include "../polyexports.h"
 
 #ifdef WINDOWS_PC
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)

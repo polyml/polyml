@@ -23,7 +23,7 @@
 #define _MPOLY_H_DEFINED
 
 #include "noreturn.h"
-#include "polyexports.h"
+#include "../polyexports.h"
 
 extern struct _userOptions {
     unsigned    user_arg_count;

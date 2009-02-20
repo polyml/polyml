@@ -65,7 +65,6 @@
 #include "scanaddrs.h"
 #include "arb.h"
 #include "memmgr.h"
-#include "polyexports.h"
 #include "mpoly.h" // For exportTimeStamp
 #include "exporter.h" // For CopyScan
 #include "machine_dep.h"

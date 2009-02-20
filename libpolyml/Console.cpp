@@ -66,7 +66,7 @@
 #include "run_time.h"
 #include "sighandler.h"
 #include "console.h"
-#include "polyexports.h"
+#include "../polyexports.h"
 #include "processes.h"
 
 /*

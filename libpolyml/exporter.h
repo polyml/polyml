@@ -23,7 +23,7 @@
 #define EXPORTER_H_INCLUDED
 
 #include "globals.h" // For PolyWord
-#include "polyexports.h" // For struct _memTableEntry
+#include "../polyexports.h" // For struct _memTableEntry
 
 #ifdef HAVE_STDIO_H
 #include <stdio.h> // For FILE
