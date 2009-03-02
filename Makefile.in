@@ -229,14 +229,14 @@ POLYIMPORT_OPTIONS = -H 10
 BOOTSTRAP_OPTIONS = -H 10
 SUBDIRS = libpolyml libpolymain
 man_MANS = poly.1 polyimport.1
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = imports/polymlx86_64.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = imports/polymlint64.txt
-@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = imports/polymlint.txt
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@POLYIMPORT = imports/polymlsparc.txt
-@ARCHI386_FALSE@@ARCHPPC_TRUE@POLYIMPORT = imports/polymlppc.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
+@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint.txt
+@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@POLYIMPORT = $(srcdir)/imports/polymlsparc.txt
+@ARCHI386_FALSE@@ARCHPPC_TRUE@POLYIMPORT = $(srcdir)/imports/polymlppc.txt
 
 # Select the architecture-specific modules
-@ARCHI386_TRUE@POLYIMPORT = imports/polymli386.txt
+@ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 poly_LDFLAGS = $(am__append_1)
 polyimport_LDFLAGS = $(am__append_2)
 POLYRESOURCES = $(am__append_3)
@@ -813,10 +813,10 @@ uninstall-man: uninstall-man1
 
 #
 polyexport.o: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml > /dev/null
 
 polyexport.obj: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml > /dev/null
 
 polyresource.o: PolyML.rc poly.ico
 	windres -o polyresource.o PolyML.rc

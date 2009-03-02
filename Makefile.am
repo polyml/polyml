@@ -14,22 +14,22 @@ man_MANS = poly.1 polyimport.1
 
 # Select the architecture-specific modules
 if ARCHI386
-POLYIMPORT = imports/polymli386.txt
+POLYIMPORT = $(srcdir)/imports/polymli386.txt
 else
 if ARCHPPC
-POLYIMPORT = imports/polymlppc.txt
+POLYIMPORT = $(srcdir)/imports/polymlppc.txt
 else
 if ARCHSPARC
-POLYIMPORT = imports/polymlsparc.txt
+POLYIMPORT = $(srcdir)/imports/polymlsparc.txt
 else
 if ARCHINTERPRET
-POLYIMPORT = imports/polymlint.txt
+POLYIMPORT = $(srcdir)/imports/polymlint.txt
 else
 if ARCHINTERPRET64
-POLYIMPORT = imports/polymlint64.txt
+POLYIMPORT = $(srcdir)/imports/polymlint64.txt
 else
 if ARCHX86_64
-POLYIMPORT = imports/polymlx86_64.txt
+POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
 else
 endif
 endif
@@ -59,10 +59,10 @@ polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
 #
 polyexport.o: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml > /dev/null
 
 polyexport.obj: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < exportPoly.sml > /dev/null
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml > /dev/null
 
 polyresource.o: PolyML.rc poly.ico
 	windres -o polyresource.o PolyML.rc

@@ -75,6 +75,11 @@ AC_CONFIG_HEADER([config.h])
 
 # Checks for programs.
 AC_PROG_CXX
+AC_CHECK_PROG(check_cpp, $CXX, "yes", "no")
+if test "$check_cpp" != "yes"; then
+    AC_MSG_ERROR([No C++ compiler found.  Unable to build Poly/ML.])
+fi
+
 AC_PROG_CC
 AC_PROG_MAKE_SET
 AC_PROG_CPP
