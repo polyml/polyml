@@ -106,7 +106,7 @@ AC_CHECK_FUNC(sem_wait, , AC_CHECK_LIB(rt, sem_wait))
 # Check for X and Motif headers and libraries
 AC_PATH_X
 
-if test "${with_x+set}" = set; then
+if test "x${with_x}" = "xyes"; then
 
 	AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
 	

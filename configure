@@ -22486,7 +22486,7 @@ echo "${ECHO_T}libraries $x_libraries, headers $x_includes" >&6; }
 fi
 
 
-if test "${with_x+set}" = set; then
+if test "x${with_x}" = "xyes"; then
 
 
 cat >>confdefs.h <<\_ACEOF
