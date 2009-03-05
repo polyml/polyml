@@ -2440,12 +2440,12 @@ exception XWindows = XWindows.XWindows;
 let
   open XWindows;
   
-  fun printRect ( addString,beginBracket,space,endBracket ) _ _ (r:XRectangle) =
+  fun printRect _ _ (r:XRectangle) =
   let
     val R = DestructRect r;
   in
-    addString ("Rect " ^ PolyML.makestring R)
+    PolyML.PrettyString ("Rect " ^ PolyML.makestring R)
   end;
 in
-  PolyML.install_pp printRect
+  PolyML.addPrettyPrinter printRect
 end;

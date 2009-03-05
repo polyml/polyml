@@ -26,11 +26,11 @@ structure Structures =
     structure TYPETREE   = TypeTree
     structure PARSETREE  = ParseTree
     structure UTILITIES  = Utilities
-    structure PRETTYPRINTER = PrettyPrinter
+    structure PRETTY     = Pretty
     structure MISC       = Misc
     structure UNIVERSAL = Universal
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG      = Debug
-    structure STRETCHARRAY = StretchArray
 	structure DEBUGGER   = Debugger
+    structure EXPORTTREE = ExportTreeStruct
   );

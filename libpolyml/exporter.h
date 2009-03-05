@@ -84,7 +84,7 @@ public:
 class CopyScan: public ScanAddress
 {
 public:
-    CopyScan(unsigned h=0);
+    CopyScan(bool isExport=true, unsigned h=0);
     ~CopyScan();
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);

@@ -157,7 +157,7 @@ struct
         makeClosure   : bool
     };
 
-    open PrettyPrinter
+    open Pretty
 
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation;
 
@@ -188,286 +188,268 @@ struct
 		end
 	else "<long>";
   
-    fun pretty (pt : codetree, pprint: prettyPrinter) : unit =
+    fun pretty (pt : codetree) : pretty =
     let
-        fun pList ([]: 'b list) (sep: string) (disp: 'b->unit) = ()
-        | pList [h]    sep disp = disp h
+        fun pList ([]: 'b list) (sep: string) (disp: 'b->pretty) = []
+        | pList [h]    sep disp = [disp h]
         | pList (h::t) sep disp =
-        (
-            ppBeginBlock pprint (0, false);
-            disp h;
-            ppBreak pprint (0, 0);
-            ppAddString pprint sep;
-            ppEndBlock pprint ();
-            ppBreak pprint (1, 0);
+            PrettyBlock (0, false, [],
+                [
+                    disp h,
+                    PrettyBreak (0, 0),
+                    PrettyString sep
+                ]
+            ) ::
+            PrettyBreak (1, 0) ::
             pList t sep disp
-        );
         
-        fun printList start lst sep =
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint (start ^ "(");
-            pList lst sep (fn x => (pretty (x,  pprint)));
-            ppBreak pprint (0, 0);
-            ppAddString pprint (")");
-            ppEndBlock pprint ()
-        );
+        fun printList start lst sep : pretty =
+            PrettyBlock (1, true, [],
+                PrettyString (start ^ "(") ::
+                pList lst sep (fn x => (pretty x)) @
+                [ PrettyBreak (0, 0), PrettyString (")") ]
+            )
         
         fun printMonad name pt =
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint (name^"(");
-            pretty (pt,  pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint (")");
-            ppEndBlock pprint ()
-        );
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString (name^"("),
+                    pretty pt,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
     
         fun printDiad name (f,s) =
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint (name^"(");
-            pretty (f,  pprint);
-            ppAddString pprint ", ";
-            ppBreak pprint (0, 0);
-            pretty (s, pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint (")");
-            ppEndBlock pprint ()
-        );
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString (name^"("),
+                    pretty f,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty s,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
         
         fun printTriad name (f,s,t) =
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint (name^"(");
-            pretty(f, pprint);
-            ppAddString pprint ", ";
-            ppBreak pprint (0, 0);
-            pretty(s, pprint);
-            ppAddString pprint ", ";
-            ppBreak pprint (0, 0);
-            pretty (t, pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint (")");
-            ppEndBlock pprint ()
-        );
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString (name^"("),
+                    pretty f,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty s,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty t,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
         
     in
         case pt of
-            CodeNil => ppAddString pprint "NIL"
+            CodeNil => PrettyString "NIL"
         
-        | MatchFail => ppAddString pprint "MATCHFAIL"
+        | MatchFail => PrettyString "MATCHFAIL"
         
         | AltMatch pair => printDiad "ALTMATCH" pair
         
         | Eval {function, argList, earlyEval} =>
-        (
-            ppBeginBlock pprint (3, false);
-            pretty (function, pprint);
-            ppBreak pprint (0, 0);
-            if earlyEval
-            then
-            (
-                ppAddString pprint "{early}";
-                ppBreak pprint (0, 0)
-            ) 
-            else ();
-            printList "$" argList ",";
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (3, false, [],
+                pretty function ::
+                PrettyBreak (0, 0) ::
+                (
+                    if earlyEval
+                    then [ PrettyString "{early}", PrettyBreak (0, 0) ]
+                    else []
+                ) @
+                [ printList "$" argList "," ]
+            )
         
         | Declar {value, addr, references} =>
-        (
-            ppBeginBlock pprint (1, false);
-            ppAddString pprint (concat
-            ["DECL #",
-            Int.toString addr, 
-            "{",
-            Int.toString references,
-            " uses} ="]);
-            ppBreak pprint (1, 0);
-            pretty (value, pprint);
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (1, false, [],
+                [
+                    PrettyString (concat
+                        ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                    PrettyBreak (1, 0),
+                    pretty value
+                ]
+            )
         
         | Extract {addr, level, fpRel, lastRef} =>
-        let
-            val last = if lastRef then ", last" else "";
-            val str : string =
-            if not fpRel
-            then concat ["CLOS(", Int.toString level, ",", Int.toString addr, last, ")"]
-            else if addr < 0
-            then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), last, ")"]
-            else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, last, ")"]
-        in
-            ppAddString pprint str
-        end
+            let
+                val last = if lastRef then ", last" else "";
+                val str : string =
+                    if not fpRel
+                    then concat ["CLOS(", Int.toString level, ",", Int.toString addr, last, ")"]
+                    else if addr < 0
+                    then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), last, ")"]
+                    else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, last, ")"]
+            in
+                PrettyString str
+            end
         
         | Indirect {base, offset} =>
-        let
-           val str = "INDIRECT(" ^ Int.toString offset ^ ", ";
-        in
-            ppAddString pprint str;
-            pretty (base, pprint);
-            ppAddString pprint ")"
-        end
+            let
+                val str = "INDIRECT(" ^ Int.toString offset ^ ", ";
+            in
+                PrettyBlock(0, false, [],
+                    [ PrettyString str, pretty base, PrettyString ")" ]
+                )
+            end
         
         | Lambda {body, isInline, name, closure, numArgs, level, closureRefs, makeClosure} =>
-        let
-            val inl = 
-            case isInline of
-              NonInline   => ""
-            | MaybeInline => "INLINE"
-            | SmallFunction => "SMALL"
-            | OnlyInline  => "ONLYINLINE"
-        in
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint ("LAMBDA"^inl^"(");
-            ppBreak pprint (1, 0);
-            ppAddString pprint name;
-            ppBreak pprint (1, 0);
-            ppAddString pprint ( "CL="  ^ Bool.toString makeClosure);
-            ppAddString pprint (" CR="  ^ Int.toString closureRefs);
-            ppAddString pprint (" LEV=" ^ Int.toString level);
-            ppAddString pprint (" ARGS=" ^ Int.toString numArgs);
-            printList " CLOS=" closure ",";
-            ppBreak pprint (1, 0);
-            pretty (body, pprint);
-            ppAddString pprint "){LAMBDA}";
-            ppEndBlock pprint ()
-        end
+            let
+                val inl = 
+                    case isInline of
+                      NonInline   => ""
+                    | MaybeInline => "INLINE"
+                    | SmallFunction => "SMALL"
+                    | OnlyInline  => "ONLYINLINE"
+            in
+                PrettyBlock (1, true, [],
+                    [
+                        PrettyString ("LAMBDA"^inl^"("),
+                        PrettyBreak (1, 0),
+                        PrettyString name,
+                        PrettyBreak (1, 0),
+                        PrettyString ( "CL="  ^ Bool.toString makeClosure),
+                        PrettyString (" CR="  ^ Int.toString closureRefs),
+                        PrettyString (" LEV=" ^ Int.toString level),
+                        PrettyString (" ARGS=" ^ Int.toString numArgs),
+                        printList " CLOS=" closure ",",
+                        PrettyBreak (1, 0),
+                        pretty body,
+                        PrettyString "){LAMBDA}"
+                    ]
+                )
+            end
         
-        | Constnt w => ppAddString pprint ("LIT" ^ stringOfWord w)
+        | Constnt w => PrettyString ("LIT" ^ stringOfWord w)
         
         | Cond triple => printTriad "IF" triple
         
         | Newenv ptl => printList "BLOCK" ptl ";"
         
         | BeginLoop(loopExp, args) =>
-        (
-            ppBeginBlock pprint (3, false);
-            printList "BEGINLOOP" args ",";
-            ppBreak pprint (0, 0);
-            ppAddString pprint "(";
-            ppBreak pprint (0, 0);
-            pretty (loopExp, pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint ")";
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (3, false, [],
+                [
+                    printList "BEGINLOOP" args ",",
+                    PrettyBreak (0, 0),
+                    PrettyString "(",
+                    PrettyBreak (0, 0),
+                    pretty loopExp,
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
         
         | Loop ptl => printList "LOOP" ptl ","
         
         | Raise c => printMonad "RAISE" c
         
         | Handle {exp, taglist, handler} =>
-        (
-            ppBeginBlock pprint (3, false);
-            ppAddString pprint "HANDLE(";
-            pretty (exp, pprint);
-            ppAddString pprint "WITH";
-            ppBreak pprint (1, 0);
-            pretty (handler, pprint);
-            ppAddString pprint ")";
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString "HANDLE(",
+                    pretty exp,
+                    PrettyString "WITH",
+                    PrettyBreak (1, 0),
+                    pretty handler,
+                    PrettyString ")"
+                ]
+            )
         
-        | Ldexc => ppAddString pprint "LDEXC"
+        | Ldexc => PrettyString "LDEXC"
         
         | Case {cases, test, default, min, max} =>
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint
-                (concat ["CASE ", Int.toString min, "-", Int.toString max, "(" ]);
-            pretty (test, pprint);
-            ppAddString pprint ")";
-            ppBreak pprint (1, 0);
-            ppAddString pprint "(";
-            ppBreak pprint (1, 0);
-            pList cases ","
-                (fn (exp : codetree, labels : int list) =>
-                    (
-                    ppBeginBlock pprint (1, true);
-                    List.app (fn l =>
-                     (
-                      ppAddString pprint (Int.toString l ^ ":");
-                      ppBreak pprint (1, 0)
-                     )
-                    ) labels;
-                    pretty (exp, pprint);
-                    ppEndBlock pprint ()
-                    )
-                );
-            case default of
-                CodeNil => ()
-            |   _ =>
-            (
-                ppBreak pprint (1, 0);
-                ppBeginBlock pprint (1, false);
-                ppAddString pprint "ELSE:";
-                ppBreak pprint (1, 0);
-                pretty (default, pprint);
-                ppEndBlock pprint ()
-            );
-            ppBreak pprint (1, 0);
-            ppAddString pprint (") {"^"CASE"^"}");
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (1, true, [],
+                PrettyString
+                    (concat ["CASE ", Int.toString min, "-", Int.toString max, "(" ]) ::
+                pretty test ::
+                PrettyBreak (1, 0) ::
+                PrettyString "(" ::
+                PrettyBreak (1, 0) ::
+                pList cases ","
+                    (fn (exp : codetree, labels : int list) =>
+                        PrettyBlock (1, true, [],
+                            List.foldr (
+                                fn (l, t) =>
+                                    PrettyString (Int.toString l ^ ":") ::
+                                    PrettyBreak (1, 0) :: t
+                                ) [pretty exp] labels
+                            )
+                    ) @
+                (
+                    case default of
+                        CodeNil => []
+                    |   _ =>
+                        [
+                            PrettyBreak (1, 0),
+                            PrettyBlock (1, false, [],
+                                [
+                                    PrettyString "ELSE:",
+                                    PrettyBreak (1, 0),
+                                    pretty default
+                                ]
+                            )
+                        ]
+                ) @
+                [ PrettyBreak (1, 0), PrettyString (") {"^"CASE"^"}") ]
+            )
         
-        | MutualDecs ptl => printList "MUTUAL" ptl " AND "
+        | MutualDecs ptl =>
+            printList "MUTUAL" ptl " AND "
         
-        | Recconstr ptl => printList "RECCONSTR" ptl ","
+        | Recconstr ptl =>
+            printList "RECCONSTR" ptl ","
         
-        | Container size => ppAddString pprint ("CONTAINER " ^ Int.toString size)
+        | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
         
         | SetContainer{container, tuple, size} =>
-        (
-            ppBeginBlock pprint (3, false);
-            ppAddString pprint ("SETCONTAINER(" ^ Int.toString size ^ ", ");
-            pretty (container, pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint ",";
-            ppBreak pprint (1, 0);
-            pretty (tuple,  pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint ")";
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString ("SETCONTAINER(" ^ Int.toString size ^ ", "),
+                    pretty container,
+                    PrettyBreak (0, 0),
+                    PrettyString ",",
+                    PrettyBreak (1, 0),
+                    pretty tuple,
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
         
         | TupleFromContainer (container, size) =>
-        (
-            ppBeginBlock pprint (3, false);
-            ppAddString pprint ("TUPLECONTAINER(" ^ Int.toString size ^ ", ");
-            ppBreak pprint (0, 0);
-            pretty (container,  pprint);
-            ppBreak pprint (0, 0);
-            ppAddString pprint ")";
-            ppEndBlock pprint ()
-        )
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString ("TUPLECONTAINER(" ^ Int.toString size ^ ", "),
+                    PrettyBreak (0, 0),
+                    pretty container,
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
         
-        | Global glob =>
-        (
-            ppBeginBlock pprint (1, true);
-            ppAddString pprint "GLOBAL ";
-            prettyOptVal (glob, pprint);
-            ppAddString pprint " (*GLOBAL*)";
-            ppEndBlock pprint ()
-        )
+        | Global ov =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "GLOBAL (",
+                    pretty (optGeneral ov),
+                    PrettyString ", ",
+                    PrettyBreak (1, 0),
+                    pretty (optSpecial ov),
+                    PrettyBreak (1, 0),
+                    PrettyString ") (*GLOBAL*)"
+                ]
+            )
         
         (* That list should be exhaustive! *)
     end (* pretty *)
-    
-    and prettyOptVal (ov : optVal, pprint : prettyPrinter) =
-    (
-        ppAddString pprint "(";
-        pretty (optGeneral ov, pprint);
-        ppAddString pprint ", ";
-        ppBreak pprint (1, 0);
-        pretty (optSpecial ov, pprint);
-        ppBreak pprint (1, 0);
-        ppAddString pprint ")"
-    )
-  
+   
     and optGeneral (OptVal {general,...})       = general 
       | optGeneral (ValWithDecs {general, ...}) = general
       | optGeneral (JustTheVal ct)              = ct

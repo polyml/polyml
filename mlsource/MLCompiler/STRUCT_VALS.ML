@@ -89,6 +89,10 @@ sharing type
 (*                  STRUCTVALS export signature                              *)
 (*****************************************************************************)
 sig
+  type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+  val inBasis: location
+  
   (* Structures *)
   type signatures;
   type codetree;
@@ -128,7 +132,8 @@ sig
       {
         name:  string,
         value: typeConstrs possRef,
-        args:  types list
+        args:  types list,
+        location: location
       }
 
   | FunctionType of (* functionTypeForm *)
@@ -167,7 +172,8 @@ sig
     {
       name:   string,
       signat: signatures,
-      access: valAccess
+      access: valAccess,
+      declaredAt: location
     }
 
   (* Values. *)
@@ -187,7 +193,8 @@ sig
 		name: string,
 		typeOf: types,
 		access: valAccess,
-		class: valueClass }
+		class: valueClass,
+        declaredAt: location }
 
   (* Classes of values. *)
   and valueClass =
@@ -214,12 +221,13 @@ sig
   val tcSetEquality:     typeConstrs * bool -> unit;
   val tcIdentifier:      typeConstrs -> typeId;
   val tcLetDepth:        typeConstrs -> int;
+  val tcDeclaredAt:      typeConstrs -> location
 
   (* These are all logically equivalent but include differing numbers of refs *)
   val makeTypeConstrs:
-  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
   val makeFrozenTypeConstrs:
-  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
 
   val tvLevel:        typeVarForm -> int;
   val tvEquality:     typeVarForm -> bool;
@@ -267,12 +275,13 @@ sig
   val isUndefinedStruct: structVals -> bool;
   val structSignat:      structVals -> signatures;
   val structName:        structVals -> string;
-  val structAccess:         structVals -> valAccess;
+  val structAccess:      structVals -> valAccess;
+  val structDeclaredAt:  structVals -> location;
   
   val makeEmptyGlobal:   string -> structVals;
-  val makeGlobalStruct:  string * signatures * codetree -> structVals;
-  val makeLocalStruct:   string * signatures -> structVals;
-  val makeFormalStruct:  string * signatures * int -> structVals;
+  val makeGlobalStruct:  string * signatures * codetree * location -> structVals;
+  val makeLocalStruct:   string * signatures * location -> structVals;
+  val makeFormalStruct:  string * signatures * int * location -> structVals;
 
   val makeSelectedStruct: structVals * structVals -> structVals;
 
@@ -286,8 +295,9 @@ sig
   val functorArg:         functors -> structVals;
   val functorResult:      functors -> signatures;
   val functorAccess:      functors -> valAccess;
+  val functorDeclaredAt:  functors -> location
   
-  val makeFunctor: string * structVals * signatures * valAccess -> functors;
+  val makeFunctor: string * structVals * signatures * valAccess * location -> functors;
 
   (* Signatures *)
   
@@ -296,9 +306,10 @@ sig
   val sigTab:        signatures -> univTable;
   val sigMinTypes:   signatures -> int;
   val sigMaxTypes:   signatures -> int;
-  
-  val makeSignatures: string -> signatures;
-  val makeCopy: string * signatures * int * int -> signatures;
+  val sigDeclaredAt: signatures -> location;
+
+  val makeSignatures: string * location -> signatures;
+  val makeCopy: string * signatures * int * int * location -> signatures;
 
   (* Values. *)
   val valName: values -> string
@@ -308,12 +319,12 @@ sig
   val isConstructor: values -> bool;
   val isValueConstructor: values -> bool
   
-  val makeGlobalV: string * types * codetree -> values;
-  val makeLocalV: string * types * int ref * int ref -> values;
-  val makeFormalV: string * types * int -> values;  
-  val makeFormalEx: string * types * int -> values;  
+  val makeGlobalV: string * types * codetree * location -> values;
+  val makeLocalV: string * types * int ref * int ref * location -> values;
+  val makeFormalV: string * types * int * location -> values;  
+  val makeFormalEx: string * types * int * location -> values;  
   val makeOverloaded: string * types * typeDependent -> values;
-  val makeValueConstr: string * types * bool * valAccess -> values;
+  val makeValueConstr: string * types * bool * valAccess * location -> values;
   
   (* Infix status *)
 
@@ -361,6 +372,10 @@ struct
   open MISC;
   open UNIVERSAL;
   open UNIVERSALTABLE;
+  
+  (* Location for declarations. *)
+  type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
   (* The idea of this is reduce the number of mutable objects. *)
   datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
@@ -472,26 +487,30 @@ struct
         name:       string,
         tab:        univTable,
         minTypes:   int,
-        maxTypes:   int
+        maxTypes:   int,
+        declaredAt: location
       }
   with
     fun sigName       (Signatures {name,...})       = name;
     fun sigTab        (Signatures {tab,...})        = tab;
     fun sigMinTypes   (Signatures {minTypes,...})   = minTypes;
     fun sigMaxTypes   (Signatures {maxTypes,...})   = maxTypes;
+    fun sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt;
   
-    fun makeSignatures name = 
+    fun makeSignatures (name, location) = 
 		Signatures { name       = name,
 			   tab        = makeUnivTable(),
 			   minTypes   = 0, 
-			   maxTypes   = 0 };
+			   maxTypes   = 0,
+               declaredAt = location };
        
     (* Used when we want to give a name to a signature. *)
-    fun makeCopy (name, copy, minTypes, maxTypes) =
+    fun makeCopy (name, copy, minTypes, maxTypes, location) =
     	Signatures { name       = name,
 			   tab        = univFreeze(sigTab copy),
 			   minTypes   = minTypes, 
-			   maxTypes   = maxTypes  };
+			   maxTypes   = maxTypes,
+               declaredAt = location  };
        
   end; (* signatures abstype *)
     
@@ -524,8 +543,8 @@ struct
               equal:      bool
 		   }  possRef,
         identifier: typeId,
-		letDepth:	int (* Added 7/8/00 DCJM.
-						   Needed to check for local datatypes. *)
+		letDepth:	int, (* Needed to check for local datatypes. *)
+        declaredAt: location (* Location of declaration *)
       }
 
   (* Access to a value, structure or functor. *)
@@ -543,7 +562,8 @@ struct
     {
       name:   string,
       signat: signatures,
-      access: valAccess
+      access: valAccess,
+      declaredAt: location
     }
 
   (* Values. *)
@@ -566,7 +586,8 @@ struct
 		name: string,
 		typeOf: types,
 		access: valAccess,
-		class: valueClass }
+		class: valueClass,
+        declaredAt: location (* Location of declaration *) }
 
   (* Classes of values. *)
   and valueClass =
@@ -578,7 +599,8 @@ struct
       {
         name:  string,
         value: typeConstrs possRef,
-        args:  types list
+        args:  types list,
+        location: location
       }
       
   and typeVarForm = 
@@ -627,13 +649,14 @@ struct
   fun isEmpty             EmptyType           = true | isEmpty            _ = false;
   fun isBad               BadType             = true | isBad              _ = false;
   
-  fun makeValueConstr (name, typeOf, nullary, access) : values =
+  fun makeValueConstr (name, typeOf, nullary, access, location) : values =
   	Value
     { 
       name    = name,
       typeOf  = typeOf,
 	  access  = access,
-      class   = Constructor { nullary = nullary }
+      class   = Constructor { nullary = nullary },
+      declaredAt = location
     };
 
   
@@ -701,6 +724,7 @@ struct
     fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
     fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
     fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
+    fun tcDeclaredAt (TypeConstrs {declaredAt, ...}) = declaredAt
 
     local
         fun getUpdatable (TypeConstrs {updatable,...} : typeConstrs) = pling updatable;
@@ -709,31 +733,34 @@ struct
         val tcConstructors  = #constrs o getUpdatable
         val tcEquality = #equal o getUpdatable;
         
-        fun tcSetEquivalent (TypeConstrs {updatable,...}, t) =
+        fun tcSetEquivalent (TypeConstrs {updatable, name, ...}, t) =
 		    let
 		        val v = pling updatable
 			in
 			    updatePR(updatable, { equiv = t, constrs = #constrs v, equal = #equal v})
+                    handle Fail _ => raise Fail ("SetEquivalent:" ^ name)
 			end
 		
-        fun tcSetConstructors (TypeConstrs {updatable,...}, constrs) =
+        fun tcSetConstructors (TypeConstrs {updatable, name,...}, constrs) =
 		    let
 		        val v = pling updatable
 			in
 			    updatePR(updatable, { equiv = #equiv v, constrs = constrs, equal = #equal v})
+                    handle Fail _ => raise Fail ("SetConstructors:" ^ name)
 			end
 			
-        fun tcSetEquality (TypeConstrs {updatable,...}, eq) =
+        fun tcSetEquality (TypeConstrs {updatable, name,...}, eq) =
 		    let
 		        val v = pling updatable
 			in
 			    updatePR(updatable, { equiv = #equiv v, constrs = #constrs v, equal = eq})
+                    handle Fail _ => raise Fail ("SetEquality:" ^ name)
 			end
 	end
 	
   fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
         
-  fun makeTypeConstrs (name, typeVars, equivalent, uid, equ, depth) =
+  fun makeTypeConstrs (name, typeVars, equivalent, uid, equ, depth, location) =
     TypeConstrs
       {
 		name       = name,
@@ -747,10 +774,11 @@ struct
             		equal   = equ
 				  }),
 		identifier = uid,
-		letDepth   = depth
+		letDepth   = depth,
+        declaredAt = location
       };
 	  
-  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, equ, depth) =
+  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, equ, depth, location) =
     TypeConstrs
       {
 		name       = name,
@@ -764,13 +792,17 @@ struct
             		equal   = equ
 				  },
 		identifier = uid,
-		letDepth   = depth
+		letDepth   = depth,
+        declaredAt = location
       };
-	  
-  fun baseType name eq =
-    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId (), eq, 0);
 
-  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId (), true, 0);
+  val inBasis =
+    { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
+
+  fun baseType name eq =
+    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId (), eq, 0, inBasis);
+
+  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId (), true, 0, inBasis);
   val intType    = baseType "int"    true;
   val charType   = baseType "char"   true;
   val stringType = baseType "string" true;
@@ -781,7 +813,7 @@ struct
   val unitType   =
       makeFrozenTypeConstrs ("unit", [],
 	       LabelledType {recList = [], frozen = true, genericInstance = []},
-		   makeFreeId (), true, 0);
+		   makeFreeId (), true, 0, inBasis);
    
   val listType =
      makeTypeConstrs 
@@ -789,7 +821,7 @@ struct
         [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
         EmptyType,
         makeFreeId (),
-        true, 0);
+        true, 0, inBasis);
             
   val refType =
     makeTypeConstrs 
@@ -797,10 +829,10 @@ struct
        [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
        EmptyType,
        makeFreeId (),
-       true, 0);
+       true, 0, inBasis);
          
   val undefType = 
-    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, false, 0);
+    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, false, 0, inBasis);
 
   (* Infix status. *) 
  
@@ -828,8 +860,8 @@ struct
     fun makeSelected (addr, base) =
       Selected { addr = addr, base = base };
 
-    fun makeStruct (name, signat, access) = 
-      Struct { name = name, signat = signat, access = access };
+    fun makeStruct (name, signat, access, location) = 
+      Struct { name = name, signat = signat, access = access, declaredAt = location };
     
     val undefinedStruct = NoStruct;
     
@@ -841,23 +873,26 @@ struct
     
     fun structAccess NoStruct              = raise Match
     |   structAccess (Struct {access,...}) = access;
-    
+
+    fun structDeclaredAt NoStruct              = raise Match
+    |   structDeclaredAt (Struct {declaredAt,...}) = declaredAt;
+
     (* Return the signature. *)
-    fun structSignat NoStruct = makeSignatures "" (* only if an error *)
-	   
+    fun structSignat NoStruct = makeSignatures ("", inBasis) (* only if an error *)
     |   structSignat (Struct {signat,...}) = signat;
     
     (* Global structure *)
-    fun makeGlobalStruct (name, signat, code) =
-		makeStruct (name, makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat), makeGlobal code);
+    fun makeGlobalStruct (name, signat, code, location) =
+		makeStruct (name,
+            makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat, location), makeGlobal code, location);
  
     (* This is used for the top-level name space so must be mutable. *)
     fun makeEmptyGlobal name =
-		makeStruct (name, makeSignatures "", makeGlobal CodeZero);
+		makeStruct (name, makeSignatures ("", inBasis), makeGlobal CodeZero, inBasis);
      
     (* Local structure. *)
-    fun makeLocalStruct (name, signat) = 
-		makeStruct (name, signat, makeLocal ());
+    fun makeLocalStruct (name, signat, location) = 
+		makeStruct (name, signat, makeLocal (), location);
      
     (* Structure in a local structure or a functor argument. *)
     fun makeSelectedStruct (selected, base) = 
@@ -867,32 +902,33 @@ struct
 		   makeStruct 
 		     (structName selected,
 		      structSignat selected,
-		      makeSelected (sel, base))
+		      makeSelected (sel, base),
+              structDeclaredAt selected)
 	      | _          => selected
     );
   
-    fun makeFormalStruct (name, signat, addr) =
-      makeStruct (name, signat, makeFormal addr);
+    fun makeFormalStruct (name, signat, addr, location) =
+      makeStruct (name, signat, makeFormal addr, location);
      
   (* Values. *)
   
-  fun makeGlobalV (name, typeOf, code) : values =
-    Value{ name = name, typeOf = typeOf, access = Global code, class = SimpleValue };
+  fun makeGlobalV (name, typeOf, code, location) : values =
+    Value{ name = name, typeOf = typeOf, access = Global code, class = SimpleValue, declaredAt = location };
   
-  fun makeLocalV (name, typeOf, addr, level) : values =
+  fun makeLocalV (name, typeOf, addr, level, location) : values =
     Value{ name = name, typeOf = typeOf, access = Local {addr = addr, level = level},
-			class = SimpleValue };
+			class = SimpleValue, declaredAt = location };
   
-  fun makeFormalV (name, typeOf, addr) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue };
+  fun makeFormalV (name, typeOf, addr, location) : values =
+    Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue, declaredAt = location };
 
-  fun makeFormalEx (name, typeOf, addr) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = Exception };
+  fun makeFormalEx (name, typeOf, addr, location) : values =
+    Value{ name = name, typeOf = typeOf, access = Formal addr, class = Exception, declaredAt = location };
   
   fun makeOverloaded (name, typeOf, operation) : values =
-    Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = SimpleValue};
+    Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = SimpleValue, declaredAt = inBasis};
 
-  val undefinedValue    = makeGlobalV("<undefined>", BadType, CodeZero);
+  val undefinedValue    = makeGlobalV("<undefined>", BadType, CodeZero, inBasis);
 
   fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 
@@ -916,16 +952,18 @@ struct
           name:   string,
           arg:    structVals,
           result: signatures,
-          access: valAccess
+          access: valAccess,
+          declaredAt: location
        }
   with
-    fun makeFunctor (name, arg, result, access) = 
+    fun makeFunctor (name, arg, result, access, location) = 
       Functor 
 	{
 	  name = name,
 	  arg = arg,
 	  result = result,
-	  access = access
+	  access = access,
+      declaredAt = location
 	};
     
     val undefinedFunctor = NoFunctor;
@@ -944,6 +982,9 @@ struct
     
     fun functorAccess NoFunctor              = raise Match
     |   functorAccess (Functor {access,...}) = access;
+    
+    fun functorDeclaredAt NoFunctor                  = raise Match
+    |   functorDeclaredAt (Functor {declaredAt,...}) = declaredAt;
   end; (* functors abstype *)
   
   val valueVar:      values      tag = tag();

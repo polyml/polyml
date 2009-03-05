@@ -43,14 +43,18 @@ end;
 (*****************************************************************************)
 structure LEX :
 sig
-  type lexan;
-  type sys;
+    type lexan;
+    type sys;
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
-  val sy:           lexan -> sys;
-  val id:           lexan -> string;
-  val insymbol:     lexan -> unit;
-  val lineno:       lexan -> int;
-  val errorMessage: lexan * int * string -> unit;
+    val sy:           lexan -> sys;
+    val id:           lexan -> string;
+    val insymbol:     lexan -> unit;
+    val location:     lexan -> location;
+    val errorMessage: lexan * location * string -> unit;
+    val nullLocation: location
+    val locSpan: location * location -> location
 end;
 
 
@@ -89,15 +93,17 @@ sig
   type sys;
   type lexan;
   type symset;
+  type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     
   val notfound: string * lexan -> unit;
   val badsyms:  sys * lexan -> unit;
   val getsym:   sys * lexan -> unit;
   val skipon:   symset * symset * string * lexan -> unit;
   val testfor:  sys * symset * lexan -> bool;
-  val getid:    symset * symset * lexan -> string;
-  val getLabel: symset * lexan -> string;
-  val getList:  sys * symset * lexan * (unit -> 'a) -> 'a list;
+  val getid:    symset * symset * lexan -> string * location;
+  val getLabel: symset * lexan -> string * location;
+  val getList:  sys * symset * lexan * (unit -> 'a * location) -> 'a list * location;
 end =
 
 (*****************************************************************************)
@@ -124,7 +130,7 @@ struct
               then id lex
         else repr (sy lex)
     in
-      errorMessage (lex, lineno lex,
+      errorMessage (lex, location lex,
          expected ^ " expected but " ^ found ^ " was found")
     end;
   end;
@@ -151,32 +157,37 @@ struct
     else ();
 
   (* returns an identifier *)
-  fun getid (syms, fsys, lex) = 
+    fun getid (syms, fsys, lex) = 
     if (sy lex) inside syms
-    then let
-      val iden = id lex
+    then
+    let
+        val iden = id lex
+        val loc = location lex
     in
-      insymbol lex;
-      iden end
+        insymbol lex;
+        (iden, loc)
+    end
     else
       (
         notfound ("Identifier", lex);
         while sy lex notin fsys do insymbol lex;
-        ""
+        ("", nullLocation)
       );
 
   (* Read a label and check that it is valid if numeric. *)
-  fun getLabel (fsys, lex) = 
+    fun getLabel (fsys, lex) = 
     if (sy lex) eq SYMBOLS.integerConst
-    then let
-      val iden = id lex;
-      val firstCh = String.str(String.sub(iden, 0));
+    then
+    let
+        val iden = id lex;
+        val loc = location lex
+        val firstCh = String.str(String.sub(iden, 0));
     in
-      insymbol lex;
-      if firstCh = "~" orelse firstCh = "0"
-      then errorMessage (lex, lineno lex, "Labels must be 1,2,3,....")
-      else ();
-      iden
+        insymbol lex;
+        if firstCh = "~" orelse firstCh = "0"
+        then errorMessage (lex, location lex, "Labels must be 1,2,3,....")
+        else ();
+        (iden, loc)
     end
     else getid (declarableVarSys, fsys, lex);
   
@@ -190,12 +201,19 @@ struct
         then (badsyms (sym, lex); true)
       else false;
 
-  fun getList (separator, startsys, lex, each) =
-  let
-    fun forList () = 
-      each () ::
-      (if testfor (separator, startsys, lex) then forList () else []);
-  in
-    forList ()
-  end;
+    fun getList (separator, startsys, lex, each) =
+    let
+        fun forList(list, startLoc) =
+        let
+            val (item, itemLoc) = each()
+        in
+            (* Add each item to the list.  The final span is from
+               the start to the final location. *)
+            if testfor (separator, startsys, lex)
+            then forList(list @ [item], startLoc)
+            else (list @ [item], locSpan(startLoc, itemLoc))
+        end
+     in
+        forList ([], location lex)
+    end;
 end (* SKIPS *);

@@ -23,6 +23,5 @@ struct
   structure Misc           = Misc
   structure HashTable      = HashTable
   structure UniversalTable = UniversalTable
-  structure PrettyPrinter  = PrettyPrinter
   structure StretchArray   = StretchArray
 end;

@@ -23,6 +23,6 @@ structure PrintTable  =
     (
       structure CODETREE = CodeTree
       structure STRUCTVALS = StructVals
-      structure PRETTYPRINTER = PrettyPrinter
+      structure PRETTY = Pretty
     );
 

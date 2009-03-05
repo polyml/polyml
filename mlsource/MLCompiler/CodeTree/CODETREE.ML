@@ -34,7 +34,7 @@ functor CODETREE (
 (*****************************************************************************)
 structure GCODE :
 sig
-    type machineWord
+    type machineWord = Address.machineWord
     type codetree
     val gencode: codetree * Universal.universal list -> unit -> machineWord;
 end (* GCODE *);
@@ -47,70 +47,18 @@ sig
     val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
     val codetreeAfterOptTag:    bool Universal.tag (* If true then print the optimised code. *)
     val maxInlineSizeTag:       int  Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end (* DEBUG *);
 
 (*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
+(*                  Pretty data structure                                    *)
 (*****************************************************************************)
-structure PRETTYPRINTER :
-sig
-  type prettyPrinter 
-  
-  val ppAddString  : prettyPrinter -> string -> unit
-  val ppBeginBlock : prettyPrinter -> int * bool -> unit
-  val ppEndBlock   : prettyPrinter -> unit -> unit
-  val ppBreak      : prettyPrinter -> int * int -> unit
-  
-  val prettyPrint : int * (string -> unit) -> prettyPrinter; 
-end;
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string;
-end;
-
-(* DCJM 8/8/00.  Previously Address was a global but we aren't allowed
-   to have sharing constraints with globals in ML97.  We could use a
-   "where type" constraint but then we couldn't bootstrap from ML90. *)
-structure ADDRESS :
-sig
-  type machineWord;
-  type short = Word.word;
-  type address;
-  
-  val alloc:       short * Word8.word * machineWord -> address;
-  val call:        address * machineWord -> machineWord;
-  val length:      address -> short;
-  
-  val isShort:     'a -> bool;
-  val toShort:     'a -> short;
-  val toMachineWord:      'a -> machineWord;
-  val toAddress:   machineWord -> address;
-  
-  val wordEq:      machineWord * machineWord -> bool;
-  
-  val isWords :    address -> bool;
-  val isMutable:   address -> bool;
-  
-  val assignWord:  address * short * machineWord -> unit;
-  val loadWord:    address * short -> machineWord;
-  val F_words:     Word8.word;
-  val F_mutable:   Word8.word;
-  val lock:        address -> unit
-
-  val isIoAddress : address -> bool
-end;
-
+structure PRETTY : PRETTYSIG
 
 structure STRUCTUREEQ:
 sig
-    type machineWord
+    type machineWord = Address.machineWord
     val structureEq: machineWord * machineWord -> bool;
 end
 
@@ -119,21 +67,13 @@ structure BASECODETREE: BaseCodeTreeSig
 (*****************************************************************************)
 (*                  CODETREE sharing constraints                             *)
 (*****************************************************************************)
-
 sharing type
-  ADDRESS.machineWord
-= BASECODETREE.machineWord
-= STRUCTUREEQ.machineWord
-= GCODE.machineWord
+    PRETTY.pretty
+=   BASECODETREE.pretty
 
 sharing type
   BASECODETREE.codetree
 = GCODE.codetree
-
-sharing type
-  PRETTYPRINTER.prettyPrinter
-= BASECODETREE.prettyPrinter
-    
 ) :
 
 (*****************************************************************************)
@@ -142,7 +82,7 @@ sharing type
 sig
   type machineWord
   type codetree
-  type prettyPrinter
+  type pretty
      
   val isCodeNil:          codetree -> bool;
   val CodeNil:            codetree; (* Empty codetree NOT the code for "nil" *)
@@ -185,7 +125,7 @@ sig
 
   val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
 
-  val pretty:    codetree * prettyPrinter -> unit;
+  val pretty:    codetree -> pretty;
   val evalue:    codetree -> machineWord;
   val genCode:   codetree * Universal.universal list -> (unit -> codetree);
 
@@ -197,12 +137,13 @@ end (* CODETREE export signature *) =
 (*****************************************************************************)
 struct
   open GCODE;
-  open ADDRESS;
+  open Address;
   open StretchArray;
-  open MISC; (* after ADDRESS, so we get MISC.length, not ADDRESS.length *)
   open RuntimeCalls; (* for POLY_SYS numbers and EXC_nil *)
   open BASECODETREE;
-  open PRETTYPRINTER;
+  open PRETTY;
+  
+  val InternalError = Misc.InternalError
   
   val structureEq = STRUCTUREEQ.structureEq
   
@@ -584,8 +525,8 @@ struct
          before the invalid load, but we have to be careful that the
          optimiser does not fall over.  *)
       if isShort b
-      orelse not (ADDRESS.isWords (toAddress b)) (* DCJM's bugfix SPF 25/1/95 *)
-      orelse ADDRESS.length (toAddress b) <= Word.fromInt offset
+      orelse not (Address.isWords (toAddress b)) (* DCJM's bugfix SPF 25/1/95 *)
+      orelse Address.length (toAddress b) <= Word.fromInt offset
       then mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero])
       else mkConst (loadWord (toAddress b, toShort offset))
     )
@@ -2351,16 +2292,7 @@ DCJM 2000.
 
 		| changeL(code, _) =
 			(* The code we produce in these inline functions is very limited. *)
-			let
-			   (* If we add something else it's very useful to know what it is. *)
-			   val pprint = prettyPrint(77, fn s => TextIO.output(TextIO.stdOut,s));
-			in
-               ppBeginBlock pprint (1, false);
-               pretty (code,  pprint);
-               ppEndBlock pprint ();
 			   raise InternalError "changeL: Unknown code"
-			end
-			
 
 	  in
 	  case optGeneral entry of
@@ -4133,27 +4065,18 @@ DCJM 2000.
     val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
     and printCodeTreeAfter = DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
     and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
-    and stringPrint        = DEBUG.getParameter DEBUG.compilerOutputTag debugSwitches
+    and compilerOut        = PRETTY.getCompilerOutput debugSwitches
 
     (* This ensures that everything is printed just before
        it is code-generated. *)
     val codeGenAndPrint =
-      if printCodeTreeAfter
-      then (fn code =>
-             let
-               val pprint = prettyPrint(77, stringPrint);
-             in
-               pretty (code,  pprint);
-               codegen(code, debugSwitches)
-             end
-           )
-      else fn code => codegen(code, debugSwitches);
+        if printCodeTreeAfter
+        then fn code => (compilerOut(pretty code); codegen(code, debugSwitches))
+        else fn code => codegen(code, debugSwitches);
     
     fun preCodeAndPrint code =
     (
-        if printCodeTree
-        then pretty (code, prettyPrint(77, stringPrint))
-        else ();
+        if printCodeTree then compilerOut(pretty code) else ();
         preCode (codeGenAndPrint, code)
     )
 

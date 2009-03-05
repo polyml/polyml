@@ -152,22 +152,20 @@ SOURCE=.\imports\polymli386.txt
 !IF  "$(CFG)" == "PolyML - Win32 Release"
 
 # Begin Custom Build
-IntDir=.\Release
 InputPath=.\imports\polymli386.txt
 
-"$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+"polytemp.txt" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) polytemp.txt
 
 # End Custom Build
 
 !ELSEIF  "$(CFG)" == "PolyML - Win32 Debug"
 
 # Begin Custom Build
-IntDir=.\Debug
 InputPath=.\imports\polymli386.txt
 
-"$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+"polytemp.txt" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) polytemp.txt
 
 # End Custom Build
 
@@ -197,8 +195,57 @@ SOURCE=.\imports\polymlint.txt
 !ELSEIF  "$(CFG)" == "PolyML - Win32 IntDebug"
 
 # Begin Custom Build
-IntDir=.\IntDebug
 InputPath=.\imports\polymlint.txt
+
+"polytemp.txt" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) polytemp.txt
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "PolyML - Win32 IntRelease"
+
+# Begin Custom Build
+InputPath=.\imports\polymlint.txt
+
+"polytemp.txt" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	copy $(InputPath) polytemp.txt
+
+# End Custom Build
+
+!ENDIF 
+
+# End Source File
+# Begin Source File
+
+SOURCE=.\polytemp.txt
+
+!IF  "$(CFG)" == "PolyML - Win32 Release"
+
+# Begin Custom Build
+IntDir=.\Release
+InputPath=.\polytemp.txt
+
+"$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "PolyML - Win32 Debug"
+
+# Begin Custom Build
+IntDir=.\Debug
+InputPath=.\polytemp.txt
+
+"$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
+	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+
+# End Custom Build
+
+!ELSEIF  "$(CFG)" == "PolyML - Win32 IntDebug"
+
+# Begin Custom Build
+IntDir=.\IntDebug
+InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
 	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
@@ -209,7 +256,7 @@ InputPath=.\imports\polymlint.txt
 
 # Begin Custom Build
 IntDir=.\IntRelease
-InputPath=.\imports\polymlint.txt
+InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
 	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml

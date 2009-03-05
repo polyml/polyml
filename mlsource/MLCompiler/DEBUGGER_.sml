@@ -34,8 +34,10 @@ sig
   type values
   type codetree
   type valAccess
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
   val Global: codetree -> valAccess
-  val makeValueConstr: string * types * bool * valAccess -> values;
+  val makeValueConstr: string * types * bool * valAccess * location -> values;
 end;
 
 (*****************************************************************************)
@@ -48,11 +50,12 @@ sig
   type values
   type fixStatus
   type structVals
-  type prettyPrinter
   type machineWord
   type signatures
   type functors
   type typeConstrs
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
     type nameSpace =
       { 
@@ -78,8 +81,8 @@ sig
         allFunct:     unit -> (string*functors) list
       };
 
-  val mkGvar:    string * types * codetree -> values
-  val mkGex:     string * types * codetree -> values
+  val mkGvar:    string * types * codetree * location -> values
+  val mkGex:     string * types * codetree * location -> values
 end
 
 structure CODETREE :
@@ -152,11 +155,13 @@ sig
     type typeConstrs
     type signatures
     type functors
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
 	datatype environEntry =
-		EnvValue of string * types
-	|	EnvException of string * types
-	|	EnvVConstr of string * types * bool
+		EnvValue of string * types * location
+	|	EnvException of string * types * location
+	|	EnvVConstr of string * types * bool * location
 	|	EnvStaticLevel
 
     type nameSpace =
@@ -197,7 +202,7 @@ sig
 
     (* Functions inserted into the compiled code. *)
 	val debugFunction:
-		debugger * debugReason * string * string * int -> environEntry list -> machineWord list -> unit
+		debugger * debugReason * string * location -> environEntry list -> machineWord list -> unit
 end
 =
 struct
@@ -205,9 +210,9 @@ struct
 
 	(* The static environment contains these kinds of entries. *)
 	datatype environEntry =
-		EnvValue of string * types
-	|	EnvException of string * types
-	|	EnvVConstr of string * types * bool
+		EnvValue of string * types * location
+	|	EnvException of string * types * location
+	|	EnvVConstr of string * types * bool * location
 	|	EnvStaticLevel
 
     datatype debugReason =
@@ -230,24 +235,25 @@ struct
     and debugExceptFun = 3
     and debugLineChange = 4
     
-    val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero)
-    
+    val dummyValue =
+        mkGvar("", TYPETREE.unitType, CodeZero,
+            { file="", startLine=0, startPosition=0, endLine=0, endPosition=0})
     fun makeSpace ctEnv rtEnv =
     let
         (* Create the environment. *)
-		fun lookupValues (EnvValue(name, ty) :: ntl, valu :: vl) s =
+		fun lookupValues (EnvValue(name, ty, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(mkGvar(name, ty, mkConst valu))
+				then SOME(mkGvar(name, ty, mkConst valu, location))
 				else lookupValues(ntl, vl) s
 
-		  |  lookupValues (EnvException(name, ty) :: ntl, valu :: vl) s =
+		  |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(mkGex(name, ty, mkConst valu))
+				then SOME(mkGex(name, ty, mkConst valu, location))
 				else lookupValues(ntl, vl) s
 
-		  |  lookupValues (EnvVConstr(name, ty, nullary) :: ntl, valu :: vl) s =
+		  |  lookupValues (EnvVConstr(name, ty, nullary, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(makeValueConstr(name, ty, nullary, Global(mkConst valu)))
+				then SOME(makeValueConstr(name, ty, nullary, Global(mkConst valu), location))
 				else lookupValues(ntl, vl) s
 
 		  |  lookupValues (EnvStaticLevel :: ntl, vl) s =
@@ -260,14 +266,14 @@ struct
 				The lists should be the same length. *)
 			 NONE
 
- 		fun allValues (EnvValue(name, ty) :: ntl, valu :: vl) =
-		  		(name, mkGvar(name, ty, mkConst valu)) :: allValues(ntl, vl)
+ 		fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
+		  		(name, mkGvar(name, ty, mkConst valu, location)) :: allValues(ntl, vl)
 
-		 |  allValues (EnvException(name, ty) :: ntl, valu :: vl) =
-		  		(name, mkGex(name, ty, mkConst valu)) :: allValues(ntl, vl)
+		 |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
+		  		(name, mkGex(name, ty, mkConst valu, location)) :: allValues(ntl, vl)
 
-		 |  allValues (EnvVConstr(name, ty, nullary) :: ntl, valu :: vl) =
-		  		(name, makeValueConstr(name, ty, nullary, Global(mkConst valu))) ::
+		 |  allValues (EnvVConstr(name, ty, nullary, location) :: ntl, valu :: vl) =
+		  		(name, makeValueConstr(name, ty, nullary, Global(mkConst valu), location)) ::
 				    allValues(ntl, vl)
 
 		 |  allValues (EnvStaticLevel :: ntl, vl) = allValues(ntl, vl)
@@ -299,7 +305,7 @@ struct
 	   length we build them separately.  This allows the
 	   nameTypeList to be built at compile time and reduces
 	   the run-time costs. *)
-	fun debugFunction (debugger, reason, fileName, functionName, line) staticEnv valueList =
+	fun debugFunction (debugger, reason, functionName, location) staticEnv valueList =
 	let
 		(* The function name supplied is made up to be suitable for output
 		   when profiling.  We need to clean it up a bit for use here. The
@@ -329,20 +335,20 @@ struct
         val (code, value) =
             case reason of
                 DebugEnter (argValue, argType) =>
-                    (debugEnterFun, mkGvar("", argType, mkConst argValue))
+                    (debugEnterFun, mkGvar("", argType, mkConst argValue, location))
             |   DebugLeave (fnResult, resType) =>
-                    (debugLeaveFun, mkGvar("", resType, mkConst fnResult))
+                    (debugLeaveFun, mkGvar("", resType, mkConst fnResult, location))
             |   DebugException exn =>
 				let
                     val exnVal = ADDRESS.toMachineWord exn
                     (* The exception is always a value of type exn. *)
-                    val resVal = mkGvar("", TYPETREE.exnType, mkConst exnVal)
+                    val resVal = mkGvar("", TYPETREE.exnType, mkConst exnVal, location)
                 in
                     (debugExceptFun, resVal)
                 end
             |   DebugStep =>
                     (debugLineChange, dummyValue)
 	in
-        debugger(code, value, line, fileName, processedName, makeSpace staticEnv valueList)
+        debugger(code, value, #startLine location, #file location, processedName, makeSpace staticEnv valueList)
 	end
 end;

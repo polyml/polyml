@@ -555,5 +555,5 @@ local
 
 	structure FlagP = FlagPrint(structure BITS = Window.Style)
 in
-	val _ = PolyML.install_pp (FlagP.createFlagPrinter flagTable)
+	val _ = PolyML.addPrettyPrinter (FlagP.createFlagPrinter flagTable)
 end;

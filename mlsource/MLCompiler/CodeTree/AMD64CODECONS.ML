@@ -45,20 +45,14 @@ functor AMD64CODECONS (
 structure DEBUG :
 sig
     val assemblyCodeTag : bool Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
-
-
 (*****************************************************************************)
-(*                  MISC                                                     *)
+(*                  PRETTY for compilerOutTag                                *)
 (*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string
-end;
+structure PRETTY: PRETTYSIG
 
 ) :
 
@@ -232,66 +226,15 @@ sig
   val traceContext: code -> string;
 end (* CODECONS export signature *) =
 
-
-let
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
-  type short = Word.word;
-  type address;
-  type handler;
-
-  val wordEq : machineWord * machineWord -> bool
-  
-  val isShort:  'a     -> bool;
-  val toShort:  'a     -> short;
-  val toMachineWord:   'a     -> machineWord;
-  
-  val offsetAddr : address * short -> handler
-  
-  val alloc:  (short * Word8.word * machineWord) -> address
-  val F_words : Word8.word
-
-  val lock : address -> unit;
-  
-  val wordSize: int
-end = Address;
-
-(*****************************************************************************)
-(*                  CODESEG                                                  *)
-(*****************************************************************************)
-structure CODESEG :
-sig
-  type machineWord;
-  type short;
-  type address;
-  type cseg;
-  
-  val csegMake:          int  -> cseg;
-  val csegConvertToCode: cseg -> unit;
-  val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> Word8.word;
-  val csegSet:           cseg * int * Word8.word -> unit;
-  val csegPutWord:       cseg * int * machineWord -> unit;
-  val csegCopySeg:       cseg * cseg * int * int -> unit;
-  val csegAddr:          cseg -> address;
-  val csegPutConstant:   cseg * int * machineWord * 'a -> unit;
-end = CodeSeg;
-
-in
-
 (*****************************************************************************)
 (*                  CODECONS functor body                                    *)
 (*****************************************************************************)
 struct
-  open CODESEG;
+  open CodeSeg;
   open DEBUG;
-  open ADDRESS;
-  open MISC;
+  open PRETTY
+  open Address;
+  open Misc;
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
 
@@ -479,6 +422,10 @@ struct
 
   (* create and initialise a code segment *)
   fun codeCreate (noClosure : bool, name : string, parameters) : code =
+  let
+        val compilerOut = PRETTY.getCompilerOutput parameters;
+        fun printStream (s: string) = compilerOut(PrettyString s)
+  in
     Code
       { 
         codeVec        = csegMake initialCodeSize, (* a byte array *)
@@ -501,8 +448,9 @@ struct
         noClosure      = noClosure,
         branchCheck    = ref addrZero,
         printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
-      };
+        printStream    = printStream
+      }
+   end;
 
 
   (* Put 1 unsigned byte at a given offset in the segment. *)
@@ -4096,7 +4044,7 @@ itself.
      val nopCode : int list =
         let
             (* Add sufficient No-ops to round this to a full word. *)
-                val len = length stackCheckCode mod wordSize
+                val len = List.length stackCheckCode mod wordSize
             in
                 if len = 0
                     then []
@@ -4105,13 +4053,13 @@ itself.
 
      in
         val preludeCode = nopCode @ stackCheckCode;
-        val wordsForPrelude = length preludeCode div wordSize
+        val wordsForPrelude = List.length preludeCode div wordSize
 
        (* +5 for code size, profile count, function name, register mask and constants count *)
        val segSize = (getAddr (!ic)) div wordSize + constsInConstArea + wordsForPrelude + 5;
        
       (* byte offset of L2 label relative to start of post-prelude code. *)
-      val L2Addr = mkAddr (~ (length stackCheckCode));
+      val L2Addr = mkAddr (~ (List.length stackCheckCode));
     end; (* local *)
 
     (* fix-up all the self-calls *)
@@ -4298,7 +4246,5 @@ itself.
   fun traceContext (Code {procName, ic = ref ic, ...}) =
   (* Function name and code offset to help tracing. *)
      procName ^ ":" ^ Int.fmt StringCvt.HEX (getAddr ic)
-
-end (* struct *)
 
 end (* CODECONS *);

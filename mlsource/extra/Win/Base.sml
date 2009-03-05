@@ -21,7 +21,9 @@
 structure Base =
 struct
 local
-open CInterface
+    open CInterface
+    val System_isShort : vol -> bool =
+        RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short
 in
 
 	fun absConversion {abs,rep} C = 
@@ -303,7 +305,7 @@ in
 		let
 			val v' = fromCint v
 		in
-			if Address.isShort v then ClassAtom v' else NamedClass(fromCstring v)
+			if System_isShort v then ClassAtom v' else NamedClass(fromCstring v)
 		end
 	in
 		val CLASS = mkConversion vol2Class class2Vol voidStar
@@ -371,7 +373,7 @@ in
 		let
 			val v' = fromCint v
 		in
-			if Address.isShort v then IdAsInt v' else IdAsString(fromCstring v)
+			if System_isShort v then IdAsInt v' else IdAsString(fromCstring v)
 		end
 	in
 		val RESID = mkConversion vol2Resid resid2Vol voidStar;

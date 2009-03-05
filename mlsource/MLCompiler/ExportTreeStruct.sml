@@ -1,6 +1,5 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+	Copyright (c) 2009 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -17,13 +16,6 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure ParseType = 
-  PARSE_TYPE
-    ( 
-      structure LEX        = Lex
-      structure SYMSET     = SymSet
-      structure SKIPS      = Skips
-      structure TYPETREE   = TypeTree
-      structure SYMBOLS    = Symbols
-      structure UTILITIES  = Utilities
-    ) ;
+structure ExportTreeStruct = ExportTree (
+    structure STRUCTVALS = StructVals
+    and PRETTY = Pretty);

@@ -26,4 +26,6 @@ structure Make =
     structure MISC = Misc;
     structure UNIVERSALTABLE = UniversalTable
     structure DEBUG = Debug
+    structure PRETTY = Pretty
+    structure VERSION = CompilerVersion
   ); 

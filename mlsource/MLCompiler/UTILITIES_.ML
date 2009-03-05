@@ -28,12 +28,7 @@ functor UTILITIES_ (
 (*****************************************************************************)
 (*                  LEX                                                      *)
 (*****************************************************************************)
-structure LEX :
-sig
-  type lexan;
-  
-  val errorMessage: lexan * int * string -> unit;
-end
+structure LEX : LEXSIG
 
 ) :
    
@@ -42,8 +37,10 @@ end
 (*****************************************************************************)
 sig
   type lexan;
+  type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
-  val noDuplicates: (string -> unit) -> 
+  val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,
                          enter:  string * 'a -> unit,
                          lookup: string -> 'a option };
@@ -52,7 +49,7 @@ sig
                             enter:  string * 'a -> unit,
                             lookup: string -> 'a option};
     
-  val checkForDots: string * lexan * int -> unit;
+  val checkForDots: string * lexan * location -> unit;
     
   val mapTable: ('a * 'a -> bool) ->
                    {enter: 'a * 'b -> unit, lookup: 'a -> 'b option};
@@ -90,7 +87,7 @@ struct
     fun enter (name : string, value) = 
     let
       fun look []         = variable := (name,value) :: !variable
-      |   look ((n,_)::T) = if n = name then fail name else look T;
+      |   look ((n,old)::T) = if n = name then fail(name, old, value) else look T;
     in
       look (!variable)
     end;
@@ -139,13 +136,13 @@ struct
     { apply = apply, enter = enter, lookup = lookup }
   end; (* searchList *)
 
-  fun checkForDots (name, lex, lineno) = 
+  fun checkForDots (name, lex, location) = 
   let
     fun check i =
       if i > size name
         then ()
       else if String.str(String.sub(name, i-1)) = "." 
-	then errorMessage (lex, lineno,
+	then errorMessage (lex, location,
 	       "qualified name " ^ name ^ " illegal here")
       else check (i + 1)
   in

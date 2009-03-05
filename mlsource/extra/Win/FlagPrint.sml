@@ -28,24 +28,26 @@ struct
 		 	if BITS.allSet(w, f) then s :: accumulateFlags(BITS.clear(w, f)) t
 			else accumulateFlags f t
 	
-		fun printFlags(put, beg, brk, nd) depth _ x =
+		fun printFlags depth _ x =
 			(* This is just the code to print a list. *)
 			let
+                open PolyML
 			  val stringFlags = accumulateFlags x flagTable
-		      fun plist [] depth = ()
-		       |  plist _ 0 = put "..."
-			   |  plist [h]    depth = put h 
-			   |  plist (h::t) depth =
-				      ( put (h^",");
-						brk (1, 0);
-						plist t (depth - 1)
-				      )
+    	      fun plist [] depth = []
+    	       |  plist _ 0 = [PrettyString("...", [])]
+    		   |  plist [h]    depth = [PrettyString(h, [])]
+    		   |  plist (h::t) depth =
+                        PrettyString(h ^ ",", []) ::
+                        PrettyBreak (1, 0) ::
+                        plist t (depth - 1)
 		    in
-		      beg (3, false);
-		      put "[";
-		      if depth <= 0 then put "..." else plist stringFlags depth;
-		      put "]";
-		      nd ()
+    	      PrettyBlock (3, false,
+                PrettyString("[", []) ::
+        	        ((if depth <= 0 then [PrettyString("...", [])]
+                          else plist stringFlags depth) @
+        	        [PrettyString("]", [])]
+                    )
+                )
 			end
 	in
 		printFlags

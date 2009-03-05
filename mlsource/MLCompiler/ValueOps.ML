@@ -28,7 +28,7 @@ structure ValueOps =
     structure DEBUG      = Debug
     structure ADDRESS    = Address
     structure MISC        = Misc
-    structure PRETTYPRINTER = PrettyPrinter
+    structure PRETTY     = Pretty
     structure UNIVERSAL     = Universal
 	structure UTILITIES		= Utilities
   ) ;

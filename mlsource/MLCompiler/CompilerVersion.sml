@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2007-8 David C.J. Matthews
+	Copyright (c) 2007-9 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -18,5 +18,6 @@
 
 structure CompilerVersion =
 struct
-   val compilerVersion = "5.2 Release"
+   val compilerVersion = "5.3 Enhanced Reporting Testing"
+   val versionSuffix = "530"
 end;

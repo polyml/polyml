@@ -36,6 +36,7 @@ structure CompilerBody =
     structure DEBUG      = Debug
     structure UTILITIES  = Utilities
     structure MISC       = Misc
-    structure PRETTYPRINTER = PrettyPrinter
+    structure PRETTY     = Pretty
+    structure EXPORTTREE = ExportTreeStruct
 ) ;
 

@@ -12,7 +12,7 @@
 		Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-8 David C.J. Matthews
+    Copyright (c) 2000-9 David C.J. Matthews
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -44,7 +44,6 @@ end;
 (*****************************************************************************)
 structure DEBUG :
 sig
-    val ml90Tag: bool Universal.tag
     val errorDepthTag: int Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
@@ -53,18 +52,7 @@ end;
 (*****************************************************************************)
 (*                  LEX                                                      *)
 (*****************************************************************************)
-structure LEX :
-sig
-  type lexan;
-  type prettyPrinter;
-  
-  val errorProc:    lexan * int * (prettyPrinter -> unit) -> unit;
-  val errorMessage: lexan * int * string -> unit;
-  val warningMessage: lexan * int * string -> unit;
-  val lineno:       lexan -> int;
-
-  val debugParams: lexan -> Universal.universal list
-end;
+structure LEX : LEXSIG
     
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
@@ -75,6 +63,9 @@ sig
   type typeConstrs;
   type typeId;
   
+  type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+ 
   datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
   val pling: 'a possRef -> 'a
   val updatePR: 'a possRef * 'a -> unit
@@ -84,27 +75,28 @@ sig
   datatype types = 
     TypeVar of typeVarForm
     
-  | TypeConstruction of (* typeConstructionForm *)
+  | TypeConstruction of
       {
         name:  string,
         value: typeConstrs possRef,
-        args:  types list
+        args:  types list,
+        location: location
       }
 
-  | FunctionType of (* functionTypeForm *)
+  | FunctionType of
     { 
       arg:    types,
       result: types
     }
   
-  | LabelledType  of (* labelledRecForm *)
+  | LabelledType  of
     { 
       recList: { name: string, typeof: types } list,
       frozen: bool,
 	  genericInstance: typeVarForm list
     }
 
-  | OverloadSet	  of (* overloadSetForm *)
+  | OverloadSet	  of
   	{
 		typeset: typeConstrs list
 	}
@@ -135,18 +127,18 @@ sig
   val tcSetEquality:   typeConstrs * bool -> unit;
   val tcIdentifier:    typeConstrs -> typeId;
   val tcLetDepth:        typeConstrs -> int;
+  val tcDeclaredAt:      typeConstrs -> location
   
   val makeTypeConstrs:
-  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
   val makeFrozenTypeConstrs:
-  	string * types list * types * typeId *  bool * int-> typeConstrs;
+  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
 	
   val emptyType: types;
   
   val tvLevel:        typeVarForm -> int;
   val tvEquality:     typeVarForm -> bool;
   val tvNonUnifiable: typeVarForm -> bool;
-  val tvWeak:         typeVarForm -> bool;
   val tvValue:        typeVarForm -> types;
   val tvSetValue:     typeVarForm * types -> unit;
   
@@ -179,17 +171,9 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
+(*                  PRETTY                                                   *)
 (*****************************************************************************)
-structure PRETTYPRINTER :
-sig
-  type prettyPrinter 
-  
-  val ppAddString  : prettyPrinter -> string -> unit
-  val ppBeginBlock : prettyPrinter -> int * bool -> unit
-  val ppEndBlock   : prettyPrinter -> unit -> unit
-  val ppBreak      : prettyPrinter -> int * int -> unit
-end;
+structure PRETTY : PRETTYSIG
 
 (*****************************************************************************)
 (*                  MISC                                                     *)
@@ -223,12 +207,19 @@ sig
 end;
 
 (*****************************************************************************)
+(*                  EXPORTTREE                                               *)
+(*****************************************************************************)
+
+structure EXPORTTREE: EXPORTTREESIG;
+
+(*****************************************************************************)
 (*                  TYPETREE sharing constraints                             *)
 (*****************************************************************************)
 
 sharing type
-  LEX.prettyPrinter
-= PRETTYPRINTER.prettyPrinter
+  LEX.pretty
+= PRETTY.pretty
+= EXPORTTREE.pretty
 
 sharing type
   PRINTTABLE.codetree
@@ -237,35 +228,44 @@ sharing type
 sharing type
   PRINTTABLE.typeConstrs
 = STRUCTVALS.typeConstrs
-  
-                   
+
+sharing type
+    EXPORTTREE.types
+=   STRUCTVALS.types
+       
 ) :  
                    
 (*****************************************************************************)
 (*                  TYPETREE exports signature                               *)
 (*****************************************************************************)
 sig
-  type types;
-  type values;
-  type typeConstrs;
-  type lexan;
-  type prettyPrinter;
-  type typeId;
+    type types;
+    type values;
+    type typeConstrs;
+    type lexan;
+    type typeId;
+    type pretty;
+    type exportTree
+    type navigation
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
   val mkTypeVar:          int * bool * bool * bool -> types;
-  val mkTypeConstruction: string * typeConstrs * types list -> types;
+  val mkTypeConstruction: string * typeConstrs * types list * location -> types;
   val mkProductType:      types list -> types;
   val mkFunctionType:     types * types -> types;
   val mkLabelled:         {name: string, typeof: types } list * bool -> types;
   val mkLabelEntry:       string * types -> {name: string, typeof: types };
   val mkOverloadSet:	  typeConstrs list -> types;
-  val sortLabels:         {name: string, typeof: types } list * (string -> unit) ->
-  								{name: string, typeof: types } list;
+  val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
   val entryNumber:        string * types -> int;
   val recordNotFrozen:    types -> bool;
   val recordWidth:        types -> int;
   val makeEquivalent:     typeConstrs * types list -> types;
   val firstArg:			  types -> types;
+
+  (* Test for function type and return function argument. *)
+  val getFnArgType:   types -> types option
    
   (* Unify two type variables which would otherwise be non-unifiable. *)
   val linkTypeVars: types * types -> unit;
@@ -275,19 +275,19 @@ sig
   val getConstrList: types -> values list;
 
   (* Fill in the values of type variables and make checks. *)
-  val assignTypes: types * (string -> typeConstrs) * lexan * int -> unit;
+  val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
 
    (* Copy a type. *)
   val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
 
   (* Print it out prettily *)
-  val display: types * int * prettyPrinter * bool -> unit;
+  val display: types * int -> pretty;
 
   (* Print out a type constructor. *)
-  val displayTypeConstrs: typeConstrs * int * prettyPrinter * bool -> unit;
+  val displayTypeConstrs: typeConstrs * int -> pretty;
 
   (* A list of type variables. *)
-  val displayTypeVariables: types list * int * prettyPrinter * bool -> unit;
+  val displayTypeVariables: types list * int -> pretty list;
 
   (* Create an instance of an overloaded type. *)
   val generaliseOverload: types * typeConstrs list * bool -> types;
@@ -297,7 +297,7 @@ sig
 
   (* Error message when overloading cannot be resolved. It is put in this
      module because we want the message to refer to the argument. *)
-  val overloadError: types * string * string * lexan * int -> unit;
+  val overloadError: types * string * string * lexan * location -> unit;
 
   val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
 
@@ -305,13 +305,13 @@ sig
 
    (* Match a candidate to a target type. *)
   val matchTypes: types * types * (typeId -> typeConstrs option) *
-                   lexan * int * (prettyPrinter -> unit) -> unit;
+                   lexan * location * (unit -> pretty) -> unit;
 
   (* Unify two type structures to give a unified type. *)
-  val unify: types * types * lexan * int * (prettyPrinter -> unit) -> unit;
+  val unify: types * types * lexan * location * (unit -> pretty) -> unit;
 
   (* Apply a function to an argument and yield a result type. *)
-  val apply: types * types * lexan * int * (prettyPrinter -> unit) -> types;
+  val apply: types * types * lexan * location * (unit -> pretty) -> types;
 
   (* Used to establish sharing constraints between type constructors. *)
   val linkTypeConstructors: typeConstrs * typeConstrs * (string -> unit) -> unit;
@@ -325,15 +325,12 @@ sig
 
   (* Generate new copies of all unbound type variables - this is used on all
      non-local values or constructors so that, for example, each occurence of
-     "hd", which has type 'a list -> 'a, can be separately bound to types.
-     isExp is false if we are processing a pattern. If we have "ref" as a
-     constructor in a pattern we do not need to introduce imperative type
-     variables. *)
-  val generalise: types * bool -> types;
+     "hd", which has type 'a list -> 'a, can be separately bound to types. *)
+  val generalise: types -> types;
 
       (* Release type variables at this nesting level. *)
   val allowGeneralisation: types * int * bool *
-  						   lexan * int * (prettyPrinter -> unit) -> unit;
+  						   lexan * location * (unit -> pretty) -> unit;
 
   (* Check for a local datatype "escaping".  Added for ML97. *)
   val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
@@ -378,6 +375,23 @@ sig
 
   (* added SPF 16/4/95 *)  
   val sameTypeVar : types * types -> bool;
+
+    (* Parse tree operations. *)
+    type typeParsetree
+    val ParseTypeBad: typeParsetree
+    val makeParseTypeConstruction:
+        (string * location) * (typeParsetree list * location) * location -> typeParsetree
+    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
+    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
+    val makeParseTypeLabelled:
+        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
+    val makeParseTypeId: types * location -> typeParsetree
+    val unitTree: location -> typeParsetree
+
+    val typeFromTypeParse: typeParsetree -> types
+
+    val typeExportTree: navigation * typeParsetree -> exportTree
+
 end (* TYPETREE export signature *) =
 
 (*****************************************************************************)
@@ -385,15 +399,15 @@ end (* TYPETREE export signature *) =
 (*****************************************************************************)
 struct
   open MISC;
-  open PRETTYPRINTER;
+  open PRETTY;
   
   open STRUCTVALS;
   open LEX;
   open UTILITIES;
   open CODETREE;
   open PRINTTABLE;
+  open EXPORTTREE
   
-  (* added 6/12/95 SPF *)
   val badType : types = BadType;
   
   (* added 16/4/96 SPF *)
@@ -401,7 +415,6 @@ struct
     | sameTypeVar _                      = false;
 
   
-(************* "types" constructors copied here to reduce garbage *********)
   fun isTypeVar          (TypeVar          _) = true
     | isTypeVar          _ = false;
      
@@ -422,28 +435,6 @@ struct
 
   val emptyType            = EmptyType;
 
-  type typeConstructionForm = 
-      {
-        name:  string,
-        value: typeConstrs ref,
-        args:  types list
-      }
-         
-
-  (* A function type takes two types, the argument and the result. *)
-  and functionTypeForm = 
-    { 
-      arg: types,
-      result: types
-    }
-            
-  (* A fixed labelled record. *)
-  and labelledRecForm = 
-    { 
-      recList: {name: string, typeof: types} list,
-      frozen: bool
-    };
-
   fun typesTypeVar          (TypeVar          x) = x 
     | typesTypeVar          _ = raise Match;
     
@@ -456,6 +447,7 @@ struct
   fun typesLabelled         (LabelledType     x) = x
     | typesLabelled         _ = raise Match;
     
+
   (* A type construction is the application of a type constructor to
      a sequence of types to yield a type. A construction may have a nil
      list if it is a single type identifier such as ``int''. *)
@@ -469,7 +461,7 @@ struct
   fun mkTypeVar (level, equality, nonunifiable, weak) = 
       TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
       
-  fun mkTypeConstruction (name, typc, args) =
+  fun mkTypeConstruction (name, typc, args, location) =
     let
 	    (* If we're building a type construction from a known constructor
 		   set it now and freeze it.  If we need to find it in a later
@@ -483,7 +475,8 @@ struct
 		   then VariableRef (ref typc)
 		   else FrozenRef typc
 	in
-        TypeConstruction {name = name, value = typeCons, args = args}
+        TypeConstruction {name = name, value = typeCons,
+                          args = args, location = location}
 	end;
 
 	local
@@ -503,7 +496,7 @@ struct
   fun mkOverloadSet [constr] =
   	(* If there is just a single constructor in the set we make
 	   a type construction from it. *)
-		mkTypeConstruction(tcName constr, constr, nil)
+		mkTypeConstruction(tcName constr, constr, nil, LEX.nullLocation)
    | mkOverloadSet constrs = 
   	let
 		(* Make a type variable and point this at the overload set
@@ -532,40 +525,55 @@ struct
     end
   end;
 
-  (* Must remove leading zeros because the labels are compared by
-     string comparison. *)
-   
-  fun mkLabelEntry (name, t) = 
-  let
-    fun stripZeros s = 
-      if size s <= 1  orelse String.str(String.sub(s, 0)) <> "0" 
-      then s
-      else stripZeros (String.substring(s, 1, size s-1));
-  in
-    {name = stripZeros name, typeof = t}
-  end;
+    (* Must remove leading zeros because the labels are compared by
+       string comparison. *)
+    fun mkLabelEntry (name, t) = 
+    let
+        fun stripZeros s = 
+            if size s <= 1  orelse String.str(String.sub(s, 0)) <> "0" 
+            then s
+            else stripZeros (String.substring(s, 1, size s-1));
+    in
+        {name = stripZeros name, typeof = t}
+    end;
 
   (* Type identifiers bound to standard type constructors. *)
    
-  val unitType = mkTypeConstruction ("unit", unitType, []);
+  val unitType = mkTypeConstruction ("unit", unitType, [], LEX.nullLocation);
    
-  val intType    = mkTypeConstruction ("int",     intType,    []);
-  val realType   = mkTypeConstruction ("real",    realType,   []);
-  val charType   = mkTypeConstruction ("char",    charType,   []);
-  val stringType = mkTypeConstruction ("string",  stringType, []);
-  val boolType   = mkTypeConstruction ("bool",    boolType,   []);
-  val exnType    = mkTypeConstruction ("exn",     exnType,    []);
-  val wordType   = mkTypeConstruction ("word",    wordType,   []);
+  val intType    = mkTypeConstruction ("int",     intType,    [], LEX.nullLocation);
+  val realType   = mkTypeConstruction ("real",    realType,   [], LEX.nullLocation);
+  val charType   = mkTypeConstruction ("char",    charType,   [], LEX.nullLocation);
+  val stringType = mkTypeConstruction ("string",  stringType, [], LEX.nullLocation);
+  val boolType   = mkTypeConstruction ("bool",    boolType,   [], LEX.nullLocation);
+  val exnType    = mkTypeConstruction ("exn",     exnType,    [], LEX.nullLocation);
+  val wordType   = mkTypeConstruction ("word",    wordType,   [], LEX.nullLocation);
           
   fun isUndefined cons = isUnsetId (tcIdentifier cons); 
 
-  (* Similar to alphabetic ordering except that shorter labels come before longer ones.
-     This has the advantage that numerical labels are compared by their numerical order
-     i.e. 1 < 2 < 10 whereas alphabetic ordering puts "1" < "10" < "2". *)
-  fun compareLabels (a : string, b : string) : int = 
+    (* Similar to alphabetic ordering except that shorter labels come before longer ones.
+       This has the advantage that numerical labels are compared by their numerical order
+       i.e. 1 < 2 < 10 whereas alphabetic ordering puts "1" < "10" < "2". *)
+    fun compareLabels (a : string, b : string) : int = 
     if size a = size b 
     then if a = b then 0 else if a < b then ~1 else 1
     else if size a < size b then ~1 else 1;
+
+    (* Sort using the label ordering.
+       A simple sort routine - particularly if the list is already sorted. *)
+    fun sortLabels [] = []
+    |   sortLabels (s::rest) =
+    let
+        fun enter s name [] = [s]
+          | enter s name (l as ( (h as {name=hname, typeof}) :: t)) =
+        let
+            val comp = compareLabels (name, hname);
+        in
+            if comp <= 0 then s :: l else h :: enter s name t
+        end;
+    in  
+        enter s (#name s) (sortLabels rest)
+    end;        
 
   (* Chains down a list of type variables returning the type they are
      bound to. As a side-effect it also points all the type variables
@@ -621,7 +629,7 @@ struct
 				 The level is inherited from the instance since the generic
 				 will always have level = generalisable.  Nonunifiable must be false. *)
 			  typeof = mkTypeVar (tvLevel tv, tvEquality tv orelse tvEquality gtv,  
-		                       false, tvWeak gtv orelse tvWeak tv)
+		                       false, false)
 			}
 			)
 		|	createNewField _ =  raise InternalError "createNewField: New field is not a type var"
@@ -705,21 +713,20 @@ struct
     (NOT type variables) *)
   fun assignTypes
       (t : types, 
-       lookupType : string -> typeConstrs, 
-       lex : lexan, 
-       lineno : int) 
+       lookupType : string * location -> typeConstrs, 
+       lex : lexan) 
       : unit =
     let
         fun assTypes (typ : types) () : unit =
             case typ of
-                TypeConstruction {name: string, value, args: types list} =>
+                TypeConstruction {name: string, value, args: types list, location} =>
                 (* Assign constructor, then the parameters. *)
                     if isUndefined (pling value)
                     then
     				    let 
                         (* Must check that it has not already been set -
                            We might have unitType from an empty record. *)
-                            val constructor : typeConstrs = lookupType name;
+                            val constructor : typeConstrs = lookupType (name, location);
                         in
                             updatePR(value, constructor);
                             (* Check that it has the correct arity. *)
@@ -731,7 +738,7 @@ struct
                             in
                                 if arity <> num
                                 then (* Give an error message *)
-                                errorMessage (lex, lineno,
+                                errorMessage (lex, location,
                                     String.concat["Type constructor (", tcName constructor,
                                         ") requires ", Int.toString arity, " type(s) not ",
                                         Int.toString num])
@@ -765,31 +772,28 @@ struct
   fun tDisp 
     (t : types, 
      depth : int,
-     pprint: prettyPrinter,
-     typeVarName : typeVarForm -> string,
-     withStructName)
-    : unit =
+     typeVarName : typeVarForm -> string)
+    : pretty =
   let
     (* prints a block of items *)
-    fun dispP (t : types, depth : int) : unit =
+    fun dispP (t : types, depth : int) : pretty =
     let
       (* prints a block of items *)
       fun parenthesise depth t =
 	  if depth <= 1
-	  then ppAddString  pprint "..."
+	  then PrettyString "..."
 	  else
-      (  
-        ppBeginBlock pprint (0, false);
-        ppAddString  pprint "(";
-        ppBreak      pprint (0, 0);
-        dispP (t, depth - 1);
-        ppBreak      pprint (0, 0);
-        ppAddString  pprint ")";
-        ppEndBlock   pprint () 
-      );
+        PrettyBlock (0, false, [],
+            [
+                PrettyString "(",
+                PrettyBreak (0, 0),
+                dispP (t, depth - 1),
+                PrettyBreak (0, 0),
+                PrettyString ")"
+            ]);
     
       (* prints a sequence of items *)
-      fun prettyList []       depth separator = ()
+      fun prettyList [] depth separator: pretty list = []
 
         | prettyList [H] depth separator =
           let
@@ -797,29 +801,27 @@ struct
           in
             if separator = "*" andalso
                (isFunctionType v orelse isProductType v)
-            then (* Must bracket the expression *) parenthesise depth v
-            else dispP (v, depth)
+            then (* Must bracket the expression *) [parenthesise depth v]
+            else [dispP (v, depth)]
           end
 
         | prettyList (H :: T) depth separator =
           if depth <= 0
-          then ppAddString pprint "..."
-          else let
-            val v = eventual H;
+          then [PrettyString "..."]
+          else
+          let
+                val v = eventual H;
           in
-            ppBeginBlock pprint (0, false);
-            
-            if separator = "*" andalso
-               (isFunctionType v orelse isProductType v)
-            then (* Must bracket the expression *) parenthesise depth v
-            else dispP (v, depth);
-            
-            ppBreak pprint (if separator = "," then 0 else 1, 0);
-            ppAddString pprint separator;
-            ppEndBlock pprint ();
-
-            ppBreak pprint (1, 0);
-            prettyList T (depth - 1) separator
+                PrettyBlock (0, false, [],
+                    [(if separator = "*" andalso
+                       (isFunctionType v orelse isProductType v)
+                    then (* Must bracket the expression *) parenthesise depth v
+                    else dispP (v, depth)),
+                    PrettyBreak (if separator = "," then 0 else 1, 0),
+                    PrettyString separator
+                    ]) ::
+                PrettyBreak (1, 0) ::
+                prettyList T (depth - 1) separator
           end;
         
       val typ = eventual t; (* Find the real type structure *)
@@ -830,7 +832,7 @@ struct
 		  val tyVal : types = tvValue tyVar;
 		in
 		  case tyVal of
-		    EmptyType => ppAddString pprint (typeVarName tyVar)
+		    EmptyType => PrettyString (typeVarName tyVar)
 		  | _         => dispP (tyVal, depth)
 		end
 	  
@@ -838,17 +840,31 @@ struct
      | TypeConstruction {args = [], name, value, ...} =>
 	 	 let
 		 	val constrName = if isUndefined(pling value) then name else tcName(pling value)
+            (* Turn any structure prefixes into a ParentStructure list.  This is likely to
+               be replaced by a more appropriate data structure. *)
+            fun createStructureList s =
+                if s = "" then []
+                else
+                let
+                    val { first, second } = splitString s
+                in
+                    [ContextParentStructure(second, createStructureList first)]
+                end
+            val { first=structName, second=typeName } = splitString constrName
+            (* Get the declaration position for the type constructor. *)
+            val constrContext =
+                if isUndefined(pling value) then []
+                else [ContextLocation(tcDeclaredAt(pling value))]
 		 in
-		 	(* When printing a type constructor we remove any structure name if the option
-               is not set. *)
-            ppAddString pprint
-				(if withStructName then constrName else #second(splitString constrName))
+            (* Remove the structure name and leave just the type. *)
+            PrettyBlock(0, false, createStructureList structName @ constrContext,
+                [PrettyString typeName])
 		 end
         
      (* Type construction with one or more arguments - print out as (a, b, c) cons *)
      | TypeConstruction {args, name, value, ...} =>
 	   if depth <= 0
-	   then ppAddString  pprint "..."
+	   then PrettyString "..."
 	   else
        let
 		 val argVal = eventual (hd args);
@@ -858,140 +874,106 @@ struct
 		 val tcName =
 		 	if isUndefined(pling value) then name else tcName(pling value)
        in
-		 ppBeginBlock pprint (0, false);
-		 
-		 if not (null T) orelse
-		    isProductType argVal orelse
-		    isFunctionType argVal
-		 then (* parenthesise if there is more than one
-			 or if it is a product or function type. *)
-		    if depth <= 1
-		 then ppAddString  pprint "..."
-		 else
-			 (
-			   ppBeginBlock pprint (0, false);
-			   ppAddString  pprint "(";
-			   ppBreak pprint (0, 0);
-			   prettyList args (depth - 1) ",";
-			   ppBreak pprint (0, 0);
-			   ppAddString  pprint ")";
-			   ppEndBlock pprint ()
-			 )
-		 else dispP (argVal, depth - 1);
-		 
-		 ppBreak pprint (1, 0);
-		 ppAddString  pprint tcName;
-		 ppEndBlock pprint ()
+		 PrettyBlock (0, false, [],
+             [
+    		 if not (null T) orelse
+    		    isProductType argVal orelse
+    		    isFunctionType argVal
+    		 then (* parenthesise if there is more than one
+    			 or if it is a product or function type. *)
+    		    if depth <= 1
+    		 then PrettyString "..."
+    		 else
+    			 PrettyBlock(0, false, [],
+                     [PrettyString "(", PrettyBreak (0, 0)]
+                     @ prettyList args (depth - 1) ","
+                     @ [PrettyBreak (0, 0), PrettyString ")"]
+     			 )
+    		 else dispP (argVal, depth - 1),
+		     PrettyBreak(1, 0),
+		     PrettyString tcName
+             ])
        end
         
      | FunctionType {arg, result} =>
 	 	if depth <= 0
-		then ppAddString pprint "..."
+		then PrettyString "..."
 		else
-       (* print out in infix notation *)
-       let
-	 val evArg = eventual arg;
-       in
-	 ppBeginBlock pprint (0, false);
-	 
-	 (* If the argument is a function it must be printed as (a-> b)->.. *)
-	 if isFunctionType evArg 
-	 then parenthesise depth evArg
-	 else dispP (evArg, depth - 1);
-	 
-	 ppBreak pprint (1, 0);
-	 ppAddString pprint "->";
-	 ppBreak pprint (1, 0);
-	 dispP (result, depth - 1);
-	 
-	 ppEndBlock pprint ()
-       end
+           (* print out in infix notation *)
+        let
+            val evArg = eventual arg;
+        in
+            PrettyBlock (0, false, [],
+                [
+            	(* If the argument is a function it must be printed as (a-> b)->.. *)
+            	if isFunctionType evArg 
+            	then parenthesise depth evArg
+            	else dispP (evArg, depth - 1),
+                PrettyBreak(1, 0),
+                PrettyString "->",
+                PrettyBreak (1, 0),
+                dispP (result, depth - 1)
+                ])
+        end
                      
      | LabelledType {recList, frozen, ...} =>
 	 	if depth <= 0
-		then ppAddString pprint "..."
+		then PrettyString "..."
 		else if isProductType typ
 		then (* Print as a product *)
-       (
-		 ppBeginBlock pprint (0, false) (* Print them as t1 * t2 * t3 .... *);
-		 prettyList (map (fn {name, typeof} => typeof) recList) depth "*";
-		 ppEndBlock pprint ()
-       )
+            PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
+                prettyList (map (fn {name, typeof} => typeof) recList) depth "*")
 		else (* Print as a record *)
-       (
-	 ppBeginBlock pprint (2, false);
-	 ppAddString  pprint  "{";
-	 	let
-			fun pRec [] depth = ()
-			  | pRec ({name, typeof} :: T) depth =
-			  	if depth <= 0 then ppAddString pprint "..."
-				else
-					(
-					ppBeginBlock pprint (0, false);
- 					ppBeginBlock pprint (0, false);
-					ppAddString  pprint (name ^ ":");
-					ppBreak      pprint (1, 0);
-					dispP (typeof, depth - 1);
-					ppEndBlock   pprint ();
-		            if null T then ()
-		            else
-		            (
-		              ppBreak pprint (0, 0);
-		              ppAddString pprint ","
-		            );
-            
-					ppEndBlock pprint ();
-					if null T then ()
-					else
-						(
-		              	ppBreak pprint (1, 0);
-						pRec T (depth-1)
-						)
-					)
-		in
-			pRec recList (depth - 1)
-		end;
-	 
-	 if not frozen
-	 then let
-	   val dots = 
-	     case recList of
-	       [] =>   "..."
-	     | _  => ", ..."
-	 in
-	   ppAddString pprint dots
-	 end
-	 else ();
-	 
-	 ppAddString pprint "}";
-	 ppEndBlock  pprint ()
-       )
+        PrettyBlock (2, false, [],
+            PrettyString "{" ::
+    	 	(let
+    			fun pRec [] depth = []
+    			  | pRec ({name, typeof} :: T) depth =
+    			  	if depth <= 0 then [PrettyString "..."]
+    				else
+    					[
+                        PrettyBlock(0, false, [],
+                            [
+         					    PrettyBlock(0, false, [],
+                                    [
+                                    PrettyString (name ^ ":"),
+            					    PrettyBreak(1, 0),
+            					    dispP(typeof, depth - 1)
+                                    ] @
+        		                    (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
+                                )
+                            ]@
+        					(if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
+                            )
+                        ]
+    		in
+    			pRec recList (depth - 1)
+    		end) @
+            [ PrettyString (if frozen then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
+            )
 
-  	 | OverloadSet {typeset = []} => ppAddString pprint "no type"
+  	 | OverloadSet {typeset = []} => PrettyString "no type"
 
   	 | OverloadSet {typeset = tconslist} =>
 	 	  (* Just print the type constructors separated by / *)
 		let
-		  	fun printTCcons [] = ()
-			  | printTCcons [tcons] = ppAddString pprint (tcName tcons)
+            (* Type constructor with context. *)
+            fun tconsItem tcons =
+                PrettyBlock(0, false, [ContextLocation(tcDeclaredAt tcons)],
+                    [PrettyString(tcName tcons)])
+
+		  	fun printTCcons [] = []
+			  | printTCcons [tcons] = [tconsItem tcons]
 			  | printTCcons (tcons::rest) =
-			  	(
-				ppAddString pprint (tcName tcons);
-				ppBreak      pprint (0, 0);
-				ppAddString pprint "/";
-				printTCcons rest
-				)
+			  	    tconsItem tcons :: PrettyBreak (0, 0) ::
+				    PrettyString "/" :: printTCcons rest
 		in
-			ppBeginBlock pprint (0, false);
-			printTCcons tconslist;
-			ppEndBlock pprint ()
+			PrettyBlock (0, false, [], printTCcons tconslist)
 		end
 
-     | EmptyType =>
-         ppAddString pprint "no type"
+     | EmptyType => PrettyString "no type"
             
-     | BadType =>
-         ppAddString pprint "bad"
+     | BadType => PrettyString "bad"
     end (* dispP *)
   in
     dispP (t, depth)
@@ -1018,8 +1000,7 @@ struct
     	        fun name num = (if num >= 26 then name (num div 26 - 1) else "")
     			      ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
                 val () = nameNum := !nameNum + 1;
-    	        val n = (if tvEquality var then "''" else "'") ^
-    			     (*(if ml90 lex andalso tvWeak var then "_" else "") ^*) name(!nameNum);
+    	        val n = (if tvEquality var then "''" else "'") ^ name(!nameNum);
     	        (* Should explicit type variables be distinguished? *)
     	    in
     		    gNameList := Names{name=n, entry=var} :: !gNameList;
@@ -1031,77 +1012,59 @@ struct
   
 
   (* Print a type (as a block of items) *)
-  fun display (t : types, depth : int, pprint : prettyPrinter, withStruct) =
-      tDisp (t, depth, pprint, varNameSequence (), withStruct)
-
+  fun display (t : types, depth : int) =
+      tDisp (t, depth, varNameSequence ())
 
   (* Print out one or more type variables (unblocked) *)
   fun printTypeVars
      (vars : types list,
       depth : int,
-      typeV : typeVarForm -> string,
-      pprint : prettyPrinter,
-      withStruct)
-     : unit =
+      typeV : typeVarForm -> string)
+     : pretty list =
   let
     val numOfVars = length vars;
   in
     (* Just print the variable *)
     if numOfVars = 1 
     then 
-    (
-      tDisp (hd vars, depth, pprint, typeV, withStruct); 
-      ppBreak pprint (1, 0)
-    )
-    else 
-    (
-      if numOfVars > 1 
-      then (* Must parenthesise them. *)
-	  	 if depth <= 1
-		 then ppAddString pprint "..."
-	  else
-      (
-        ppBeginBlock pprint (0, false);
-        ppAddString pprint "(";
-        ppBreak pprint (0, 0);
-        let
-          fun pVars vars depth = 
-            if depth <= 0 then ppAddString pprint "..."
-            else if not (null vars)
-                 then  
-                 (
-                   tDisp (hd vars, depth, pprint, typeV, withStruct);
-                   ppBreak pprint (0, 0);
-                   if not (null (tl vars))
-                   then
-                   (
-                     ppAddString pprint ",";
-                     ppBreak pprint (1, 0);
-                     pVars (tl vars) (depth - 1)
-                   )
-                   else ()
-                 )
-                 else ()
-        in
-          pVars vars depth
-        end;
+    [
+      tDisp (hd vars, depth, typeV), 
+      PrettyBreak (1, 0)
+    ]
+    else if numOfVars > 1 
+    then (* Must parenthesise them. *)
+	  	 if depth <= 1 then [PrettyString "..."]
+    else
+        [
+            PrettyBlock(0, false, [],
+                PrettyString "(" ::
+                PrettyBreak(0, 0) ::
+                (let
+                    fun pVars vars depth: pretty list = 
+                        if depth <= 0 then [PrettyString "..."]
+                        else if null vars then []
+                        else
+                        [
+                            tDisp (hd vars, depth, typeV),
+                            PrettyBreak (0, 0)
+                        ] @
+                        (if null (tl vars) then []
+                         else PrettyString "," :: PrettyBreak (1, 0) :: pVars (tl vars) (depth - 1)
+                        )
+                in
+                    pVars vars depth
+                end) @ [PrettyString ")"]
+            ),
+            PrettyBreak (1, 0)
+        ]
         
-        ppAddString pprint ")";
-        ppEndBlock pprint ();
-        ppBreak pprint (1, 0)
-      )
-      else ()
-    )
+      else (* numVars < 1 *) []
   end (* printTypeVars *);
   
   
   (* Version used in parsetree. *)
-  fun displayTypeVariables
-     (vars : types list,
-      depth : int,
-      pprint : prettyPrinter, withStruct) 
-    : unit =
-       printTypeVars (vars, depth, varNameSequence (), pprint, withStruct);
+  fun displayTypeVariables (vars : types list, depth : int) =
+      printTypeVars (vars, depth, varNameSequence ())
     
     
   (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
@@ -1109,116 +1072,245 @@ struct
      simply type 'a abs if the type is abstract. *)
   fun displayTypeConstrs 
      (tCons : typeConstrs,
-      depth : int, 
-      pprint : prettyPrinter,
-      withStruct)
-     : unit =
+      depth : int) : pretty =
   let
     val typeV : typeVarForm -> string = varNameSequence ();
   in
     if depth <= 0 
-    then ppAddString pprint "..."
+    then PrettyString "..."
     else if not (null (tcConstructors tCons))
       then let (* It has constructors - datatype declaration *)
          (* Print a single constructor (blocked) *)
-         fun pValConstr (first, name, typeOf, depth) =
-		 let
-		   val U : unit =
-		     if first then ppBreak pprint (1, 2) else ppBreak pprint (1, 0)
-		 in
-	   (* 1 *) ppBeginBlock pprint (0, false);
-	  
-	   (* 2 *) ppBeginBlock pprint (0, false);
-		   if first
-		   then ppBreak pprint (0, 2)
-		   else let
-		   in
-	   (* 3 *)   ppBeginBlock pprint (0, false);
-		     ppAddString pprint "|";
-		     ppBreak pprint (1, 2);
-	   (* 3 *)   ppEndBlock pprint ()
-		   end;
-		     
-		   if depth <= 0 
-		   then ppAddString pprint "..."
-		   else let
-		   in
-		     ppAddString pprint name;
-		     
-		     (* Function - get the argument type *)
-		     if isFunctionType typeOf
-		     then
-		     ( 
-		       ppBreak pprint (1, 4);
-		       ppAddString pprint "of"
-		     )
-		     else ()
-		   end;
-	   (* 2 *) ppEndBlock pprint ();
-		   
-		   
-		   if isFunctionType typeOf andalso depth > 0
-		   then
-		   ( 
-		       ppBreak pprint (1, 4);
-		       (* print the type as a single block of output *)
-		       tDisp (#arg (typesFunctionType typeOf), depth - 1, pprint, typeV, withStruct)
-		     )
-		   else ();
-		   
-	   (* 1 *) ppEndBlock pprint ()
-		 end; (* pValConstr *)
+         fun pValConstr (first, name, typeOf, depth): pretty list =
+             [
+                 PrettyBreak (1, if first then 2 else 0),
+                 PrettyBlock (0, false, [],
+                     PrettyBlock (0, false, [],
+                        (if first then PrettyBreak (0, 2)
+                         else PrettyBlock (0, false, [], [PrettyString "|", PrettyBreak(1, 2)]) 
+                         ) ::
+                         (if depth <= 0 then [PrettyString "..."]
+                         else
+                            PrettyString name ::
+                            (   (* Function - get the argument type *)
+                                if isFunctionType typeOf
+                                then [PrettyBreak (1, 4), PrettyString "of"]
+                                else []
+                            )
+                         )
+                    ) ::
+                    (if isFunctionType typeOf andalso depth > 0
+                    then
+                    [
+                        PrettyBreak (1, 4),
+                        (* print the type as a single block of output *)
+        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV)
+                    ]
+                    else [])
+                 )
+             ]; (* pValConstr *)
            
          (* Print a sequence of constructors (unblocked) *)
-         fun pValConstrRest ([],     depth) = ()
-           | pValConstrRest (H :: T, depth) =
-           if depth < 0
-           then ()           
-           else let
-           in
-             pValConstr (false, valName H, valTypeOf H, depth);
-             pValConstrRest (T, depth - 1)
-           end;
+         fun pValConstrRest ([],     depth): pretty list = []
+           | pValConstrRest (H :: T, depth): pretty list =
+               if depth < 0 then []           
+               else 
+                   pValConstr (false, valName H, valTypeOf H, depth) @
+                     pValConstrRest (T, depth - 1)
            
-         fun pValConstrList ([],     depth) = () (* shouldn't occur *)    
+         fun pValConstrList ([],     depth) = PrettyString "" (* shouldn't occur *)    
            | pValConstrList (H :: T, depth) =
-		 let
-		 in
-		   ppBeginBlock pprint (2, true);
-		   pValConstr (true, valName H, valTypeOf H, depth);
-		   pValConstrRest (T, depth - 1);
-		   ppEndBlock pprint ()
-		 end;
-	   (* Remove any structure name. *)
-	   val tcname = #second(splitString(tcName tCons))
-       in
-         ppBeginBlock pprint (0, false);
-         
-         ppAddString pprint "datatype";
-         ppBreak pprint (1, 2);
-         printTypeVars (tcTypeVars tCons, depth, typeV, pprint, withStruct);
-         ppAddString pprint (tcname ^ " =");
-         pValConstrList (tcConstructors tCons, depth - 1);
-         
-         ppEndBlock pprint ()
-       end
+               PrettyBlock (2, true, [],
+        		   pValConstr (true, valName H, valTypeOf H, depth) @
+        		   pValConstrRest (T, depth - 1)
+                   )
+
+        (* Remove any structure name. *)
+        val tcname = #second(splitString(tcName tCons))
+        in
+            PrettyBlock(0, false, [],
+                [
+                    PrettyBlock(0, false, [],
+                            PrettyString "datatype" ::
+                            PrettyBreak (1, 2) ::
+                            printTypeVars (tcTypeVars tCons, depth, typeV) @
+                            [ PrettyString tcname, PrettyBreak(1, 0), PrettyString "=" ]
+                    ),
+                    pValConstrList (tcConstructors tCons, depth - 1)
+                ]
+            )
+        end
        
-       else (* Either direct type equivalent, or an abstract type *)
-         let
+    else (* Either direct type equivalent, or an abstract type *)
+        let
 		   (* Remove any structure name. *)
 		   val tcname = #second(splitString(tcName tCons))
-		 in
-           ppBeginBlock pprint (3, false);
-           ppAddString pprint (if tcEquality tCons then "eqtype" else "type");
-           ppBreak pprint (1, 0);
-           printTypeVars (tcTypeVars tCons, depth, typeV, pprint, withStruct);
-           ppAddString pprint tcname;
+        in
+            PrettyBlock (3, false, [],
+                PrettyString (if tcEquality tCons then "eqtype" else "type") ::
+                PrettyBreak (1, 0) ::
+                printTypeVars (tcTypeVars tCons, depth, typeV) @
+                [PrettyString tcname]
+                )
            (* Don't try to print the type it is equivalent to, it will probably
               be confusing if this is the result of a functor application. *)
-           ppEndBlock pprint ()
         end
   end   (* displayTypeConstrs *);
-       
+
+    (* Parse tree for types.  This is used to represent types in the source. *)
+    datatype typeParsetree =
+        ParseTypeConstruction of
+            { typeof: types, args: typeParsetree list,
+              location: location, nameLoc: location, argLoc: location }
+    |   ParseTypeProduct of
+            { typeof: types, fields: typeParsetree list, location: location }
+    |   ParseTypeFunction of
+            { typeof: types, argType: typeParsetree, resultType: typeParsetree, location: location }
+    |   ParseTypeLabelled of
+            { typeof: types, fields: ((string * location) * typeParsetree * location) list,
+              frozen: bool, location: location }
+    |   ParseTypeId of
+            { typeof: types, location: location }
+    |   ParseTypeBad (* Place holder for errors. *)
+
+    fun typeFromTypeParse(ParseTypeConstruction{ typeof, ...}) = typeof
+    |   typeFromTypeParse(ParseTypeProduct{ typeof, ...}) = typeof
+    |   typeFromTypeParse(ParseTypeFunction{ typeof, ...}) = typeof
+    |   typeFromTypeParse(ParseTypeLabelled{ typeof, ...}) = typeof
+    |   typeFromTypeParse(ParseTypeId{ typeof, ...}) = typeof
+    |   typeFromTypeParse(ParseTypeBad) = BadType
+    
+    fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
+    let
+        val argTypes = List.map typeFromTypeParse args
+        val construction =
+            mkTypeConstruction (constrName, undefType, argTypes, location)
+    in
+        ParseTypeConstruction{
+            typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = location }
+    end
+
+    fun makeParseTypeProduct(fieldList, location) =
+    let
+        val fieldTypes = List.map typeFromTypeParse fieldList
+        val tuple = mkProductType fieldTypes
+    in
+        ParseTypeProduct{ typeof = tuple, fields = fieldList, location = location }
+    end
+
+    fun makeParseTypeFunction(arg, result, location) =
+    let
+        val function =
+            mkFunctionType(typeFromTypeParse arg, typeFromTypeParse result)
+    in
+        ParseTypeFunction{ typeof = function, argType = arg, resultType = result, location = location }
+    end
+
+    fun makeParseTypeLabelled(fieldList, frozen, location) =
+    let
+        fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
+        val fieldTypes = sortLabels(List.map makeField fieldList)
+        val labelled = mkLabelled(fieldTypes, frozen)
+    in
+        ParseTypeLabelled{ typeof = labelled, fields = fieldList, frozen = frozen, location = location }
+    end
+
+    fun makeParseTypeId(types, location) =
+        ParseTypeId{ typeof = types, location = location }
+
+    fun unitTree location =
+        ParseTypeConstruction{
+            typeof = unitType, args = [], argLoc = location, location = location, nameLoc = location }
+
+    (* Build an export tree from the parse tree. *)
+    fun typeExportTree(navigation, p: typeParsetree) =
+    let        
+        val typeof = typeFromTypeParse p
+
+        (* Common properties for navigation and printing. *)
+        val commonProps =
+            PTprint(fn d => display(typeof, d)) ::
+            PTtype typeof ::
+            exportNavigationProps navigation
+
+        fun asParent () = typeExportTree(navigation, p)
+        
+    in
+        case p of
+            ParseTypeConstruction{ location, typeof, nameLoc, args, argLoc, ...} =>
+            let
+                (* If the constructor has been bound return the declaration location. *)
+                val (name, decLoc) =
+                    case typeof of
+                        TypeConstruction { value, name, ...} =>
+                            if isUndefined (pling value)
+                            then (name, [])
+                            else (name, [PTdeclaredAt(tcDeclaredAt(pling value))])
+                    |   _ => ("", []) (* Error? *)
+                val navNameAndArgs =
+                (* Separate cases for nullary, unary and higher type constructions. *)
+                    case args of
+                        [] => [] (* Singleton e.g. int *)
+                    |   [oneArg] =>
+                        let (* Single arg e.g. int list. *)
+                            (* Navigate between the type constructor and the argument.
+                               Since the arguments come before the constructor we go there first. *)
+                            fun getArg () =
+                                typeExportTree({parent=SOME asParent, previous=NONE, next=SOME getName}, oneArg)
+                            and getName () =
+                                getStringAsTree({parent=SOME asParent, previous=SOME getArg, next=NONE},
+                                            name, nameLoc, [])
+                        in
+                            [PTfirstChild getArg]
+                        end
+                    |   args =>
+                        let (* Multiple arguments e.g. (int, string) pair *)
+                            fun getArgs () =
+                                (argLoc,
+                                    exportList(typeExportTree, SOME getArgs) args @
+                                        exportNavigationProps{parent=SOME asParent, previous=NONE, next=SOME getName})
+                            and getName () =
+                                getStringAsTree({parent=SOME asParent, previous=SOME getArgs, next=NONE},
+                                            name, nameLoc, [])
+                        in
+                            [PTfirstChild getArgs]
+                        end
+            in
+                (location, navNameAndArgs @ decLoc @ commonProps)
+            end
+
+        |   ParseTypeProduct{ location, fields, ...} =>
+                (location, exportList(typeExportTree, SOME asParent) fields @ commonProps)
+
+        |   ParseTypeFunction{ location, argType, resultType, ...} =>
+                (location, exportList(typeExportTree, SOME asParent) [argType, resultType] @ commonProps)
+
+        |   ParseTypeLabelled{ location, fields, ...} =>
+            let
+                fun exportField(navigation, label as ((name, nameLoc), t, fullLoc)) =
+                    let
+                        (* The first position is the label, the second the type *)
+                        fun asParent () = exportField (navigation, label)
+                        fun getLab () =
+                            getStringAsTree({parent=SOME asParent, next=SOME getType, previous=NONE},
+                                name, nameLoc, [PTtype(typeFromTypeParse t)])
+                        and getType () =
+                            typeExportTree({parent=SOME asParent, previous=SOME getLab, next=NONE}, t)
+                    in
+                        (fullLoc, PTfirstChild getLab :: exportNavigationProps navigation)
+                    end
+            in
+                (location, exportList(exportField, SOME asParent) fields @ commonProps)
+            end
+
+        |   ParseTypeId{ location, ...} =>
+                (location, commonProps)
+
+        |   ParseTypeBad =>
+                (nullLocation, commonProps)
+    end
+
+
   (* When we have finished processing a list of patterns we need to check
      that the record is now frozen. *)
 
@@ -1229,35 +1321,35 @@ struct
 	| recordNotFrozen _ = false (* record or type alias *);
 
 
-  fun matchError 
-    (s1 : string, alpha : types, s2 : string, beta  : types, s3 : string,
-     lex : lexan, lineno : int, moreInfo : prettyPrinter -> unit) : unit =
-  (
-    errorProc (lex, lineno,
-       fn (pprint : prettyPrinter) =>
-       let
-         (* Use a single sequence. *)
-         val vars : typeVarForm -> string = varNameSequence ();
-         open DEBUG
-         val parameters = LEX.debugParams lex
-         val errorDepth = getParameter errorDepthTag parameters
-       in
-         ppBeginBlock pprint (3, false);
-         ppAddString pprint s1;
-         ppBreak pprint (1, 0);
-         tDisp (alpha, errorDepth, pprint, vars, true);
-         ppBreak pprint (1, 0);
-         ppAddString pprint s2;
-         ppBreak pprint (1, 0);
-         tDisp (beta, errorDepth, pprint, vars, true);
-         ppBreak pprint (1, 0);
-         ppAddString pprint s3;
-         ppBreak pprint (1, 0);
-         moreInfo pprint;
-         ppEndBlock pprint ()
-       end
-      )
-  ) (* matchError *);
+    fun matchError 
+        (s1 : string, alpha : types, s2 : string, beta  : types, s3 : string,
+        lex : lexan, location : LEX.location, moreInfo : unit -> pretty) : unit =
+    let
+        val vars : typeVarForm -> string = varNameSequence ();
+        open DEBUG
+        val parameters = LEX.debugParams lex
+        val errorDepth = getParameter errorDepthTag parameters
+    in
+        reportError lex
+        {
+            location = location,
+            hard = true,
+            message =
+                PrettyBlock(3, false, [],
+                    [
+                        PrettyString s1,
+                        PrettyBreak (1, 0),
+                        tDisp (alpha, errorDepth, vars),
+                        PrettyBreak (1, 0),
+                        PrettyString s2,
+                        PrettyBreak (1, 0),
+                        tDisp (beta, errorDepth, vars),
+                        PrettyBreak (1, 0),
+                        PrettyString s3                        
+                    ]),
+            context = SOME (moreInfo ())
+       }
+    end (* matchError *);
 
 
   (* True if two types are equal. Used to reduce the storage required
@@ -1344,7 +1436,7 @@ struct
       TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
         copyTypeVar atyp
     
-    | TypeConstruction {name, value, args} => 
+    | TypeConstruction {name, value, args, location} => 
       let
 		val copiedArgs   = copyList args;
 		val copiedConstr = copyTypeConstr (pling value);
@@ -1362,7 +1454,7 @@ struct
 		   andalso (case value of FrozenRef _ => true | _ => false)
 		then atyp 
 		else (* Must copy it. *) 
-		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs)
+		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs, location)
       end 
            
     | FunctionType {arg, result} => 
@@ -1462,7 +1554,8 @@ struct
 			  copiedEquiv,
 			  makeId (),
 			  tcEquality tcon,
-			  0 (* Always global. *));
+			  0 (* Always global. *),
+              tcDeclaredAt tcon); (* Copy original declaration location ??? *)
 		  
 	     (* And put it in the table *)
 	     val U : unit = enter (id, r);
@@ -1478,7 +1571,7 @@ struct
 
   (* Generate a mapping from one set of type variables to another. *)
 
-  fun tvarSequence (matched : match list, isExp : bool) : types -> types = 
+  fun tvarSequence (matched : match list) : types -> types = 
   let
     val madeList = ref matched (* List of tyVars. *);
   in
@@ -1492,8 +1585,7 @@ struct
           (* Make a unifiable type variable even if the original
              is nonunifiable. *)
           val n : types = 
-            mkTypeVar (generalisable, tvEquality tyVar,  
-                       false, tvWeak tyVar andalso isExp); 
+            mkTypeVar (generalisable, tvEquality tyVar,   false, false); 
         in
 		  (* Set the new variable to have the same value as the
 		     existing.  That is only really needed if we have an
@@ -1510,9 +1602,9 @@ struct
     end
   end (* tvarSequence *);
 
-  fun generaliseTypes (atyp : types, matched : match list, isExp : bool) : types = 
+  fun generaliseTypes (atyp : types, matched : match list) : types = 
   let
-    val tvs : types -> types = tvarSequence (matched, isExp);
+    val tvs : types -> types = tvarSequence matched;
 
     fun copyTypeVar (atyp as TypeVar tyVar) =
 	  if tvLevel tyVar <> generalisable
@@ -1560,8 +1652,7 @@ struct
 
 
   (* Exported wrapper for generaliseTypes. *)
-  fun generalise (atyp : types, isExp : bool) : types = 
-    generaliseTypes (atyp, [], isExp);
+  fun generalise (atyp : types) : types = generaliseTypes (atyp, []);
 
   fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
   let
@@ -1602,8 +1693,7 @@ struct
   in
     generaliseTypes
       (#arg constrFun, 
-       copyVars (#args (typesTypeConstruction (#result constrFun)), typeArgs),
-       true)
+       copyVars (#args (typesTypeConstruction (#result constrFun)), typeArgs))
   end;
 
   (* If we have a type construction which is an alias for another type
@@ -1611,10 +1701,7 @@ struct
      and then copying the type. *)
      
   fun makeEquivalent (atyp, args) = 
-    generaliseTypes
-      (tcEquivalent atyp,
-       copyVars (tcTypeVars atyp, args),
-       true);
+    generaliseTypes(tcEquivalent atyp, copyVars (tcTypeVars atyp, args));
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -1701,7 +1788,7 @@ struct
 
 	(* "real" is an equality type in ML90 but not in ML97. *)
 	else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.realType)
-	  then (*if ml90 lex then Yes else *)No
+	  then No
 	  
         (* Others apart from ref and real *)
 	else if tcEquality constr (* Equality allowed. *)
@@ -1928,7 +2015,7 @@ struct
 				     We should have tvLevel generic = generalisable and tvNonUnifiable generic
 					 = false. *)
 				  typeof = mkTypeVar(tvLevel generic, tvEquality generic,
-				  				tvNonUnifiable generic, tvWeak generic)}
+				  				tvNonUnifiable generic, false)}
 				)
 			fun addEntry [] = [newEntry]
 			 |  addEntry ((ge as {name, typeof = _}) :: geRest) =
@@ -2066,12 +2153,8 @@ struct
              (* The level is the minimum of the two, and if we are unifying with
                 an equality type variable we must make this into one. *)
              val minLev = Int.min (tvLevel var, tvLevel tvar);
-			 (* Make the resultant type variable weak unless we are really
-			    unifying it with an overload set. *)
-             val isWeak = ((tvWeak var) orelse (tvWeak tvar))
-			 		andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
            in
-             if (tvLevel tvar <> minLev) orelse (tvWeak tvar <> isWeak)
+             if tvLevel tvar <> minLev
              then 
                (* If it is nonunifiable we cannot make its level larger. *)
                if tvNonUnifiable tvar
@@ -2084,7 +2167,7 @@ struct
                     type variable. foldType will apply checkForLoops to the
                     record. *)
                  val newTv = 
-                   mkTypeVar (minLev, tvEquality tvar, false, isWeak);
+                   mkTypeVar (minLev, tvEquality tvar, false, false);
                in
                  tvSetValue (typesTypeVar newTv, tvValue tvar);
                  tvSetValue (tvar, newTv)
@@ -2168,7 +2251,7 @@ struct
 				  additional fields we may add by unification with other records
 				  also admit equality. *)
 		    val newTv = 
-		      mkTypeVar (tvLevel tvar, true, false, tvWeak tvar);
+		      mkTypeVar (tvLevel tvar, true, false, false);
 			val oldValue = tvValue tvar
 		  in
 		    tvSetValue (tvar, newTv);
@@ -2176,15 +2259,6 @@ struct
 			   don't admit equality. *)
 			case oldValue of
 			   OverloadSet{typeset} =>
-			  		(*if ml90 lex
-					then (* real admits equality in ML90 but not in ML97.  I am
-							assuming here that we will not try overloading on any
-							other type which would not admit equality.  *)
-						(
-						tvSetValue (typesTypeVar newTv, oldValue);
-						Yes
-						)
-					else*)
 			   		let
 			   		(* Remove any types which do not admit equality. *)
 					   fun filter [] = []
@@ -2196,7 +2270,7 @@ struct
 						  | [constr] =>
 						  	( (* Turn a singleton into a type construction. *)
 							tvSetValue (typesTypeVar newTv,
-								mkTypeConstruction(tcName constr, constr, nil));
+								mkTypeConstruction(tcName constr, constr, nil, LEX.nullLocation));
 							Yes
 							)
 						  | newset =>
@@ -2575,13 +2649,13 @@ struct
         (alpha    : types,
          beta     : types,
          lex      : lexan,
-         lineno   : int,
-         moreInfo : prettyPrinter -> unit) 
+         location : LEX.location,
+         moreInfo : unit -> pretty) 
          : unit =
   let
     fun cantMatch (typeA, typeB, reason) =
       matchError ("Can't unify", typeA, "with", typeB, reason, 
-                  lex, lineno, moreInfo);
+                  lex, location, moreInfo);
                      
   in
     typeMatch (alpha, beta, (*trivMap, *)trivMap, cantMatch)
@@ -2595,7 +2669,7 @@ struct
   		LabelledType { recList = {typeof, ...} ::_, ...}, ...}) =
 			eventual typeof
    |  firstArg(FunctionType{arg, ...}) = eventual arg
-   |  firstArg t = eventual t
+   |  firstArg t = t
 
   (* Returns the result type of a function. *)
   fun getResult(FunctionType{result, ...}) = eventual result
@@ -2615,8 +2689,7 @@ struct
 				(* The argument should be a type variable, possibly set to
 				   an empty overload set.  This should be replaced by
 				   the current overload set in the copied function type. *)
-				generaliseTypes(t,
-					[Matched{old=tv, new=mkOverloadSet constrs}], true)
+				generaliseTypes(t, [Matched{old=tv, new=mkOverloadSet constrs}])
 		  | _ => raise InternalError "generaliseOverload - arg is not a type var"
 	end
 
@@ -2642,14 +2715,11 @@ struct
 						fun freezeType tcons =
 							(
 							tvSetValue(tvar,
-								mkTypeConstruction(tcName tcons, tcons, []));
+								mkTypeConstruction(tcName tcons, tcons, [], LEX.nullLocation));
 							tcons
 							)
 					in
-						(*if ml90 lex andalso not isConverter
-						then undefType (* No defaulting on functions in ML 90
-										  but allow defaulting on literals *)
-						else *)if isInSet(STRUCTVALS.intType, typeset)
+						if isInSet(STRUCTVALS.intType, typeset)
 						then freezeType STRUCTVALS.intType
 						else if isInSet(STRUCTVALS.realType, typeset)
 						then freezeType STRUCTVALS.realType
@@ -2675,13 +2745,13 @@ struct
 			end
   	 |  prefType _ = undefType
   in
-  	prefType(firstArg f)
+  	prefType(firstArg(eventual f))
   end;
   
   (* Error message about overloading. *)
 
   fun overloadError (t : types, opName : string, types : string,
-                     lex : lexan, lineno : int) : unit =
+                     lex : lexan, location : LEX.location) : unit =
   (* Find the argument type of the function. *)
   let 
     (* Get the first arg if there are more than one, and see if
@@ -2692,20 +2762,32 @@ struct
      val errorDepth = getParameter errorDepthTag parameters
   in
     if isTypeVar arg (* Unresolved *)
-    then errorMessage (lex, lineno, "Unable to resolve overloading for " ^ opName)
+    then errorMessage (lex, location, "Unable to resolve overloading for " ^ opName)
     else
-      errorProc (lex, lineno,
-         fn (pprint:prettyPrinter) =>
-         (
-           ppBeginBlock pprint (3, true);
-           ppAddString pprint
-              (opName ^ " is overloaded on " ^ types ^ " but not ");
-           display (arg, errorDepth, pprint, true);
-           ppEndBlock pprint ()
-         ))
+        reportError lex {
+            location = location,
+            hard = true,
+            message =
+                PrettyBlock (3, true, [],
+                    [
+                        PrettyString
+                            (opName ^ " is overloaded on " ^ types ^ " but not "),
+                        display (arg, errorDepth)
+                    ]
+                ),
+            context = NONE
+        }
   end (* overloadError *);
 
-  fun apply (f, arg, lex, lineno, moreInfo) =
+    (* Return the result type of a function.  Also used to test if the value is
+       a function type. *)
+    fun getFnArgType t =
+    case eventual t of
+        FunctionType {arg, ... } => SOME arg
+    |   _ => NONE
+    
+
+  fun apply (f, arg, lex, location, moreInfo) =
   let
     val ef = eventual f;
   in
@@ -2713,7 +2795,7 @@ struct
     then (* Special case for functions. *)
     let
       val funType  = typesFunctionType ef;
-      val U : unit = unify (#arg funType, arg, lex, lineno, moreInfo);
+      val U : unit = unify (#arg funType, arg, lex, location, moreInfo);
     in
       #result funType
     end
@@ -2723,7 +2805,7 @@ struct
       val fType    = mkFunctionType (arg, resType);
       
       (* This may involve more than just assigning the type to "ef". *)
-      val U : unit = unify (ef, fType, lex, lineno, moreInfo);
+      val U : unit = unify (ef, fType, lex, location, moreInfo);
     in
       resType (* The result is the type variable unified to the result. *)
     end
@@ -2731,32 +2813,37 @@ struct
 
   (* Assigns type variables to variables with generalisation permitted
      if their level is at least that of the current level.
-	 In ML90 mode this produces an error message for any top-level
+	 In ML90 mode this produced an error message for any top-level
 	 free imperative type variables.  We don't do that in ML97 because
 	 it is possible that another declaration may "freeze" the type variable
 	 before the composite expression reaches the top level. *)
-  fun allowGeneralisation (t, level, nonExpansive, lex, lineno, moreInfo) =
+  fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo) =
 	let
 		fun giveError(s1: string, s2: string) =
-			errorProc(lex, lineno,
-				fn (pprint: prettyPrinter) =>
-				let
-		         (* Use a single sequence. *)
-		         val vars : typeVarForm -> string = varNameSequence ();
-                 open DEBUG
-                 val parameters = debugParams lex
-                 val errorDepth = getParameter errorDepthTag parameters
-				in
-		         ppBeginBlock pprint (3, false);
-		         ppAddString pprint s1;
-		         ppBreak pprint (1, 0);
-		         tDisp (t, errorDepth, pprint, vars, true);
-		         ppBreak pprint (1, 0);
-		         ppAddString pprint s2;
-		         ppBreak pprint (1, 0);
-		         moreInfo pprint;
-		         ppEndBlock pprint ()
-				end);
+        let
+            (* Use a single sequence. *)
+            val vars : typeVarForm -> string = varNameSequence ();
+            open DEBUG
+            val parameters = debugParams lex
+            val errorDepth = getParameter errorDepthTag parameters
+        in
+            reportError lex
+            {
+                hard = true,
+                location = location,
+                message =
+                    PrettyBlock (3, false, [],
+                        [
+                            PrettyString s1,
+                            PrettyBreak (1, 0),
+                            tDisp (t, errorDepth, vars),
+                            PrettyBreak (1, 0),
+                            PrettyString s2
+                        ]
+                    ),
+                context = SOME(moreInfo ())
+            }
+        end
 
 		fun general (TypeVar tvar) showError =
 			if tvLevel tvar >= level andalso
@@ -2776,14 +2863,10 @@ struct
 				   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
 				   would be take the default type (in this case int).
 				   DCJM 1/9/00. *)
-                val ml90 = DEBUG.getParameter DEBUG.ml90Tag (debugParams lex)
-	            val nonCopiable =
-					(not nonExpansive andalso (tvWeak tvar orelse not ml90))
-					orelse isOverloadSet;
+	            val nonCopiable = not nonExpansive orelse isOverloadSet;
 	            val newLevel =
 	               if nonCopiable then level-1 else generalisable (* copiable *);
 
-                val ml90 = DEBUG.getParameter DEBUG.ml90Tag (debugParams lex)
 				val isOk =
 					(* If the type variable has top-level scope then we have
 	                   a free type variable.  We only want to generate this
@@ -2797,19 +2880,12 @@ struct
 						giveError("Type", "includes a free type variable");
 						false
 						)
-		            else if newLevel = 1 andalso showError andalso ml90
-		                        andalso not isOverloadSet
-		            then
-						(
-						giveError ("Type", "includes a free imperative type variable");
-						false
-						)
 		            else showError;
 	            val newVal =
 	                 mkTypeVar 
 	                   (newLevel, tvEquality tvar,
 	                    if nonCopiable then (tvNonUnifiable tvar) else false,
-	                    tvWeak tvar)
+	                    false)
 			in
 	            (* If an explicit type variable is going out of scope we can
 	               generalise it, except if it is nonunifiable. *)
@@ -2852,10 +2928,10 @@ struct
 				val _ = count := !count + 1;
 				val tCons =
 					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(),
-						tvEquality tvar, 0);
-	            val newVal = mkTypeConstruction(name, tCons, [])
+						tvEquality tvar, 0, location lex);
+	            val newVal = mkTypeConstruction(name, tCons, [], LEX.nullLocation)
 			in
-				warningMessage(lex, lineno lex, 
+				warningMessage(lex, location lex, 
 					concat["The type of (", valName,
 						") contains a free type variable.\n",
 						"Setting it to a unique monotype."]);
@@ -2930,8 +3006,8 @@ struct
      target    : types,
      targMap   : typeId -> typeConstrs option,
      lex       : lexan,
-     lineno    : int,
-     moreInfo  : prettyPrinter -> unit)
+     location  : LEX.location,
+     moreInfo  : unit -> pretty)
     : unit =
   let
     fun copyTarget t =
@@ -2957,11 +3033,11 @@ struct
          second copy and not the first copy).
        *)
          
-      val copiedCandidate : types = generalise (candidate, true);
+      val copiedCandidate : types = generalise candidate;
       
       fun cantMatch (candidate, target, reason) =
            matchError ("Can't match", candidate, "to", target, reason,
-                       lex, lineno, moreInfo);       
+                       lex, location, moreInfo);       
     in
       typeMatch (copiedCandidate, target, copyTarget, cantMatch)
     end;
@@ -2972,7 +3048,7 @@ struct
        if tcEquality constr then true
        else if isEmpty(tcEquivalent constr) then false
        else not (equality 
-                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr),
+                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr, LEX.nullLocation),
                     fn tri => No,
                     fn tri => Yes)
                   = No);
@@ -2990,7 +3066,7 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet);
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, LEX.nullLocation);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)
@@ -3069,10 +3145,10 @@ struct
       in
 		    (* In ML90 we are allowed to unify a rigid and a flexible type.
 			   In ML97 both must be flexible. *)
-		if not (isVariableId (tcIdentifier typeA)) (*andalso not (ml90 lex)*)
+		if not (isVariableId (tcIdentifier typeA))
 		then cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not flexible")
 
-		else if not (isVariableId (tcIdentifier typeB)) (*andalso not (ml90 lex)*)
+		else if not (isVariableId (tcIdentifier typeB))
 		then cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not flexible")
 
         else if isVariableId (tcIdentifier typeA) andalso not AIsDatatype
@@ -3119,7 +3195,8 @@ struct
 			()
           end
           else
-		  	(* Both are rigid.  This case can only occur if ml90 is true.
+		  	(* Both are rigid.  This case can only occur if ml90 is true,
+               but that probably means this never occurs now.
 			   We've already checked that they don't have the same type
 			   name so we can just generate an error message. *)
 		  	cantMatch ("Cannot share: (" ^ tcName typeA ^ ") and (" ^
@@ -3144,7 +3221,7 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet);
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, LEX.nullLocation);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)
@@ -3256,25 +3333,6 @@ struct
     end
   end (* setWhereType *);
 
-
-  (* A simple sort routine - particularly if the list is already sorted.
-     Reports duplicate names. *)
-  fun sortLabels ([],      duplicate) = []
-    | sortLabels (s::rest, duplicate) =
-  let
-    fun enter s name [] = [s]
-      | enter s name (l as ( (h as {name=hname, typeof}) :: t)) =
-      let
-        val comp = compareLabels (name, hname);
-      in
-        if comp = 0 (* Equal. *)
-        then duplicate ("Label (" ^ name ^ ") appears more than once.") else ();
-        if comp <= 0 then s :: l else h :: enter s name t
-      end;
-  in  
-    enter s (#name s) (sortLabels (rest, duplicate))
-  end;
-
   (* Returns the number of the entry in the list. Used to find out the
      location of fields in a labelled record for expressions and pattern
      matching. Assumes that the label appears in the list somewhere. *)
@@ -3330,7 +3388,7 @@ struct
   let
     val tv = typesTypeVar (eventual typ); (* Must be type var. *)
   in
-    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, tvWeak tv))
+    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, false))
   end;
 
   (* Checks that every type identifier mentioned is rigid.  Used when we

@@ -127,10 +127,11 @@ structure DEBUG :
 sig
     (* Produce debugging output. *)
     val pstackTraceTag : bool Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
+
+structure PRETTY: PRETTYSIG
 
 (*****************************************************************************)
 (*                  MISC                                                     *)
@@ -705,24 +706,29 @@ local
        pstackTrace:  bool,
        printStream:  string->unit
      };
-
-  fun ttabCreate debugSwitches = 
-    Ttab
-      {
-        decToPstack  = stretchArray (initTrans,noIndex),
-        isProc       = stretchArray (initTrans,false),
-        regset       = rsetMake(),
-        pstack       = stretchArray (initStack,NoStackEntry),
-        pstackptr    = ref first,
-        realstackptr = ref 0,
-        maxstack     = ref 1,
-        exited       = ref false,
-		branched	 = ref false,
-        marker       = ref first,
-        lowestDirect = ref first,
-        pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
-        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag debugSwitches
-      };
+     
+    fun ttabCreate debugSwitches =
+    let
+        val compilerOut = PRETTY.getCompilerOutput debugSwitches
+        fun printStream (s: string) = compilerOut(PRETTY.PrettyString s)
+    in
+        Ttab
+        {
+            decToPstack  = stretchArray (initTrans,noIndex),
+            isProc       = stretchArray (initTrans,false),
+            regset       = rsetMake(),
+            pstack       = stretchArray (initStack,NoStackEntry),
+            pstackptr    = ref first,
+            realstackptr = ref 0,
+            maxstack     = ref 1,
+            exited       = ref false,
+    		branched	 = ref false,
+            marker       = ref first,
+            lowestDirect = ref first,
+            pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
+            printStream  = printStream
+            }
+    end
 
   fun decToPstack  (Ttab {decToPstack ,...}) = decToPstack;
   fun isProc       (Ttab {isProc      ,...}) = isProc;

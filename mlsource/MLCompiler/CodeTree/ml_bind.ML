@@ -19,12 +19,9 @@
 
 structure CodeTree = 
   CODETREE (
+    structure PRETTY        = Pretty
     structure GCODE         = GCode
     structure DEBUG         = Debug
-    structure PRETTYPRINTER = Boot.PrettyPrinter
-    structure MISC          = Boot.Misc
-    structure STRETCHARRAY  = StretchArray
-    structure ADDRESS       = Address
     structure STRUCTUREEQ   = StructureEquality
     structure BASECODETREE  = BaseCodeTree
   );

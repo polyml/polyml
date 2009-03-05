@@ -36,14 +36,11 @@ struct
     local
         open Universal
     in
-        (* Print error and warning messages. *)
-        val errorMessageProcTag: (string * bool * int -> unit) tag = tag()
-        (* Compiler output.  Used for timing information and compiler debug output. *)
-        val compilerOutputTag: (string->unit) tag    = tag()
         (* Get the current line number. *)
         val lineNumberTag: (unit->int) tag           = tag()
-
-        (* File name.  Only used in the debugger so may be taken out. *)
+        (* Get the current offset (position on line or in file). *)
+        val offsetTag: (unit->int) tag               = tag()
+        (* File name. *)
         val fileNameTag: string tag                  = tag()
 
         (* Print times for compilation and execution: default false. *)
@@ -56,12 +53,8 @@ struct
         val printDepthFunTag: (unit->int) tag            = tag()
         (* Length of line in PolyML.print. error messages etc. *)
         val lineLengthTag: int tag                   = tag()
-        (* ML97 or ML90 mode? default ML97 *)
-        val ml90Tag: bool tag                        = tag()
         (* Compile in debugging code?  default false *)
         val debugTag: bool tag                       = tag()
-        (* Stream to use for output in PolyML.print *)
-        val printStringTag: (string->unit) tag       = tag()
         (* Compilation fine tuning. *)
         (* Should functors be made inline? default true. *)
         val inlineFunctorsTag: bool tag              = tag()
@@ -84,15 +77,18 @@ struct
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
-        (* val printSpaceTag: ValueOps.nameSpace tag
-           val debuggerFunTag: Debgger.debugger tag *)
+        (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
+           Debugger.debuggerFunTag: Debugger.debugger tag
+           Pretty.printOutputTag: (pretty->unit) tag
+           Pretty.compilerOutputTag: (pretty->unit) tag
+           Lex.errorMessageProcTag: (pretty * bool * int -> unit) tag
+         *)
 
 
         val defaults =
         [
-            tagInject errorMessageProcTag (fn _ => raise Fail "error in program"),
-            tagInject compilerOutputTag (fn _ => ()), (* Discard output. *)
             tagInject lineNumberTag (fn () => 0), (* Zero line number *)
+            tagInject offsetTag (fn () => 0), (* Zero offset *)
             tagInject fileNameTag "",
             tagInject inlineFunctorsTag true,
             tagInject maxInlineSizeTag 40,
@@ -107,9 +103,7 @@ struct
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
             tagInject traceCompilerTag false,
-            tagInject ml90Tag false,
-            tagInject debugTag false,
-            tagInject printStringTag (fn s => raise Fail "No stream")
+            tagInject debugTag false
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

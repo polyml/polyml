@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008.
+    Modified David C.J. Matthews 2008-9.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,10 @@
     Copyright   Cambridge University 1985
 *)
 
-(* This code is now only used during the bootstrap process.  *)
+(* This previously contained PolyML.make which was passed through to
+   the basis.  It has now been reduced to just "use" and is
+   only used during the bootstrap process to compile the basis
+   library itself.  *)
 
 functor MAKE_ (
 
@@ -66,12 +69,19 @@ sig
         allFunct:     unit -> (string*functors) list
       };
 
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+
+    (* Export tree. *)
+    type exportTree
+
     (* The completed compiler. *)
     val compiler :
-        nameSpace * (unit->char option) * Universal.universal list -> unit ->
-       { fixes: (string * fixStatus) list, values: (string * values) list,
-         structures: (string * structVals) list, signatures: (string * signatures) list,
-         functors: (string * functors) list, types: (string * typeConstrs) list };
+        nameSpace * (unit->char option) * Universal.universal list ->
+		exportTree option * ( unit ->
+	       { fixes: (string * fixStatus) list, values: (string * values) list,
+	         structures: (string * structVals) list, signatures: (string * signatures) list,
+	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
 
 end;
 
@@ -150,23 +160,26 @@ end;
 
 structure MISC :
 sig
-  type 'a iter
-  exception InternalError of string; (* compiler bugs *)
-
-  val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
-  val mapIterator     : ('a -> 'b) -> 'a iter -> 'b list
-  
-  val quickSort       : ('a -> 'a -> bool) -> 'a list -> 'a list
+  type 'a iter  
   val iterList : 'a iter -> 'a list
 end;
 
 structure DEBUG:
 sig
-    val errorMessageProcTag: (string * bool * int -> unit) Universal.tag
-    val compilerOutputTag: (string->unit) Universal.tag
     val lineNumberTag: (unit->int) Universal.tag
     val maxInlineSizeTag: int Universal.tag
+    val traceCompilerTag: bool Universal.tag
+    val fileNameTag: string Universal.tag
 end
+
+structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
+
+structure LEX: LEXSIG (* For errorMessageProcTag *)
+
+structure VERSION:
+    sig
+        val versionSuffix: string
+    end
 
 (*****************************************************************************)
 (*                  MAKE sharing constraints                                 *)
@@ -200,6 +213,11 @@ sharing type
 sharing type
   STRUCTVALS.functors
 = COMPILERBODY.functors
+
+sharing type
+    LEX.pretty
+=   PRETTY.pretty
+
 )
  :
 
@@ -240,11 +258,17 @@ sig
         allSig:       unit -> (string*signatures) list,
         allFunct:     unit -> (string*functors) list
       };
+
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+
+    type exportTree
       
-    val compiler : nameSpace * (unit->char option) * Universal.universal list -> unit ->
-       { fixes: (string * fixStatus) list, values: (string * values) list,
-         structures: (string * structVals) list, signatures: (string * signatures) list,
-         functors: (string * functors) list, types: (string * typeConstrs) list };
+    val compiler : nameSpace * (unit->char option) * Universal.universal list ->
+		exportTree option * ( unit ->
+	       { fixes: (string * fixStatus) list, values: (string * values) list,
+	         structures: (string * structVals) list, signatures: (string * signatures) list,
+	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
 
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
@@ -391,12 +415,30 @@ struct
         (*****************************************************************************)
         (*                  use                                                      *)
         (*****************************************************************************)
-        fun use (fileName : string) =
+        fun use (baseName : string) =
         let
-            val inStream =
-                if fileName = ""
-                then TextIO.stdIn
-                else TextIO.openIn fileName;
+            val (inStream, fileName) =
+                if baseName = ""
+                then (TextIO.stdIn, "<stdin>")
+                else
+                let
+                    open OS.Path
+                    open VERSION
+                    (* See if we have a version of the file specific to this
+                       version of the compiler.  For x.ML see if x.VER.ML exists.
+                       When bootstrapping from one version of the compiler to
+                       another we need to compile the basis library in both the
+                       old and new compiler.  If the interface has changed we may
+                       need version-specific files. *)
+                    val { base, ext } = splitBaseExt baseName
+                    val versionName =
+                        joinBaseExt {
+                            base = joinBaseExt{base = base, ext = SOME versionSuffix},
+                            ext = ext }
+                in
+                    (TextIO.openIn versionName, versionName)
+                        handle Io => (TextIO.openIn baseName, baseName)
+                end
             
             val lineNo   = ref 1;
             val eof      = ref false;
@@ -411,31 +453,36 @@ struct
             |   NONE => (eof := true; NONE)
             |   c => c
 
-            fun errorProc (message, hard, line) =
+            fun errorProc {message, hard, location={ file, startLine=line, ... }, ...} =
                TextIO.print(concat
                    [if hard then "Error-" else "Warning-",
-                    " in '", fileName, "', line ", Int.toString line, ".\n",
-                    message])
+                    " in '", file, "', line ", Int.toString line, ".\n",
+                    PRETTY.uglyPrint message, "\n"])
         in
             (
                 while not (! eof) do
                 let
                     open DEBUG Universal
                     
-                    (* Compile  the code *)
-                    val code = COMPILERBODY.compiler
-                        (useEnv, getChar,
-                          [
-                             tagInject compilerOutputTag print,
-                             tagInject lineNumberTag (fn () => !lineNo),
-                             tagInject errorMessageProcTag errorProc,
-                             (* Set the debug level to 50 while compiling the basis.  This makes
-                                sure that String.foldr can be expanded inline which reduces the
-                                garbage in the hashValue function. *)
-                             tagInject maxInlineSizeTag 50
-                             (* Need printer environment so that when we compile General.exnMessage
-                                it all works. *)
-                          ] )
+                    (* Compile the code *)
+                    val code = 
+					    case COMPILERBODY.compiler
+	                        (useEnv, getChar,
+	                          [
+                                 tagInject traceCompilerTag true,
+	                             tagInject PRETTY.compilerOutputTag (print o PRETTY.uglyPrint),
+	                             tagInject lineNumberTag (fn () => !lineNo),
+                                 tagInject fileNameTag fileName,
+	                             tagInject LEX.errorMessageProcTag errorProc,
+	                             (* Set the debug level to 50 while compiling the basis.  This makes
+	                                sure that String.foldr can be expanded inline which reduces the
+	                                garbage in the hashValue function. *)
+	                             tagInject maxInlineSizeTag 50
+	                             (* Need printer environment so that when we compile General.exnMessage
+	                                it all works. *)
+	                          ] ) of
+						(_, NONE) => raise Fail "Static Errors"
+					 |  (_, SOME c) => c
                     (* execute the code and get the resulting declarations. *)
                     val { fixes, values, structures, signatures, functors, types } = code ()
                 in

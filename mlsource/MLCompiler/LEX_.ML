@@ -28,28 +28,9 @@
 
 functor LEX_ (
 (*****************************************************************************)
-(*                 PRETTYPRINTER                                             *)
+(*                 PRETTY                                                    *)
 (*****************************************************************************)
-structure PRETTYPRINTER:
-sig
-  type prettyPrinter 
-  
-  val ppAddString  : prettyPrinter -> string -> unit
-  val ppBeginBlock : prettyPrinter -> int * bool -> unit
-  val ppEndBlock   : prettyPrinter -> unit -> unit
-  val ppBreak      : prettyPrinter -> int * int -> unit
-  val ppLineBreak  : prettyPrinter -> unit -> unit
-  
-  val prettyPrint : int * (string -> unit) -> prettyPrinter; 
-end;
-
-(*****************************************************************************)
-(*                  MISC exports signature                                   *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string; (* compiler error *)
-end
+structure PRETTY: PRETTYSIG;
 
 (*****************************************************************************)
 (*                  SYMBOLS                                                  *)
@@ -86,74 +67,46 @@ end
 
 structure DEBUG:
 sig
-    val errorMessageProcTag: (string * bool * int -> unit) Universal.tag
     val lineNumberTag: (unit -> int) Universal.tag
+    val offsetTag: (unit->int) Universal.tag
+    val fileNameTag: string Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end
 
-) :
-
-
-(*****************************************************************************)
-(*                  LEX export signature                                     *)
-(*****************************************************************************)
-sig
-  type lexan;
-  type sys;
-  type prettyPrinter;
-     
-  val insymbol: lexan -> unit;
-     
-  (* insymbol sets sy and id which are exported as "read-only" *)
-     
-  val sy:     lexan -> sys;
-  val id:     lexan -> string;
-  val lineno: lexan -> int;
-  val pushBackSymbol: lexan * sys -> unit;
-     
-  val initial: (unit -> char option) * Universal.universal list -> lexan;
-
-  (* Error handling *)
-     
-  val errorProc:      lexan * int * (prettyPrinter -> unit) -> unit;
-  val errorMessage:   lexan * int * string -> unit;
-  val warningProc:    lexan * int * (prettyPrinter -> unit) -> unit;
-  val warningMessage: lexan * int * string -> unit;
-     
-  val errorOccurred: lexan -> bool;
-  val resetLexan:    lexan -> unit;
-  val flushLexan:    lexan -> unit;
-
-  val nullLex: lexan; (* Used when no errors are expected - streams raise exceptions. *)
-  
-  (* To save passing an extra argument to many functions we include the
-     debug/control parameters here. *)
-  val debugParams: lexan -> Universal.universal list
-end (* LEX export signature *) =
+) : LEXSIG =
 
 (*****************************************************************************)
 (*                  LEX functor body                                         *)
 (*****************************************************************************)
 struct
 
-  open MISC;
-  open PRETTYPRINTER;
+  open Misc;
+  open PRETTY;
   open SYMBOLS;              infix 8 eq neq;
-
   
+  type location = { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+
   type lexan = 
     {
-      stream:   unit -> char option,
-      lineno:   unit -> int,
-      ch:       char ref,
-      sy:       sys ref,
-      id:       string ref,
-      messageOut: string * bool * int -> unit,
-      errors:   bool ref,
-      pushedSym: sys ref,
-      extraChars: char list ref,
-      debugParams: Universal.universal list
+      stream:      unit -> char option,
+      ch:          char ref,
+      sy:          sys ref,
+      id:          string ref,
+      messageOut: 
+        { location: location, hard: bool, message: pretty, context: pretty option } -> unit,
+      errors:      bool ref,
+      pushedSym:   sys ref,
+      extraChars:  char list ref,
+      debugParams: Universal.universal list,
+      (* Location information. *)
+      getLineNo:   unit -> int,
+      getOffset:   unit -> int,
+      fileName:    string,
+      startLine:   int ref,
+      endLine:     int ref,
+      startPosition: int ref,
+      endPosition:   int ref
     };
     
   (* The lexical analyser reads characters from the stream and updates the
@@ -161,36 +114,55 @@ struct
      but the lexical analyser can be a hot-spot in the compiler unless it's
      made as fast as possible. *)
 
-  val eofChar         = Char.chr 4; (* ctrl/D *)
+    val eofChar         = Char.chr 4; (* ctrl/D *)
 
-  val isNumeric = Char.isDigit
-  and isAlphabetic = Char.isAlpha
-  and isWhiteSpace = Char.isSpace
-  and isHexadecimal  = Char.isHexDigit
+    val isNumeric = Char.isDigit
+    and isAlphabetic = Char.isAlpha
+    and isWhiteSpace = Char.isSpace
+    and isHexadecimal  = Char.isHexDigit
 
-  (* For our purposes we include quote and underscore. *)
-  fun isAlphaNumeric c = Char.isAlphaNum c orelse c = #"'" orelse c = #"_"
+    (* For our purposes we include quote and underscore. *)
+    fun isAlphaNumeric c = Char.isAlphaNum c orelse c = #"'" orelse c = #"_"
 
-  val isOperator = Char.contains ":=<>+*!^/|&%~-?`@\\$#";
+    (* Print error and warning messages. *)
+    val errorMessageProcTag:
+        ({ location: location, hard: bool, message: pretty, context: pretty option } -> unit)
+            Universal.tag =
+        Universal.tag()
+
+    val isOperator = Char.contains ":=<>+*!^/|&%~-?`@\\$#";
 
     (* The initial state looks like we've just processed a complete ML declaration *)
     fun initial (stream, parameters) : lexan =
     let
         open DEBUG
-        val errorMessageProc = getParameter errorMessageProcTag parameters
+        val errorMessageProc =
+            case List.find (Universal.tagIs errorMessageProcTag) parameters of
+                SOME f => Universal.tagProject errorMessageProcTag f
+            |   NONE => fn _ => raise Fail "Error in source code"
         val lineno = getParameter lineNumberTag parameters
+        val offset = getParameter offsetTag parameters
+        val filename = getParameter fileNameTag parameters
+        val initialLine = lineno() (* Before the first char. *)
+        and initialOffset = offset()
     in
         {
-          stream   = stream,
-          lineno   = lineno,
-          ch       = ref #" ",   (* " " - we've just "clobbered the ";" *)
-          sy       = ref semicolon,  (* ";"  *)
-          id       = ref "",
-          messageOut = errorMessageProc,
-          errors   = ref false,
-          pushedSym = ref othersy,
-          extraChars = ref [],
-          debugParams = parameters
+          stream      = stream,
+          ch          = ref #" ",   (* " " - we've just "clobbered the ";" *)
+          sy          = ref semicolon,  (* ";"  *)
+          id          = ref "",
+          messageOut  = errorMessageProc,
+          errors      = ref false,
+          pushedSym   = ref othersy,
+          extraChars  = ref [],
+          debugParams = parameters,
+          getLineNo   = lineno,
+          getOffset   = offset,
+          fileName    = filename,
+          startLine   = ref initialLine,
+          endLine     = ref initialLine,
+          startPosition = ref initialOffset,
+          endPosition   = ref initialOffset
         }
     end
 
@@ -198,53 +170,63 @@ struct
 
    (* Error messages *)
 
-   fun errorOccurred ({errors, ...}:  lexan) = ! errors;
+    fun errorOccurred ({errors, ...}:  lexan) = ! errors;
 
-   (* Reset lexer following bad parse *)
-   fun resetLexan ({errors, ...} : lexan) = (errors := false);
+    fun location ({fileName, startLine, endLine, startPosition, endPosition,...}:lexan) =
+        { file = fileName, startLine = !startLine, endLine = !endLine,
+          startPosition = !startPosition, endPosition = !endPosition}
 
-   (* Flush lexer state following user interrupt *)
-   fun flushLexan ({errors, ch, sy, pushedSym, extraChars, ...} : lexan) = 
-     (errors := false;
-      ch := #" ";
-      sy := semicolon;
-      pushedSym := othersy;
-      extraChars := []);
+    fun reportError ({messageOut,errors,...} : lexan) (report as { hard, ...}) =
+    (
+        (* If this is a hard error we have to set the flag
+           to prevent further passes. *)
+        if hard then errors := true else ();
+        messageOut report
+    )
 
-   fun lineno ({lineno,...}:lexan) = lineno();
+    (* Record the position of the current symbol.
+       This sets the start for the current symbol to the last recorded
+       end and sets the new end to the current position. *)
+    fun setSymbolStart {getLineNo, getOffset, startLine, endLine, startPosition, endPosition, ...} =
+    let
+        val line = getLineNo() and offset = getOffset()
+    in
+        startLine := ! endLine; endLine := line;
+        startPosition := ! endPosition; endPosition := offset
+    end
+    
+    fun setSymbolEnd {getLineNo, getOffset, endLine, endPosition, ...} =
+    let
+        val line = getLineNo() and offset = getOffset()
+    in
+        endLine := line;
+        endPosition := offset
+    end
 
-   fun ewProc ({messageOut,errors,...} : lexan) hardError line eproc =
-   let
-     val message = ref [] (* Build up the context in here. *)
-     val pprint    = prettyPrint(77, fn s => message := s :: !message);
-   in
-     (* If this is a hard error we have to set the flag
-        to prevent further passes. *)
-     if hardError then errors := true else ();
-     (* Print out the message *)
-     ppBeginBlock pprint (0, false);
-     eproc pprint;
-     ppEndBlock pprint ();
+    (* Simple string error messages. *)
+    fun errorMessage (lexan, location, message) =
+        reportError lexan
+        {
+            location = location,
+            message = PrettyBlock(0, false, [], [PrettyString message]),
+            hard = true,
+            context = NONE
+        }
+    and warningMessage (lexan, location, message) =
+        reportError lexan
+        {
+            location = location,
+            message = PrettyBlock(0, false, [], [PrettyString message]),
+            hard = false, (* Just a warning *)
+            context = NONE
+        }
 
-     messageOut(concat(List.rev (!message)), hardError, line)
-   end;
-   
-   (* General purpose error messages typically including
-      pretty-printed parse tree. *)
-   fun errorProc (state, lineno, eproc) =
-       ewProc state true (*hard*) lineno eproc;
-
-   (* Simple strings. *)
-   fun errorMessage (state, lineno, str) =
-      ewProc state true (*hard*) lineno (fn pp => ppAddString pp str);
-
-   (* Warnings are non-fatal errors. i.e. errors is not set. *)
-   fun warningProc (state, lineno, eproc) =
-       ewProc state false (*soft*) lineno eproc;
-
-   fun warningMessage (state, lineno, str) =
-      ewProc state false (*soft*) lineno (fn pp => ppAddString pp str);
-
+    (* Errors within the lexer. *)
+    fun lexError(state, text) =
+    (
+        setSymbolEnd state;
+        errorMessage (state, location state, text)
+    )
 
     exception EndOfLine;
     
@@ -253,23 +235,15 @@ struct
        but actually isn't. *)
     fun nextCh({ch, stream, extraChars = ref [], ...}) = ch := getOpt(stream(), eofChar)
      |  nextCh({ch, extraChars = extra as ref(c::l), ...}) = (extra := l; ch := c)
- 
-    and skipWhiteSpace (state as {ch = ref c, ...}:lexan) : char =
-      if isWhiteSpace c
-      then (nextCh state; skipWhiteSpace state)
-      else c
 
-    (* If a character has been read which is its own terminator (e.g.";")
-      then don't read the next character, just clobber the current one. (The
-      only place this matters is when the user types x;y; at the terminal
-      when the compiler is called first to process the x; and then it is
-      called again (with reinitialisation) to process the y;.
-      Replacing it with a space means that the next character will be read
-      from the input stream since leading spaces are skipped.
-      Many symbols (e.g. identifiers) are not self-terminating so the
-      terminating character is remembered in ch. *)
-    and chRead({ch, ...}:lexan) = ch := #" "  (* " " *);
-   
+    (* Skip over white space.  If we have to skip we record this as the END of
+       the previous symbol.  If it turns out that the character is actually
+       the start of a symbol then this will be set as the START by setSymbolStart. *)
+    fun skipWhiteSpace (state as {ch = ref c, ...}:lexan) : char =
+    if isWhiteSpace c
+    then (setSymbolEnd state; nextCh state; skipWhiteSpace state)
+    else c
+ 
     (* Leave string construction until we have all the characters.  Since
        Single character strings are the same as single characters it doesn't
        cost anything to apply "str" but it allows us to conatenate with any
@@ -281,7 +255,7 @@ struct
             val theChar  = ! ch;
         in
             if isOk theChar
-            then (nextCh state; str theChar :: loop ())
+            then (setSymbolEnd state; nextCh state; str theChar :: loop ())
             else []
         end;
     in
@@ -309,15 +283,11 @@ struct
                 nextCh state;
                 if isHexadecimal (!ch)
                 then id := readChars state isHexadecimal "0wx"
-                else
-                  errorMessage (state, lineno state,
-                    "malformed word constant: " ^ !id ^ str(!ch))
+                else lexError(state, "malformed word constant: " ^ !id ^ str(!ch))
             )
             else if isNumeric (!ch)
             then id := readChars state isNumeric "0w"
-            else
-              errorMessage (state, lineno state,
-                "malformed word constant: " ^ !id ^ str(!ch))
+            else lexError(state, "malformed word constant: " ^ !id ^ str(!ch))
         )
         else if !ch = #"x" andalso !id = "0"
         then (* Hexadecimal integer constant. *)
@@ -325,9 +295,7 @@ struct
             nextCh state;
             if isHexadecimal (!ch)
             then id := readChars state isHexadecimal "0x"
-            else
-              errorMessage (state, lineno state,
-                "malformed integer constant: " ^ !id ^ str(!ch))
+            else lexError(state, "malformed integer constant: " ^ !id ^ str(!ch))
         )
         else if !ch = #"." orelse
                 !ch = #"E" orelse !ch = #"e" (* "e" is allowed in ML97 *)
@@ -342,9 +310,7 @@ struct
                nextCh state;
                (* Must be followed by at least one digit. *)
                if not (isNumeric (!ch))
-               then
-                  errorMessage (state, lineno state,
-                    "malformed real number: " ^ !id ^ str(!ch))
+               then lexError(state, "malformed real number: " ^ !id ^ str(!ch))
                else id := readChars state isNumeric (!id)
             )
             else ();
@@ -394,9 +360,9 @@ struct
         fun getString (soFar: char list) =
          (
             case !ch of
-                #"\"" (* double-quote. *) => (* Finished - return result. *) (chRead state; soFar)
+                #"\"" (* double-quote. *) => (* Finished - return result. *) (setSymbolEnd state; nextCh state; soFar)
     
-            |   #"\n" => (nextCh state; raise EndOfLine)
+            |   #"\n" => (setSymbolEnd state; nextCh state; raise EndOfLine)
     
             |   #"\\" => (* Escape *)
                     let
@@ -415,8 +381,7 @@ struct
                         if skipWhiteSpace state = #"\\" then ()
                         else
                             (
-                            errorMessage (state, lineno state,
-                               "unexpected character " ^
+                            lexError(state, "unexpected character " ^
                                String.toString (str (!ch)) ^" in \\ ... \\");
                             while !ch <> #"\\"  andalso !ch <> #"\"" andalso !ch <> eofChar
                             do nextCh state
@@ -424,13 +389,13 @@ struct
                         nextCh state;
                         getString soFar
                         )
-            else if next = #"^" (* \^c escape sequence for Control+c *)
-            then    let
-                    val next2 = !ch;
-                    val _ = nextCh state;
-                in  getString (next2 :: #"^" :: #"\\" :: soFar)
-                end
-            else getString (next :: #"\\" :: soFar)
+                    else if next = #"^" (* \^c escape sequence for Control+c *)
+                    then    let
+                            val next2 = !ch;
+                            val _ = nextCh state;
+                        in  getString (next2 :: #"^" :: #"\\" :: soFar)
+                        end
+                    else getString (next :: #"\\" :: soFar)
                   end
     
             |   ch => (* Anything else *)
@@ -441,8 +406,7 @@ struct
                      then getString (ch :: soFar)
                      else (* Report unprintable characters. *)
                         (
-                        errorMessage (state, lineno state,
-                            "unprintable character " ^ Char.toString ch ^ " found in string");
+                        lexError(state, "unprintable character " ^ Char.toString ch ^ " found in string");
                         getString soFar
                         )
                     )
@@ -452,9 +416,8 @@ struct
         nextCh state; (* Skip the opening quote. *)
 
         id := String.implode(List.rev(getString []))
-            handle EndOfLine => 
-                errorMessage (state, lineno state,
-                      "no matching quote found on this line")
+            handle EndOfLine =>
+                lexError(state, "no matching quote found on this line")
 
     end (* parseString *)
 
@@ -467,19 +430,16 @@ struct
           and returns the first chararacter AFTER the comment. *)
        fun skipComment () : char =
        let
-         val startLine : int = lineno state;
-         
          (* Returns the first chararacter AFTER the comment *)
          fun skipCommentBody (firstCh : char) : char =
-           if firstCh = eofChar
-           then 
-              (
-               errorMessage (state, lineno state,
-                  "end of file found in comment (starts at line " ^
-                  Int.toString startLine ^ ")");
+            if firstCh = eofChar
+            then 
+            (
+               setSymbolEnd state;
+               lexError(state, "end of file found in comment");
                firstCh
-              )
-           else case (firstCh, getOpt(stream (), eofChar)) of
+            )
+            else case (firstCh, getOpt(stream (), eofChar)) of
                 (#"*", #")") => getOpt(stream (), eofChar) (* End of comment - return next ch. *)
             |   (#"(", #"*") => skipCommentBody (skipComment ()) (* Nested comment. *)
             |   (_, nextCh) => skipCommentBody nextCh
@@ -512,8 +472,7 @@ struct
              else if isOperator c
                then parseIdent state isOperator (idVal ^ ".")
                  
-             else errorMessage (state, lineno state,
-                 "invalid identifer - "^ idVal ^ "." ^ str c)
+             else lexError(state, "invalid identifer - "^ idVal ^ "." ^ str c)
         end
         else 
         (
@@ -527,8 +486,12 @@ struct
 
     (* Main lexical analyser loop. *)
     fun parseToken (state as { ch, id, sy, ... }) =
-       (
-       case skipWhiteSpace state (* remove leading spaces *) of
+    let
+        val nextSym = skipWhiteSpace state (* remove leading spaces *)
+    in
+        setSymbolStart state; (* Set the start to the previous end and the end to after this. *)
+
+        case nextSym of
           #"~" => (* Either an operator or part of a number. *)
              (
                nextCh state;(* get next character *)
@@ -562,9 +525,9 @@ struct
         
         | #"\"" (* double quote. *) => (parseString state; sy := stringConst)
             
-        | #";" => (sy := semicolon; chRead state)
+        | #";" => (sy := semicolon; nextCh state)
             
-        | #"," => (sy := comma; chRead state)
+        | #"," => (sy := comma; nextCh state)
             
         | #"(" =>
               (
@@ -572,33 +535,32 @@ struct
                 if !ch <> #"*" then sy := leftParen else parseComment state
               )
               
-        | #")" => (sy := rightParen; chRead state)
+        | #")" => (sy := rightParen; nextCh state)
             
-        | #"[" => (sy := leftBrack; chRead state)
+        | #"[" => (sy := leftBrack; nextCh state)
             
-        | #"]" => (sy := rightBrack; chRead state)
+        | #"]" => (sy := rightBrack; nextCh state)
             
-        | #"_" => (sy := underline; chRead state)
+        | #"_" => (sy := underline; nextCh state)
             
-        | #"{" => (sy := leftCurly; chRead state)
+        | #"{" => (sy := leftCurly; nextCh state)
             
-        | #"}" => (sy := rightCurly; chRead state)
+        | #"}" => (sy := rightCurly; nextCh state)
 
         | #"." => (* "..." *)
-              (
+            (
                 nextCh state;
                 if !ch <> #"."
-                then errorMessage (state, lineno state,
-                        "unknown symbol ." ^ str(!ch))
+                then lexError(state, "unknown symbol ." ^ str(!ch))
                 else
                 (
-                  nextCh state;
-                  if !ch <> #"." 
-                  then errorMessage (state, lineno state,
-                         "unknown symbol .." ^ str(!ch))
-                  else (sy := threeDots; chRead state)
+                    nextCh state;
+                    setSymbolEnd state;
+                    if !ch <> #"." 
+                    then lexError(state, "unknown symbol .." ^ str(!ch))
+                    else (sy := threeDots; nextCh state; setSymbolEnd state)
                 )
-              )
+            )
               
          | firstCh =>
             (* These can't be so easily incorporated into a "case". *)
@@ -619,13 +581,12 @@ struct
                 val printableFirstCh = Char.toString firstCh
             in
                 (* Report the character. *)
-                errorMessage (state, lineno state,
-                     "unknown character \"" ^ printableFirstCh ^ "\"");
-                chRead state
+                lexError(state, "unknown character \"" ^ printableFirstCh ^ "\"");
+                nextCh state
             end;
         (* Read another token if this wasn't recognised. *)
         if (!sy eq othersy) then parseToken state else ()
-        ); (* parseToken *)
+    end; (* parseToken *)
 
     (* Insymbol - exported interface to lexical analyser. *)
     fun insymbol (state as {sy,pushedSym,...}:lexan) =
@@ -640,8 +601,9 @@ struct
         if (! sy) eq abortParse (* already end-of-file? *)
         then
         (
-             errorMessage (state, lineno state, "unexpected end of file encountered");
-             raise InternalError "end of file"
+            setSymbolStart state;
+            lexError(state, "unexpected end of file encountered");
+            raise InternalError "end of file"
         )
         else ();
       
@@ -662,5 +624,18 @@ struct
    fun id ({id=ref id,...}:lexan) = id;
    
    val debugParams = #debugParams
+   
+   val nullLocation: location =
+        { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
+   
+    (* Construct the location that includes all the locations in
+       the list.  Used to combine the locations of individual lexical
+       units into a location for a larger syntactic unit. *)
+    fun locSpan ({ file, startLine, startPosition, ... }: location,
+                 { endLine, endPosition, ... }: location) =
+    {
+        file=file, startLine=startLine, startPosition=startPosition,
+        endLine=endLine, endPosition=endPosition
+    }
 
 end (* LEX functor body *);

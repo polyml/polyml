@@ -191,14 +191,15 @@ end;
 (* Install a pretty printer for COLORREF. *)
 local
 	open Color
-	fun printColorRef (put, beg, brk, nd) _ _ x =
+	fun printColorRef _ _ x =
 	let
 		val {red, green, blue} = toRGB x
 	in
-		put(concat["RGB{red=", Int.toString red,
+		PolyML.PrettyString
+            (concat["RGB{red=", Int.toString red,
 				   ",green=", Int.toString green,
-				   ",blue=", Int.toString blue, "}"])
+				   ",blue=", Int.toString blue, "}"], [])
 	end
 in
-	val _ = PolyML.install_pp printColorRef
+	val _ = PolyML.addPrettyPrinter printColorRef
 end;

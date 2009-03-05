@@ -22,7 +22,7 @@
 (* Signature for the basic codetree types and operations. *)
 signature BaseCodeTreeSig =
 sig
-    type machineWord
+    type machineWord = Address.machineWord
     
     datatype inlineStatus =
         NonInline
@@ -155,8 +155,9 @@ sig
         makeClosure   : bool
     };
 
-    type prettyPrinter
-    val pretty : codetree * prettyPrinter -> unit
     val isSmall : codetree * int -> bool
+
+    type pretty
+    val pretty : codetree -> pretty
 
 end;

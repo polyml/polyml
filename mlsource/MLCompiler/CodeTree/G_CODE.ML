@@ -44,9 +44,9 @@ functor G_CODE (
 (*****************************************************************************)
 structure CODECONS :
 sig
-  type machineWord;
+  type machineWord = Address.machineWord;
   type short = Word.word;
-  type address;
+  type address = Address.address;
   type addrs; (* NB this is *not* the same as "address" *)
   type code;
   type reg;   (* Machine registers *)
@@ -168,7 +168,7 @@ end (* CODECONS *);
 (*****************************************************************************)
 structure TRANSTAB :
 sig
-  type machineWord;
+  type machineWord = Address.machineWord;
   type ttab;
   type reg;
   type code;
@@ -289,50 +289,6 @@ sig
 
 end (* TRANSTAB *);
 
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string;
-end;
-
-structure ADDRESS:
-sig
-  type machineWord;  (* NB *not* an eqtype *)
-  type short = Word.word;
-  type address;
-  
-  val wordEq:  'a * 'a -> bool;
-  val isShort: 'a -> bool;
-  
-  val unsafeCast : 'a -> 'b;
-
-  val toMachineWord:   'a  -> machineWord;
-  val toShort:  'a -> short;
-  val toAddress: machineWord -> address;
-
-  val loadByte:  (address * short) -> Word8.word;
-  val loadWord:  address * short -> machineWord
-  val flags:     address -> Word8.word;
-  val length:    address -> short;
-  
-  val F_words:   Word8.word;
-  val F_bytes :  Word8.word;
-  val F_mutable: Word8.word;
- 
-  val alloc:     short * Word8.word * machineWord -> address
-  
-  val isCode :   address -> bool
-  val isWords :   address -> bool
-
-  val call: address * machineWord -> machineWord
-
-  val wordSize: int
-
-  val isIoAddress : address -> bool
-end;
-
 structure BASECODETREE: BaseCodeTreeSig
 
 (*****************************************************************************)
@@ -357,20 +313,6 @@ sharing type
 sharing type
   CODECONS.addrs
 = TRANSTAB.addrs  
-  
-sharing type
-  ADDRESS.machineWord
-= CODECONS.machineWord
-= TRANSTAB.machineWord
-= BASECODETREE.machineWord
-
-sharing type
-  ADDRESS.short
-= CODECONS.short
-
-sharing type
-  ADDRESS.address
-= CODECONS.address
 
 sharing type
   CODECONS.storeWidth
@@ -393,15 +335,15 @@ end =
 struct
   open CODECONS;
   open TRANSTAB;
-  open ADDRESS;
-  open MISC; (* after address, so we get MISC.length, not ADDRESS.length *)
+  open Address;
+  open Misc; (* after address, so we get Misc.length, not Address.length *)
   open RuntimeCalls; (* for POLY_SYS numbers *)
   open BASECODETREE;
   
   val F_mutable_words = Word8.orb (F_mutable, F_words);
   val F_mutable_bytes = Word8.orb (F_mutable, F_bytes);
  
-  val objLength = ADDRESS.length;
+  val objLength = Address.length;
   
   infix 7 regEq regNeq;
 
@@ -1128,7 +1070,7 @@ struct
           (* Now it's on the real stack we can remove it from the pstack. *)
           val U : unit = removeStackEntry(transtable, oldIndex);
           
-          fun genTag (tag : codetree) : handler =
+          fun genTag (tag : codetree) : TRANSTAB.handler =
           let
 		    (* Push address of new handler. *)
 		    val rsp         = realstackptr transtable;
@@ -1157,7 +1099,7 @@ struct
 			 I don't think the fix-up order matters now.  I think it had
 			 something to do with avoiding converting short branches into
 			 long ones.  DCJM June 2000. *)
-		  val handlerList : handler list = rev (map genTag (rev taglist));
+		  val handlerList : TRANSTAB.handler list = rev (map genTag (rev taglist));
 	  
 		  (* Initialise regHandler from regStackPtr *)
 		  val U : unit = genRR (instrMove, regStackPtr, regNone, regHandler, cvec);

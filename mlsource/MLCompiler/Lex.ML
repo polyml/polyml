@@ -20,8 +20,7 @@
 structure Lex =
   LEX_
     (
+      structure PRETTY = Pretty
       structure SYMBOLS = Symbols
-      structure MISC = Misc
-      structure PRETTYPRINTER = PrettyPrinter
       structure DEBUG = Debug
     );

@@ -32,5 +32,4 @@ structure ParseDec =
      structure STRUCTURES = Structures
      structure PARSETYPE  = ParseType
      structure UTILITIES  = Utilities
-	 structure DEBUG	  = Debug
    );

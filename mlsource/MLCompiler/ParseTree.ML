@@ -28,9 +28,10 @@ structure ParseTree =
     structure UNIVERSAL  = Universal
     structure UNIVERSALTABLE = UniversalTable
     structure MISC          = Misc
-    structure PRETTYPRINTER = PrettyPrinter
+    structure PRETTY     = Pretty
     structure DEBUG      = Debug
     structure ADDRESS    = Address
     structure RUNCALL    = RunCall
-	structure DEBUGGER = Debugger
+	structure DEBUGGER   = Debugger
+    structure EXPORTTREE = ExportTreeStruct
   ) ;

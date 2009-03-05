@@ -22,8 +22,7 @@ structure TransTab =
   ( 
     structure CODECONS = CodeCons
     structure DEBUG    = Debug
-    structure ARRAY    = Array
-    structure STRETCHARRAY = StretchArray
     structure ADDRESS  = Address
     structure MISC     = Misc
+    structure PRETTY   = Pretty
    ) 

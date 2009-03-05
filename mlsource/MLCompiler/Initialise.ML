@@ -19,6 +19,7 @@
 
 structure Initialise =
  INITIALISE_ (
+  structure LEX = Lex
   structure TYPETREE   = TypeTree
   structure STRUCTVALS = StructVals
   structure VALUEOPS   = ValueOps
@@ -29,5 +30,6 @@ structure Initialise =
   structure MISC       = Misc
   structure DEBUGGER   = Debugger
   structure VERSION    = CompilerVersion
-  structure PRETTYPRINTER = PrettyPrinter
+  structure PRETTY     = Pretty
+    structure EXPORTTREE = ExportTreeStruct
 );

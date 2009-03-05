@@ -363,7 +363,7 @@ void SaveRequest::Perform()
 
     // Scan over the permanent mutable area copying all reachable data that is
     // not in a lower hierarchy into new permanent segments.
-    CopyScan copyScan(newHierarchy);
+    CopyScan copyScan(false, newHierarchy);
     bool success = true;
     try {
         for (unsigned i = 0; i < gMem.npSpaces; i++)

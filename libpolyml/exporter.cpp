@@ -84,37 +84,53 @@ have to go back over the memory and turn the tombstones back into length
 words.
 */
 
-CopyScan::CopyScan(unsigned h): hierarchy(h)
+CopyScan::CopyScan(bool isExport/*=true*/, unsigned h/*=0*/): hierarchy(h)
 {
     ASSERT(gMem.neSpaces == 0);
-    // Set the space sizes to a quarter the space currently in use.  Making
-    // the spaces too large may be a problem if we're very close to the maximum
-    // address space.  Making them too small may increase the cost of linking.
+    // Set the space sizes to a proportion of the space currently in use.
+    // Computing these sizes is not obvious because CopyScan is used both
+    // for export and for saved states.  For saved states in particular we
+    // want to use a smaller size because they are retained after we save
+    // the state and if we have many child saved states its important not
+    // to waste memory.
     defaultImmSize = defaultMutSize = 0;
     defaultNoOverSize = 4096; // This can be small.
     unsigned i;
-    for (i = 0; i < gMem.npSpaces; i++)
-    {
-        MemSpace *space = gMem.pSpaces[i];
-        POLYUNSIGNED size = (space->top-space->bottom)/4;
-        if (space->isMutable)
-            defaultMutSize += size;
-        else
-            defaultImmSize += size;
+    if (isExport)
+    { // When exporting we may copy some of the previous space.
+        for (i = 0; i < gMem.npSpaces; i++)
+        {
+            MemSpace *space = gMem.pSpaces[i];
+            POLYUNSIGNED size = (space->top-space->bottom)/4;
+            if (space->isMutable)
+                defaultMutSize += size;
+            else
+                defaultImmSize += size;
+        }
     }
     for (i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        POLYUNSIGNED size = (space->top-space->pointer)/4;
+        POLYUNSIGNED size = space->top-space->pointer;
+        // It looks as though the mutable size generally gets
+        // overestimated while the immutable size is correct.
         if (space->isMutable)
-            defaultMutSize += size;
+            defaultMutSize += size/4;
         else
-            defaultImmSize += size;
+            defaultImmSize += size/2;
     }
-    if (defaultMutSize < 1024*1024)
-        defaultMutSize = 1024*1024;
-    if (defaultImmSize < 1024*1024)
-        defaultImmSize = 1024*1024;
+    if (isExport)
+    {
+        // Minimum 1M words.
+        if (defaultMutSize < 1024*1024) defaultMutSize = 1024*1024;
+        if (defaultImmSize < 1024*1024) defaultImmSize = 1024*1024;
+    }
+    else
+    {
+        // Much smaller minimum sizes for saved states.
+        if (defaultMutSize < 1024) defaultMutSize = 1024;
+        if (defaultImmSize < 4096) defaultImmSize = 4096;
+    }
 }
 
 CopyScan::~CopyScan()

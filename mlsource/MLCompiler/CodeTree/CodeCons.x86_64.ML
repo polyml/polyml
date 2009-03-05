@@ -18,9 +18,7 @@
 
 structure CodeCons =
   AMD64CODECONS (
-    structure CODESEG = CodeSeg
     structure DEBUG   = Debug
-    structure MISC    = Boot.Misc
-    structure ADDRESS = Address
+    structure PRETTY  = Pretty
   );
 

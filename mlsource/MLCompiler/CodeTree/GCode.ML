@@ -22,7 +22,5 @@ structure GCode =
     structure CODECONS     = CodeCons
     structure TRANSTAB     = TransTab
     structure BASECODETREE = BaseCodeTree
-    structure MISC         = Boot.Misc
-    structure ADDRESS      = Address
   );
          
