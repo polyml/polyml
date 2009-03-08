@@ -135,6 +135,7 @@ sig
   | MakeString
   | MakeStringSpace
   | InstallPP
+  | AddPretty
   | Equal
   | NotEqual
   | AddOverload
@@ -1117,15 +1118,35 @@ struct
         in
             val () = enterPolyMLVal ("makestringInNameSpace", makeStringVal);
         end;
-        
+ 
         local
+            (* addPrettyPrinter is the new function to install a pretty printer. *)
             val a = makeTV ();
             val b = makeTV ();
         
-            val installPPType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
-            val installPPVal  = mkSpecialFun "addPrettyPrinter" installPPType InstallPP;
+            val addPrettyType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
+            val addPrettyVal  = mkSpecialFun "addPrettyPrinter" addPrettyType AddPretty;
         in
-            val () = enterPolyMLVal ("addPrettyPrinter", installPPVal);
+            val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
+        end;
+
+        local
+            (* Old install_pp function to install a pretty-printer. *)
+            val a = makeTV ();
+            val b = makeTV ();
+        
+            val printTupleType =
+                TYPETREE.mkProductType
+                 [
+                   String ->> Unit,      (* addString *)
+                   Int ** Bool ->> Unit, (* beginBracket *)
+                   Int ** Int ->> Unit,  (* space *)
+                   Unit ->> Unit         (* endBracket *)
+                 ];
+            val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
+            val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
+        in
+            val () = enterPolyMLVal ("install_pp", installPPVal);
         end;
 
         (* This goes in RunCall since it's only for the basis library. *)
