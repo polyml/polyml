@@ -525,7 +525,16 @@ struct
         
         | #"\"" (* double quote. *) => (parseString state; sy := stringConst)
             
-        | #";" => (sy := semicolon; nextCh state)
+        | #";" =>
+            (
+                sy := semicolon;
+                (* This is a special case.  If this is the final semicolon
+                   in the top-dec we mustn't read the next character because
+                   that will be put into "ch" field of this lex object and will
+                   then be discarded.  Instead we clobber this with a space so that
+                   the normal space-skipping case will apply. *)
+                ch := #" "
+            )
             
         | #"," => (sy := comma; nextCh state)
             
