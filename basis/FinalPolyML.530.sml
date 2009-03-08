@@ -1237,7 +1237,6 @@ local
                 val inputFile = OS.Path.joinDirFile{dir= #1 fileTuple, file= #2 fileTuple}
     
                 val inStream = TextIO.openIn inputFile;
-                val () = preUse inputFile
     
                 val () =
                 let (* scope of exception handler to close inStream *)
@@ -1270,7 +1269,12 @@ local
                         raise exn
                     )
             in (* remake normal termination *)
-                TextIO.closeIn inStream
+                TextIO.closeIn inStream;
+                (* For "use" we save the state before the "use" but for "make" we have
+                   to save the state after we have found any dependencies.  That means
+                   that a saved state for a file will contain declarations for the file
+                   itself. *)
+                preUse inputFile
             end (* remakeCurrentObj *)
             
         in (* body of remakeObj *)
