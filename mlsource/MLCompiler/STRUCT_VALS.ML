@@ -183,6 +183,7 @@ sig
   | MakeString
   | MakeStringSpace
   | InstallPP
+  | AddPretty
   | Equal
   | NotEqual
   | AddOverload
@@ -576,6 +577,7 @@ struct
   | MakeString
   | MakeStringSpace
   | InstallPP
+  | AddPretty
   | Equal
   | NotEqual
   | AddOverload
