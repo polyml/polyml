@@ -18,6 +18,9 @@
 *)
 
 (* Script to rebuild the compiler. *)
+(* This is used only during testing.  The normal build process uses
+   BuildExport to export a newly compiled compiler and exportPoly
+   to compile the basis and produce an object file. *)
 
 PolyML.print_depth 0;
 
@@ -27,6 +30,8 @@ PolyML.make "mlsource/MLCompiler";
 (* Compile the prelude and basis in the new compiler. *)
 MLCompiler.use "mlsource/BuildBasis.sml";
 
-(* This runs the new shell on top of the old one. *)
-MLCompiler.shell();
-PolyML.rootFunction();
+(* Use useString to start the new shell because it allows this
+   to be pasted into a window as a single item.  Otherwise the
+   line to start the new shell will be in the buffer of the old
+   TextIO.stdIn not the one we've just built. *)
+MLCompiler.useString "PolyML.rootFunction();";
