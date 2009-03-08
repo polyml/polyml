@@ -3944,6 +3944,7 @@ struct
                 val entryCode = toMachineWord enterFunction
                 and exitCode = toMachineWord leaveFunction
                 and exceptionCode = toMachineWord exceptionFunction
+                val ldexAddr = mkAddr ()
             in
                 mkEnv [
                     (* Call the enter code. *)
@@ -3953,7 +3954,13 @@ struct
                        exceptions and calls the exception code. *)
                     mkEval(mkConst exitCode,
                         [mkTuple[rtEnv(!level), mkHandle (body, [CodeZero (* all exceptions *)],
-                            mkEval(mkConst exceptionCode, [mkTuple[rtEnv(!level), Ldexc]], false))]
+                            mkEnv
+                                [
+                                    (* Must save the exception packet first. *)
+                                    mkDec(ldexAddr, Ldexc),
+                                    mkEval(mkConst exceptionCode,
+                                        [mkTuple[rtEnv(!level), mkLoad(ldexAddr, 0)]], false)])
+                                ]
                         ], false)
                 ]
             end
