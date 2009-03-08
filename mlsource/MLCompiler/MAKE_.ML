@@ -273,7 +273,8 @@ sig
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
-    val useIntoEnv   : gEnv -> string -> unit       
+    val useIntoEnv   : gEnv -> string -> unit
+    val useStringIntoEnv: gEnv -> string -> unit
     val shellProc   : gEnv -> unit -> unit    (* The command processor *)
  end =
 
@@ -387,9 +388,8 @@ struct
     (*****************************************************************************)
     (*                  useIntoEnv (runcompiler with ML compiler bound in)       *)
     (*****************************************************************************)
-    fun useIntoEnv (globalEnv : gEnv) : string -> unit =
+    fun compileIntoEnv (globalEnv : gEnv) : (string * TextIO.instream) -> unit =
     let
-        
         val useEnv : nameSpace =
         { 
             lookupFix    = dbEnvLookup globalEnv STRUCTVALS.fixVar,
@@ -412,34 +412,8 @@ struct
             allFunct     = dbEnvAll globalEnv STRUCTVALS.functorVar
         };
 
-        (*****************************************************************************)
-        (*                  use                                                      *)
-        (*****************************************************************************)
-        fun use (baseName : string) =
-        let
-            val (inStream, fileName) =
-                if baseName = ""
-                then (TextIO.stdIn, "<stdin>")
-                else
-                let
-                    open OS.Path
-                    open VERSION
-                    (* See if we have a version of the file specific to this
-                       version of the compiler.  For x.ML see if x.VER.ML exists.
-                       When bootstrapping from one version of the compiler to
-                       another we need to compile the basis library in both the
-                       old and new compiler.  If the interface has changed we may
-                       need version-specific files. *)
-                    val { base, ext } = splitBaseExt baseName
-                    val versionName =
-                        joinBaseExt {
-                            base = joinBaseExt{base = base, ext = SOME versionSuffix},
-                            ext = ext }
-                in
-                    (TextIO.openIn versionName, versionName)
-                        handle Io => (TextIO.openIn baseName, baseName)
-                end
-            
+        fun use (fileName, inStream) =
+        let            
             val lineNo   = ref 1;
             val eof      = ref false;
             
@@ -505,15 +479,40 @@ struct
                 print ("Exception- " ^ General.exnName exn ^ " raised\n");
                 TextIO.closeIn inStream;
                 raise exn
-            );
-            
-            TextIO.closeIn inStream
+            )
         end (* use *)
     in
         use
-    end; (* scope of useIntoEnv *)
+    end; (* scope of compileIntoEnv *)
 
-fun shellProc (globalEnv : gEnv) () : unit = useIntoEnv (globalEnv : gEnv) ""
+    fun useIntoEnv globalEnv baseName =
+    let
+        val () = print ("Use: " ^ baseName ^ "\n")
+        open OS.Path
+        open VERSION
+        (* See if we have a version of the file specific to this
+           version of the compiler.  For x.ML see if x.VER.ML exists.
+           When bootstrapping from one version of the compiler to
+           another we need to compile the basis library in both the
+           old and new compiler.  If the interface has changed we may
+           need version-specific files. *)
+        val { base, ext } = splitBaseExt baseName
+        val versionName =
+            joinBaseExt {
+                base = joinBaseExt{base = base, ext = SOME versionSuffix},
+                ext = ext }
+        val (inStream, fileName) =
+            (TextIO.openIn versionName, versionName)
+                handle Io => (TextIO.openIn baseName, baseName)
+    in
+        compileIntoEnv globalEnv (fileName, inStream);
+        TextIO.closeIn inStream
+    end
+
+    fun shellProc globalEnv () = compileIntoEnv globalEnv ("<stdin>", TextIO.stdIn)
+    
+    fun useStringIntoEnv globalEnv str =
+        compileIntoEnv globalEnv (str, TextIO.openString str)
 
 end (* MAKE *)
 

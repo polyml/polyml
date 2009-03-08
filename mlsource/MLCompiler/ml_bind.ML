@@ -33,5 +33,7 @@ struct
         
         (* This is exported when building the normal distribution. *)
         val shell = mainShell
+        
+        val useString = Make.useStringIntoEnv globalTable;
     end;
 end;
