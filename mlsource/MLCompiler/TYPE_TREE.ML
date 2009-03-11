@@ -1187,7 +1187,7 @@ struct
             mkTypeConstruction (constrName, undefType, argTypes, location)
     in
         ParseTypeConstruction{
-            typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = location }
+            typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = nameLoc }
     end
 
     fun makeParseTypeProduct(fieldList, location) =
