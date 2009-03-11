@@ -1412,6 +1412,15 @@ local
         else if List.exists(fn s => s = "--background") argList
         then (* Run a background compilation. *)
         let
+            (* Escape codes. *)
+            val escape          = chr 0x1b
+            val openError       = chr 0x41 (* Report an error. *)
+            val closeError      = chr 0x61
+            val openNavigation  = chr 0x42 (* Return part of the tree. *)
+            val closeNavigation = chr 0x62
+            val openResults     = chr 0x43 (* Begin and end compilation. *)
+            val closeResults    = chr 0x63
+
             (* Find the save file name, the next arg after the --background. *)
             fun getSaveName ("--background" :: file :: _) = file
             |   getSaveName nil = (* Not there. *)
@@ -1425,11 +1434,7 @@ local
             val () = useMarkupInOutput := true;
 
             fun errorProc {message: PolyML.pretty, hard: bool, location = {startPosition, endPosition, ...}, ...} =
-            let
-                val escape = chr 0x1b
-                val openError = chr 0x41
-                val closeError = chr 0x61
-            in
+            (
                 printOut(String.concat
                     [
                         String.implode[escape, openError],
@@ -1438,21 +1443,20 @@ local
                     ]);
                 prettyPrintWithMarkup(printOut, !lineLength) ((* Always add prefixes. *)addStructurePrefix true message);
                 printOut(String.implode[escape, closeError])
-            end
+            )
             
             (* Save the last parsetree here. *)
             val lastParsetree = ref NONE
             
             fun printParse () =
             case lastParsetree of
-                ref NONE => TextIO.print "empty\n"
+                ref NONE => ()
             |   ref (SOME({startPosition, endPosition, ...}, tree)) =>
                 let
-                    val escape = chr 0x1b
-                    val openNavigation = chr 0x42
-                    val closeNavigation = chr 0x62
                     open PolyML
                     val msg =
+                    (* For the moment print the tree.  We don't really want this
+                       except for debugging. *)
                         case List.find (fn (PTprint p) => true | _ => false) tree of
                             SOME(PTprint p) => p 10
                         |   _ => PrettyString "ok"
@@ -1470,14 +1474,15 @@ local
                             Int.toString(String.size declaredAt), ":",
                             declaredAt
                         ]);
-                    prettyPrintWithMarkup(printOut, !lineLength) msg;
+                    (* Print the tree for debugging  (don't want markup). *)
+                    PolyML.prettyPrint(printOut, !lineLength) msg;
                     printOut(String.implode[escape, closeNavigation]);
-                    (* Include the type if it's there. *)
+                    (* Include the type if it's there.  Don't include any mark-up. *)
                     case List.find (fn (PTtype p) => true | _ => false) tree of
                         SOME(PTtype t) =>
                         (
                             printOut ":";
-                            prettyPrintWithMarkup(printOut, !lineLength)
+                            PolyML.prettyPrint(printOut, !lineLength)
                                 (PolyML.NameSpace.displayTypeExpression(t, 10))
                          )
                     |   _ => ()
@@ -1571,9 +1576,7 @@ local
                     List.app (#enterSig globalNameSpace) signatures;
                     List.app (#enterStruct globalNameSpace) structures;
                     List.app (#enterFunct globalNameSpace) functors;
-                    List.app (#enterVal globalNameSpace) values;
-                    (* Set the parse tree and print its extent. *)
-                    printParse()
+                    List.app (#enterVal globalNameSpace) values
                 end
             in
                 lastParsetree := parsetree;
@@ -1610,7 +1613,18 @@ local
                         |   SOME ch =>
                             (
                                 case ch of
-                                    #"X" => reload ()
+                                    #"<" =>
+                                    (
+                                        (* Begin a new compilation. *)
+                                        reload ();
+                                        (* Report the start. *)
+                                        print (String.implode[escape, openResults])
+                                    )
+                                |   #">" =>
+                                    (
+                                        (* End the compilation. *)
+                                        print (String.implode[escape, closeResults, #"\n"])
+                                    )
                                 |   #"U" => navigate Up
                                 |   #"D" => navigate Down
                                 |   #"R" => navigate Right
