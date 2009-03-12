@@ -74,10 +74,38 @@ sig
   (* Structures *)
   type structVals;
   type signatures;
-  type valAccess;
   type codetree;
-  type values;
+  type valueClass;
+  
   type typeId;
+  type types;
+  
+  datatype typeDependent =
+    Print
+  | PrintSpace
+  | MakeString
+  | MakeStringSpace
+  | InstallPP
+  | AddPretty
+  | Equal
+  | NotEqual
+  | AddOverload
+  | TypeDep
+
+  and valAccess =
+  	Global   of codetree
+  | Local    of { addr: int ref, level: int ref }
+  | Selected of { addr: int,     base:  structVals }
+  | Formal   of int
+  | Overloaded of typeDependent (* Values only. *)
+
+  and values =
+  	Value of {
+		name: string,
+		typeOf: types,
+		access: valAccess,
+		class: valueClass,
+        declaredAt: location }
 
   val undefinedStruct:   structVals;
   val structSignat:      structVals -> signatures;
@@ -99,7 +127,6 @@ sig
   val makeBoundId: int  -> typeId;
   
   (* Types *)
-  type types;
   type typeConstrs;
 
   val emptyType: types;
@@ -123,23 +150,12 @@ sig
   val wordType:   typeConstrs;
   val listType:   typeConstrs;
 
+
   (* Access to values, structures etc. *)
   val makeGlobal:   codetree -> valAccess;
 
   (* Values. *)
   val valName: values -> string
-  
-  datatype typeDependent =
-    Print
-  | PrintSpace
-  | MakeString
-  | MakeStringSpace
-  | InstallPP
-  | AddPretty
-  | Equal
-  | NotEqual
-  | AddOverload
-  | TypeDep;
   
   val makeFormalV: string * types * int * location -> values;  
   val makeFormalEx: string * types * int * location -> values;  
@@ -245,6 +261,8 @@ sig
   val mkTuple:          codetree list -> codetree;
   val mkStr:            string   -> codetree;
   val mkRaise:          codetree -> codetree;
+
+  val evalue:           codetree -> machineWord;
 end;
 
 (*****************************************************************************)
@@ -1465,6 +1483,9 @@ struct
                 PrettyBlock (0, false, [],
                     [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
             end
+            
+            fun getValue (Value{access = Global code, class = SimpleValue, ...}) = evalue code
+            |   getValue _ = raise Fail "Not a global value"
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
@@ -1490,7 +1511,12 @@ struct
                Used to print values in the debugger without the "val", "=" and the type. *)
            val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [("printValue",             toMachineWord printValues,
-                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType)]
+                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
+                 (* This is used to get the actual value out of a global "value".
+                    It's currently used only in the debugger to get the exception
+                    packet out of a global exception value. *)
+                 ("getValue",               toMachineWord getValue,
+                    valueVal ->> mkTypeVar (generalisable, false,  false, false))]
         end;
 
     in
