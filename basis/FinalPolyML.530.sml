@@ -309,10 +309,11 @@ local
     (* Single stepping. *)
     val stepDebug = ref false;
     val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
-    (* Break points.  We have two breakpoint lists: a list of file-line
-       pairs and a list of function names. *)
+    (* Break points.  We have three breakpoint lists: a list of file-line
+       pairs, a list of function names and a list of exceptions. *)
     val lineBreakPoints = ref []
     and fnBreakPoints = ref []
+    and exBreakPoints = ref []
 
     fun checkLineBreak (file, line) =
         let
@@ -346,6 +347,15 @@ local
     in
         List.exists matchName (! fnBreakPoints)
     end
+
+    (* Get the exception id from an exception packet.  The id is
+       the first word in the packet.  It's a mutable so treat it
+       as an int ref here. *)
+    fun getExnId(ex: exn): int ref =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word (ex, 0)
+    
+    fun checkExnBreak(ex: exn) =
+        let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end
 
     fun printOut s =
         TextIO.print s
@@ -817,6 +827,9 @@ local
                 in
                     if ! tracing
                     then (printSpaces(); print name; print " "; printVal args; print " raised "; printVal value; print "\n")
+                    else ();
+                    if checkExnBreak(Bootstrap.getValue value)
+                    then enterDebugger ()
                     else ();
                     (* Pop the stack. *)
                     stack := (case !stack of [] => [] | _::tl => tl)
@@ -1454,12 +1467,6 @@ local
             |   ref (SOME({startPosition, endPosition, ...}, tree)) =>
                 let
                     open PolyML
-                    val msg =
-                    (* For the moment print the tree.  We don't really want this
-                       except for debugging. *)
-                        case List.find (fn (PTprint p) => true | _ => false) tree of
-                            SOME(PTprint p) => p 10
-                        |   _ => PrettyString "ok"
                     val declaredAt =
                         case List.find (fn (PTdeclaredAt p) => true | _ => false) tree of
                             SOME(PTdeclaredAt{file, startLine, startPosition,endLine,endPosition}) =>
@@ -1474,25 +1481,22 @@ local
                             Int.toString(String.size declaredAt), ":",
                             declaredAt
                         ]);
-                    (* Print the tree for debugging  (don't want markup). *)
-                    PolyML.prettyPrint(printOut, !lineLength) msg;
-                    printOut(String.implode[escape, closeNavigation]);
-                    (* Include the type if it's there.  Don't include any mark-up. *)
+                    (* Print the type if it's there.  Don't include any mark-up. *)
                     case List.find (fn (PTtype p) => true | _ => false) tree of
                         SOME(PTtype t) =>
                         (
-                            printOut ":";
                             PolyML.prettyPrint(printOut, !lineLength)
                                 (PolyML.NameSpace.displayTypeExpression(t, 10))
                          )
-                    |   _ => ()
+                    |   _ => ();
+                    printOut(String.implode[escape, closeNavigation])
                 end
 
             datatype direction = Up | Down | Left | Right
 
             fun navigate dir =
             case lastParsetree of
-                ref NONE => TextIO.print "empty\n"
+                ref NONE => ()
             |   ref (SOME(location, tree)) =>
                 let
                     open PolyML
@@ -1510,7 +1514,7 @@ local
             
             fun navigateTo locn =
             case lastParsetree of
-                ref NONE => TextIO.print "empty\n"
+                ref NONE => ()
             |   ref (SOME(location as { startPosition, endPosition, ... }, tree)) =>
                 let
                     open PolyML
@@ -1592,6 +1596,7 @@ local
             (* Before each compilation we reload the state. *)
             fun reload () =
             (
+                lastParsetree := NONE; (* Reduce garbage. *)
                 PolyML.SaveState.loadState saveFileName
                     handle exn =>
                     (
@@ -1811,7 +1816,21 @@ in
             in
                 fnBreakPoints := findBreak (! fnBreakPoints)
             end
-        
+
+            fun breakEx exn =
+                if checkExnBreak exn then  () (* Already there. *)
+                else exBreakPoints := getExnId exn :: ! exBreakPoints
+
+            fun clearEx exn =
+            let
+                val exnId = getExnId exn
+                fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+                 |  findBreak (n :: rest) =
+                      if exnId = n then rest else n :: findBreak rest
+            in
+                exBreakPoints := findBreak (! exBreakPoints)
+            end
+
             (* Stack traversal. *)
             fun up () =
             let
