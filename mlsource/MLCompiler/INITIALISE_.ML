@@ -1239,7 +1239,7 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
 			val propConstr = makeTypeConstrs("ptProperties", [], emptyType, makeFreeId (), false, 0, inBasis);
-            val () = #enterType polyMLEnv ("parseTree", propConstr);
+            val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], inBasis)
 
             (* Parsetree type. *)
