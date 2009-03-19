@@ -206,26 +206,34 @@ local
     fun prettyPrintWithMarkup(stream : string -> unit, lineWidth : int): PolyML.pretty -> unit =
     let
         open PolyML
-        val escape = chr 0x1b
-        val openContext = chr 0x40
-        val closeContext = chr 0x60
+        val escape = #"\u001b"
+        val openDeclaration = String.implode[escape, #"D"]
+        val closeDeclaration = String.implode[escape, #"d"]
+        val separator = String.implode[escape, #","]
         
         fun beginMarkup context =
             case List.find (fn ContextLocation _ => true | _ => false) context of
                 SOME (ContextLocation{file,startLine,startPosition,endLine,endPosition}) =>
                 let
-                    val text = String.concat["\"", file, "\":", Int.toString startLine, ":",
-                                             Int.toString startPosition, ":", Int.toString endPosition]
+                    (* In the unlikely event there's an escape character in the
+                       file name convert it to ESC-ESC. *)
+                    fun escapeEscapes #"\u001b" = "\u001b\u001b"
+                    |   escapeEscapes c = str c
                 in
-                    stream(String.implode[escape, openContext]);
-                    stream(Int.toString(String.size text));
-                    stream ":";
-                    stream text
+                    stream openDeclaration;
+                    stream(String.translate escapeEscapes file);
+                    stream separator;
+                    stream(Int.toString startLine);
+                    stream separator;
+                    stream(Int.toString startPosition);
+                    stream separator;
+                    stream(Int.toString endPosition);
+                    stream separator
                 end
             |   _ => ()
             
         fun endMarkup context =
-            List.app (fn ContextLocation _ => stream(String.implode[escape, closeContext]) | _ => ()) context
+            List.app (fn ContextLocation _ => stream closeDeclaration | _ => ()) context
 
         val markup =
             if ! useMarkupInOutput
@@ -303,6 +311,8 @@ local
     val debugLevel = ref 0
     (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
     val exitLoop = ref false;
+    (* Exception packet sent if this was continueWithEx. *)
+    val debugExPacket: exn option ref = ref NONE
     (* Call tracing. *)
     val tracing = ref false;
     val breakNext = ref false;
@@ -681,31 +691,10 @@ local
                 end
             end; (* readEvalPrint *)
             
-            (* If we are debugging we may pass exceptions back to the
-               debugged function. *) 
-            fun handleDebuggingException () =
-            let
-                val () = printOut "Pass exception to function being debugged (y/n)?";
-                val () = flushInput ();
-                val response =
-                    case TextIO.input1 TextIO.stdIn of
-                        NONE => false
-                    |   SOME #"y" => false
-                    |   SOME #"n" => true
-                    |   _ => handleDebuggingException()
-            in
-                flushInput();
-                response
-            end
-            
             fun handledLoop () : unit =
             (
                 (* Process a single top-level command. *)
-                readEvalPrint()
-                    handle exn =>
-                        if not isDebug orelse handleDebuggingException()
-                        then ()
-                        else raise exn;
+                readEvalPrint() handle _ => ();
                 (* Exit if we've seen end-of-file or we're in the debugger
                    and we've run "continue". *)
                 if !endOfFile orelse exitLoop() then ()
@@ -769,7 +758,12 @@ local
                     }
                 end
             in
-                topLevel true (compositeNameSpace, fn _ => ! exitLoop)
+                topLevel true (compositeNameSpace, fn _ => ! exitLoop);
+
+                (* If this was continueWithEx raise the exception. *)
+                case ! debugExPacket of
+                    NONE => ()
+                |   SOME exn => (debugExPacket := NONE; raise exn)
             end
 
             fun printSpaces () =
@@ -1415,92 +1409,85 @@ local
             print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
             print "Compiler arguments:\n";
             print "\n";
-            print "-v        Print the version of Poly/ML and exit\n";
-            print "--help    Print this message and exit\n";
-            print "-q        Suppress the start-up message\n";
+            print "-v             Print the version of Poly/ML and exit\n";
+            print "--help         Print this message and exit\n";
+            print "-q             Suppress the start-up message\n";
+            print "--with-markup  Include extra mark-up information when printing\n";
+            print "--ideprotocol  Run the IDE communications protocol\n";
             print "\nRun time system arguments:\n";
             print (rtsHelp())
            )
            
-        else if List.exists(fn s => s = "--background") argList
-        then (* Run a background compilation. *)
-        let
-            (* Escape codes. *)
-            val escape          = chr 0x1b
-            val openError       = chr 0x41 (* Report an error. *)
-            val closeError      = chr 0x61
-            val openNavigation  = chr 0x42 (* Return part of the tree. *)
-            val closeNavigation = chr 0x62
-            val openResults     = chr 0x43 (* Begin and end compilation. *)
-            val closeResults    = chr 0x63
-
-            (* Find the save file name, the next arg after the --background. *)
-            fun getSaveName ("--background" :: file :: _) = file
-            |   getSaveName nil = (* Not there. *)
-                (
-                    print "No file name after --background\n";
-                    OS.Process.exit OS.Process.failure
-                )
-            |   getSaveName (_::l) = getSaveName l;
-            val saveFileName = getSaveName argList
- 
+        else if List.exists(fn s => s = "--ideprotocol") argList
+        then (* Run the IDE communication protocol. *)
+        let 
             val () = useMarkupInOutput := true;
 
-            fun errorProc {message: PolyML.pretty, hard: bool, location = {startPosition, endPosition, ...}, ...} =
-            (
-                printOut(String.concat
-                    [
-                        String.implode[escape, openError],
-                        if hard then "E" else "W",
-                        Int.toString startPosition, ":", Int.toString endPosition, ":"
-                    ]);
-                prettyPrintWithMarkup(printOut, !lineLength) ((* Always add prefixes. *)addStructurePrefix true message);
-                printOut(String.implode[escape, closeError])
-            )
-            
+            (* Parse trees for topdecs in current file. *)
+            val parseTrees = ref []
             (* Save the last parsetree here. *)
             val lastParsetree = ref NONE
+
+            (* Print the beginning of a response packet. *)
+            fun printLocation startCh =
+            let
+                val (start, End) =
+                    case lastParsetree of
+                        ref NONE => (0, 0)
+                    |   ref (SOME ({startPosition, endPosition, ...}, _)) =>
+                            (startPosition, endPosition)
+            in
+                print (String.concat["\u001b", String.str startCh,
+                    Int.toString start, "\u001b,", Int.toString End])
+            end
+ 
+            datatype direction = Up | Down | Left | Right
             
-            fun printParse () =
-            case lastParsetree of
-                ref NONE => ()
-            |   ref (SOME({startPosition, endPosition, ...}, tree)) =>
+            fun toplevel () =
+            case ! parseTrees of
+                [] => raise Fail "Empty Tree"
+            |   trees as (hd :: _) =>
                 let
                     open PolyML
-                    val declaredAt =
-                        case List.find (fn (PTdeclaredAt p) => true | _ => false) tree of
-                            SOME(PTdeclaredAt{file, startLine, startPosition,endLine,endPosition}) =>
-                                String.concat["\"", file, "\":", Int.toString startLine, ":",
-                                             Int.toString startPosition, ":", Int.toString endPosition]
-                        |   _ => ""
+                    (* Navigation for one or more topdecs. *)
+                    val fullLoc =
+                        case (hd, List.last trees) of
+                            (({ file, startLine, startPosition, ... }, _),
+                             ({ endLine, endPosition, ... }, _)) =>
+                            {
+                                file=file, startLine=startLine,
+                                startPosition=startPosition,
+                                endLine=endLine, endPosition=endPosition
+                            }
+                    fun makelist([], _) = (* Shouldn't happen *) raise Fail "Null list"
+                    |   makelist(l as (locn, props) :: tl, previous) =
+                        let
+                            fun this () = makelist(l, previous)
+                            (* If there is another item in the list we need a
+                               property that moves there whose "previous" property
+                               comes here. *)
+                            val next =
+                                case tl of
+                                    [] => []
+                                |   n => [PTnextSibling(
+                                            fn () => makelist(tl, [PTpreviousSibling this]))]
+                        in
+                            (locn, previous @ next @ props)
+                        end
                 in
-                    printOut(String.concat
-                        [
-                            String.implode[escape, openNavigation],
-                            Int.toString startPosition, ":", Int.toString endPosition, ":",
-                            Int.toString(String.size declaredAt), ":",
-                            declaredAt
-                        ]);
-                    (* Print the type if it's there.  Don't include any mark-up. *)
-                    case List.find (fn (PTtype p) => true | _ => false) tree of
-                        SOME(PTtype t) =>
-                        (
-                            PolyML.prettyPrint(printOut, !lineLength)
-                                (PolyML.NameSpace.displayTypeExpression(t, 10))
-                         )
-                    |   _ => ();
-                    printOut(String.implode[escape, closeNavigation])
+                    (fullLoc, [PTfirstChild(fn () => makelist(trees, []))])
                 end
+            
 
-            datatype direction = Up | Down | Left | Right
-
+            (* Move in the selected direction. *)
             fun navigate dir =
             case lastParsetree of
                 ref NONE => ()
             |   ref (SOME(location, tree)) =>
                 let
                     open PolyML
-                    fun find([], _) = (location, tree) (* No change *)
+                    fun find([], Up) = toplevel ()
+                    |   find([], _) = (location, tree) (* No change *)
                     |   find(PTparent p :: _, Up) = p()
                     |   find(PTpreviousSibling p :: _, Left) = p()
                     |   find(PTnextSibling p :: _, Right) = p()
@@ -1508,25 +1495,27 @@ local
                     |   find(_ :: tl, dir) = find (tl, dir)
                     
                 in
-                    lastParsetree := SOME(find(tree, dir));
-                    printParse()
+                    lastParsetree := SOME(find(tree, dir))
                 end
             
-            fun navigateTo locn =
+            fun navigateTo(startLocn, endLocn) =
             case lastParsetree of
                 ref NONE => ()
             |   ref (SOME(location as { startPosition, endPosition, ... }, tree)) =>
                 let
                     open PolyML
-                    fun find([], _) = NONE (* No change *)
+                    fun find([], Up) = SOME(toplevel)
+                    |   find([], _) = NONE (* No change *)
                     |   find(PTparent p :: _, Up) = SOME p
                     |   find(PTpreviousSibling p :: _, Left) = SOME p
                     |   find(PTnextSibling p :: _, Right) = SOME p
                     |   find(PTfirstChild p :: _, Down) = SOME p
                     |   find(_ :: tl, dir) = find (tl, dir)
                 in
-                    if locn >= startPosition andalso locn <= endPosition
-                    then
+                    if startLocn = startPosition andalso endLocn = endPosition
+                    then (* We're there already. *) ()
+                    else if startLocn >= startPosition andalso endLocn <= endPosition
+                    then (* It's this node or a child. *)
                         let
                             val child = find(tree, Down)
                         in
@@ -1536,7 +1525,7 @@ local
                                 let
                                     (* See which child it is. *)
                                     fun findChild(location as {startPosition, endPosition, ...}, child) =
-                                        if locn >= startPosition andalso locn <= endPosition
+                                        if startLocn >= startPosition andalso endLocn <= endPosition
                                         then SOME (location, child)
                                         else
                                         case find(child, Right) of
@@ -1548,159 +1537,321 @@ local
                                     |   SOME child =>
                                         (
                                             lastParsetree := SOME child;
-                                            navigateTo locn
+                                            navigateTo(startLocn, endLocn)
                                         )
                                 end
                             |   NONE => () (* No children. *)
                         end
-                    else
+                    else (* Must go out. *)
                     (
                         case find(tree, Up) of
                             SOME p =>
                             (
                                 lastParsetree := SOME(p());
-                                navigateTo locn
+                                navigateTo(startLocn, endLocn)
                             )
                         |   NONE => () (* Not found *)
                     )
                 end
-
-
-			fun compilerResultFun (parsetree, codeOpt) =
+ 
+            (* Main protocol loop. *)
+            fun runProtocol () =
             let
-                (* Put in the results without printing. *)
-                fun resultFun
-                    { fixes: (string * fixityVal) list, values: (string * valueVal) list,
-                      structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-                      functors: (string * functorVal) list, types: (string * typeVal) list} =
-                let
-                in
-                    List.app (#enterFix globalNameSpace) fixes;
-                    List.app (#enterType globalNameSpace) types;
-                    List.app (#enterSig globalNameSpace) signatures;
-                    List.app (#enterStruct globalNameSpace) structures;
-                    List.app (#enterFunct globalNameSpace) functors;
-                    List.app (#enterVal globalNameSpace) values
-                end
-            in
-                lastParsetree := parsetree;
-			    case codeOpt of
-					SOME code => (fn () => resultFun(code()))
-				 |	NONE => raise Fail "Static Errors"
-            end
-            
-            val endOfFile    = ref false;
-            val byteCount    = ref 0
-            fun byteOffset() = !byteCount
-           
-            (* Before each compilation we reload the state. *)
-            fun reload () =
-            (
-                lastParsetree := NONE; (* Reduce garbage. *)
-                PolyML.SaveState.loadState saveFileName
-                    handle exn =>
-                    (
-                        printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
-                        OS.Process.exit OS.Process.failure
-                    );
-                byteCount := 0 (* And reset the byte offset. *)
-            )
+                open PolyML (* Open first so we get TextIO.print not PolyML.print. *)
+                open TextIO
 
-            fun readin() =
-                case TextIO.input1 TextIO.stdIn of
-                    NONE => (endOfFile := true; NONE)
-                |   SOME ch =>
-                    if ch = chr 0x1b (* Escape *)
-                    then
+                fun readToEscape (soFar: string) : string * char option =
+                case input1 stdIn of
+                    SOME #"\u001b" => (soFar, input1 stdIn)
+                |   SOME ch => readToEscape(soFar ^ str ch)
+                |   NONE => ("", NONE)
+
+                (* Parse an integer.  Returns zero if it isn't a valid int. *)
+                fun getOffset (): int * char option =
+                let
+                    val (str, term) = readToEscape ""
+                    val n = case Int.fromString str of NONE => 0 | SOME i => i
+                in
+                    (n, term)
+                end
+
+                (* Read until we get ESC ch where ch is the appropriate terminator. *)
+                fun skipToTerminator termCh =
+                let
+                    val (_, term) = readToEscape ""
+                in
+                    case term of
+                        SOME ch => if ch = termCh then () else skipToTerminator termCh
+                    |   NONE => ()
+                end
+
+                (* Reads a packet containing two locations and selects the tree containing them. *)
+                fun gotoPosition termCh =
+                    case getOffset () of
+                        (startOffset, SOME #",") =>
+                        (
+                            case getOffset () of
+                                (endOffset, SOME ch) =>
+                                    if ch = termCh
+                                    then navigateTo(startOffset, endOffset)
+                                    else skipToTerminator termCh
+                            |   _ => ()
+                            
+                        )
+                    |   (_, SOME ch) => if ch = termCh then () else skipToTerminator termCh
+                    |   (_, NONE) => ()
+
+                fun endPacket endCh = (print(String.implode[#"\u001b", endCh]); TextIO.flushOut TextIO.stdOut)
+
+            in
+                case input1 stdIn of
+                    NONE => () (* EOF - exit *)
+                |   SOME #"\u001b" => (* Escape- start of packet. *)
+                (
+                    case input1 stdIn of
+                        NONE => () (* EOF - exit *)
+                    |   SOME ch =>
                     (
-                        case TextIO.input1 TextIO.stdIn of
-                            NONE => (endOfFile := true; NONE)
-                        |   SOME ch =>
+                        case ch of
+                            #"R" =>
+                            let (* Compile request. *)
+                                (* Begin a new compilation. *)
+                                (* Parameters are: load file, source file, start position and then
+                                   the source text itself.*)
+                                val (loadFile, term1) = readToEscape ""
+                                val (sourceFile, term2) =
+                                    case term1 of
+                                        SOME #"," => readToEscape ""
+                                    |   _ => ("", term1)
+                                val (startOffset, term3) =
+                                    case term2 of
+                                        SOME #"," => getOffset()
+                                    |   _ => (0, term2)
+
+                                val errorList = ref []
+                                val resultTrees = ref (SOME [])
+
+                    			fun compilerResultFun (parsetree, codeOpt) =
+                                let
+                                    (* Put in the results without printing. *)
+                                    fun resultFun
+                                        { fixes: (string * fixityVal) list, values: (string * valueVal) list,
+                                          structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+                                          functors: (string * functorVal) list, types: (string * typeVal) list} =
+                                    let
+                                    in
+                                        List.app (#enterFix globalNameSpace) fixes;
+                                        List.app (#enterType globalNameSpace) types;
+                                        List.app (#enterSig globalNameSpace) signatures;
+                                        List.app (#enterStruct globalNameSpace) structures;
+                                        List.app (#enterFunct globalNameSpace) functors;
+                                        List.app (#enterVal globalNameSpace) values
+                                    end
+                                in
+                                    (* Add the parsetree to the list.  If we have a parse error and can't
+                                       return a tree we remove any trees for previous topdecs and don't
+                                       replace any existing tree when the compilation ends. *)
+                                    case (parsetree, ! resultTrees) of
+                                        (SOME p, SOME l) => resultTrees := SOME(l @ [p])
+                                    |   _ => ();
+                    			    case codeOpt of
+                    					SOME code => (fn () => resultFun(code()))
+                    				 |	NONE => raise Fail "Static Errors"
+                                end
+            
+                                val byteCount    = ref startOffset
+                                val endMarkerFound = ref false
+ 
+                                (* Read characters and return them to the compiler unless they are an escape combination. *)
+                                fun readin() =
+                                    case TextIO.input1 TextIO.stdIn of
+                                        NONE => (endMarkerFound := true; NONE)
+                                    |   SOME #"\u001b" =>
+                                        ( (* Escape: Look at next character. *)
+                                            case TextIO.input1 TextIO.stdIn of
+                                                NONE => (endMarkerFound := true; NONE)
+                                            |   SOME #"\u001b" => (* Stuffed escape.  Could appear in a comment? *)
+                                                (byteCount := !byteCount+1; SOME #"\u001b")
+                                            |   SOME #"r" => (* Normal end character. *)
+                                                (endMarkerFound := true; NONE)
+                                            |   SOME ch => (* Shouldn't happen: treat as end. *)
+                                                (endMarkerFound := true; NONE)
+                                        )
+                                    |   SOME ch => (byteCount := !byteCount+1; SOME ch)
+            
+                                fun compilerLoop () =
+                                (* Compile each top dec until either we get the end marker or an exception. *)
+                                if ! endMarkerFound then ()
+                                else
+                                let
+                                    val code =
+                                        SOME(polyCompiler(readin,
+                                            [CPOutStream printOut, CPLineOffset (fn () => !byteCount),
+                                             CPErrorMessageProc (fn msg => errorList := !errorList @ [msg]),
+                                             CPCompilerResultFun compilerResultFun, CPFileName sourceFile]))
+                                            handle _ => NONE
+                                    val result =
+                                    case code of
+                                        SOME code =>
+                                        (
+                                            (code (); true)
+                                            (* Report exceptions in running code. TODO: Report this as an error. *)
+                                            handle exn =>
+                                                (
+                                                    printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace)
+                                                        ^ " raised\n");
+                                                    false
+                                                )
+                                        )
+                                    |   NONE => false
+                                in
+                                    if result then compilerLoop ()
+                                    else ()
+                                end
+                            in
+                                case term3 of
+                                    SOME #"," =>
+                                    (
+                                        (* First reload the state.  If it raises an exception stop here. *)
+                                        if loadFile <> "" andalso
+                                            ((PolyML.SaveState.loadState loadFile; false) handle _ => true)
+                                        then (* Load error. *)
+                                            ( print "\u001bRL\u001b,"; print(Int.toString(! byteCount)); endPacket #"r" )
+                                        else
+                                        (
+                                            (* Now compile the source until either we get the end
+                                               marker or an exception. *)
+                                            compilerLoop ();
+                                            (* If we had an exception skip until we get the end marker. *)
+                                            while not (! endMarkerFound) do readin();
+
+                                            (* Print the result packet containing error messages. *)
+                                            print "\u001bR"; (* Escape R - start of packet. *)
+                                            case (! errorList, ! resultTrees) of
+                                                ([], _) => print "S" (* No errors *)
+                                            |   (_, NONE) => print "P" (* Errors and no trees *)
+                                            |   _  => print "F"; (* Errors but have trees. *)
+                                            print "\u001b,";
+                                            print(Int.toString(! byteCount));
+
+                                            let
+                                                fun printErr {message: PolyML.pretty, hard: bool,
+                                                              location = {startPosition, endPosition, ...}, ...} =
+                                                (
+                                                    print(String.concat
+                                                        [
+                                                            "\u001bE",
+                                                            if hard then "E" else "W", "\u001b,",
+                                                            Int.toString startPosition, "\u001b,",
+                                                            Int.toString endPosition, "\u001b,"
+                                                        ]);
+                                                    prettyPrintWithMarkup(print, !lineLength)
+                                                        ((* Always add prefixes. *)addStructurePrefix true message);
+                                                    endPacket #"e" (* Escape e - end *)
+                                                )
+                                            in
+                                                List.app printErr (! errorList)
+                                            end;
+                                            case ! resultTrees of SOME trees => parseTrees := trees | NONE => ();
+                                            (* Set the current parse tree pointer to the first tree. *)
+                                            case ! parseTrees of
+                                                [] => lastParsetree := NONE
+                                            |   hd :: _ => lastParsetree := SOME hd;
+                                            endPacket #"r" (* Escape-r - end of compilation. *)
+                                        )
+                                    )
+                                |   SOME #"r" => (* Reached terminator too early. *)
+                                        (print "\u001bR"; endPacket #"r")
+                                |   _ => (* Protocol error or end-of-stream. *)
+                                        (skipToTerminator #"r"; print "\u001bR"; endPacket #"r")
+                            end
+
+                            (* Navigation functions. *)
+                        |   #"U" => (gotoPosition #"u"; navigate Up; printLocation #"U"; endPacket #"u")
+                        |   #"C" => (gotoPosition #"c"; navigate Down; printLocation #"C"; endPacket #"c")
+                        |   #"N" => (gotoPosition #"n"; navigate Right; printLocation #"N"; endPacket #"n")
+                        |   #"P" => (gotoPosition #"p"; navigate Left; printLocation #"P"; endPacket #"p")
+                            (* Print the type of the selected node. *)
+                        |   #"T" =>
                             (
-                                case ch of
-                                    #"<" =>
+                                gotoPosition #"t"; printLocation #"T";
+                                case lastParsetree of
+                                    ref NONE => ()
+                                |   ref (SOME(_, tree)) =>
                                     (
-                                        (* Begin a new compilation. *)
-                                        reload ();
-                                        (* Report the start. *)
-                                        print (String.implode[escape, openResults])
-                                    )
-                                |   #">" =>
-                                    (
-                                        (* End the compilation. *)
-                                        print (String.implode[escape, closeResults, #"\n"])
-                                    )
-                                |   #"U" => navigate Up
-                                |   #"D" => navigate Down
-                                |   #"R" => navigate Right
-                                |   #"L" => navigate Left
-                                |   #"P" =>
-                                    (
-                                    case TextIO.inputLine TextIO.stdIn of
-                                        SOME line =>
-                                        let
-                                            val s = Int.fromString line
-                                        in
-                                            case s of
-                                                SOME l => (navigateTo l; printParse())
-                                            |   NONE => TextIO.print("Direction error (" ^ line ^ ")\n")
-                                        end
-                                    |   NONE => endOfFile := true
-                                    )
-                                |   _    => TextIO.print("Unexpected direction " ^ String.str ch ^ "\n");
-                                readin() (* Repeat to get the next real char. *)
+                                        (* Print the type if it's there.  Don't include any mark-up. *)
+                                        case List.find (fn (PTtype p) => true | _ => false) tree of
+                                            SOME(PTtype t) =>
+                                            (
+                                                print "\u001b,";
+                                                PolyML.prettyPrint(printOut, !lineLength)
+                                                    (PolyML.NameSpace.displayTypeExpression(t, 100))
+                                            )
+                                        |   _ => ()
+                                    );
+                                endPacket #"t"
                             )
+                            (* Print the declaration location of the selected node. *)
+                        |   #"D" =>
+                            (
+                                gotoPosition #"d"; printLocation #"D";
+                                case lastParsetree of
+                                    ref NONE => ()
+                                |   ref (SOME(_, tree)) =>
+                                    (
+                                        (* Print the type if it's there.  Don't include any mark-up. *)
+                                        case List.find (fn (PTdeclaredAt p) => true | _ => false) tree of
+                                            SOME(PTdeclaredAt
+                                                {file, startLine, startPosition, endPosition, ...}) =>
+                                            (
+                                                print "\u001b,";
+                                                print file; (* TODO double any escapes. *) print "\u001b,";
+                                                print (Int.toString startLine); print "\u001b,";
+                                                print (Int.toString startPosition); print "\u001b,";
+                                                print (Int.toString endPosition)
+                                            )
+                                        |   _ => ()
+                                    );
+                                endPacket #"d"
+                            )
+
+                        |   #"O" => (* Print list of valid commands. *)
+                            (
+                                gotoPosition #"o"; printLocation #"O";
+                                case lastParsetree of
+                                    ref NONE => ()
+                                |   ref (SOME(_, tree)) =>
+                                    let
+                                        fun printCode(PTparent _) = print "U"
+                                        |   printCode(PTpreviousSibling _) = print "P"
+                                        |   printCode(PTnextSibling _) = print "N"
+                                        |   printCode(PTfirstChild _) = print "C"
+                                        |   printCode(PTtype _) = print "T"
+                                        |   printCode(PTdeclaredAt _) = print "D"
+                                        |   printCode(PTprint _) = ()
+                                    in
+                                        List.app printCode tree
+                                    end;
+                                endPacket #"o"
+                            )
+
+                        |   ch => (* Something else.  Reply with empty response. *)
+                            let
+                                val term = Char.toLower ch
+                            in
+                                skipToTerminator term; printLocation ch; endPacket term
+                            end;
+
+                        runProtocol() (* Continue. *)
                     )
-                    else (byteCount := !byteCount+1; SOME ch)
-
-            fun flushInput () =
-                case TextIO.canInput(TextIO.stdIn, 1) of
-                    SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
-                |   _ => (* No input waiting or we're at EOF. *) ()
-
-            fun readEvalPrint () : unit =
-            let
-                fun shrink_stack (newsize : int) : unit = 
-                    RunCall.run_call1 RuntimeCalls.POLY_SYS_shrink_stack newsize
-                val () = shrink_stack 8000;
-            in
-                (* Compile and then run the code. *)
-                let
-                    val code =
-                        polyCompiler(readin,
-                            [CPOutStream printOut, CPLineOffset byteOffset, CPErrorMessageProc errorProc,
-                             CPCompilerResultFun compilerResultFun])
-                        handle Fail s => 
-                        (
-                            printOut(s ^ "\n");
-                            flushInput();
-                            raise Fail s
-                        )
-                in
-                    code ()
-                    (* Report exceptions in running code. *)
-                        handle exn =>
-                        (
-                            printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
-                            raise exn
-                        )
-                end
-            end; (* readEvalPrint *)
-                 
-            val () = reload(); (* First time. *)
-            
-            fun handledLoop () : unit =
-            (
-                (* Process a single top-level command. *)
-                readEvalPrint() handle exn => ();
-                if !endOfFile then ()
-                else handledLoop ()
-            )
+                )
+                |   SOME _ => runProtocol() (* Discard other characters. *)
+            end
         in
-            handledLoop ()
-        end
+            runProtocol ()
+        end (* background compilation. *)
 
-        else (* Enter Poly/ML. *)
+        else (* Enter normal Poly/ML top-level. *)
         let
             open Signal;
             val () =
@@ -1788,6 +1939,8 @@ in
             and stepOver() = (stepDebug := true; stepDepth := List.length(!(getStack())); exitLoop := true)
             and stepOut() = (stepDebug := true; stepDepth := List.length(!(getStack())) - 1; exitLoop := true)
             and continue () = (stepDebug := false; stepDepth := ~1; exitLoop := true)
+            and continueWithEx exn =
+                (stepDebug := false; stepDepth := ~1; exitLoop := true; debugExPacket := SOME exn)
             and trace b = tracing := b
 
             fun breakAt (file, line) =
