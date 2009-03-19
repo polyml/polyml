@@ -457,7 +457,7 @@ struct
     if SYMSET.inside (sy lex, stopSyms)
     then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
        then (NONE, NONE)
-       else (NONE, 
+       else (SOME(locSpan(startLocn, location lex), []), 
 	             SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
 			) (* Do nothing *)
     else let (* let2 *)
