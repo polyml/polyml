@@ -1,6 +1,4 @@
 #! /usr/bin/sed -f
-s/
-//g
 s/;#.*//
 s/^IFDEF/#ifdef/
 s/^ELSE/#else/
