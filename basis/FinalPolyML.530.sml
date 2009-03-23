@@ -206,10 +206,10 @@ local
     fun prettyPrintWithMarkup(stream : string -> unit, lineWidth : int): PolyML.pretty -> unit =
     let
         open PolyML
-        val escape = #"\u001b"
-        val openDeclaration = String.implode[escape, #"D"]
-        val closeDeclaration = String.implode[escape, #"d"]
-        val separator = String.implode[escape, #","]
+        val openDeclaration = "\u001bD"
+        val closeDeclaration = "\u001bd"
+        val separator = "\u001b,"
+        val finalSeparator = "\u001b;"
         
         fun beginMarkup context =
             case List.find (fn ContextLocation _ => true | _ => false) context of
@@ -228,7 +228,7 @@ local
                     stream(Int.toString startPosition);
                     stream separator;
                     stream(Int.toString endPosition);
-                    stream separator
+                    stream finalSeparator
                 end
             |   _ => ()
             
