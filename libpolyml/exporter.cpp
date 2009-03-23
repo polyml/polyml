@@ -60,6 +60,7 @@
 #include "diagnostics.h"
 #include "memmgr.h"
 #include "processes.h" // For IO_SPACING
+#include "sys.h" // For EXC_Fail
 
 #include "pexport.h"
 
