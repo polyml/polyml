@@ -1067,7 +1067,8 @@ struct
  
             val constrs = (* Order is significant. *)
                [ ("ContextLocation", Location),
-                 ("ContextParentStructure", String ** List ContextType)];
+                 ("ContextParentStructure", String ** List ContextType),
+                 ("ContextProperty", String ** String)];
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
             val constructors =

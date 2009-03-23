@@ -23,8 +23,8 @@ struct
     datatype context =
         ContextLocation of
             { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
     |   ContextParentStructure of string * context list
+    |   ContextProperty of string * string (* User property. *)
 
     datatype pretty =
         PrettyBlock of int * bool * context list * pretty list
