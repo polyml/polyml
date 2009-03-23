@@ -2370,7 +2370,7 @@ struct
         end
 
 		(* Construct a signature. *)
-        fun sigValue (str : structs, Env env : env, lno : LEX.location, strName: string) =
+        fun sigValue (str : structs, Env env : env, lno : LEX.location) =
 		let
 			(* Make a new signature. *)
 			val (sigName, loc) =
@@ -2412,7 +2412,7 @@ struct
 			  	checkAndEnter (#enterFunct structEnv) (#lookupFunct structEnv) "Functor"
              }
 		in
-			makeSigInto(str, Env checkedStructEnv, Env env, lno, strName, 0);
+			makeSigInto(str, Env checkedStructEnv, Env env, lno, "", 0);
 			(* Make a copy to freeze it as immutable.*)
 			makeCopy(sigName, newSig, sigMinTypes newSig, sigMaxTypes newSig, lno)
 		end
@@ -2474,8 +2474,7 @@ struct
 			              enterSig      = #enterSig structEnv,
 			              enterFunct    = #enterFunct structEnv
 			             };
-                      val resSig =
-					  	sigValue (sigStruct, Env newEnv, line, strName ^ name ^ ".");
+                      val resSig = sigValue (sigStruct, Env newEnv, line);
                       (* Process the rest of the list before declaring
                          the structure. *)
                       val result = pStruct t (offset + 1);
@@ -2737,7 +2736,7 @@ struct
         
         | _ =>
           let (* Anything else has to be copied. *)
-           val result = sigValue (str, Env globalEnv, lno, strName);
+           val result = sigValue (str, Env globalEnv, lno);
         
 		  (* We used to have code in here to generate equality types for
 		     all the datatypes in the signature and also to check that the
