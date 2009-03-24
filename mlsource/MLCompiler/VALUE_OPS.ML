@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008.
+    Modified David C.J. Matthews 2008-9.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1738,8 +1738,18 @@ struct
                            we have to pass it the functions to print the argument types
                            (if any). *)
                         fun makeArg argType =
-                              let
-                                fun printArg(v, depth) = prints(v, argType, depth, ~1, value::objList)
+                            let
+                                fun printArg(v, depth) =
+                                let
+                                    (* If we have an identity constructor (datatype 'a t = T of 'a)
+                                       then we mustn't add this item to the list because we'll see
+                                       it again. *)
+                                    val newList =
+                                        if ADDRESS.wordEq(v, value) then objList
+                                        else value :: objList
+                                in
+                                    prints(v, argType, depth, ~1, newList)
+                                end
                             in
                                 mkConst(toMachineWord printArg)
                             end
@@ -2675,7 +2685,7 @@ struct
                     end;
 
             (* Only report the error when the function is run.  Because addPrettyPrint is
-               contained in the PolyML function we may compile a reference to a polymorphic
+               contained in the PolyML structure we may compile a reference to a polymorphic
                version of this for the structure record.  It's replaced in the final structure
                by this version. *)
             fun installPp (pprint:int -> machineWord -> machineWord -> pretty) =
