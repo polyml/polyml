@@ -1467,7 +1467,8 @@ struct
                 ("debuggerTag",            toMachineWord DEBUGGER.debuggerFunTag, Tag debuggerType),
                 ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
-                ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType)
+                ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType),
+                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag (Option(Unit->>ParseTree)))
                 ]
         end;
  

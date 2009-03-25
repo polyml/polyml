@@ -174,7 +174,7 @@ sig
   val gencodeStructs: topdec * lexan -> codetree;
   val displayTopdec: topdec * int -> pretty
 
-    val structsExportTree: topdec -> exportTree
+    val structsExportTree:  (unit->exportTree) option * topdec -> exportTree
 end;
 
 (*****************************************************************************)
@@ -452,6 +452,11 @@ struct
       if SYMSET.inside (sy lex, SYMSET.semicolon)
       then insymbol lex
       else ();
+      
+    val parentTreeOpt =
+        case List.find (Universal.tagIs rootTreeTag) debugSwitches of
+            SOME f => Universal.tagProject rootTreeTag f
+        |   NONE => NONE
   in (* let1 *)
     (* An empty declaration (or end of file!) *)
     if SYMSET.inside (sy lex, stopSyms)
@@ -479,7 +484,7 @@ struct
         
       in (* let2 *)
 	      if errorOccurred lex
-		  then (SOME(structsExportTree parseTree), NONE) (* Error: No result. *)
+		  then (SOME(structsExportTree (parentTreeOpt, parseTree)), NONE) (* Error: No result. *)
 		  else let (* let3 *)
 	 
 	      (* extend throw-away compiling environment *)
@@ -546,7 +551,7 @@ struct
 		  
 		  in (* let3 *)
 	        if errorOccurred lex
-	        then (SOME(structsExportTree parseTree), NONE)
+	        then (SOME(structsExportTree(parentTreeOpt, parseTree)), NONE)
 	        else let (* let4 *)
 		      
 		      (* Only code-generate if there were no errors and
@@ -558,7 +563,7 @@ struct
 			  in
 		        if errorOccurred lex
 		        then (* Errors can be produced during the code-generation phase. *)
-		           (SOME(structsExportTree parseTree), NONE) (* Error: No result. *)
+		           (SOME(structsExportTree(parentTreeOpt, parseTree)), NONE) (* Error: No result. *)
 		        else let (* let5 *)
 				       val () =
 				         if printCodetree
@@ -607,7 +612,7 @@ struct
 			            end
 				     
 				    in
-					    (SOME(structsExportTree parseTree), SOME executeCode)
+					    (SOME(structsExportTree (parentTreeOpt, parseTree)), SOME executeCode)
 			    	end (* let5 *)
 				end (* let4 *)
 			end (* let3 *)

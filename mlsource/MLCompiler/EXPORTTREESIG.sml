@@ -46,4 +46,6 @@ sig
     val exportNavigationProps: navigation -> ptProperties list
 
     val getStringAsTree: navigation * string * location * ptProperties list -> exportTree
+    
+    val rootTreeTag: (unit -> exportTree) option Universal.tag
 end;

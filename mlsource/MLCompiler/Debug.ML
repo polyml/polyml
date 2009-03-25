@@ -82,6 +82,7 @@ struct
            Pretty.printOutputTag: (pretty->unit) tag
            Pretty.compilerOutputTag: (pretty->unit) tag
            Lex.errorMessageProcTag: (pretty * bool * int -> unit) tag
+           ExportTreeString.rootTreeTag: (unit -> exportTree) tag
          *)
 
 

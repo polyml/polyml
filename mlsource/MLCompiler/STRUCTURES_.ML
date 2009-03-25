@@ -605,7 +605,7 @@ sig
 
   val displayTopdec: topdec * int -> pretty;
 
-    val structsExportTree: topdec -> exportTree
+    val structsExportTree: (unit->exportTree) option * topdec -> exportTree
 end (* STRUCTURES export signature *) =
 
 (*****************************************************************************)
@@ -1348,29 +1348,39 @@ struct
  
     end
 
-    (* The top level is actually a list. *)
-    and structsExportTree(([], location)) = (location, [])
-
-    |   structsExportTree(topdec as (sl, location)) =
+    fun structsExportTree (parentOpt, trees) =
     let
-        fun getEntry(this as (s :: sl), getPrevious) (): exportTree =
-            structExportTree(
-                {
-                    parent = SOME(fn () => structsExportTree topdec), (* Parent is this. *)
-                    previous = getPrevious,
-                    (* If we have a successor then that is the entry and
-                       its predecessor returns here. *)
-                    next =
-                    case sl of
-                        [] => NONE
-                    |   t  => SOME(getEntry(t, SOME(getEntry(this, getPrevious))))
-                },
-                s
-                )
-        |   getEntry _ () = raise Empty
+        (* If a parent tree has been provided include it here. *)
+        val parentTree =
+            case parentOpt of
+                NONE => []
+            |   SOME getParent => [PTparent getParent]
+
+        (* The top level is actually a list. *)
+        fun exportTree(([], location)) = (location, parentTree)
+        |   exportTree(topdec as (sl, location)) =
+        let
+            fun getEntry(this as (s :: sl), getPrevious) (): exportTree =
+                structExportTree(
+                    {
+                        parent = SOME(fn () => exportTree topdec), (* Parent is this. *)
+                        previous = getPrevious,
+                        (* If we have a successor then that is the entry and
+                           its predecessor returns here. *)
+                        next =
+                        case sl of
+                            [] => NONE
+                        |   t  => SOME(getEntry(t, SOME(getEntry(this, getPrevious))))
+                    },
+                    s
+                    )
+            |   getEntry _ () = raise Empty
+        in
+            (location, parentTree @ [PTfirstChild(getEntry(sl, NONE)), PTprint(fn d => displayStructs(sl, d))])
+        end
     in
-        (location, [PTfirstChild(getEntry(sl, NONE)), PTprint(fn d => displayStructs(sl, d))])
-    end 
+        exportTree trees
+    end
 
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorNear (lex, hard, near, lno, message) : unit =

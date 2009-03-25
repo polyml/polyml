@@ -82,4 +82,6 @@ struct
     fun getStringAsTree (navigation, s: string, location: location, otherProps) =
          (location, otherProps @ exportNavigationProps navigation @ [PTprint(fn _ => PrettyString s)])
 
+    val rootTreeTag: (unit -> exportTree) option Universal.tag = Universal.tag()
+
 end;

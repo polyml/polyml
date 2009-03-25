@@ -180,6 +180,10 @@ local
     |   CPLineLength of int
         (* Bound into any occurrences of PolyML.print.  This is the length of a line
            used in the pretty printer.  Default: value of PolyML.line_length. *)
+    |   CPRootTree of (unit -> PolyML.parseTree) option
+        (* This can be used to provide a parent for parse trees created by the
+           compiler.  This appears as a PTparent property in the tree.
+           The default is NONE which does not to provide a parent.  *)
 
     (* References for control and debugging. *)
     val profiling = ref 0
@@ -577,6 +581,8 @@ local
             
             val compilerOut = prettyPrintWithMarkup(outstream, !lineLength)
 
+            (* Parent tree is *)
+            val parentTree = find (fn CPRootTree f => SOME f | _ => NONE) NONE parameters
 
             (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)
             val treeAndCode =
@@ -603,7 +609,8 @@ local
                     tagInject debugTag debugging,
                     tagInject printEnvironTag printenv,
                     tagInject debuggerTag debugFunction,
-                    tagInject printOutputTag prettyOut
+                    tagInject printOutputTag prettyOut,
+                    tagInject rootTreeTag parentTree
                     ])
         in
 		    compilerResultFun treeAndCode
@@ -1686,7 +1693,8 @@ local
                                         SOME(polyCompiler(readin,
                                             [CPOutStream printOut, CPLineOffset (fn () => !byteCount),
                                              CPErrorMessageProc (fn msg => errorList := !errorList @ [msg]),
-                                             CPCompilerResultFun compilerResultFun, CPFileName sourceFile]))
+                                             CPCompilerResultFun compilerResultFun, CPFileName sourceFile,
+                                             CPRootTree (SOME toplevel)]))
                                             handle _ => NONE
                                     val result =
                                     case code of
