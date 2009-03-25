@@ -496,7 +496,7 @@ local
                 (
                     if depth > 0
                     then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix (! printTypesWithStructureName) (displayType(t, depth)))
+                        (addStructurePrefix withStruct (displayType(t, depth)))
                     else ();
                     #enterType space (n,t)
                 )
@@ -504,7 +504,7 @@ local
                 (
                     if depth > 0
                     then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix (! printTypesWithStructureName) (displaySig(s, depth, space)))
+                        (addStructurePrefix withStruct (displaySig(s, depth, space)))
                     else ();
                     #enterSig space (n,s)
                 )
@@ -512,7 +512,7 @@ local
                 (
                     if depth > 0
                     then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix (! printTypesWithStructureName) (displayStruct(s, depth, space)))
+                        (addStructurePrefix withStruct (displayStruct(s, depth, space)))
                     else ();
                     #enterStruct space (n,s)
                 )
@@ -520,7 +520,7 @@ local
                 (
                     if depth > 0
                     then prettyPrintWithMarkup (stream, !lineLength)
-                            (addStructurePrefix (! printTypesWithStructureName) (displayFunct(f, depth, space)))
+                            (addStructurePrefix withStruct (displayFunct(f, depth, space)))
                     else ();
                     #enterFunct space (n,f)
                 )
@@ -528,7 +528,7 @@ local
                 (
                     if depth > 0
                     then prettyPrintWithMarkup (stream, !lineLength)
-                            (addStructurePrefix (! printTypesWithStructureName) (displayVal(v, depth, space)))
+                            (addStructurePrefix withStruct (displayVal(v, depth, space)))
                     else ();
                     #enterVal space (n,v)
                 )
@@ -1486,8 +1486,7 @@ local
             |   ref (SOME(location, tree)) =>
                 let
                     open PolyML
-                    fun find([], Up) = toplevel ()
-                    |   find([], _) = (location, tree) (* No change *)
+                    fun find([], _) = (location, tree) (* No change *)
                     |   find(PTparent p :: _, Up) = p()
                     |   find(PTpreviousSibling p :: _, Left) = p()
                     |   find(PTnextSibling p :: _, Right) = p()
@@ -1504,8 +1503,7 @@ local
             |   ref (SOME(location as { startPosition, endPosition, ... }, tree)) =>
                 let
                     open PolyML
-                    fun find([], Up) = SOME(toplevel)
-                    |   find([], _) = NONE (* No change *)
+                    fun find([], _) = NONE (* No change *)
                     |   find(PTparent p :: _, Up) = SOME p
                     |   find(PTpreviousSibling p :: _, Left) = SOME p
                     |   find(PTnextSibling p :: _, Right) = SOME p
@@ -1792,14 +1790,14 @@ local
                                 endPacket #"t"
                             )
                             (* Print the declaration location of the selected node. *)
-                        |   #"D" =>
+                        |   #"I" =>
                             (
-                                gotoPosition #"d"; printLocation #"D";
+                                gotoPosition #"i"; printLocation #"I";
                                 case lastParsetree of
                                     ref NONE => ()
                                 |   ref (SOME(_, tree)) =>
                                     (
-                                        (* Print the type if it's there.  Don't include any mark-up. *)
+                                        (* Print the declaration location if it's there. *)
                                         case List.find (fn (PTdeclaredAt p) => true | _ => false) tree of
                                             SOME(PTdeclaredAt
                                                 {file, startLine, startPosition, endPosition, ...}) =>
@@ -1812,7 +1810,7 @@ local
                                             )
                                         |   _ => ()
                                     );
-                                endPacket #"d"
+                                endPacket #"i"
                             )
 
                         |   #"O" => (* Print list of valid commands. *)
@@ -1827,7 +1825,7 @@ local
                                         |   printCode(PTnextSibling _) = print "N"
                                         |   printCode(PTfirstChild _) = print "C"
                                         |   printCode(PTtype _) = print "T"
-                                        |   printCode(PTdeclaredAt _) = print "D"
+                                        |   printCode(PTdeclaredAt _) = print "I"
                                         |   printCode(PTprint _) = ()
                                     in
                                         List.app printCode tree
