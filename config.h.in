@@ -470,6 +470,9 @@
 /* Define to 1 if you have the <tchar.h> header file. */
 #undef HAVE_TCHAR_H
 
+/* Define to 1 if you have the <termios.h> header file. */
+#undef HAVE_TERMIOS_H
+
 /* Define to 1 if you have the <time.h> header file. */
 #undef HAVE_TIME_H
 
