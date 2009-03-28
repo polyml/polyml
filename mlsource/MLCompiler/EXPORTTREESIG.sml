@@ -22,12 +22,15 @@ sig
     type types
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+    type locationProp
 
     (* Export tree. *)
     datatype ptProperties =
         PTprint of int -> pretty (* Print the tree *)
     |   PTtype of types (* Type of an expression *)
     |   PTdeclaredAt of location (* Declaration location for id. *)
+    |   PTopenedAt of location (* When an identifier comes from an "open" the location of the open. *)
+    |   PTstructureAt of location (* When an identifier comes from open S or S.a the declaration of S. *)
     |   PTparent of unit -> exportTree
     |   PTpreviousSibling of unit -> exportTree
     |   PTnextSibling of unit -> exportTree
@@ -48,4 +51,6 @@ sig
     val getStringAsTree: navigation * string * location * ptProperties list -> exportTree
     
     val rootTreeTag: (unit -> exportTree) option Universal.tag
+    
+    val mapLocationProps: locationProp list -> ptProperties list
 end;

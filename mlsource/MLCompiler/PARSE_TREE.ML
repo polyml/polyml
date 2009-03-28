@@ -81,147 +81,7 @@ end;
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  (* Structures *)
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-   
-  val inBasis: location
-
-  type structVals;
-  type signatures;
-  type functors;
-  type fixStatus;
-  type typeId;
-  type typeConstrs;
-  type typeDependent;
-  type codetree
-        
-  val undefinedStruct:    structVals;
-  val isUndefinedStruct:  structVals -> bool;
-  val makeSelectedStruct: structVals * structVals -> structVals;
-  val structSignat:       structVals -> signatures;
-  val structDeclaredAt:   structVals -> location;
- 
-  (* Signatures *)
-  type univTable
-  val sigTab: signatures -> univTable;
-
-  (* Types *)
-  val makeVariableId: unit -> typeId;
-  val isVariableId:   typeId -> bool;
-  val unifyTypeIds:   typeId * typeId -> bool;
-  val sameTypeId:     typeId * typeId -> bool;
-  
-  type 'a possRef
-     
-  (* A type is the union of these different cases. *)
-  type typeVarForm
-  datatype types = 
-    TypeVar of typeVarForm
-    
-  | TypeConstruction of (* typeConstructionForm *)
-      {
-        name:  string,
-        value: typeConstrs possRef,
-        args:  types list,
-        location: location
-      }
-
-  | FunctionType of (* functionTypeForm *)
-    { 
-      arg:    types,
-      result: types
-    }
-  
-  | LabelledType  of (* labelledRecForm *)
-    { 
-      recList: { name: string, typeof: types } list,
-      frozen: bool,
-      genericInstance: typeVarForm list
-    }
-
-  | OverloadSet      of (* overloadSetForm *)
-      {
-        typeset: typeConstrs list
-    }
-
-  | BadType
-  
-  | EmptyType
-  ;
-
-  datatype valAccess =
-      Global   of codetree
-  | Local    of { addr: int ref, level: int ref }
-  | Selected of { addr: int,     base:  structVals }
-  | Formal   of int
-  | Overloaded of typeDependent (* Values only. *)
-
-  and values =
-      Value of {
-        name: string,
-        typeOf: types,
-        access: valAccess,
-        class: valueClass,
-        declaredAt: location }
-
-  (* Classes of values. *)
-  and valueClass =
-        SimpleValue
-    | Exception
-    | Constructor of { nullary: bool }
-
-  val tcName:            typeConstrs -> string;
-  val tcEquivalent:      typeConstrs -> types;
-  val tcSetConstructors: typeConstrs * values list -> unit;
-  val tcTypeVars:        typeConstrs -> types list;
-  val tcSetEquality:     typeConstrs * bool -> unit;
-  val tcConstructors:    typeConstrs -> values list;
-  val tcDeclaredAt:      typeConstrs -> location
-  val makeTypeConstrs:
-      string * types list * types * typeId *  bool * int * location -> typeConstrs;
-
-  val isConstructor: values -> bool;
-  val isUndefinedValue: values -> bool;
-
-  val listType: typeConstrs;
-  val undefType: typeConstrs;
-  
-  val generalisable: int;
-
-  (* Values. *)
-
-  val undefinedValue: values;
-  val valName: values -> string
-  val valTypeOf: values -> types
-
-  val TypeDep: typeDependent
-  val makeOverloaded:    string * types * typeDependent -> values;
-
-  datatype env = Env of
-    {
-      lookupVal:    string -> values option,
-      lookupType:   string -> typeConstrs option,
-      lookupFix:    string -> fixStatus option,
-      lookupStruct: string -> structVals option,
-      lookupSig:    string -> signatures option,
-      lookupFunct:  string -> functors option,
-      enterVal:     string * values      -> unit,
-      enterType:    string * typeConstrs -> unit,
-      enterFix:     string * fixStatus   -> unit,
-      enterStruct:  string * structVals  -> unit,
-      enterSig:     string * signatures  -> unit,
-      enterFunct:   string * functors    -> unit
-    };
-       
-  type 'a tag;
-  val structVar:     structVals  tag;
-  val valueVar:      values      tag;
-  val typeConstrVar: typeConstrs tag;
-
-end;
+structure STRUCTVALS : STRUCTVALSIG;
 
 (*****************************************************************************)
 (*                  EXPORTTREE                                               *)
@@ -232,134 +92,14 @@ structure EXPORTTREE: EXPORTTREESIG;
 (*****************************************************************************)
 (*                  TYPETREE                                                 *)
 (*****************************************************************************)
-structure TYPETREE :
-sig
-  type types;
-  type values;
-  type lexan;
-  type typeConstrs;
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val unify: types * types * lexan * location * (unit -> pretty) -> unit;
-  val apply: types * types * lexan * location * (unit -> pretty) -> types;
-
-  val allowGeneralisation: types * int * bool * lexan *
-                             location * (unit -> pretty) -> unit;
-  val generalise: types -> types;
-  (* Check for a local datatype "escaping".  Added for ML97. *)
-  val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
-  (* Exceptions have either type exn or exn->ty. *)
-  val getFnArgType:   types -> types option
-
-  val mkProductType:      types list -> types;
-  val mkTypeVar:          int * bool * bool * bool -> types;
-  val mkTypeConstruction: string * typeConstrs * types list * location  -> types;
-  val mkFunctionType:     types * types -> types;
-  val mkLabelled:         {name: string, typeof: types } list * bool -> types;
-  val mkLabelEntry:       string * types -> {name: string, typeof: types };
-  val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
-  val entryNumber:        string * types -> int;
-  val recordNotFrozen:    types -> bool;
-  val recordWidth:        types -> int;
-
-  (* Unify two type variables which would otherwise be non-unifiable. *)
-  val linkTypeVars: types * types -> unit;
-  val setTvarLevel: types * int -> unit;
-
-  (* Gets the lists of constructors from a type. *)
-  val getConstrList: types -> values list;
-
-  (* Second pass on type identifiers which associates type constructors with names. *)
-  val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
-
-  (* Print out a type structure. *)
-  val display: types * int -> pretty;
-
-  (* A list of type variables. *)
-  val displayTypeVariables: types list * int -> pretty list;
-  
-  (* Standard types. *)
-  val boolType:   types;
-  val intType:    types;
-  val charType:   types;
-  val stringType: types;
-  val realType:   types;
-  val unitType:   types;
-  val exnType:    types;
-  val mkOverloadSet:      typeConstrs list -> types;
-
-  val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
-
-    type typeParsetree
-    val typeFromTypeParse: typeParsetree -> types
-
-    type exportTree = EXPORTTREE.exportTree
-    type navigation = EXPORTTREE.navigation
-    val typeExportTree: navigation * typeParsetree -> exportTree
-end;
+structure TYPETREE : TYPETREESIG
+    where type exportTree = EXPORTTREE.exportTree
+    and   type navigation = EXPORTTREE.navigation;
 
 (*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
-structure VALUEOPS :
-sig
-  type machineWord;
-  type types;
-  type codetree
-  type values;
-  type structVals;
-  type lexan;
-  type typeConstrs;
-  type fixStatus;
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val chooseConstrRepr : (string*types) list -> codetree list
-
-  val overloadType:      values * bool -> types
-
-  (* Construction functions. *)
-  val mkVar:         string * types * location -> values;
-  val mkSelectedVar: values * structVals -> values;
-  val mkGconstr:     string * types * codetree * bool * location -> values;
-  val mkEx:          string * types * location -> values;
-
-  val mkSelectedType: typeConstrs * string * structVals option * location -> typeConstrs
-
-  (* Standard values *)
-  val nilConstructor:  values;
-  val consConstructor: values;
-  
-  (* Print values. *)
-  val displayFixStatus:  fixStatus -> pretty;
-
-  (* Code-generate. *)
-  val mkExIden:       unit -> codetree
-  val codeVal:        values * int * types * lexan * location -> codetree
-  val codeExFunction: values * int * types * lexan * location -> codetree
-  val applyFunction:  values * codetree * int * types * lexan * location -> codetree
-  val getOverloadInstance: string * types * bool * lexan * location -> codetree*string
-  val isTheSameException: values * values -> bool
-  val raiseBind:      codetree;
-  val raiseMatch:     codetree;
-  val makeGuard:      values * codetree * int -> codetree 
-  val makeInverse:    values * codetree * int -> codetree;
- 
-  (* Look-up functions. *)
-
-  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
-                        string * (string -> unit) -> structVals
-                                           
-  val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
-                     string * (string -> unit) -> values
-                                
-  val lookupTyp:   {lookupType: string -> typeConstrs option,
-                    lookupStruct: string -> structVals option} * 
-                   string * (string -> unit) -> typeConstrs
-end;
+structure VALUEOPS : VALUEOPSSIG;
 
 (*****************************************************************************)
 (*                  UTILITIES                                                *)
@@ -389,7 +129,7 @@ end;
 (*****************************************************************************)
 structure UNIVERSALTABLE:
 sig
-  type universal;
+  type universal = Universal.universal;
   type univTable;
   
   val univFold: univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
@@ -429,18 +169,6 @@ end (* MISC *);
 structure PRETTY : PRETTYSIG
 
 (*****************************************************************************)
-(*                  UNIVERSAL                                                *)
-(*****************************************************************************)
-structure UNIVERSAL :
-sig
-  type universal
-  type 'a tag
-  
-  val tagIs      : 'a tag -> universal -> bool
-  val tagProject : 'a tag -> universal -> 'a
-end;
-
-(*****************************************************************************)
 (*                  ADDRESS                                                  *)
 (*****************************************************************************)
 structure ADDRESS :
@@ -456,13 +184,14 @@ structure DEBUGGER :
 sig
     type types
     type machineWord
+    type locationProp
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
     datatype environEntry =
-        EnvValue of string * types * location
-    |    EnvException of string * types * location
-    |    EnvVConstr of string * types * bool * location
+        EnvValue of string * types * locationProp list
+    |    EnvException of string * types * locationProp list
+    |    EnvVConstr of string * types * bool * locationProp list
     |    EnvStaticLevel
 
     type debugger;
@@ -535,16 +264,19 @@ sharing type
 = STRUCTVALS.univTable
 
 sharing type
-  STRUCTVALS.tag
-= UNIVERSAL.tag;
-
-sharing type
-  UNIVERSALTABLE.universal
-= UNIVERSAL.universal;
-
-sharing type
   STRUCTVALS.fixStatus
 = VALUEOPS.fixStatus
+
+sharing type
+  STRUCTVALS.locationProp
+= VALUEOPS.locationProp
+= DEBUGGER.locationProp
+= TYPETREE.locationProp
+= EXPORTTREE.locationProp
+
+sharing type
+  TYPETREE.typeId
+= STRUCTVALS.typeId
 
 ) : 
 
@@ -685,7 +417,7 @@ struct
   open UTILITIES;
   open DEBUG;
   open UNIVERSALTABLE;
-  open UNIVERSAL;
+  open Universal;
   open PRETTY;
   open ADDRESS;
   open EXPORTTREE
@@ -1867,7 +1599,7 @@ struct
                 val decProp =
                     case value of
                         ref (Value{name = "<undefined>", ...}) => []
-                    |   ref (Value{declaredAt, ...}) => [PTdeclaredAt declaredAt]
+                    |   ref (Value{locations, ...}) => mapLocationProps locations
             in
                 (location, PTtype expType :: decProp @ commonProps)
             end
@@ -1949,7 +1681,7 @@ struct
                             (
                                 if isUndefinedStruct value
                                 then []
-                                else [PTdeclaredAt(structDeclaredAt value)]
+                                else mapLocationProps(structLocations value)
                             )
                     in
                         (location, siProps)
@@ -2147,6 +1879,10 @@ struct
         }
      end;
 
+    (* Extract the declaration location from the location list. *)
+    fun declaredAt [] = LEX.nullLocation
+    |   declaredAt (DeclaredAt loc :: _) = loc
+    |   declaredAt (_::l) = declaredAt l
 
 (*****************************************************************************
                                 PASS 2
@@ -2284,7 +2020,7 @@ struct
                         else
                         let
                             val var = 
-                                mkVar (name, mkTypeVar (level, false, false, false), location);
+                                mkVar (name, mkTypeVar (level, false, false, false), [DeclaredAt location]);
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -2411,7 +2147,7 @@ struct
                         basicType (*Return the type variable - united to all the types*)
                     end  (* processList *);
                 in
-                    mkTypeConstruction ("list", listType, [processList ptl], inBasis)
+                    mkTypeConstruction ("list", listType, [processList ptl], [DeclaredAt inBasis])
                 end
 
             |   Constraint {value, given, location} =>
@@ -2572,86 +2308,97 @@ struct
           | FunDeclaration {dec, explicit, implicit, ...} =>
               assFunDeclaration dec explicit implicit
 
-          | OpenDec{decs=ptl, variables, ...} =>
+          | OpenDec{decs=ptl, variables, location, ...} =>
                 let
-              (* Go down the list of names opening the structures. *)
-              (* We have to be careful because open A B is not the same as
-              open A; open B if A contains a structure called B. *)
-              (* We accumulate the values so that we can produce debugging
-                 information if we need to.  Note: we have to be careful if
-                 we have the same name in multiple structures. *)
-              val valTable = HashTable.hashMake 10
+                    (* Go down the list of names opening the structures. *)
+                    (* We have to be careful because open A B is not the same as
+                       open A; open B if A contains a structure called B. *)
+                    (* We accumulate the values so that we can produce debugging
+                       information if we need to.  Note: we have to be careful if
+                       we have the same name in multiple structures. *)
+                    val valTable = HashTable.hashMake 10
     
-              (* First get the structures... *)
-              fun findStructure ({name, location, ...}: structureIdentForm) = 
-                lookupStructure
-                  ("Structure", {lookupStruct = #lookupStruct env}, name,
-                    giveError (v, lex, location))
+                    (* First get the structures... *)
+                    fun findStructure ({name, location, ...}: structureIdentForm) = 
+                        lookupStructure
+                            ("Structure", {lookupStruct = #lookupStruct env}, name,
+                                giveError (v, lex, location))
         
-              val strs : structVals list = map findStructure ptl;
+                    val strs : structVals list = map findStructure ptl;
+                        
+                    (* Value and substructure entries in a structure will generally have
+                       "Formal" access which simply gives the offset of the entry within
+                       the parent structure.  We need to convert these into "Select"
+                       entries to capture the address of the base structure. *)
+                    fun copyEntries str =
+                    if isUndefinedStruct str then ()
+                    else
+                    let
+                        val openLocs =
+                        (* If we have a declaration location for the structure set this as the structure
+                           location.  Add in here as the "open location". *)
+                            case List.find (fn DeclaredAt _ => true | _ => false) (structLocations str) of
+                                SOME (DeclaredAt loc) => [StructureAt loc, OpenedAt location]
+                            |   _ => [OpenedAt location]
 
-              (* Value and substructure entries in a structure will generally have
-                 "Formal" access which simply gives the offset of the entry within
-                 the parent structure.  We need to convert these into "Select"
-                 entries to capture the address of the base structure. *)
-              fun copyEntries str =
-            if isUndefinedStruct str then ()
-            else let
-              val sigTbl = structSignat str; (* Get the tables. *)
+                        val sigTbl = structSignat str; (* Get the tables. *)
               
-              fun copyEntry (dName, dVal, ()) = 
-                if (tagIs typeConstrVar dVal)
-                  then let
-                      (* If this is a datatype we have to apply mkSelectedVar to the
-                       value constructors.  It will not do anything if the constructors
-                       are global but if we are opening the argument to a functor we
-                       need to do this.  It's essential if we subsequently replicate
-                       this datatype.  Note: we don't add the value constructors to the
-                       environment at this point.  While a signature cannot contain
-                       values which "mask" constructors we can have a structure
-                       containing values which mask constructors. *)
-                    val tcons = tagProject typeConstrVar dVal
-                  in
-                      #enterType env (dName, 
-                          if null(tcConstructors tcons)
-                        then tcons (* Not a datatype. *)
-                        else mkSelectedType(tcons, tcName tcons, SOME str, tcDeclaredAt tcons))
-                  end
+                        fun copyEntry (dName, dVal, ()) = 
+                        if (tagIs typeConstrVar dVal)
+                        then
+                        let
+                            (* If this is a datatype we have to apply mkSelectedVar to the
+                               value constructors.  It will not do anything if the constructors
+                               are global but if we are opening the argument to a functor we
+                               need to do this.  It's essential if we subsequently replicate
+                               this datatype.  Note: we don't add the value constructors to the
+                               environment at this point.  While a signature cannot contain
+                               values which "mask" constructors we can have a structure
+                               containing values which mask constructors. *)
+                            val tcons = tagProject typeConstrVar dVal
+                        in
+                            #enterType env (dName, 
+                                if null(tcConstructors tcons)
+                                then tcons (* Not a datatype. *)
+                                else mkSelectedType(tcons, tcName tcons, SOME str, openLocs @ tcLocations tcons))
+                        end
                   
-                else if (tagIs valueVar dVal)
-                  then let
-                      (* If this is a datatype we could use findValueConstructor here
-                       to save constructing a new object.  It's probably not worth it. *)
-                    val selectedVar = 
-                      mkSelectedVar (tagProject valueVar dVal, str);
-                  in
-                    HashTable.hashSet(valTable, dName, selectedVar);
-                    #enterVal env (dName, selectedVar)
-                  end
+                        else if (tagIs valueVar dVal)
+                        then
+                        let
+                            (* If this is a datatype we could use findValueConstructor here
+                               to save constructing a new object.  It's probably not worth it. *)
+                            val selectedVar = 
+                                mkSelectedVar (tagProject valueVar dVal, str, openLocs);
+                        in
+                            HashTable.hashSet(valTable, dName, selectedVar);
+                            #enterVal env (dName, selectedVar)
+                        end
                   
-                else if (tagIs structVar dVal)
-                  then let
-                    val selectedStruct = 
-                      makeSelectedStruct (tagProject structVar dVal, str);
-                  in
-                    #enterStruct env (dName, selectedStruct)
-                  end
-                else ()
-            in
-              univFold (sigTab sigTbl, copyEntry, ())
-            end
+                        else if (tagIs structVar dVal)
+                        then
+                        let
+                            val selectedStruct = 
+                                makeSelectedStruct (tagProject structVar dVal, str, openLocs);
+                        in
+                            #enterStruct env (dName, selectedStruct)
+                        end
+                        else ()
+                    in
+                        univFold (sigTab sigTbl, copyEntry, ())
+                    end
     
-              (* ...then put them into the name space. *)
-              val () = List.app copyEntries strs;
-            in
-              variables := HashTable.hashFold valTable (fn _ => fn v => fn t => v :: t) [];
-              badType (* Does not return a type *)
-            end
+                    (* ...then put them into the name space. *)
+                    val () = List.app copyEntries strs;
+                in
+                    variables := HashTable.hashFold valTable (fn _ => fn v => fn t => v :: t) [];
+                    badType (* Does not return a type *)
+                end
     
           | TypeDeclaration(tlist, _) =>
             let (* Non-generative type binding *)
                 fun messFn(name, old, new) = 
-                    errorNear (lex, true, v, tcDeclaredAt new,
+                    errorNear (lex, true, v, declaredAt(tcLocations new),
                         name ^ " has already been bound in this declaration");
                
                 val newEnv = noDuplicates messFn;
@@ -2678,7 +2425,7 @@ struct
                     val tcon =
                         makeTypeConstrs (strName ^ name, typeVars, decType, makeTypeId (),
                                isEqtype (* In most cases we look at the equivalent. *),
-                               0 (* This is only required for datatypes. *), nameLoc);
+                               0 (* This is only required for datatypes. *), [DeclaredAt nameLoc]);
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -2719,7 +2466,7 @@ struct
                                 namePrefix, giveError (v, lex, oldLoc)))
 
                 (* Copy the datatype, converting any Formal constructors to Selected. *)
-                val newTypeCons = mkSelectedType(oldTypeCons, strName ^ newType, baseStruct, newLoc)
+                val newTypeCons = mkSelectedType(oldTypeCons, strName ^ newType, baseStruct, [DeclaredAt newLoc])
 
                 val newValConstrs = tcConstructors newTypeCons
             in
@@ -2735,7 +2482,7 @@ struct
             end
 
           | List(ptl, location) =>
-              mkTypeConstruction ("list", listType, [assignList(ptl, location)], inBasis)
+              mkTypeConstruction ("list", listType, [assignList(ptl, location)], [DeclaredAt inBasis])
 
           | Constraint {value, given, location} =>
             let
@@ -2758,8 +2505,8 @@ struct
               (* Process the pattern looking for variables. *)
         
                (* Construct a new environment for the variables. *)
-              fun messFn(name, old, Value{declaredAt, ...}) =  
-                    errorNear (lex, true, v, declaredAt,
+              fun messFn(name, old, Value{locations, ...}) =  
+                    errorNear (lex, true, v, declaredAt locations,
                         name ^ " has already been bound in this match");
               
               val newEnv   = noDuplicates messFn;
@@ -2910,7 +2657,7 @@ struct
                     val exValue = 
                         case previous of 
                             EmptyTree => (* Generative binding. *)
-                                mkEx (name, oldType, nameLoc)
+                                mkEx (name, oldType, [DeclaredAt nameLoc])
                         |   Ident {name = prevName, value = prevValue, location, expType, ...} =>
                             let 
                                 (* ex = ex' i.e. a non-generative binding? *)
@@ -2932,7 +2679,7 @@ struct
                                 (* And remember the type. *)
                                 unify(expType, excType, lex, nameLoc, foundNear v);
                                 (* The result is an exception with the same type. *)
-                                mkEx (name, excType, nameLoc)
+                                mkEx (name, excType, [DeclaredAt nameLoc])
                             end
                         | _ =>
                             raise InternalError "processException: badly-formed parse-tree"
@@ -3067,8 +2814,8 @@ struct
       (* Construct a new environment for the variables. *)
       val newEnv =
          noDuplicates
-           (fn(name, _, Value{declaredAt, ...}) =>
-                errorNear (lex, true, v, declaredAt,
+           (fn(name, _, Value{locations, ...}) =>
+                errorNear (lex, true, v, declaredAt locations,
                     name ^ " has already been bound in this declaration"));
 
       (* This environment is those identifiers declared by
@@ -3260,8 +3007,8 @@ struct
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
-            fun msgFn(name, _, Value{declaredAt, ...}) = 
-                errorNear (lex, true, v, declaredAt,
+            fun msgFn(name, _, Value{locations, ...}) = 
+                errorNear (lex, true, v, declaredAt locations,
                     name ^ " has already been bound in this declaration");
            
             val newEnv = noDuplicates msgFn;
@@ -3300,7 +3047,7 @@ struct
         
                 (* Declare a new identifier with this name. *)
                 val funVar =
-                    mkVar (name, mkTypeVar (funLevel, false, false, false), line);
+                    mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt line]);
            
                 val U : unit = numOfPatts := arity;
 
@@ -3348,8 +3095,8 @@ struct
           
                     (* Construct a new environment for the variables
                        in the patts. *)
-                    fun messFn (name, _, Value{declaredAt, ...}) =
-                        errorNear (lex, true, dec, declaredAt,
+                    fun messFn (name, _, Value{locations, ...}) =
+                        errorNear (lex, true, dec, declaredAt locations,
                             name ^ " has already been bound in this clause.");
           
                     val varEnv = noDuplicates messFn;
@@ -3484,13 +3231,13 @@ struct
                bindings are non-expansive. *)
             val U : unit = 
                 #apply newEnv 
-                    (fn (pair as (name, Value{typeOf, declaredAt, ...})) =>
+                    (fn (pair as (name, Value{typeOf, locations, ...})) =>
                     let
-                        val () = allowGeneralisation(typeOf, funLevel, true, lex, declaredAt, foundNear v);
+                        val () = allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v);
                         (* Check the type to make sure that a local datatype is
                            not escaping as a result of a recursive application of
                            the function to a local datatype. *)
-                        val () = checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt))
+                        val () = checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations))
                     in
                         #enterVal env pair
                     end);
@@ -3503,7 +3250,7 @@ struct
       (* A type declaration causes a type to be entered in the type
          environment, together with some constructors. *)
       fun messFn (name, _, new) = 
-        errorNear (lex, true, v, tcDeclaredAt new,
+        errorNear (lex, true, v, declaredAt(tcLocations new),
            name ^ " has already been bound in this declaration");
 
       val newEnv = noDuplicates messFn;
@@ -3513,7 +3260,7 @@ struct
          and then process the value constructors during a second. *)
         fun enterType tcon typeName =
         (
-            checkForDots  (typeName, lex, tcDeclaredAt tcon); (* Must not be qualified *)
+            checkForDots  (typeName, lex, declaredAt(tcLocations tcon)); (* Must not be qualified *)
             #enter newEnv (typeName, tcon); (* Check for duplicates. *)
             #enterType env  (typeName, tcon)  (* and put in the enclosing scope *)
         );
@@ -3523,7 +3270,7 @@ struct
         let
           val tc =
               makeTypeConstrs (strName ^ name, typeVars, emptyType,
-                             makeTypeId (), false, letDepth, nameLoc)
+                             makeTypeId (), false, letDepth, [DeclaredAt nameLoc])
         in
           tcon := tc;
           enterType tc name;
@@ -3552,7 +3299,7 @@ struct
                right-hand side of the declaration. *)
             val tcon =
                 makeTypeConstrs (strName ^ name, typeVars, decType, makeTypeId (), 
-                             false, 0, nameLoc);
+                             false, 0, [DeclaredAt nameLoc]);
         in
             enterType tcon name
         end
@@ -3560,8 +3307,8 @@ struct
         val () = ListPair.app enterWithType (withtypes, decTypes);
         
       (* For the constructors *)
-      fun messFn (name, _, Value{declaredAt, ...}) =
-        errorNear (lex, true, v, declaredAt,
+      fun messFn (name, _, Value{locations, ...}) =
+        errorNear (lex, true, v, declaredAt locations,
           name ^ " has already been used as a constructor in this type");
       
       val consEnv = noDuplicates messFn;
@@ -3572,7 +3319,7 @@ struct
         val numOfConstrs = length constrs;
         
         (* The new constructor applied to the type variables (if any) *)
-        val resultType = mkTypeConstruction (name, typ, typeVars, nameLoc);
+        val resultType = mkTypeConstruction (name, typ, typeVars, [DeclaredAt nameLoc]);
 
         (* Sort the constructors by name.  This simplifies matching with
            datatypes in signatures. *)
@@ -3584,9 +3331,9 @@ struct
           val cons =
             case constrArg of
                 NONE =>
-                    mkGconstr (name, resultType, repn, true, idLocn)
+                    mkGconstr (name, resultType, repn, true, [DeclaredAt idLocn])
             |   SOME argtype =>
-                    mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType), repn, false, idLocn);
+                    mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType), repn, false, [DeclaredAt idLocn]);
         
           (* Name must not be qualified *)
           val U : unit = checkForDots (name, lex, idLocn);
@@ -3890,12 +3637,12 @@ struct
                     val { dec, load } = multipleUses (newEnv, mkAddr, !level)
                     val ctEntry =
                         case v of
-                            Value{class=Exception, name, typeOf, declaredAt, ...} =>
-                                EnvException(name, typeOf, declaredAt)
-                        |   Value{class=Constructor{nullary}, name, typeOf, declaredAt, ...} =>
-                                EnvVConstr(name, typeOf, nullary, declaredAt)
-                        |    Value{name, typeOf, declaredAt, ...} =>
-                                EnvValue(name, typeOf, declaredAt)
+                            Value{class=Exception, name, typeOf, locations, ...} =>
+                                EnvException(name, typeOf, locations)
+                        |   Value{class=Constructor{nullary}, name, typeOf, locations, ...} =>
+                                EnvVConstr(name, typeOf, nullary, locations)
+                        |    Value{name, typeOf, locations, ...} =>
+                                EnvValue(name, typeOf, locations)
                 in
                     { dec = dec, rtEnv = load, ctEnv = ctEntry :: ctEnv}
                 end

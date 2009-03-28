@@ -75,223 +75,12 @@ end;
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type structVals
-  type codetree
-  type signatures
-  type typeConstrs
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  val inBasis: location
-    
-  type univTable
-  val sigName: signatures -> string
-  val sigTab:  signatures -> univTable
-  val sigDeclaredAt: signatures -> location;
-    
-  type typeId
-  val isUnsetId:  typeId -> bool
-  val sameTypeId: typeId * typeId -> bool
-
-  type typeVarForm
-  
-  type 'a possRef
-  val pling: 'a possRef -> 'a
-
-  (* A type is the union of these different cases. *)
-  datatype types = 
-    TypeVar          of typeVarForm
-    
-  | TypeConstruction of (* typeConstructionForm *)
-      {
-        name:  string,
-        value: typeConstrs possRef,
-        args:  types list,
-        location: location
-      }
-
-  | FunctionType of (* functionTypeForm *)
-    { 
-      arg: types,
-      result: types
-    }
-  
-  | LabelledType  of (* labelledRecForm *)
-    { 
-      recList: { name: string, typeof: types } list,
-      frozen: bool,
-      genericInstance: typeVarForm list
-    }
-
-  | OverloadSet      of (* overloadSetForm *)
-      {
-        typeset: typeConstrs list
-    }
-
-  | BadType
-  
-  | EmptyType
-  ;
-
- datatype valAccess =
-      Global   of codetree
-  | Local    of { addr: int ref, level: int ref }
-  | Selected of { addr: int,     base:  structVals }
-  | Formal   of int
-  | Overloaded of typeDependent (* Values only. *)
-
-  and typeDependent =
-    Print
-  | PrintSpace
-  | MakeString
-  | MakeStringSpace
-  | InstallPP
-  | AddPretty
-  | Equal
-  | NotEqual
-  | AddOverload
-  | TypeDep
-
-  and values =
-      Value of {
-        name: string,
-        typeOf: types,
-        access: valAccess,
-        class: valueClass,
-        declaredAt: location }
-
-  (* Classes of values. *)
-  and valueClass =
-        SimpleValue
-    | Exception
-    | Constructor of { nullary: bool }
-
-  val tvValue: typeVarForm -> types
-  val sameTv: typeVarForm * typeVarForm -> bool;
-
-  val tcName:         typeConstrs -> string
-  val tcTypeVars:     typeConstrs -> types list
-  val tcEquivalent:   typeConstrs -> types
-  val tcConstructors: typeConstrs -> values list
-  val tcIdentifier:   typeConstrs -> typeId
-  val tcEquality:     typeConstrs -> bool;
-  val tcLetDepth:     typeConstrs -> int;
-  val tcSetConstructors: typeConstrs * values list -> unit;
-
-  val makeTypeConstrs:
-        string * types list * types * typeId *  bool * int * location -> typeConstrs;
-
-  val isFreeId:       typeId -> bool;
-
-  val generalisable: int;
-  
-  val boolType:   typeConstrs
-  val intType:    typeConstrs
-  val charType:   typeConstrs
-  val stringType: typeConstrs
-  val wordType:      typeConstrs;
-  val realType:   typeConstrs
-  val unitType:   typeConstrs
-  val exnType:    typeConstrs
-  val listType:   typeConstrs
-  val refType:    typeConstrs
-  val undefType:  typeConstrs
-
-  val undefinedStruct:    structVals
-  val isUndefinedStruct:  structVals -> bool
-  val structSignat:       structVals -> signatures
-  val structName:         structVals -> string
-  val structAccess:       structVals -> valAccess
-  val structDeclaredAt:  structVals -> location;
-  val makeSelectedStruct: structVals * structVals -> structVals
-
-  type functors
-  val functorName:   functors -> string
-  val functorArg:    functors -> structVals
-  val functorResult: functors -> signatures
-  val functorDeclaredAt:  functors -> location
-  
-  val undefinedValue: values
-   
-  val makeValueConstr: string * types * bool * valAccess * location -> values
-  val makeGlobalV: string * types * codetree * location -> values
-  val makeLocalV: string * types * int ref * int ref * location -> values
-  val valName: values -> string
-  val valTypeOf: values -> types
-    
-  datatype fixStatus = 
-    Infix of int
-  | InfixR of int
-  | Nonfix;
-
-  datatype env =
-    Env of
-      {
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit
-      };
-
-  val makeEnv: signatures -> env;
-  
-  type 'a tag = 'a Universal.tag;
-
-  val signatureVar:  signatures  tag
-  val structVar:     structVals  tag
-  val typeConstrVar: typeConstrs tag
-  val valueVar:      values      tag
-  val fixVar:        fixStatus   tag
-end;
+structure STRUCTVALS : STRUCTVALSIG;
 
 (*****************************************************************************)
 (*                  TYPESTRUCT                                               *)
 (*****************************************************************************)
-structure TYPESTRUCT :
-sig
-  type typeConstrs
-  type types
-  type lexan
-  type values
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  
-  val mkTypeVar:          int * bool * bool * bool -> types;
-  val mkTypeConstruction: string * typeConstrs * types list * location -> types
-  val mkFunctionType:     types  * types -> types
-  val mkProductType:      types list -> types
-
-  val unitType:   types;
-  val intType:    types;
-
-  val generalise:           types -> types;
-  val overloadError:      types * string * string  * lexan * location -> unit
-  val generaliseOverload: types * typeConstrs list * bool -> types;
-  val typeConstrFromOverload: types * bool -> typeConstrs;
-  val makeEquivalent:     typeConstrs * types list -> types
-  val constructorResult:  types * types list -> types
-  val display:            types * int -> pretty
-  val displayTypeConstrs: typeConstrs * int -> pretty
-  val sameTypeVar :       types * types -> bool;
-  val firstArg:              types -> types;
-
-  val copyType:types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
-
-  (* Exceptions have either type exn or exn->ty. *)
-  val getFnArgType:   types -> types option
-  (* Unify two type structures to give a unified type. *)
-  val unify: types * types * lexan * location * (unit -> pretty) -> unit;
-end;
+structure TYPESTRUCT : TYPETREESIG
 
 (*****************************************************************************)
 (*                  PRINTTABLE                                               *)
@@ -441,125 +230,12 @@ sharing type
 sharing type
   UNIVERSALTABLE.univTable
 = STRUCTVALS.univTable
-) : 
-  
-(*****************************************************************************)
-(*                  VALUEOPS exports signature                               *)
-(*****************************************************************************)
-sig
-  type machineWord
-  type lexan
-  type codetree
-  type types
-  type values
-  type structVals
-  type functors
-  type valAccess
-  type typeConstrs
-  type signatures
-  type fixStatus
-  type univTable
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  
-  val exnId    : exn -> machineWord
-  val exnName  : exn -> string
-  val exnValue : exn -> machineWord
 
-  val overloadType:      values * bool -> types
-  
-  val chooseConstrRepr : (string*types) list -> codetree list
+sharing type
+  STRUCTVALS.locationProp
+= TYPESTRUCT.locationProp
 
-  (* Construction functions. *)
-  val mkGvar:        string * types * codetree * location -> values
-  val mkVar:         string * types * location -> values
-  val mkSelectedVar: values * structVals -> values
-  val mkGconstr:     string * types * codetree * bool* location -> values
-  val mkGex:         string * types * codetree* location -> values
-  val mkEx:          string * types * location -> values
-  
-  val mkSelectedType: typeConstrs * string * structVals option * location -> typeConstrs
-
-  (* Standard values *)
-  val nilConstructor:  values;
-  val consConstructor: values;
-  
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-
-  (* Print values. *)
-  val displayFixStatus:  fixStatus -> pretty
-  val displaySignatures: signatures * int * nameSpace -> pretty
-  val displayStructures: structVals * int * nameSpace -> pretty
-  val displayFunctors:   functors   * int * nameSpace -> pretty
-  val displayValues: values * int * nameSpace -> pretty
-  val printValues: values * int * nameSpace -> pretty
-  
-  val printSpaceTag: nameSpace Universal.tag
-  val nullEnvironment : nameSpace
-   
-  val codeStruct:     structVals * int -> codetree
-  val codeAccess:     valAccess  * int -> codetree
-  val mkExIden:       unit -> codetree
-  val codeVal:        values * int * types * lexan * location -> codetree
-  val codeExFunction: values * int * types * lexan * location -> codetree
-  val applyFunction:  values * codetree * int * types * lexan * location -> codetree
-  val getOverloadInstance: string * types * bool * lexan * location -> codetree*string
-  val isTheSameException: values * values -> bool
-  val raiseBind:      codetree
-  val raiseMatch:     codetree
-  val makeGuard:      values * codetree * int -> codetree 
-  val makeInverse:    values * codetree * int -> codetree
-  
-  val lookupAny:  string * (string -> 'a option) * (string -> structVals option) *
-                 (structVals -> string -> 'a option) * string * 'a * (string -> unit) -> 'a
-                    
-  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
-                        string * (string -> unit) -> structVals
-                                           
-  val lookupStructureDirectly: string * {lookupStruct: string -> structVals option} * 
-                               string * (string -> unit) -> structVals
-                                           
-  val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
-                     string * (string -> unit) -> values
-                                
-  val lookupTyp:   {lookupType: string -> typeConstrs option,
-                    lookupStruct: string -> structVals option} * 
-                   string * (string -> unit) -> typeConstrs
-
-  type representations
-  val RefForm:   representations;
-  val BoxedForm: representations;
-  val EnumForm:  int -> representations;
-
-  val createNullaryConstructor: representations * string -> codetree
-  val createUnaryConstructor: representations * string -> codetree
-
-end (* VALUEOPS exports signature *) =
+) : VALUEOPSSIG =
 
 (*****************************************************************************)
 (*                  VALUEOPS functor body                                    *)
@@ -571,12 +247,12 @@ struct
   open LEX;
   open CODETREE;
   open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)
+  open Universal; (* for tag etc. *)
   open STRUCTVALS;
   open PRINTTABLE;
   open DEBUG;
   open ADDRESS;
   open UNIVERSALTABLE;
-  open Universal; (* for tag etc. *)
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
   
@@ -668,45 +344,49 @@ struct
 
      (* Functions to construct the values. *)
 
- fun mkGconstr (name, typeof, code, nullary, location) =
+    fun mkGconstr (name, typeof, code, nullary, location) =
        makeValueConstr (name, typeof, nullary, Global code, location);
 
-     (* Global variable *)
- val mkGvar = makeGlobalV
+    (* Global variable *)
+    val mkGvar = makeGlobalV
 
-     (* Local variable - Generated by the second pass. *)
- fun mkVar (name, typeof, location) =  makeLocalV (name, typeof, ref 0, ref 0, location);
+    (* Local variable - Generated by the second pass. *)
+    fun mkVar (name, typeof, locations) =  makeLocalV (name, typeof, ref 0, ref 0, locations);
 
-     (* Value in a local structure or a functor argument.  May be simple value, exception
+    (* Value in a local structure or a functor argument.  May be simple value, exception
         or constructor. *)
- fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, declaredAt}, base) =
-         (* If the argument is "formal" set the base to the base structure. *)
-     Value{name=name, typeOf=typeOf, class=class,
-          access=Selected{addr=addr, base=base}, declaredAt=declaredAt}
+    fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, locations}, base, openLocs) =
+        (* If the argument is "formal" set the base to the base structure. *)
+        Value{name=name, typeOf=typeOf, class=class,
+            access=Selected{addr=addr, base=base}, locations=openLocs @ locations}
 
-  |  mkSelectedVar(selected, _) = selected (* global or overloaded? *);
+    |   mkSelectedVar (Value { access = Global code, name, typeOf, class, locations}, _, openLocs) =
+        (* Global: We need to add the location information. *)
+        Value{name=name, typeOf=typeOf, class=class, access=Global code, locations=openLocs @ locations}
 
- (* Construct a global exception. *)
- fun mkGex (name, typeof, code, location) =
-     Value{ name = name, typeOf = typeof, access = Global code,
-           class = Exception, declaredAt = location }
+    |   mkSelectedVar(selected, _, _) = selected (* Overloaded? *);
+
+    (* Construct a global exception. *)
+    fun mkGex (name, typeof, code, locations) =
+        Value{ name = name, typeOf = typeof, access = Global code,
+           class = Exception, locations = locations }
  
- (* Construct a local exception. *)
- fun mkEx (name, typeof, location) = 
-     Value{ name = name, typeOf = typeof,
+    (* Construct a local exception. *)
+    fun mkEx (name, typeof, locations) = 
+        Value{ name = name, typeOf = typeof,
            access = Local{addr = ref 0, level = ref 0},
-           class = Exception, declaredAt=location }
+           class = Exception, locations=locations }
 
  (* Copy a datatype (if necessary), converting the constructors to selections on
     a base structure.  This is used both when opening a structure and also for
     replicating a datatype. *)
- fun mkSelectedType(tcons: typeConstrs, newName: string, baseStruct: structVals option, location): typeConstrs =
+ fun mkSelectedType(tcons: typeConstrs, newName: string, baseStruct: structVals option, locations): typeConstrs =
     let
         (* Create a new constructor with the same unique ID. *)
         val typeID = tcIdentifier tcons;
         val newTypeCons =
             makeTypeConstrs(newName, tcTypeVars tcons, EmptyType, typeID,
-                            tcEquality tcons, tcLetDepth tcons, location);
+                            tcEquality tcons, tcLetDepth tcons, locations);
         
         (* Copy the value constructors. *)
         fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
@@ -734,7 +414,7 @@ struct
                     |    (Formal _, NONE) => access
                     |    _ => access; (* Probably already a global. *)
             in
-                Value{name=cName, typeOf=newType, class=class, access=newAccess, declaredAt=location}
+                Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations}
             end
     
         val newValConstrs = map copyAConstructor (tcConstructors tcons)
@@ -1255,13 +935,13 @@ struct
   local
     val listTypeVars  = tcTypeVars listType;
     val alpha         = hd listTypeVars;
-    val alphaList     = mkTypeConstruction ("list", listType, listTypeVars, inBasis);
+    val alphaList     = mkTypeConstruction ("list", listType, listTypeVars, [DeclaredAt inBasis]);
     val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
   in
     val nilConstructor  =
-        mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, inBasis);
+        mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, [DeclaredAt inBasis]);
     val consConstructor =
-        mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, inBasis);
+        mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, [DeclaredAt inBasis]);
   end;
   
   (* Create exception values - Small integer values are used for
@@ -1307,8 +987,13 @@ struct
       (fn baseStruct =>
        let
            val look = #lookupStruct (mkEnv (structSignat baseStruct));
+           (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
+           val baseLoc =
+            case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
+                SOME (DeclaredAt loc) => [StructureAt loc]
+            |   _ => []
        in
-           fn name => case look name of SOME s => SOME(makeSelectedStruct (s, baseStruct)) | NONE => NONE
+           fn name => case look name of SOME s => SOME(makeSelectedStruct (s, baseStruct, baseLoc)) | NONE => NONE
        end)
   end;
     
@@ -1357,8 +1042,13 @@ struct
            fn baseStruct =>
            let
                val look = #lookupVal (mkEnv (structSignat baseStruct));
+               (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
+               val baseLoc =
+                case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
+                    SOME (DeclaredAt loc) => [StructureAt loc]
+                |   _ => []
            in
-               (fn name => case look name of SOME v => SOME(mkSelectedVar (v, baseStruct)) | NONE => NONE)
+               (fn name => case look name of SOME v => SOME(mkSelectedVar (v, baseStruct, baseLoc)) | NONE => NONE)
            end,
           kind, undefinedValue, errorMessage);
  
@@ -1828,8 +1518,15 @@ struct
         PrettyBlock(0, false, [],
             [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
 
+    (* Returns the declaration location as the location for the context. *)
+    fun getLocation locations =
+        case List.find(fn DeclaredAt _ => true | _ => false) locations of
+            SOME(DeclaredAt loc) => [ContextLocation loc]
+        |   _ => []
+
+
     (* displays value as a block, with no external formatting *)
-    fun displayValues (Value{name, typeOf, class, access, declaredAt}, depth, nameSpace): pretty =
+    fun displayValues (Value{name, typeOf, class, access, locations}, depth, nameSpace): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart equOrColon =
@@ -1837,7 +1534,7 @@ struct
                 [
                     PrettyString "val",
                     PrettyBreak (1, 0),
-                    PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak (1, 0),
                     PrettyString equOrColon
                 ]
@@ -1874,7 +1571,7 @@ struct
                     [
                         PrettyString "exception",
                         PrettyBreak (1, 0),
-                        PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name])
+                        PrettyBlock(0, false, getLocation locations, [PrettyString name])
                     ]
                 )
                 ::
@@ -2001,7 +1698,7 @@ struct
                     PrettyString "structure",
                     PrettyBreak(1, 0),
                     PrettyBlock(0, false,
-                        [ContextLocation(structDeclaredAt str)],
+                        getLocation(structLocations str),
                         [PrettyString structureName]
                     ),
                     PrettyBreak(1, 0),
@@ -2677,7 +2374,9 @@ struct
                             |   args => mkProductType(List.map mkFn args)
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))
                         val testType = mkFunctionType(tupleType,
-                            mkFunctionType(mkTypeConstruction(tcName constr, constr, typeVars, loc), pretty))
+                            mkFunctionType(
+                                mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
+                                pretty))
                     in
                         unify(addPPType, testType, lex, loc,
                             fn () =>
@@ -2788,8 +2487,9 @@ struct
                             mkFunctionType(argPrints, mkFunctionType(installType, TYPESTRUCT.unitType))
                         val testType =
                             mkFunctionType(tupleType,
-                                mkFunctionType(mkTypeConstruction(tcName constr, constr, typeVars, loc),
-                                TYPESTRUCT.unitType))
+                                mkFunctionType(
+                                mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
+                                    TYPESTRUCT.unitType))
                     in
                         unify(installPPType, testType, lex, loc,
                             fn () =>

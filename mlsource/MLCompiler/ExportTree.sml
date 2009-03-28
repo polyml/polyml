@@ -20,21 +20,27 @@ functor ExportTree(
 structure STRUCTVALS :
 sig
     type types
+    type location =
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+
+    datatype locationProp =
+        DeclaredAt of location
+    |   OpenedAt of location
+    |   StructureAt of location
 end;
 
 structure PRETTY: PRETTYSIG
 
 ): EXPORTTREESIG =
 struct
-    open PRETTY
-    type types = STRUCTVALS.types
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+    open PRETTY STRUCTVALS
 
     datatype ptProperties =
         PTprint of int -> pretty (* Print the tree *)
     |   PTtype of types (* Type of an expression *)
     |   PTdeclaredAt of location (* Declaration location for id. *)
+    |   PTopenedAt of location (* When an identifier comes from an "open" the location of the open. *)
+    |   PTstructureAt of location (* When an identifier comes from open S or S.a the declaration of S. *)
     |   PTparent of unit -> exportTree
     |   PTpreviousSibling of unit -> exportTree
     |   PTnextSibling of unit -> exportTree
@@ -82,6 +88,17 @@ struct
     fun getStringAsTree (navigation, s: string, location: location, otherProps) =
          (location, otherProps @ exportNavigationProps navigation @ [PTprint(fn _ => PrettyString s)])
 
+    (* Tag used to indicate the root tree node in the compiler arguments. *)
     val rootTreeTag: (unit -> exportTree) option Universal.tag = Universal.tag()
+
+    (* Map value locations into properties. *)
+    fun mapLocationProps locs =
+    let
+        fun prop (DeclaredAt loc) = PTdeclaredAt loc
+        |   prop (OpenedAt loc) = PTopenedAt loc
+        |   prop (StructureAt loc) = PTstructureAt loc
+    in
+        List.map prop locs
+    end
 
 end;

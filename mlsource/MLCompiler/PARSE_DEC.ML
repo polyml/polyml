@@ -198,48 +198,12 @@ end;
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type types
-
-  type values;
-  type typeConstrs;
-  type structVals;
-
-  val badType:   types
-  val emptyType: types
-
-  val generalisable: int
-
-  (* Infix status *)
-
-  datatype fixStatus = 
-    Infix of int
-  | InfixR of int
-  | Nonfix;
-
-  val undefinedValue: values;
-  val undefinedStruct: structVals;
-end;
+structure STRUCTVALS : STRUCTVALSIG;
   
 (*****************************************************************************)
 (*                  TYPETREE                                                 *)
 (*****************************************************************************)
-structure TYPETREE :
-sig
-    type types
-    type typeParsetree
-    (* typeFromTypeParse should not really be needed in this function. *)
-    val typeFromTypeParse: typeParsetree -> types
-
-    val unitType:       types
-    val mkTypeVar:      int * bool * bool * bool -> types
-    val mkLabelled:     {name: string, typeof: types } list * bool -> types;
-    val mkLabelEntry:   string * types -> {name: string, typeof: types };
-    val mkFunctionType: types * types -> types;
-
-    val badType:        types;
-end;
+structure TYPETREE : TYPETREESIG;
 
 (*****************************************************************************)
 (*                  PARSETREE                                                *)

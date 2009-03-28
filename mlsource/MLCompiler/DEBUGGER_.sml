@@ -23,67 +23,12 @@ functor DEBUGGER_ (
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type types
-  type typeConstrs
-  type fixStatus
-  type structVals
-  type signatures
-  type functors
-  type values
-  type codetree
-  type valAccess
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  val Global: codetree -> valAccess
-  val makeValueConstr: string * types * bool * valAccess * location -> values;
-end;
+structure STRUCTVALS : STRUCTVALSIG;
 
 (*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
-structure VALUEOPS :
-sig
-  type codetree
-  type types
-  type values
-  type fixStatus
-  type structVals
-  type machineWord
-  type signatures
-  type functors
-  type typeConstrs
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-  val mkGvar:    string * types * codetree * location -> values
-  val mkGex:     string * types * codetree * location -> values
-end
+structure VALUEOPS : VALUEOPSSIG;
 
 structure CODETREE :
 sig
@@ -144,6 +89,10 @@ sharing type
 sharing type
   STRUCTVALS.functors 
 = VALUEOPS.functors
+
+sharing type
+  STRUCTVALS.locationProp 
+= VALUEOPS.locationProp
 )
 :
 sig
@@ -155,13 +104,13 @@ sig
     type typeConstrs
     type signatures
     type functors
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+    type locationProp
+    type location
 
 	datatype environEntry =
-		EnvValue of string * types * location
-	|	EnvException of string * types * location
-	|	EnvVConstr of string * types * bool * location
+		EnvValue of string * types * locationProp list
+	|	EnvException of string * types * locationProp list
+	|	EnvVConstr of string * types * bool * locationProp list
 	|	EnvStaticLevel
 
     type nameSpace =
@@ -210,9 +159,9 @@ struct
 
 	(* The static environment contains these kinds of entries. *)
 	datatype environEntry =
-		EnvValue of string * types * location
-	|	EnvException of string * types * location
-	|	EnvVConstr of string * types * bool * location
+		EnvValue of string * types * locationProp list
+	|	EnvException of string * types * locationProp list
+	|	EnvVConstr of string * types * bool * locationProp list
 	|	EnvStaticLevel
 
     datatype debugReason =
@@ -235,9 +184,7 @@ struct
     and debugExceptFun = 3
     and debugLineChange = 4
     
-    val dummyValue =
-        mkGvar("", TYPETREE.unitType, CodeZero,
-            { file="", startLine=0, startPosition=0, endLine=0, endPosition=0})
+    val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero, [])
     fun makeSpace ctEnv rtEnv =
     let
         (* Create the environment. *)
@@ -335,14 +282,14 @@ struct
         val (code, value) =
             case reason of
                 DebugEnter (argValue, argType) =>
-                    (debugEnterFun, mkGvar("", argType, mkConst argValue, location))
+                    (debugEnterFun, mkGvar("", argType, mkConst argValue, [DeclaredAt location]))
             |   DebugLeave (fnResult, resType) =>
-                    (debugLeaveFun, mkGvar("", resType, mkConst fnResult, location))
+                    (debugLeaveFun, mkGvar("", resType, mkConst fnResult, [DeclaredAt location]))
             |   DebugException exn =>
 				let
                     val exnVal = ADDRESS.toMachineWord exn
                     (* The exception is always a value of type exn. *)
-                    val resVal = mkGvar("", TYPETREE.exnType, mkConst exnVal, location)
+                    val resVal = mkGvar("", TYPETREE.exnType, mkConst exnVal, [DeclaredAt location])
                 in
                     (debugExceptFun, resVal)
                 end

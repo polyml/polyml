@@ -25,7 +25,6 @@ structure ParseTree =
     structure TYPETREE   = TypeTree
     structure VALUEOPS   = ValueOps
     structure UTILITIES  = Utilities
-    structure UNIVERSAL  = Universal
     structure UNIVERSALTABLE = UniversalTable
     structure MISC          = Misc
     structure PRETTY     = Pretty

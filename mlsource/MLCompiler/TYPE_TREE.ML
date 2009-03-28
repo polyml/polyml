@@ -57,108 +57,7 @@ structure LEX : LEXSIG
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type values;
-  type typeConstrs;
-  type typeId;
-  
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
- 
-  datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
-  val pling: 'a possRef -> 'a
-  val updatePR: 'a possRef * 'a -> unit
-
-  (* A type is the union of these different cases. *)
-  type typeVarForm;
-  datatype types = 
-    TypeVar of typeVarForm
-    
-  | TypeConstruction of
-      {
-        name:  string,
-        value: typeConstrs possRef,
-        args:  types list,
-        location: location
-      }
-
-  | FunctionType of
-    { 
-      arg:    types,
-      result: types
-    }
-  
-  | LabelledType  of
-    { 
-      recList: { name: string, typeof: types } list,
-      frozen: bool,
-	  genericInstance: typeVarForm list
-    }
-
-  | OverloadSet	  of
-  	{
-		typeset: typeConstrs list
-	}
-
-  | BadType
-  
-  | EmptyType
-  ;
-
-
-  val valName: values -> string
-  val valTypeOf: values -> types
-  
-  val isUnsetId:    typeId -> bool;
-  val isBoundId:    typeId -> bool;
-  val isVariableId: typeId -> bool;
-  val sameTypeId :  typeId * typeId -> bool;
-  val unifyTypeIds: typeId * typeId -> bool;
-  val makeFreeId:   unit -> typeId;
-
-  val tcName:          typeConstrs -> string;
-  val tcArity:         typeConstrs -> int;
-  val tcTypeVars:      typeConstrs -> types list;
-  val tcEquivalent:    typeConstrs -> types;
-  val tcSetEquivalent: typeConstrs * types -> unit;
-  val tcConstructors:  typeConstrs -> values list;
-  val tcEquality:      typeConstrs -> bool;
-  val tcSetEquality:   typeConstrs * bool -> unit;
-  val tcIdentifier:    typeConstrs -> typeId;
-  val tcLetDepth:        typeConstrs -> int;
-  val tcDeclaredAt:      typeConstrs -> location
-  
-  val makeTypeConstrs:
-  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
-  val makeFrozenTypeConstrs:
-  	string * types list * types * typeId *  bool * int * location -> typeConstrs;
-	
-  val emptyType: types;
-  
-  val tvLevel:        typeVarForm -> int;
-  val tvEquality:     typeVarForm -> bool;
-  val tvNonUnifiable: typeVarForm -> bool;
-  val tvValue:        typeVarForm -> types;
-  val tvSetValue:     typeVarForm * types -> unit;
-  
-  val sameTv: typeVarForm * typeVarForm -> bool;
-  
-  val makeTv: types * int * bool * bool * bool -> typeVarForm;
-
-  (* Standard type constructors. *)
-  val generalisable: int;
-  
-  val boolType:   typeConstrs;
-  val intType:    typeConstrs;
-  val charType:   typeConstrs;
-  val stringType: typeConstrs;
-  val wordType:   typeConstrs;
-  val realType:   typeConstrs;
-  val unitType:   typeConstrs;
-  val exnType:    typeConstrs;
-  val undefType:  typeConstrs;
-end;
+structure STRUCTVALS : STRUCTVALSIG;
     
 (*****************************************************************************)
 (*                  UTILITIES                                                *)
@@ -232,167 +131,12 @@ sharing type
 sharing type
     EXPORTTREE.types
 =   STRUCTVALS.types
-       
-) :  
-                   
-(*****************************************************************************)
-(*                  TYPETREE exports signature                               *)
-(*****************************************************************************)
-sig
-    type types;
-    type values;
-    type typeConstrs;
-    type lexan;
-    type typeId;
-    type pretty;
-    type exportTree
-    type navigation
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
-  val mkTypeVar:          int * bool * bool * bool -> types;
-  val mkTypeConstruction: string * typeConstrs * types list * location -> types;
-  val mkProductType:      types list -> types;
-  val mkFunctionType:     types * types -> types;
-  val mkLabelled:         {name: string, typeof: types } list * bool -> types;
-  val mkLabelEntry:       string * types -> {name: string, typeof: types };
-  val mkOverloadSet:	  typeConstrs list -> types;
-  val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
-  val entryNumber:        string * types -> int;
-  val recordNotFrozen:    types -> bool;
-  val recordWidth:        types -> int;
-  val makeEquivalent:     typeConstrs * types list -> types;
-  val firstArg:			  types -> types;
+sharing type
+    EXPORTTREE.locationProp
+=   STRUCTVALS.locationProp
 
-  (* Test for function type and return function argument. *)
-  val getFnArgType:   types -> types option
-   
-  (* Unify two type variables which would otherwise be non-unifiable. *)
-  val linkTypeVars: types * types -> unit;
-  val setTvarLevel: types * int -> unit;
-
-  (* Get the constructor list from a type. *)
-  val getConstrList: types -> values list;
-
-  (* Fill in the values of type variables and make checks. *)
-  val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
-
-   (* Copy a type. *)
-  val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
-
-  (* Print it out prettily *)
-  val display: types * int -> pretty;
-
-  (* Print out a type constructor. *)
-  val displayTypeConstrs: typeConstrs * int -> pretty;
-
-  (* A list of type variables. *)
-  val displayTypeVariables: types list * int -> pretty list;
-
-  (* Create an instance of an overloaded type. *)
-  val generaliseOverload: types * typeConstrs list * bool -> types;
-
-  (* Returns the preferred type constructor from an overload. *)
-  val typeConstrFromOverload: types * bool -> typeConstrs;
-
-  (* Error message when overloading cannot be resolved. It is put in this
-     module because we want the message to refer to the argument. *)
-  val overloadError: types * string * string * lexan * location -> unit;
-
-  val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
-
-  (* Checking procedures *)
-
-   (* Match a candidate to a target type. *)
-  val matchTypes: types * types * (typeId -> typeConstrs option) *
-                   lexan * location * (unit -> pretty) -> unit;
-
-  (* Unify two type structures to give a unified type. *)
-  val unify: types * types * lexan * location * (unit -> pretty) -> unit;
-
-  (* Apply a function to an argument and yield a result type. *)
-  val apply: types * types * lexan * location * (unit -> pretty) -> types;
-
-  (* Used to establish sharing constraints between type constructors. *)
-  val linkTypeConstructors: typeConstrs * typeConstrs * (string -> unit) -> unit;
-  
-  (* Used to link a type constructor to a type as the result of a "where type"
-     construction. *)
-  val setWhereType: typeConstrs * typeConstrs * (string -> unit) -> unit;
-
-      (* Check that a type constructor permits equality. *)
-  val permitsEquality: typeConstrs -> bool;
-
-  (* Generate new copies of all unbound type variables - this is used on all
-     non-local values or constructors so that, for example, each occurence of
-     "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-  val generalise: types -> types;
-
-      (* Release type variables at this nesting level. *)
-  val allowGeneralisation: types * int * bool *
-  						   lexan * location * (unit -> pretty) -> unit;
-
-  (* Check for a local datatype "escaping".  Added for ML97. *)
-  val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
-
-  (* Check for free type variables.  Added for ML97. *)
-  val checkForFreeTypeVariables: string * types * lexan -> unit;
-
-  val constructorResult: types * types list -> types;
-
-  val checkWellFormed: types * (string -> unit) -> unit;
-
-  val findValueConstructor: values -> values;
-
-  val copyTypeConstr: 
-     typeConstrs * (typeId -> bool) * (unit -> typeId) *
-        {enter: typeId * typeConstrs -> unit,
-         lookup: typeId -> typeConstrs option} *
-		 (types -> types) * string ->
-                      typeConstrs;
-
-  val setTypeConstr: typeConstrs * (typeConstrs -> typeId) -> unit;
-
-  val enterTypeConstrs: typeConstrs * typeConstrs *
-                        { enter: typeId * typeConstrs -> unit,
-                          lookup: typeId -> typeConstrs option} -> unit;
-
-  val identical:       types * types -> bool;
-  val identicalConstr: typeConstrs * typeConstrs -> bool;
-  val identicalList:   types list * types list -> bool;
-
-  val boolType:   types;
-  val intType:    types;
-  val charType:   types;
-  val stringType: types;
-  val realType:   types;
-  val unitType:   types;
-  val exnType:    types;
-  val wordType:   types;
-  
-  (* added 6/12/95 SPF *)
-  val badType:    types;
-
-  (* added SPF 16/4/95 *)  
-  val sameTypeVar : types * types -> bool;
-
-    (* Parse tree operations. *)
-    type typeParsetree
-    val ParseTypeBad: typeParsetree
-    val makeParseTypeConstruction:
-        (string * location) * (typeParsetree list * location) * location -> typeParsetree
-    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
-    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
-    val makeParseTypeLabelled:
-        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
-    val makeParseTypeId: types * location -> typeParsetree
-    val unitTree: location -> typeParsetree
-
-    val typeFromTypeParse: typeParsetree -> types
-
-    val typeExportTree: navigation * typeParsetree -> exportTree
-
-end (* TYPETREE export signature *) =
+) :  TYPETREESIG =
 
 (*****************************************************************************)
 (*                  TYPETREE functor body                                    *)
@@ -461,7 +205,7 @@ struct
   fun mkTypeVar (level, equality, nonunifiable, weak) = 
       TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
       
-  fun mkTypeConstruction (name, typc, args, location) =
+  fun mkTypeConstruction (name, typc, args, locations) =
     let
 	    (* If we're building a type construction from a known constructor
 		   set it now and freeze it.  If we need to find it in a later
@@ -476,7 +220,7 @@ struct
 		   else FrozenRef typc
 	in
         TypeConstruction {name = name, value = typeCons,
-                          args = args, location = location}
+                          args = args, locations = locations}
 	end;
 
 	local
@@ -496,7 +240,7 @@ struct
   fun mkOverloadSet [constr] =
   	(* If there is just a single constructor in the set we make
 	   a type construction from it. *)
-		mkTypeConstruction(tcName constr, constr, nil, LEX.nullLocation)
+		mkTypeConstruction(tcName constr, constr, nil, [])
    | mkOverloadSet constrs = 
   	let
 		(* Make a type variable and point this at the overload set
@@ -539,15 +283,15 @@ struct
 
   (* Type identifiers bound to standard type constructors. *)
    
-  val unitType = mkTypeConstruction ("unit", unitType, [], LEX.nullLocation);
+  val unitType = mkTypeConstruction ("unit", unitType, [], []);
    
-  val intType    = mkTypeConstruction ("int",     intType,    [], LEX.nullLocation);
-  val realType   = mkTypeConstruction ("real",    realType,   [], LEX.nullLocation);
-  val charType   = mkTypeConstruction ("char",    charType,   [], LEX.nullLocation);
-  val stringType = mkTypeConstruction ("string",  stringType, [], LEX.nullLocation);
-  val boolType   = mkTypeConstruction ("bool",    boolType,   [], LEX.nullLocation);
-  val exnType    = mkTypeConstruction ("exn",     exnType,    [], LEX.nullLocation);
-  val wordType   = mkTypeConstruction ("word",    wordType,   [], LEX.nullLocation);
+  val intType    = mkTypeConstruction ("int",     intType,    [], []);
+  val realType   = mkTypeConstruction ("real",    realType,   [], []);
+  val charType   = mkTypeConstruction ("char",    charType,   [], []);
+  val stringType = mkTypeConstruction ("string",  stringType, [], []);
+  val boolType   = mkTypeConstruction ("bool",    boolType,   [], []);
+  val exnType    = mkTypeConstruction ("exn",     exnType,    [], []);
+  val wordType   = mkTypeConstruction ("word",    wordType,   [], []);
           
   fun isUndefined cons = isUnsetId (tcIdentifier cons); 
 
@@ -719,11 +463,15 @@ struct
     let
         fun assTypes (typ : types) () : unit =
             case typ of
-                TypeConstruction {name: string, value, args: types list, location} =>
+                TypeConstruction {name: string, value, args: types list, locations} =>
                 (* Assign constructor, then the parameters. *)
                     if isUndefined (pling value)
                     then
-    				    let 
+    				    let
+                            val location =
+                                case List.find(fn (DeclaredAt _) => true | _ => false) locations of
+                                    SOME(DeclaredAt loc) => loc
+                                |   _ => LEX.nullLocation
                         (* Must check that it has not already been set -
                            We might have unitType from an empty record. *)
                             val constructor : typeConstrs = lookupType (name, location);
@@ -854,7 +602,12 @@ struct
             (* Get the declaration position for the type constructor. *)
             val constrContext =
                 if isUndefined(pling value) then []
-                else [ContextLocation(tcDeclaredAt(pling value))]
+                else
+                (
+                    case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations(pling value)) of
+                        SOME(DeclaredAt loc) => [ContextLocation loc]
+                    |   _ => []
+                )
 		 in
             (* Remove the structure name and leave just the type. *)
             PrettyBlock(0, false, createStructureList structName @ constrContext,
@@ -957,10 +710,13 @@ struct
   	 | OverloadSet {typeset = tconslist} =>
 	 	  (* Just print the type constructors separated by / *)
 		let
+            fun constrLocation tcons =
+                case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
+                    SOME(DeclaredAt loc) => [ContextLocation loc]
+                |   _ => []
             (* Type constructor with context. *)
             fun tconsItem tcons =
-                PrettyBlock(0, false, [ContextLocation(tcDeclaredAt tcons)],
-                    [PrettyString(tcName tcons)])
+                PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
 
 		  	fun printTCcons [] = []
 			  | printTCcons [tcons] = [tconsItem tcons]
@@ -1184,7 +940,7 @@ struct
     let
         val argTypes = List.map typeFromTypeParse args
         val construction =
-            mkTypeConstruction (constrName, undefType, argTypes, location)
+            mkTypeConstruction (constrName, undefType, argTypes, [DeclaredAt location])
     in
         ParseTypeConstruction{
             typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = nameLoc }
@@ -1245,7 +1001,7 @@ struct
                         TypeConstruction { value, name, ...} =>
                             if isUndefined (pling value)
                             then (name, [])
-                            else (name, [PTdeclaredAt(tcDeclaredAt(pling value))])
+                            else (name, mapLocationProps(tcLocations(pling value)))
                     |   _ => ("", []) (* Error? *)
                 val navNameAndArgs =
                 (* Separate cases for nullary, unary and higher type constructions. *)
@@ -1436,7 +1192,7 @@ struct
       TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
         copyTypeVar atyp
     
-    | TypeConstruction {name, value, args, location} => 
+    | TypeConstruction {name, value, args, locations} => 
       let
 		val copiedArgs   = copyList args;
 		val copiedConstr = copyTypeConstr (pling value);
@@ -1454,7 +1210,7 @@ struct
 		   andalso (case value of FrozenRef _ => true | _ => false)
 		then atyp 
 		else (* Must copy it. *) 
-		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs, location)
+		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
       end 
            
     | FunctionType {arg, result} => 
@@ -1555,7 +1311,7 @@ struct
 			  makeId (),
 			  tcEquality tcon,
 			  0 (* Always global. *),
-              tcDeclaredAt tcon); (* Copy original declaration location ??? *)
+              tcLocations tcon); (* Copy original declaration location ??? *)
 		  
 	     (* And put it in the table *)
 	     val U : unit = enter (id, r);
@@ -2270,7 +2026,7 @@ struct
 						  | [constr] =>
 						  	( (* Turn a singleton into a type construction. *)
 							tvSetValue (typesTypeVar newTv,
-								mkTypeConstruction(tcName constr, constr, nil, LEX.nullLocation));
+								mkTypeConstruction(tcName constr, constr, nil, []));
 							Yes
 							)
 						  | newset =>
@@ -2715,7 +2471,7 @@ struct
 						fun freezeType tcons =
 							(
 							tvSetValue(tvar,
-								mkTypeConstruction(tcName tcons, tcons, [], LEX.nullLocation));
+								mkTypeConstruction(tcName tcons, tcons, [], []));
 							tcons
 							)
 					in
@@ -2928,8 +2684,8 @@ struct
 				val _ = count := !count + 1;
 				val tCons =
 					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(),
-						tvEquality tvar, 0, location lex);
-	            val newVal = mkTypeConstruction(name, tCons, [], LEX.nullLocation)
+						tvEquality tvar, 0, [DeclaredAt(location lex)]);
+	            val newVal = mkTypeConstruction(name, tCons, [], [])
 			in
 				warningMessage(lex, location lex, 
 					concat["The type of (", valName,
@@ -3048,7 +2804,7 @@ struct
        if tcEquality constr then true
        else if isEmpty(tcEquivalent constr) then false
        else not (equality 
-                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr, LEX.nullLocation),
+                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr, []),
                     fn tri => No,
                     fn tri => Yes)
                   = No);
@@ -3066,7 +2822,7 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, LEX.nullLocation);
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, []);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)
@@ -3221,7 +2977,7 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, LEX.nullLocation);
+      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, []);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)

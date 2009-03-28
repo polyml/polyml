@@ -120,43 +120,7 @@ end;
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type 'a tag = 'a Universal.tag;
-  
-  type types;
-  type values;
-  type typeConstrs;
-  type fixStatus;
-  type structVals;
-  type signatures;
-  type functors;
-  
-  datatype env = 
-    Env of 
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit
-      };
-
-  val valueVar:      values      tag;
-  val typeConstrVar: typeConstrs tag;
-  val fixVar:        fixStatus   tag;
-  val structVar:     structVals  tag;
-  val signatureVar:  signatures  tag;
-  val functorVar:    functors    tag;
-end;
+structure STRUCTVALS : STRUCTVALSIG;
 
 structure MISC :
 sig

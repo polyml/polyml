@@ -1608,6 +1608,29 @@ local
 
                 fun endPacket endCh = (print(String.implode[#"\u001b", endCh]); TextIO.flushOut TextIO.stdOut)
 
+                (* Print a declaration location, "open" location or parent structure location. *)
+                fun decLocation(startCh, getLoc: ptProperties->location option) =
+                let
+                    fun findLoc [] = ()
+                    |   findLoc (hd::tl) =
+                        case getLoc hd of
+                            SOME {file, startLine, startPosition, endPosition, ...} =>
+                                (
+                                    print "\u001b,";
+                                    print file; (* TODO double any escapes. *) print "\u001b,";
+                                    print (Int.toString startLine); print "\u001b,";
+                                    print (Int.toString startPosition); print "\u001b,";
+                                    print (Int.toString endPosition)
+                                )
+                        |   NONE => findLoc tl
+                in
+                    gotoPosition (Char.toLower startCh); printLocation startCh;
+                    case lastParsetree of
+                        ref NONE => ()
+                    |   ref (SOME(_, tree)) => findLoc tree;
+                    endPacket (Char.toLower startCh)
+                end
+
             in
                 case input1 stdIn of
                     NONE => () (* EOF - exit *)
@@ -1798,29 +1821,12 @@ local
                                 endPacket #"t"
                             )
                             (* Print the declaration location of the selected node. *)
-                        |   #"I" =>
-                            (
-                                gotoPosition #"i"; printLocation #"I";
-                                case lastParsetree of
-                                    ref NONE => ()
-                                |   ref (SOME(_, tree)) =>
-                                    (
-                                        (* Print the declaration location if it's there. *)
-                                        case List.find (fn (PTdeclaredAt p) => true | _ => false) tree of
-                                            SOME(PTdeclaredAt
-                                                {file, startLine, startPosition, endPosition, ...}) =>
-                                            (
-                                                print "\u001b,";
-                                                print file; (* TODO double any escapes. *) print "\u001b,";
-                                                print (Int.toString startLine); print "\u001b,";
-                                                print (Int.toString startPosition); print "\u001b,";
-                                                print (Int.toString endPosition)
-                                            )
-                                        |   _ => ()
-                                    );
-                                endPacket #"i"
-                            )
-
+                        |   #"I" => decLocation(#"I", fn (PTdeclaredAt p) => SOME p | _ => NONE)
+                            (* Print the location where the identifier was opened. *)
+                        |   #"J" => decLocation(#"J", fn (PTopenedAt p) => SOME p | _ => NONE)
+                            (* Print the declaration location of the identifier's parent structure. *)
+                        |   #"S" => decLocation(#"S", fn (PTstructureAt p) => SOME p | _ => NONE)
+ 
                         |   #"O" => (* Print list of valid commands. *)
                             (
                                 gotoPosition #"o"; printLocation #"O";
@@ -1834,6 +1840,8 @@ local
                                         |   printCode(PTfirstChild _) = print "C"
                                         |   printCode(PTtype _) = print "T"
                                         |   printCode(PTdeclaredAt _) = print "I"
+                                        |   printCode(PTopenedAt _) = print "J"
+                                        |   printCode(PTstructureAt _) = print "S"
                                         |   printCode(PTprint _) = ()
                                     in
                                         List.app printCode tree

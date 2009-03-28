@@ -22,7 +22,5 @@ structure StructVals =
   STRUCT_VALS
    (
      structure CODETREE       = CodeTree
-     structure MISC           = Misc
-     structure UNIVERSAL      = Universal
      structure UNIVERSALTABLE = UniversalTable
   );

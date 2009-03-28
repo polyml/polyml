@@ -32,212 +32,17 @@ structure LEX: LEXSIG
 (*****************************************************************************)
 (*                  TYPETREE                                                 *)
 (*****************************************************************************)
-structure TYPETREE :
-sig
-  type types;
-  type typeConstrs;
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val mkTypeVar:          int * bool * bool * bool -> types;
-  val mkTypeConstruction: string * typeConstrs * types list * location -> types;
-  val mkProductType:      types list -> types;
-  val mkFunctionType:     types * types -> types;
-  val mkOverloadSet:	  typeConstrs list -> types;
-  val mkLabelled:         {name: string, typeof: types } list * bool -> types;
-  val mkLabelEntry:       string * types -> {name: string, typeof: types };
-
-  val sortLabels:         {name: string, typeof: types } list -> {name: string, typeof: types } list;
-   
-  val boolType:   types;
-  val intType:    types;
-  val stringType: types;
-  val unitType:   types;
-  val charType:   types;
-  val wordType:   types;
-  val exnType:    types;
-  
-  type pretty
-  val displayTypeConstrs: typeConstrs * int -> pretty
-  val display: types * int -> pretty;
-end;
+structure TYPETREE : TYPETREESIG;
 
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS : 
-sig
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  val inBasis: location
-
-  (* Structures *)
-  type structVals;
-  type signatures;
-  type codetree;
-  type valueClass;
-  
-  type typeId;
-  type types;
-  
-  datatype typeDependent =
-    Print
-  | PrintSpace
-  | MakeString
-  | MakeStringSpace
-  | InstallPP
-  | AddPretty
-  | Equal
-  | NotEqual
-  | AddOverload
-  | TypeDep
-
-  and valAccess =
-  	Global   of codetree
-  | Local    of { addr: int ref, level: int ref }
-  | Selected of { addr: int,     base:  structVals }
-  | Formal   of int
-  | Overloaded of typeDependent (* Values only. *)
-
-  and values =
-  	Value of {
-		name: string,
-		typeOf: types,
-		access: valAccess,
-		class: valueClass,
-        declaredAt: location }
-
-  val undefinedStruct:   structVals;
-  val structSignat:      structVals -> signatures;
-  
-  val makeEmptyGlobal:   string -> structVals;
-  val makeLocalStruct:   string * signatures * location -> structVals;
-
-  (* Functors *)
-  type functors;
-  val makeFunctor: string * structVals * signatures * valAccess * location -> functors;
-
-  (* Signatures *)
-  type univTable;
-  val sigTab:        signatures -> univTable;
-  val makeSignatures: string * location -> signatures;
-  val makeCopy: string * signatures * int * int * location -> signatures;
-
-  val makeFreeId:  unit -> typeId;
-  val makeBoundId: int  -> typeId;
-  
-  (* Types *)
-  type typeConstrs;
-
-  val emptyType: types;
-  val tcSetConstructors: typeConstrs * values list -> unit;
-  val tcTypeVars:     typeConstrs -> types list
-  val makeTypeConstrs:
-  	string * types list * types * typeId * bool * int * location -> typeConstrs;
-  val makeFrozenTypeConstrs:
-  	string * types list * types * typeId * bool * int * location -> typeConstrs;
-
-  val generalisable: int;
-  
-  val boolType:   typeConstrs;
-  val intType:    typeConstrs;
-  val charType:   typeConstrs;
-  val stringType: typeConstrs;
-  val realType:   typeConstrs;
-  val refType:    typeConstrs;
-  val unitType:   typeConstrs;
-  val exnType:    typeConstrs;
-  val wordType:   typeConstrs;
-  val listType:   typeConstrs;
-
-
-  (* Access to values, structures etc. *)
-  val makeGlobal:   codetree -> valAccess;
-
-  (* Values. *)
-  val valName: values -> string
-  
-  val makeFormalV: string * types * int * location -> values;  
-  val makeFormalEx: string * types * int * location -> values;  
-  val makeOverloaded: string * types * typeDependent -> values;
-  
-  type fixStatus;
-  datatype env = Env of
-    {
-      lookupVal:    string -> values option,
-      lookupType:   string -> typeConstrs option,
-      lookupFix:    string -> fixStatus option,
-      lookupStruct: string -> structVals option,
-      lookupSig:    string -> signatures option,
-      lookupFunct:  string -> functors option,
-      enterVal:     string * values      -> unit,
-      enterType:    string * typeConstrs -> unit,
-      enterFix:     string * fixStatus   -> unit,
-      enterStruct:  string * structVals  -> unit,
-      enterSig:     string * signatures  -> unit,
-      enterFunct:   string * functors    -> unit
-    };
-
-  val makeEnv: signatures -> env;
-
-  type 'a tag;
-  
-  val valueVar:      values      tag;
-  val typeConstrVar: typeConstrs tag;
-  val fixVar:        fixStatus   tag;
-  val structVar:     structVals  tag;
-  val signatureVar:  signatures  tag;
-  val functorVar:    functors    tag;
-end;
-
+structure STRUCTVALS : STRUCTVALSIG;
 
 (*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
-structure VALUEOPS :
-sig
-  type codetree
-  type types
-  type values
-  type representations
-  type structVals
-  type functors
-  type signatures
-  type fixStatus
-  type typeConstrs
-  type nameSpace;
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  
-  (* Construction functions. *)
-  val mkGvar:    string * types * codetree * location -> values
-  val mkGconstr: string * types * codetree * bool * location -> values
- 
-  (* Standard values *)
-  val nilConstructor:  values;
-  val consConstructor: values;
-   
-  val RefForm:   representations;
-  val BoxedForm: representations;
-  val EnumForm:  int -> representations;
-
-  val createNullaryConstructor: representations * string -> codetree
-  val createUnaryConstructor: representations * string -> codetree
-
-  val chooseConstrRepr : (string*types) list -> codetree list
-  
-  val displayFixStatus:  fixStatus -> pretty
-  (* nameSpace arg is used to get fixity and for exception packets. bool arg is ture if we
-     should print type with the structure name. *)
-  val displaySignatures: signatures * int * nameSpace -> pretty
-  val displayStructures: structVals * int * nameSpace -> pretty
-  val displayFunctors:   functors   * int * nameSpace -> pretty
-  val displayValues:     values * int * nameSpace -> pretty
-  val printValues: values * int * nameSpace -> pretty
-
-  val printSpaceTag: nameSpace Universal.tag
-end;
+structure VALUEOPS : VALUEOPSSIG;
 
 (*****************************************************************************)
 (*                  CODETREE                                                 *)
@@ -441,8 +246,9 @@ sharing type
 = EXPORTTREE.pretty
 
 sharing type
-  MAKE.nameSpace
-= VALUEOPS.nameSpace
+  TYPETREE.locationProp
+= STRUCTVALS.locationProp
+= VALUEOPS.locationProp
 
 ) : 
 
@@ -467,6 +273,8 @@ struct
     open MISC;
     open RuntimeCalls; (* for POLY_SYS calls *)
     open EXPORTTREE
+    
+    val declInBasis = [DeclaredAt inBasis]
 
 (*****************************************************************************)
 (*                  Untility functions                                       *)
@@ -526,18 +334,18 @@ struct
    
         (* List of something *)
         fun List (base : types) : types =
-            mkTypeConstruction ("list", listType, [base], inBasis);
+            mkTypeConstruction ("list", listType, [base], declInBasis);
 
         (* ref something *)
         fun Ref (base : types) : types  =
-            mkTypeConstruction ("ref", refType, [base], inBasis);
+            mkTypeConstruction ("ref", refType, [base], declInBasis);
         
         (* option something *)
         val optionType = (* Can't freeze it because we add constructors *)
-            makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId (), true, 0, inBasis);
+            makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId (), true, 0, declInBasis);
         
         fun Option (base : types) : types  =
-            mkTypeConstruction ("option", optionType, [base], inBasis);
+            mkTypeConstruction ("option", optionType, [base], declInBasis);
         
         
         (* Type-dependent functions. *)
@@ -559,10 +367,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm 0, "false"), true, inBasis);
+                    createNullaryConstructor(EnumForm 0, "false"), true, declInBasis);
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm 1, "true"), true, inBasis);
+                    createNullaryConstructor(EnumForm 1, "true"), true, declInBasis);
         in
             val () = enterGlobalType  ("bool",  boolType);
             val () = enterGlobalValue ("true",  trueCons);
@@ -594,7 +402,7 @@ struct
         local
             val chrCode = identityFunction "chr";
             val chrType = Int ->> String;
-            val chrVal  = mkGvar ("chr", chrType, chrCode, inBasis);
+            val chrVal  = mkGvar ("chr", chrType, chrCode, declInBasis);
         in
             val () = enterGlobalValue ("chr", chrVal);
         end;        
@@ -620,17 +428,17 @@ struct
         local
             val optionTypeVars  = tcTypeVars optionType;
             val alpha         = hd optionTypeVars;
-            val alphaOption   = mkTypeConstruction ("option", optionType, optionTypeVars, inBasis);
+            val alphaOption   = mkTypeConstruction ("option", optionType, optionTypeVars, declInBasis);
             val someType      = TYPETREE.mkFunctionType (alpha, alphaOption);
             (* These two representations are built into the RTS. *)
             val NoneForm = EnumForm 0;
             val SomeForm = BoxedForm;
             val noneConstructor  =
                 mkGconstr ("NONE", alphaOption,
-                    createNullaryConstructor(NoneForm, "NONE"),  true, inBasis);
+                    createNullaryConstructor(NoneForm, "NONE"),  true, declInBasis);
             val someConstructor =
                 mkGconstr ("SOME",  someType,
-                    createUnaryConstructor(SomeForm, "SOME"), false, inBasis);
+                    createUnaryConstructor(SomeForm, "SOME"), false, declInBasis);
         in
             val () = enterGlobalType  ("option", optionType);
             val () = enterGlobalValue ("SOME",   someConstructor);
@@ -650,7 +458,7 @@ struct
                     val a : types = makeImpTV ();
                 in
                     mkGconstr ("ref", a ->> Ref a,
-                        createUnaryConstructor(RefForm, "ref"), false, inBasis)
+                        createUnaryConstructor(RefForm, "ref"), false, declInBasis)
                 end
         in
             val () = enterGlobalType  ("ref", refType);
@@ -669,7 +477,7 @@ struct
                         false) (* NOT early *), 0, 1, "!(1)");
 
             val plingType = let val a = makeTV () in Ref a ->> a end;
-            val plingVal  = mkGvar ("!", plingType, plingCode, inBasis);
+            val plingVal  = mkGvar ("!", plingType, plingCode, declInBasis);
         in
             val () = enterGlobalValue ("!", plingVal);
         end;        
@@ -693,7 +501,7 @@ struct
    type to have a ref-style equality i.e. 'a vector would permit equality
    even if 'a did not. *)
         val vectorType =
-            makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0, inBasis);
+            makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0, declInBasis);
         val () = enterGlobalType  ("vector", vectorType);
 
 
@@ -709,7 +517,7 @@ struct
         
         fun enterRunCall (name : string, entry : codetree, typ : types) : unit =
         let
-            val value = mkGvar (name, typ, entry, inBasis);
+            val value = mkGvar (name, typ, entry, declInBasis);
         in
             #enterVal runCallEnv (name, value)
         end;
@@ -871,7 +679,7 @@ struct
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
         let
-            val value = mkGvar (name, typ, entry, inBasis);
+            val value = mkGvar (name, typ, entry, declInBasis);
         in
             #enterVal bootstrapEnv (name, value)
         end;
@@ -972,10 +780,10 @@ struct
             (* Types for the basic values.  These are opaque. *)
             fun createType typeName =
             let
-                val typeconstr = makeFrozenTypeConstrs(typeName, [], emptyType, makeFreeId (), false, 0, inBasis);
+                val typeconstr = makeFrozenTypeConstrs(typeName, [], emptyType, makeFreeId (), false, 0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
-                mkTypeConstruction (typeName, typeconstr, [], inBasis)
+                mkTypeConstruction (typeName, typeconstr, [], declInBasis)
             end;
     
             val valueVal = createType "valueVal"
@@ -1007,7 +815,7 @@ struct
     
             val recordType =
                 makeFrozenTypeConstrs("nameSpace", [],
-                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, inBasis);
+                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, declInBasis);
             val () = #enterType nameSpaceEnv ("nameSpace", recordType);
     
             val debugFields =
@@ -1025,7 +833,7 @@ struct
                  ("signatures", List(String ** signatureVal)),
                  ("functors", List(String ** functorVal))]
           in
-            val nameSpaceType = mkTypeConstruction ("nameSpace", recordType, [], inBasis)
+            val nameSpaceType = mkTypeConstruction ("nameSpace", recordType, [], declInBasis)
             val execResult = mkLabelled(sortLabels resultFields, true)
 
             val valueVal = valueVal
@@ -1049,10 +857,10 @@ struct
                 ]
             val typeconstr =
                 makeFrozenTypeConstrs("location", [],
-                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, inBasis);
+                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, declInBasis);
             val () = #enterType polyMLEnv ("location", typeconstr);
         in
-            val Location = mkTypeConstruction ("location", typeconstr, [], inBasis)
+            val Location = mkTypeConstruction ("location", typeconstr, [], declInBasis)
         end
 
 (*****************************************************************************)
@@ -1061,8 +869,8 @@ struct
         local
             (* Pretty print context information. *)
             open TYPETREE
-            val typeconstr = makeTypeConstrs("context", [], emptyType, makeFreeId (), false, 0, inBasis);
-            val ContextType = mkTypeConstruction ("pretty", typeconstr, [], inBasis)
+            val typeconstr = makeTypeConstrs("context", [], emptyType, makeFreeId (), false, 0, declInBasis);
+            val ContextType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("context", typeconstr);
  
             val constrs = (* Order is significant. *)
@@ -1072,13 +880,13 @@ struct
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> ContextType, code, false, inBasis))
+                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> ContextType, code, false, declInBasis))
                    (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the context type. *)
 			val () = tcSetConstructors (typeconstr, constructors);
 		in
-            val Context = mkTypeConstruction ("context", typeconstr, [], inBasis)
+            val Context = mkTypeConstruction ("context", typeconstr, [], declInBasis)
 		end
 
 (*****************************************************************************)
@@ -1086,8 +894,8 @@ struct
 (*****************************************************************************)
         local
             open TYPETREE
-            val typeconstr = makeTypeConstrs("pretty", [], emptyType, makeFreeId (), false, 0, inBasis);
-            val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], inBasis)
+            val typeconstr = makeTypeConstrs("pretty", [], emptyType, makeFreeId (), false, 0, declInBasis);
+            val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val constrs = (* Order is significant. *)
                [ ("PrettyBlock", mkProductType[Int, Bool, List Context, List PrettyType]),
@@ -1096,7 +904,7 @@ struct
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when PrettyPrint was compiled by the previous compiler. *)
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PrettyType, code, false, inBasis))
+                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PrettyType, code, false, declInBasis))
                    (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the pretty print type. *)
@@ -1189,21 +997,21 @@ struct
 
             fun enterUniversal (name : string, entry : codetree, typ : types) : unit =
             let
-                val value = mkGvar (name, typ, entry, inBasis);
+                val value = mkGvar (name, typ, entry, declInBasis);
             in
                 #enterVal uniStructEnv (name, value)
             end;
 
             (* type 'a tag *)
-            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], emptyType, makeFreeId (), false, 0, inBasis);
+            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], emptyType, makeFreeId (), false, 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)
-            val univConstr = makeFrozenTypeConstrs("universal", [], emptyType, makeFreeId (), false, 0, inBasis);
+            val univConstr = makeFrozenTypeConstrs("universal", [], emptyType, makeFreeId (), false, 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
-            fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], inBasis)
-            val Universal = mkTypeConstruction ("universal", univConstr, [], inBasis)
+            fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
+            val Universal = mkTypeConstruction ("universal", univConstr, [], declInBasis)
 
             (* val tagInject  : 'a tag -> 'a -> universal *)
             val injectType = let val a = makeTV() in Tag a ->> a ->> Universal end
@@ -1239,35 +1047,37 @@ struct
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
-			val propConstr = makeTypeConstrs("ptProperties", [], emptyType, makeFreeId (), false, 0, inBasis);
+			val propConstr = makeTypeConstrs("ptProperties", [], emptyType, makeFreeId (), false, 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
-            val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], inBasis)
+            val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
 			val parseTreeConstr =
-                makeFrozenTypeConstrs("parseTree", [], Location ** List PtProperties, makeFreeId (), false, 0, inBasis);    
-            val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], inBasis)
+                makeFrozenTypeConstrs("parseTree", [], Location ** List PtProperties, makeFreeId (), false, 0, declInBasis);    
+            val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", parseTreeConstr);
 
             (* Representation of the type of a value. *)
 			val typesConstr =
-                makeFrozenTypeConstrs("typeExpression", [], emptyType, makeFreeId (), false, 0, inBasis);    
-            val Types = mkTypeConstruction ("typeExpression", typesConstr, [], inBasis)
+                makeFrozenTypeConstrs("typeExpression", [], emptyType, makeFreeId (), false, 0, declInBasis);    
+            val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 
             val constrs = (* Order is significant. *)
                [ ("PTdeclaredAt",       Location),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
+                 ("PTopenedAt",         Location),
                  ("PTparent",           Unit ->> ParseTree),
                  ("PTpreviousSibling",  Unit ->> ParseTree),
                  ("PTprint",            Int ->> PrettyType),
+                 ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PtProperties, code, false, inBasis))
+                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PtProperties, code, false, declInBasis))
                    (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
@@ -1289,7 +1099,7 @@ struct
 				    mkProductType[Option ParseTree, Option (Unit ->> execResult)];
         in
             val () = enterBootstrap ("use", mkConst (toMachineWord (useIntoEnv globalTable)), String ->> Unit)            
-            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler), inBasis));
+            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable)), nameSpaceType)
         end;
 
@@ -1333,7 +1143,7 @@ struct
                 (* make an anonymous, empty signature *)
                 val sig0    : signatures = makeSignatures ("", inBasis);
                 val (Env argEnv) = makeEnv sig0;
-                val exIdenVal : values = makeFormalV ("ex_iden", Int, 0, inBasis);
+                val exIdenVal : values = makeFormalV ("ex_iden", Int, 0, declInBasis);
                 val () = #enterVal argEnv ("ex_iden", exIdenVal);
             
             in
@@ -1345,7 +1155,7 @@ struct
                 (* make an anonymous, empty signature *)
                 val sig0    = makeSignatures ("", inBasis)
                 val (Env resEnv) = makeEnv sig0;
-                val exVal = makeFormalEx ("ex", TYPETREE.exnType, 0, inBasis);
+                val exVal = makeFormalEx ("ex", TYPETREE.exnType, 0, declInBasis);
                 val () = #enterVal resEnv ("ex", exVal);
             in
                 val resSig0 = makeCopy ("", sig0, 0, 0, inBasis);
@@ -1356,7 +1166,7 @@ struct
                 makeFunctor
                 (
                     "Run_exception0",
-                    makeLocalStruct ("", argSig0, inBasis),
+                    makeLocalStruct ("", argSig0, declInBasis),
                     resSig0,
                     makeGlobal (identityFunction "Run_exception0"),
                     inBasis
@@ -1374,7 +1184,7 @@ struct
         local
             (* Make a nullary type constructor (the type of the exception) *)
             val exTypeConstr = 
-                makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0, inBasis);
+                makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0, declInBasis);
             
             (* Argument signature. *)
             local
@@ -1383,7 +1193,7 @@ struct
                 
                 val (Env argEnv) = makeEnv sig1;
                 
-                val exIdenVal = makeFormalV ("ex_iden", Int, 0, inBasis);
+                val exIdenVal = makeFormalV ("ex_iden", Int, 0, declInBasis);
                 
                 val () = #enterType argEnv ("ex_type", exTypeConstr);
                 val () = #enterVal  argEnv ("ex_iden", exIdenVal);
@@ -1399,8 +1209,8 @@ struct
                 val (Env resEnv) = makeEnv sig1;
                 
                 (* get the actual type from the nullary type constructor *)
-                val exType = mkTypeConstruction ("ex_type", exTypeConstr, [], inBasis);
-                val exVal  = makeFormalEx ("ex", exType ->> TYPETREE.exnType, 0, inBasis);
+                val exType = mkTypeConstruction ("ex_type", exTypeConstr, [], declInBasis);
+                val exVal  = makeFormalEx ("ex", exType ->> TYPETREE.exnType, 0, declInBasis);
                 
                 val () = #enterVal resEnv ("ex", exVal);
             in      
@@ -1413,7 +1223,7 @@ struct
                 makeFunctor
                     (
                     "Run_exception1",
-                    makeLocalStruct ("", argSig1, inBasis),
+                    makeLocalStruct ("", argSig1, declInBasis),
                     resSig1,
                     makeGlobal (identityFunction "Run_exception1"),
                     inBasis
@@ -1491,7 +1301,7 @@ struct
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
-                                #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, inBasis)))
+                                #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
                 ("displayFix",             toMachineWord displayFix, String ** fixityVal ->> PrettyType),
                 ("displaySig",             toMachineWord displaySignatures,

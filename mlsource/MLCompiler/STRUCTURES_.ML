@@ -58,309 +58,24 @@ end (* CODETREE *);
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type signatures;
-  type typeDependent;
-  type codetree;
-  type typeId;
-  type types
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  type 'a tag;
-
-  datatype structVals = 
-    NoStruct
-  | Struct of
-    {
-      name:   string,
-      signat: signatures,
-      access: valAccess,
-      declaredAt: location
-    }
-
-  and values =
-  	Value of {
-		name: string,
-		typeOf: types,
-		access: valAccess,
-		class: valueClass,
-        declaredAt: location }
-
-  (* Classes of values. *)
-  and valueClass =
-  	  SimpleValue
-	| Exception
-	| Constructor of { nullary: bool }
-
-  and valAccess =
-  	Global   of codetree
-  | Local    of { addr: int ref, level: int ref }
-  | Selected of { addr: int,     base:  structVals }
-  | Formal   of int
-  | Overloaded of typeDependent (* Values only. *)
-
-  (* Structures *)
-        
-  val undefinedStruct:    structVals;
-  val isUndefinedStruct:  structVals -> bool;
-  val structSignat:       structVals -> signatures;
-  val structName:         structVals -> string;
-  val structAccess:       structVals -> valAccess;
-  val structDeclaredAt:  structVals -> location;
-
-  val structVar:          structVals  tag;
-
-  val makeSelectedStruct: structVals * structVals -> structVals;
-  val makeLocalStruct:    string * signatures * location -> structVals;
-  val makeGlobalStruct:   string * signatures * codetree * location -> structVals;
-  val makeFormalStruct:   string * signatures * int * location -> structVals;
-
-  (* Functors *)
-  
-  type functors;
-
-  val undefinedFunctor:   functors;
-  val isUndefinedFunctor: functors -> bool;
-  val functorName:        functors -> string;
-  val functorArg:         functors -> structVals;
-  val functorResult:      functors -> signatures;
-  val functorAccess:      functors -> valAccess;
-  val functorDeclaredAt:  functors -> location
-  
-  val makeFunctor: string * structVals * signatures * valAccess * location -> functors;
-
- 
-  (* Signatures *)
-  type univTable;
-  val sigName:        signatures -> string;
-  val sigTab:         signatures -> univTable;
-  val sigMinTypes:    signatures -> int;
-  val sigMaxTypes:    signatures -> int;
-  val sigDeclaredAt: signatures -> location;
-  
-  val makeSignatures: string * location -> signatures;
-  val makeCopy:       string * signatures * int * int * location -> signatures;
-
-  (* type or structure identifiers *)
-  val makeFreeId:     unit -> typeId;
-  val makeVariableId: unit -> typeId;
-  val makeBoundId:    int  -> typeId;
-  
-  val unsetId:        typeId;
-  val isUnsetId:      typeId -> bool;
-  val isFreeId:       typeId -> bool;
-  val isBoundId:      typeId -> bool;
-  val isVariableId:   typeId -> bool;
-  val offsetId:       typeId -> int;
-  val sameTypeId:     typeId * typeId -> bool;
-  val unifyTypeIds:   typeId * typeId -> bool;
-
-  (* Types *)
-  
-  (* Standard type constructors. *)
-  type typeConstrs;
-  
-  val undefType:         typeConstrs;
-
-  val tcName:            typeConstrs -> string;
-  val tcArity:           typeConstrs -> int;
-  val tcTypeVars:        typeConstrs -> types list;
-  val tcEquality:        typeConstrs -> bool;
-  val tcEquivalent:      typeConstrs -> types;
-  val tcConstructors:    typeConstrs -> values list;
-  val tcSetConstructors: typeConstrs * values list -> unit;
-  val tcIdentifier:      typeConstrs -> typeId;
-  val tcDeclaredAt:      typeConstrs -> location
-  
-  val typeConstrVar:     typeConstrs tag;
-  
-  val makeTypeConstrs:
-  	string * types list * types * typeId * bool * int* location -> typeConstrs;
-
-  val badType:   types;
-  val emptyType: types;
-  val isEmpty:   types -> bool;
-  
-  val makeValueConstr: string * types * bool * valAccess * location -> values;
-  val isConstructor: values -> bool;
-
-  (* Access to values, structures etc. *)
-
-  val makeGlobal:   codetree -> valAccess;
-  val makeLocal:    unit -> valAccess;
-  val makeFormal:   int  -> valAccess;
-  
-  val isGlobal:     valAccess -> bool;
-  val isLocal:      valAccess -> bool;
-  val isFormal:     valAccess -> bool;
-  val isSelected:   valAccess -> bool;
-
-  val vaGlobal:     valAccess -> codetree;
-  val vaFormal:     valAccess -> int;
-  val vaLocal:      valAccess -> { addr: int ref, level: int ref };
-  val vaSelected:   valAccess -> { addr: int,     base:  structVals };
-
-
-  (* Values. *)
-  
-  val valName:         values -> string;
-  val valTypeOf:       values -> types;
-
-  val valueVar:        values      tag;
-
-  (* Infix status *)
-  type fixStatus;
-
-  val fixVar: fixStatus tag;
-
-  datatype env = 
-    Env of
-    {
-      lookupVal:    string -> values option,
-      lookupType:   string -> typeConstrs option,
-      lookupFix:    string -> fixStatus option,
-      lookupStruct: string -> structVals option,
-      lookupSig:    string -> signatures option,
-      lookupFunct:  string -> functors option,
-      enterVal:     string * values      -> unit,
-      enterType:    string * typeConstrs -> unit,
-      enterFix:     string * fixStatus   -> unit,
-      enterStruct:  string * structVals  -> unit,
-      enterSig:     string * signatures  -> unit,
-      enterFunct:   string * functors    -> unit
-    };
-
-  val makeEnv: signatures -> env;
-end (* STRUCTVALS *);
+structure STRUCTVALS : STRUCTVALSIG;
 
 (*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
-structure VALUEOPS :
-sig
-  type types;
-  type codetree;
-  type values;
-  type structVals;
-  type valAccess;
-  type lexan;
-  type typeConstrs;
-  type fixStatus
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val mkGvar:        string * types * codetree * location -> values;
-  val mkGex:         string * types * codetree * location -> values;
-  val mkSelectedVar: values * structVals -> values;
-  
-  val codeStruct:     structVals * int -> codetree;
-  val codeAccess:     valAccess  * int -> codetree
-  val codeVal:        values * int * types * lexan * location -> codetree
-  val codeExFunction: values * int * types * lexan * location -> codetree
-                    
-  val lookupAny:  string * (string -> 'a option) * (string -> structVals option) *
-                 (structVals -> string -> 'a option) * string * 'a * (string -> unit) -> 'a
-                    
-  val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
-                        string * (string -> unit) -> structVals
-                                           
-  val lookupStructureDirectly: string * {lookupStruct: string -> structVals option} * 
-                               string * (string -> unit) -> structVals
-                                           
-                  
-  val lookupTyp:   {lookupType: string -> typeConstrs option,
-                    lookupStruct: string -> structVals option} * 
-                   string * (string -> unit) -> typeConstrs
-end (* VALUEOPS *);
+structure VALUEOPS : VALUEOPSSIG;
 
 (*****************************************************************************)
 (*                  EXPORTTREE                                               *)
 (*****************************************************************************)
-
 structure EXPORTTREE: EXPORTTREESIG
 
 (*****************************************************************************)
 (*                  TYPETREE                                                 *)
 (*****************************************************************************)
-structure TYPETREE :
-sig
-  type typeConstrs;
-  type types;
-  type lexan;
-  type typeId;
-  type values;
-  type pretty
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val mkTypeConstruction:   string * typeConstrs * types list * location -> types;
-  val mkFunctionType:       types  * types -> types;
-
-  (* Fill in the values of type variables and make checks. *)
-  val assignTypes:          types * (string * location -> typeConstrs) * lexan -> unit;
-
-  val exnType:              types;
-
-   (* Match a candidate to a target type. *)
-   val matchTypes: types * types * (typeId -> typeConstrs option) *
-                   lexan * location * (unit -> pretty) -> unit;
-
-
-  (* Used to establish sharing constraints between type constructors. *)
-  val linkTypeConstructors: typeConstrs * typeConstrs * (string -> unit) -> unit;
-
-  (* Used to link a type constructor to a type as the result of a "where type"
-     construction. *)
-  val setWhereType: typeConstrs * typeConstrs * (string -> unit) -> unit;
-
-  (* Check that a type constructor permits equality. *)
-  val permitsEquality:      typeConstrs -> bool;
-
-  val copyType:             types * (types -> types) * 
-                               (typeConstrs -> typeConstrs) -> types;
-
-  val setTypeConstr:        typeConstrs * (typeConstrs -> typeId) -> unit;
-
-  val enterTypeConstrs:     typeConstrs * typeConstrs *
-                            { enter: typeId * typeConstrs -> unit, 
-                              lookup: typeId -> typeConstrs option} -> unit;
-
-  val identical:            types * types -> bool;
-  val identicalConstr:      typeConstrs * typeConstrs -> bool;
-  val makeEquivalent:       typeConstrs * types list -> types;
-  val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
-  val checkWellFormed:      types * (string -> unit) -> unit;
-
-  val findValueConstructor: values -> values;
-
-  val copyTypeConstr:  typeConstrs * (typeId -> bool) * 
-                       (unit -> typeId) *
-                       {enter: typeId * typeConstrs -> unit, 
-                        lookup: typeId -> typeConstrs option} *
-						(types -> types) * string -> typeConstrs;
-
-  val display:              types * int -> pretty;
-  (* A list of type variables. *)
-  val displayTypeVariables: types list * int -> pretty list;
-  
-  (* added SPF 16/4/95 *)  
-  val sameTypeVar : types * types -> bool;
-
-  (* Check for free type variables.  Added for ML97. *)
-  val checkForFreeTypeVariables: string * types * lexan -> unit;
-  (* Exceptions have either type exn or exn->ty. *)
-  val getFnArgType:   types -> types option
-  
-    type typeParsetree
-    val typeFromTypeParse: typeParsetree -> types
-
-    type exportTree = EXPORTTREE.exportTree
-    type navigation = EXPORTTREE.navigation
-    val typeExportTree: navigation * typeParsetree -> exportTree
-
-end (* TYPETREE *);
+structure TYPETREE : TYPETREESIG
+    where type exportTree = EXPORTTREE.exportTree
+    and   type navigation = EXPORTTREE.navigation;
 
 (*****************************************************************************)
 (*                  PARSETREE                                                *)
@@ -394,15 +109,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                 MISC                                                      *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string; (* compiler error *)  
-  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-end;
-
-(*****************************************************************************)
 (*                  UTILITIES                                                *)
 (*****************************************************************************)
 structure UTILITIES :
@@ -419,26 +125,13 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  UNIVERSAL                                                *)
-(*****************************************************************************)
-structure UNIVERSAL :
-
-sig
-  type universal
-  type 'a tag
-  
-  val tagIs      : 'a tag -> universal -> bool
-  val tagProject : 'a tag -> universal -> 'a
-end;
-
-(*****************************************************************************)
 (*                  UNIVERSALTABLE                                           *)
 (*****************************************************************************)
 structure UNIVERSALTABLE:
 sig
-  type universal
+  type universal = Universal.universal
   type univTable
-  type 'a tag
+  type 'a tag = 'a Universal.tag
   
   val univEnter:  univTable * 'a tag * string * 'a -> unit;
   val univLookup: univTable * 'a tag * string -> 'a option;
@@ -514,11 +207,6 @@ sharing type
   STRUCTVALS.typeConstrs
 = VALUEOPS.typeConstrs
 = TYPETREE.typeConstrs
-
-sharing type
-  STRUCTVALS.tag
-= UNIVERSALTABLE.tag
-= UNIVERSAL.tag
  
 sharing type
   STRUCTVALS.env 
@@ -528,15 +216,19 @@ sharing type
   UNIVERSALTABLE.univTable
 = STRUCTVALS.univTable
 
-sharing type 
-  UNIVERSALTABLE.universal
-= UNIVERSAL.universal;
-
 sharing type
   STRUCTVALS.fixStatus
 = PARSETREE.fixStatus
 = VALUEOPS.fixStatus
-  
+
+sharing type
+  STRUCTVALS.signatures
+= VALUEOPS.signatures
+
+sharing type
+  STRUCTVALS.functors
+= VALUEOPS.functors
+
 ) : 
 
 (*****************************************************************************)
@@ -612,7 +304,7 @@ end (* STRUCTURES export signature *) =
 (*                  STRUCTURES functor body                                  *)
 (*****************************************************************************)
 struct
-  open MISC; 
+  open Misc; 
   open PRETTY;
   
   open LEX;
@@ -624,7 +316,7 @@ struct
   open UTILITIES;
   open DEBUG;
   open UNIVERSALTABLE;
-  open UNIVERSAL; (* for tag record selectors *)
+  open Universal; (* for tag record selectors *)
   open EXPORTTREE;
 
   val displayType = TYPETREE.display;
@@ -1420,8 +1112,8 @@ struct
   (* Structures and values in signatures. *)
    
   (* Formal paramater to a functor - either value or exception. *)
-  fun mkFormal (name : string, class, typ, addr, location) =
-  	Value{class=class, name=name, typeOf=typ, access=Formal addr, declaredAt=location}
+  fun mkFormal (name : string, class, typ, addr, locations) =
+  	Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
 
   (* A null map from a structure identifier to anything. *)
   fun nullMap (id : 'a) : 'b option = NONE;
@@ -1492,8 +1184,8 @@ struct
       val tvars : types list = tcTypeVars target; (* either will do *)
       val U : unit = 
         matchTypes 
-          (mkTypeConstruction (candidName, candid, tvars, LEX.nullLocation),
-           mkTypeConstruction (targetName, target, tvars, LEX.nullLocation),
+          (mkTypeConstruction (candidName, candid, tvars, []),
+           mkTypeConstruction (targetName, target, tvars, []),
            targTypeMap,
            lex,
            lno,
@@ -1810,7 +1502,7 @@ struct
               else num (* From   sig ... open Global; ... end *);
               
            val newStruct =
-             makeFormalStruct (structName oldStruct, newSig, addr, structDeclaredAt oldStruct);
+             makeFormalStruct (structName oldStruct, newSig, addr, structLocations oldStruct);
          in
            #enterStruct resEnv (dName, newStruct);
            Int.max(num, addr+1)
@@ -1886,7 +1578,7 @@ struct
            *)
            val copiedConstrs =
              map 
-              (fn (v as Value{name, typeOf, class, access, declaredAt}) =>
+              (fn (v as Value{name, typeOf, class, access, locations}) =>
                let
                  (* Copy its type and make a new constructor if the type
                     has changed. *)
@@ -1912,7 +1604,7 @@ struct
                    then let
 					 val v' =
                         Value{name=name, typeOf=newType, class=class,
-                              access=newAccess, declaredAt = declaredAt}
+                              access=newAccess, locations = locations}
 					 (* See if the constructor already exists. *)
                    in
 				     let
@@ -1956,7 +1648,7 @@ struct
                   makeTypeConstrs (* Necessary? *)
                       (tcName newConstr, tcTypeVars newConstr,
                        emptyType,
-                       tcIdentifier newConstr, tcEquality newConstr, 0, tcDeclaredAt newConstr)
+                       tcIdentifier newConstr, tcEquality newConstr, 0, tcLocations newConstr)
                 else newConstr;
             in
               (* Put the new constructors on the result type *)
@@ -1975,7 +1667,7 @@ struct
               val v = tagProject valueVar dVal;
             in
 			  case v of
-			   Value {typeOf=oldType, class, name, access=Formal addr, declaredAt, ...} =>
+			   Value {typeOf=oldType, class, name, access=Formal addr, locations, ...} =>
 				    let
 	                  val newType = copyTyp oldType;
 	                  val newAddr = addr + offset;
@@ -1983,14 +1675,14 @@ struct
 	                  (* Make a new entry if the address or type have changed. *)
 	                  val res =
 	                    if addr <> newAddr orelse not (identical (newType, oldType))
-	                    then mkFormal (name, class, newType, newAddr, declaredAt)
+	                    then mkFormal (name, class, newType, newAddr, locations)
 	                    else v;
 	                in
 	                  #enterVal resEnv (name, res);
 	                  Int.max(num, newAddr+1)
 	                end
 
-			  | Value {typeOf, class, name, access, declaredAt, ...} =>
+			  | Value {typeOf, class, name, access, locations, ...} =>
 			  	    (* Values in the result signature of a structure may be globals
 					   as a result of a call to extractValsToSig.  This applies
 					   if we have a functor which returns a global structure
@@ -2004,7 +1696,7 @@ struct
 	                  val res =
 	                    if not (identical (newType, typeOf))
 	                    then Value {typeOf=newType, class=class, name=name,
-                                    access=access,declaredAt=declaredAt}
+                                    access=access,locations=locations}
 	                    else v
 	                in
 	                  #enterVal resEnv (name, res);
@@ -2489,7 +2181,7 @@ struct
                          the structure. *)
                       val result = pStruct t (offset + 1);
                       (* Make a structure. *)
-                      val resStruct = makeFormalStruct (name, resSig, offset, lno);
+                      val resStruct = makeFormalStruct (name, resSig, offset, [DeclaredAt lno]);
                       val U : unit = #enterStruct structEnv (name, resStruct);
                     in
                       result (* One slot for each structure. *)
@@ -2527,7 +2219,7 @@ struct
 					 ref we put in for type constructions. *)
                   #enterVal structEnv (name,
                     mkFormal (name, SimpleValue,
-				        copyType (typeof, fn x => x, fn x => x), offset, nameLoc));
+				        copyType (typeof, fn x => x, fn x => x), offset, [DeclaredAt nameLoc]));
                   (offset + 1)
                 end
                
@@ -2562,7 +2254,7 @@ struct
 				  orelse name = "::" orelse name = "ref" orelse name = "it"
 				  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
 				  else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, nameLoc));
+                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, [DeclaredAt nameLoc]));
                   (offset + 1)
                 end
                
@@ -2599,13 +2291,13 @@ struct
 				   in this case it's easier to trap the value constructors at
 				   this point. N.B. We may get constructors from a datatype
 				   declaration or from datatype replication. *)
-				fun enterVal(name, Value{class=class, typeOf, declaredAt, ...}) =
+				fun enterVal(name, Value{class=class, typeOf, locations, ...}) =
 					let
 						val addr = !addrs
 						val _ = addrs := addr+1
 					in
 						(#enterVal structEnv)(name,
-							Value{class=class, typeOf=typeOf, access=Formal addr, name=name, declaredAt=declaredAt})
+							Value{class=class, typeOf=typeOf, access=Formal addr, name=name, locations=locations})
 					end
 
 				(* Record all the datatypes we declare. *)
@@ -2723,7 +2415,7 @@ struct
 			     the type on the right hand side. *)
 			  val dummyTypeCons =
 				  makeTypeConstrs (typeName, typeVars, realisation,
-				  				   makeVariableId(), false, 0, line);
+				  				   makeVariableId(), false, 0, [DeclaredAt line]);
 		  in
 			  (* Now match these up.  This is very similar to an ML90
 			     sharing constraint where one of the types was rigid. *)
@@ -2893,13 +2585,13 @@ struct
                     case v of
 						Value{access=Overloaded _, ...} =>
 							#enterVal resultEnv pair (* Just copy. *)
-					|	Value{class, typeOf, declaredAt, ...} =>
+					|	Value{class, typeOf, locations, ...} =>
 	                    let (* Local or selected. *)
 	                      val isVal = not (isConstructor v);
 	                        
 	                      val a = !addrs;
 	                    in
-	                      #enterVal resultEnv (name, mkFormal (name, class, typeOf, a, declaredAt));
+	                      #enterVal resultEnv (name, mkFormal (name, class, typeOf, a, locations));
 	                      addrs := a + 1
 	                    end
                   ),
@@ -2910,10 +2602,10 @@ struct
                 let
                   val U = #enterStruct structEnv pair;
                   val resSig = structSignat str;
-                  val declaredAt = structDeclaredAt str
+                  val locations = structLocations str
                   val a = !addrs;
                 in
-                  #enterStruct resultEnv (name, makeFormalStruct (name, resSig, a, declaredAt));
+                  #enterStruct resultEnv (name, makeFormalStruct (name, resSig, a, locations));
                   addrs := a + 1
                 end,
                 
@@ -3083,7 +2775,7 @@ struct
               end;
                
             (* Now make a local structure variable using this signature. *)
-            val var = makeLocalStruct (name, resultSig, line);
+            val var = makeLocalStruct (name, resultSig, [DeclaredAt line]);
             
           in
             #enter sEnv (name, var);
@@ -3138,7 +2830,7 @@ struct
                 sigVal (spec, 0, Env env, line, "")
               end;
               
-            val resArg = makeLocalStruct (argName, signat, line);
+            val resArg = makeLocalStruct (argName, signat, [DeclaredAt line]);
           in (* Put the copied version in. *)
             if argName <> ""
             then #enterStruct argEnv (argName, resArg)
@@ -3155,12 +2847,12 @@ struct
                    else if tagIs valueVar dVal
                      then
                        #enterVal argEnv 
-                         (dName, mkSelectedVar (tagProject valueVar dVal, resArg))
+                         (dName, mkSelectedVar (tagProject valueVar dVal, resArg, []))
                           
                    else if tagIs structVar dVal
                      then
                        #enterStruct argEnv 
-                         (dName, makeSelectedStruct (tagProject structVar dVal, resArg))
+                         (dName, makeSelectedStruct (tagProject structVar dVal, resArg, []))
                          
                    else ()
                  ),
@@ -4017,9 +3709,9 @@ struct
 		 then let (* Types. *)
             val tcons = tagProject typeConstrVar dVal;
 			(* Update the constructor list. *)
-			fun copyAConstructor(Value{name=cName, typeOf, class, access = Formal addr, declaredAt}) =
+			fun copyAConstructor(Value{name=cName, typeOf, class, access = Formal addr, locations}) =
 				Value{name=cName, typeOf=typeOf, class=class,
-                      access=Global(mkInd(addr, results)), declaredAt = declaredAt}
+                      access=Global(mkInd(addr, results)), locations = locations}
 			|	copyAConstructor c = c (* Already a global. *)
          in
 		 	if null (tcConstructors tcons)
@@ -4087,13 +3779,13 @@ struct
 				 	Value{access=Overloaded _, ...} => (* enter it as it is. *) 
                      	(addr+1, { fixes=fixes, values=(valName dec, dec) :: values, structures=structures,
                                    signatures=signatures, functors=functors, types=types })
-					| Value{class, name, typeOf, declaredAt, ...} =>
+					| Value{class, name, typeOf, locations, ...} =>
 						(* take the value out of the result vector. *)
 	                   let
 	                     val codeVal = mkInd (addr, results);
 	                     val name    = valName dec;
 	                     val val' =
-						 	Value{class=class, name=name, typeOf=typeOf, access=Global codeVal, declaredAt=declaredAt}
+						 	Value{class=class, name=name, typeOf=typeOf, access=Global codeVal, locations=locations}
 	                   in
                          (addr+1, { fixes=fixes, values=(name, val') :: values, structures=structures,
                                     signatures=signatures, functors=functors, types=types } )
