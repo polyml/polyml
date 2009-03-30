@@ -391,7 +391,7 @@ sig
   val wildCard  : location -> parsetree;
   val emptyTree : parsetree;
 
-  val pass2: parsetree * (unit -> typeId) * env * lexan * string -> types;
+  val pass2: parsetree * (bool -> typeId) * env * lexan * string -> types;
 
   type debugenv = environEntry list * (int->codetree)
 
@@ -2423,8 +2423,8 @@ struct
                        side were a type constructor we could use the same unique
                        id, but it is probably not worth it. *)
                     val tcon =
-                        makeTypeConstrs (strName ^ name, typeVars, decType, makeTypeId (),
-                               isEqtype (* In most cases we look at the equivalent. *),
+                        makeTypeConstrs (strName ^ name, typeVars, decType,
+                                makeTypeId isEqtype (* In most cases we look at the equivalent. *),
                                0 (* This is only required for datatypes. *), [DeclaredAt nameLoc]);
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
@@ -3270,7 +3270,7 @@ struct
         let
           val tc =
               makeTypeConstrs (strName ^ name, typeVars, emptyType,
-                             makeTypeId (), false, letDepth, [DeclaredAt nameLoc])
+                             makeTypeId false, letDepth, [DeclaredAt nameLoc])
         in
           tcon := tc;
           enterType tc name;
@@ -3298,8 +3298,8 @@ struct
             (* Construct a type constructor which is an alias of the
                right-hand side of the declaration. *)
             val tcon =
-                makeTypeConstrs (strName ^ name, typeVars, decType, makeTypeId (), 
-                             false, 0, [DeclaredAt nameLoc]);
+                makeTypeConstrs (strName ^ name, typeVars, decType,
+                    makeTypeId false, 0, [DeclaredAt nameLoc]);
         in
             enterType tcon name
         end
@@ -3388,14 +3388,14 @@ struct
         then #apply consEnv (#enterVal env)
         else let   (* Abstract type *)
           (* The declarations have to be evaluated in an environment in
-         which the constructors have been declared. When an identifier
-         is looked up it may:
-           (a) be one of these new declarations, or else
-           (b) be a constructor from the type declarations, or else
-           (c) be outside the abstract type declaration.
-         New declarations are entered in the local environment so that
-         they can be found under (a) and in the surrounding environment
-         where they will be available after this declaration. *)
+             which the constructors have been declared. When an identifier
+             is looked up it may:
+               (a) be one of these new declarations, or else
+               (b) be a constructor from the type declarations, or else
+               (c) be outside the abstract type declaration.
+             New declarations are entered in the local environment so that
+             they can be found under (a) and in the surrounding environment
+             where they will be available after this declaration. *)
           val decEnv =
         let
           val localEnv = searchList ();
@@ -3434,12 +3434,12 @@ struct
             )
         in
           (* Now clobber the equality operations and the constructor list
-         - equality and printing are not allowed outside the abstract
-         type declaration, and the type should not match a datatype
-         in a signature. The problem is that we need the constructor
-         list for exhaustiveness checking of patterns inside the abstype
-         declaration but we do exhaustiveness checking during the code
-         generation phase. *)
+             - equality and printing are not allowed outside the abstract
+             type declaration, and the type should not match a datatype
+             in a signature. The problem is that we need the constructor
+             list for exhaustiveness checking of patterns inside the abstype
+             declaration but we do exhaustiveness checking during the code
+             generation phase. *)
           List.app setConstructors typeList
         end;
         in

@@ -99,7 +99,7 @@ sig
 
   val ptDisplay: parsetree * int -> pretty;
 
-  val pass2: parsetree * (unit -> typeId) * env * lexan * string -> types;
+  val pass2: parsetree * (bool -> typeId) * env * lexan * string -> types;
 
   type debugenv = environEntry list * (int->codetree)
 
@@ -1438,7 +1438,7 @@ struct
   fun copySig 
         (source       : signatures,
          mustCopyType : typeId -> bool,
-         makeTypeId   : unit -> typeId,
+         makeTypeId   : bool -> typeId,
          typeMap      : typeConstrs map,
 		 strName	  : string)
         : signatures = 
@@ -1466,7 +1466,7 @@ struct
          source        : signatures,
          resEnv        : tsvEnv,
          mustCopyType  : typeId -> bool,
-         makeTypeId    : unit -> typeId,
+         makeTypeId    : bool -> typeId,
          typeMap       : typeConstrs map,
 		 strName	   : string) 
         : int =
@@ -1647,9 +1647,8 @@ struct
                 if not (null (tcConstructors newConstr))
                 then (* Matched to a datatype. Use the NEW types throughout *)
                   makeTypeConstrs (* Necessary? *)
-                      (tcName newConstr, tcTypeVars newConstr,
-                       emptyType,
-                       tcIdentifier newConstr, tcEquality newConstr, 0, tcLocations newConstr)
+                      (tcName newConstr, tcTypeVars newConstr, emptyType,
+                       tcIdentifier newConstr, 0, tcLocations newConstr)
                 else newConstr;
             in
               (* Put the new constructors on the result type *)
@@ -1721,7 +1720,7 @@ struct
   and copyTypeConstructors(
   		 source: signatures, 
          mustCopyType  : typeId -> bool,
-         makeTypeId    : unit -> typeId,
+         makeTypeId    : bool -> typeId,
          typeMap       : typeConstrs map,
 		 strName	   : string): unit =
   let
@@ -1769,19 +1768,10 @@ struct
       may be sharing between the argument and the result. *) 
     val typeCounter = ref initTypeId;
     
-    fun makeTypeId () =
-    let
-      val n = !typeCounter;
-    in
-      typeCounter := n + 1;
-      makeBoundId n
-    end
+    fun makeTypeId eq =
+        let val n = !typeCounter in typeCounter := n + 1; makeBoundId(n, eq) end
     
     fun setStamps source =
-       (* Don't make the signature bound yet, we may have
-          several shared structures and if we make any of
-          them bound we will make them all bound. Process
-          all the types. *)
         univFold 
          (sigTab source,
           (fn (dName, dVal, ()) =>
@@ -1789,8 +1779,12 @@ struct
               then setStamps (structSignat (tagProject structVar dVal))
               
             else if tagIs typeConstrVar dVal
-              then setTypeConstr (tagProject typeConstrVar dVal,
-                                  fn tc => makeTypeId ())
+            then
+            let
+                val typConstr = tagProject typeConstrVar dVal
+            in
+                setTypeConstr (typConstr, fn eq => makeTypeId eq)
+            end
             else ()
            ),
           ()
@@ -1809,7 +1803,8 @@ struct
   let 
     fun pass2Struct 
         (strs     : structs list,
-         typeNo   : int ref,
+         makeTypeId : bool -> bool -> typeId,
+         makeCurrentTypeCount: unit -> int,
          Env env  : env, 
          lno      : LEX.location,
 		 strName  : string
@@ -2416,7 +2411,7 @@ struct
 			     the type on the right hand side. *)
 			  val dummyTypeCons =
 				  makeTypeConstrs (typeName, typeVars, realisation,
-				  				   makeVariableId(), false, 0, [DeclaredAt line]);
+				  				   makeVariableId false, 0, [DeclaredAt line]);
 		  in
 			  (* Now match these up.  This is very similar to an ML90
 			     sharing constraint where one of the types was rigid. *)
@@ -2456,17 +2451,8 @@ struct
       (* Process structure-returning expressions i.e. structure names,
          struct..end values and functor applications.  typeNo is the
          number of the next bound identifier. If < 0 make a free identifier. *)
-      fun structValue str typeNo (Env env) lno strName =
-      let (* Look up a structure name. *)
-
-        (* these were anonymous fn; moved here for convenience SPF 11/8/94 *)
-        fun newTypeId () =
-        let
-           val n = !typeNo;
-         in
-           if n < 0 then makeFreeId () else (typeNo := n + 1; makeBoundId n)
-         end;
-         
+      fun structValue(str, newTypeId: bool->bool->typeId, currentTypeCount, Env env, lno, strName) =
+      let (* Look up a structure name. *)         
       in
         case str of
           StructureIdent {name, valRef, location} =>
@@ -2517,7 +2503,7 @@ struct
                 typeMatchTab (sigMinTypes  resultSig, sigMaxTypes   resultSig);
                
               (* Get the actual parameter value. *)
-              val argSig = structValue arg typeNo (Env env) fullLoc "";
+              val argSig = structValue(arg, newTypeId, currentTypeCount, Env env, fullLoc, "");
 
               (* Check that the actual arguments match formal arguments,
                  and instantiate the variables. *)
@@ -2528,8 +2514,7 @@ struct
               (* Finally copy the result signature, incorporating the actual
                  args, and creating new stamps for any generative stamps
                  (i.e. stamps that were not put in the table before. *)
-              copySig (resultSig, isBoundId, newTypeId,
-                       typeMap, strName)
+              copySig (resultSig, isBoundId, newTypeId false, typeMap, strName)
             end
           end
                            
@@ -2633,7 +2618,7 @@ struct
             
             (* process body of structure *)
             val U : unit =
-              pass2Struct (alist, typeNo, Env newEnv, lno, strName);
+              pass2Struct (alist, makeTypeId, makeCurrentTypeCount, Env newEnv, lno, strName);
           in
             resultSig
           end
@@ -2667,18 +2652,21 @@ struct
              
             (* Process the local declarations. *)
             val U : unit =
-              pass2Struct (decs, typeNo, Env localEnv, line, strName);
+              pass2Struct (decs, makeTypeId, makeCurrentTypeCount, Env localEnv, line, strName);
                    
           in
             (* There should just be one entry in the "body" list. *)
-            structValue localStr typeNo (Env localEnv) line strName
+            structValue(localStr, newTypeId, currentTypeCount, Env localEnv, line, strName)
           end
 		  
         | SigConstraint { str, csig, opaque } =>
           let (* struct: sig or struct :> sig *)
-            val resSig = structValue str typeNo (Env env) lno strName;
+            val resSig = structValue(str, newTypeId, currentTypeCount, Env env, lno, strName);
+            (* Create the signature using bound Id values that are distinct from
+               those we've previously used but at this stage don't increment
+               the counters. *)
             val explicitSig  : signatures = 
-              sigVal(csig, Int.max(!typeNo, 0), Env env, lno, strName);
+              sigVal(csig, currentTypeCount(), Env env, lno, strName);
                      
             (* Make tables to contain the matched ids. *)
             val typeMap  : typeConstrs map =
@@ -2699,21 +2687,16 @@ struct
           in
              matchSigs (resSig, explicitSig, typeMap, str, lno, lex);
              (* Copy the signature to ensure that any "names" from the structure
-                value are copied into the result signature. *)
-             copySig (explicitSig, mustCopyType, newTypeId, resTypeMap, strName)
+                value are copied into the result signature.
+                These are distinct from those in the surrounding space and,
+                because we're now incrementing the counter, distinct from any
+                we make anywhere else. *)
+             copySig (explicitSig, mustCopyType, newTypeId false, resTypeMap, strName)
          end
                 
         | _ =>
            raise InternalError "structValue: not a value"
       end (* structValue *);
-            
-      (* compare with newTypeId above!!! *)    
-      fun makeTypeId () =
-      let
-        val n = !typeNo;
-      in
-        if n < 0 then makeFreeId () else (typeNo := n + 1; makeBoundId n)
-      end;
       
       fun pass2StructureDec (str : structs, structList : structBind list) : unit =
       let (* Declaration of structures. *)
@@ -2732,7 +2715,7 @@ struct
         fun pass2StructureBind ({name, sigStruct, value = SOME value, valRef, line, ...}) : unit=
           let (* Each element in the list is a structure binding. *)
             val resSig =
-				structValue value typeNo (Env env) line (strName ^ name ^".");
+				structValue(value, makeTypeId, makeCurrentTypeCount, Env env, line, strName ^ name ^".");
               
             val resultSig =
                 case sigStruct of
@@ -2745,12 +2728,7 @@ struct
                    less than 0 this means we are not in a functor so we 
                     actually start at 0. *)
                 val explicitSig  : signatures = 
-                  sigVal 
-                    (sigStruct, 
-                     Int.max (!typeNo, 0),
-                     Env env,
-                     line,
-					 strName ^ name ^ ".");
+                  sigVal(sigStruct, makeCurrentTypeCount(), Env env, line, strName ^ name ^ ".");
                          
                 (* Make tables to contain the matched ids. *)
                 val typeMap  : typeConstrs map =
@@ -2771,7 +2749,7 @@ struct
               in (* Match the signature. *)
                 matchSigs (resSig, explicitSig, typeMap, str, line, lex);
                 (* And copy it to put in the names from the structure. *)
-                copySig (explicitSig, mustCopyType, makeTypeId,
+                copySig (explicitSig, mustCopyType, makeTypeId false,
                          resTypeMap, strName ^ name ^ ".")
               end;
                
@@ -2817,8 +2795,8 @@ struct
             
             (* If it is a "spec" it must be wrapped up in sig...end.
                We can't have a functor declaration in another functor
-               (at least in the current definition of ML so we can 
-               start this at 0, rather than !typeNo). *)
+               (at least in the current definition of ML) so we can 
+               start this at 0, rather than !typeNo. *)
             val signat : signatures =
               let
 			  	val spec =
@@ -2889,17 +2867,13 @@ struct
                  for stamps in the body. *)
               val typeStamps = ref (sigMaxTypes   signat);
               
-              fun newTypeId () =
+              fun newTypeId isVar eq =
               let
-                val n = !typeStamps;
-               in
-                 typeStamps := n + 1;
-                 makeBoundId n
-               end;
+                val n = !typeStamps
+              in typeStamps := n + 1; (if isVar then makeBoundIdWithEqUpdate else makeBoundId) (n, eq) end;
                
              val resSig =
-                structValue body typeStamps
-                  (Env envWithArgs) line (strName ^ name ^ "().");
+                structValue(body, newTypeId, fn () => !typeStamps, Env envWithArgs, line, strName ^ name ^ "().");
                      
               val resultSig =
                 case sigStruct of
@@ -2961,7 +2935,7 @@ struct
 				     matching.  In ML 97, with opaque matching, we
 					 generate new names for all types which are not
 					 constrained by sharing constraints. *)
-                  copySig (explicitSig, mustCopyType, newTypeId,
+                  copySig (explicitSig, mustCopyType, newTypeId false,
 				  		   resTypeMap, strName ^ name ^ "().")
                 end;
                 
@@ -3050,7 +3024,7 @@ struct
            };
         
         (* Process the local declarations. *)
-        val () = pass2Struct (decs, typeNo, Env localEnv, lno, strName);
+        val () = pass2Struct (decs, makeTypeId, makeCurrentTypeCount, Env localEnv, lno, strName);
              
         (* This is the environment used for the body of the declaration.
            Declarations are added both to the local environment and to
@@ -3094,7 +3068,7 @@ struct
           };
       in 
         (* Now the body. *)
-        pass2Struct (body, typeNo, Env bodyEnv, lno, strName)
+        pass2Struct (body, makeTypeId, makeCurrentTypeCount, Env bodyEnv, lno, strName)
       end; (* pass2Localdec *)
       
       fun pass2Singleton (dec : parsetree, vars) : unit =
@@ -3143,7 +3117,7 @@ struct
            };
            
          val discard : types = 
-           pass2 (dec, makeTypeId, Env newEnv, lex, strName);
+           pass2 (dec, makeTypeId true, Env newEnv, lex, strName);
        in
          ()
        end; (* pass2Singleton *)
@@ -3172,7 +3146,7 @@ struct
     end (* pass2Struct *);
 		 
   in (* Structures and types at the top level are free identifiers. *)
-    pass2Struct (strs, (* make free ids *) ref ~1, Env env, location lex, "")
+    pass2Struct (strs, fn true => makeFreeIdEqUpdate | false => makeFreeId, fn () => 0, Env env, location lex, "")
   end (*pass2Structs *);
 
   (* When we have done all the unification we can we need to check all

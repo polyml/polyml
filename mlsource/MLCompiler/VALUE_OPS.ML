@@ -186,7 +186,6 @@ end;
 (*****************************************************************************)
 (*                  VALUEOPS sharing constraints                             *)
 (*****************************************************************************)
-
 sharing type
   CODETREE.codetree
 = STRUCTVALS.codetree
@@ -390,7 +389,7 @@ struct
         val typeID = tcIdentifier tcons;
         val newTypeCons =
             makeTypeConstrs(newName, tcTypeVars tcons, EmptyType, typeID,
-                            tcEquality tcons, tcLetDepth tcons, locations);
+                            tcLetDepth tcons, locations);
         
         (* Copy the value constructors. *)
         fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =

@@ -41,13 +41,19 @@ sig
     val isFreeId:     typeId -> bool;
     val isBoundId:    typeId -> bool;
     val isVariableId: typeId -> bool;
+    val isEquality:   typeId -> bool;
     val offsetId:     typeId -> int;
     val sameTypeId:   typeId * typeId -> bool;
-    val unifyTypeIds: typeId * typeId -> bool;
+    val linkFlexibleTypeIds: typeId * typeId -> unit;
+    val makeTypeIdBound: typeId * typeId -> unit;
+    val setEquality:  typeId -> unit
+    val removeAbstypeEquality:  typeId -> unit
 
-    val makeFreeId:     unit -> typeId;
-    val makeVariableId: unit -> typeId;
-    val makeBoundId:    int  -> typeId;
+    val makeFreeId:     bool -> typeId;
+    val makeFreeIdEqUpdate:     bool -> typeId;
+    val makeVariableId: bool -> typeId;
+    val makeBoundId:    int*bool  -> typeId;
+    val makeBoundIdWithEqUpdate: int*bool  -> typeId;
 
     (* Types *)
   
@@ -170,14 +176,13 @@ sig
 
     (* These are all logically equivalent but include differing numbers of refs *)
     val makeTypeConstrs:
-        string * types list * types * typeId *  bool * int * locationProp list -> typeConstrs;
+        string * types list * types * typeId * int * locationProp list -> typeConstrs;
     val makeFrozenTypeConstrs:
-        string * types list * types * typeId *  bool * int * locationProp list -> typeConstrs;
+        string * types list * types * typeId * int * locationProp list -> typeConstrs;
 
     val tvLevel:        typeVarForm -> int;
     val tvEquality:     typeVarForm -> bool;
     val tvNonUnifiable: typeVarForm -> bool;
-    val tvWeak:         typeVarForm -> bool;
     val tvValue:        typeVarForm -> types;
     val tvSetValue:     typeVarForm * types -> unit;
 

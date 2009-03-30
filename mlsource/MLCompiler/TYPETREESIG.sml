@@ -134,13 +134,13 @@ sig
   val findValueConstructor: values -> values;
 
   val copyTypeConstr: 
-     typeConstrs * (typeId -> bool) * (unit -> typeId) *
+     typeConstrs * (typeId -> bool) * (bool -> typeId) *
         {enter: typeId * typeConstrs -> unit,
          lookup: typeId -> typeConstrs option} *
 		 (types -> types) * string ->
                       typeConstrs;
 
-  val setTypeConstr: typeConstrs * (typeConstrs -> typeId) -> unit;
+  val setTypeConstr: typeConstrs * (bool -> typeId) -> unit;
 
   val enterTypeConstrs: typeConstrs * typeConstrs *
                         { enter: typeId * typeConstrs -> unit,

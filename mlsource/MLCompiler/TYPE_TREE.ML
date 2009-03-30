@@ -1339,8 +1339,7 @@ struct
 			 (newName,
 			  tcTypeVars tcon,
 			  copiedEquiv,
-			  makeId (),
-			  tcEquality tcon,
+			  makeId (tcEquality tcon),
 			  0 (* Always global. *),
               tcLocations tcon); (* Copy original declaration location ??? *)
 		  
@@ -1419,19 +1418,6 @@ struct
 			newTv
 		 end
 	 | copyTypeVar atyp = atyp
-
-	(* We only copy type constructors if their "equivalent" has changed which
-	   will only happen if they contain a free type variable. *)
-	(* I'm using makeFreeId here but I'm not convinced that's right. DCJM 17/2/00. *)
-	(* I've now backed this change out because it seems that the "change" to
-	   the definition which would allow free type variables was actually a
-	   mistake. DCJM 12/4/00 *)
-(*
-	fun copyTCons tcon =
-		copyTypeConstr(tcon, fn _ => false, makeFreeId,
-			{enter = fn _ => (), lookup = fn _ => raise ValueMissing "" },
-			copyTypeVar)
-*)
   in
     (* Only process type variables. Return type constructors unchanged. *)
     copyType (atyp, copyTypeVar, fn t => t (*copyTCons*))
@@ -2714,8 +2700,8 @@ struct
 				val name = "_" ^ genName(!count)
 				val _ = count := !count + 1;
 				val tCons =
-					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(),
-						tvEquality tvar, 0, [DeclaredAt(location lex)]);
+					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(tvEquality tvar),
+						0, [DeclaredAt(location lex)]);
 	            val newVal = mkTypeConstruction(name, tCons, [], [])
 			in
 				warningMessage(lex, location lex, 
@@ -2742,7 +2728,7 @@ struct
     val equiv = tcEquivalent tcon;
   in
     if not (isEmpty equiv) then setTypes (equiv, makeId) else ();
-    if isVariableId id then (unifyTypeIds (id, makeId tcon); ()) else () 
+    if isVariableId id then makeTypeIdBound(id, makeId(isEquality id)) else () 
   end
 
   (* Applies setTypeConstr to every type constructor. *)
@@ -2897,11 +2883,7 @@ struct
 	  then (* This type is matched to something else.  This could have arisen
 			  either from a previous sharing constraint or from a type
 			  abbreviation.  This is only allowed if it is another
-			  type constructor.  In ML90, where we can share with rigid types,
-			  this could also arise as a result of sharing with a rigid
-			  type construction.  We ignore that, since we're not trying to
-			  maintain full compatibility with ML90, and generate an error
-			  message anyway. *)
+			  type constructor.  *)
 		 (
 			if isTypeConstruction AEquiv andalso 
 				eqArgs (#args (typesTypeConstruction AEquiv)) (tcTypeVars typeA)
@@ -2930,8 +2912,6 @@ struct
            (but not a datatype) we can set its "equivalent" field to the
            other type constr. *)
       in
-		    (* In ML90 we are allowed to unify a rigid and a flexible type.
-			   In ML97 both must be flexible. *)
 		if not (isVariableId (tcIdentifier typeA))
 		then cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not flexible")
 
@@ -2962,24 +2942,23 @@ struct
             val AEq = permitsEquality typeA;
             val BEq = permitsEquality typeB;
           in
-		    (
-            if AEq andalso not BEq
-            then (* Want to set B to be an eqtype as well. *)
-              if isVariableId (tcIdentifier typeB) 
-              then (tcSetEquality (typeB, true); true)
-              else (cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not an eqtype"); false)
+		    if (
+                if AEq andalso not BEq
+                then (* Want to set B to be an eqtype as well. *)
+                  if isVariableId (tcIdentifier typeB) 
+                  then (tcSetEquality (typeB, true); true)
+                  else (cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not an eqtype"); false)
 
-            else if BEq andalso not AEq
-            then (* Want to set A to be an eqtype as well. *)
-               if isVariableId (tcIdentifier typeA)
-               then (tcSetEquality (typeA, true); true)
-               else (cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not an eqtype"); false)
+                else if BEq andalso not AEq
+                then (* Want to set A to be an eqtype as well. *)
+                   if isVariableId (tcIdentifier typeA)
+                   then (tcSetEquality (typeA, true); true)
+                   else (cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not an eqtype"); false)
 
-            else true
-            ) andalso 
-	            (* Unify the type "names" (unique ids). *)
-	            unifyTypeIds (tcIdentifier typeA, tcIdentifier typeB);
-			()
+                else true
+            )
+            then linkFlexibleTypeIds (tcIdentifier typeA, tcIdentifier typeB)
+            else ()
           end
           else
 		  	(* Both are rigid.  This case can only occur if ml90 is true,
@@ -3113,7 +3092,7 @@ struct
 				cantSet ("Cannot apply type realisation: (" ^
 							 tcName tcToSet ^ ") is a datatype but (" ^
 							 tcName equivTc ^ ") is not.")
-			else (unifyTypeIds(tcIdentifier tcToSet, tcIdentifier equivTc); ())
+			else linkFlexibleTypeIds(tcIdentifier tcToSet, tcIdentifier equivTc)
 
 		else (* Just set the equivalent field to point to the type. *)
 			setEquiv tcToSet equivTc

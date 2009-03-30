@@ -56,122 +56,140 @@ sig
   val univFreeze:       univTable -> univTable
 end;
 
-) : STRUCTVALSIG =  
+) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable 
+=  
 
 (*****************************************************************************)
 (*                  STRUCTVALS functor body                                  *)
 (*****************************************************************************)
 struct
-  open CODETREE;
+    open CODETREE;
   
-  open Misc;
-  open Universal;
-  open UNIVERSALTABLE;
+    open Misc;
+    open Universal;
+    open UNIVERSALTABLE;
   
-  (* Location for declarations. *)
-  type location =
+    (* Location for declarations. *)
+    type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
-  (* The idea of this is reduce the number of mutable objects. *)
-  datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
-  fun pling(FrozenRef x) = x | pling(VariableRef(ref x)) = x
-  fun updatePR(VariableRef r, x) = r := x | updatePR(FrozenRef _, _) = raise Fail "Assignment to frozen ref"
-
-  abstype uniqueId = Unique of int ref
-  with
-    fun makeUnique () = Unique (ref 0); (* REF HOTSPOT - 400 *)
-
-    fun sameUnique (Unique a, Unique b) = (a = b);
-  end;
+    (* The idea of this is reduce the number of mutable objects. *)
+    datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
+    fun pling(FrozenRef x) = x | pling(VariableRef(ref x)) = x
+    fun updatePR(VariableRef r, x) = r := x | updatePR(FrozenRef _, _) = raise Fail "Assignment to frozen ref"
    
-  (* There are three classes of structure or type identifier. Variables occur
-     in signatures and can be assigned to other variables or constants by
-     sharing constraints or by signature matching. Free constants arise from
-     top level structures or types or those in top level structures. Bound
-     constants occur in the arguments to functors or in structures or types
-     constructed inside a functor (and therefore generated when the functor
-     is applied). *)
+  (* These identifiers are used to distinguish between concrete types.  Two
+     types that share will have the same identifier.  If the identifiers are
+     different they are different types.
+     There are three classes of type identifier. Flexible types occur in signatures
+     and can be assigned to other variables or constants by sharing constraints
+     or by signature matching. Free constants arise from top level types or
+     those in top level structures. Bound constants occur in the arguments to
+     functors or types constructed inside a functor (and therefore generated
+     when the functor is applied).
+     The type identifier also contains the equality attribute.
+     In ML97 only types have these identifiers.  In ML90 these were also
+     needed for structures. *)
       
-  abstype typeId =
-    Unset
-  | Free     of uniqueId
-  | Bound    of int
-  | Variable of typeId ref
-  
-  with
+    datatype typeId =
+        Unset
+    |   UnsetEquality
+    |   Free     of uniqueId * bool
+    |   Bound    of int * bool possRef
+    |   Flexible of typeId ref
+    
+    withtype uniqueId = bool ref
+        (* We use a ref here both because we can then set equality if we
+           need but also because it allows us to create a unique Id. *)
+
     (* Variable stamps: can be set to other stamps whether variable or free. *)
     val unsetId = Unset;
-    
-    fun makeFreeId () = Free (makeUnique ());
-  
-    val makeBoundId = Bound;
-  
-    fun makeVariableId () = Variable (ref Unset); (* REF HOTSPOT - 260 *)
-  
+    val unsetEq = UnsetEquality
+
+    (* REF HOTSPOT - 400 *)
+    fun makeFreeId eq = Free (ref eq, false);
+    (* At the moment the only reason for this is some extra checking. *)
+    fun makeFreeIdEqUpdate eq = Free(ref eq, true);
+
+    fun makeBoundId (n, eq) = Bound(n, FrozenRef eq);
+
+    (* Within the body of a functor we make bound stamps but may need to
+       set the equality attribute. *)
+    fun makeBoundIdWithEqUpdate (n, eq) = Bound(n, VariableRef(ref eq))
+
+    (* REF HOTSPOT - 260 *)
+    fun makeVariableId true  = Flexible (ref UnsetEquality)
+    |   makeVariableId false = Flexible (ref Unset);
+
     (* If it is a constant or an unset variable return it,
        otherwise return the value the variable is bound to. *)
-  
-    fun realId id =
-    (
-      case id of
-	Variable (ref v) => (case v of Unset => id | _ => realId v)
-      | _                => id
-    );
-			    
+    fun realId(id as Flexible (ref Unset)) = id
+    |   realId(id as Flexible (ref UnsetEquality)) = id
+    |   realId(Flexible (ref v)) = realId v
+    |   realId id = id
+		    
     (* Unset variable. *)
-    fun isUnsetId Unset = true | isUnsetId _ = false;
-  
-    fun isVariableId x = case (realId x) of Variable _ => true | _ => false;
+    fun isUnsetId Unset = true | isUnsetId UnsetEquality = true | isUnsetId _ = false;
+
+    fun isVariableId x = case (realId x) of Flexible _ => true | _ => false;
     fun isFreeId     x = case (realId x) of Free     _ => true | _ => false;
     fun isBoundId    x = case (realId x) of Bound    _ => true | _ => false;
-	
+
     (* Find the number - assuming it is bound. *)
     fun offsetId x = 
-      case (realId x) of 
-	Bound i => i
-      | _       => raise InternalError "offsetId: not a Bound";
+        case (realId x) of 
+	        Bound (i, _) => i
+        |   _       => raise InternalError "offsetId: not a Bound";
+
+    (* Are two type constructors the same? *)
+    fun sameTypeId (cons1, cons2) = realId cons1 = realId cons2;
   
-    (* Are two type constructors the same. *)
-    fun sameTypeId (cons1, cons2) =
+    (* Link two flexible type identifiers together as a result of a sharing
+       constraint.  If either is an equality type the result is an equality type.
+       If the two types are already linked it does nothing and doesn't report an error.  *)
+    fun linkFlexibleTypeIds (x, y) =
     let
-      val id1 = realId cons1;
-      val id2 = realId cons2;
+	    val x1 = realId x;
+	    val y1 = realId y;
     in
-      case (id1, id2) of
-	(Variable a, Variable b) => (a = b)
-      | (Free     a, Free     b) => sameUnique (a, b)
-      | (Bound    a, Bound    b) => (a = b)
-      | _                        => false
-    end;
-	  
-    (* Do the unification and return whether they are equal. *)
-    fun unifyTypeIds (x, y) : bool =
-      let
-	val x1 = realId x;
-	val y1 = realId y;
-      in
-	case (x1, y1) of
-	  (Bound a, Bound b) => 
-	     a = b
-	
-	| (Free a, Free b) => 
-	    sameUnique (a, b)
-    
-	| (Variable x2, Variable y2) => 
-	     x2 = y2 orelse (x2 := y1; true)
-	  
-	| (Variable x2, _) => 
-	    (x2 := y1; true)
-	  
-	| (_, Variable y2) => 
-	    (y2 := x1; true)
-	  
-	| _  =>
-	     false
-      end;
-   end; (* typeId abstype *)      
-    
-  
+        case (x1, y1) of
+            (Flexible (p as ref Unset), Flexible(ref UnsetEquality)) => p := y1
+        |   (Flexible (ref UnsetEquality), Flexible (p as ref Unset)) => p := x1
+        |   (Flexible x2, Flexible y2) => if x2 = y2 then () else x2 := y1 (* Either *)
+        |   _ => raise InternalError "linkTypeIds: non-variable ids"
+    end
+
+    (* Set a flexible type id to be a new bound type id.  This is part of the
+       last phase of constructing a signature so that one bound is used
+       for each distinct flexible type id. *)
+    fun makeTypeIdBound(t, id) =
+        case realId t of
+            Flexible p => p := id
+        |   _ => raise InternalError "makeTypeIdBound: Not originally flexible"
+
+    fun isEquality Unset = false
+    |   isEquality UnsetEquality = true
+    |   isEquality (Free(ref eq, _)) = eq
+    |   isEquality (Bound(_, eq)) = pling eq
+    |   isEquality (Flexible(ref v)) = isEquality v
+
+    (* Set the equality property.  This may be either for flexible stamps as the
+       result of sharing with an eqtype or, for either flexible or free datatypes,
+       if the datatype admits equality because all its constructors do.*)
+    fun setEquality(Flexible(r as ref Unset)) = r := UnsetEquality
+    |   setEquality(Flexible(ref UnsetEquality)) = ()
+    |   setEquality(Flexible(r as ref t)) = setEquality t
+    |   setEquality(Free(id, true)) = id := true (* For datatypes *)
+    |   setEquality(Bound(_, VariableRef id)) = id := true (* For datatypes *)
+    |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
+
+    (* The only circumstances in which we remove the equality attribute is for
+       abstypes.  Equality may be permitted in the "with .. end" section but
+       not outside. *)
+    fun removeAbstypeEquality(Free(id, true)) = id := false
+    |   removeAbstypeEquality _ =
+            raise InternalError "removeAbsTypeEquality: not Free"
+
   (* Used for both signatures of local structures and for global structures 
      (name spaces). Strictly signatures do not contain fix-status functors
      or signatures but as we use these structures for top-level name-spaces
@@ -234,8 +252,7 @@ struct
 		updatable: (* We have a single ref here to minimise the number of refs. *)
 		   {
 		      equiv:      types,
-			  constrs:    values list, (* List of value constructors. *)
-              equal:      bool
+			  constrs:    values list (* List of value constructors. *)
 		   }  possRef,
         identifier: typeId,
 		letDepth:	int, (* Needed to check for local datatypes. *)
@@ -409,7 +426,6 @@ struct
         fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3);
         fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0;
         fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0;
-        fun tvWeak ({encoding, ...} : typeVarForm)         = encoding andb 0w1 <> 0w0;
     end;
 
   (* Type constructors are identifiers which take zero or more types and yield a
@@ -432,13 +448,16 @@ struct
     in
         val tcEquivalent = #equiv o getUpdatable
         val tcConstructors  = #constrs o getUpdatable
-        val tcEquality = #equal o getUpdatable;
+        (* Equality is now a property of the type id.  Retain these functions for the moment. *)
+        val tcEquality = isEquality o tcIdentifier;
+        fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
+        |   tcSetEquality(tc, false) = removeAbstypeEquality(tcIdentifier tc);
         
         fun tcSetEquivalent (TypeConstrs {updatable, name, ...}, t) =
 		    let
 		        val v = pling updatable
 			in
-			    updatePR(updatable, { equiv = t, constrs = #constrs v, equal = #equal v})
+			    updatePR(updatable, { equiv = t, constrs = #constrs v})
                     handle Fail _ => raise Fail ("SetEquivalent:" ^ name)
 			end
 		
@@ -446,22 +465,15 @@ struct
 		    let
 		        val v = pling updatable
 			in
-			    updatePR(updatable, { equiv = #equiv v, constrs = constrs, equal = #equal v})
+			    updatePR(updatable, { equiv = #equiv v, constrs = constrs})
                     handle Fail _ => raise Fail ("SetConstructors:" ^ name)
 			end
 			
-        fun tcSetEquality (TypeConstrs {updatable, name,...}, eq) =
-		    let
-		        val v = pling updatable
-			in
-			    updatePR(updatable, { equiv = #equiv v, constrs = #constrs v, equal = eq})
-                    handle Fail _ => raise Fail ("SetEquality:" ^ name)
-			end
 	end
 	
   fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
         
-  fun makeTypeConstrs (name, typeVars, equivalent, uid, equ, depth, locations) =
+  fun makeTypeConstrs (name, typeVars, equivalent, uid, depth, locations) =
     TypeConstrs
       {
 		name       = name,
@@ -471,15 +483,14 @@ struct
 		    VariableRef (ref (* REF HOTSPOT - 690 refs here. *)
 		         {
             		equiv   = equivalent,
-            		constrs = [],
-            		equal   = equ
+            		constrs = []
 				  }),
 		identifier = uid,
 		letDepth   = depth,
         locations = locations
       };
 	  
-  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, equ, depth, locations) =
+  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, depth, locations) =
     TypeConstrs
       {
 		name       = name,
@@ -489,8 +500,7 @@ struct
 		    FrozenRef
 		         {
             		equiv   = equivalent,
-            		constrs = [],
-            		equal   = equ
+            		constrs = []
 				  },
 		identifier = uid,
 		letDepth   = depth,
@@ -501,9 +511,9 @@ struct
     { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
 
   fun baseType name eq =
-    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId (), eq, 0, [DeclaredAt inBasis]);
+    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId eq, 0, [DeclaredAt inBasis]);
 
-  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId (), true, 0, [DeclaredAt inBasis]);
+  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId true, 0, [DeclaredAt inBasis]);
   val intType    = baseType "int"    true;
   val charType   = baseType "char"   true;
   val stringType = baseType "string" true;
@@ -514,26 +524,26 @@ struct
   val unitType   =
       makeFrozenTypeConstrs ("unit", [],
 	       LabelledType {recList = [], frozen = true, genericInstance = []},
-		   makeFreeId (), true, 0, [DeclaredAt inBasis]);
+		   makeFreeId true, 0, [DeclaredAt inBasis]);
    
   val listType =
      makeTypeConstrs 
        ("list",
         [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
         EmptyType,
-        makeFreeId (),
-        true, 0, [DeclaredAt inBasis]);
+        makeFreeId true,
+        0, [DeclaredAt inBasis]);
             
   val refType =
     makeTypeConstrs 
       ("ref",
        [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
        EmptyType,
-       makeFreeId (),
-       true, 0, [DeclaredAt inBasis]);
+       makeFreeId true,
+       0, [DeclaredAt inBasis]);
          
   val undefType = 
-    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, false, 0, [DeclaredAt inBasis]);
+    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, 0, [DeclaredAt inBasis]);
 
   (* Infix status. *) 
  

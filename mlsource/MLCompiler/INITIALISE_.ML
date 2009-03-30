@@ -342,7 +342,7 @@ struct
         
         (* option something *)
         val optionType = (* Can't freeze it because we add constructors *)
-            makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId (), true, 0, declInBasis);
+            makeTypeConstrs("option", [makeTV()], emptyType, makeFreeId true, 0, declInBasis);
         
         fun Option (base : types) : types  =
             mkTypeConstruction ("option", optionType, [base], declInBasis);
@@ -501,7 +501,7 @@ struct
    type to have a ref-style equality i.e. 'a vector would permit equality
    even if 'a did not. *)
         val vectorType =
-            makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId (), true, 0, declInBasis);
+            makeFrozenTypeConstrs("vector", [makeTV()], emptyType, makeFreeId true, 0, declInBasis);
         val () = enterGlobalType  ("vector", vectorType);
 
 
@@ -780,7 +780,7 @@ struct
             (* Types for the basic values.  These are opaque. *)
             fun createType typeName =
             let
-                val typeconstr = makeFrozenTypeConstrs(typeName, [], emptyType, makeFreeId (), false, 0, declInBasis);
+                val typeconstr = makeFrozenTypeConstrs(typeName, [], emptyType, makeFreeId false, 0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
@@ -815,7 +815,7 @@ struct
     
             val recordType =
                 makeFrozenTypeConstrs("nameSpace", [],
-                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, declInBasis);
+                     mkLabelled(sortLabels fields, true), makeFreeId false, 0, declInBasis);
             val () = #enterType nameSpaceEnv ("nameSpace", recordType);
     
             val debugFields =
@@ -857,7 +857,7 @@ struct
                 ]
             val typeconstr =
                 makeFrozenTypeConstrs("location", [],
-                     mkLabelled(sortLabels fields, true), makeFreeId (), false, 0, declInBasis);
+                     mkLabelled(sortLabels fields, true), makeFreeId false, 0, declInBasis);
             val () = #enterType polyMLEnv ("location", typeconstr);
         in
             val Location = mkTypeConstruction ("location", typeconstr, [], declInBasis)
@@ -869,7 +869,7 @@ struct
         local
             (* Pretty print context information. *)
             open TYPETREE
-            val typeconstr = makeTypeConstrs("context", [], emptyType, makeFreeId (), false, 0, declInBasis);
+            val typeconstr = makeTypeConstrs("context", [], emptyType, makeFreeId false, 0, declInBasis);
             val ContextType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("context", typeconstr);
  
@@ -894,7 +894,7 @@ struct
 (*****************************************************************************)
         local
             open TYPETREE
-            val typeconstr = makeTypeConstrs("pretty", [], emptyType, makeFreeId (), false, 0, declInBasis);
+            val typeconstr = makeTypeConstrs("pretty", [], emptyType, makeFreeId false, 0, declInBasis);
             val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val constrs = (* Order is significant. *)
@@ -1003,11 +1003,11 @@ struct
             end;
 
             (* type 'a tag *)
-            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], emptyType, makeFreeId (), false, 0, declInBasis);
+            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], emptyType, makeFreeId false, 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)
-            val univConstr = makeFrozenTypeConstrs("universal", [], emptyType, makeFreeId (), false, 0, declInBasis);
+            val univConstr = makeFrozenTypeConstrs("universal", [], emptyType, makeFreeId false, 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -1047,19 +1047,19 @@ struct
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
-			val propConstr = makeTypeConstrs("ptProperties", [], emptyType, makeFreeId (), false, 0, declInBasis);
+			val propConstr = makeTypeConstrs("ptProperties", [], emptyType, makeFreeId false, 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
 			val parseTreeConstr =
-                makeFrozenTypeConstrs("parseTree", [], Location ** List PtProperties, makeFreeId (), false, 0, declInBasis);    
+                makeFrozenTypeConstrs("parseTree", [], Location ** List PtProperties, makeFreeId false, 0, declInBasis);    
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", parseTreeConstr);
 
             (* Representation of the type of a value. *)
 			val typesConstr =
-                makeFrozenTypeConstrs("typeExpression", [], emptyType, makeFreeId (), false, 0, declInBasis);    
+                makeFrozenTypeConstrs("typeExpression", [], emptyType, makeFreeId false, 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 
@@ -1184,7 +1184,7 @@ struct
         local
             (* Make a nullary type constructor (the type of the exception) *)
             val exTypeConstr = 
-                makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId 0, false, 0, declInBasis);
+                makeFrozenTypeConstrs ("ex_type", [], emptyType, makeBoundId (0, false), 0, declInBasis);
             
             (* Argument signature. *)
             local
