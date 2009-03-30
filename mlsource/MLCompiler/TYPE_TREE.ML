@@ -516,224 +516,255 @@ struct
 
   (* Basic procedure to print a type structure. *)
   
-  (* prints a block of items *)
-  fun tDisp 
-    (t : types, 
-     depth : int,
-     typeVarName : typeVarForm -> string)
-    : pretty =
-  let
     (* prints a block of items *)
-    fun dispP (t : types, depth : int) : pretty =
+    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string,
+               env: { lookupType: string -> typeConstrs option,
+                      lookupStruct: string -> structVals option} option) : pretty =
     let
-      (* prints a block of items *)
-      fun parenthesise depth t =
-	  if depth <= 1
-	  then PrettyString "..."
-	  else
-        PrettyBlock (0, false, [],
-            [
-                PrettyString "(",
-                PrettyBreak (0, 0),
-                dispP (t, depth - 1),
-                PrettyBreak (0, 0),
-                PrettyString ")"
-            ]);
-    
-      (* prints a sequence of items *)
-      fun prettyList [] depth separator: pretty list = []
-
-        | prettyList [H] depth separator =
-          let
-            val v = eventual H;
-          in
-            if separator = "*" andalso
-               (isFunctionType v orelse isProductType v)
-            then (* Must bracket the expression *) [parenthesise depth v]
-            else [dispP (v, depth)]
-          end
-
-        | prettyList (H :: T) depth separator =
-          if depth <= 0
-          then [PrettyString "..."]
-          else
-          let
-                val v = eventual H;
-          in
+        (* prints a block of items *)
+        fun dispP (t : types, depth : int) : pretty =
+        let
+            (* prints a block of items *)
+            fun parenthesise depth t =
+	        if depth <= 1
+	        then PrettyString "..."
+	        else
                 PrettyBlock (0, false, [],
-                    [(if separator = "*" andalso
-                       (isFunctionType v orelse isProductType v)
-                    then (* Must bracket the expression *) parenthesise depth v
-                    else dispP (v, depth)),
-                    PrettyBreak (if separator = "," then 0 else 1, 0),
-                    PrettyString separator
-                    ]) ::
-                PrettyBreak (1, 0) ::
-                prettyList T (depth - 1) separator
-          end;
-        
-      val typ = eventual t; (* Find the real type structure *)
-    in 
-      case typ of
-        TypeVar tyVar =>
-		let
-		  val tyVal : types = tvValue tyVar;
-		in
-		  case tyVal of
-		    EmptyType => PrettyString (typeVarName tyVar)
-		  | _         => dispP (tyVal, depth)
-		end
-	  
-     (* Type construction with no arguments *)
-     | TypeConstruction {args = [], name, value, ...} =>
-	 	 let
-		 	val constrName = if isUndefined(pling value) then name else tcName(pling value)
-            (* Turn any structure prefixes into a ParentStructure list.  This is likely to
-               be replaced by a more appropriate data structure. *)
-            fun createStructureList s =
-                if s = "" then []
+                    [
+                        PrettyString "(",
+                        PrettyBreak (0, 0),
+                        dispP (t, depth - 1),
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]);
+    
+            (* prints a sequence of items *)
+            fun prettyList [] depth separator: pretty list = []
+
+            |   prettyList [H] depth separator =
+                let
+                    val v = eventual H;
+                in
+                    if separator = "*" andalso
+                        (isFunctionType v orelse isProductType v)
+                    then (* Must bracket the expression *) [parenthesise depth v]
+                    else [dispP (v, depth)]
+                end
+
+            |   prettyList (H :: T) depth separator =
+                if depth <= 0
+                then [PrettyString "..."]
                 else
                 let
-                    val { first, second } = splitString s
+                    val v = eventual H;
                 in
-                    [ContextParentStructure(second, createStructureList first)]
-                end
-            val { first=structName, second=typeName } = splitString constrName
-            (* Get the declaration position for the type constructor. *)
-            val constrContext =
-                if isUndefined(pling value) then []
-                else
-                (
-                    case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations(pling value)) of
-                        SOME(DeclaredAt loc) => [ContextLocation loc]
-                    |   _ => []
-                )
-		 in
-            (* Remove the structure name and leave just the type. *)
-            PrettyBlock(0, false, createStructureList structName @ constrContext,
-                [PrettyString typeName])
-		 end
+                    PrettyBlock (0, false, [],
+                        [(if separator = "*" andalso
+                           (isFunctionType v orelse isProductType v)
+                        then (* Must bracket the expression *) parenthesise depth v
+                        else dispP (v, depth)),
+                        PrettyBreak (if separator = "," then 0 else 1, 0),
+                        PrettyString separator
+                        ]) ::
+                    PrettyBreak (1, 0) ::
+                    prettyList T (depth - 1) separator
+                end;
         
-     (* Type construction with one or more arguments - print out as (a, b, c) cons *)
-     | TypeConstruction {args, name, value, ...} =>
-	   if depth <= 0
-	   then PrettyString "..."
-	   else
-       let
-		 val argVal = eventual (hd args);
-		 val T      = tl args;
-		 (* Use the name of the type constructor to which this is bound
-		    if it is defined.  *)
-		 val tcName =
-		 	if isUndefined(pling value) then name else tcName(pling value)
-       in
-		 PrettyBlock (0, false, [],
-             [
-    		 if not (null T) orelse
-    		    isProductType argVal orelse
-    		    isFunctionType argVal
-    		 then (* parenthesise if there is more than one
-    			 or if it is a product or function type. *)
-    		    if depth <= 1
-    		 then PrettyString "..."
-    		 else
-    			 PrettyBlock(0, false, [],
-                     [PrettyString "(", PrettyBreak (0, 0)]
-                     @ prettyList args (depth - 1) ","
-                     @ [PrettyBreak (0, 0), PrettyString ")"]
-     			 )
-    		 else dispP (argVal, depth - 1),
-		     PrettyBreak(1, 0),
-		     PrettyString tcName
-             ])
-       end
-        
-     | FunctionType {arg, result} =>
-	 	if depth <= 0
-		then PrettyString "..."
-		else
-           (* print out in infix notation *)
-        let
-            val evArg = eventual arg;
-        in
-            PrettyBlock (0, false, [],
-                [
-            	(* If the argument is a function it must be printed as (a-> b)->.. *)
-            	if isFunctionType evArg 
-            	then parenthesise depth evArg
-            	else dispP (evArg, depth - 1),
-                PrettyBreak(1, 0),
-                PrettyString "->",
-                PrettyBreak (1, 0),
-                dispP (result, depth - 1)
-                ])
-        end
-                     
-     | LabelledType {recList, frozen, ...} =>
-	 	if depth <= 0
-		then PrettyString "..."
-		else if isProductType typ
-		then (* Print as a product *)
-            PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
-                prettyList (map (fn {name, typeof} => typeof) recList) depth "*")
-		else (* Print as a record *)
-        PrettyBlock (2, false, [],
-            PrettyString "{" ::
-    	 	(let
-    			fun pRec [] depth = []
-    			  | pRec ({name, typeof} :: T) depth =
-    			  	if depth <= 0 then [PrettyString "..."]
-    				else
-    					[
-                        PrettyBlock(0, false, [],
+            val typ = eventual t; (* Find the real type structure *)
+        in 
+            case typ of
+                TypeVar tyVar =>
+		        let
+		            val tyVal : types = tvValue tyVar;
+		        in
+		            case tyVal of
+		                EmptyType => PrettyString (typeVarName tyVar)
+		            |   _         => dispP (tyVal, depth)
+		        end
+	  
+                (* Type construction. *)
+            |   TypeConstruction {args, name, value, ...} =>
+	 	        let
+                    val typeConstructor = pling value
+		 	        val constrName = (* Use the type constructor name unless we're had an error. *)
+                        if isUndefined typeConstructor then name else tcName typeConstructor
+
+                    (* If we're printing a value that refers to a type constructor we
+                       want to print the correct amount of any structure prefix for the
+                       current context. *)
+                    fun findType (_, []) = false
+                    |   findType ({ lookupType, ... }, [typeName]) =
+                        (
+                            (* This must be the name of a type. *)
+                            case lookupType typeName of
+                                SOME t =>
+                                    (* TODO: A better check that these are the same type constructors.
+                                       One of these may be a type equivalence as the result of sharing. *)
+                                    sameTypeId(tcIdentifier t, tcIdentifier typeConstructor)
+                            |   NONE => false
+                        )
+                    |   findType (env as { lookupStruct, ... }, structName :: tail) =
+                        (
+                            (* This must be the name of a structure.  Does it contain our type? *)
+                            case lookupStruct structName of
+                                SOME str =>
+                                    let
+                                        val Env { lookupType, lookupStruct, ...} = makeEnv(structSignat str)
+                                    in
+                                        findType({lookupType=lookupType, lookupStruct=lookupStruct}, tail)
+                                    end
+                            |   NONE => false
+                        )
+
+                    (* See if we have this type in the current environment or in some structure in
+                       the current environment.  The name we have may be a full structure path. *)
+                    fun nameToList ("", l) = l
+                    |   nameToList (s, l) = 
+                        let
+                            val { first, second } = splitString s
+                            val currentList = second :: l
+                        in
+                            case env of
+                                SOME env =>
+                                    if findType(env, currentList)
+                                    then currentList
+                                    else nameToList(first, currentList)
+                            |   NONE => (* No environment available. *) nameToList(first, currentList)
+                        end
+                    val names = List.rev(nameToList(constrName, []))
+                    (* TODO: If we don't find the type we want we should:
+                       1.  If it's a type equivalence apply that.
+                       2.  Report this in much more detail.  Perhaps the type has
+                           been hidden e.g. by a type with the same name. *)
+                    (* Turn any structure prefixes into a ParentStructure list.  This is likely to
+                       be replaced by a more appropriate data structure. *)
+                    fun createStructureList [] = []
+                    |   createStructureList (hd :: tl) = [ContextParentStructure(hd, createStructureList tl)]
+
+                     (* Get the declaration position for the type constructor. *)
+                    val constrContext =
+                        if isUndefined(pling value) then []
+                        else
+                        (
+                            case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations(pling value)) of
+                                SOME(DeclaredAt loc) => [ContextLocation loc]
+                            |   _ => []
+                        )
+                    val structureList = createStructureList(tl names) @ constrContext
+                    val constructorEntry = 
+                        (* Remove the structure name and leave just the type. *)
+                        PrettyBlock(0, false, structureList, [PrettyString(hd names)])
+	 	        in
+                    case args of
+                        [] => constructorEntry
+                    |   args as hd :: tl =>
+                        let
+         		            val argVal = eventual hd;
+                        in
+                            PrettyBlock (0, false, [],
                             [
-         					    PrettyBlock(0, false, [],
+                                (* If we have just a single argument and it's just a type constructor
+                                   or a construction we don't need to parenthesise it. *)
+                                if null tl andalso not (isProductType argVal orelse isFunctionType argVal)
+                                then dispP (argVal, depth - 1)
+                        		else if depth <= 1
+                        		then PrettyString "..."
+                        		else PrettyBlock(0, false, [],
+                                         [PrettyString "(", PrettyBreak (0, 0)]
+                                         @ prettyList args (depth - 1) ","
+                                         @ [PrettyBreak (0, 0), PrettyString ")"]
+                         			 ),
+                    		    PrettyBreak(1, 0),
+                    		    constructorEntry (* The constructor. *)
+                            ])
+                        end
+        		end
+        
+            |   FunctionType {arg, result} =>
+	 	        if depth <= 0
+		        then PrettyString "..."
+		        else (* print out in infix notation *)
+                let
+                    val evArg = eventual arg;
+                in
+                    PrettyBlock (0, false, [],
+                        [
+                    	(* If the argument is a function it must be printed as (a-> b)->.. *)
+                    	if isFunctionType evArg 
+                    	then parenthesise depth evArg
+                    	else dispP (evArg, depth - 1),
+                        PrettyBreak(1, 0),
+                        PrettyString "->",
+                        PrettyBreak (1, 0),
+                        dispP (result, depth - 1)
+                        ])
+                end
+                     
+            |   LabelledType {recList, frozen, ...} =>
+	 	        if depth <= 0
+		        then PrettyString "..."
+		        else if isProductType typ
+        		then (* Print as a product *)
+                    PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
+                        prettyList (map (fn {name, typeof} => typeof) recList) depth "*")
+        		else (* Print as a record *)
+                PrettyBlock (2, false, [],
+                    PrettyString "{" ::
+            	 	(let
+            			fun pRec [] depth = []
+            			  | pRec ({name, typeof} :: T) depth =
+            			  	if depth <= 0 then [PrettyString "..."]
+            				else
+            					[
+                                PrettyBlock(0, false, [],
                                     [
-                                    PrettyString (name ^ ":"),
-            					    PrettyBreak(1, 0),
-            					    dispP(typeof, depth - 1)
-                                    ] @
-        		                    (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
-                                )
-                            ]@
-        					(if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
-                            )
-                        ]
-    		in
-    			pRec recList (depth - 1)
-    		end) @
-            [ PrettyString (if frozen then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
-            )
+                 					    PrettyBlock(0, false, [],
+                                            [
+                                            PrettyString (name ^ ":"),
+                    					    PrettyBreak(1, 0),
+                    					    dispP(typeof, depth - 1)
+                                            ] @
+                		                    (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
+                                        )
+                                    ]@
+                					(if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
+                                    )
+                                ]
+            		in
+            			pRec recList (depth - 1)
+            		end) @
+                    [ PrettyString (if frozen then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
+                    )
 
-  	 | OverloadSet {typeset = []} => PrettyString "no type"
+            |   OverloadSet {typeset = []} => PrettyString "no type"
 
-  	 | OverloadSet {typeset = tconslist} =>
-	 	  (* Just print the type constructors separated by / *)
-		let
-            fun constrLocation tcons =
-                case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
-                    SOME(DeclaredAt loc) => [ContextLocation loc]
-                |   _ => []
-            (* Type constructor with context. *)
-            fun tconsItem tcons =
-                PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
+            |   OverloadSet {typeset = tconslist} =>
+        	 	  (* Just print the type constructors separated by / *)
+        		let
+                    fun constrLocation tcons =
+                        case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
+                            SOME(DeclaredAt loc) => [ContextLocation loc]
+                        |   _ => []
+                    (* Type constructor with context. *)
+                    fun tconsItem tcons =
+                        PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
 
-		  	fun printTCcons [] = []
-			  | printTCcons [tcons] = [tconsItem tcons]
-			  | printTCcons (tcons::rest) =
-			  	    tconsItem tcons :: PrettyBreak (0, 0) ::
-				    PrettyString "/" :: printTCcons rest
-		in
-			PrettyBlock (0, false, [], printTCcons tconslist)
-		end
+        		  	fun printTCcons [] = []
+        			  | printTCcons [tcons] = [tconsItem tcons]
+        			  | printTCcons (tcons::rest) =
+        			  	    tconsItem tcons :: PrettyBreak (0, 0) ::
+        				    PrettyString "/" :: printTCcons rest
+        		in
+        			PrettyBlock (0, false, [], printTCcons tconslist)
+        		end
 
-     | EmptyType => PrettyString "no type"
+            |   EmptyType => PrettyString "no type"
             
-     | BadType => PrettyString "bad"
-    end (* dispP *)
-  in
-    dispP (t, depth)
-  end (* tDisp *);
+            |   BadType => PrettyString "bad"
+        end (* dispP *)
+    in
+        dispP (t, depth)
+    end (* tDisp *);
 
 
   (* Generate unique type-variable names. *)
@@ -768,8 +799,8 @@ struct
   
 
   (* Print a type (as a block of items) *)
-  fun display (t : types, depth : int) =
-      tDisp (t, depth, varNameSequence ())
+  fun display (t : types, depth : int, env) =
+      tDisp (t, depth, varNameSequence (), env)
 
   (* Print out one or more type variables (unblocked) *)
   fun printTypeVars
@@ -784,7 +815,7 @@ struct
     if numOfVars = 1 
     then 
     [
-      tDisp (hd vars, depth, typeV), 
+      tDisp (hd vars, depth, typeV, NONE), 
       PrettyBreak (1, 0)
     ]
     else if numOfVars > 1 
@@ -801,7 +832,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (hd vars, depth, typeV),
+                            tDisp (hd vars, depth, typeV, NONE),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -860,7 +891,7 @@ struct
                     [
                         PrettyBreak (1, 4),
                         (* print the type as a single block of output *)
-        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV)
+        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV, NONE)
                     ]
                     else [])
                  )
@@ -985,7 +1016,7 @@ struct
 
         (* Common properties for navigation and printing. *)
         val commonProps =
-            PTprint(fn d => display(typeof, d)) ::
+            PTprint(fn d => display(typeof, d, NONE)) ::
             PTtype typeof ::
             exportNavigationProps navigation
 
@@ -1095,11 +1126,11 @@ struct
                     [
                         PrettyString s1,
                         PrettyBreak (1, 0),
-                        tDisp (alpha, errorDepth, vars),
+                        tDisp (alpha, errorDepth, vars, NONE),
                         PrettyBreak (1, 0),
                         PrettyString s2,
                         PrettyBreak (1, 0),
-                        tDisp (beta, errorDepth, vars),
+                        tDisp (beta, errorDepth, vars, NONE),
                         PrettyBreak (1, 0),
                         PrettyString s3                        
                     ]),
@@ -1300,7 +1331,7 @@ struct
 		    is a type equivalence.  It may be that the type is not actually
 			declared in this structure. *)
 		 val newName =
-		     if isEmpty equiv
+		     if true orelse isEmpty equiv
 			 then strName ^ #second(splitString(tcName tcon))
 			 else tcName tcon
 	     val r = 
@@ -2528,7 +2559,7 @@ struct
                     [
                         PrettyString
                             (opName ^ " is overloaded on " ^ types ^ " but not "),
-                        display (arg, errorDepth)
+                        display (arg, errorDepth, NONE)
                     ]
                 ),
             context = NONE
@@ -2592,7 +2623,7 @@ struct
                         [
                             PrettyString s1,
                             PrettyBreak (1, 0),
-                            tDisp (t, errorDepth, vars),
+                            tDisp (t, errorDepth, vars, NONE),
                             PrettyBreak (1, 0),
                             PrettyString s2
                         ]

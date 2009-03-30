@@ -235,6 +235,10 @@ sharing type
   STRUCTVALS.locationProp
 = TYPESTRUCT.locationProp
 
+sharing type
+  STRUCTVALS.structVals
+= TYPESTRUCT.structVals
+
 ) : VALUEOPSSIG =
 
 (*****************************************************************************)
@@ -1539,6 +1543,8 @@ struct
                     PrettyString equOrColon
                 ]
             )
+        val typeEnv = (* Environment to check for type constructors. *)
+            SOME { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace}
     in
   
         if depth <= 0 
@@ -1557,13 +1563,13 @@ struct
                           (* I think "undefined" here was an old dummy-functor which has since been removed. *)
                     PrettyBreak (1, 3),
                     PrettyBlock (0, false, [],
-                        [ PrettyString ":", PrettyBreak (1, 3), display (typeOf, depth) ])
+                        [ PrettyString ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
                  ])
 
         |    (SimpleValue, _) => (* Values in structures and overloaded values (from PolyML). *)
                 (* We can't get a value to print in this case. *)
              PrettyBlock (0, false, [],
-                [ valPart ":", PrettyBreak (1, 3), display (typeOf, depth) ])
+                [ valPart ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
 
         |    (Exception, _) => (* exceptions *)
              PrettyBlock (0, false, [],
@@ -1579,7 +1585,7 @@ struct
                     case getFnArgType typeOf of
                        NONE => []
                     |  SOME excType =>
-                        [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), display (excType, depth) ]
+                        [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), display (excType, depth, typeEnv) ]
                 )
             )
       
@@ -1593,72 +1599,99 @@ struct
                 printStruct (evalue code, typeOf, depth, nameSpace)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
-  (* Prints "sig ... end" as a block, with no external formatting *)
-  fun displaySig (str, depth : int, space : int, nameSpace) : pretty =
-  let      
-    fun displaySpec (name, value) : pretty list =
-      if (tagIs signatureVar value)
-      then
-        [ PrettyBreak(1,2), displaySignatures (tagProject signatureVar value, depth - 1, nameSpace)]
+    (* Prints "sig ... end" as a block, with no external formatting *)
+    fun displaySig (str, depth : int, space : int,
+                    nameSpace as { lookupType, lookupStruct, ...}) : pretty =
+    let
+        (* Construct an environment for the types. *)
+
+        val Env { lookupType = strType, lookupStruct = strStr, ...} = makeEnv str
+        val compositeEnv =
+        {
+            lookupType   = fn s => case strType s of NONE => lookupType s | sm => sm,
+            lookupStruct = fn s => case strStr s of NONE => lookupStruct s | sm => sm,
+            lookupVal    = #lookupVal nameSpace,
+            lookupFix    = #lookupFix nameSpace,
+            lookupSig    = #lookupSig nameSpace,
+            lookupFunct  = #lookupFunct nameSpace,
+            enterVal     = #enterVal nameSpace,
+            enterType    = #enterType nameSpace,
+            enterFix     = #enterFix nameSpace,
+            enterStruct  = #enterStruct nameSpace,
+            enterSig     = #enterSig nameSpace,
+            enterFunct   = #enterFunct nameSpace,
+            allVal       = #allVal nameSpace,
+            allType      = #allType nameSpace,
+            allFix       = #allFix nameSpace,
+            allStruct    = #allStruct nameSpace,
+            allSig       = #allSig nameSpace,
+            allFunct     = #allFunct nameSpace
+        }
+
+        fun displaySpec (name, value) : pretty list =
+        if (tagIs signatureVar value)
+        then (* Not legal ML97 *)
+            [ PrettyBreak(1,2), displaySignatures (tagProject signatureVar value, depth - 1, compositeEnv)]
            
-      else if (tagIs structVar value)
-      then
-        [ PrettyBreak(1,2), displayStructures (tagProject structVar value, depth - 1, nameSpace)]
+        else if (tagIs structVar value)
+        then
+            [ PrettyBreak(1,2), displayStructures (tagProject structVar value, depth - 1, compositeEnv)]
                
-      else if (tagIs typeConstrVar value)
-      then 
-        [ PrettyBreak(1,2), displayTypeConstrs (tagProject typeConstrVar value, depth) ]
+        else if (tagIs typeConstrVar value)
+        then 
+            [ PrettyBreak(1,2), displayTypeConstrs (tagProject typeConstrVar value, depth) ]
       
-      else if (tagIs valueVar value)
-      then let
-       (* Only print variables. Constructors are printed with their type. *)
-        val value = tagProject valueVar value;
-      in
-        case value of
-            Value{class = Constructor _, ...} => []
-        |    _ =>
-          [ PrettyBreak(1,2),
-          (* We lookup the infix status and any exception in the global environment
-             only.  Infix status isn't a property of a structure and it's too
-             much trouble to look up exceptions in the structure. *)
-            displayValues (value, depth, nameSpace)
-          ]
-      end
+        else if (tagIs valueVar value)
+        then
+        let
+            (* Only print variables. Constructors are printed with their type. *)
+            val value = tagProject valueVar value;
+        in
+            case value of
+                Value{class = Constructor _, ...} => []
+            |    _ =>
+              [ PrettyBreak(1,2),
+              (* We lookup the infix status and any exception in the global environment
+                 only.  Infix status isn't a property of a structure and it's too
+                 much trouble to look up exceptions in the structure. *)
+                displayValues (value, depth, compositeEnv)
+              ]
+        end
       
-      else if (tagIs fixVar value)
-      then 
-        [ PrettyBreak(1,2), displayFixStatus (tagProject fixVar value) ]
+        else if (tagIs fixVar value)
+        then  (* Not legal ML97 *)
+            [ PrettyBreak(1,2), displayFixStatus (tagProject fixVar value) ]
  
-      else []
+        else []
        (* end displaySpec *)
-  in
-    PrettyBlock (0, true, [],
-        PrettyString "sig" ::
-        (
+    in
+        PrettyBlock (0, true, [],
+            PrettyString "sig" ::
             (
-                if depth <= 1 (* If the depth is 1 each of the calls to displaySpec will
-                                 print "..." so we replace them all by a single "..." here. *)
-                then [PrettyBreak (1, 0), PrettyString "..."]
-                else
-                let
-                    val declist = ref nil : (string * universal) list ref
-                    fun addToList nv = declist := nv :: !declist
-                    (* For the moment order them by name.  We may change this to
-                       order primarily by kind and secondarily by name. *)
-                    fun order (s1: string, _) (s2: string, _) = s1 <= s2
-                in
-                    (* Put all the entries into a list. *)
-                    for (univOver (sigTab str)) addToList;
-                    (* Sort the list and print it. *)
-                    List.foldl
-                        (fn (a, l) => displaySpec a @ l)
-                        [] (quickSort order (!declist))
-                end
+                (
+                    if depth <= 1 (* If the depth is 1 each of the calls to displaySpec will
+                                     print "..." so we replace them all by a single "..." here. *)
+                    then [PrettyBreak (1, 0), PrettyString "..."]
+                    else
+                    let
+                        val declist = ref nil : (string * universal) list ref
+                        fun addToList nv = declist := nv :: !declist
+                        (* For the moment order them by name.  We may change this to
+                           order primarily by kind and secondarily by name. *)
+                        fun order (s1: string, _) (s2: string, _) = s1 <= s2
+                    in
+                        (* Put all the entries into a list. *)
+                        for (univOver (sigTab str)) addToList;
+                        (* Sort the list and print it. *)
+                        List.foldl
+                            (fn (a, l) => displaySpec a @ l)
+                            [] (quickSort order (!declist))
+                    end
+                )
+                @ [PrettyBreak (1, 0), PrettyString "end"]
             )
-            @ [PrettyBreak (1, 0), PrettyString "end"]
         )
-    )
-  end (* displaySig *)
+        end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
   and displaySignatures (str, depth : int, nameSpace) : pretty =

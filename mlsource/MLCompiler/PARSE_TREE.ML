@@ -1038,7 +1038,7 @@ struct
                                 PrettyBreak (1, 0),
                                 PrettyString "=",
                                 PrettyBreak (1, 0),
-                                display (typeFromTypeParse t, depth)
+                                display (typeFromTypeParse t, depth, NONE)
                             ]
                     )
                 )
@@ -1067,7 +1067,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse argType, depth)
+                            display (typeFromTypeParse argType, depth, NONE)
                         ]
                 )
             )
@@ -1244,7 +1244,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString ":",
                     PrettyBreak (1, 0),
-                    display (typeFromTypeParse given, depth)
+                    display (typeFromTypeParse given, depth, NONE)
                 ]
             )
 
@@ -1388,7 +1388,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse typeof, depth)
+                            display (typeFromTypeParse typeof, depth, NONE)
                         ]
                     ) @
                     (if isEmptyTree previous then []

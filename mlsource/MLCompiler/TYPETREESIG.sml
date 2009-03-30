@@ -35,6 +35,7 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     type locationProp
+    type structVals
 
   val mkTypeVar:          int * bool * bool * bool -> types;
   val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
@@ -67,7 +68,9 @@ sig
   val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
 
   (* Print it out prettily *)
-  val display: types * int -> pretty;
+  val display: types * int *
+    { lookupType: string -> typeConstrs option,
+      lookupStruct: string -> structVals option} option -> pretty;
 
   (* Print out a type constructor. *)
   val displayTypeConstrs: typeConstrs * int -> pretty;

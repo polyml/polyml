@@ -198,6 +198,7 @@ sharing type
 sharing type
   STRUCTVALS.structVals
 = VALUEOPS.structVals
+= TYPETREE.structVals
 
 sharing type
   STRUCTVALS.valAccess
@@ -731,7 +732,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1)
+                    displayType (typeFromTypeParse typeof, depth - 1, NONE)
                 ]
             )
 
@@ -751,7 +752,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1)
+                    displayType (typeFromTypeParse typeof, depth - 1, NONE)
                 ]
             )
 
@@ -835,7 +836,7 @@ struct
 			        PrettyBreak (1, 0),
 			        PrettyString "=",
 			        PrettyBreak (1, 0),
-                    displayType (realisation, depth - 1)
+                    displayType (realisation, depth - 1, NONE)
                 ]
             )
 
@@ -2072,7 +2073,7 @@ struct
         end
 
 		(* Construct a signature. *)
-        fun sigValue (str : structs, Env env : env, lno : LEX.location) =
+        fun sigValue (str : structs, Env env : env, lno : LEX.location, structName) =
 		let
 			(* Make a new signature. *)
 			val (sigName, loc) =
@@ -2114,7 +2115,7 @@ struct
 			  	checkAndEnter (#enterFunct structEnv) (#lookupFunct structEnv) "Functor"
              }
 		in
-			makeSigInto(str, Env checkedStructEnv, Env env, lno, "", 0);
+			makeSigInto(str, Env checkedStructEnv, Env env, lno, structName, 0);
 			(* Make a copy to freeze it as immutable.*)
 			makeCopy(sigName, newSig, sigMinTypes newSig, sigMaxTypes newSig, lno)
 		end
@@ -2176,7 +2177,7 @@ struct
 			              enterSig      = #enterSig structEnv,
 			              enterFunct    = #enterFunct structEnv
 			             };
-                      val resSig = sigValue (sigStruct, Env newEnv, line);
+                      val resSig = sigValue (sigStruct, Env newEnv, line, name ^ ".");
                       (* Process the rest of the list before declaring
                          the structure. *)
                       val result = pStruct t (offset + 1);
@@ -2438,7 +2439,7 @@ struct
         
         | _ =>
           let (* Anything else has to be copied. *)
-           val result = sigValue (str, Env globalEnv, lno);
+           val result = sigValue (str, Env globalEnv, lno, "");
         
 		  (* We used to have code in here to generate equality types for
 		     all the datatypes in the signature and also to check that the
