@@ -388,7 +388,7 @@ struct
         (* Create a new constructor with the same unique ID. *)
         val typeID = tcIdentifier tcons;
         val newTypeCons =
-            makeTypeConstrs(newName, tcTypeVars tcons, EmptyType, typeID,
+            makeDatatypeConstr(newName, tcTypeVars tcons, typeID,
                             tcLetDepth tcons, locations);
         
         (* Copy the value constructors. *)
@@ -875,10 +875,9 @@ struct
       | TypeConstruction {name, value, args, ...} =>
           let
             val cons = pling value
-            val equiv = tcEquivalent cons;
         in
               (* We may have a type equivalence or this may be a datatype. *)
-              if not (isEmpty equiv)
+            if tcIsAbbreviation cons
             then getTupleKind (makeEquivalent(cons, args))
             else if sameTypeId (tcIdentifier cons, tcIdentifier refType)
             then UnaryGeneric (* A tuple ref is NOT the same as the tuple. *)
@@ -1459,7 +1458,7 @@ struct
                       handle Subscript =>
                           ( if not (null (tcConstructors constr))
                             then printConstruction args (tcConstructors constr)
-                            else if not (isEmpty (tcEquivalent constr))  (* May be an alias *)
+                            else if tcIsAbbreviation constr  (* May be an alias *)
                             then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
                             else PrettyString "?"
                           )
@@ -2113,7 +2112,7 @@ struct
                         returnCode(fn _ => CodeTrue, resKind)
                 else case tcConstructors constr of
                     [] => (* Not a datatype. *)
-                    if not (isEmpty (tcEquivalent constr))  (* May be an alias *)
+                    if tcIsAbbreviation constr  (* May be an alias *)
                     then makeEq (makeEquivalent (constr, args), resKind, findTyVars)
                     else (* An opaque eqtype - probably a functor argument.  N.B. since
                             we're returning the structure equality function we mustn't
@@ -2360,7 +2359,7 @@ struct
             let
                 val constr = pling value
             in
-                if isEmpty (tcEquivalent constr)
+                if not (tcIsAbbreviation constr)
                 then
                 let
                     val typeId = tcIdentifier constr
@@ -2471,7 +2470,7 @@ struct
             let
                 val constr = pling value
             in
-                if isEmpty (tcEquivalent constr)
+                if not (tcIsAbbreviation constr)
                 then
                 let
                     val typeId = tcIdentifier constr
@@ -2702,7 +2701,7 @@ struct
                 let
                     val constr = pling value
                 in
-                   if isEmpty (tcEquivalent constr)
+                   if not (tcIsAbbreviation constr)
                    then constr
                    else followTypes (makeEquivalent (constr, args))
                 end

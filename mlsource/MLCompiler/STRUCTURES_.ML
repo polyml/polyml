@@ -1646,13 +1646,15 @@ struct
               val newType =
                 if not (null (tcConstructors newConstr))
                 then (* Matched to a datatype. Use the NEW types throughout *)
-                  makeTypeConstrs (* Necessary? *)
-                      (tcName newConstr, tcTypeVars newConstr, emptyType,
+                  makeDatatypeConstr (* Necessary? *)
+                      (tcName newConstr, tcTypeVars newConstr,
                        tcIdentifier newConstr, 0, tcLocations newConstr)
                 else newConstr;
             in
               (* Put the new constructors on the result type *)
-              tcSetConstructors (newType, copiedConstrs);
+              if not (null copiedConstrs)
+              then tcSetConstructors (newType, copiedConstrs)
+              else ();
               (* and put it into the table. *)
               #enterType resEnv (dName, newType)
             end
@@ -2299,11 +2301,12 @@ struct
 				(* Record all the datatypes we declare. *)
 				val datatypeList = ref []
 				fun enterType(name, tyCons) =
-					(
-					if isEmpty (tcEquivalent tyCons)
-					then datatypeList := tyCons :: !datatypeList else ();
-					#enterType structEnv (name, tyCons)
-					)
+                (
+                    if null (tcConstructors tyCons)
+                    then ()
+                    else datatypeList := tyCons :: !datatypeList;
+                    #enterType structEnv (name, tyCons)
+                )
 
 	           val newEnv = 
 	             {
@@ -2410,8 +2413,7 @@ struct
 			  (* Now build a dummy type constructor whose equivalent is
 			     the type on the right hand side. *)
 			  val dummyTypeCons =
-				  makeTypeConstrs (typeName, typeVars, realisation,
-				  				   makeVariableId false, 0, [DeclaredAt line]);
+				  makeTypeAbbreviation (typeName, typeVars, realisation, [DeclaredAt line]);
 		  in
 			  (* Now match these up.  This is very similar to an ML90
 			     sharing constraint where one of the types was rigid. *)

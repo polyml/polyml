@@ -1277,82 +1277,48 @@ struct
   end (* copyType *);
   
 
-  (* Copy a type constructor and any types it uses in its "equivalent" list.
-     Does not copy value constructors. *)
-  fun copyTypeConstr (tcon, mustCopy, makeId, typeMap as {enter,lookup},
-  					  copyTypeVar, strName) =
-  let
-    val id    = tcIdentifier tcon;
-    val equiv = tcEquivalent tcon;
-    (* Now copy any equivalent and put it on. *)
-    val copiedEquiv =
-      if isEmpty equiv then equiv
-      else
-(* Back out the change needed for free type variables. DCJM 12/4/00. *)
-(*
-	  	let
-			(* We apply copyTypeVar to free type variables but not to bound vars. *)
-			val boundTVs = tcTypeVars tcon
-			fun copyFreeTVs tv =
-				first(fn t => sameTypeVar(t, tv)) (fn _ => tv)
-					(fn () => copyTypeVar tv) (overList boundTVs)
-			fun copyTC tcon =
-				copyTypeConstr (tcon, mustCopy, makeId, typeMap, copyFreeTVs)
-		in
-			copyType (equiv, copyFreeTVs, copyTC)
-		end
-*)
-       copyType
-		 (equiv,
-		  trivMap, (* Don't bother with type variables. *)
-		  fn tcon => copyTypeConstr (tcon, mustCopy, makeId, typeMap, trivMap, strName));
-  in
-    (* Now copy the type constructor if either the id of this constructor
-       must be copied or if its equivalent must be copied.  It is possible
-       that we may have to copy the constructor even if its equivalent has
-       not changed (e.g. this constructor shares  with a free type). We
-       still copy it to make sure that the length of bound stamps is right. *)
-	(* DCJM 17/2/00.  If we have a type (rather than a datatype) and the
-	   "equivalent" has changed we must ensure that we always get a new copy.
-	   This is essential if the type has free variables. *)
-	(* DCJM 9/5/00.  Now backed out this change because it seems that the
-	   change to the definition which would allow free type variables is
-	   actually a mistake. *)
-	if mustCopy id orelse not (identical (equiv, copiedEquiv))
-    then (* If it is the appropriate type of identifier. *)
-      (* We share occurences of type constructors (not just their
-         identifiers) so that if we have a value of a type which is a
-         datatype we can find the constructors when we need to print it. *)
-      case lookup id of (* Return it if it is in the table. *)
-         SOME i => i
-      |  NONE =>
-	   let (* Not there, so copy it. *)
-		 (* Replace any signature name by the given structure name unless this is
-		    is a type equivalence.  It may be that the type is not actually
-			declared in this structure. *)
-		 val newName =
-		     if true orelse isEmpty equiv
-			 then strName ^ #second(splitString(tcName tcon))
-			 else tcName tcon
-	     val r = 
-	       makeTypeConstrs
-			 (newName,
-			  tcTypeVars tcon,
-			  copiedEquiv,
-			  makeId (tcEquality tcon),
-			  0 (* Always global. *),
-              tcLocations tcon); (* Copy original declaration location ??? *)
-		  
-	     (* And put it in the table *)
-	     val U : unit = enter (id, r);
-	   in
-	     r
-	   end
-    else tcon
-  end (* copyTypeConstr *);
+    (* Copy a type constructor.  If this refers to a type function copies that as well.
+       Does not copy value constructors. *)
+    fun copyTypeConstr (tcon, mustCopy, makeId, typeMap as {enter,lookup}, copyTypeVar, strName) =
+        case tcIdentifier tcon of
+            TypeFunction(args, equiv) =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, trivMap, (* Don't bother with type variables. *)
+		                fn tcon => copyTypeConstr (tcon, mustCopy, makeId, typeMap, trivMap, strName))
+                val oldName = tcName tcon
+        		val newName = strName ^ #second(splitString oldName)
+            in
+                if identical (equiv, copiedEquiv) (* andalso newName = oldName *) (* ??? *)
+                then tcon (* No need to copy *)
+                else if List.null (tcConstructors tcon)
+                then makeTypeAbbreviation(newName, args, copiedEquiv, tcLocations tcon)
+                else (* It is possible, though very unlikely, that there might be both a type
+                        function and value constructors. sig datatype t = X end where type t = ...
+                        Allow value constructors to be added later. *)
+                    makeDatatypeConstr(newName, tcTypeVars tcon, TypeFunction(args, copiedEquiv),
+                                        0 (* Always global. *), tcLocations tcon)
+            end
+        |   id =>
+            if mustCopy id
+            then
+                case lookup id of (* Return it if it is in the table. *)
+                    SOME tyCons => tyCons
+                |   NONE =>
+                    let (* Not there, so copy it. *)
+            		    (* Replace any signature name by the given structure name. *)
+		                val newName = strName ^ #second(splitString(tcName tcon))
+	                    val newConstr =
+                            makeDatatypeConstr(newName, tcTypeVars tcon, makeId (tcEquality tcon),
+			                    0 (* Always global. *), tcLocations tcon);
+                    in
+                        (* And put it in the table *)
+                        enter (id, newConstr);
+                        newConstr
+	                end
+            else tcon
 
-
-  datatype match = Matched of {old: typeVarForm, new: types};
+    datatype match = Matched of {old: typeVarForm, new: types};
 
 
   (* Generate a mapping from one set of type variables to another. *)
@@ -1567,7 +1533,7 @@ struct
 	else if tcEquality constr (* Equality allowed. *)
 	  then eqForList (args, Yes) (* Must be allowed for all the args *)
 	  
-	else if isEmpty (tcEquivalent constr)
+	else if not (tcIsAbbreviation constr)
 	  then let (* Not an alias. - Look it up. *)
 	    val s = search (tcIdentifier constr);
 	  in 
@@ -1981,7 +1947,7 @@ struct
             let
 			    val constr = pling value
 			in
-		      isEmpty (tcEquivalent constr) orelse
+		      not (tcIsAbbreviation constr) orelse
 			      let
 			        (* expand type constructor to get its body *)
 					val equiv = eventual (makeEquivalent (constr, args));
@@ -2181,7 +2147,7 @@ struct
                     let
                         val constr = pling value
                     in
-                        if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                        if isUndefined constr orelse not (tcIsAbbreviation constr)
                         then
                             (
                             case mapB tB of
@@ -2189,7 +2155,7 @@ struct
                                 let
                                     val constr = pling value
                                 in
-                                    if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                                    if isUndefined constr orelse not (tcIsAbbreviation constr)
                                     then assign (typeAVar, mapB tB)
                                     else match(tA, eventual (makeEquivalent (constr, args)), trivMap)
                                 end
@@ -2213,7 +2179,7 @@ struct
                     let
                         val constr = pling value
                     in
-                        if isUndefined constr orelse isEmpty (tcEquivalent constr)
+                        if isUndefined constr orelse not (tcIsAbbreviation constr)
                         then
                             (
                             case mapB tB of
@@ -2262,10 +2228,10 @@ struct
 		 'a t = 'a list (particularly common in signature/structure
 		 matching.)
 	     d) Finally we try to unify the stamps and the arguments. *)
-		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
 		(* Candidate is an alias - expand it. *)
 		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
-		else if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+		else if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
 		then match (tA, makeEquivalent (tBCons, tBargs), (*trivMap, *)mapB)
 		else case mapB tB of
 			(typB as TypeConstruction({value=valueB, args=typeBargs, ...})) =>
@@ -2273,8 +2239,7 @@ struct
 				    val typeBCons = pling valueB
 				in
     			(* If the typeB is an alias it must be expanded. *)
-    				if not(isUndefined typeBCons) andalso
-    					not(isEmpty (tcEquivalent typeBCons))
+    				if not(isUndefined typeBCons) andalso tcIsAbbreviation typeBCons
     				then match (tA, makeEquivalent (typeBCons, typeBargs),
     														  (*trivMap, *)trivMap)
     				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
@@ -2304,7 +2269,7 @@ struct
         let
 		    val tBCons = pling valueB
 		in
-    		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+    		if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
     		then match (tA, makeEquivalent (tBCons, tBargs), (*mapA, *)mapB)
     		else
     			(
@@ -2315,7 +2280,7 @@ struct
 					in
         				if isUndefined typeBCons
         				then ()
-        				else if not(isEmpty (tcEquivalent typeBCons))
+        				else if tcIsAbbreviation typeBCons
         				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
         				else (* See if the target type is among those in the overload set. *)
         					if null typeBargs (* Must be a nullary type constructor. *)
@@ -2331,7 +2296,7 @@ struct
         let
 		    val tACons = pling valueA
 		in
-    		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+    		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
     		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
     		(* We should never find an overload set as the target for a signature
     		   match but it is perfectly possible for tB to be an overload set
@@ -2348,7 +2313,7 @@ struct
         let
 		    val tACons = pling valueA
 		in
-    		if not (isUndefined tACons orelse isEmpty (tcEquivalent tACons))
+    		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
     		(* Candidate is an alias - expand it. *)
     		then match (makeEquivalent (tACons, tAargs), tB, mapB)
     		else (* typB not a construction (but typeA is) *)
@@ -2363,7 +2328,7 @@ struct
 		let
 		    val tBCons = pling valueB
 		in
-		if not (isUndefined tBCons orelse isEmpty (tcEquivalent tBCons))
+		if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
 		then match (tA, makeEquivalent (tBCons, tBargs), mapB)
 		else
 			(
@@ -2374,7 +2339,7 @@ struct
 					in
                         if isUndefined typeBCons
         				then ()
-        				else if not(isEmpty (tcEquivalent typeBCons))
+        				else if tcIsAbbreviation typeBCons
         				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
         				else cantMatch (typB, tA, "(Incompatible types)")
                     end
@@ -2510,7 +2475,7 @@ struct
             let
 			    val constr = pling value
 			in
-    	  		if isEmpty (tcEquivalent constr)
+    	  		if not (tcIsAbbreviation constr)
     			then constr (* Generally args will be nil in this case but
     						   in the special case of looking for an equality
     						   function for 'a ref or 'a array it may not be.  *)
@@ -2700,7 +2665,7 @@ struct
 				val name = "_" ^ genName(!count)
 				val _ = count := !count + 1;
 				val tCons =
-					makeFrozenTypeConstrs (name, [], emptyType, makeFreeId(tvEquality tvar),
+					makeFrozenTypeConstrs (name, [], makeFreeId(tvEquality tvar),
 						0, [DeclaredAt(location lex)]);
 	            val newVal = mkTypeConstruction(name, tCons, [], [])
 			in
@@ -2724,10 +2689,9 @@ struct
      stamps into bound stamps. *)
   fun setTypeConstr (tcon, makeId) =
   let
-    val id    = tcIdentifier tcon;
-    val equiv = tcEquivalent tcon;
+    val id = tcIdentifier tcon;
   in
-    if not (isEmpty equiv) then setTypes (equiv, makeId) else ();
+    if tcIsAbbreviation tcon then setTypes (tcEquivalent tcon, makeId) else ();
     if isVariableId id then makeTypeIdBound(id, makeId(isEquality id)) else () 
   end
 
@@ -2810,7 +2774,7 @@ struct
       
       fun cantMatch (candidate, target, reason) =
            matchError ("Can't match", candidate, "to", target, reason,
-                       lex, location, moreInfo);       
+                       lex, location, moreInfo);
     in
       typeMatch (copiedCandidate, target, copyTarget, cantMatch)
     end;
@@ -2819,7 +2783,7 @@ struct
     
     fun permitsEquality constr =
        if tcEquality constr then true
-       else if isEmpty(tcEquivalent constr) then false
+       else if not(tcIsAbbreviation constr) then false
        else not (equality 
                    (mkTypeConstruction (tcName constr, constr, tcTypeVars constr, []),
                     fn tri => No,
@@ -2839,14 +2803,15 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, []);
+      val args = tcTypeVars toSet
+      val construction = mkTypeConstruction (tcName v, v, args, []);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)
     in
       if tcEquality toSet
       then 
-        if isVariableId (tcIdentifier v) andalso isEmpty (tcEquivalent v)
+        if isVariableId (tcIdentifier v) andalso not (tcIsAbbreviation v)
            then tcSetEquality (v, true)
         else if not (permitsEquality v)
            then cantMatch ("Cannot share: (" ^ tcName v ^ ") is not an eqtype")
@@ -2858,7 +2823,7 @@ struct
          type constructor instead (as the semantics says) in the name.
          We would have a problem if we shared a type with a datatype that
          was later found to be an eqtype. *)
-      tcSetEquivalent (toSet, construction)
+      tcSetEquivalent (toSet, args, construction)
     end (* setEquiv *);
   in
     if isUndefined typeA orelse isUndefined typeB
@@ -2876,30 +2841,32 @@ struct
 
      (* First see if either has been matched to another type. If what it
         has been matched to is a type constructor then we look at that. *)
-      val AEquiv = tcEquivalent typeA;
-      val BEquiv = tcEquivalent typeB;
     in
-	  if not (isEmpty AEquiv)
+	  if tcIsAbbreviation typeA
 	  then (* This type is matched to something else.  This could have arisen
 			  either from a previous sharing constraint or from a type
 			  abbreviation.  This is only allowed if it is another
 			  type constructor.  *)
-		 (
+        let
+            val AEquiv = tcEquivalent typeA
+        in
 			if isTypeConstruction AEquiv andalso 
 				eqArgs (#args (typesTypeConstruction AEquiv)) (tcTypeVars typeA)
 			then linkTypeConstructors (pling (#value (typesTypeConstruction AEquiv)),
 					typeB, cantMatch)
 			else cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is a type function")
-		 )
-	  else if not (isEmpty BEquiv)
+        end
+	  else if tcIsAbbreviation typeB
 	  then (* ditto for type B *)
-		 (
+        let
+            val BEquiv = tcEquivalent typeB;
+        in
 			if isTypeConstruction BEquiv andalso 
 				eqArgs (#args (typesTypeConstruction BEquiv)) (tcTypeVars typeB)
 			then linkTypeConstructors (typeA,
 					pling (#value (typesTypeConstruction BEquiv)), cantMatch)
 			else cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is a type function")
-		 )
+        end
       
         (* Neither A nor B can already be matched to anything. *)
       else if sameTypeId (tcIdentifier typeA, tcIdentifier typeB)
@@ -2987,14 +2954,15 @@ struct
     let
       (* Make a type construction out of constructor,
          using type variables from "toSet". *)
-      val construction = mkTypeConstruction (tcName v, v, tcTypeVars toSet, []);
+      val args = tcTypeVars toSet
+      val construction = mkTypeConstruction (tcName v, v, args, []);
         (* If "toSet" is an eqtype we need to check that the "v" also is one.
            If we are establishing a sharing constraint between two variable
            types one of which is  an eqtype we have to make them all eqtypes. *)
     in
       if tcEquality toSet
       then 
-        if isVariableId (tcIdentifier v) andalso isEmpty (tcEquivalent v)
+        if isVariableId (tcIdentifier v) andalso not (tcIsAbbreviation v)
            then tcSetEquality (v, true)
         else if not (permitsEquality v)
            then cantSet ("(" ^ tcName v ^ ") is not an eqtype")
@@ -3006,7 +2974,7 @@ struct
          type constructor instead (as the semantics says) in the name.
          We would have a problem if we shared a type with a datatype that
          was later found to be an eqtype. *)
-      tcSetEquivalent (toSet, construction)
+      tcSetEquivalent (toSet, args, construction)
     end (* setEquiv *)
   in
     if isUndefined tcToSet
@@ -3027,7 +2995,7 @@ struct
       val toSetEquiv = tcEquivalent tcToSet;
       val equivEquiv = tcEquivalent equivTc;
     in
-		if not (isEmpty toSetEquiv)
+		if tcIsAbbreviation tcToSet
 		then
 		 (* It's bound to something. I really don't know if this is legal or not.
 		    If it is legal it's only legal if it's bound to another type name.
@@ -3166,10 +3134,9 @@ struct
       then let
         val cons = typesTypeConstruction typ;
         val constructor = pling (#value cons);
-        val equiv = tcEquivalent constructor;
       in
-        if not (isEmpty equiv)
-        then checkWellFormed (equiv, errorMessage)
+        if tcIsAbbreviation constructor
+        then checkWellFormed (tcEquivalent constructor, errorMessage)
         else if isVariableId (tcIdentifier constructor)
           then 
             errorMessage
@@ -3192,7 +3159,7 @@ struct
         val l = tcConstructors constr
     in
       (* In a few cases it is possible for the value to be an equivalent. *)
-      if null l andalso not(isEmpty(tcEquivalent constr))
+      if null l andalso tcIsAbbreviation constr
       then getConstrList (makeEquivalent (constr, args))
       else l
     end

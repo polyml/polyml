@@ -32,28 +32,6 @@ sig
     (* Structures *)
     type signatures;
     type codetree;
-    type typeId;
-    (* type identifiers.  In the old (ML90) version these were used for
-     structures as well. *)
-
-    val unsetId:      typeId;
-    val isUnsetId:    typeId -> bool;
-    val isFreeId:     typeId -> bool;
-    val isBoundId:    typeId -> bool;
-    val isVariableId: typeId -> bool;
-    val isEquality:   typeId -> bool;
-    val offsetId:     typeId -> int;
-    val sameTypeId:   typeId * typeId -> bool;
-    val linkFlexibleTypeIds: typeId * typeId -> unit;
-    val makeTypeIdBound: typeId * typeId -> unit;
-    val setEquality:  typeId -> unit
-    val removeAbstypeEquality:  typeId -> unit
-
-    val makeFreeId:     bool -> typeId;
-    val makeFreeIdEqUpdate:     bool -> typeId;
-    val makeVariableId: bool -> typeId;
-    val makeBoundId:    int*bool  -> typeId;
-    val makeBoundIdWithEqUpdate: int*bool  -> typeId;
 
     (* Types *)
   
@@ -65,9 +43,18 @@ sig
   
     type typeVarForm;
     type typeConstrs;
+    type uniqueId
 
-    (* A type is the union of these different cases. *)
-    datatype types = 
+    datatype typeId =
+        Unset           (* A flexible type id that hasn't yet been set. *)
+    |   UnsetEquality
+    |   Free            of uniqueId * bool
+    |   Bound           of int * bool possRef
+    |   Flexible        of typeId ref
+    |   TypeFunction    of types list * types
+
+        (* A type is the union of these different cases. *)
+    and types = 
         TypeVar of typeVarForm
     
     |   TypeConstruction of (* typeConstructionForm *)
@@ -152,9 +139,30 @@ sig
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
-  ;
-      
 
+    (* type identifiers. *)
+    val unsetId:      typeId;
+    val isUnsetId:    typeId -> bool;
+    val isFreeId:     typeId -> bool;
+    val isBoundId:    typeId -> bool;
+    val isVariableId: typeId -> bool;
+    val isTypeFunction: typeId -> bool;
+    val isEquality:   typeId -> bool;
+    val offsetId:     typeId -> int;
+    val sameTypeId:   typeId * typeId -> bool;
+    val linkFlexibleTypeIds: typeId * typeId -> unit;
+    val makeTypeIdBound: typeId * typeId -> unit;
+    val setEquality:  typeId -> unit
+    val removeAbstypeEquality:  typeId -> unit
+
+    val makeFreeId:     bool -> typeId;
+    val makeFreeIdEqUpdate:     bool -> typeId;
+    val makeVariableId: bool -> typeId;
+    val makeBoundId:    int*bool -> typeId;
+    val makeBoundIdWithEqUpdate: int*bool -> typeId;
+    val makeTypeFunction: types list * types -> typeId;
+    
+    (* Types *)
     val badType:   types;
     val emptyType: types;
 
@@ -165,7 +173,7 @@ sig
     val tcArity:           typeConstrs -> int;
     val tcTypeVars:        typeConstrs -> types list;
     val tcEquivalent:      typeConstrs -> types;
-    val tcSetEquivalent:   typeConstrs * types -> unit;
+    val tcSetEquivalent:   typeConstrs * types list * types -> unit;
     val tcConstructors:    typeConstrs -> values list;
     val tcSetConstructors: typeConstrs * values list -> unit;
     val tcEquality:        typeConstrs -> bool;
@@ -173,12 +181,14 @@ sig
     val tcIdentifier:      typeConstrs -> typeId;
     val tcLetDepth:        typeConstrs -> int;
     val tcLocations:       typeConstrs -> locationProp list
+    val tcIsAbbreviation:  typeConstrs -> bool
 
-    (* These are all logically equivalent but include differing numbers of refs *)
-    val makeTypeConstrs:
-        string * types list * types * typeId * int * locationProp list -> typeConstrs;
+    val makeDatatypeConstr:
+        string * types list * typeId * int * locationProp list -> typeConstrs;
     val makeFrozenTypeConstrs:
-        string * types list * types * typeId * int * locationProp list -> typeConstrs;
+        string * types list * typeId * int * locationProp list -> typeConstrs;
+    val makeTypeAbbreviation:
+        string * types list * types * locationProp list -> typeConstrs;
 
     val tvLevel:        typeVarForm -> int;
     val tvEquality:     typeVarForm -> bool;

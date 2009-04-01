@@ -78,37 +78,176 @@ struct
     fun pling(FrozenRef x) = x | pling(VariableRef(ref x)) = x
     fun updatePR(VariableRef r, x) = r := x | updatePR(FrozenRef _, _) = raise Fail "Assignment to frozen ref"
    
-  (* These identifiers are used to distinguish between concrete types.  Two
+  (* typeIds are used to distinguish between concrete types.  Two
      types that share will have the same identifier.  If the identifiers are
      different they are different types.
-     There are three classes of type identifier. Flexible types occur in signatures
+     There are four classes of type identifier. Flexible types occur in signatures
      and can be assigned to other variables or constants by sharing constraints
-     or by signature matching. Free constants arise from top level types or
-     those in top level structures. Bound constants occur in the arguments to
+     or by signature matching. Free constants arise from datatypes, abstypes or
+     opaque signature macthing. Bound constants occur in the arguments to
      functors or types constructed inside a functor (and therefore generated
-     when the functor is applied).
+     when the functor is applied).  Type functions arise from type bindings
+     (type abbreviations) or from "where type" definitions in signatures.
      The type identifier also contains the equality attribute.
      In ML97 only types have these identifiers.  In ML90 these were also
      needed for structures. *)
-      
+
     datatype typeId =
-        Unset
+        Unset           (* A flexible type id that hasn't yet been set. *)
     |   UnsetEquality
-    |   Free     of uniqueId * bool
-    |   Bound    of int * bool possRef
-    |   Flexible of typeId ref
-    
+    |   Free            of uniqueId * bool
+    |   Bound           of int * bool possRef
+    |   Flexible        of typeId ref
+    |   TypeFunction    of types list * types
+
+    (* A type is the union of these different cases. *)
+    and types = 
+        TypeVar          of typeVarForm
+    |   TypeConstruction of typeConstructionForm
+    |   FunctionType     of functionTypeForm
+    |   LabelledType     of labelledRecForm
+    |   OverloadSet		 of overloadSetForm
+    |   BadType
+    |   EmptyType
+
+    and typeConstrs = 
+        TypeConstrs of
+        {
+            name:       string,
+            arity:      int,
+            typeVars:   types list,
+		    constrs:    values list possRef, (* List of value constructors. *)
+            identifier: typeId,
+		    letDepth:	int, (* Needed to check for local datatypes. *)
+            locations:  locationProp list (* Location of declaration *)
+        }
+
+    (* Access to a value, structure or functor. *)
+    and valAccess =
+  	    Global   of codetree
+    |   Local    of { addr: int ref, level: int ref }
+    |   Selected of { addr: int,     base:  structVals }
+    |   Formal   of int
+    |   Overloaded of typeDependent (* Values only. *)
+
+    (* Structures. *)
+    and structVals = 
+        NoStruct
+    |   Struct of
+        {
+            name:   string,
+            signat: signatures,
+            access: valAccess,
+            locations: locationProp list
+        }
+
+    (* Signatures *)
+    and signatures =
+        Signatures of
+        { 
+            name:       string,
+            tab:        univTable,
+            minTypes:   int,
+            maxTypes:   int,
+            declaredAt: location
+        }
+
+    (* Values. *)
+    (* The overloaded functions divide up into basically two groups: Those =, 
+       <>, print and makestring  which are infinitely overloaded and those 
+       *, + etc  which are overloaded on a limited range of types. *)  
+    and typeDependent =
+        Print
+    |   PrintSpace
+    |   MakeString
+    |   MakeStringSpace
+    |   InstallPP
+    |   AddPretty
+    |   Equal
+    |   NotEqual
+    |   AddOverload
+    |   TypeDep
+
+    and values =
+  	    Value of
+        {
+		    name: string,
+		    typeOf: types,
+		    access: valAccess,
+		    class: valueClass,
+            locations: locationProp list (* Location of declaration *)
+        }
+
+    (* Classes of values. *)
+    and valueClass =
+  	    SimpleValue
+	|   Exception
+	|   Constructor of { nullary: bool }
+
+    and locationProp =
+        DeclaredAt of location
+    |   OpenedAt of location
+    |   StructureAt of location
+  
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
            need but also because it allows us to create a unique Id. *)
+    and typeConstructionForm = 
+    {
+        name:  string,
+        value: typeConstrs possRef,
+        args:  types list,
+        locations: locationProp list
+    }
+      
+    and typeVarForm = 
+    {
+        value:    types ref,
+        encoding: Word.word
+    }
+ 
+    (* A function type takes two types, the argument and the result. *)
+    and functionTypeForm = 
+    { 
+        arg: types,
+        result: types
+    }
+      
+    (* A fixed labelled record. *)
+    and labelledRecForm = 
+    { 
+        recList: { name: string, typeof: types } list,
+        frozen: bool,
+	    genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
+    }
+	
+  (* A set of type contructors.  This is used only during the
+     compilation process and represents the set of possible types
+	 which may occur. It functions in much the same way as a type
+	 variable.  Because we only allow overloading on monomorphic
+	 type constructors such as "int" and "word" we can restrict the
+	 set to containing only type constructors rather than general types.
+	 This overload set was added for ML 97 because ML 97, unlike ML 90,
+	 defaults overloaded operators and constants if unification does
+	 not result in a single type being found.  
+	 The overload set is used in a similar way to a flexible record
+	 and will always be pointed at by a type variable so that the
+	 set can be replaced by a single type construction if the unification
+	 reduces to a single type. *)
+    and overloadSetForm =
+  	{
+		typeset: typeConstrs list
+	}
 
+    (* Identifiers *)
     (* Variable stamps: can be set to other stamps whether variable or free. *)
     val unsetId = Unset;
     val unsetEq = UnsetEquality
 
     (* REF HOTSPOT - 400 *)
     fun makeFreeId eq = Free (ref eq, false);
-    (* At the moment the only reason for this is some extra checking. *)
+    (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
+       is that it allows us to check that we're actually permitting update when needed. *)
     fun makeFreeIdEqUpdate eq = Free(ref eq, true);
 
     fun makeBoundId (n, eq) = Bound(n, FrozenRef eq);
@@ -120,6 +259,8 @@ struct
     (* REF HOTSPOT - 260 *)
     fun makeVariableId true  = Flexible (ref UnsetEquality)
     |   makeVariableId false = Flexible (ref Unset);
+    
+    fun makeTypeFunction(args, result) = TypeFunction(args, result)
 
     (* If it is a constant or an unset variable return it,
        otherwise return the value the variable is bound to. *)
@@ -134,6 +275,7 @@ struct
     fun isVariableId x = case (realId x) of Flexible _ => true | _ => false;
     fun isFreeId     x = case (realId x) of Free     _ => true | _ => false;
     fun isBoundId    x = case (realId x) of Bound    _ => true | _ => false;
+    fun isTypeFunction x = case (realId x) of TypeFunction _ => true | _ => false;
 
     (* Find the number - assuming it is bound. *)
     fun offsetId x = 
@@ -142,7 +284,12 @@ struct
         |   _       => raise InternalError "offsetId: not a Bound";
 
     (* Are two type constructors the same? *)
-    fun sameTypeId (cons1, cons2) = realId cons1 = realId cons2;
+    fun sameTypeId (cons1, cons2) =
+        case (realId cons1, realId cons2) of
+            (Flexible a, Flexible b)    => a = b
+        |   (Free a,     Free b)        => a = b
+        |   (Bound a,    Bound b)       => a = b
+        |   _                           => false (* Includes type functions. *)
   
     (* Link two flexible type identifiers together as a result of a sharing
        constraint.  If either is an equality type the result is an equality type.
@@ -159,6 +306,13 @@ struct
         |   _ => raise InternalError "linkTypeIds: non-variable ids"
     end
 
+    (* Set the typeId to be a type function.  This can only happen as a result of
+       a "where type" constraint. *)
+    fun setAsTypeFunction(typeId, args, result) =
+        case realId typeId of
+            Flexible p => p := TypeFunction(args, result)
+        |   _ => raise InternalError "setAsTypeFunction: setting non-flexible type"
+
     (* Set a flexible type id to be a new bound type id.  This is part of the
        last phase of constructing a signature so that one bound is used
        for each distinct flexible type id. *)
@@ -172,6 +326,7 @@ struct
     |   isEquality (Free(ref eq, _)) = eq
     |   isEquality (Bound(_, eq)) = pling eq
     |   isEquality (Flexible(ref v)) = isEquality v
+    |   isEquality (TypeFunction _) = false (* Requires analysis of the type function. *)
 
     (* Set the equality property.  This may be either for flexible stamps as the
        result of sharing with an eqtype or, for either flexible or free datatypes,
@@ -190,20 +345,10 @@ struct
     |   removeAbstypeEquality _ =
             raise InternalError "removeAbsTypeEquality: not Free"
 
-  (* Used for both signatures of local structures and for global structures 
-     (name spaces). Strictly signatures do not contain fix-status functors
-     or signatures but as we use these structures for top-level name-spaces
-     we have to have tables for these. *)
-  abstype signatures =
-    Signatures of
-      { 
-        name:       string,
-        tab:        univTable,
-        minTypes:   int,
-        maxTypes:   int,
-        declaredAt: location
-      }
-  with
+    (* Signatures: Used for both signatures of local structures and for global structures 
+       (name spaces). Strictly signatures do not contain fix-status functors
+       or signatures but as we use these structures for top-level name-spaces
+       we have to have tables for these. *)
     fun sigName       (Signatures {name,...})       = name;
     fun sigTab        (Signatures {tab,...})        = tab;
     fun sigMinTypes   (Signatures {minTypes,...})   = minTypes;
@@ -224,8 +369,6 @@ struct
 			   minTypes   = minTypes, 
 			   maxTypes   = maxTypes,
                declaredAt = location  };
-       
-  end; (* signatures abstype *)
     
   (* Types. *)
 
@@ -233,132 +376,6 @@ struct
 
   val generalisable = 9999; 
     
-  (* A type is the union of these different cases. *)
-  datatype types = 
-    TypeVar          of typeVarForm
-  | TypeConstruction of typeConstructionForm
-  | FunctionType     of functionTypeForm
-  | LabelledType     of labelledRecForm
-  | OverloadSet		 of overloadSetForm
-  | BadType
-  | EmptyType
-
-  and typeConstrs = 
-     TypeConstrs of
-      {
-        name:       string,
-        arity:      int,
-        typeVars:   types list,
-		updatable: (* We have a single ref here to minimise the number of refs. *)
-		   {
-		      equiv:      types,
-			  constrs:    values list (* List of value constructors. *)
-		   }  possRef,
-        identifier: typeId,
-		letDepth:	int, (* Needed to check for local datatypes. *)
-        locations: locationProp list (* Location of declaration *)
-      }
-
-  (* Access to a value, structure or functor. *)
-  and valAccess =
-  	Global   of codetree
-  | Local    of { addr: int ref, level: int ref }
-  | Selected of { addr: int,     base:  structVals }
-  | Formal   of int
-  | Overloaded of typeDependent (* Values only. *)
-
-  (* Structures. *)
-  and structVals = 
-    NoStruct
-  | Struct of
-    {
-      name:   string,
-      signat: signatures,
-      access: valAccess,
-      locations: locationProp list
-    }
-
-  (* Values. *)
-  (* The overloaded functions divide up into basically two groups: Those =, 
-     <>, print and makestring  which are infinitely overloaded and those 
-     *, + etc  which are overloaded on a limited range of types. *)  
-  and typeDependent =
-    Print
-  | PrintSpace
-  | MakeString
-  | MakeStringSpace
-  | InstallPP
-  | AddPretty
-  | Equal
-  | NotEqual
-  | AddOverload
-  | TypeDep
-
-  and values =
-  	Value of {
-		name: string,
-		typeOf: types,
-		access: valAccess,
-		class: valueClass,
-        locations: locationProp list (* Location of declaration *) }
-
-  (* Classes of values. *)
-  and valueClass =
-  	  SimpleValue
-	| Exception
-	| Constructor of { nullary: bool }
-
-  and locationProp =
-        DeclaredAt of location
-    |   OpenedAt of location
-    |   StructureAt of location
-  
-  withtype typeConstructionForm = 
-      {
-        name:  string,
-        value: typeConstrs possRef,
-        args:  types list,
-        locations: locationProp list
-      }
-      
-  and typeVarForm = 
-      {
-         value:    types ref,
-         encoding: Word.word
-      }
- 
-  (* A function type takes two types, the argument and the result. *)
-  and functionTypeForm = 
-    { 
-      arg: types,
-      result: types
-    }
-      
-  (* A fixed labelled record. *)
-  and labelledRecForm = 
-    { 
-      recList: { name: string, typeof: types } list,
-      frozen: bool,
-	  genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
-    }
-	
-  (* A set of type contructors.  This is used only during the
-     compilation process and represents the set of possible types
-	 which may occur. It functions in much the same way as a type
-	 variable.  Because we only allow overloading on monomorphic
-	 type constructors such as "int" and "word" we can restrict the
-	 set to containing only type constructors rather than general types.
-	 This overload set was added for ML 97 because ML 97, unlike ML 90,
-	 defaults overloaded operators and constants if unification does
-	 not result in a single type being found.  
-	 The overload set is used in a similar way to a flexible record
-	 and will always be pointed at by a type variable so that the
-	 set can be replaced by a single type construction if the unification
-	 reduces to a single type. *)
-  and overloadSetForm =
-  	{
-		typeset: typeConstrs list
-	}
     
   (* Destructors, constructors and predicates for types *)
   val emptyType            = EmptyType;
@@ -440,117 +457,113 @@ struct
     fun tcName       (TypeConstrs {name,...} : typeConstrs)       = name;
     fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
     fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
-    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
+    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = realId identifier;
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
-    local
-        fun getUpdatable (TypeConstrs {updatable,...} : typeConstrs) = pling updatable;
-    in
-        val tcEquivalent = #equiv o getUpdatable
-        val tcConstructors  = #constrs o getUpdatable
-        (* Equality is now a property of the type id.  Retain these functions for the moment. *)
-        val tcEquality = isEquality o tcIdentifier;
-        fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
-        |   tcSetEquality(tc, false) = removeAbstypeEquality(tcIdentifier tc);
-        
-        fun tcSetEquivalent (TypeConstrs {updatable, name, ...}, t) =
-		    let
-		        val v = pling updatable
-			in
-			    updatePR(updatable, { equiv = t, constrs = #constrs v})
-                    handle Fail _ => raise Fail ("SetEquivalent:" ^ name)
-			end
-		
-        fun tcSetConstructors (TypeConstrs {updatable, name,...}, constrs) =
-		    let
-		        val v = pling updatable
-			in
-			    updatePR(updatable, { equiv = #equiv v, constrs = constrs})
-                    handle Fail _ => raise Fail ("SetConstructors:" ^ name)
-			end
-			
-	end
+    fun tcConstructors (TypeConstrs {constrs,...} : typeConstrs) = pling constrs;
+
+    (* Is this a type function?  N.B. It is possible, though unlikely, that it
+       is a datatype as well i.e. has value constructors. *)
+    fun tcIsAbbreviation (TypeConstrs {identifier,...}) = isTypeFunction identifier
+
+    (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
+    (* This definition of tcEquivalent is a hack but it should simplify conversion. *)
+    fun tcEquivalent tycons =
+        case realId (tcIdentifier tycons) of
+            TypeFunction(_, result) => result
+        |   _ => EmptyType
+
+    val tcEquality = isEquality o tcIdentifier;
+    fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
+    |   tcSetEquality(tc, false) = removeAbstypeEquality(tcIdentifier tc);
+
+    fun tcSetEquivalent(tycons, args, result) =
+        setAsTypeFunction(tcIdentifier tycons, args, result)
 	
-  fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
-        
-  fun makeTypeConstrs (name, typeVars, equivalent, uid, depth, locations) =
-    TypeConstrs
-      {
-		name       = name,
-		arity      = length typeVars,
-		typeVars   = typeVars,
-		updatable  =
-		    VariableRef (ref (* REF HOTSPOT - 690 refs here. *)
-		         {
-            		equiv   = equivalent,
-            		constrs = []
-				  }),
-		identifier = uid,
-		letDepth   = depth,
-        locations = locations
-      };
-	  
-  fun makeFrozenTypeConstrs (name, typeVars, equivalent, uid, depth, locations) =
-    TypeConstrs
-      {
-		name       = name,
-		arity      = length typeVars,
-		typeVars   = typeVars,
-		updatable  =
-		    FrozenRef
-		         {
-            		equiv   = equivalent,
-            		constrs = []
-				  },
-		identifier = uid,
-		letDepth   = depth,
-        locations = locations
-      };
+    fun tcSetConstructors (TypeConstrs {constrs, name,...}, newConstrs) =
+	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
+	
+    fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 
-  val inBasis =
-    { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
+    (* Construct a datatype.  The value constructors can be added on later. *)
+    fun makeDatatypeConstr (name, typeVars, uid, depth, locations) =
+        TypeConstrs
+        {
+    		name       = name,
+    		arity      = length typeVars,
+    		typeVars   = typeVars,
+            constrs    = VariableRef (ref []), (* REF HOTSPOT - 690 refs here. *)
+    		identifier = uid,
+    		letDepth   = depth,
+            locations = locations
+        };
 
-  fun baseType name eq =
-    makeFrozenTypeConstrs (name, [], EmptyType, makeFreeId eq, 0, [DeclaredAt inBasis]);
+    (* Construct a type abbreviation. *)
+    fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
+        TypeConstrs
+        {
+    		name       = name,
+    		arity      = length typeVars,
+    		typeVars   = typeVars,
+            constrs    = FrozenRef [],
+    		identifier = TypeFunction(typeVars, typeResult),
+    		letDepth   = 0,
+            locations = locations
+        };
 
-  val boolType   = makeTypeConstrs ("bool", [], EmptyType, makeFreeId true, 0, [DeclaredAt inBasis]);
-  val intType    = baseType "int"    true;
-  val charType   = baseType "char"   true;
-  val stringType = baseType "string" true;
-  val wordType   = baseType "word"   true;
-  val realType   = baseType "real"   false; (* Not an eqtype in ML97. *)
-  val exnType    = baseType "exn"    false;
-  (* The unit type is equivalent to the empty record. *)
-  val unitType   =
-      makeFrozenTypeConstrs ("unit", [],
+    (* Construct a type constructor that cannot have value constructors added.  This is
+       primarily used in Initialise for base types such as "int". *)
+    fun makeFrozenTypeConstrs (name, typeVars, uid, depth, locations) =
+        TypeConstrs
+        {
+		    name       = name,
+		    arity      = length typeVars,
+		    typeVars   = typeVars,
+		    constrs    = FrozenRef [],
+		    identifier = uid,
+		    letDepth   = depth,
+            locations = locations
+        };
+
+    val inBasis =
+        { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
+
+    fun baseType name eq =
+        makeFrozenTypeConstrs (name, [], makeFreeId eq, 0, [DeclaredAt inBasis]);
+
+    val boolType   = makeDatatypeConstr ("bool", [], makeFreeId true, 0, [DeclaredAt inBasis]);
+    val intType    = baseType "int"    true;
+    val charType   = baseType "char"   true;
+    val stringType = baseType "string" true;
+    val wordType   = baseType "word"   true;
+    val realType   = baseType "real"   false; (* Not an eqtype in ML97. *)
+    val exnType    = baseType "exn"    false;
+    (* The unit type is equivalent to the empty record. *)
+    val unitType   =
+        makeTypeAbbreviation ("unit", [],
 	       LabelledType {recList = [], frozen = true, genericInstance = []},
-		   makeFreeId true, 0, [DeclaredAt inBasis]);
+		   [DeclaredAt inBasis]);
    
-  val listType =
-     makeTypeConstrs 
-       ("list",
-        [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-        EmptyType,
-        makeFreeId true,
-        0, [DeclaredAt inBasis]);
+    val listType =
+        makeDatatypeConstr 
+            ("list", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+            makeFreeId true, 0, [DeclaredAt inBasis]);
             
-  val refType =
-    makeTypeConstrs 
-      ("ref",
-       [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-       EmptyType,
-       makeFreeId true,
-       0, [DeclaredAt inBasis]);
+    val refType =
+        makeDatatypeConstr 
+            ("ref",
+            [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+            makeFreeId true, 0, [DeclaredAt inBasis]);
          
-  val undefType = 
-    makeFrozenTypeConstrs ("undefined", [], EmptyType, unsetId, 0, [DeclaredAt inBasis]);
+    val undefType = 
+        makeFrozenTypeConstrs ("undefined", [], unsetId, 0, [DeclaredAt inBasis]);
 
-  (* Infix status. *) 
+    (* Infix status. *) 
  
-  datatype fixStatus = 
-    Infix of int
-  | InfixR of int
-  | Nonfix;
+    datatype fixStatus = 
+        Infix of int
+    |   InfixR of int
+    |   Nonfix;
   
       
     fun isGlobal   (Global   _) = true | isGlobal   _ = false;

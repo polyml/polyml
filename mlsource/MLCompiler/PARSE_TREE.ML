@@ -2396,7 +2396,8 @@ struct
                 end
     
           | TypeDeclaration(tlist, _) =>
-            let (* Non-generative type binding *)
+            let (* This is either a type abbreviation in the core language, in a structure
+                   or in a signature or it is a type specification in a signaure. *)
                 fun messFn(name, old, new) = 
                     errorNear (lex, true, v, declaredAt(tcLocations new),
                         name ^ " has already been bound in this declaration");
@@ -2411,7 +2412,7 @@ struct
                     ptAssignTypes t v;
                     t
                 end
-                |   processTypeBody _ = emptyType
+                |   processTypeBody _ = emptyType (* Specification. *)
                 
                 val resTypes = List.map processTypeBody tlist;
               
@@ -2423,9 +2424,11 @@ struct
                        side were a type constructor we could use the same unique
                        id, but it is probably not worth it. *)
                     val tcon =
-                        makeTypeConstrs (strName ^ name, typeVars, decType,
-                                makeTypeId isEqtype (* In most cases we look at the equivalent. *),
-                               0 (* This is only required for datatypes. *), [DeclaredAt nameLoc]);
+                        if isEmpty decType
+                        then (* Type specification *)
+                            makeFrozenTypeConstrs (strName ^ name, typeVars,
+                                makeTypeId isEqtype, 0, [DeclaredAt nameLoc])
+                        else makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -3269,7 +3272,7 @@ struct
       fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
         let
           val tc =
-              makeTypeConstrs (strName ^ name, typeVars, emptyType,
+              makeDatatypeConstr (strName ^ name, typeVars,
                              makeTypeId false, letDepth, [DeclaredAt nameLoc])
         in
           tcon := tc;
@@ -3298,8 +3301,7 @@ struct
             (* Construct a type constructor which is an alias of the
                right-hand side of the declaration. *)
             val tcon =
-                makeTypeConstrs (strName ^ name, typeVars, decType,
-                    makeTypeId false, 0, [DeclaredAt nameLoc]);
+                makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
         in
             enterType tcon name
         end
