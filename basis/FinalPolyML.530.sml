@@ -431,7 +431,9 @@ local
                     NONE => message
                 |   SOME ctxt =>
                         PrettyBlock(0, true, [],
-                            [ message, PrettyBreak(1, 0), PrettyString "Found near", PrettyBreak(1, 0), ctxt])
+                            [ message, PrettyBreak(1, 0),
+                                PrettyBlock(2, false, [], [PrettyString "Found near", PrettyBreak(1, 0), ctxt])
+                            ])
         in
             printOut(concat
                ( (if hard then ["Error-"] else ["Warning-"]) @
