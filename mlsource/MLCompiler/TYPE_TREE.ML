@@ -514,6 +514,12 @@ struct
 	end
     | isProductType _ = false;
 
+
+    (* Test to see is a type constructor is in an overload set. *)
+    fun isInSet(tcons: typeConstrs, (H::T): typeConstrs list) =
+			sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
+    |   isInSet(tcons: typeConstrs, []: typeConstrs list) = false
+
   (* Basic procedure to print a type structure. *)
   
     (* prints a block of items *)
@@ -739,6 +745,20 @@ struct
             |   OverloadSet {typeset = []} => PrettyString "no type"
 
             |   OverloadSet {typeset = tconslist} =>
+                (* This typically arises when printing error messages in the second pass because
+                   the third pass will select a single type e.g. int where possible.  To
+                   simplify the messages select a single type if possible. *)
+				if isInSet(STRUCTVALS.intType, tconslist)
+				then dispP(intType, depth)
+				else if isInSet(STRUCTVALS.realType, tconslist)
+				then dispP(realType, depth)
+				else if isInSet(STRUCTVALS.wordType, tconslist)
+				then dispP(wordType, depth)
+				else if isInSet(STRUCTVALS.charType, tconslist)
+				then dispP(charType, depth)
+				else if isInSet(STRUCTVALS.stringType, tconslist)
+				then dispP(stringType, depth)
+				else
         	 	  (* Just print the type constructors separated by / *)
         		let
                     fun constrLocation tcons =
@@ -1710,11 +1730,6 @@ struct
           end) types
     end (* genEqualityFunctions *);
 
-  (* Test to see is a type constructor is in an overload set. *)
-  fun isInSet(tcons: typeConstrs, (H::T): typeConstrs list) =
-			sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
-    | isInSet(tcons: typeConstrs, []: typeConstrs list) = false
-
   (* Type matching algorithm for both unification and signature matching. *)
   fun typeMatch
        (Atype : types, (* candidate type when signature matching *)
@@ -1861,7 +1876,14 @@ struct
              end (* not nil *);
  
         (* Return the combined list. Only actually used if both are flexible. *)
-        val result = matchLabelled (typAlist, typBlist)
+        val result =
+            if typAFrozen andalso typBFrozen andalso List.length typAlist <> List.length typBlist
+            then (* Don't attempt to unify the fields if we have the wrong number of items.
+                    If we've added or removed an item from a tuple e.g. a function with
+                    multiple arguments, it's more useful to know this than to get unification
+                    errors on fields that don't match. *)
+               (cantMatch (typA, mapB typB, "(Different number of fields)"); [])
+            else matchLabelled (typAlist, typBlist)
 		(* We append the generic instances.  This may create duplicates if, for example,
 		   we are unifying a record with itself. *)
       in
@@ -2286,7 +2308,11 @@ struct
         					if null typeBargs (* Must be a nullary type constructor. *)
         						andalso isInSet(tBCons, typeset)
         				then () (* ok. *)
-        				else cantMatch (tA, typB, "(Overloading does not include type)")
+                            (* Overload sets arise primarily with literals such as "1" and it's
+                               most likely that the error is a mismatch between int and another
+                               type rather than that the user assumed that the literal was
+                               overloaded on a type it actually wasn't. *)
+        				else cantMatch (tA, typB, "(Different type constructors)")
 					end
     			| typB => match (tA, typB, (*mapA,*) trivMap)
     			)
@@ -2303,7 +2329,7 @@ struct
     		   when unifying two types.  *)
     		else if null tAargs andalso isInSet(tACons, typeset)
     		then () (* ok. *)
-    		else cantMatch (tA, mapB tB, "(Overloading does not include type)")
+    		else cantMatch (tA, mapB tB, "(Different type constructors)")
 		end
 		
 	  (* (OverloadSet , OverloadSet) should not occur because that should be
