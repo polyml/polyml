@@ -1106,9 +1106,9 @@ struct
         )
     end;
 
-  (* Error message routine for lookupType and lookupStructure. *)
-  fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
-    fn (message : string) => errorNear (lex, true, sVal, lno, message);
+    (* Error message routine for lookupType and lookupStructure. *)
+    fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
+        fn (message : string) => errorNear (lex, true, sVal, lno, message);
 
   (* Structures and values in signatures. *)
    
@@ -1240,7 +1240,7 @@ struct
                   does not check sharing. Equality is checked for. *)
               case univLookup (sigTab candidate, typeConstrVar, dName) of
                  SOME candid =>
-                  if not (isUnsetId (tcIdentifier target)) (* just in case *)
+                  if not (isUndefinedTypeConstr target) (* just in case *)
                   then
                     ( 
                       (* Check for arity and equality - value constructors 
@@ -1408,7 +1408,7 @@ struct
                 val entry = Array.sub (v, offsetId id);
                                (* SPF 7/6/94 fixed off-by-one *)
               in
-                if isUnsetId (tcIdentifier entry) (* undefType *)
+                if isUndefinedTypeConstr entry (* undefType *)
                 then NONE
                 else SOME entry
               end
@@ -1831,17 +1831,34 @@ struct
                near        : structs)
               : unit =
         let
-          fun shareTypes
-                (aType : typeConstrs,
-                 bType : typeConstrs,
-                 lno   : LEX.location
-                 ) : unit =
-		  (* In ML90 we had to check that two datatypes which shared were
-		     "consistent" i.e. had the same constructor names (but not
-			 necessarily the same types since that would have required
-			 second order unification).  That requirement has been removed
-			 in ML97. *)
-		  linkTypeConstructors (aType, bType, giveError (near, lno, lex));
+            fun shareTypes(typeA, typeB, lno) =
+            let
+                fun cantShare reason =
+                    errorNear (lex, true, near, lno,
+                        concat["Cannot share type ",tcName typeA, " with type ",
+                                tcName typeB, ".", reason])
+            in
+                if isUndefinedTypeConstr typeA orelse isUndefinedTypeConstr typeB
+                then ()
+            	else if tcArity typeA <> tcArity typeB (* Check arity. *)
+                then cantShare "The type constructors take different numbers of arguments."
+                
+                (* The type constructors are only looked up in the signature but they
+                   already may be set to another type through a "where type".  This
+                   could be a free identifier or a type function.  *)
+                else if not (isVariableId (tcIdentifier typeA))
+            	then cantShare (tcName typeA ^ " is already defined as another type.")
+
+                else if not (isVariableId (tcIdentifier typeB))
+                then cantShare (tcName typeB ^ " is already defined as another type.")
+                else if sameTypeId (tcIdentifier typeA, tcIdentifier typeB)
+                        (* Are they the same already? If so skip all this. *)
+                then ()
+                else
+                    (* Link the types together.  This propagates the equality and
+                       "datatype" properties. *)
+                    linkFlexibleTypeIds (tcIdentifier typeA, tcIdentifier typeB)
+            end (* shareTypes *);
 
 
 (********************* Start of SPF's rewrite (incomplete!) **********************)
@@ -2024,7 +2041,7 @@ struct
                       
                 val first  = lookupSharing (hd tlist);
               in
-                if not (isUnsetId (tcIdentifier first))
+                if not (isUndefinedTypeConstr first)
                 then
                   List.app
                     (fn typ => shareTypes (lookupSharing typ, first, line))
@@ -2409,15 +2426,10 @@ struct
                      giveError (str, locn, lex))
 
 		  	  (* Process the type, looking up any type constructors. *)
-			  val U: unit = assignTypes (realisation, lookupGlobal, lex);
-			  (* Now build a dummy type constructor whose equivalent is
-			     the type on the right hand side. *)
-			  val dummyTypeCons =
-				  makeTypeAbbreviation (typeName, typeVars, realisation, [DeclaredAt line]);
+              val () = assignTypes (realisation, lookupGlobal, lex);
 		  in
-			  (* Now match these up.  This is very similar to an ML90
-			     sharing constraint where one of the types was rigid. *)
-			  setWhereType(typeConstr, dummyTypeCons, giveError (str, line, lex));
+              (* Now try to set the target type to the type function. *)
+              setWhereType(typeConstr, typeVars, realisation, giveError (str, line, lex));
 			  (* Finally we can safely add the new declarations to the surrounding scope. *)
 			  #apply findTypes (#enterType structEnv);
 			  #apply findStructs (#enterStruct structEnv);
@@ -2510,8 +2522,7 @@ struct
               (* Check that the actual arguments match formal arguments,
                  and instantiate the variables. *)
               val U : unit = 
-                matchSigs (argSig, structSignat argStruct,
-                           typeMap, str, fullLoc, lex);
+                matchSigs (argSig, structSignat argStruct, typeMap, str, fullLoc, lex);
             in
               (* Finally copy the result signature, incorporating the actual
                  args, and creating new stamps for any generative stamps

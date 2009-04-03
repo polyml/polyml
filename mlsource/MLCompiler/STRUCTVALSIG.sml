@@ -46,8 +46,7 @@ sig
     type uniqueId
 
     datatype typeId =
-        Unset           (* A flexible type id that hasn't yet been set. *)
-    |   UnsetEquality
+        Unset           of { isEqtype: bool, isDatatype: bool }
     |   Free            of uniqueId * bool
     |   Bound           of int * bool possRef
     |   Flexible        of typeId ref
@@ -141,8 +140,6 @@ sig
     |   StructureAt of location
 
     (* type identifiers. *)
-    val unsetId:      typeId;
-    val isUnsetId:    typeId -> bool;
     val isFreeId:     typeId -> bool;
     val isBoundId:    typeId -> bool;
     val isVariableId: typeId -> bool;
@@ -160,7 +157,6 @@ sig
     val makeVariableId: bool -> typeId;
     val makeBoundId:    int*bool -> typeId;
     val makeBoundIdWithEqUpdate: int*bool -> typeId;
-    val makeTypeFunction: types list * types -> typeId;
     
     (* Types *)
     val badType:   types;

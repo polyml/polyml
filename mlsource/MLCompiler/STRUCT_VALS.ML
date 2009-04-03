@@ -83,18 +83,22 @@ struct
      different they are different types.
      There are four classes of type identifier. Flexible types occur in signatures
      and can be assigned to other variables or constants by sharing constraints
-     or by signature matching. Free constants arise from datatypes, abstypes or
+     or by signature matching.  Free constants arise from datatypes, abstypes or
      opaque signature macthing. Bound constants occur in the arguments to
      functors or types constructed inside a functor (and therefore generated
      when the functor is applied).  Type functions arise from type bindings
      (type abbreviations) or from "where type" definitions in signatures.
      The type identifier also contains the equality attribute.
      In ML97 only types have these identifiers.  In ML90 these were also
-     needed for structures. *)
+     needed for structures.
+     Flexible type identifiers can be set to other type identifiers by
+     "sharing" or "where type" constructions.  A type identifier is
+     flexible if the end of the chain is Unset.  An Unset identifier
+     records if it refers to a datatype to allow for the
+     "well-formedness" checking. *)
 
     datatype typeId =
-        Unset           (* A flexible type id that hasn't yet been set. *)
-    |   UnsetEquality
+        Unset           of { isEqtype: bool, isDatatype: bool }
     |   Free            of uniqueId * bool
     |   Bound           of int * bool possRef
     |   Flexible        of typeId ref
@@ -240,10 +244,6 @@ struct
 	}
 
     (* Identifiers *)
-    (* Variable stamps: can be set to other stamps whether variable or free. *)
-    val unsetId = Unset;
-    val unsetEq = UnsetEquality
-
     (* REF HOTSPOT - 400 *)
     fun makeFreeId eq = Free (ref eq, false);
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
@@ -257,21 +257,16 @@ struct
     fun makeBoundIdWithEqUpdate (n, eq) = Bound(n, VariableRef(ref eq))
 
     (* REF HOTSPOT - 260 *)
-    fun makeVariableId true  = Flexible (ref UnsetEquality)
-    |   makeVariableId false = Flexible (ref Unset);
-    
-    fun makeTypeFunction(args, result) = TypeFunction(args, result)
+    fun makeVariableId isEq  =
+        Flexible (ref(Unset{ isEqtype = isEq, isDatatype = false}))
 
     (* If it is a constant or an unset variable return it,
        otherwise return the value the variable is bound to. *)
-    fun realId(id as Flexible (ref Unset)) = id
-    |   realId(id as Flexible (ref UnsetEquality)) = id
+    fun realId(id as Flexible (ref(Unset _))) = id
     |   realId(Flexible (ref v)) = realId v
     |   realId id = id
 		    
     (* Unset variable. *)
-    fun isUnsetId Unset = true | isUnsetId UnsetEquality = true | isUnsetId _ = false;
-
     fun isVariableId x = case (realId x) of Flexible _ => true | _ => false;
     fun isFreeId     x = case (realId x) of Free     _ => true | _ => false;
     fun isBoundId    x = case (realId x) of Bound    _ => true | _ => false;
@@ -300,9 +295,17 @@ struct
 	    val y1 = realId y;
     in
         case (x1, y1) of
-            (Flexible (p as ref Unset), Flexible(ref UnsetEquality)) => p := y1
-        |   (Flexible (ref UnsetEquality), Flexible (p as ref Unset)) => p := x1
-        |   (Flexible x2, Flexible y2) => if x2 = y2 then () else x2 := y1 (* Either *)
+            (Flexible(a as ref(Unset{ isEqtype = aIsEq, isDatatype = aIsD })),
+             Flexible(b as ref(Unset{ isEqtype = bIsEq, isDatatype = bIsD }))) =>
+                if a = b then () (* Same ref.  Is this possible or an error? *)
+                else
+                (
+                    (* Set one of them (either) to the other and set the end of the
+                       chain to reflect that if either is an eqtype they both are and
+                       if either had been declared as a datatype the combined type is. *)
+                    a := y1;
+                    b := Unset{isEqtype = aIsEq orelse bIsEq, isDatatype = aIsD orelse bIsD }
+                )
         |   _ => raise InternalError "linkTypeIds: non-variable ids"
     end
 
@@ -321,8 +324,16 @@ struct
             Flexible p => p := id
         |   _ => raise InternalError "makeTypeIdBound: Not originally flexible"
 
-    fun isEquality Unset = false
-    |   isEquality UnsetEquality = true
+    (* If the type has constructors then it must be a datatype.  If the type name is
+       flexible we need to record that so that we can check that it is not set to a
+       type function as a result of a "where type" constraint. *)
+    fun makeDatatype t =
+        case realId t of
+            Flexible(v as ref(Unset{ isEqtype, ... })) =>
+                v := Unset { isEqtype = isEqtype, isDatatype = true }
+        |   _ => ()
+
+    fun isEquality (Unset{ isEqtype, ...}) = isEqtype
     |   isEquality (Free(ref eq, _)) = eq
     |   isEquality (Bound(_, eq)) = pling eq
     |   isEquality (Flexible(ref v)) = isEquality v
@@ -331,8 +342,8 @@ struct
     (* Set the equality property.  This may be either for flexible stamps as the
        result of sharing with an eqtype or, for either flexible or free datatypes,
        if the datatype admits equality because all its constructors do.*)
-    fun setEquality(Flexible(r as ref Unset)) = r := UnsetEquality
-    |   setEquality(Flexible(ref UnsetEquality)) = ()
+    fun setEquality(Flexible(r as ref(Unset{ isDatatype, ...}))) =
+            r := Unset{isEqtype = true, isDatatype = isDatatype }
     |   setEquality(Flexible(r as ref t)) = setEquality t
     |   setEquality(Free(id, true)) = id := true (* For datatypes *)
     |   setEquality(Bound(_, VariableRef id)) = id := true (* For datatypes *)
@@ -469,7 +480,7 @@ struct
     (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
     (* This definition of tcEquivalent is a hack but it should simplify conversion. *)
     fun tcEquivalent tycons =
-        case realId (tcIdentifier tycons) of
+        case tcIdentifier tycons of
             TypeFunction(_, result) => result
         |   _ => EmptyType
 
@@ -480,8 +491,11 @@ struct
     fun tcSetEquivalent(tycons, args, result) =
         setAsTypeFunction(tcIdentifier tycons, args, result)
 	
-    fun tcSetConstructors (TypeConstrs {constrs, name,...}, newConstrs) =
+    fun tcSetConstructors (TypeConstrs {constrs, name, identifier, ...}, newConstrs) =
+    (
+        makeDatatype identifier;
 	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
+    )
 	
     fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 
@@ -554,9 +568,11 @@ struct
             ("ref",
             [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
             makeFreeId true, 0, [DeclaredAt inBasis]);
-         
+
+    (* "undefType" is used as a place-holder during parsing for the actual type
+       constructor. *)
     val undefType = 
-        makeFrozenTypeConstrs ("undefined", [], unsetId, 0, [DeclaredAt inBasis]);
+        makeFrozenTypeConstrs ("undefined", [], makeFreeId false, 0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  

@@ -102,12 +102,9 @@ sig
     (* Apply a function to an argument and yield a result type. *)
     val apply: types * types * lexan * location * (unit -> pretty) -> types;
 
-    (* Used to establish sharing constraints between type constructors. *)
-    val linkTypeConstructors: typeConstrs * typeConstrs * (string -> unit) -> unit;
-
     (* Used to link a type constructor to a type as the result of a "where type"
        construction. *)
-    val setWhereType: typeConstrs * typeConstrs * (string -> unit) -> unit;
+    val setWhereType: typeConstrs * types list * types * (string -> unit) -> unit;
 
     (* Check that a type constructor permits equality. *)
     val permitsEquality: typeConstrs -> bool;
@@ -128,8 +125,6 @@ sig
     val checkForFreeTypeVariables: string * types * lexan -> unit;
 
     val constructorResult: types * types list -> types;
-
-    val checkWellFormed: types * (string -> unit) -> unit;
 
     val findValueConstructor: values -> values;
 
@@ -157,11 +152,15 @@ sig
     val exnType:    types;
     val wordType:   types;
   
-    (* added 6/12/95 SPF *)
     val badType:    types;
 
-    (* added SPF 16/4/95 *)  
+    val isUndefinedTypeConstr: typeConstrs -> bool
+
     val sameTypeVar : types * types -> bool;
+
+    (* If this is simply giving a new name to a type constructor returns the
+       type identifier of the constructor that is being rebound. *)
+    val typeNameRebinding: types list * types -> typeId option
 
     (* Parse tree operations. *)
     type typeParsetree

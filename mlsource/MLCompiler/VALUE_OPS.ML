@@ -1390,14 +1390,11 @@ struct
                 let
                     val constr = pling tval
                 in
-                  if isUnsetId (tcIdentifier constr)
-                    then PrettyString "?"
-        
                   (* Type-specific printing is all handled by the libraries now. *)
                   (* Although unit is a type construction it is treated as
                      equivalent to the empty labelled record.  That means we
                      can't install a pretty printer for it using addPrettyPrinter. *)
-                  else if sameTypeId (tcIdentifier constr, tcIdentifier unitType)
+                  if sameTypeId (tcIdentifier constr, tcIdentifier unitType)
                     then PrettyString "()"
         
                   (* Leave this one, at least for the moment, since we need to be able

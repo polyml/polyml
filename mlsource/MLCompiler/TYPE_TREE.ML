@@ -202,26 +202,12 @@ struct
 
 (*************)
 
-  fun mkTypeVar (level, equality, nonunifiable, weak) = 
-      TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
-      
-  fun mkTypeConstruction (name, typc, args, locations) =
-    let
-	    (* If we're building a type construction from a known constructor
-		   set it now and freeze it.  If we need to find it in a later
-		   pass make it a real ref.  The idea is to avoid having unnecessary
-		   mutable objects. *)
-		(* This is the ref hotspot in this module but has been reduced
-		   considerably now we copy types before entering them in signatures.
-		   It may be possible to reduce it further by copying datatype constructors. *)
-	    val typeCons =
-		   if isUnsetId (tcIdentifier typc)
-		   then VariableRef (ref typc)
-		   else FrozenRef typc
-	in
-        TypeConstruction {name = name, value = typeCons,
+    fun mkTypeVar (level, equality, nonunifiable, weak) = 
+        TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
+
+    fun mkTypeConstruction (name, typc, args, locations) =
+        TypeConstruction {name = name, value = FrozenRef typc,
                           args = args, locations = locations}
-	end;
 
 	local
 		(* Turn a tuple into a record of the form {1=.., 2=... }*)
@@ -293,7 +279,8 @@ struct
   val exnType    = mkTypeConstruction ("exn",     exnType,    [], []);
   val wordType   = mkTypeConstruction ("word",    wordType,   [], []);
           
-  fun isUndefined cons = isUnsetId (tcIdentifier cons); 
+  fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefType);
+  val isUndefinedTypeConstr = isUndefined
 
     (* Similar to alphabetic ordering except that shorter labels come before longer ones.
        This has the advantage that numerical labels are compared by their numerical order
@@ -991,7 +978,8 @@ struct
     let
         val argTypes = List.map typeFromTypeParse args
         val construction =
-            mkTypeConstruction (constrName, undefType, argTypes, [DeclaredAt location])
+            TypeConstruction {name = constrName, value = VariableRef (ref undefType),
+                              args = argTypes, locations = [DeclaredAt location]}
     in
         ParseTypeConstruction{
             typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = nameLoc }
@@ -1313,9 +1301,8 @@ struct
                 then tcon (* No need to copy *)
                 else if List.null (tcConstructors tcon)
                 then makeTypeAbbreviation(newName, args, copiedEquiv, tcLocations tcon)
-                else (* It is possible, though very unlikely, that there might be both a type
-                        function and value constructors. sig datatype t = X end where type t = ...
-                        Allow value constructors to be added later. *)
+                else (* Use a datatype constructor here to allow constructors to be added on.
+                        The "well-formedness" rules say that shouldn't happen. *)
                     makeDatatypeConstr(newName, tcTypeVars tcon, TypeFunction(args, copiedEquiv),
                                         0 (* Always global. *), tcLocations tcon)
             end
@@ -1458,9 +1445,11 @@ struct
   (* If we have a type construction which is an alias for another type
      we construct the alias by first instantiating all the type variables
      and then copying the type. *)
-     
-  fun makeEquivalent (atyp, args) = 
-    generaliseTypes(tcEquivalent atyp, copyVars (tcTypeVars atyp, args));
+    fun makeEquivalent (atyp, args) =
+        case tcIdentifier atyp of
+            TypeFunction(typeArgs, typeResult) =>
+                generaliseTypes(typeResult, copyVars (typeArgs, args))
+        |   _ => raise InternalError "makeEquivalent: Not a type function";
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -2816,282 +2805,63 @@ struct
                     fn tri => Yes)
                   = No);
 
-  (* Try to set one type constructor to point to the other. It may not
-     succeed if they are both already assigned to other types in which
-     case no error message is produced. These errors are detected by a
-     second pass using matchTypes later on. This is used to establish 
-     sharing constraints, which can be a problem since either type
-     constructor could be a variable or rigid depending on other sharing. *)
-  fun linkTypeConstructors (typeA, typeB, cantMatch) =
-  let
-    (* Set the equivalent field of a type constructor to a type. *)
-    fun setEquiv toSet v =
+    (* See if a type abbreviation or "where type" has the form type t = s or
+       type 'a t = 'a s etc and so is simply giving a new name to the type
+       constructor.  If it is it then checks that the type constructor used
+       (s in this example) is just a simple type name. *)
+    fun typeNameRebinding(typeArgs, typeResult): typeId option =
     let
-      (* Make a type construction out of constructor,
-         using type variables from "toSet". *)
-      val args = tcTypeVars toSet
-      val construction = mkTypeConstruction (tcName v, v, args, []);
-        (* If "toSet" is an eqtype we need to check that the "v" also is one.
-           If we are establishing a sharing constraint between two variable
-           types one of which is  an eqtype we have to make them all eqtypes. *)
+        fun eqTypeVar(TypeVar ta, TypeVar tb) = sameTv (ta, tb)
+        |   eqTypeVar _ = false
     in
-      if tcEquality toSet
-      then 
-        if isVariableId (tcIdentifier v) andalso not (tcIsAbbreviation v)
-           then tcSetEquality (v, true)
-        else if not (permitsEquality v)
-           then cantMatch ("Cannot share: (" ^ tcName v ^ ") is not an eqtype")
-        else ()
-      else ();
-        
-      (* Set the "equivalent" to the value.  We can't simply set the stamps
-         to be the same  because the equality attribute is held in the
-         type constructor instead (as the semantics says) in the name.
-         We would have a problem if we shared a type with a datatype that
-         was later found to be an eqtype. *)
-      tcSetEquivalent (toSet, args, construction)
-    end (* setEquiv *);
-  in
-    if isUndefined typeA orelse isUndefined typeB
-    then ()
-	else
-      if tcArity typeA <> tcArity typeB (* Check arity. *)
-      then 
-		 cantMatch ("Cannot share: Types (" ^ tcName typeA ^ ") have different arities.")
-    else let
-      (* The argument lists must be identical lists of type variables. *)
-      fun eqArgs []                 []                 = true
-        | eqArgs (TypeVar ta :: al) (TypeVar tb :: bl) =
-            sameTv (ta, tb) andalso eqArgs al bl
-        | eqArgs _                    _                = false;
-
-     (* First see if either has been matched to another type. If what it
-        has been matched to is a type constructor then we look at that. *)
-    in
-	  if tcIsAbbreviation typeA
-	  then (* This type is matched to something else.  This could have arisen
-			  either from a previous sharing constraint or from a type
-			  abbreviation.  This is only allowed if it is another
-			  type constructor.  *)
-        let
-            val AEquiv = tcEquivalent typeA
-        in
-			if isTypeConstruction AEquiv andalso 
-				eqArgs (#args (typesTypeConstruction AEquiv)) (tcTypeVars typeA)
-			then linkTypeConstructors (pling (#value (typesTypeConstruction AEquiv)),
-					typeB, cantMatch)
-			else cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is a type function")
-        end
-	  else if tcIsAbbreviation typeB
-	  then (* ditto for type B *)
-        let
-            val BEquiv = tcEquivalent typeB;
-        in
-			if isTypeConstruction BEquiv andalso 
-				eqArgs (#args (typesTypeConstruction BEquiv)) (tcTypeVars typeB)
-			then linkTypeConstructors (typeA,
-					pling (#value (typesTypeConstruction BEquiv)), cantMatch)
-			else cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is a type function")
-        end
-      
-        (* Neither A nor B can already be matched to anything. *)
-      else if sameTypeId (tcIdentifier typeA, tcIdentifier typeB)
-        (* Are they the same already? If so skip all this. *)
-      then ()
-	  else let  (* Not there. *)
-        val AIsDatatype = not (null(tcConstructors typeA));
-        val BIsDatatype = not (null(tcConstructors typeB));
-        (* If we have a variable type constructor which is a type or eqtype
-           (but not a datatype) we can set its "equivalent" field to the
-           other type constr. *)
-      in
-		if not (isVariableId (tcIdentifier typeA))
-		then cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not flexible")
-
-		else if not (isVariableId (tcIdentifier typeB))
-		then cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not flexible")
-
-        else if isVariableId (tcIdentifier typeA) andalso not AIsDatatype
-        then setEquiv typeA typeB
-        
-        else if isVariableId (tcIdentifier typeB) andalso not BIsDatatype
-        then setEquiv typeB typeA
-        
-          (* We have two type constructors in which neither has an
-             equivalent field which is set or can be set. They must
-             either be datatypes or rigid (non-variable) abstract types.
-             We just try to link their stamps. We check by a later pass
-             that this has succeeded. *)
-		else if isVariableId (tcIdentifier typeA) orelse
-             isVariableId (tcIdentifier typeB) 
-		then let
-            (* If they are both rigid this is not going to work.
-               Skip it and report the error later. *)
-            (* Equality status. If either has equality status then the 
-               result should have equality, except that we can't change the
-                equality status of a rigid (free) stamp.  We have to do this
-                before unifying the stamps because that could change the
-                kind of stamp. *)
-            val AEq = permitsEquality typeA;
-            val BEq = permitsEquality typeB;
-          in
-		    if (
-                if AEq andalso not BEq
-                then (* Want to set B to be an eqtype as well. *)
-                  if isVariableId (tcIdentifier typeB) 
-                  then (tcSetEquality (typeB, true); true)
-                  else (cantMatch ("Cannot share: (" ^ tcName typeB ^ ") is not an eqtype"); false)
-
-                else if BEq andalso not AEq
-                then (* Want to set A to be an eqtype as well. *)
-                   if isVariableId (tcIdentifier typeA)
-                   then (tcSetEquality (typeA, true); true)
-                   else (cantMatch ("Cannot share: (" ^ tcName typeA ^ ") is not an eqtype"); false)
-
-                else true
-            )
-            then linkFlexibleTypeIds (tcIdentifier typeA, tcIdentifier typeB)
-            else ()
-          end
-          else
-		  	(* Both are rigid.  This case can only occur if ml90 is true,
-               but that probably means this never occurs now.
-			   We've already checked that they don't have the same type
-			   name so we can just generate an error message. *)
-		  	cantMatch ("Cannot share: (" ^ tcName typeA ^ ") and (" ^
-				tcName typeB ^ ") are different types")
-      end
+        case typeResult of
+            TypeConstruction {value, args, ... } =>
+                if not (ListPair.allEq eqTypeVar(args, typeArgs))
+                then NONE
+                else
+                (
+                    case tcIdentifier (pling value) of
+                        TypeFunction _ => NONE
+                    |   tId => SOME tId
+                )
+        |   _ => NONE
     end
-  end (* linkTypeConstructors *);
 
-
-  (* Set a type constructor looked up in the signature to a dummy type
-     constructor representing the type realisation.  The reason for
-	 using a dummy type constructor is that it allows us to match up
-	 the type variables used in the original declaration of the type
-	 with the type variables used in the realisation.  It also means
-	 that the code is very similar to the old (ML90) version of
-	 linkTypeConstructors which worked with rigid type constructors
-	 as well as flexible. *)
-  fun setWhereType (tcToSet, equivTc, cantSet) =
-  let
-    (* Set the equivalent field of a type constructor to a type. *)
-    fun setEquiv toSet v =
-    let
-      (* Make a type construction out of constructor,
-         using type variables from "toSet". *)
-      val args = tcTypeVars toSet
-      val construction = mkTypeConstruction (tcName v, v, args, []);
-        (* If "toSet" is an eqtype we need to check that the "v" also is one.
-           If we are establishing a sharing constraint between two variable
-           types one of which is  an eqtype we have to make them all eqtypes. *)
-    in
-      if tcEquality toSet
-      then 
-        if isVariableId (tcIdentifier v) andalso not (tcIsAbbreviation v)
-           then tcSetEquality (v, true)
-        else if not (permitsEquality v)
-           then cantSet ("(" ^ tcName v ^ ") is not an eqtype")
-        else ()
-      else ();
+    (* Try to set the type identifier of the target to be a type function. *)
+    fun setWhereType (tcToSet, typeFunArgs, typeFunResult, cantSet) =
+        if isUndefined tcToSet
+	    then () (* Probably because looking up the type constructor name failed. *)
         
-      (* Set the "equivalent" to the value.  We can't simply set the stamps
-         to be the same  because the equality attribute is held in the
-         type constructor instead (as the semantics says) in the name.
-         We would have a problem if we shared a type with a datatype that
-         was later found to be an eqtype. *)
-      tcSetEquivalent (toSet, args, construction)
-    end (* setEquiv *)
-  in
-    if isUndefined tcToSet
-	then () (* Probably because looking up the type constructor name failed. *)
-
-    else if tcArity tcToSet <> tcArity equivTc (* Check arity. *)
-    then cantSet ("Cannot apply type realisation: Types (" ^
-	  			tcName tcToSet ^ ") have different arities.")
-    else let
-      (* The argument lists must be identical lists of type variables. *)
-      fun eqArgs []                 []                 = true
-        | eqArgs (TypeVar ta :: al) (TypeVar tb :: bl) =
-            sameTv (ta, tb) andalso eqArgs al bl
-        | eqArgs _                    _                = false;
-
-     (* First see if either has been matched to another type. If what it
-        has been matched to is a type constructor then we look at that. *)
-      val toSetEquiv = tcEquivalent tcToSet;
-      val equivEquiv = tcEquivalent equivTc;
-    in
-		if tcIsAbbreviation tcToSet
-		then
-		 (* It's bound to something. I really don't know if this is legal or not.
-		    If it is legal it's only legal if it's bound to another type name.
-			This might arise as a result of a sharing constraint. *)
-			(
-			case toSetEquiv of
-				TypeConstruction {value, args, ... } =>
-					if eqArgs args (tcTypeVars tcToSet)
-					then setWhereType (pling value, equivTc, cantSet)
-					else cantSet ("Cannot apply type realisation: (" ^
-									 tcName tcToSet ^ ") is a type function")
-			| _ => cantSet ("Cannot apply type realisation: (" ^
-							 tcName tcToSet ^ ") is a type function")
-			)
-
-		   (* If the type we are trying to assign is a simple construction
-			  of a type constructor with matching type variables then we try
-			  to match to that.  (e.g. where type 'a A.t = 'a s).  In this
-			  case only it is possible for A.t to be a datatype if s is
-			  also a datatype. *) 
-		else if isTypeConstruction equivEquiv andalso
-	        eqArgs (#args (typesTypeConstruction equivEquiv)) (tcTypeVars equivTc)
-		then setWhereType (tcToSet,
-				pling (#value (typesTypeConstruction equivEquiv)), cantSet)
-      
-		(* It must have a variable stamp.  The only way I can see that
-		   it might not be would be if another "where type" has already
-		   been applied to this type. *)
-		else if not (isVariableId (tcIdentifier tcToSet))
-		then cantSet ("Cannot apply type realisation: (" ^
-							 tcName tcToSet ^ ") is already free.")
-
-		(* If it's an eqtype then the type function must admit equality.  Again, I
-		   don't know if it's legal to use "where type" to set the "equivalent"
-		   of an eqtype at all. *)
-		else if tcEquality tcToSet andalso not (permitsEquality equivTc)
-		then cantSet ("Cannot apply type realisation: (" ^
-							 tcName tcToSet ^
-							 ") is an eqtype but the type does not permit equality.")
-
-	    (* Check if it's a datatype.  If we need to get the effect of
-		   a "where type" constraint with a datatype we have to use
-		   datatype replication. *)
-		(* It's not clear at the moment whether this is allowed or not.
-		   I'm going to allow it for the moment.  N.B.  We don't check the
-		   constructors.  That's because we can't be sure that there aren't
-		   other datatypes which already share with this one and they are
-		   allowed to have different constructors in ML97.
-		   e.g. sig datatype t = A|B of int datatype s = X of real
-		   		    sharing type s = t end
-		   is legal in ML97, although unmatchable.  If we apply a
-		   "where type" constraint to, say s, e.g. where type s = bool,
-		   we don't check it. *)
-		else if not (null(tcConstructors tcToSet))
-		then
-		(*
-			cantSet ("Cannot apply type realisation: (" ^
-							 tcName tcToSet ^ ") is a datatype.")
-		*)
-			if null(tcConstructors equivTc)
-			then
-				cantSet ("Cannot apply type realisation: (" ^
-							 tcName tcToSet ^ ") is a datatype but (" ^
-							 tcName equivTc ^ ") is not.")
-			else linkFlexibleTypeIds(tcIdentifier tcToSet, tcIdentifier equivTc)
-
-		else (* Just set the equivalent field to point to the type. *)
-			setEquiv tcToSet equivTc
-    end
-  end (* setWhereType *);
+        else case tcIdentifier tcToSet of
+            Flexible(v as ref(Unset { isEqtype, isDatatype })) =>
+            let
+                fun allowEquality () =
+                    equality (typeFunResult, fn _ => No, fn _ => Yes) <> No
+                fun isRename() =
+                    isSome(typeNameRebinding (typeFunArgs, typeFunResult))
+            in
+                (* The rule for "where type" says that we must check that an eqtype
+                   is only set to a type that permits equality and that the result
+                   is "well-formed".  This seems to mean that if the type we're
+                   setting is a datatype (has constructors) it can only be set to
+                   a type that is a type name and not a general type function. *)
+                if isEqtype andalso not (allowEquality())
+                then cantSet ("Cannot apply type realisation: (" ^ tcName tcToSet ^
+                      ") is an eqtype but the type does not permit equality.")
+                else case typeNameRebinding (typeFunArgs, typeFunResult) of
+                    SOME typeId => (* Renaming an existing constructor: propagate the id. *)
+                        v := typeId
+                |   NONE =>
+                        if isDatatype
+                            (* The type we're trying to set is a datatype but the type
+                               we're setting it to isn't. *)
+                        then cantSet ("Cannot apply type realisation: (" ^ tcName tcToSet ^
+                            ") is a datatype but the type is not a simple type.")
+                        else v := TypeFunction(typeFunArgs, typeFunResult)
+            end
+        |   _ => (* Probably already bound to a type function. *)
+            cantSet("Cannot apply type realisation: (" ^
+					tcName tcToSet ^ ") has already been set to a type function.") (* TODO: Print the type function. *)
 
   (* Returns the number of the entry in the list. Used to find out the
      location of fields in a labelled record for expressions and pattern
@@ -3149,31 +2919,6 @@ struct
     val tv = typesTypeVar (eventual typ); (* Must be type var. *)
   in
     tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, false))
-  end;
-
-  (* Checks that every type identifier mentioned is rigid.  Used when we
-     have unified a rigid and a flexible structure. *)
-  fun checkWellFormed (t, errorMessage) =
-  let
-    fun check typ () =
-      if isTypeConstruction typ
-      then let
-        val cons = typesTypeConstruction typ;
-        val constructor = pling (#value cons);
-      in
-        if tcIsAbbreviation constructor
-        then checkWellFormed (tcEquivalent constructor, errorMessage)
-        else if isVariableId (tcIdentifier constructor)
-          then 
-            errorMessage
-              ("Ill-formed signature - type ("
-               ^ tcName constructor
-               ^") is not rigid.")
-          else ()
-      end
-      else ();
-  in (* Apply this to all the types. *)
-    foldType check t ()
   end;
 
   (* Applied to type constructions (e.g. 'a list) to get the value

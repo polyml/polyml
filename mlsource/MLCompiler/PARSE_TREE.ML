@@ -2420,15 +2420,20 @@ struct
                 fun processType (TypeBind {name, typeVars, isEqtype, nameLoc, ...}, decType) =
                 let
                     (* Construct a type constructor which is an alias of the
-                       right-hand side of the declaration. If the right-hand
-                       side were a type constructor we could use the same unique
-                       id, but it is probably not worth it. *)
+                       right-hand side of the declaration.  If we are effectively
+                       giving a new name to a type constructor we use the same type
+                       identifier.  This is needed to check "well-formedness" in signatures. *)
                     val tcon =
                         if isEmpty decType
                         then (* Type specification *)
                             makeFrozenTypeConstrs (strName ^ name, typeVars,
                                 makeTypeId isEqtype, 0, [DeclaredAt nameLoc])
-                        else makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
+                        else case typeNameRebinding(typeVars, decType) of
+                            SOME typeId =>
+                                makeFrozenTypeConstrs (strName ^ name, typeVars,
+                                    typeId, 0, [DeclaredAt nameLoc])
+                        |   NONE =>
+                                makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
