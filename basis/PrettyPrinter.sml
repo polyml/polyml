@@ -227,7 +227,7 @@ struct
                 val nextLeft = inc (!left);
                 val (token, size) = Array.sub (queue, nextLeft);
             in
-                if size >= 0 andalso not (queueEmpty ())
+                if size > 0 andalso not (queueEmpty ())
                 then 
                 (
                     left := nextLeft;
