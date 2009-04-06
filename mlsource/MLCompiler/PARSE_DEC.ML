@@ -310,41 +310,7 @@ end;
 (*****************************************************************************)
 (*                  STRUCTURES                                               *)
 (*****************************************************************************)
-structure STRUCTURES :
-sig
-    (* Structures form the global name spaces. *)
-    type structs
-    type types
-    type parsetree
-    type sigBind and functorBind and structBind
-    type typeParsetree
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val emptyStruct:        structs
-  val mkStructureDec:     structBind list * location -> structs
-  val mkStruct:           structs list * location -> structs
-  val mkSignatureDec:     sigBind list * location -> structs
-  val mkSig:              structs list * location -> structs
-  val mkFunctorDec:       functorBind list * location -> structs
-  val mkInclude:          structs list -> structs
-  val mkLocaldec:         structs list * structs list * bool * location -> structs
-  val mkTopLevel:         parsetree * location -> structs
-  val mkStructureBinding:
-    (string * location) * (structs * bool) option * structs option * location -> structBind
-  val mkStructIdent:      string * location -> structs
-  val mkSigIdent:         string * location -> structs
-  val mkSignatureBinding: (string * location) * structs * location -> sigBind
-  val mkValSig:           (string * location) * typeParsetree * location -> structs
-  val mkExSig:            (string * location) * typeParsetree option * location -> structs
-  val mkFunctorAppl:      string * structs * location * location -> structs
-  val mkFormalArg:        string * structs -> structs
-  val mkFunctorBinding:
-    string * location * (structs * bool * location) option * structs * structs * location -> functorBind;
-  val mkSharing:          bool * string list * location -> structs
-  val mkWhereType:        structs * types list * string * types * location -> structs
-  val mkSigConstraint:    structs * structs * bool -> structs
-end; (* STRUCTURES *)
+structure STRUCTURES : STRUCTURESSIG
 
 (*****************************************************************************)
 (*                  PARSETYPE                                                *)
@@ -428,6 +394,7 @@ sharing type
 sharing type
   STRUCTVALS.fixStatus
 = PARSETREE.fixStatus
+= STRUCTURES.fixStatus
    
 sharing type
   PARSETREE.parsetree
@@ -1914,31 +1881,36 @@ struct
     end (* dec *);
 
     (* Parses a signature. *)
-    fun parseSignature (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs =
+    fun parseSignature (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs * location =
     let  (* May be either a signature name or a sig spec .. spec end seq
           followed by multiple  where type  expressions. *)
-    val () = skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
+        val () = skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
-    val startLocn = location lex
+        val startLocn = location lex
 
-    val sigexp : structs =
-        if testfor (SYMBOLS.sigSy, empty, lex)
-        then
-        let (* sig *)
-            val sigs = signatureSpec (fsys ++ endSy ++ whereSy ++ semicolon) lex env
-            val locs = locSpan(startLocn, location lex)
-        in
-            getsym (SYMBOLS.endSy, lex);
-            mkSig (sigs, locs)
-        end
+        val sigexp : structs * location =
+            if testfor (SYMBOLS.sigSy, empty, lex)
+            then
+            let (* sig *)
+                val sigs = signatureSpec (fsys ++ endSy ++ whereSy ++ semicolon) lex env
+                val locs = locSpan(startLocn, location lex)
+            in
+                getsym (SYMBOLS.endSy, lex);
+                (mkSig (sigs, locs), locs)
+            end
 
-        else if (sy lex) eq SYMBOLS.ident
-        then mkSigIdent (getShortId (declarableVarSys, fsys ++ whereSy, lex))
+            else if (sy lex) eq SYMBOLS.ident
+            then
+            let
+                val ident as (_, locs) = getShortId (declarableVarSys, fsys ++ whereSy, lex)
+            in
+                (mkSigIdent ident, locs)
+            end
 
-        else (* Only if parse error which will have been reported in skipon. *)
-            emptyStruct;
+            else (* Only if parse error which will have been reported in skipon. *)
+                (emptyStruct, location lex);
 
-    fun getWhereTypes sigexp =
+        fun getWhereTypes(sigexp, sigLoc) =
         let
             (* This is similar to a type binding but with the possibility
                that the type is a longtycon. *)
@@ -1950,9 +1922,10 @@ struct
             val () = getsym (SYMBOLS.equalsSign, lex);
             (* Followed by a type or a sequence of constructors *)
             val () = skipon (startTypeSys, fsys, "type", lex);
-            val (theType, _) = parseType (fsys ++ whereSy ++ andSy, lex, typeVarEnv)
+            val (theType, typeLoc) = parseType (fsys ++ whereSy ++ andSy, lex, typeVarEnv)
             val constrainedSig =
-                mkWhereType(sigexp, typeVars, typeName, typeFromTypeParse theType, nameLoc)
+                (mkWhereType(sigexp, typeVars, typeName, typeFromTypeParse theType, nameLoc),
+                 locSpan(sigLoc, typeLoc))
         in
             if testfor (SYMBOLS.whereSy, empty, lex)
                 (* Recurse to handle any other wheres. *)
@@ -1971,11 +1944,11 @@ struct
                     )
             else constrainedSig
         end
-  in
-      if testfor (SYMBOLS.whereSy, empty, lex)
-    then getWhereTypes sigexp
-    else sigexp
-  end (* parseSignature *)
+    in
+        if testfor (SYMBOLS.whereSy, empty, lex)
+        then getWhereTypes sigexp
+        else sigexp
+    end (* parseSignature *)
 
 
  (* Sequence of "specs" *)
@@ -2087,11 +2060,10 @@ struct
                 let
                     val idAndLoc as (id, idLoc)  = getShortId (variableSys, empty, lex)
                     val () = getsym (SYMBOLS.colon, lex)
-                    val sgn = parseSignature (fsys ++ startSigEndAndSy) lex env
-                    val sgnLoc = location lex (* TODO *)
+                    val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
                     val locs = locSpan(idLoc, sgnLoc)
                 in
-                    (mkStructureBinding (idAndLoc, SOME (sgn, false), NONE, locs), locs)
+                    (mkStructureBinding (idAndLoc, SOME (sgn, false, sgnLoc), NONE, locs), locs)
                 end
             in
                 [mkStructureDec (getList(SYMBOLS.andSy, empty, lex, doStructure))]
@@ -2114,9 +2086,8 @@ struct
              val () =
                  skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
-             val firstSig =
-                 parseSignature (fsys ++ startSigEndSy ++ declarableVarSys)
-                    lex env
+             val (firstSig, _) =
+                 parseSignature (fsys ++ startSigEndSy ++ declarableVarSys) lex env
 
              fun sigids () =
                 if (sy lex) eq SYMBOLS.ident
@@ -2180,8 +2151,8 @@ struct
      let
        val idAndLoc as (_, idLoc) = getShortId (variableSys, empty, lex);
        val () = getsym (SYMBOLS.equalsSign, lex)
-       val sgn = parseSignature (fsys ++ endAndSy) lex env
-       val locs = locSpan(idLoc, location lex)
+       val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
+       val locs = locSpan(idLoc, sigLoc)
      in
         (mkSignatureBinding (idAndLoc, sgn, locs), locs)
      end 
@@ -2281,10 +2252,9 @@ struct
             if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
             then
             let
-                val sign = parseSignature fsysPcolon lex env
-                val sigLoc = location lex
+                val (sign, sigLoc) = parseSignature fsysPcolon lex env
             in
-                doConstraints(mkSigConstraint(strExp, sign, isOpaque), locSpan(strExpLoc, sigLoc))
+                doConstraints(mkSigConstraint(strExp, sign, isOpaque, sigLoc), locSpan(strExpLoc, sigLoc))
             end
             else (strExp, strExpLoc)
         end
@@ -2307,7 +2277,12 @@ struct
                 val isOpaque = (sy lex) eq SYMBOLS.colonGt;
                 val sgn =
                     if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
-                    then SOME (parseSignature (fsys ++ equalsSign) lex env, isOpaque)
+                    then
+                        let
+                            val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
+                        in
+                            SOME (sign, isOpaque, sigLoc)
+                        end
                     else NONE
                 (* Now the equals sign *)
                 val () = getsym (SYMBOLS.equalsSign, lex)
@@ -2374,7 +2349,7 @@ struct
            val () = getsym (SYMBOLS.colon, lex)
  
            (* Next the signature. *)
-           val sgn = parseSignature (tsys ++ sharingSy) lex env
+           val (sgn, _) = parseSignature (tsys ++ sharingSy) lex env
          in
            mkFormalArg (strId, sgn)
          end (* parameter *)
@@ -2388,8 +2363,7 @@ struct
          if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
          then
             let
-                val sign = parseSignature (fsys ++ equalsSign) lex env
-                val sigLoc = location lex
+                val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
             in
                 SOME(sign, isOpaque, sigLoc)
             end

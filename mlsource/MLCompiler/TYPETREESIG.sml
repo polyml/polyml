@@ -34,6 +34,7 @@ sig
     type navigation
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+    type matchResult = (types * types * string) option
     type locationProp
     type structVals
 
@@ -49,7 +50,7 @@ sig
     val recordNotFrozen:    types -> bool;
     val recordWidth:        types -> int;
     val makeEquivalent:     typeConstrs * types list -> types;
-    val firstArg:              types -> types;
+    val firstArg:           types -> types;
 
     (* Test for function type and return function argument. *)
     val getFnArgType:   types -> types option
@@ -93,8 +94,7 @@ sig
     (* Checking procedures *)
 
     (* Match a candidate to a target type. *)
-    val matchTypes: types * types * (typeId -> typeConstrs option) *
-                   lexan * location * (unit -> pretty) -> unit;
+    val matchTypes: types * types * (typeId -> typeConstrs option) -> matchResult;
 
     (* Unify two type structures to give a unified type. *)
     val unify: types * types * lexan * location * (unit -> pretty) -> unit;

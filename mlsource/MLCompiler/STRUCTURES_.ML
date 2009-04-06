@@ -230,76 +230,7 @@ sharing type
   STRUCTVALS.functors
 = VALUEOPS.functors
 
-) : 
-
-(*****************************************************************************)
-(*                  STRUCTURES export signature                              *)
-(*****************************************************************************)
-sig
-    (* Structures form the global name spaces. *)
-    type structs;
-    type structVals;
-    type types;
-    type parsetree;
-    type lexan;
-    type pretty;
-    type values;
-    type typeConstrs;
-    type codetree;
-    type signatures;
-    type functors;
-    type env;
-    type sigBind and functorBind and structBind
-    type machineWord
-    type fixStatus
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    type topdec = structs list * location
-    type exportTree
-    type typeParsetree
-
-  val isEmptyStruct:      structs -> bool;
-  val emptyStruct:        structs
-  val mkStructureDec:     structBind list * location -> structs;
-  val mkStruct:           structs list * location -> structs;
-  val mkSignatureDec:     sigBind list * location -> structs;
-  val mkSig:              structs list * location -> structs;
-  val mkFunctorDec:       functorBind list * location -> structs;
-  val mkInclude:          structs list -> structs;
-  val mkLocaldec:         structs list * structs list * bool * location -> structs;
-  val mkTopLevel:         parsetree * location -> structs;
-  val mkStructureBinding: (string * location) * (structs * bool) option * structs option * location -> structBind
-  val mkStructIdent:      string * location -> structs;
-  val mkSigIdent:         string * location -> structs;
-  val mkSignatureBinding: (string * location) * structs * location -> sigBind;
-  val mkValSig:           (string * location) * typeParsetree * location -> structs;
-  val mkExSig:            (string * location) * typeParsetree option * location -> structs;
-  val mkFunctorAppl:      string * structs * location * location -> structs;
-  val mkFormalArg:        string * structs -> structs;
-  val mkFunctorBinding:
-    string * location * (structs * bool * location) option * structs * structs * location -> functorBind;
-  val mkSharing:          bool * string list * location -> structs;
-  val mkWhereType:		  structs * types list * string * types * location -> structs
-  val mkSigConstraint:    structs * structs * bool -> structs
-
-  val pass2Structs:   topdec * lexan * env -> unit;
-
-  val checkForFreeTypeVars:
-  	((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
-		((string*functors->unit)->unit) * lexan -> unit
-
-  val pass4Structs:
-    codetree * topdec ->
-       { fixes: (string * fixStatus) list, values: (string * values) list,
-         structures: (string * structVals) list, signatures: (string * signatures) list,
-         functors: (string * functors) list, types: (string* typeConstrs) list };
-
-  val gencodeStructs: topdec * lexan -> codetree;
-
-  val displayTopdec: topdec * int -> pretty;
-
-    val structsExportTree: (unit->exportTree) option * topdec -> exportTree
-end (* STRUCTURES export signature *) =
+) : STRUCTURESSIG =
 
 (*****************************************************************************)
 (*                  STRUCTURES functor body                                  *)
@@ -363,7 +294,8 @@ struct
        {
           str: structs,  (* Structure to constain *)
 		  csig: structs, (* Constraining signature *)
-          opaque: bool   (* True if opaque, false if transparent. *)
+          opaque: bool,   (* True if opaque, false if transparent. *)
+          sigLoc: location
 	   }
   | EmptyStruct                          (* Error cases. *)
 
@@ -372,7 +304,7 @@ struct
       {
         name:      string,         (* The name of the structure *)
         nameLoc:   location,
-        sigStruct: (structs * bool) option,
+        sigStruct: (structs * bool * location) option,
                                    (* Its signature and whether it's opaque. *)
         value:     structs option,        (* And its value *)
         valRef:    structVals ref, (* The structure variable declared. *)
@@ -606,8 +538,8 @@ struct
 
 	val mkInclude = IncludeSig;
 
-	fun mkSigConstraint(str, csig, opaque) =
-	   SigConstraint{str=str, csig=csig, opaque=opaque}
+	fun mkSigConstraint(str, csig, opaque, sigLoc) =
+	   SigConstraint{str=str, csig=csig, opaque=opaque, sigLoc=sigLoc}
       
   (*  end; structs abstype *)
 
@@ -658,7 +590,7 @@ struct
                         (
                             case sigStruct of (* Signature is optional *)
                                 NONE => []
-                            |   SOME (sigStruct, opaque) =>
+                            |   SOME (sigStruct, opaque, _) =>
                                 [
     		                        PrettyString (if opaque then " :>" else " :"),
     		                        PrettyBreak (1, 0),
@@ -860,7 +792,7 @@ struct
       | Singleton {dec, ...} =>
           ptDisplay (dec, depth - 1)
 
-      | SigConstraint{str, csig, opaque} =>
+      | SigConstraint{str, csig, opaque, ...} =>
             PrettyBlock (0, false, [],
                 [
                     display (str, depth - 1),
@@ -915,7 +847,7 @@ struct
                                 case value of
                                     NONE => NONE
                                 |   SOME _ => SOME getValue
-                            val (theSig, _) = valOf sigStruct
+                            val (theSig, _, _) = valOf sigStruct
                         in
                             structExportTree({parent=SOME exportThis, previous=SOME getName, next=next}, theSig)
                         end
@@ -1074,43 +1006,6 @@ struct
     in
         exportTree trees
     end
-
-    (* Puts out an error message and then prints the piece of tree. *)
-    fun errorNear (lex, hard, near, lno, message) : unit =
-    let
-        val parameters = debugParams lex
-        val errorDepth = getParameter errorDepthTag parameters
-    in
-        reportError lex
-        {
-            hard = hard,
-            location = lno,
-            message = PrettyBlock (0, false, [], [PrettyString message]),
-            context = SOME(displayStructs ([near], errorDepth))
-        }
-      end;
-
-  (* Returns a function which can be passed to typetree.match to
-     print a bit of context information. *)
-    fun foundNear (sVal : structs, name : string, lex) (): pretty =
-    let
-        val parameters = debugParams lex
-        val errorDepth = getParameter errorDepthTag parameters
-    in
-        PrettyBlock(0, false, [],
-            [
-                PrettyString ("While checking (" ^ name ^ ") near"),
-                PrettyBreak (1, 2),
-                displayStructs ([sVal], errorDepth)
-            ]
-        )
-    end;
-
-    (* Error message routine for lookupType and lookupStructure. *)
-    fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
-        fn (message : string) => errorNear (lex, true, sVal, lno, message);
-
-  (* Structures and values in signatures. *)
    
   (* Formal paramater to a functor - either value or exception. *)
   fun mkFormal (name : string, class, typ, addr, locations) =
@@ -1119,89 +1014,196 @@ struct
   (* A null map from a structure identifier to anything. *)
   fun nullMap (id : 'a) : 'b option = NONE;
 
-  (* Check that a matching has succeeded, and check the value
-     constructors if they are datatypes. Used  for both signature
-     matching and also for sharing constraints where there is no
-     obvious direction of matching. However the rule for signature
-     matching requires the types of the constructors to match 
-     whereas the rule for sharing only requires that they have the
-     same names (type checking in that case could require second-order
-     unification). *)
-  fun checkTypeConstrs
-         (candid,
-          target,
-          targTypeMap,
-          checkTypes,
-          lex         : lexan,
-          near,
-          lno         : LEX.location
-          ) : unit=
-  let
-    val candidName : string = tcName candid;
-    val targetName : string = tcName target;
-  
-    fun checkConstrs ([], []) = ()
-    
-      | checkConstrs (cList, []) =
-          errorNear (lex, true, near, lno, 
-            "Too many constructors to match type (" ^  candidName ^ ")")
-                    
-      | checkConstrs ([], tList) =
-          errorNear
-            (lex, true, near, lno,
-             "Not enough constructors to match type (" ^  candidName ^ ")")
-                 
-      | checkConstrs (cVal :: cList, tVal :: tList) =
+
+    (* Puts out an error message and then prints the piece of tree. *)
+    fun errorMsgNear (lex, hard, near, lno, message) : unit =
+    let
+        val parameters = debugParams lex
+        val errorDepth = getParameter errorDepthTag parameters
+    in
+        reportError lex
+        {
+            hard = hard, location = lno, message = message,
+            context = SOME(displayStructs ([near], errorDepth))
+        }
+    end;
+
+    (* Report an error about signature-structure matching. *)
+    fun sigStructMatchMsg (lex, near, lno) (doDisplay: 'a -> pretty)
+                (structValue: 'a, sigValue: 'a, reason) =
         let
-          val cName : string = valName cVal;
-          val tName : string = valName tVal;
+            val message =
+                PrettyBlock(0, true, [],
+                    [
+                        PrettyString "Structure does not match signature.",
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Signature:",
+                                PrettyBreak(1, 0),
+                                doDisplay sigValue
+                            ]),
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Structure:",
+                                PrettyBreak(1, 0),
+                                doDisplay structValue
+                            ]),
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Reason:",
+                                PrettyBreak(1, 0),
+                                reason
+                            ])
+                    ])
         in
-          (* Check they have the same name. *)
-          if cName <> tName
-          then errorNear 
-                 (lex, true, near, lno, 
-                  "Looking for constructor " ^ tName ^ 
-                  " but found " ^ cName)
-          (* Check their types match. *)
-          else let
-            (* This works correctly for polytypes
-             (e.g. datatype 'a t = ...) because the type variables 
-             in the signature will be non-unifiable. checkTypes does
-             nothing if we are generating a sharing constraint and then
-             the rest of the list. *)
-            val cType : types = valTypeOf cVal;
-            val tType : types = valTypeOf tVal;
-            val U : unit = checkTypes (cType, tType, cName);
-          in
-            checkConstrs (cList, tList)
-          end
-        end;
-  in
-    if tcArity candid <> tcArity target
-    then () (* Have already given the error message. *)
-    else let
-      (* Check the type constructors themselves first. This checks
-         that the sharing constraints have been satisfied. *)
-      val tvars : types list = tcTypeVars target; (* either will do *)
-      val U : unit = 
-        matchTypes 
-          (mkTypeConstruction (candidName, candid, tvars, []),
-           mkTypeConstruction (targetName, target, tvars, []),
-           targTypeMap,
-           lex,
-           lno,
-           foundNear (near, targetName, lex));
-          
-      val candidConstrs : values list = tcConstructors candid;
-      val targetConstrs : values list = tcConstructors target;
-    in 
-      (* We have already checked for matching a type in the structure
-          to a datatype in the signature. *)
-      if null targetConstrs orelse null candidConstrs
-      then ()
-      else checkConstrs (candidConstrs, targetConstrs)
+            errorMsgNear(lex, true, near, lno, message)
+        end
+
+    fun sigStructMissingMsg (lex, near, lno) (doDisplay: 'a -> pretty) (sigValue: 'a) =
+        let
+            val message =
+                PrettyBlock(0, true, [],
+                    [
+                        PrettyString "Structure does not match signature.",
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Signature:",
+                                PrettyBreak(1, 0),
+                                doDisplay sigValue
+                            ]),
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Structure:",
+                                PrettyBreak(1, 0),
+                                PrettyString "Not present"
+                            ])
+                    ])
+        in
+            errorMsgNear(lex, true, near, lno, message)
+        end
+
+    (* Older version: prints just a string message. *)
+    fun errorNear(lex, hard, near, lno, message: string) =
+        errorMsgNear (lex, hard, near, lno,
+            PrettyBlock (0, false, [], [PrettyString message]))
+
+    fun errorDepth lex =
+    let
+        open DEBUG
+        val parameters = LEX.debugParams lex
+    in
+        getParameter errorDepthTag parameters
     end
-  end (* checkTypeConstrs *);
+
+    (* Returns a function which can be passed to typetree.match to
+       print a bit of context information. *)
+    fun foundNear (sVal : structs, name : string, lex) (): pretty =
+        PrettyBlock(0, false, [],
+            [
+                PrettyString ("While checking (" ^ name ^ ") near"),
+                PrettyBreak (1, 2),
+                displayStructs ([sVal], errorDepth lex)
+            ]
+        )
+
+    (* Error message routine for lookupType and lookupStructure. *)
+    fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
+        fn (message : string) => errorNear (lex, true, sVal, lno, message);
+
+    (* Turn a result from matchTypes into a pretty structure so that it
+       can be included in a message.
+       TODO: Pass in the appropriate environments to print type constructors. *)
+    fun matchErrorReport lex (alpha, beta, reason) =
+        (* This previously used a single type variable sequence for
+           both types.  It may be that this is needed to make
+           sensible error messages. *)
+        PrettyBlock(3, false, [],
+            [
+                PrettyString "Can't match",
+                PrettyBreak (1, 0),
+                display (alpha, errorDepth lex, NONE),
+                PrettyBreak (1, 0),
+                PrettyString "to",
+                PrettyBreak (1, 0),
+                display (beta, errorDepth lex, NONE),
+                PrettyBreak (1, 0),
+                PrettyString reason                        
+            ])
+
+    (* Check that a matching has succeeded, and check the value
+       constructors if they are datatypes. *)
+    fun checkTypeConstrs (candid, target, targTypeMap, lex, near, lno) =
+    let
+        val candidName : string = tcName candid;
+        val targetName : string = tcName target;
+        val tvars : types list = tcTypeVars target; (* either will do *)
+        (* If we get an error in the datatype itself print the full datatype. *)
+        val errorInDatatype =
+            sigStructMatchMsg(lex, near, lno)(fn t => displayTypeConstrs(t, errorDepth lex))
+        (* If we get an error with the constructors print just the constructor.
+           TODO: Use the signature or structure environment to print properly. *)
+        val errorInConstructor =
+            let
+                fun displayConstructor value =
+                    PrettyBlock(0, false, [],
+                        [
+                            PrettyString "constructor",
+                            PrettyBreak(1, 3),
+                            PrettyString(valName value ^ ":"),
+                            PrettyBreak(1, 0),
+                            display (valTypeOf value, errorDepth lex, NONE)
+                        ])
+            in
+                sigStructMatchMsg(lex, near, lno) displayConstructor
+            end
+    in
+        if tcArity candid <> tcArity target
+        then () (* Have already given the error message. *)
+        else (* Check the type constructors themselves first. This checks
+                that the sharing constraints have been satisfied. *)
+        case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
+                         mkTypeConstruction (targetName, target, tvars, []), targTypeMap) of
+                SOME error => errorInDatatype(candid, target, matchErrorReport lex error) (* Report the error. *)
+            |   NONE =>
+                let (* No error when matching the types: check the value constructors. *)
+                    val candidConstrs : values list = tcConstructors candid;
+                    val targetConstrs : values list = tcConstructors target;
+                in 
+                    (* We have already checked for matching a type in the structure
+                       to a datatype in the signature. *)
+                    if null targetConstrs orelse null candidConstrs
+                    then ()
+                    else if not (ListPair.allEq
+                                    (fn(cVal, tVal) => valName cVal = valName tVal)
+                                    (candidConstrs, targetConstrs))
+                    then errorInDatatype(candid, target,
+                                PrettyString "Mismatched constructor names or different numbers of constructors")
+                    else
+                    let
+                        (* Fold this so we only report a single error even if there are multiple errors. *)
+                        fun matchConstructors(cVal, tVal, false) =
+                        (
+                            case matchTypes (valTypeOf cVal, valTypeOf tVal, targTypeMap) of
+                                NONE => false
+                            |   SOME error =>
+                                (
+                                    errorInConstructor(cVal, tVal, matchErrorReport lex error);
+                                    true
+                                )
+                        )
+                                
+                        |   matchConstructors(_, _, true) = true
+                    in
+                        ListPair.foldl matchConstructors false (candidConstrs, targetConstrs);
+                        ()
+                    end
+                end
+    end (* checkTypeConstrs *);
 
   (* Check that a candidate signature (actually the environment part of
      a structure) matches a target signature. The direction is important
@@ -1229,60 +1231,66 @@ struct
  
     (* Match names (unique ids) for types. This is slightly more
 	   complicated than simply assigning the stamps. *)
-    fun matchNames (candidate, target) : unit=
-        univFold 
-          (sigTab target,
-          (fn (dName, dVal, ()) =>
+    fun matchNames (candidate, target) : unit =
+        univFold (sigTab target,
+            fn (dName, dVal, ()) =>
             if tagIs typeConstrVar dVal
-            then let (* See if there is one with the same name. *)
-              val target = tagProject typeConstrVar dVal;
+            then
+            let (* See if there is one with the same name. *)
+                val target = tagProject typeConstrVar dVal;
+                fun displayType t = displayTypeConstrs(t, errorDepth lex)
+                val typeError = sigStructMatchMsg(lex, near, lno) displayType
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
-              case univLookup (sigTab candidate, typeConstrVar, dName) of
-                 SOME candid =>
-                  if not (isUndefinedTypeConstr target) (* just in case *)
-                  then
-                    ( 
-                      (* Check for arity and equality - value constructors 
-                         are checked later. If the target is a bound identifier
-                         in the range it can be matched by a candidate. *)
-                      enterTypeConstrs (target, candid, tArgTypeMap);
+                case univLookup (sigTab candidate, typeConstrVar, dName) of
+                    SOME candid =>
+                        if not (isUndefinedTypeConstr target) (* just in case *)
+                        then
+                        ( 
+                            (* Check for arity and equality - value constructors 
+                               are checked later. If the target is a bound identifier
+                               in the range it can be matched by a candidate. *)
+                            enterTypeConstrs (target, candid, tArgTypeMap);
                     
-                      if tcArity target <> tcArity candid
-                        then errorNear (lex, true, near, lno,
-                           "Types (" ^ tcName target ^ ") have different arities.")
+                            if tcArity target <> tcArity candid
+                            then typeError(candid, target,
+                                        PrettyString "Types take different numbers of type arguments.")
+
+                            (* Check that it's a datatype before checking for eqtype. *)
+                            else if not (null (tcConstructors target)) andalso
+                                    null (tcConstructors candid)
+                            then typeError(candid, target, 
+                                        PrettyString "Type in structure is not a datatype")
+
+                            else if tcEquality target andalso not (permitsEquality candid)
+                            then typeError(candid, target, 
+                                        PrettyString "Type in structure is not an equality type")
                            
-                      else if tcEquality target andalso
-                           not (permitsEquality candid)
-                        then errorNear (lex, true, near, lno,
-                           "(" ^ tcName candid ^ ") is not an eqtype")
-                           
-                      else if not (null (tcConstructors target)) andalso
-                            null (tcConstructors candid)
-                        then errorNear (lex, true, near, lno,
-                            "(" ^ tcName candid ^ ") is not a datatype")
-                           
-                      else () 
-                    )
-                  else ()
-              |  NONE =>
-                 errorNear (lex, true, near, lno, 
-                     "Type (" ^ dName ^ ") missing in structure.")
-             end
+                            else () 
+                        )
+                        else ()
+                |   NONE => sigStructMissingMsg(lex, near, lno) displayType target
+            end
              
             else if tagIs structVar dVal
-              then let (* and sub-structures. *)
+            then
+            let (* and sub-structures. *)
                 val target = (tagProject structVar) dVal;
                 (* For each target structure: find a candidate with the 
                    same name and recursively check them. *)
-              in
+            in
                 case univLookup (sigTab candidate, structVar, dName) of
                    SOME candid => matchNames (structSignat candid, structSignat target)
-                |  NONE => errorNear (lex, true, near, lno, 
-                              "Structure (" ^ dName ^ ") missing in structure.")
-              end
-            else () (* not a type or structure *)
-          ), (* end of fn *)
+                |  NONE =>
+                    let
+                        fun displayStructure s =
+                            PrettyBlock(0, false, [],
+                                [PrettyString "structure" , PrettyBreak(1, 3), PrettyString(structName s)])
+                    in
+                        sigStructMissingMsg(lex, near, lno) displayStructure target
+                    end
+            end
+            else (), (* not a type or structure *)
           ()  (* default value for fold *)
         ) (* matchNames *);
       
@@ -1307,15 +1315,7 @@ struct
                   case univLookup (sigTab candidate, typeConstrVar, dName) of
                      SOME candid =>
                         (* Now check that the types match. *)
-                        checkTypeConstrs 
-                          (candid,
-                           target,
-                           lookupType,
-                           fn (c, t, n) =>
-                             matchTypes (c, t, lookupType, lex, lno, foundNear (near, n, lex)),
-                           lex,
-                           near,
-                           lno)
+                        checkTypeConstrs(candid, target, lookupType, lex, near, lno)
                   | NONE => () (* If the lookup failed ignore
                               the error - we've already reported it in matchNames *)
               end
@@ -1336,48 +1336,81 @@ struct
            ()
           );
 
-      val checkValuesAndExceptions : unit =
-        (* Finally the values and exceptions. *)
-        univFold 
-          (sigTab target,
-          (fn (dName, dVal, ()) =>
-            if tagIs valueVar dVal
-            then let
-              val v = tagProject valueVar dVal;
-            in 
-             (* The constructors in the target are ignored since
-                they have already been checked. *)
-			  case v of
-			  	Value{class=Constructor _, ...} => ()
-			  | _ =>
-                 case univLookup (sigTab candidate, valueVar, dName)
-                    (* Look up a corresponding value and check the type. *)
-                 of SOME candid =>
-                   let
-                    val vIsEx = case v of Value{class=Exception, ...} => true | _ => false
-                    and cIsEx = case candid of Value{class=Exception, ...} => true | _ => false
-                  in
-                    (* Check that exceptions have matched with exceptions 
-                       and values with values, and have not mixed. *)
-                    if not cIsEx andalso vIsEx
-                      then errorNear (lex, true, near, lno, 
-                            "Value (" ^ dName ^
-                            ") must be an exception to match the signature.")
-                           
-                    (* An exception will match a value provided the types are right. *)
-                    else
-                      matchTypes
-                        (valTypeOf candid, valTypeOf v, lookupType,
-                         lex, lno, foundNear (near, dName, lex))
-                  end
-                | NONE =>
-                      errorNear (lex, true, near, lno, 
-                          "Value (" ^ dName ^ ") missing in structure.")
-            end
-            else ()
-          ),
-          ()
-         )
+        val checkValuesAndExceptions : unit =
+            (* Finally the values and exceptions. *)
+            univFold 
+                (sigTab target,
+                    (fn (dName, dVal, ()) =>
+                        if tagIs valueVar dVal
+                        then case tagProject valueVar dVal of
+                            Value{class=Constructor _, ...} => () (* Already checked with datatype. *)
+                        |   (v as Value{class=Exception, ...}) => (* The candidate must be an exception. *)
+                            let
+                                fun displayException value =
+                                    PrettyBlock(0, false, [],
+                                            PrettyString "exception" ::
+                                            PrettyBreak(1, 3) ::
+                                            PrettyString(valName value) ::
+                                        (
+                                            case getFnArgType (valTypeOf value) of
+                                               NONE => []
+                                            |  SOME excType =>
+                                                [
+                                                    PrettyBreak (1, 1), PrettyString "of",
+                                                    PrettyBreak (1, 3), display (excType, errorDepth lex, NONE) ]
+                                        ))
+                            in
+                                case univLookup (sigTab candidate, valueVar, dName) of
+                                    (* Look up a corresponding value and check the type. *)
+                                    SOME candid =>
+                                    let
+                                    in
+                                        (* Check that exceptions have matched with exceptions 
+                                           and values with values, and have not mixed. *)
+                                        case candid of
+                                            Value {class = Exception, ...} =>
+                                            (
+                                                case matchTypes (valTypeOf candid, valTypeOf v, lookupType) of
+                                                    NONE => ()
+                                                |   SOME error =>
+                                                        sigStructMatchMsg(lex, near, lno)
+                                                            displayException (candid, v, matchErrorReport lex error) 
+                                            )
+                                        |   _ =>
+                                            (* It's there but it's not an exception. *)
+                                            sigStructMissingMsg(lex, near, lno) displayException candid
+                                    end
+                                |   NONE =>
+                                        sigStructMissingMsg(lex, near, lno) displayException v
+                            end
+		                |   v => (* An ordinary value *)
+                            let
+                                fun displayValue value =
+                                    PrettyBlock(0, false, [],
+                                        [
+                                            PrettyString "val",
+                                            PrettyBreak(1, 3),
+                                            PrettyString(valName value ^ ":"),
+                                            PrettyBreak(1, 0),
+                                            display (valTypeOf value, errorDepth lex, NONE)
+                                        ])
+                            in
+                                case univLookup (sigTab candidate, valueVar, dName) of
+                                    (* Look up a corresponding value and check the type. *)
+                                    SOME candid =>
+                                    (
+                                        case matchTypes (valTypeOf candid, valTypeOf v, lookupType) of
+                                            NONE => ()
+                                        |   SOME error =>
+                                                sigStructMatchMsg(lex, near, lno)
+                                                    displayValue (candid, v, matchErrorReport lex error)
+                                    )
+                                |   NONE => sigStructMissingMsg(lex, near, lno) displayValue v
+                            end
+                        else ()
+                    ),
+                    ()
+                )
       in
          ()
       end (* matchVals *);
@@ -1834,9 +1867,33 @@ struct
             fun shareTypes(typeA, typeB, lno) =
             let
                 fun cantShare reason =
-                    errorNear (lex, true, near, lno,
-                        concat["Cannot share type ",tcName typeA, " with type ",
-                                tcName typeB, ".", reason])
+                let
+                    fun showTypeCons t =
+                    let
+                        val context =
+                            case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations t) of
+                                SOME(DeclaredAt loc) => [ContextLocation loc]
+                            |   _ => []
+                    in
+                        PrettyBlock(0, false, context, [PrettyString(tcName t)])
+                    end
+                in
+                    errorMsgNear (lex, true, near, lno,
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyString "Cannot share type",
+                                PrettyBreak(1, 2),
+                                showTypeCons typeA,
+                                PrettyBreak(1, 0),
+                                PrettyString "with type",
+                                PrettyBreak(1, 0),
+                                showTypeCons typeB,
+                                PrettyBreak(0, 0),
+                                PrettyString ".",
+                                PrettyBreak(1, 0),
+                                PrettyString reason
+                            ]))
+                end
             in
                 if isUndefinedTypeConstr typeA orelse isUndefinedTypeConstr typeB
                 then ()
@@ -2168,7 +2225,7 @@ struct
                 let
                   (* Each element in the list should be a structure binding. *)
                   fun pStruct [] offset = offset
-                    | pStruct (({name, sigStruct = SOME(sigStruct, _), line, ...}: structBind) :: t) offset =
+                    | pStruct (({name, sigStruct = SOME(sigStruct, _, _), line, ...}: structBind) :: t) offset =
                     let
 					  (* Create a new surrounding environment to include the surrounding
 					     structure.  This is the scope for any structures or types.
@@ -2672,14 +2729,14 @@ struct
             structValue(localStr, newTypeId, currentTypeCount, Env localEnv, line, strName)
           end
 		  
-        | SigConstraint { str, csig, opaque } =>
+        | SigConstraint { str, csig, opaque, sigLoc } =>
           let (* struct: sig or struct :> sig *)
             val resSig = structValue(str, newTypeId, currentTypeCount, Env env, lno, strName);
             (* Create the signature using bound Id values that are distinct from
                those we've previously used but at this stage don't increment
                the counters. *)
             val explicitSig  : signatures = 
-              sigVal(csig, currentTypeCount(), Env env, lno, strName);
+              sigVal(csig, currentTypeCount(), Env env, sigLoc, strName);
                      
             (* Make tables to contain the matched ids. *)
             val typeMap  : typeConstrs map =
@@ -2698,7 +2755,7 @@ struct
 				then typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig)
 				else typeMap;
           in
-             matchSigs (resSig, explicitSig, typeMap, str, lno, lex);
+             matchSigs (resSig, explicitSig, typeMap, str, sigLoc, lex);
              (* Copy the signature to ensure that any "names" from the structure
                 value are copied into the result signature.
                 These are distinct from those in the surrounding space and,
@@ -2733,7 +2790,7 @@ struct
             val resultSig =
                 case sigStruct of
                     NONE => resSig (* No signature to match. *)
-                |   SOME (sigStruct, opaque) =>
+                |   SOME (sigStruct, opaque, sigLoc) =>
               let
                (* Get the explicit signature. If we are inside a functor
                    we have to make any new bound names outside the range
@@ -2741,7 +2798,7 @@ struct
                    less than 0 this means we are not in a functor so we 
                     actually start at 0. *)
                 val explicitSig  : signatures = 
-                  sigVal(sigStruct, makeCurrentTypeCount(), Env env, line, strName ^ name ^ ".");
+                  sigVal(sigStruct, makeCurrentTypeCount(), Env env, sigLoc, strName ^ name ^ ".");
                          
                 (* Make tables to contain the matched ids. *)
                 val typeMap  : typeConstrs map =
@@ -2760,7 +2817,7 @@ struct
 					then typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig)
 					else typeMap;
               in (* Match the signature. *)
-                matchSigs (resSig, explicitSig, typeMap, str, line, lex);
+                matchSigs (resSig, explicitSig, typeMap, str, sigLoc, lex);
                 (* And copy it to put in the names from the structure. *)
                 copySig (explicitSig, mustCopyType, makeTypeId false,
                          resTypeMap, strName ^ name ^ ".")
@@ -2891,7 +2948,7 @@ struct
               val resultSig =
                 case sigStruct of
                     NONE => resSig (* No signature to match. *)
-                |   SOME (sigStruct, opaque, _) =>
+                |   SOME (sigStruct, opaque, sigLoc) =>
                  let (* Get the explicit result signature. *)
                   val startTypes = sigMaxTypes   signat;
                   
@@ -2930,7 +2987,7 @@ struct
 
                 in 
                   (* Match the signature. *)
-                  matchSigs (resSig, explicitSig, typeMap, s, line, lex);
+                  matchSigs (resSig, explicitSig, typeMap, s, sigLoc, lex);
                   (* And copy it to put in the names from the args and
                      generative names. All the names will normally be in
                      the table already so copySig will not make any new 

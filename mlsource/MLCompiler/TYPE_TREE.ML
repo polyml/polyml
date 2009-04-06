@@ -1718,16 +1718,23 @@ struct
             )
           end) types
     end (* genEqualityFunctions *);
+    
+    type matchResult = (types * types * string) option
 
-  (* Type matching algorithm for both unification and signature matching. *)
-  fun typeMatch
+    (* Type matching algorithm for both unification and signature matching. *)
+    fun typeMatch
        (Atype : types, (* candidate type when signature matching *)
         Btype : types, (* target type when signature matching *)
         (* mapA  : types -> types, *) (* As this was always trivmap I've removed it *)
-        mapB  : types -> types, (* Map type constructors in the target. *)
-        cantMatch     : types * types * string -> unit)
-      : unit =
-  let
+        mapB  : types -> types) (* Map type constructors in the target. *)
+      : matchResult =
+    let
+        (* Get the result in here.  This isn't very ML-like but it greatly
+           simplifies converting the code. *)
+        val matchResult: matchResult ref = ref NONE
+        fun cantMatch res =
+            case matchResult of ref (SOME _) => () | r => r := SOME res
+  
     fun match
 	 (Atype : types,
 	  Btype : types, 
@@ -2394,25 +2401,18 @@ struct
 	  | _ => cantMatch (tA, mapB tB, "(Incompatible types)")
 
 	end; (* match *)
-  in
-    match (Atype, Btype, (*mapA, *)mapB)
-  end; (* typeMatch *)
 
-  fun unify 
-        (alpha    : types,
-         beta     : types,
-         lex      : lexan,
-         location : LEX.location,
-         moreInfo : unit -> pretty) 
-         : unit =
-  let
-    fun cantMatch (typeA, typeB, reason) =
-      matchError ("Can't unify", typeA, "with", typeB, reason, 
-                  lex, location, moreInfo);
-                     
-  in
-    typeMatch (alpha, beta, (*trivMap, *)trivMap, cantMatch)
-  end;
+    in
+        match (Atype, Btype, (*mapA, *)mapB);
+        ! matchResult
+    end; (* typeMatch *)
+
+    fun unify (alpha, beta, lex, location, moreInfo) =
+        case typeMatch (alpha, beta, (*trivMap, *)trivMap) of
+            NONE => ()
+        |   SOME(typeA, typeB, reason) =>
+                matchError ("Can't unify", typeA, "with", typeB, reason, 
+                    lex, location, moreInfo)
 
   (* Given a function type returns the first argument if the
      function takes a tuple otherwise returns the only argument.
@@ -2752,46 +2752,26 @@ struct
     else ()
   end;
 
-  (* Check that two types match. *)
-  fun matchTypes
-    (candidate : types, 
-     target    : types,
-     targMap   : typeId -> typeConstrs option,
-     lex       : lexan,
-     location  : LEX.location,
-     moreInfo  : unit -> pretty)
-    : unit =
-  let
-    fun copyTarget t =
-      (* Don't bother with type variables. *)
-      copyType (t, trivMap,
-        fn tcon =>
-        ( (* Copy it if it is in the map. *)
-           copyTypeConstr
-              (tcon, 
-               (fn id => case targMap id of SOME _ => true | NONE => false),
-               makeFreeId, (* Not used. *)
-              {lookup = targMap, enter = (fn (id, tc) => ())},
-			  trivMap, ""
-              )
-       ));
-                   
-      (* Do the match to a version of the candidate with copies of the
-         type variables so that we can instantiate them.  We could do
-         this by passing in a mapping function but the problem is that
-         if we have a type variable that gets unified to another variable
-         we will not map it properly if it occurs again (we call "eventual"
-         and get the second tv before calling the map function so we get a
-         second copy and not the first copy).
-       *)
-         
-      val copiedCandidate : types = generalise candidate;
-      
-      fun cantMatch (candidate, target, reason) =
-           matchError ("Can't match", candidate, "to", target, reason,
-                       lex, location, moreInfo);
+    (* Check that two types match. *)
+    fun matchTypes (candidate, target,  targMap: typeId -> typeConstrs option) =
+    let
+        fun copyATypeConstr tcon =
+            copyTypeConstr
+                (tcon, isSome o targMap, (* Copy it if it is in the map. *)
+                    makeFreeId, (* Not used. *) {lookup = targMap, enter = (fn (id, tc) => ())},
+                    trivMap, "")
+        fun copyTarget t = (* Don't bother with type variables. *)
+            copyType (t, trivMap, copyATypeConstr);
+        (* Do the match to a version of the candidate with copies of the
+           type variables so that we can instantiate them.  We could do
+           this by passing in a mapping function but the problem is that
+           if we have a type variable that gets unified to another variable
+           we will not map it properly if it occurs again (we call "eventual"
+           and get the second tv before calling the map function so we get a
+           second copy and not the first copy). *)
+        val copiedCandidate : types = generalise candidate;
     in
-      typeMatch (copiedCandidate, target, copyTarget, cantMatch)
+        typeMatch (copiedCandidate, target, copyTarget)
     end;
 
     (* Returns true if a type constructor permits equality. *)
