@@ -353,6 +353,7 @@ struct
        abstypes.  Equality may be permitted in the "with .. end" section but
        not outside. *)
     fun removeAbstypeEquality(Free(id, true)) = id := false
+    |   removeAbstypeEquality(Bound(_, VariableRef id)) = id := false
     |   removeAbstypeEquality _ =
             raise InternalError "removeAbsTypeEquality: not Free"
 
