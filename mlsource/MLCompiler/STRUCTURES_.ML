@@ -2688,7 +2688,7 @@ struct
             
             (* process body of structure *)
             val U : unit =
-              pass2Struct (alist, makeTypeId, makeCurrentTypeCount, Env newEnv, lno, strName);
+              pass2Struct (alist, newTypeId, currentTypeCount, Env newEnv, lno, strName);
           in
             resultSig
           end
@@ -2722,7 +2722,7 @@ struct
              
             (* Process the local declarations. *)
             val U : unit =
-              pass2Struct (decs, makeTypeId, makeCurrentTypeCount, Env localEnv, line, strName);
+              pass2Struct (decs, newTypeId, currentTypeCount, Env localEnv, line, strName);
                    
           in
             (* There should just be one entry in the "body" list. *)
