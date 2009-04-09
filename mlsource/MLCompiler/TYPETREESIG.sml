@@ -52,6 +52,9 @@ sig
     val makeEquivalent:     typeConstrs * types list -> types;
     val firstArg:           types -> types;
 
+    (* Follow a chain of unified type variables *)
+    val eventual:           types -> types
+
     (* Test for function type and return function argument. *)
     val getFnArgType:   types -> types option
    
@@ -97,10 +100,7 @@ sig
     val matchTypes: types * types * (typeId -> typeConstrs option) -> matchResult;
 
     (* Unify two type structures to give a unified type. *)
-    val unify: types * types * lexan * location * (unit -> pretty) -> unit;
-
-    (* Apply a function to an argument and yield a result type. *)
-    val apply: types * types * lexan * location * (unit -> pretty) -> types;
+    val unifyTypes: types * types -> matchResult
 
     (* Used to link a type constructor to a type as the result of a "where type"
        construction. *)
@@ -155,6 +155,7 @@ sig
     val badType:    types;
 
     val isUndefinedTypeConstr: typeConstrs -> bool
+    val isBadType:  types -> bool
 
     val sameTypeVar : types * types -> bool;
 

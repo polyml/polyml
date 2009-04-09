@@ -445,17 +445,17 @@ struct
          type of the value will be 'a * 'a -> bool but the type of a particular
          occurence, i.e. the type of the identifier must be int * int -> bool,
          say, after all the unification has been done. *)
-        { name: string, expType: types, value: values ref, location: location }
+        { name: string, expType: types ref, value: values ref, location: location }
 
     |   Literal             of
            (* Literal constants may be overloaded on more than one type. The
               types are specified by installing appropriate conversion functions:
               convInt, convReal, convChar, convString and convWord. *)
-            { converter: values, expType: types, literal: string, location: location }
+            { converter: values, expType: types ref, literal: string, location: location }
 
     |   Applic              of
             (* Function application *)
-            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: types }
+            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: types ref }
 
     |   Cond                of
             (* Conditional *)
@@ -519,7 +519,7 @@ struct
     |   Labelled            of
         (* Labelled record & the entry in the list. "frozen" is false if it's
            a pattern with "...". *)
-            { recList: labelRecEntry list, frozen: bool, expType: types, location: location }
+            { recList: labelRecEntry list, frozen: bool, expType: types ref, location: location }
 
     |   Selector            of
             { name: string, labType: types, typeof: types, location: location }
@@ -671,7 +671,7 @@ struct
         nameLoc: location,
         valOrPat: parsetree,
         fullLocation: location,
-        expType: types
+        expType: types ref
     }
 
   (*****************************************************************************
@@ -693,7 +693,7 @@ struct
       Ident
         {
           name   = name,
-          expType = makeGeneralTypeVar(),
+          expType = ref EmptyType,
           value  = ref undefinedValue,
           location = loc
         };
@@ -714,19 +714,19 @@ struct
     end;
 
     fun mkString(s: string, loc): parsetree =
-        Literal{converter=convString, literal=s, expType=makeGeneralTypeVar(), location=loc};
+        Literal{converter=convString, literal=s, expType=ref EmptyType, location=loc};
     
     fun mkInt  (i : string, loc) : parsetree =
-        Literal{converter=convInt, literal=i, expType=makeGeneralTypeVar(), location=loc};
+        Literal{converter=convInt, literal=i, expType=ref EmptyType, location=loc};
     
     fun mkReal (r : string, loc) : parsetree =
-        Literal{converter=convReal, literal=r, expType=makeGeneralTypeVar(), location=loc};
+        Literal{converter=convReal, literal=r, expType=ref EmptyType, location=loc};
     
     fun mkChar (c : string, loc) : parsetree = 
-        Literal{converter=convChar, literal=c, expType=makeGeneralTypeVar(), location=loc};
+        Literal{converter=convChar, literal=c, expType=ref EmptyType, location=loc};
 
     fun mkWord (w : string, loc) : parsetree =
-        Literal{converter=convWord, literal=w, expType=makeGeneralTypeVar(), location=loc};
+        Literal{converter=convWord, literal=w, expType=ref EmptyType, location=loc};
     
     fun mkApplic (f, arg, loc, isInfix) : parsetree  =
       Applic
@@ -735,7 +735,7 @@ struct
           arg = arg,
           location = loc,
           isInfix = isInfix,
-          expType=makeGeneralTypeVar()
+          expType = ref EmptyType
         };
     
     fun mkCond (test, thenpt, elsept, location) : parsetree  = 
@@ -907,7 +907,7 @@ struct
        {
          recList = recList,
          frozen  = frozen,
-         expType  = makeGeneralTypeVar(),
+         expType  = ref EmptyType,
          location = location
        };
        
@@ -917,7 +917,7 @@ struct
         nameLoc = nameLoc,
         valOrPat = valOrPat,
         fullLocation = fullLocation,
-        expType = makeGeneralTypeVar()
+        expType = ref EmptyType
     }
 
     fun mkSelector(name, location) : parsetree =
@@ -997,19 +997,14 @@ struct
      in VALUEOPS that is used to format values produced as
      a result of compiling and executing an expression or
      declaration. *) 
-  
-   (* Generates a pretty-printed representation of a piece of tree. *)
-    fun ptDisplay (c      : parsetree, (* The value to print. *)
-                   depth  : int) : pretty = (* The number of levels to display. *)
-    let
-        (* Prints a list of items. *)
-      fun printList (doPrint: 'a*int->pretty) (c: 'a list, separator, depth): pretty list =
+
+    fun printList (doPrint: 'a*int->pretty) (c: 'a list, separator, depth): pretty list =
         if depth <= 0 then [PrettyString "..."]
         else
-          case c of
+        case c of
             []      => []
-          | [v]     => [doPrint (v, depth)]
-          | (v::vs) =>
+        |   [v]     => [doPrint (v, depth)]
+        |   (v::vs) =>
                 PrettyBlock (0, false, [],
                     [
                         doPrint (v, depth),
@@ -1020,8 +1015,11 @@ struct
                     ) ::
                 PrettyBreak (1, 0) ::
                 printList doPrint (vs, separator, depth - 1)
-         (* end printList *);
-
+  
+   (* Generates a pretty-printed representation of a piece of tree. *)
+    fun ptDisplay (c      : parsetree, (* The value to print. *)
+                   depth  : int) : pretty = (* The number of levels to display. *)
+    let
         val displayList: parsetree list * string * int -> pretty list = printList ptDisplay
         
         (* type bindings and datatype bindings are used in several cases *)
@@ -1528,7 +1526,7 @@ struct
 
       | EmptyTree =>
          PrettyString "<Empty>"
-    end; (* ptDisplay *)
+    end (* ptDisplay *)
 
     fun getExportTree(navigation, p: parsetree) =
     let
@@ -1592,7 +1590,7 @@ struct
                 (* Value declarations in an abstype. *) getExportTree(navigation, dec)
     in
         case p of
-            Ident{location, expType, value, ...} =>
+            Ident{location, expType=ref expType, value, ...} =>
             let
                 (* Include the type and declaration properties if these
                    have been set. *)
@@ -1604,16 +1602,16 @@ struct
                 (location, PTtype expType :: decProp @ commonProps)
             end
 
-        |   Literal {location, expType, ...} => (location, PTtype expType :: commonProps)
+        |   Literal {location, expType=ref expType, ...} => (location, PTtype expType :: commonProps)
 
             (* Infixed application.  For the purposes of navigation we treat this as
                three entries in order. *)
-        |   Applic{location, f, arg = TupleTree([left, right], _), isInfix = true, expType, ...} =>
+        |   Applic{location, f, arg = TupleTree([left, right], _), isInfix = true, expType=ref expType, ...} =>
                 (location,
                     PTtype expType :: exportList(getExportTree, SOME asParent) [left, f, right] @ commonProps)
 
             (* Non-infixed application. *)
-        |   Applic{location, f, arg, expType, ...} =>
+        |   Applic{location, f, arg, expType=ref expType, ...} =>
                 (location, PTtype expType :: exportList(getExportTree, SOME asParent) [f, arg] @ commonProps)
 
         |   Cond{location, test, thenpt, elsept, ...} =>
@@ -1815,12 +1813,12 @@ struct
         |   Orelse{location, first, second, ...} =>
                 (location, exportList(getExportTree, SOME asParent) [first, second] @ commonProps)
 
-        |   Labelled{location, expType, recList, ...} =>
+        |   Labelled{location, expType=ref expType, recList, ...} =>
             let
                 (* It's convenient to be able to click on the label part and get
                    the type of the expression or pattern on the right of the '='. *)
                 fun exportField(navigation,
-                        label as {name, nameLoc, valOrPat, expType, fullLocation, ...}) =
+                        label as {name, nameLoc, valOrPat, expType=ref expType, fullLocation, ...}) =
                 let
                     val patTree as (patLocation, _) = getExportTree(navigation, valOrPat)
                 in
@@ -1923,6 +1921,137 @@ struct
          then errorNear(lex, true, v, lineno,
                      "Rebinding or specifying \"" ^ name ^ "\" is illegal")
          else ()
+
+        fun errorDepth lex =
+        let
+            open DEBUG
+            val parameters = LEX.debugParams lex
+        in
+            getParameter errorDepthTag parameters
+        end
+
+        (* Turn a result from unifyTypes into a pretty structure so that it
+           can be included in a message.
+           TODO: Pass in the appropriate environments to print type constructors. *)
+        fun unifyErrorReport lex (alpha, beta, reason) =
+            (* This previously used a single type variable sequence for
+               both types.  It may be that this is needed to make
+               sensible error messages. *)
+            PrettyBlock(3, false, [],
+                [
+                    PrettyString "Can't unify",
+                    PrettyBreak (1, 0),
+                    display (alpha, errorDepth lex, NONE),
+                    PrettyBreak (1, 0),
+                    PrettyString "with",
+                    PrettyBreak (1, 0),
+                    display (beta, errorDepth lex, NONE),
+                    PrettyBreak (1, 0),
+                    PrettyString reason                        
+                ])
+
+        (* Error message for incompatible types.  Displays both expressions and their types. *)
+        fun typeMismatch (title, left, right, detail, lex : lexan, location, moreInfo) =
+        let
+            val errorDepth = errorDepth lex
+            val message =
+                PrettyBlock(0, true, [],
+                    [
+                        PrettyString title,
+                        PrettyBreak(1, 3), left,
+                        PrettyBreak(1, 3), right,
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [PrettyString "Reason:", PrettyBreak(1, 0), detail])
+                    ])
+        in
+            reportError lex
+            {
+                location = location,
+                hard = true,
+                message = message,
+                context = SOME (moreInfo ())
+            }
+        end;
+
+        (* Error message for single expressions with the wrong type. e.g. "if" not followed
+           by a "bool". *)
+        fun typeWrong (title, value, detail, lex : lexan, location, moreInfo) =
+        let
+            val errorDepth = errorDepth lex
+            val message =
+                PrettyBlock(0, true, [],
+                    [
+                        PrettyString title,
+                        PrettyBreak(1, 3), value,
+                        PrettyBreak(1, 3),
+                        PrettyBlock(0, false, [],
+                            [ PrettyString "Reason:", PrettyBreak(1, 0), detail])
+                    ])
+        in
+            reportError lex
+            {
+                location = location,
+                hard = true,
+                message = message,
+                context = SOME (moreInfo ())
+            }
+        end;
+
+        (* Display a value and its type as part of an error message. *)
+        fun valTypeMessage lex (title, value, valType) =
+        let
+            val errorDepth = errorDepth lex
+        in
+            PrettyBlock(0, false, [],
+                [
+                    PrettyString title,
+                    PrettyBreak(1, 0),
+                    ptDisplay (value, errorDepth),
+                    PrettyBreak(1, 0),
+                    PrettyString ":",
+                    PrettyBreak(1, 0),
+                    display(valType, errorDepth, NONE)
+                ])
+        end
+
+        (* Old error message and unification functions.  These will eventually be
+           removed.  *)
+        fun matchError 
+            (alpha : types, beta  : types, reason : string,
+            lex : lexan, location : LEX.location, moreInfo : unit -> pretty) : unit =
+            reportError lex
+            {
+                location = location,
+                hard = true,
+                message = unifyErrorReport lex (alpha, beta, reason),
+                context = SOME (moreInfo ())
+           }
+
+        fun unify (alpha, beta, lex, location, moreInfo) =
+            case unifyTypes (alpha, beta) of
+                NONE => ()
+            |   SOME(typeA, typeB, reason) =>
+                    matchError (typeA, typeB, reason, lex, location, moreInfo)
+
+        fun apply (f, arg, lex, location, moreInfo) =
+            case eventual f of
+                FunctionType {arg=farg, result} =>
+                (
+                    unify (farg, arg, lex, location, moreInfo);
+                    result
+                )
+            |   ef => (* Type variables etc. - Use general case. *)
+                let  (* Make arg->'a, and unify with the function. *)
+                    val resType  = mkTypeVar (generalisable, false, false, false);
+                    val fType    = mkFunctionType (arg, resType);
+      
+                    (* This may involve more than just assigning the type to "ef". *)
+                    val () = unify (ef, fType, lex, location, moreInfo);
+                in
+                    resType (* The result is the type variable unified to the result. *)
+                end
+
 
     fun assignValues (level, letDepth, env, near, v)  =
     let
@@ -2030,8 +2159,7 @@ struct
                             valTypeOf var (* and return its type *)
                         end;
                 in
-                    (* Set the expression type by unifying. *)
-                    unify(expType, instanceType, lex, location, foundNear pat);
+                    expType := instanceType; (* Record the instance type.*)
                     instanceType
                 end
     
@@ -2046,8 +2174,7 @@ struct
                     val instance =
                         apply(instanceType, stringType, lex, location, foundNear pat)
                 in
-                    (* Set the expression type by unifying. *)
-                    unify(expType, instance, lex, location, foundNear pat);
+                    expType := instance; (* Record the instance type.*)
                     instance
                 end
 
@@ -2071,8 +2198,7 @@ struct
                                     val cType = instanceType constrVal
                                 in
                                     value := constrVal;
-                                    (* Remember the instance type. *)
-                                    unify(expType, cType, lex, location, foundNear pat);
+                                    expType := cType; (* Record the instance type.*)
                                     cType
                                 end
                                 else (* Undeclared or a variable. *)
@@ -2094,8 +2220,7 @@ struct
                     (* Apply to the pattern type. *)
                     val resultType = apply (conType, patType, lex, location, foundNear pat)
                 in
-                    (* Set the expression type by unifying. *)
-                    unify(expType, resultType, lex, location, foundNear pat);
+                    expType := resultType; (* Record the instance type.*)
                     resultType
                 end (* Applic *)
 
@@ -2114,14 +2239,12 @@ struct
                         let
                             val ty = processPattern(valOrPat, enterResult, level, notConst, isRec)
                         in
-                            (* Remember the type. *)
-                            unify(expType, ty, lex, fullLocation, foundNear pat);
+                            expType := ty;
                             mkLabelEntry(name, ty) :: mapLabels T
                         end;
                     val patType = mkLabelled (sortLabels(mapLabels recList), frozen);
                 in
-                    (* Set the expression type by unifying. *)
-                    unify(expType, patType, lex, location, foundNear pat);
+                    expType := patType;
                     patType
                 end
 
@@ -2191,27 +2314,58 @@ struct
 
         
         (* Applies "assignValues" to every element of a list and unifies the
-           types. Returns a type variable if the list is empty. *)
-        fun assignList(tlist, location) =
-        let   (* Construct a type variable and unite all the types to that. *)
-            (* TODO: This works fine if there are no errors but makes no
-               attempt to try to minimise the errors if there are problems.
-               It would be better to try to work which type is more common
-               and return that.  Alternatively just return a type variable
-               if we have reported an error. *)
-            val basicType = mkTypeVar (generalisable, false, false, false);
-            fun applyList [] = ()
-            |   applyList (h::t) =
+           types. Returns a type variable if the list is empty.
+           This is used for lists, function values (fn .. => ...),
+           handlers and case expressions. *)
+        fun assignList _ [] = mkTypeVar (generalisable, false, false, false)
+        |   assignList _ [single] = assValues v single
+
+        |   assignList (errorMsg, itemName, separator, location) (tlist as hd :: tl) =
             let
-                val typ = assValues v h;
-                val ()  = unify (typ, basicType, lex, location, foundNear v);
+                val firstType = assValues v hd
+
+                fun applyList(ty, _, []) = ty
+                |   applyList(ty, n, h::t) =
+                    let
+                        val typ = assValues v h
+                    in
+                        case unifyTypes (ty, typ) of
+                            NONE => applyList(ty, n+1, t)
+                        |   SOME report =>
+                            let
+                                (* We have a type error but we don't know which is correct.
+                                   The previous items must have produced a consistent type
+                                   otherwise we'd already have reported an error but we
+                                   can't identify exactly where the error occurred. *)
+                                val errorDepth = errorDepth lex
+                                val previousValsAndType =
+                                    PrettyBlock(0, false, [],
+                                        [
+                                            PrettyString (
+                                                if n = 1 then itemName ^ " 1:"
+                                                else itemName ^ "s 1-" ^ Int.toString n ^ ":"),
+                                            PrettyBreak(1, 0),
+                                            PrettyBlock(0, false, [],
+                                                printList ptDisplay (List.take(tlist, n),
+                                                separator, errorDepth)),
+                                            PrettyBreak(1, 0),
+                                            PrettyString ":",
+                                            PrettyBreak(1, 0),
+                                            display(ty, errorDepth, NONE)
+                                        ])
+                            in
+                                typeMismatch(errorMsg,
+                                    previousValsAndType,
+                                    valTypeMessage lex (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
+                                    unifyErrorReport lex report, lex, location, foundNear v);
+                                (* Continue with "bad" which suppresses further error messages
+                                   and return "bad" as the result. *)
+                                applyList(badType, n+1, t)
+                            end
+                    end
             in
-                applyList t
-            end;
-        in
-            applyList tlist;
-            basicType (* Return the type variable - united to all the types *)
-        end (* assignList *)
+                applyList(firstType, 1, tl)
+            end
 
         (* val assValues = assignValues level line env; *)
         and assValues near v =
@@ -2226,36 +2380,67 @@ struct
                 (* Set the value and type found. *)
                 val instanceType = instanceType expValue;
             in
-                (* Set the expression type by unification. *)
-                unify(expType, instanceType, lex, location, foundNear v);
+                expType := instanceType;
                 value  := expValue;
                 instanceType (* Result is the instance type. *)
             end
 
           | Literal{converter, expType, location, ...} =>
-                 let
+            let
                 (* Find out the overloadings on this converter and
                    construct an instance of it.  The converters are
                    all functions from string to the result type. *)
-                  val instanceType = overloadType(converter, true)
-                  val instance =
-                      apply(instanceType, stringType, lex, location, foundNear near)
-               in
-                    (* Set the expression type by unification. *)
-                    unify(expType, instance, lex, location, foundNear v);
-                    instance
-               end
+                val instanceType = overloadType(converter, true)
+                val instance =
+                    apply(instanceType, stringType, lex, location, foundNear near)
+            in
+                expType := instance;
+                instance
+            end
 
           | Applic {f, arg, location, expType, ...} => 
             let
                 (* Apply the function to the argument and return the result. *)
-                val funType = assValues near f;   (* SPF 22/10/94 *)
+                val funType = assValues near f;
                 val argType = assValues near arg;
-                val resultType = apply (funType, argType, lex, location, foundNear near)
+                (* Test to see if we have a function. *)
+                val fType =
+                    case eventual funType of
+                        FunctionType {arg, result} => SOME(arg, result)
+                    |   ef => (* May be a simple type variable. *)
+                        let
+                            val funResType = mkTypeVar (generalisable, false, false, false);
+                            val funArgType = mkTypeVar (generalisable, false, false, false);
+                            val fType    = mkFunctionType (funArgType, funResType);
+                        in
+                            case unifyTypes (fType, funType) of
+                                NONE => SOME(funArgType, funResType)
+                            |   SOME report =>
+                                (
+                                    (* It's not a function. *)
+                                    typeMismatch("Type error in function application.",
+                                        valTypeMessage lex ("Function:", f, funType),
+                                        valTypeMessage lex ("Argument:", arg, argType),
+                                        PrettyString "Value being applied does not have a function type",
+                                        lex, location, foundNear near);
+                                    NONE
+                                )
+                        end
+
             in
-                (* Set the expression type by unification. *)
-                unify(expType, resultType, lex, location, foundNear v);
-                resultType
+                case fType of
+                    NONE => badType (* Not a function *)
+                |   SOME (fArg, fResult) =>
+                    (
+                        case unifyTypes (fArg, argType) of
+                            NONE => ()
+                        |   SOME report =>
+                                typeMismatch("Type error in function application.",
+                                    valTypeMessage lex ("Function:", f, funType),
+                                    valTypeMessage lex ("Argument:", arg, argType),
+                                    unifyErrorReport lex report, lex, location, foundNear near);
+                        fResult
+                    )
             end
 
           | Cond {test, thenpt, elsept, location} =>
@@ -2264,13 +2449,26 @@ struct
                    same. The result is either of these two once they have been
                    unified. *)
                 val testType = assValues v test;
-                val U : unit = unify (testType, boolType, lex, location, foundNear v);
-          
                 val thenType = assValues v thenpt;
                 val elseType = assValues v elsept;
-                val U : unit = unify (thenType, elseType, lex, location, foundNear v);
             in
-                thenType (* or equally elseType *)
+                case unifyTypes(testType, boolType) of
+                    NONE => ()
+                |   SOME report =>
+                        typeWrong("Condition in if-statement must have type bool.",
+                            valTypeMessage lex ("If:", test, testType),
+                            unifyErrorReport lex report, lex, location, foundNear v);
+
+                case unifyTypes(thenType, elseType) of
+                    NONE => thenType (* or equally elseType *)
+                |   SOME report =>
+                    (
+                        typeMismatch("Type mismatch between then-part and else-part.",
+                            valTypeMessage lex ("Then:", thenpt, thenType),
+                            valTypeMessage lex ("Else:", elsept, elseType),
+                            unifyErrorReport lex report, lex, location, foundNear v);
+                        badType
+                    )
             end
 
           | TupleTree(ptl, _) =>
@@ -2285,8 +2483,7 @@ struct
                 let
                     val ty = assValues v valOrPat
                 in
-                    (* Remember the type*)
-                    unify(expType, ty, lex, location, foundNear v);
+                    expType := ty;
                     {name = name, typeof = ty }
                 end
             
@@ -2294,8 +2491,7 @@ struct
                 mkLabelled 
                   (sortLabels (map labEntryToLabType recList), frozen) (* should always be true *);
             in
-                (* Set the expression type by unification. *)
-                unify(expType, expressionType, lex, location, foundNear v);
+                expType := expressionType;
                 expressionType
             end
 
@@ -2490,21 +2686,40 @@ struct
             end
 
           | List(ptl, location) =>
-              mkTypeConstruction ("list", listType, [assignList(ptl, location)], [DeclaredAt inBasis])
+            let
+                val elementType =
+                    assignList("Elements in a list have different types.", "Item", ",", location) ptl
+            in
+                if isBadType elementType
+                then badType
+                else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+            end
 
           | Constraint {value, given, location} =>
             let
-                val valType   = assValues near value; (* SPF 22/10/94 *)
+                val valType = assValues near value;
                 val theType = typeFromTypeParse given
                 val ()  = ptAssignTypes theType v;
-                (* These must be unifiable. *)
-                val ()  = unify (valType, theType, lex, location, foundNear v);
             in
+                (* These must be unifiable. *)
+                case unifyTypes(valType, theType) of
+                    NONE => () (* OK. *)
+                |   SOME report =>
+                        typeMismatch("Type mismatch in type constraint.",
+                            valTypeMessage lex ("Value:", value, valType),
+                            PrettyBlock(0, false, [],
+                                [
+                                    PrettyString "Constraint:",
+                                    PrettyBreak(1, 0),
+                                    display(theType, errorDepth lex, NONE)
+                                ]),
+                            unifyErrorReport lex report,
+                            lex, location, foundNear v);
                 theType
             end
 
           | Fn (ptl, location) =>  (* Must unify the types of each of the alternatives.*)
-              assignList(ptl, location)
+              assignList("Clauses in fn expression have different types.", "Clause", "|", location) ptl
 
           | MatchTree {vars, exp, location, resType, argType} =>
             let 
@@ -2684,8 +2899,7 @@ struct
                                     Value{class=Exception, ...} => ()
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
-                                (* And remember the type. *)
-                                unify(expType, excType, lex, nameLoc, foundNear v);
+                                expType := excType; (* And remember the type. *)
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, [DeclaredAt nameLoc])
                             end
@@ -2712,47 +2926,55 @@ struct
                 badType
             end (* ExDeclaration *)
         
-      | Raise (pt, line) =>
-        let
-          val exType = assValues v pt;
-          (* The exception value must have type exn. *)
-          val U : unit = unify (exnType, exType, lex, line, foundNear v);
-        in
-          (* Matches anything *)
-          mkTypeVar (generalisable, false, false, false)
-        end
+          | Raise (pt, line) =>
+            let
+                val exType = assValues v pt
+            in
+                (* The exception value must have type exn. *)
+                case unifyTypes(exType, exnType) of
+                    NONE => ()
+                |   SOME report =>
+                        typeWrong("Exception to be raised must have type exn.",
+                            valTypeMessage lex ("Raise:", pt, exType),
+                            unifyErrorReport lex report, lex, line, foundNear v);
+                (* Matches anything *)
+                mkTypeVar (generalisable, false, false, false)
+            end
   
       | HandleTree {exp, hrules, location} =>
         let
-          (* If the expression returns type E
+            (* If the expression returns type E
              the handler must be exn -> E *)
-          val expType = assValues v exp;
-         (* Unify the handler with a function from exn -> expType *)
-          val () = 
-             unify (assignList(hrules, location), 
-                mkFunctionType (exnType, expType),
-                 lex, location, foundNear v);
+            val expType = assValues v exp;
+            (* Unify the handler with a function from exn -> expType *)
+            val clauses =
+                assignList("Clauses in handler have different types.", "Clause", "|", location) hrules
+            val () = 
+                unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v);
         in
           expType (* Result is expType. *)
         end
 
-        | While {test, body, location} =>
+          | While {test, body, location} =>
             let
-              val testType = assValues v test;
-          
-              (* Test must be bool. Result is unit *)
-               val U : unit = unify (testType, boolType, lex, location, foundNear v);
-           
-              (* Result of body is discarded. *)
-              val U : types = assValues v body;
+                val testType = assValues v test
             in
-              unitType
+                (* Test must be bool. Result is unit *)
+                case unifyTypes(testType, boolType) of
+                    NONE => ()
+                |   SOME report =>
+                        typeWrong("Loop condition of while-expression must have type bool.",
+                            valTypeMessage lex ("While:", test, testType),
+                            unifyErrorReport lex report, lex, location, foundNear v);
+                assValues v body; (* Result of body is discarded. *)
+                unitType
             end
 
       | Case {test, match, location} =>
         let
-          val funType = assignList(match, location);
-          val argType = assValues v test;
+            val funType =
+                assignList("Clauses in case have different types.", "Clause", "|", location) match;
+            val argType = assValues v test;
         in
           (* The matches constitute a function from the test type to
              the result of the case statement, so we apply the match type
@@ -3164,7 +3386,7 @@ struct
             
                             value := functVar;
                             (* Set the type.  Only in case we look at the export tree. *)
-                            unify(expType, valTypeOf functVar, lex, line, foundNear dec);
+                            expType := valTypeOf functVar;
                             (valTypeOf functVar, []) (* Return function type. *)
                         end
         
@@ -3541,7 +3763,7 @@ struct
         not be correct. *)
      fun tupleWidth(TupleTree(l, _)) = List.length l
 
-      |  tupleWidth(Labelled{expType, ...}) =
+      |  tupleWidth(Labelled{expType=ref expType, ...}) =
            if recordNotFrozen expType (* An error, but reported elsewhere. *)
            then 1 (* Safe enough *)
            else recordWidth expType
@@ -4107,7 +4329,7 @@ struct
           | _ => 
              raise InternalError "pattern is not a tuple in a-o-t")
   
-            | Labelled {recList, frozen, expType, location, ...} =>
+            | Labelled {recList, frozen, expType=ref expType, location, ...} =>
               let
                 (* Treat as a tuple, but in the order of the record entries.
                    Missing entries are replaced by wild-cards. The order of
@@ -4207,7 +4429,7 @@ struct
                     processList ptl tree
                 end
   
-              | Literal{converter, literal, expType, location} =>
+              | Literal{converter, literal, expType=ref expType, location} =>
                 let
                    (* At the same time we have to get the equality function
                       for this type to plug into the code.  This will find
@@ -4938,7 +5160,7 @@ struct
                 end
         in
             case c of 
-              Ident {value, expType, location, ...} =>
+              Ident {value, expType=ref expType, location, ...} =>
                   let
                     val v : values = !value;
                     (* The instance type is not necessarily the same as the type
@@ -4961,7 +5183,7 @@ struct
                     |    _ => codeVal (v, !level, expType, lex, location)
                   end
           
-              | Literal{converter, literal, expType, location} =>
+              | Literal{converter, literal, expType=ref expType, location} =>
                 (
                     case getLiteralValue(converter, literal, expType, location, c) of
                         SOME w => mkConst w
@@ -4980,7 +5202,7 @@ struct
                    constructor. If it is not then we must code-generate the
                    whole identifier, not the value it is bound to. *)
                 case f of
-                  Ident {value = ref function, expType, ...} =>
+                  Ident {value = ref function, expType=ref expType, ...} =>
                       applyFunction (function, argument, !level, expType, lex, location)
                 | _ => 
                   mkEval (codegen (f, debugEnv, decName), [argument], false) (* not early *)
@@ -5004,7 +5226,7 @@ struct
             | Labelled {recList = [{valOrPat, ...}], ...} =>
                 codegen (valOrPat, debugEnv, decName) (* optimise unary tuples *)
   
-            | Labelled {recList, expType, location, ...} =>
+            | Labelled {recList, expType=ref expType, location, ...} =>
               let
                 (* We must evaluate the expressions in the order they are
                    written. This is not necessarily the order they appear

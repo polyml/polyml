@@ -118,6 +118,7 @@ end;
 structure DEBUG :
 sig
     val printDepthFunTag : (unit->int) Universal.tag
+    val errorDepthTag: int Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
@@ -216,6 +217,7 @@ sharing type
   PRINTTABLE.pretty
 = TYPESTRUCT.pretty
 = PRETTY.pretty
+= LEX.pretty
 
 sharing type
   UNIVERSALTABLE.iter
@@ -2235,6 +2237,51 @@ struct
         (getOverload(name, constr, notFound), tcName constr)
      end
 
+    (* This is only used in addPrettyPrint and install_pp.  There's no point in
+       producing a lot of detailed information. *)
+    fun checkPPType (instanceType, matchType, fnName, lex, location, moreInfo) =
+        case unifyTypes (instanceType, matchType) of
+            NONE => ()
+        |   SOME(typeA, typeB, reason) =>
+            let
+                open DEBUG
+                val parameters = LEX.debugParams lex
+                val errorDepth = getParameter errorDepthTag parameters
+            in
+                reportError lex
+                {
+                    location = location,
+                    hard = true,
+                    message =
+                        PrettyBlock(0, true, [],
+                            [
+                                PrettyString ("Argument for " ^ fnName),
+                                PrettyBreak (1, 3),
+                                PrettyBlock(0, false, [],
+                                    [
+                                        PrettyString "Required type:",
+                                        PrettyBreak (1, 0),
+                                        display (matchType, errorDepth, NONE)
+                                    ]),
+                                PrettyBreak (1, 3),
+                                PrettyBlock(0, false, [],
+                                    [
+                                        PrettyString "Argument type:",
+                                        PrettyBreak (1, 0),
+                                        display (instanceType, errorDepth, NONE)
+                                    ]),
+                                PrettyBreak (1, 3),
+                                PrettyBlock(0, false, [],
+                                    [
+                                        PrettyString "Reason:",
+                                        PrettyBreak (1, 0),
+                                        PrettyString reason
+                                    ])                        
+                            ]),
+                    context = SOME (moreInfo ())
+               }
+            end;
+
  (* Code-generate an identifier matched to a value.  N.B. If the value is a
     constructor it returns the pair or triple representing the functions on the
     constructor. *)
@@ -2345,7 +2392,7 @@ struct
                     mkFunctionType (TYPESTRUCT.intType,
                         mkFunctionType(argPrints, mkFunctionType(installType, pretty))),
                     TYPESTRUCT.unitType);
-            val () = unify(instance, addPPType, lex, loc, fn () => PrettyString "addPrettyPrinter type");
+            val () = checkPPType(instance, addPPType, "addPrettyPrinter", lex, loc, fn () => PrettyString "");
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -2406,7 +2453,7 @@ struct
                                 mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
                                 pretty))
                     in
-                        unify(addPPType, testType, lex, loc,
+                        checkPPType(addPPType, testType, "addPrettyPrint", lex, loc,
                             fn () =>
                                 PrettyString "addPrettyPrint element functions must have type 'a * int -> pretty")
                     end;
@@ -2456,7 +2503,7 @@ struct
                             mkFunctionType(argPrints,
                                 mkFunctionType(installType, TYPESTRUCT.unitType)))),
                     TYPESTRUCT.unitType);
-            val () = unify(instance, installPPType, lex, loc, fn () => PrettyString "install_pp type");
+            val () = checkPPType(instance, installPPType, "install_pp", lex, loc, fn () => PrettyString "");
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -2519,9 +2566,9 @@ struct
                                 mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
                                     TYPESTRUCT.unitType))
                     in
-                        unify(installPPType, testType, lex, loc,
+                        checkPPType(installPPType, testType, "install_pp", lex, loc,
                             fn () =>
-                                PrettyString "addPrettyPrint element functions must have type 'a * int -> pretty")
+                                PrettyString "install_pp element functions must have type 'a * int -> unit")
                     end;
 
             (* This is the type of the pretty-printer as seen by the user *)

@@ -174,8 +174,8 @@ struct
   fun isEmpty             EmptyType           = true
     | isEmpty            _ = false;
     
-  fun isBad               BadType             = true
-    | isBad              _ = false;
+  fun isBadType           BadType             = true
+    | isBadType          _ = false;
 
   val emptyType            = EmptyType;
 
@@ -324,10 +324,10 @@ struct
       val newVal = eventual oldVal;   (* Search that *)
     in
 	  (* Update the type variable to point to the last in the chain.
-	     Note: We don't do this if the value hasn't changed.  It would
-		 seem that doing so ought to be perfectly harmless but it
-		 results in large number of expensive assignments to database
-		 variables. *)
+         We don't do this if the value hasn't changed.  The reason for
+         that was that assignment to refs in the database in the old
+         persistent store system was very expensive and we wanted to avoid
+         unnecessary assignments.  This special case could probably be removed. *)
 	  if ADDRESS.wordEq(oldVal, newVal)
 	  then ()
 	  else tvSetValue (tv, newVal); (* Put it on *)
@@ -1114,38 +1114,6 @@ struct
     	recordNotFrozen (tvValue t)
 	| recordNotFrozen (LabelledType { frozen, ... }) = not frozen
 	| recordNotFrozen _ = false (* record or type alias *);
-
-
-    fun matchError 
-        (s1 : string, alpha : types, s2 : string, beta  : types, s3 : string,
-        lex : lexan, location : LEX.location, moreInfo : unit -> pretty) : unit =
-    let
-        val vars : typeVarForm -> string = varNameSequence ();
-        open DEBUG
-        val parameters = LEX.debugParams lex
-        val errorDepth = getParameter errorDepthTag parameters
-    in
-        reportError lex
-        {
-            location = location,
-            hard = true,
-            message =
-                PrettyBlock(3, false, [],
-                    [
-                        PrettyString s1,
-                        PrettyBreak (1, 0),
-                        tDisp (alpha, errorDepth, vars, NONE),
-                        PrettyBreak (1, 0),
-                        PrettyString s2,
-                        PrettyBreak (1, 0),
-                        tDisp (beta, errorDepth, vars, NONE),
-                        PrettyBreak (1, 0),
-                        PrettyString s3                        
-                    ]),
-            context = SOME (moreInfo ())
-       }
-    end (* matchError *);
-
 
   (* True if two types are equal. Used to reduce the storage required
      when copying signatures. Rewritten using pattern-matching.
@@ -2062,7 +2030,12 @@ struct
             or a combination of the fields of var and t.  Likewise if
 			var was previously an overload set this may replace the set
 			by a single type construction. *)
-         tvSetValue (var, t)
+         (* If we have had an error don't make the assignment.  At the very least
+            it could prevent us producing useful error information and it could
+            also result in unnecessary consequential errors. *)
+         case !matchResult of
+            NONE => tvSetValue (var, t)
+         |  SOME _ => ()
        end
      end (* assign *);
 
@@ -2407,12 +2380,7 @@ struct
         ! matchResult
     end; (* typeMatch *)
 
-    fun unify (alpha, beta, lex, location, moreInfo) =
-        case typeMatch (alpha, beta, (*trivMap, *)trivMap) of
-            NONE => ()
-        |   SOME(typeA, typeB, reason) =>
-                matchError ("Can't unify", typeA, "with", typeB, reason, 
-                    lex, location, moreInfo)
+    fun unifyTypes(alpha, beta) = typeMatch (alpha, beta, (*trivMap, *)trivMap)
 
   (* Given a function type returns the first argument if the
      function takes a tuple otherwise returns the only argument.
@@ -2539,30 +2507,6 @@ struct
         FunctionType {arg, ... } => SOME arg
     |   _ => NONE
     
-
-  fun apply (f, arg, lex, location, moreInfo) =
-  let
-    val ef = eventual f;
-  in
-    if isFunctionType ef
-    then (* Special case for functions. *)
-    let
-      val funType  = typesFunctionType ef;
-      val U : unit = unify (#arg funType, arg, lex, location, moreInfo);
-    in
-      #result funType
-    end
-    else (* Type variables etc. - Use general case. *)
-    let  (* Make arg->'a, and unify with the function. *)
-      val resType  = mkTypeVar (generalisable, false, false, false);
-      val fType    = mkFunctionType (arg, resType);
-      
-      (* This may involve more than just assigning the type to "ef". *)
-      val U : unit = unify (ef, fType, lex, location, moreInfo);
-    in
-      resType (* The result is the type variable unified to the result. *)
-    end
-  end (* apply *);
 
   (* Assigns type variables to variables with generalisation permitted
      if their level is at least that of the current level.
