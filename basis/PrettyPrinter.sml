@@ -200,8 +200,12 @@ struct
             val left  = ref 0;
             val right = ref 0;
         in
-            val rightTotal = ref 0;
-            val leftTotal  = ref 0;
+            (* rightTotal and leftTotal must be non-zero.  The actual value
+               doesn't matter because we only ever use the difference but
+               it must be such that if "size" has the value of -rightTotal
+               we know that the size has not yet been set. *)
+            val rightTotal = ref 1;
+            val leftTotal  = ref 1;
 
             (* queue contains the tokens and their sizes. *)
             val queue = Array.array (vecSize, (End [],0));
@@ -222,12 +226,13 @@ struct
             (* Remove from the queue. *)
             fun deQueue () =
             (* Print objects from the token queue until we either exhaust it
-               or we find something whose length we don't know. *)
+               or we find something whose length we don't know. i.e. with
+               a negative value for "size". *)
             let
                 val nextLeft = inc (!left);
                 val (token, size) = Array.sub (queue, nextLeft);
             in
-                if size > 0 andalso not (queueEmpty ())
+                if size >= 0 andalso not (queueEmpty ())
                 then 
                 (
                     left := nextLeft;
@@ -250,8 +255,8 @@ struct
             (             
                 left       := 0;
                 right      := 0;
-                leftTotal  := 0;
-                rightTotal := 0
+                leftTotal  := 1;
+                rightTotal := 1
             )
   
         end (* token queue functions *);
