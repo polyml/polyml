@@ -203,12 +203,25 @@ struct
         endPosition := offset
     end
 
+    (* Convert a piece of text into a series of words so that the
+       pretty printing can break it into lines. *)
+    fun breakWords str =
+    let
+        val words = String.tokens Char.isSpace str
+        fun addBreaks [] = [PrettyString ""] (* Shouldn't happen *)
+        |   addBreaks [last] = [PrettyString last]
+        |   addBreaks (hd :: tl) =
+                PrettyString hd :: PrettyBreak(1, 0) :: addBreaks tl
+    in
+        addBreaks words
+    end
+
     (* Simple string error messages. *)
     fun errorMessage (lexan, location, message) =
         reportError lexan
         {
             location = location,
-            message = PrettyBlock(0, false, [], [PrettyString message]),
+            message = PrettyBlock(3, false, [], breakWords message),
             hard = true,
             context = NONE
         }
@@ -216,7 +229,7 @@ struct
         reportError lexan
         {
             location = location,
-            message = PrettyBlock(0, false, [], [PrettyString message]),
+            message = PrettyBlock(3, false, [], breakWords message),
             hard = false, (* Just a warning *)
             context = NONE
         }
