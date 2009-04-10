@@ -937,24 +937,16 @@ struct
 
 
             fun nextLevel {express: parsetree*location,operator: string*location,fix,preclevl,right}
-                           returnLevel   (* if we get an operator with this level then we must return. *)  =
+                           (returnLevel, lastRight, lastOp) =
             let
                 val next = readNextOps(); (* get the next operator and operand.*)
-            
-                val U: unit =
-                    (* In ML97 two operators of the same precedence must both be
-                       left associative or both right associative. *)
-                    if #preclevl next = preclevl andalso right <> #right next
-                    then errorMessage (lex, location lex,
-                        "Mixed right and left associative operators of the same precedence.")
-                    else ();
 
                 val rightOp =
-                   if #preclevl next > preclevl orelse
-                      (* next operator is more binding-it must be processed first *)
-                      right andalso #preclevl next = preclevl 
-                   then nextLevel next (preclevl+1)
-                   else next;
+                    if #preclevl next > preclevl orelse
+                        (* next operator is more binding-it must be processed first *)
+                        right andalso #preclevl next = preclevl 
+                    then nextLevel next (preclevl, right, #1 operator)
+                    else next;
 
                 (* At this point we are either at the end of the expression or
                    ``rightOp'' contains an operator which is as weak or weaker
@@ -975,8 +967,20 @@ struct
                    (i.e. stronger than the operator before this series) then
                     repeat else return this result. *)
             in
-                if #preclevl rightOp >= returnLevel
-                then nextLevel applied returnLevel
+                (* In ML97 two operators of the same precedence must both be
+                   left associative or both right associative. *)
+                if #preclevl rightOp = returnLevel andalso #right rightOp <> lastRight
+                then errorMessage (lex, location lex,
+                        concat["Operators \"", lastOp, "\" and \"", #1 (#operator rightOp),
+                            "\" have the same precedence but \"", lastOp, "\" is ",
+                            if lastRight then "right" else "left", "-associative while \"",
+                            #1 (#operator rightOp), "\" is ",
+                            if #right rightOp then "right" else "left", "-associative."])
+                else ();
+
+                if #preclevl rightOp > returnLevel orelse
+                    #preclevl rightOp = returnLevel andalso lastRight
+                then nextLevel applied (returnLevel, lastRight, lastOp)
                 else applied
             end (* nextLevel *);
 
@@ -985,7 +989,7 @@ struct
         in
             if #preclevl ops < 0 (* no operator *)
             then #express ops
-            else #express (nextLevel ops 0)
+            else #express (nextLevel ops (~1, false, ""))
         end (* parseInfix *);
 
         fun pattern fsys lex (env as {enterFix,lookupFix,lookupTvar}) =
