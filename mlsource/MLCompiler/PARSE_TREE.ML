@@ -1955,14 +1955,14 @@ struct
         let
             val errorDepth = errorDepth lex
             val message =
-                PrettyBlock(0, true, [],
+                PrettyBlock(3, true, [],
                     [
                         PrettyString title,
-                        PrettyBreak(1, 3), left,
-                        PrettyBreak(1, 3), right,
-                        PrettyBreak(1, 3),
+                        PrettyBreak(1, 0), left,
+                        PrettyBreak(1, 0), right,
+                        PrettyBreak(1, 0),
                         PrettyBlock(0, false, [],
-                            [PrettyString "Reason:", PrettyBreak(1, 0), detail])
+                            [PrettyString "Reason:", PrettyBreak(1, 3), detail])
                     ])
         in
             reportError lex
@@ -1980,13 +1980,13 @@ struct
         let
             val errorDepth = errorDepth lex
             val message =
-                PrettyBlock(0, true, [],
+                PrettyBlock(3, true, [],
                     [
                         PrettyString title,
-                        PrettyBreak(1, 3), value,
-                        PrettyBreak(1, 3),
+                        PrettyBreak(1, 0), value,
+                        PrettyBreak(1, 0),
                         PrettyBlock(0, false, [],
-                            [ PrettyString "Reason:", PrettyBreak(1, 0), detail])
+                            [ PrettyString "Reason:", PrettyBreak(1, 3), detail])
                     ])
         in
             reportError lex
@@ -2003,7 +2003,7 @@ struct
         let
             val errorDepth = errorDepth lex
         in
-            PrettyBlock(0, false, [],
+            PrettyBlock(3, false, [],
                 [
                     PrettyString title,
                     PrettyBreak(1, 0),
@@ -2339,7 +2339,7 @@ struct
                                    can't identify exactly where the error occurred. *)
                                 val errorDepth = errorDepth lex
                                 val previousValsAndType =
-                                    PrettyBlock(0, false, [],
+                                    PrettyBlock(3, false, [],
                                         [
                                             PrettyString (
                                                 if n = 1 then itemName ^ " 1:"
