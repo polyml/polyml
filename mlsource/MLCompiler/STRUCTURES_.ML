@@ -1036,22 +1036,22 @@ struct
                 PrettyBlock(0, true, [],
                     [
                         PrettyString "Structure does not match signature.",
-                        PrettyBreak(1, 3),
-                        PrettyBlock(0, false, [],
+                        PrettyBreak(1, 0),
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Signature:",
                                 PrettyBreak(1, 0),
                                 doDisplay sigValue
                             ]),
-                        PrettyBreak(1, 3),
-                        PrettyBlock(0, false, [],
+                        PrettyBreak(1, 0),
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Structure:",
                                 PrettyBreak(1, 0),
                                 doDisplay structValue
                             ]),
-                        PrettyBreak(1, 3),
-                        PrettyBlock(0, false, [],
+                        PrettyBreak(1, 0),
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Reason:",
                                 PrettyBreak(1, 0),
@@ -1068,15 +1068,15 @@ struct
                 PrettyBlock(0, true, [],
                     [
                         PrettyString "Structure does not match signature.",
-                        PrettyBreak(1, 3),
-                        PrettyBlock(0, false, [],
+                        PrettyBreak(1, 0),
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Signature:",
                                 PrettyBreak(1, 0),
                                 doDisplay sigValue
                             ]),
-                        PrettyBreak(1, 3),
-                        PrettyBlock(0, false, [],
+                        PrettyBreak(1, 0),
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Structure:",
                                 PrettyBreak(1, 0),
