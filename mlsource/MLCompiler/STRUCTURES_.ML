@@ -1007,13 +1007,9 @@ struct
         exportTree trees
     end
    
-  (* Formal paramater to a functor - either value or exception. *)
-  fun mkFormal (name : string, class, typ, addr, locations) =
-  	Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
-
-  (* A null map from a structure identifier to anything. *)
-  fun nullMap (id : 'a) : 'b option = NONE;
-
+    (* Formal paramater to a functor - either value or exception. *)
+    fun mkFormal (name : string, class, typ, addr, locations) =
+  	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
 
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorMsgNear (lex, hard, near, lno, message) : unit =
@@ -1135,6 +1131,29 @@ struct
                 PrettyString reason                        
             ])
 
+    (* Check that two types match. *)
+    fun matchTypes (candidate, target, targMap: typeId -> typeId option) =
+    let
+        fun copyATypeConstr tcon =
+            copyTypeConstr
+                (tcon, isSome o targMap, (* Copy it if it is in the map. *)
+                    makeFreeId, (* Not used. *) {lookup = targMap, enter = fn _ => ()},
+                    fn x => x, "")
+        fun copyTarget t = (* Don't bother with type variables. *)
+            copyType (t, fn x => x, copyATypeConstr);
+        val copiedTarget = copyTarget target
+        (* Do the match to a version of the candidate with copies of the
+           type variables so that we can instantiate them.  We could do
+           this by passing in a mapping function but the problem is that
+           if we have a type variable that gets unified to another variable
+           we will not map it properly if it occurs again (we call "eventual"
+           and get the second tv before calling the map function so we get a
+           second copy and not the first copy). *)
+        val copiedCandidate : types = generalise candidate;
+    in
+        unifyTypes (copiedCandidate, copiedTarget)
+    end;
+
     (* Check that a matching has succeeded, and check the value
        constructors if they are datatypes. *)
     fun checkTypeConstrs (candid, target, targTypeMap, lex, near, lno) =
@@ -1221,7 +1240,7 @@ struct
   fun matchSigs 
        (candidate     : signatures,
         target        : signatures,
-        tArgTypeMap   : typeConstrs map, 
+        tArgTypeMap   : typeId map, 
         near,
         lno           : LEX.location,
         lex           : lexan
@@ -1250,7 +1269,9 @@ struct
                             (* Check for arity and equality - value constructors 
                                are checked later. If the target is a bound identifier
                                in the range it can be matched by a candidate. *)
-                            enterTypeConstrs (target, candid, tArgTypeMap);
+                            if isBoundId (tcIdentifier target)
+                            then #enter tArgTypeMap (tcIdentifier target, tcIdentifier candid)
+                            else ();
                     
                             if tcArity target <> tcArity candid
                             then typeError(candid, target,
@@ -1418,42 +1439,28 @@ struct
      matchVals (candidate, target)
   end (* matchSigs *);
 
-  fun typeMatchTab (minOffset : int, size : int) : typeConstrs map =
+  fun typeMatchTab (minOffset : int, size : int) : typeId map =
   let
     (* Make a vector with an entry for each bound name. *)
-    val v = Array.array (Int.max(0, size), undefType) ;
+    val v = Array.array (Int.max(0, size), NONE) ;
   in
     (* Return the entry corresponding to the name, unless it is empty
        when an exception is raised. *)
     { 
       lookup =
         (fn id =>
-          ( if not (isBoundId id) orelse
-              offsetId id < minOffset orelse
-              offsetId id >= size
+            if not (isBoundId id) orelse offsetId id < minOffset orelse offsetId id >= size
             (* It is possible for the offset to be >= size if the type
                is being shared inside the result signature of a functor. It
                will only happen for types inside structures which are shared. *)
-              then NONE (* Not present if it isn't bound. *)
-              else
-             let
-               (* Must be a bound stamp. *)
-                val entry = Array.sub (v, offsetId id);
-                               (* SPF 7/6/94 fixed off-by-one *)
-              in
-                if isUndefinedTypeConstr entry (* undefType *)
-                then NONE
-                else SOME entry
-              end
-            ) 
+            then NONE (* Not present if it isn't bound. *)
+            else (* Must be a bound stamp. *) Array.sub (v, offsetId id)
          ),
             
       enter =
         (fn (id, value) =>
-           if isBoundId id andalso
-              offsetId id >= minOffset andalso
-              offsetId id < size
-           then Array.update (v, offsetId id, value)
+           if isBoundId id andalso offsetId id >= minOffset andalso offsetId id < size
+           then Array.update (v, offsetId id, SOME value)
            else ()
          )
     }
@@ -1472,7 +1479,7 @@ struct
         (source       : signatures,
          mustCopyType : typeId -> bool,
          makeTypeId   : bool -> typeId,
-         typeMap      : typeConstrs map,
+         typeMap      : typeId map,
 		 strName	  : string)
         : signatures = 
   let
@@ -1500,13 +1507,12 @@ struct
          resEnv        : tsvEnv,
          mustCopyType  : typeId -> bool,
          makeTypeId    : bool -> typeId,
-         typeMap       : typeConstrs map,
+         typeMap       : typeId map,
 		 strName	   : string) 
         : int =
   let
     fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-      copyTypeConstr (tcon, mustCopyType, makeTypeId, typeMap,
-	  	fn x => x, strName);
+      copyTypeConstr (tcon, mustCopyType, makeTypeId, typeMap, fn x => x, strName);
 
     fun copyTyp (t : types) : types =
       copyType (t, fn x => x, (* Don't bother with type variables. *) copyTypeCons);
@@ -1756,12 +1762,11 @@ struct
   		 source: signatures, 
          mustCopyType  : typeId -> bool,
          makeTypeId    : bool -> typeId,
-         typeMap       : typeConstrs map,
+         typeMap       : typeId map,
 		 strName	   : string): unit =
   let
     fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-      copyTypeConstr (tcon, mustCopyType, makeTypeId, typeMap,
-	  	fn x => x, strName);
+      copyTypeConstr (tcon, mustCopyType, makeTypeId, typeMap, fn x => x, strName);
   in
     univFold
      (sigTab source,
@@ -2207,7 +2212,7 @@ struct
                  of variables. *)
               val sourceSig = lookSig nameLoc;
                 
-              val typeMap : typeConstrs map =
+              val typeMap : typeId map =
                 typeMatchTab (sigMinTypes sourceSig, sigMaxTypes sourceSig);
             in
 				(* Copy the signature into the result. *)
@@ -2570,7 +2575,7 @@ struct
                  of which actual parameters have been matched to the formals
                  and are then used in the generation of new stamps for types
                  declared in the functor. *)
-              val typeMap : typeConstrs map =
+              val typeMap : typeId map =
                 typeMatchTab (sigMinTypes  resultSig, sigMaxTypes   resultSig);
                
               (* Get the actual parameter value. *)
@@ -2739,7 +2744,7 @@ struct
               sigVal(csig, currentTypeCount(), Env env, sigLoc, strName);
                      
             (* Make tables to contain the matched ids. *)
-            val typeMap  : typeConstrs map =
+            val typeMap  : typeId map =
               typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig);
              
             fun mustCopyType (s : typeId) : bool = 
@@ -2801,7 +2806,7 @@ struct
                   sigVal(sigStruct, makeCurrentTypeCount(), Env env, sigLoc, strName ^ name ^ ".");
                          
                 (* Make tables to contain the matched ids. *)
-                val typeMap  : typeConstrs map =
+                val typeMap  : typeId map =
                   typeMatchTab (sigMinTypes explicitSig, sigMaxTypes explicitSig);
                  
                 fun mustCopyType (s : typeId) : bool = 
@@ -2967,13 +2972,9 @@ struct
                      and we have to keep the names distinct. *)
                   val fromZero = isSignatureIdent sigStruct;
                   
-                  val typeMap  : typeConstrs map =
-                    typeMatchTab
-                      (sigMinTypes   explicitSig, 
-                       sigMaxTypes   explicitSig);
+                  val typeMap = typeMatchTab(sigMinTypes explicitSig, sigMaxTypes explicitSig);
 
-                  fun mustCopyType s =   
-                    isBoundId s andalso offsetId s >= sigMinTypes explicitSig;
+                  fun mustCopyType s = isBoundId s andalso offsetId s >= sigMinTypes explicitSig;
                      
 				(* These maps are used to construct the resultant signature.
 				   If we are using transparent matching we use the map constructed

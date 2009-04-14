@@ -91,11 +91,6 @@ sig
 
     val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
 
-    (* Checking procedures *)
-
-    (* Match a candidate to a target type. *)
-    val matchTypes: types * types * (typeId -> typeConstrs option) -> matchResult;
-
     (* Unify two type structures to give a unified type. *)
     val unifyTypes: types * types -> matchResult
 
@@ -127,14 +122,10 @@ sig
 
     val copyTypeConstr: 
      typeConstrs * (typeId -> bool) * (bool -> typeId) *
-        {enter: typeId * typeConstrs -> unit, lookup: typeId -> typeConstrs option} *
+        {enter: typeId * typeId -> unit, lookup: typeId -> typeId option} *
         (types -> types) * string -> typeConstrs;
 
     val setTypeConstr: typeConstrs * (bool -> typeId) -> unit;
-
-    val enterTypeConstrs: typeConstrs * typeConstrs *
-                        { enter: typeId * typeConstrs -> unit,
-                          lookup: typeId -> typeConstrs option} -> unit;
 
     val identical:       types * types -> bool;
     val identicalConstr: typeConstrs * typeConstrs -> bool;

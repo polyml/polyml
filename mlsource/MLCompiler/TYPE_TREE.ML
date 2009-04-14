@@ -1276,22 +1276,24 @@ struct
             end
         |   id =>
             if mustCopy id
-            then
-                case lookup id of (* Return it if it is in the table. *)
-                    SOME tyCons => tyCons
-                |   NONE =>
-                    let (* Not there, so copy it. *)
-            		    (* Replace any signature name by the given structure name. *)
-		                val newName = strName ^ #second(splitString(tcName tcon))
-	                    val newConstr =
-                            makeDatatypeConstr(newName, tcTypeVars tcon, makeId (tcEquality tcon),
-			                    0 (* Always global. *), tcLocations tcon);
-                    in
-                        (* And put it in the table *)
-                        enter (id, newConstr);
-                        newConstr
-	                end
-            else tcon
+            then (* Must copy the identifier. *)
+            let
+                val newId =
+                    case lookup id of
+                        NONE =>
+                        let (* There's no id for this one.  Make a new one and enter it. *)
+                            val newId = makeId (tcEquality tcon)
+                        in
+                            enter (id, newId);
+                            newId
+                        end
+                    |   SOME tyId => tyId
+                (* Replace any signature name by the given structure name. *)
+                val newName = strName ^ #second(splitString(tcName tcon))
+            in
+                makeDatatypeConstr(newName, tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+            end
+            else tcon;
 
     datatype match = Matched of {old: typeVarForm, new: types};
 
@@ -1690,12 +1692,10 @@ struct
     type matchResult = (types * types * string) option
 
     (* Type matching algorithm for both unification and signature matching. *)
-    fun typeMatch
-       (Atype : types, (* candidate type when signature matching *)
-        Btype : types, (* target type when signature matching *)
-        (* mapA  : types -> types, *) (* As this was always trivmap I've removed it *)
-        mapB  : types -> types) (* Map type constructors in the target. *)
-      : matchResult =
+    (* The mapping has now been moved out of here.  Instead when signature matching the
+       target signature is copied before this is called which means that this
+       process is now symmetric.  There may be some redundant tests left in here. *)
+    fun unifyTypes(Atype : types, Btype : types) : matchResult =
     let
         (* Get the result in here.  This isn't very ML-like but it greatly
            simplifies converting the code. *)
@@ -1703,16 +1703,11 @@ struct
         fun cantMatch res =
             case matchResult of ref (SOME _) => () | r => r := SOME res
   
-    fun match
-	 (Atype : types,
-	  Btype : types, 
-	  (* mapA  : types -> types, *)
-	  mapB  : types -> types)
-        : unit =
+    fun match (Atype : types, Btype : types) : unit =
     let (* Check two records/tuples and return the combined type. *)
       fun unifyRecords (recA as {frozen=typAFrozen, recList=typAlist, genericInstance = gA},
 	  					recB as {frozen=typBFrozen, recList=typBlist, genericInstance = gB},
-	  					typA : types, typB : types, (*mapA, *)mapB) : types =
+	  					typA : types, typB : types) : types =
       let
 		(* If we add a field to the instance we have to add a corresponding type variable to
 		   the generic. *)
@@ -1769,7 +1764,7 @@ struct
 								then ()
 								else if order < 0
 								then checkEntries geRest
-								else cantMatch (typA, mapB typB, "(Field " ^ name ^ " missing)")
+								else cantMatch (typA, typB, "(Field " ^ name ^ " missing)")
 							end
 					in
 						checkEntries recList
@@ -1791,7 +1786,7 @@ struct
           | matchLabelled ([], bList as {name=bName, ...} :: _) =
            ( 
             if typAFrozen
-			then cantMatch (typA, mapB typB, "(Field " ^ bName ^ " missing)")
+			then cantMatch (typA, typB, "(Field " ^ bName ^ " missing)")
 			else (* Add all the extra fields in bList to all the generics for A. *)
 				List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gA) bList;
             bList (* return the remainder of the list *)
@@ -1800,7 +1795,7 @@ struct
           | matchLabelled (aList as {name=aName, ...} :: _, []) = (* Something left in bList *)
             ( 
              if typBFrozen
-			 then cantMatch (typA, mapB typB, "(Field " ^ aName ^ " missing)")
+			 then cantMatch (typA, typB, "(Field " ^ aName ^ " missing)")
 			 else List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gB) aList;
              aList (* the rest of aList *)
             )
@@ -1814,7 +1809,7 @@ struct
                if order = 0 (* equal *)
                then (* same name - must be unifiable types *)
                ( (* The result is (either) one of these with the rest of the list. *)
-                 match (aType, bType, mapB);
+                 match (aType, bType);
                  aVal :: matchLabelled (aRest, bRest)
                )
                else if order < 0 (* aName < bName *)
@@ -1822,7 +1817,7 @@ struct
                 ( (* The entries in each list are in order so this means that this
                      entry is not in bList. If the typeB is frozen this is an error. *)
                   if typBFrozen (* Continue with the entry removed. *)
-                  then (cantMatch (typA, mapB typB, "(Field " ^ aName ^ " missing)"); aList)
+                  then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
                   else
 				  	 (
 					 List.app (addFieldToGeneric aName) gB;
@@ -1831,7 +1826,7 @@ struct
                 )
                 else (* aName > bName *)
                   if typAFrozen
-                  then (cantMatch (typA, mapB typB, "(Field " ^ bName ^ " missing)"); bList)
+                  then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
                   else
 				  	 (
 					 List.app (addFieldToGeneric bName) gA;
@@ -1846,7 +1841,7 @@ struct
                     If we've added or removed an item from a tuple e.g. a function with
                     multiple arguments, it's more useful to know this than to get unification
                     errors on fields that don't match. *)
-               (cantMatch (typA, mapB typB, "(Different number of fields)"); [])
+               (cantMatch (typA, typB, "(Different number of fields)"); [])
             else matchLabelled (typAlist, typBlist)
 		(* We append the generic instances.  This may create duplicates if, for example,
 		   we are unifying a record with itself. *)
@@ -1883,7 +1878,7 @@ struct
              then 
                (* If it is nonunifiable we cannot make its level larger. *)
                if tvNonUnifiable tvar
-			   then cantMatch (Atype, mapB Btype,
+			   then cantMatch (Atype, Btype,
 			   			"(Type variable is free in surrounding scope)")
                else let
                  (* Must make a new type var with the right properties *)
@@ -1908,13 +1903,13 @@ struct
 		case varVal of
 			LabelledType _ =>
 			(* Flexible record. Check that the records are compatible. *)
-				match (varVal, t, (*trivMap, *)trivMap)
+				match (varVal, t)
 		  | OverloadSet _ =>
 		  	 (* OverloadSet.  Check that the sets match.  This is only in the
 			    case where t is something other than an overload set since
 				we remove the overload set from a variable when unifying two
 				sets. *)
-		  		match (varVal, t, (*trivMap, *)trivMap)
+		  		match (varVal, t)
 		  | _ => ();
  
       (* If this type variable was put in explicitly then it can't be
@@ -1956,7 +1951,7 @@ struct
 			then "(Cannot unify with explicit type variable)"
 			else "(Type variable to be unified occurs in type)";
         in
-          cantMatch (Atype, mapB Btype, msg)
+          cantMatch (Atype, Btype, msg)
         end
         else ()
       end
@@ -2016,7 +2011,7 @@ struct
              we must ensure that equality is allowed for that type. This
              will turn most type variables into equality type vars. *)
           if tvEquality var andalso equality (t, fn _ => No, canMkEqTv) = No
-          then cantMatch (Atype, mapB Btype, "(Requires equality type)")
+          then cantMatch (Atype, Btype, "(Requires equality type)")
 			  (* TODO: This can result in an unhelpful message if var is bound
 			     to a flexible record since there is no indication in the
 				 printed type that the flexible record is an equality type.
@@ -2049,80 +2044,77 @@ struct
 		(BadType, _) => () (* If either is an error don't try to match *)
 	  | (_, BadType) => ()
 
-	  | (TypeVar typeAVar, TypeVar _) =>
-      	 (* Unbound type variable, flexible record or overload set. *)
-		  let
-          	(* Even if this is a one-way match we can allow type variables
-             in the typeA to be instantiated to anything in the typeB. *)
-			val typeAVal = tvValue typeAVar;
-            (* We have two unbound type variables or flex. records. *)
-            val typB = mapB tB
-          in
-		  	case typB of
-				TypeVar typeBVar =>
-              		if sameTv (typeAVar, typeBVar) (* same type variable? *)
-					then ()
-					else (* no - assign one to the other *)
-						if tvNonUnifiable typeAVar
-		                (* If we have a nonunifiable type variable we want to assign
-		                   the typeB to  it. If the typeB is nonunifiable as well we
-		                   will get an error message. *)
-		            then assign (typeBVar, tA)
-		            else let 
-	                  (* If they are both flexible records we first set the typeB
-	                     to the union of the records, and then set the typeA to
-	                     that. In that way we propagate properties such as
-	                     equality and level between the two variables. *)
-	                  val typBVal = tvValue typeBVar
-					in
-						case (typeAVal, typBVal) of
-							(LabelledType recA, LabelledType recB) =>
-		                    (
-		                      (* Turn these back into simple type variables to save
-		                         checking the combined record against the originals
-		                         when we make the assignment.
-		                         (Would be safe but redundant). *)
-		                      tvSetValue (typeBVar, emptyType);
-		                      tvSetValue (typeAVar, emptyType);
-		                      assign (typeBVar,
-		                              unifyRecords (recA, recB, typeAVal, typBVal, (*trivMap, *)trivMap));
-		                      assign (typeAVar, typB)
-		                    )
-						 | (OverloadSet{typeset=setA}, OverloadSet{typeset=setB}) =>
-						 	let
-								(* The lists aren't ordered so we just have to go
-								   through by hand. *)
-								fun intersect(a, []) = []
-								  | intersect(a, H::T) =
-								  		if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
-								val newSet = intersect(setA, setB)
-						 	in
-								case newSet of
-									[] => cantMatch (Atype, mapB Btype, "(Incompatible overloadings)")
-								 | _ =>
-									(
-				                      tvSetValue (typeBVar, emptyType);
-				                      tvSetValue (typeAVar, emptyType);
-									  (* I've changed this from OverloadSet{typeset=newset}
-									     to use mkOverloadSet.  The main reason was that it
-										 fixed a bug which resulted from a violation of the
-										 assumption that "equality" would not be passed an
-										 overload set except when pointed to by a type variable.
-										 It also removed the need for a separate test for
-										 singleton sets since mkOverloadSet deals with them.
-										 DCJM 1/9/00. *)
-				                      assign (typeBVar, mkOverloadSet newSet);
-				                      assign (typeAVar, typB)
-									)
-							end
-						 | (EmptyType, _) => (* A is not a record or an overload set. *)
-						 	 assign (typeAVar, typB)
-						 | (_, EmptyType) => (* A is a record but B isn't *)
-						 		assign (typeBVar, tA) (* typeB is ordinary type var. *)
-						 | _ => (* Bad combination of labelled record and overload set *)
-							cantMatch (Atype, mapB Btype, "(Incompatible types)")
-					end
-			  | typB => match (tA, typB, (*trivMap, *)trivMap)
+	  | (TypeVar typeAVar, TypeVar typeBVar) =>
+            (* Unbound type variable, flexible record or overload set. *)
+		    let
+          	    (* Even if this is a one-way match we can allow type variables
+                   in the typeA to be instantiated to anything in the typeB. *)
+			    val typeAVal = tvValue typeAVar;
+                (* We have two unbound type variables or flex. records. *)
+            in
+                if sameTv (typeAVar, typeBVar) (* same type variable? *)
+				then ()
+				else (* no - assign one to the other *)
+					if tvNonUnifiable typeAVar
+	                (* If we have a nonunifiable type variable we want to assign
+	                   the typeB to  it. If the typeB is nonunifiable as well we
+	                   will get an error message. *)
+	            then assign (typeBVar, tA)
+	            else
+                let 
+                    (* If they are both flexible records we first set the typeB
+                       to the union of the records, and then set the typeA to
+                       that. In that way we propagate properties such as
+                       equality and level between the two variables. *)
+                    val typBVal = tvValue typeBVar
+				in
+					case (typeAVal, typBVal) of
+						(LabelledType recA, LabelledType recB) =>
+	                    (
+	                      (* Turn these back into simple type variables to save
+	                         checking the combined record against the originals
+	                         when we make the assignment.
+	                         (Would be safe but redundant). *)
+	                      tvSetValue (typeBVar, emptyType);
+	                      tvSetValue (typeAVar, emptyType);
+	                      assign (typeBVar,
+	                              unifyRecords (recA, recB, typeAVal, typBVal));
+	                      assign (typeAVar, tB)
+	                    )
+					 | (OverloadSet{typeset=setA}, OverloadSet{typeset=setB}) =>
+					 	let
+							(* The lists aren't ordered so we just have to go
+							   through by hand. *)
+							fun intersect(a, []) = []
+							  | intersect(a, H::T) =
+							  		if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
+							val newSet = intersect(setA, setB)
+					 	in
+							case newSet of
+								[] => cantMatch (Atype, Btype, "(Incompatible overloadings)")
+							 | _ =>
+								(
+			                      tvSetValue (typeBVar, emptyType);
+			                      tvSetValue (typeAVar, emptyType);
+								  (* I've changed this from OverloadSet{typeset=newset}
+								     to use mkOverloadSet.  The main reason was that it
+									 fixed a bug which resulted from a violation of the
+									 assumption that "equality" would not be passed an
+									 overload set except when pointed to by a type variable.
+									 It also removed the need for a separate test for
+									 singleton sets since mkOverloadSet deals with them.
+									 DCJM 1/9/00. *)
+			                      assign (typeBVar, mkOverloadSet newSet);
+			                      assign (typeAVar, tB)
+								)
+						end
+					 | (EmptyType, _) => (* A is not a record or an overload set. *)
+					 	 assign (typeAVar, tB)
+					 | (_, EmptyType) => (* A is a record but B isn't *)
+					 		assign (typeBVar, tA) (* typeB is ordinary type var. *)
+					 | _ => (* Bad combination of labelled record and overload set *)
+						cantMatch (Atype, Btype, "(Incompatible types)")
+				end
           end
 
 	  | (TypeVar typeAVar, _) =>
@@ -2141,22 +2133,22 @@ struct
                         if isUndefined constr orelse not (tcIsAbbreviation constr)
                         then
                             (
-                            case mapB tB of
+                            case tB of
                                 TypeConstruction {value, args, ...} =>
                                 let
                                     val constr = pling value
                                 in
                                     if isUndefined constr orelse not (tcIsAbbreviation constr)
-                                    then assign (typeAVar, mapB tB)
-                                    else match(tA, eventual (makeEquivalent (constr, args)), trivMap)
+                                    then assign (typeAVar, tB)
+                                    else match(tA, eventual (makeEquivalent (constr, args)))
                                 end
-                            | _ => assign (typeAVar, mapB tB)
+                            | _ => assign (typeAVar, tB)
                             )
-                        else match(tA, eventual (makeEquivalent (constr, args)), mapB)
+                        else match(tA, eventual (makeEquivalent (constr, args)))
                     end
-                |  _ => assign (typeAVar, mapB tB)
+                |  _ => assign (typeAVar, tB)
                 )
-            else assign (typeAVar, mapB tB)
+            else assign (typeAVar, tB)
         )
          
       | (_, TypeVar typeBVar) => (* and typeA is not *)
@@ -2173,85 +2165,81 @@ struct
                         if isUndefined constr orelse not (tcIsAbbreviation constr)
                         then
                             (
-                            case mapB tB of
+                            case tB of
                     			TypeVar tv =>
                     			  (* This will fail if we are matching a signature because the
                     			     typeB will be non-unifiable. *)
-                    			  	assign (tv, mapB tA) (* set typeB to typeA *)
-                    		  | typB => match (tA, typB, (*mapA, *)trivMap)
+                    			  	assign (tv, tA) (* set typeB to typeA *)
+                    		  | typB => match (tA, typB)
                             )
-                        else match(eventual (makeEquivalent (constr, args)), tB, mapB)
+                        else match(eventual (makeEquivalent (constr, args)), tB)
                     end
                 |  _ =>
                     (
-                    case mapB tB of
+                    case tB of
             			TypeVar tv =>
             			  (* This will fail if we are matching a signature because the
             			     typeB will be non-unifiable. *)
-            			  	assign (tv, mapB tA) (* set typeB to typeA *)
-            		  | typB => match (tA, typB, (*mapA, *)trivMap)
+            			  	assign (tv, tA) (* set typeB to typeA *)
+            		  | typB => match (tA, typB)
                     )
                 )
             else
                 (
-                case mapB tB of
+                case tB of
         			TypeVar tv =>
         			  (* This will fail if we are matching a signature because the
         			     typeB will be non-unifiable. *)
-        			  	assign (tv, mapB tA) (* set typeB to typeA *)
-        		  | typB => match (tA, typB, (*mapA, *)trivMap)
+        			  	assign (tv, tA) (* set typeB to typeA *)
+        		  | typB => match (tA, typB)
                 )
 		)
               
       | (TypeConstruction({value = valueA, args=tAargs, ...}), 
 	  	 TypeConstruction ({value = valueB, args=tBargs, ...})) =>
-		let
-		    val tACons = pling valueA and tBCons = pling valueB
-		in
-		(* We may have a number of possibilities here.
-	     a) If tA is an alias we simply expand it out and recurse (even
-		 if tB is the same alias). e.g. if we have string t where
-		 type 'a t = int*'a we expand string t into int*string and
-		 try to unify that.
-	     b) map it and see if the result is an alias. -- NOW REMOVED
-	     c) If tB is a type construction and it is an alias we expand
-		 that e.g. unifying "int list" and "int t" where type
-		 'a t = 'a list (particularly common in signature/structure
-		 matching.)
-	     d) Finally we try to unify the stamps and the arguments. *)
-		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
-		(* Candidate is an alias - expand it. *)
-		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
-		else if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
-		then match (tA, makeEquivalent (tBCons, tBargs), (*trivMap, *)mapB)
-		else case mapB tB of
-			(typB as TypeConstruction({value=valueB, args=typeBargs, ...})) =>
+            let
+		        val tACons = pling valueA and tBCons = pling valueB
+		    in
+        		(* We may have a number of possibilities here.
+        	     a) If tA is an alias we simply expand it out and recurse (even
+        		 if tB is the same alias). e.g. if we have string t where
+        		 type 'a t = int*'a we expand string t into int*string and
+        		 try to unify that.
+        	     b) map it and see if the result is an alias. -- NOW REMOVED
+        	     c) If tB is a type construction and it is an alias we expand
+        		 that e.g. unifying "int list" and "int t" where type
+        		 'a t = 'a list (particularly common in signature/structure
+        		 matching.)
+        	     d) Finally we try to unify the stamps and the arguments. *)
+		        if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
+	            (* Candidate is an alias - expand it. *)
+		        then match (makeEquivalent (tACons, tAargs), tB)
+		        else if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
+		        then match (tA, makeEquivalent (tBCons, tBargs))
+		        else
                 let
-				    val typeBCons = pling valueB
-				in
-    			(* If the typeB is an alias it must be expanded. *)
+                    val typeBCons = pling valueB
+                in
+    			    (* If the typeB is an alias it must be expanded. *)
     				if not(isUndefined typeBCons) andalso tcIsAbbreviation typeBCons
-    				then match (tA, makeEquivalent (typeBCons, typeBargs),
-    														  (*trivMap, *)trivMap)
+    				then match (tA, makeEquivalent (typeBCons, tBargs))
     				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
-    				then let (* Same type constructor - do the arguments match? *)
+    				then
+                    let (* Same type constructor - do the arguments match? *)
     					fun matchLists []      []    = ()
     					  | matchLists (a::al) (b::bl) =
     					  (  
-    					    match (a, b, (*trivMap, *)trivMap);
+    					    match (a, b);
     					    matchLists al bl
     					  )
     					  | matchLists _ _ = (* This should only happen as a result of
     					  						a different error. *)
-    					  		cantMatch (Atype, mapB Btype, "(Different numbers of arguments)")
-    				      in
-    						matchLists tAargs typeBargs
-    				      end
-    				else cantMatch (tA, typB, "(Different type constructors)")
+    					  		cantMatch (Atype, Btype, "(Different numbers of arguments)")
+    				in
+    						matchLists tAargs tBargs
+    				end
+    				else cantMatch (tA, tB, "(Different type constructors)")
 				end
-		|	typB => (* Mapping the construction gave us something
-					   other than a construction. *)
-			  match (tA, typB, (*trivMap, *)trivMap)
 	  	end
 
 	  | (OverloadSet {typeset}, TypeConstruction {value=valueB, args=tBargs, ...}) =>
@@ -2261,30 +2249,25 @@ struct
 		    val tBCons = pling valueB
 		in
     		if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
-    		then match (tA, makeEquivalent (tBCons, tBargs), (*mapA, *)mapB)
+    		then match (tA, makeEquivalent (tBCons, tBargs))
     		else
-    			(
-    			case mapB tB of
-    				typB as TypeConstruction{value=valueB, args=typeBargs, ...} =>
-					let
-					    val typeBCons = pling valueB
-					in
-        				if isUndefined typeBCons
-        				then ()
-        				else if tcIsAbbreviation typeBCons
-        				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
-        				else (* See if the target type is among those in the overload set. *)
-        					if null typeBargs (* Must be a nullary type constructor. *)
-        						andalso isInSet(tBCons, typeset)
-        				then () (* ok. *)
-                            (* Overload sets arise primarily with literals such as "1" and it's
-                               most likely that the error is a mismatch between int and another
-                               type rather than that the user assumed that the literal was
-                               overloaded on a type it actually wasn't. *)
-        				else cantMatch (tA, typB, "(Different type constructors)")
-					end
-    			| typB => match (tA, typB, (*mapA,*) trivMap)
-    			)
+			let
+			    val typeBCons = pling valueB
+			in
+				if isUndefined typeBCons
+				then ()
+				else if tcIsAbbreviation typeBCons
+				then match (tA, makeEquivalent (typeBCons, tBargs))
+				else (* See if the target type is among those in the overload set. *)
+					if null tBargs (* Must be a nullary type constructor. *)
+						andalso isInSet(tBCons, typeset)
+				then () (* ok. *)
+                    (* Overload sets arise primarily with literals such as "1" and it's
+                       most likely that the error is a mismatch between int and another
+                       type rather than that the user assumed that the literal was
+                       overloaded on a type it actually wasn't. *)
+				else cantMatch (tA, tB, "(Different type constructors)")
+			end
 		end
 
       | (TypeConstruction {value=valueA, args=tAargs, ...}, OverloadSet {typeset}) =>
@@ -2292,13 +2275,13 @@ struct
 		    val tACons = pling valueA
 		in
     		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
-    		then match (makeEquivalent (tACons, tAargs), tB, (*mapA, *)mapB)
+    		then match (makeEquivalent (tACons, tAargs), tB)
     		(* We should never find an overload set as the target for a signature
     		   match but it is perfectly possible for tB to be an overload set
     		   when unifying two types.  *)
     		else if null tAargs andalso isInSet(tACons, typeset)
     		then () (* ok. *)
-    		else cantMatch (tA, mapB tB, "(Different type constructors)")
+    		else cantMatch (tA, tB, "(Different type constructors)")
 		end
 		
 	  (* (OverloadSet , OverloadSet) should not occur because that should be
@@ -2310,9 +2293,9 @@ struct
 		in
     		if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
     		(* Candidate is an alias - expand it. *)
-    		then match (makeEquivalent (tACons, tAargs), tB, mapB)
+    		then match (makeEquivalent (tACons, tAargs), tB)
     		else (* typB not a construction (but typeA is) *)
-    			cantMatch (tA, mapB tB, "(Incompatible types)")
+    			cantMatch (tA, tB, "(Incompatible types)")
 		end
 		
       | (_, TypeConstruction {value=valueB, args=tBargs, ...}) => (* and typeA is not. *)
@@ -2323,33 +2306,28 @@ struct
 		let
 		    val tBCons = pling valueB
 		in
-		if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
-		then match (tA, makeEquivalent (tBCons, tBargs), mapB)
-		else
-			(
-			case mapB tB of
-				typB as TypeConstruction{value = valueB, args=typeBargs, ...} =>
-				    let
-					    val typeBCons = pling valueB
-					in
-                        if isUndefined typeBCons
-        				then ()
-        				else if tcIsAbbreviation typeBCons
-        				then match (tA, makeEquivalent (typeBCons, typeBargs), trivMap)
-        				else cantMatch (typB, tA, "(Incompatible types)")
-                    end
-			| typB => match (tA, typB, trivMap)
-			)
+		    if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
+		    then match (tA, makeEquivalent (tBCons, tBargs))
+		    else
+		    let
+			    val typeBCons = pling valueB
+			in
+                if isUndefined typeBCons
+				then ()
+				else if tcIsAbbreviation typeBCons
+				then match (tA, makeEquivalent (typeBCons, tBargs))
+				else cantMatch (tB, tA, "(Incompatible types)")
+            end
 		end
 	     
 	  | (FunctionType {arg=typAarg, result=typAres, ...},
 	     FunctionType {arg=typBarg, result=typBres, ...}) =>
 		( (* must be unifiable functions *)
-		(* In principle it doesn't matter whether we unify arguments or
-		   results first but it could affect the error messages.  Is this
-		   the best way to do it? *)
-	    match (typAarg, typBarg, (*mapA, *) mapB);
-	    match (typAres, typBres, (*mapA, *) mapB)
+    		(* In principle it doesn't matter whether we unify arguments or
+    		   results first but it could affect the error messages.  Is this
+    		   the best way to do it? *)
+    	    match (typAarg, typBarg);
+    	    match (typAres, typBres)
 		)
 
 	  | (EmptyType, EmptyType) => ()
@@ -2358,29 +2336,16 @@ struct
 	  | (LabelledType recA, LabelledType recB) =>
 		  (* Unify the records, but discard the result because at least one of the
 		     records is frozen. *)
-	  		(unifyRecords (recA, recB, tA, tB, (*mapA, *) mapB); ())
+	  		(unifyRecords (recA, recB, tA, tB); ())
 			
-(*	  | (LabelledType recA, _) =>
-	  		(
-			(* DCJM: Why do we map labelled records when we don't map functions?
-			   Is it something to do with flexible records?  Try commenting this
-			   out. *)
-			case mapB tB of
-				LabelledType recB =>
-					(unifyRecords (recA, recB, tA, tB, trivMap); ())
-			  | typB => cantMatch (tA, typB, "")
-			)
-*)
-	  | _ => cantMatch (tA, mapB tB, "(Incompatible types)")
+	  | _ => cantMatch (tA, tB, "(Incompatible types)")
 
 	end; (* match *)
 
     in
-        match (Atype, Btype, (*mapA, *)mapB);
+        match (Atype, Btype);
         ! matchResult
-    end; (* typeMatch *)
-
-    fun unifyTypes(alpha, beta) = typeMatch (alpha, beta, (*trivMap, *)trivMap)
+    end; (* unifyTypes *)
 
   (* Given a function type returns the first argument if the
      function takes a tuple otherwise returns the only argument.
@@ -2665,58 +2630,6 @@ struct
   in
     foldType setTypeConstrVal t ()
   end
-
-  (* Enter a type constructor into the match table. *)
-  (* We should simply have to enter the candidate type against the target
-     identifier in the table, but unfortunately it is not always that simple.
-     It is possible that the target has an "equivalent" which is no longer
-     in the signature and so will not match up to a candidate. e.g.
-         sig type a type b sharing type a=b type b end
-     could end up with a pointing to b which is no longer there. *)
-  (* Put the candidate against this entry in the table and also against
-     any equivalents of this target which are not already matched. *)
-  
-  fun enterTypeConstrs (target, candidate, matchTab as {enter,lookup}) =
-  let
-    val equiv = tcEquivalent target;
-  in
-    if isBoundId (tcIdentifier target)
-    then #enter matchTab (tcIdentifier target, candidate)
-    else ();
-    
-    if isTypeConstruction equiv
-    then let
-      val t = pling (#value (typesTypeConstruction equiv));
-      (* Is it in the table already?  If so don't overwrite it. *)
-    in
-       case #lookup matchTab (tcIdentifier t) of
-          SOME _ => ()
-       |  NONE => enterTypeConstrs (t, candidate, matchTab)
-    end
-    else ()
-  end;
-
-    (* Check that two types match. *)
-    fun matchTypes (candidate, target,  targMap: typeId -> typeConstrs option) =
-    let
-        fun copyATypeConstr tcon =
-            copyTypeConstr
-                (tcon, isSome o targMap, (* Copy it if it is in the map. *)
-                    makeFreeId, (* Not used. *) {lookup = targMap, enter = (fn (id, tc) => ())},
-                    trivMap, "")
-        fun copyTarget t = (* Don't bother with type variables. *)
-            copyType (t, trivMap, copyATypeConstr);
-        (* Do the match to a version of the candidate with copies of the
-           type variables so that we can instantiate them.  We could do
-           this by passing in a mapping function but the problem is that
-           if we have a type variable that gets unified to another variable
-           we will not map it properly if it occurs again (we call "eventual"
-           and get the second tv before calling the map function so we get a
-           second copy and not the first copy). *)
-        val copiedCandidate : types = generalise candidate;
-    in
-        typeMatch (copiedCandidate, target, copyTarget)
-    end;
 
     (* Returns true if a type constructor permits equality. *)
     
