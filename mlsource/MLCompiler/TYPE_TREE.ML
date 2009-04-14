@@ -2844,24 +2844,6 @@ struct
   in
     tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, false))
   end;
-
-  (* Applied to type constructions (e.g. 'a list) to get the value
-     constructors for the type constructor.  Used in the match compiler
-     to find the number of constructors in a datatype. *)
-  fun getConstrList (TypeConstruction{value, args, ...}) =
-    let
-        val constr = pling value
-        val l = tcConstructors constr
-    in
-      (* In a few cases it is possible for the value to be an equivalent. *)
-      if null l andalso tcIsAbbreviation constr
-      then getConstrList (makeEquivalent (constr, args))
-      else l
-    end
-  |  getConstrList (FunctionType{result, ...}) =
-      (* May be the type of a constructor - look at result type *)
-      getConstrList result
-  |  getConstrList _ = [];
        
   (* Find a value constructor in the list of constructors for the datatype.
      This is used in structures.copySig to reduce the amount of space used *)

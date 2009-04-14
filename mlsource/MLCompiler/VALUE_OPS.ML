@@ -349,8 +349,8 @@ struct
 
      (* Functions to construct the values. *)
 
-    fun mkGconstr (name, typeof, code, nullary, location) =
-       makeValueConstr (name, typeof, nullary, Global code, location);
+    fun mkGconstr (name, typeof, code, nullary, constrs, location) =
+       makeValueConstr (name, typeof, nullary, constrs, Global code, location);
 
     (* Global variable *)
     val mkGvar = makeGlobalV
@@ -890,7 +890,7 @@ struct
                     result when we have a datatype which we know will always
                     be boxed. *)
                 case tcConstructors cons of
-                    [Value{typeOf, class=Constructor{nullary=false}, ...}] =>
+                    [Value{typeOf, class=Constructor{nullary=false, ...}, ...}] =>
                         (* This may be a polymorphic datatype in which case
                            we have to invert the constructor to find the base type.
                            e.g. we may have an instance (int*int) t where t was
@@ -943,9 +943,9 @@ struct
     val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
   in
     val nilConstructor  =
-        mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, [DeclaredAt inBasis]);
+        mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, 2, [DeclaredAt inBasis]);
     val consConstructor =
-        mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, [DeclaredAt inBasis]);
+        mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, 2, [DeclaredAt inBasis]);
   end;
   
   (* Create exception values - Small integer values are used for
@@ -1318,7 +1318,7 @@ struct
                 raise InternalError "none matches" (* Shouldn't happen *)
          
             | printConstruction typeArgs
-                (Value{name, typeOf, access=Global code, class = Constructor{nullary}, ...} :: constrs) =
+                (Value{name, typeOf, access=Global code, class = Constructor{nullary, ...}, ...} :: constrs) =
                 let   (* Try this constructor *)
                     open ADDRESS
                     val base = toAddress (evalue code)
@@ -1926,7 +1926,7 @@ struct
                the nullary constructors simply by testing whether
                the two arguments are the same.  We don't have to
                discriminate the individual cases. *)
-            fun isEnum(Value{class=Constructor{nullary=true}, access=Global code, ...}) =
+            fun isEnum(Value{class=Constructor{nullary=true, ...}, access=Global code, ...}) =
                 let
                     open ADDRESS
                 in
@@ -1948,7 +1948,7 @@ struct
                         mkEval(mkInd(0, base) (* Test function. *), [arg], true)
                 in
                     case class of
-                        Constructor{nullary=true} =>
+                        Constructor{nullary=true, ...} =>
                             mkIf(matches arg1, matches arg2, processConstrs rest)
                     |    _ => (* We have to unwrap the value. *)
                         let
@@ -2857,11 +2857,11 @@ struct
 
     (* Code to invert a constructor. i.e. return the value originally
     used as the argument. *)
-    fun makeInverse(value as Value{class=Constructor{nullary=false}, ...}, arg, level): codetree =
+    fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...}, arg, level): codetree =
         mkEval(mkInd(2, codeVal (value, level, emptyType, nullLex, location nullLex)),
             [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
 
-    |  makeInverse(value as Value{class=Constructor{nullary=true}, ...}, arg, level): codetree =
+    |  makeInverse(value as Value{class=Constructor{nullary=true, ...}, ...}, arg, level): codetree =
         (* makeInverse is called even on nullary constructors.  Return zero to keep the
            optimiser happy. *) CodeZero
 

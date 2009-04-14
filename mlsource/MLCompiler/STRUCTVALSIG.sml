@@ -131,7 +131,7 @@ sig
     and valueClass =
   	    SimpleValue
 	|   Exception
-	|   Constructor of { nullary: bool }
+	|   Constructor of { nullary: bool, ofConstrs: int }
 
     (* Location properties.  A value may have some or all of these. *)
     and locationProp =
@@ -280,7 +280,7 @@ sig
       val makeFormalV: string * types * int * locationProp list -> values;  
       val makeFormalEx: string * types * int * locationProp list -> values;  
       val makeOverloaded: string * types * typeDependent -> values;
-      val makeValueConstr: string * types * bool * valAccess * locationProp list -> values;
+      val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values;
   
     (* Infix status *)
 

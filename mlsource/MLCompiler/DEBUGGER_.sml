@@ -110,7 +110,7 @@ sig
 	datatype environEntry =
 		EnvValue of string * types * locationProp list
 	|	EnvException of string * types * locationProp list
-	|	EnvVConstr of string * types * bool * locationProp list
+	|	EnvVConstr of string * types * bool * int * locationProp list
 	|	EnvStaticLevel
 
     type nameSpace =
@@ -161,7 +161,7 @@ struct
 	datatype environEntry =
 		EnvValue of string * types * locationProp list
 	|	EnvException of string * types * locationProp list
-	|	EnvVConstr of string * types * bool * locationProp list
+	|	EnvVConstr of string * types * bool * int * locationProp list
 	|	EnvStaticLevel
 
     datatype debugReason =
@@ -198,9 +198,9 @@ struct
 				then SOME(mkGex(name, ty, mkConst valu, location))
 				else lookupValues(ntl, vl) s
 
-		  |  lookupValues (EnvVConstr(name, ty, nullary, location) :: ntl, valu :: vl) s =
+		  |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(makeValueConstr(name, ty, nullary, Global(mkConst valu), location))
+				then SOME(makeValueConstr(name, ty, nullary, count, Global(mkConst valu), location))
 				else lookupValues(ntl, vl) s
 
 		  |  lookupValues (EnvStaticLevel :: ntl, vl) s =
@@ -219,8 +219,8 @@ struct
 		 |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
 		  		(name, mkGex(name, ty, mkConst valu, location)) :: allValues(ntl, vl)
 
-		 |  allValues (EnvVConstr(name, ty, nullary, location) :: ntl, valu :: vl) =
-		  		(name, makeValueConstr(name, ty, nullary, Global(mkConst valu), location)) ::
+		 |  allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
+		  		(name, makeValueConstr(name, ty, nullary, count, Global(mkConst valu), location)) ::
 				    allValues(ntl, vl)
 
 		 |  allValues (EnvStaticLevel :: ntl, vl) = allValues(ntl, vl)

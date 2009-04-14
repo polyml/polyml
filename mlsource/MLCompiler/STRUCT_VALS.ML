@@ -186,7 +186,11 @@ struct
     and valueClass =
   	    SimpleValue
 	|   Exception
-	|   Constructor of { nullary: bool }
+	|   Constructor of
+        {
+            nullary: bool, (* True if this is a single value (e.g. "nil") rather than a function. *)
+            ofConstrs: int (* Total number of constructors in the datatype. *)
+        }
 
     and locationProp =
         DeclaredAt of location
@@ -396,13 +400,13 @@ struct
   fun isEmpty             EmptyType           = true | isEmpty            _ = false;
   fun isBad               BadType             = true | isBad              _ = false;
   
-  fun makeValueConstr (name, typeOf, nullary, access, locations) : values =
+  fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
   	Value
     { 
       name    = name,
       typeOf  = typeOf,
 	  access  = access,
-      class   = Constructor { nullary = nullary },
+      class   = Constructor { nullary = nullary, ofConstrs = constrs },
       locations = locations
     };
 

@@ -62,9 +62,6 @@ sig
     val linkTypeVars: types * types -> unit;
     val setTvarLevel: types * int -> unit;
 
-    (* Get the constructor list from a type. *)
-    val getConstrList: types -> values list;
-
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
 

@@ -367,10 +367,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm 0, "false"), true, declInBasis);
+                    createNullaryConstructor(EnumForm 0, "false"), true, 2, declInBasis);
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm 1, "true"), true, declInBasis);
+                    createNullaryConstructor(EnumForm 1, "true"), true, 2, declInBasis);
         in
             val () = enterGlobalType  ("bool",  boolType);
             val () = enterGlobalValue ("true",  trueCons);
@@ -435,10 +435,10 @@ struct
             val SomeForm = BoxedForm;
             val noneConstructor  =
                 mkGconstr ("NONE", alphaOption,
-                    createNullaryConstructor(NoneForm, "NONE"),  true, declInBasis);
+                    createNullaryConstructor(NoneForm, "NONE"),  true, 2, declInBasis);
             val someConstructor =
                 mkGconstr ("SOME",  someType,
-                    createUnaryConstructor(SomeForm, "SOME"), false, declInBasis);
+                    createUnaryConstructor(SomeForm, "SOME"), false, 2, declInBasis);
         in
             val () = enterGlobalType  ("option", optionType);
             val () = enterGlobalValue ("SOME",   someConstructor);
@@ -458,7 +458,7 @@ struct
                     val a : types = makeImpTV ();
                 in
                     mkGconstr ("ref", a ->> Ref a,
-                        createUnaryConstructor(RefForm, "ref"), false, declInBasis)
+                        createUnaryConstructor(RefForm, "ref"), false, 1, declInBasis)
                 end
         in
             val () = enterGlobalType  ("ref", refType);
@@ -877,9 +877,11 @@ struct
                  ("ContextProperty", String ** String)];
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
+            val numConstrs = List.length constrs
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> ContextType, code, false, declInBasis))
-                   (constrs, chooseConstrRepr constrs)
+                ListPair.map (fn ((s,t), code) =>
+                    mkGconstr(s, t ->> ContextType, code, false, numConstrs, declInBasis))
+                        (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the context type. *)
 			val () = tcSetConstructors (typeconstr, constructors);
@@ -901,9 +903,11 @@ struct
                  ("PrettyString", String)];
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when PrettyPrint was compiled by the previous compiler. *)
+            val numConstrs = List.length constrs
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PrettyType, code, false, declInBasis))
-                   (constrs, chooseConstrRepr constrs)
+                ListPair.map (fn ((s,t), code) =>
+                    mkGconstr(s, t ->> PrettyType, code, false, numConstrs, declInBasis))
+                        (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the pretty print type. *)
 			val () = tcSetConstructors (typeconstr, constructors);
@@ -1074,9 +1078,11 @@ struct
                  ];
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
+            val numConstrs = List.length constrs
             val constructors =
-                ListPair.map (fn ((s,t), code) => mkGconstr(s, t ->> PtProperties, code, false, declInBasis))
-                   (constrs, chooseConstrRepr constrs)
+                ListPair.map (fn ((s,t), code) =>
+                    mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
+                        (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
 			val () = tcSetConstructors (propConstr, constructors);

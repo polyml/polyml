@@ -53,7 +53,7 @@ sig
     val mkGvar:        string * types * codetree * locationProp list -> values
     val mkVar:         string * types * locationProp list -> values
     val mkSelectedVar: values * structVals * locationProp list -> values
-    val mkGconstr:     string * types * codetree * bool* locationProp list -> values
+    val mkGconstr:     string * types * codetree * bool * int * locationProp list -> values
     val mkGex:         string * types * codetree * locationProp list -> values
     val mkEx:          string * types * locationProp list -> values
   

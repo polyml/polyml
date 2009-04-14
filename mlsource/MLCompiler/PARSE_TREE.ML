@@ -191,7 +191,7 @@ sig
     datatype environEntry =
         EnvValue of string * types * locationProp list
     |    EnvException of string * types * locationProp list
-    |    EnvVConstr of string * types * bool * locationProp list
+    |    EnvVConstr of string * types * bool * int * locationProp list
     |    EnvStaticLevel
 
     type debugger;
@@ -2134,7 +2134,7 @@ struct
                             let
                                 val isNullary =
                                     case nameVal of
-                                        Value{class=Constructor{nullary}, ...} => nullary
+                                        Value{class=Constructor{nullary, ...}, ...} => nullary
                                     |   Value{typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
                             in
                                 if isNullary then ()
@@ -3560,9 +3560,10 @@ struct
           val cons =
             case constrArg of
                 NONE =>
-                    mkGconstr (name, resultType, repn, true, [DeclaredAt idLocn])
+                    mkGconstr (name, resultType, repn, true, numOfConstrs, [DeclaredAt idLocn])
             |   SOME argtype =>
-                    mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType), repn, false, [DeclaredAt idLocn]);
+                    mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType),
+                        repn, false, numOfConstrs, [DeclaredAt idLocn]);
         
           (* Name must not be qualified *)
           val U : unit = checkForDots (name, lex, idLocn);
@@ -3868,8 +3869,8 @@ struct
                         case v of
                             Value{class=Exception, name, typeOf, locations, ...} =>
                                 EnvException(name, typeOf, locations)
-                        |   Value{class=Constructor{nullary}, name, typeOf, locations, ...} =>
-                                EnvVConstr(name, typeOf, nullary, locations)
+                        |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
+                                EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
                         |    Value{name, typeOf, locations, ...} =>
                                 EnvValue(name, typeOf, locations)
                 in
@@ -4167,26 +4168,18 @@ struct
     
             (* Add a constructor to the tree.  It can only be added to a
                cons node or a wild card. *)
-            fun addConstr cons doArg (tree as Aot {patts, defaults, width, vars}) patNo =
+            fun addConstr(cons, noOfConstrs, doArg, tree as Aot {patts, defaults, width, vars}, patNo) =
             let
               val consName = valName cons;
             in
               case patts of
                 Wild =>
-                let (* Expand out the wildCard into a constructor node. *)
-                 (* Get the constructor list from the type information
-                    of the constructor and put the length of this list
-                    into the "width". *)
-          val noOfConstrs = length (getConstrList (valTypeOf cons));
-          
-          val cr = 
-            makeConsrec 
-              cons 
-              (singleton patNo) (* Expand the argument *)
-              (doArg (wild tree));
-        in
-          makeAot (Cons [cr]) defaults noOfConstrs vars
-        end
+                let (* Expand out the wildCard into a constructor node. *)          
+                  val cr = 
+                    makeConsrec cons (singleton patNo) (* Expand the argument *) (doArg (wild tree));
+                in
+                  makeAot (Cons [cr]) defaults noOfConstrs vars
+                end
               
             | Cons pl =>
               let
@@ -4265,15 +4258,15 @@ struct
             
             | Excons (cl as (h::t)) =>
               let
-          (* The exception constructor list is maintained in reverse order.
-         We have to be careful about merging exception constructors.
-         Two exceptions may have different names but actually have the
-         same exception value, or have the same (short) name but come
-         from different structures.  We only add to the last entry in
-         the list if we can tell that it is the same exception. We could
-         be more sophisticated and allow merging with other entries if
-         we could show that the entries we were skipping over were
-         definitely different, but it's probably not worth it. *)
+              (* The exception constructor list is maintained in reverse order.
+                 We have to be careful about merging exception constructors.
+                 Two exceptions may have different names but actually have the
+                 same exception value, or have the same (short) name but come
+                 from different structures.  We only add to the last entry in
+                 the list if we can tell that it is the same exception. We could
+                 be more sophisticated and allow merging with other entries if
+                 we could show that the entries we were skipping over were
+                 definitely different, but it's probably not worth it. *)
                 val newList = 
                   if isTheSameException (#constructor h, cons)
                   then 
@@ -4295,10 +4288,11 @@ struct
               Ident {value=ref ident, ... } =>
                   (
                     case ident of
-                        Value{class=Constructor _, ...} =>
+                        Value{class=Constructor {ofConstrs, ...}, ...} =>
                           (* Only nullary constructors. Constructors with arguments
                              will be dealt with by ``isApplic'. *)
-                              addConstr ident (fn a => buildAot (wildCard nullLocation) a patNo line) tree patNo
+                            addConstr(ident, ofConstrs,
+                                fn a => buildAot (wildCard nullLocation) a patNo line, tree, patNo)
                     |    Value{class=Exception, ...} =>
                               addExconstr ident (wildCard nullLocation) tree patNo
                     |   _ => (* variable - matches everything. Defaults here and pushes a var. *)
@@ -4376,8 +4370,9 @@ struct
             | Applic{f = Ident{value = ref applVal, ...}, arg, location, ...} =>
                 (
                     case applVal of
-                         Value{class=Constructor _, ...} =>
-                            addConstr applVal (fn atree => buildAot arg atree patNo location) tree patNo
+                         Value{class=Constructor{ofConstrs, ...}, ...} =>
+                            addConstr(applVal, ofConstrs,
+                                fn atree => buildAot arg atree patNo location, tree, patNo)
     
                     |    Value{class=Exception, ...} => addExconstr applVal arg tree patNo
 
@@ -4399,7 +4394,8 @@ struct
                     
                     fun processList [] tree = 
                         (* At the end put in a nil constructor. *)
-                        addConstr nilConstructor (fn a => buildAot (wildCard nullLocation) a patNo location) tree patNo
+                        addConstr(nilConstructor, 2,
+                            fn a => buildAot (wildCard nullLocation) a patNo location, tree, patNo)
                     | processList (h :: t) tree = (* Cons node. *)
                         let
                             fun mkConsPat (Aot {patts = TupleField [hPat, tPat],
@@ -4422,7 +4418,7 @@ struct
                             | mkConsPat _ = 
                                 raise InternalError "mkConsPat: badly-formed parse-tree"
                         in
-                            addConstr consConstructor mkConsPat tree patNo
+                            addConstr(consConstructor, 2, mkConsPat, tree, patNo)
                         end
                     (* end processList *);
                 in
