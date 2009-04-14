@@ -52,8 +52,8 @@ struct
     fun prettyMarkup (beginContext: context list -> unit, endContext: context list -> unit)
                      (stream : string -> unit, lineWidth : int) (pretty: pretty): unit =
     let
-        fun printBlanks 0 = ()
-        |   printBlanks n = (stream " "; printBlanks(n-1))
+        fun printBlanks n =
+            if n > 0 then (stream " "; printBlanks(n-1)) else ()
 
         (* Find out whether the block fits and return the space left if it does.
            Terminates with NONE as soon as it finds the line doesn't fit. *)
@@ -132,8 +132,9 @@ struct
                 ( stream st; Int.max(spaceLeft-String.size st, 0) )
 
     in
-        layOut(pretty, 0, lineWidth);
-        stream "\n"
+        if layOut(pretty, 0, lineWidth) <> lineWidth
+        then stream "\n" (* End the line unless we haven't written anything. *)
+        else ()
     end
 
 
