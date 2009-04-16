@@ -89,7 +89,8 @@ sig
      module because we want the message to refer to the argument. *)
     val overloadError: types * string * string * lexan * location -> unit;
 
-    val genEqualityFunctions: typeConstrs list * (string -> unit) * bool -> unit;
+    (* Check a set of mutually recursive datatypes to see which admit equality. *)
+    val computeDatatypeEqualities: typeConstrs list -> unit;
 
     (* Unify two type structures to give a unified type. *)
     val unifyTypes: types * types -> matchResult

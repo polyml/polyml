@@ -3602,11 +3602,8 @@ struct
 
 
       (* Third pass - Check to see if equality testing is allowed for
-         these types. No error messages should be produced.  In ML90
-         we did not do this here for datatypes in signatures. Instead
-         all the datatypes in a signature were analysed as a whole. *)
-      val U : unit =
-        genEqualityFunctions(listOfTypes, fn s => raise InternalError s, false) ;
+         these types. *)
+      val () = computeDatatypeEqualities listOfTypes;
 
       (* If this is a datatype declaration the value constructors should be
          entered in the surrounding scope, otherwise (abstract type

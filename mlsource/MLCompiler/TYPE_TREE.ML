@@ -1490,7 +1490,7 @@ struct
      let
         val constr = pling value;
       in
-	if isUndefined constr
+	    if isUndefined constr
 	  then No
 
 	(* ref - Equality is permitted on refs of all types *)
@@ -1544,150 +1544,133 @@ struct
      types are mutually recursive so value constructors of one type may
      take arguments involving values of any of the others. *)
      
-  fun genEqualityFunctions (types, errorMessage, inSignature) =
-  let
-    datatype state =
-      Processed of tri              (* Already processed or processing. *)
-    | NotSeen   of typeConstrs list (* Value is list of constrs. *);
+    fun computeDatatypeEqualities types =
+    let
+        datatype state =
+          Processed of tri              (* Already processed or processing. *)
+        | NotSeen   of typeConstrs list (* Value is list of constrs. *);
     
-    (* This table tells us, for each type constructor, whether it definitely
-       admits equality, definitely does not or whether we have yet to look
-       at it. *)
+        (* This table tells us, for each type constructor, whether it definitely
+           admits equality, definitely does not or whether we have yet to look
+           at it. *)
 
-    fun isProcessed (Processed _) = true | isProcessed _ = false;
-    fun isNotSeen   (NotSeen   _) = true | isNotSeen   _ = false;
+        fun isProcessed (Processed _) = true | isProcessed _ = false;
+        fun isNotSeen   (NotSeen   _) = true | isNotSeen   _ = false;
     
-    fun stateProcessed (Processed x) = x | stateProcessed _ = raise Match;
-    fun stateNotSeen   (NotSeen   x) = x | stateNotSeen   _ = raise Match;
+        fun stateProcessed (Processed x) = x | stateProcessed _ = raise Match;
+        fun stateNotSeen   (NotSeen   x) = x | stateNotSeen   _ = raise Match;
     
-    val {enter:typeId * state -> unit,lookup} = mapTable sameTypeId;
+        val {enter:typeId * state -> unit,lookup} = mapTable sameTypeId;
 
-    (* Look at each of the constructors in the list. Equality testing is
-       only allowed if it is allowed for each of the alternatives. *)
-    fun constrEq constructor []       soFar = soFar (* end of list - all o.k. *)
-      | constrEq constructor (h :: t) soFar =
-      (* The constructor may be a constant e.g.
-	 datatype 'a list = nil | ... or  a function e.g.
-	 datatype 'a list = ... cons of 'a * 'a list. *)
-      if not (isFunctionType (valTypeOf h)) (* Constant *)
-      then constrEq constructor t soFar (* Go on to the next. *)
+        (* Look at each of the constructors in the list. Equality testing is
+           only allowed if it is allowed for each of the alternatives. *)
+        fun constrEq constructor []       soFar = soFar (* end of list - all o.k. *)
+        |   constrEq constructor (h :: t) soFar =
+            (* The constructor may be a constant e.g.
+        	   datatype 'a list = nil | ... or  a function e.g.
+        	   datatype 'a list = ... cons of 'a * 'a list. *)
+            if not (isFunctionType (valTypeOf h)) (* Constant *)
+            then constrEq constructor t soFar (* Go on to the next. *)
       
-      else let
-	(* Function - look at the argument type. *)
-	(* Search the list for the type variable. If it is there it is a formal
-	   parameter to a datatype so equality testing will be allowed if it is 
-	   allowed for the actual parameter.  *)
-			
-	val eq = 
-	  equality 
-	    (#arg (typesFunctionType (valTypeOf h)),
-	     genEquality,
-	     fn tyVar =>
-             if List.exists (fn v => sameTv (typesTypeVar v, tyVar))
-                 (tcTypeVars constructor)
-             then Yes else No
-	    );
-      in
-	if eq = No
-	then (* Not allowed. *) No
-	else (* O.k. - go on to the next. *)
-	  constrEq constructor t (if eq = Maybe then Maybe else soFar)
-      end (* constrEq *)
-
-    (* This procedure checks to see if equality is allowed for this datatype. *)
-    and genEquality constructorId =
-    let 
-      (* Look it up to see if we have already done it. It may fail because
-         we may have constructors that do not admit equality. *)
-      val thisState = getOpt(lookup constructorId, Processed No);
-    in
-      if isProcessed thisState
-      then stateProcessed thisState (* Have either done it already or are currently doing it. *)
-      else (* notSeen - look at it now. *)
-      (
-        (* Equality is allowed for this datatype only if all of them admit it.
-           There are various other alternatives but this is what the standard says.
-           If the "name" is rigid (free) we must not grant equality if it is not 
-           already there although that is not an error. *)
-        (* Set the state to "Maybe". This prevents infinite recursion. *)
-        enter (constructorId, Processed Maybe);
-        let
-          val eq =
-            List.foldl 
-              (fn (cons, t) => 
-                 if t = No
-                   then No
-                 else if inSignature andalso
-                         not (isVariableId constructorId) andalso
-                          not (tcEquality cons)
-                   then No
-                else constrEq cons (tcConstructors cons) t)
-            Yes
-            (stateNotSeen thisState);
-        in
-          (* Set the state we have found if it is "yes" or "no".  If it is
-             maybe we have a recursive reference which appears to admit
-             equality, but may not. E.g. if we have
-                 datatype t = A of s | B of int->int  and  s = C of t
-             if we start processing "t" we will go on to "s" and do that
-             before returning to "t". It is only later we find that "t" does
-             not admit equality. If we get "Maybe" as the final result when
-             all the recursion has been unwound we can set the result to
-             "yes", but any intermediate "Maybe"s have to be done again. *)
-          enter (constructorId, if eq = Maybe then thisState else Processed eq);
-          eq
-        end
-      )
-    end (* genEquality *);
-  in
-     (* If we have an eqtype we set it to true, otherwise we set all of them
-       to "notSeen" with the constructor as value. *)
-     List.app 
-        (fn dec => 
-        let  (* If we have two datatypes which share we may already have
-                one in the table.  We have to link them together. *)
-          val tclist =
-              case lookup (tcIdentifier dec) of
-                  NONE => [dec]
-              |   SOME l =>
-                  let
-                    val others = stateNotSeen l
-                    val newList = dec :: others;
-                  in
-                    (* If any of these are already equality types (i.e. share with an eqtype)
-                       then they all must be. *)
-                    if tcEquality dec orelse tcEquality (hd others)
-                    then List.app (fn d => tcSetEquality (d, true)) newList
-                    else ();
-                    newList
-                  end
-                in
-          enter (tcIdentifier dec, NotSeen tclist)
-        end) types;
-
-      (* Apply genEquality to each element of the list. *)
-      List.app (fn constructor => 
-          let
-            val constructorId = tcIdentifier constructor;
-            val eqForCons     = genEquality constructorId;
-          in
-            (* If the result is "Maybe" it involves a recursive reference, but
-               the rest of the type allows equality. The type admits equality. *)
-            if eqForCons = No
-            then (* Equality not allowed *)
-            ( (* If it has been shared with an eqtype it will have the equality
-                 flag set.  If it does not admit equality it is an error. *)
-              if tcEquality constructor
-              then errorMessage ("Type (" ^ tcName constructor ^ ") does not respect equality")
-              else ()
-            )
             else
-            ( (* Turn on equality. *)
-              enter (constructorId, Processed Yes);
-              tcSetEquality (constructor, true)
-            )
-          end) types
-    end (* genEqualityFunctions *);
+            let
+            	(* Function - look at the argument type. *)
+            	(* Equality is allowed for any type-variable.  The only type variables
+                   allowed are parameters to the datatype so if we have a type variable
+                   then equality is allowed for this datatype.  *)
+    	        val eq = 
+    	            equality (#arg (typesFunctionType (valTypeOf h)),
+                        genEquality, fn tyVar => Yes);
+            in
+    	        if eq = No
+    	        then (* Not allowed. *) No
+    	        else (* O.k. - go on to the next. *)
+	                constrEq constructor t (if eq = Maybe then Maybe else soFar)
+            end (* constrEq *)
+
+        (* This procedure checks to see if equality is allowed for this datatype. *)
+        and genEquality constructorId =
+        let 
+            (* Look it up to see if we have already done it. It may fail because
+               we may have constructors that do not admit equality. *)
+            val thisState = getOpt(lookup constructorId, Processed No);
+        in
+            if isProcessed thisState
+            then stateProcessed thisState (* Have either done it already or are currently doing it. *)
+            else (* notSeen - look at it now. *)
+            let
+                (* Equality is allowed for this datatype only if all of them admit it.
+                   There are various other alternatives but this is what the standard says.
+                   If the "name" is rigid (free) we must not grant equality if it is not 
+                   already there although that is not an error. *)
+                (* Set the state to "Maybe". This prevents infinite recursion. *)
+                val () = enter (constructorId, Processed Maybe);
+                val eq =
+                    List.foldl 
+                        (fn (cons, t) => 
+                        if t = No
+                        then No
+                        else constrEq cons (tcConstructors cons) t)
+                        Yes
+                        (stateNotSeen thisState);
+            in
+                (* Set the state we have found if it is "yes" or "no".  If it is
+                   maybe we have a recursive reference which appears to admit
+                   equality, but may not. E.g. if we have
+                             datatype t = A of s | B of int->int  and  s = C of t
+                   if we start processing "t" we will go on to "s" and do that
+                   before returning to "t". It is only later we find that "t" does
+                   not admit equality. If we get "Maybe" as the final result when
+                   all the recursion has been unwound we can set the result to
+                   "yes", but any intermediate "Maybe"s have to be done again. *)
+                enter (constructorId, if eq = Maybe then thisState else Processed eq);
+                eq
+            end
+        end (* genEquality *);
+    in
+        (* If we have an eqtype we set it to true, otherwise we set all of them
+           to "notSeen" with the constructor as value. *)
+        List.app 
+            (fn dec => 
+            let  (* If we have two datatypes which share we may already have
+                    one in the table.  We have to link them together. *)
+                val tclist =
+                    case lookup (tcIdentifier dec) of
+                        NONE => [dec]
+                    |   SOME l =>
+                        let
+                            val others = stateNotSeen l
+                            val newList = dec :: others;
+                        in
+                            (* If any of these are already equality types (i.e. share with an eqtype)
+                               then they all must be. *)
+                            if tcEquality dec orelse tcEquality (hd others)
+                            then List.app (fn d => tcSetEquality (d, true)) newList
+                            else ();
+                            newList
+                        end
+            in
+                enter (tcIdentifier dec, NotSeen tclist)
+            end) types;
+
+        (* Apply genEquality to each element of the list. *)
+        List.app
+            (fn constructor => 
+            let
+                val constructorId = tcIdentifier constructor;
+                val eqForCons     = genEquality constructorId;
+            in
+                (* If the result is "Maybe" it involves a recursive reference, but
+                   the rest of the type allows equality. The type admits equality. *)
+                if eqForCons = No
+                then () (* Equality not allowed *)
+                else
+                ( (* Turn on equality. *)
+                    enter (constructorId, Processed Yes);
+                    tcSetEquality (constructor, true)
+                )
+            end) types
+    end (* computeDatatypeEqualities *);
     
     type matchResult = (types * types * string) option
 
