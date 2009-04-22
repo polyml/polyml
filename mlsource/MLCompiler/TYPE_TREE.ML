@@ -36,7 +36,9 @@ functor TYPE_TREE (
 (*****************************************************************************)
 structure ADDRESS :
 sig
-  val wordEq: 'a * 'a -> bool
+    type machineWord
+    val wordEq: 'a * 'a -> bool
+    val toMachineWord    : 'a    -> machineWord
 end;
 
 (*****************************************************************************)
@@ -103,6 +105,9 @@ sig
   
   val CodeNil:          codetree;
   val isCodeNil:        codetree -> bool;
+  type machineWord
+  val mkConst:            machineWord -> codetree;
+  val structureEq: machineWord * machineWord -> bool;
 end;
 
 (*****************************************************************************)
@@ -123,6 +128,7 @@ sharing type
 sharing type
   PRINTTABLE.codetree
 = CODETREE.codetree
+= STRUCTVALS.codetree
 
 sharing type
   PRINTTABLE.typeConstrs
@@ -135,6 +141,10 @@ sharing type
 sharing type
     EXPORTTREE.locationProp
 =   STRUCTVALS.locationProp
+
+sharing type
+    ADDRESS.machineWord
+=   CODETREE.machineWord
 
 ) :  TYPETREESIG =
 
@@ -2571,8 +2581,18 @@ struct
 			let
 				val name = "_" ^ genName(!count)
 				val _ = count := !count + 1;
+
+                local
+                    (* Create a suitable print and equality pair for the type. *)
+                    fun defaultPrinter _ _ _ = PrettyString "?"
+                    val pair = (structureEq, ref defaultPrinter)
+                    open ADDRESS
+                in
+                    val eqAndPrint = Global(mkConst(toMachineWord pair))
+                end
+
 				val tCons =
-					makeFrozenTypeConstrs (name, [], makeFreeId(tvEquality tvar),
+					makeFrozenTypeConstrs (name, [], makeFreeId(eqAndPrint, tvEquality tvar),
 						0, [DeclaredAt(location lex)]);
 	            val newVal = mkTypeConstruction(name, tCons, [], [])
 			in

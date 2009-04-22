@@ -23,4 +23,5 @@ structure StructVals =
    (
      structure CODETREE       = CodeTree
      structure UNIVERSALTABLE = UniversalTable
+     structure PRETTY         = Pretty
   );

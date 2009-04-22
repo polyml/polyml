@@ -38,6 +38,13 @@ structure CODETREE :
 sig
   type codetree
   val CodeZero : codetree
+  
+  (* Temporary additions. *)
+  type machineWord = Address.machineWord
+  val mkTuple:            codetree list -> codetree;
+  val mkConst:            machineWord -> codetree;
+  val mkEval:             codetree * codetree list * bool -> codetree;
+  val structureEq: machineWord * machineWord -> bool;
 end;
 
 (*****************************************************************************)
@@ -55,6 +62,8 @@ sig
   (* Freeze a mutable table so it is immutable. *)
   val univFreeze:       univTable -> univTable
 end;
+
+structure PRETTY: PRETTYSIG (* Temporary addition. *)
 
 ) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable 
 =  
@@ -81,10 +90,10 @@ struct
   (* typeIds are used to distinguish between concrete types.  Two
      types that share will have the same identifier.  If the identifiers are
      different they are different types.
-     There are four classes of type identifier. Flexible types occur in signatures
-     and can be assigned to other variables or constants by sharing constraints
-     or by signature matching.  Free constants arise from datatypes, abstypes or
-     opaque signature macthing. Bound constants occur in the arguments to
+     There are four classes of type identifier. Flexible types occur during
+     the construction of signatures and can be assigned to other variables
+     or constants by sharing constraints.  Free constants arise from datatypes,
+     abstypes or opaque signature matching. Bound constants occur in the arguments to
      functors or types constructed inside a functor (and therefore generated
      when the functor is applied).  Type functions arise from type bindings
      (type abbreviations) or from "where type" definitions in signatures.
@@ -95,12 +104,14 @@ struct
      "sharing" or "where type" constructions.  A type identifier is
      flexible if the end of the chain is Unset.  An Unset identifier
      records if it refers to a datatype to allow for the
-     "well-formedness" checking. *)
+     "well-formedness" checking.
+     Free and Bound IDs contain information to find the equality and
+     value-printing functions. *)
 
     datatype typeId =
         Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of uniqueId * bool
-    |   Bound           of int * bool possRef
+    |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
+    |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
     |   TypeFunction    of types list * types
 
@@ -151,6 +162,7 @@ struct
         { 
             name:       string,
             tab:        univTable,
+            typeIdMap:  int -> typeId,
             minTypes:   int,
             maxTypes:   int,
             declaredAt: location
@@ -249,16 +261,16 @@ struct
 
     (* Identifiers *)
     (* REF HOTSPOT - 400 *)
-    fun makeFreeId eq = Free (ref eq, false);
+    fun makeFreeId(access, eq) = Free {access=ref access, uid = ref eq, allowUpdate=false};
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate eq = Free(ref eq, true);
+    fun makeFreeIdEqUpdate(access, eq) = Free {access=ref access, uid = ref eq, allowUpdate=true};
 
-    fun makeBoundId (n, eq) = Bound(n, FrozenRef eq);
+    fun makeBoundId (access, n, eq) = Bound{access=access, offset=n, eqType=FrozenRef eq};
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (n, eq) = Bound(n, VariableRef(ref eq))
+    fun makeBoundIdWithEqUpdate (access, n, eq) = Bound{access=access, offset=n, eqType=VariableRef(ref eq)}
 
     (* REF HOTSPOT - 260 *)
     fun makeVariableId isEq  =
@@ -271,24 +283,35 @@ struct
     |   realId id = id
 		    
     (* Unset variable. *)
-    fun isVariableId x = case (realId x) of Flexible _ => true | _ => false;
-    fun isFreeId     x = case (realId x) of Free     _ => true | _ => false;
-    fun isBoundId    x = case (realId x) of Bound    _ => true | _ => false;
-    fun isTypeFunction x = case (realId x) of TypeFunction _ => true | _ => false;
+    fun isVariableId x = case realId x of Flexible _ => true | _ => false;
+    fun isFreeId     x = case realId x of Free     _ => true | _ => false;
+    fun isBoundId    x = case realId x of Bound    _ => true | _ => false;
+    fun isTypeFunction x = case realId x of TypeFunction _ => true | _ => false;
 
     (* Find the number - assuming it is bound. *)
     fun offsetId x = 
-        case (realId x) of 
-	        Bound (i, _) => i
+        case realId x of 
+	        Bound {offset, ...} => offset
         |   _       => raise InternalError "offsetId: not a Bound";
 
     (* Are two type constructors the same? *)
     fun sameTypeId (cons1, cons2) =
         case (realId cons1, realId cons2) of
-            (Flexible a, Flexible b)    => a = b
-        |   (Free a,     Free b)        => a = b
-        |   (Bound a,    Bound b)       => a = b
+            (Flexible a,           Flexible b)           => a = b
+        |   (Free{uid = a, ...},   Free {uid = b, ...})  => a = b
+        |   (Bound{offset=a, ...}, Bound{offset=b, ...}) => a = b
         |   _                           => false (* Includes type functions. *)
+
+    fun idAccess x =
+        case realId x of
+            Free { access=ref access, ...} => access
+        |   Bound{ access, ...} => access
+        |   _                   => raise InternalError "idAccess: Not bound or free"
+  
+    fun setTypeAccess (x, newAccess) =
+        case realId x of
+            Free { access, ...} => access := newAccess
+        |   _ => raise InternalError "setTypeAccess: Not free"
   
     (* Link two flexible type identifiers together as a result of a sharing
        constraint.  If either is an equality type the result is an equality type.
@@ -338,8 +361,8 @@ struct
         |   _ => ()
 
     fun isEquality (Unset{ isEqtype, ...}) = isEqtype
-    |   isEquality (Free(ref eq, _)) = eq
-    |   isEquality (Bound(_, eq)) = pling eq
+    |   isEquality (Free{uid = ref eq, ...}) = eq
+    |   isEquality (Bound{eqType, ...}) = pling eqType
     |   isEquality (Flexible(ref v)) = isEquality v
     |   isEquality (TypeFunction _) = false (* Requires analysis of the type function. *)
 
@@ -349,15 +372,15 @@ struct
     fun setEquality(Flexible(r as ref(Unset{ isDatatype, ...}))) =
             r := Unset{isEqtype = true, isDatatype = isDatatype }
     |   setEquality(Flexible(r as ref t)) = setEquality t
-    |   setEquality(Free(id, true)) = id := true (* For datatypes *)
-    |   setEquality(Bound(_, VariableRef id)) = id := true (* For datatypes *)
+    |   setEquality(Free{uid, allowUpdate=true, ...}) = uid := true (* For datatypes *)
+    |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true (* For datatypes *)
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
 
     (* The only circumstances in which we remove the equality attribute is for
        abstypes.  Equality may be permitted in the "with .. end" section but
        not outside. *)
-    fun removeAbstypeEquality(Free(id, true)) = id := false
-    |   removeAbstypeEquality(Bound(_, VariableRef id)) = id := false
+    fun removeAbstypeEquality(Free{uid, allowUpdate=true, ...}) = uid := false
+    |   removeAbstypeEquality(Bound{eqType=VariableRef id, ...}) = id := false
     |   removeAbstypeEquality _ =
             raise InternalError "removeAbsTypeEquality: not Free"
 
@@ -370,18 +393,21 @@ struct
     fun sigMinTypes   (Signatures {minTypes,...})   = minTypes;
     fun sigMaxTypes   (Signatures {maxTypes,...})   = maxTypes;
     fun sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt;
+    fun sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap;
   
     fun makeSignatures (name, location) = 
 		Signatures { name       = name,
 			   tab        = makeUnivTable(),
+               typeIdMap  = fn _ => raise Subscript,
 			   minTypes   = 0, 
 			   maxTypes   = 0,
                declaredAt = location };
        
     (* Used when we want to give a name to a signature. *)
-    fun makeCopy (name, copy, minTypes, maxTypes, location) =
+    fun makeCopy (name, copy, minTypes, maxTypes, location, typeIdMap) =
     	Signatures { name       = name,
 			   tab        = univFreeze(sigTab copy),
+               typeIdMap  = typeIdMap,
 			   minTypes   = minTypes, 
 			   maxTypes   = maxTypes,
                declaredAt = location  };
@@ -547,10 +573,39 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
 
-    fun baseType name eq =
-        makeFrozenTypeConstrs (name, [], makeFreeId eq, 0, [DeclaredAt inBasis]);
+    (* The code for a type is a pair.
+       The first field is the equality function which is either a function from a pair of
+       arguments to a bool, if the type is a monotype, or is a function that takes a set
+       of equality functions one for each of the parameter types and returns a function
+       from the pair of values to a bool.  The pairs and the set of functions are passed
+       as Poly parameters not ML tuples.
+       The second field is a ref to a pretty print function.  The ref allows the default
+       function to be replaced by a user-supplied pretty-printer function.  This function
+       has the form of an ML pretty-print function. *)
+    local
+        open Address PRETTY;
 
-    val boolType   = makeDatatypeConstr ("bool", [], makeFreeId true, 0, [DeclaredAt inBasis]);
+        fun defaultPrinter depth _ value = PrettyString "Unset printer"
+        val monocode =
+            mkTuple[
+                mkConst (toMachineWord structureEq),
+                mkConst (toMachineWord (ref defaultPrinter))
+            ]
+        (* Poly-types provide an extra argument to the equality function. *)
+        val polycode =
+            mkTuple[
+                mkConst (toMachineWord(fn _ => structureEq)),
+                mkConst (toMachineWord (ref defaultPrinter))
+            ]
+    in
+        val monotypeCode = Global monocode
+        val polytypeCode = Global polycode
+    end
+
+    fun baseType name eq =
+        makeFrozenTypeConstrs (name, [], makeFreeId(monotypeCode, eq), 0, [DeclaredAt inBasis]);
+
+    val boolType   = makeDatatypeConstr ("bool", [], makeFreeId(monotypeCode, true), 0, [DeclaredAt inBasis]);
     val intType    = baseType "int"    true;
     val charType   = baseType "char"   true;
     val stringType = baseType "string" true;
@@ -566,18 +621,18 @@ struct
     val listType =
         makeDatatypeConstr 
             ("list", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-            makeFreeId true, 0, [DeclaredAt inBasis]);
+            makeFreeId(polytypeCode, true), 0, [DeclaredAt inBasis]);
             
     val refType =
         makeDatatypeConstr 
             ("ref",
             [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-            makeFreeId true, 0, [DeclaredAt inBasis]);
+            makeFreeId(polytypeCode, true), 0, [DeclaredAt inBasis]);
 
     (* "undefType" is used as a place-holder during parsing for the actual type
        constructor. *)
     val undefType = 
-        makeFrozenTypeConstrs ("undefined", [], makeFreeId false, 0, [DeclaredAt inBasis]);
+        makeFrozenTypeConstrs ("undefined", [], makeFreeId(monotypeCode, false), 0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  
@@ -629,8 +684,8 @@ struct
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, location) =
 		makeStruct (name,
-            makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat, location), makeGlobal code,
-            [DeclaredAt location]);
+            makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat, location, sigTypeIdMap signat),
+            makeGlobal code, [DeclaredAt location]);
  
     (* This is used for the top-level name space so must be mutable. *)
     fun makeEmptyGlobal name =

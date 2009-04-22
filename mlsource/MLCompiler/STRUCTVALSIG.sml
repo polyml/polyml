@@ -47,8 +47,8 @@ sig
 
     datatype typeId =
         Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of uniqueId * bool
-    |   Bound           of int * bool possRef
+    |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
+    |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
     |   TypeFunction    of types list * types
 
@@ -146,17 +146,19 @@ sig
     val isTypeFunction: typeId -> bool;
     val isEquality:   typeId -> bool;
     val offsetId:     typeId -> int;
+    val idAccess:     typeId -> valAccess;
     val sameTypeId:   typeId * typeId -> bool;
     val linkFlexibleTypeIds: typeId * typeId -> unit;
     val makeTypeIdBound: typeId * typeId -> unit;
     val setEquality:  typeId -> unit
+    val setTypeAccess:typeId * valAccess -> unit
     val removeAbstypeEquality:  typeId -> unit
 
-    val makeFreeId:     bool -> typeId;
-    val makeFreeIdEqUpdate:     bool -> typeId;
+    val makeFreeId:     valAccess * bool -> typeId;
+    val makeFreeIdEqUpdate:     valAccess * bool -> typeId;
     val makeVariableId: bool -> typeId;
-    val makeBoundId:    int*bool -> typeId;
-    val makeBoundIdWithEqUpdate: int*bool -> typeId;
+    val makeBoundId:    valAccess * int*bool -> typeId;
+    val makeBoundIdWithEqUpdate: valAccess * int*bool -> typeId;
     
     (* Types *)
     val badType:   types;
@@ -263,9 +265,10 @@ sig
       val sigMinTypes:   signatures -> int;
       val sigMaxTypes:   signatures -> int;
       val sigDeclaredAt: signatures -> location;
+      val sigTypeIdMap:  signatures -> (int -> typeId);
 
       val makeSignatures: string * location -> signatures;
-      val makeCopy: string * signatures * int * int * location -> signatures;
+      val makeCopy: string * signatures * int * int * location * (int -> typeId) -> signatures;
 
       (* Values. *)
       val valName: values -> string

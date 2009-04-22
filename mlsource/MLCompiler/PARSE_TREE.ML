@@ -3496,15 +3496,21 @@ struct
         );
        
        (* Make the type constructors and put them in a list. *)
-      fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
+        fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
         let
-          val tc =
-              makeDatatypeConstr (strName ^ name, typeVars,
-                             makeTypeId false, letDepth, [DeclaredAt nameLoc])
+            (* Make a new ID.  If this is within a let declaration we always make
+               a free ID because it is purely local and can't be exported. *)
+            val newId =
+                if letDepth = 0
+                then makeTypeId false
+                else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false)
+            val tc =
+                makeDatatypeConstr(strName ^ name, typeVars, newId,
+                                   letDepth, [DeclaredAt nameLoc])
         in
-          tcon := tc;
-          enterType tc name;
-          tc
+            tcon := tc;
+            enterType tc name;
+            tc
         end
       
       val listOfTypes = map enterTcon typeList;
@@ -5477,7 +5483,30 @@ struct
               end
             end
           end (* codeProc *);
-  
+
+            (* We have to create the equality and printing code here. *)
+            fun codeDatatypeBinding(DatatypeBind {tcon = ref tc, ...}) =
+                case idAccess(tcIdentifier tc) of
+                    Local{ addr, level=lev } =>
+                    let
+                        val newAddr = mkAddr();
+                        fun defaultPrinter depth _ value = PrettyString "Unset printer"
+                        val defaultEquality =
+                            if tcArity tc = 0
+                            then mkConst (toMachineWord structureEq)
+                            else mkConst (toMachineWord (fn _ => structureEq))
+                    in
+                        addr := newAddr;
+                        lev := !level;
+                        mkDec(newAddr,
+                            mkTuple[
+                                defaultEquality,
+                                mkConst(toMachineWord(ref defaultPrinter))
+                            ]
+                        )
+                    end
+                |   _ => raise InternalError "codeDatatypeBinding: Not local"
+
          in      (* codeSequence *)
            if null dlist then ([], debugEnv)
            else let
@@ -5934,47 +5963,32 @@ struct
                  (exdecs @ debugDecs, newDebugEnv)
                end (* ExDeclaration *)
   
-           | AbstypeDeclaration {typelist=typeList, declist, ...} =>
-             let (* Code-generate the declarations. *)
-               
-               (* We have to put the constructors back onto the abstype
-                  temporarily so that we can do exhaustiveness checking. *)
-               val () = 
-                  List.app
-                    (fn (DatatypeBind{tcon=ref tc, valueConstrs = ref vconstrs, ...}) =>
-                       tcSetConstructors (tc, vconstrs)
-                    )
-                     typeList;
-               (* The debugging environment for the declarations should include
-                  the constructors but the result shouldn't.  For the moment
-                  ignore the constructors. *)
-               val (code, newDebug) = codeSequence (declist, debugEnv, decName);
-              
-              (* Now we can take the constructors off again. *)
-               val () = 
-                 List.app 
-                   (fn (DatatypeBind{tcon=ref tc, ...}) => tcSetConstructors (tc, []))
-                   typeList;
-             in
-               (code, newDebug)
-             end (* AbstypeDeclaration *)
-  
-           | DatatypeDeclaration {typelist, ...} =>
-                   (* We just need the value constructors for the debug env.
-                   Later we will include the types as well. *)
-             let
-                 fun getConstrs(DatatypeBind {tcon = ref tc, ...}, (decs, debugEnv)) =
-                let
-                    val (newDecs, newDebug) = makeDebugEntries(tcConstructors tc, debugEnv)
+            |   AbstypeDeclaration {typelist, declist, ...} =>
+                let (* Code-generate the declarations. *)
+                    (* The debugging environment for the declarations should include
+                       the constructors but the result shouldn't.  For the moment
+                       ignore the constructors. *)
+                    val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                 in
-                    (decs @ newDecs, newDebug)
+                    (List.map codeDatatypeBinding typelist @ code, newDebug)
                 end
+  
+            |   DatatypeDeclaration {typelist, ...} =>
+                   (* We just need the value constructors for the debug env.
+                      Later we will include the types as well. *)
+                let
+                    fun getConstrs(DatatypeBind {tcon = ref tc, ...}, (decs, debugEnv)) =
+                    let
+                        val (newDecs, newDebug) = makeDebugEntries(tcConstructors tc, debugEnv)
+                    in
+                        (decs @ newDecs, newDebug)
+                    end
 
-                val (decs: codetree list, newDebugenv: debugenv) =
-                    List.foldl getConstrs ([], debugEnv) typelist
-             in
-              (decs, newDebugenv)
-             end
+                    val (decs: codetree list, newDebugenv: debugenv) =
+                        List.foldl getConstrs ([], debugEnv) typelist
+                in
+                    (List.map codeDatatypeBinding typelist @ decs, newDebugenv)
+                end
 
            | OpenDec {variables=ref vars, ...} =>
                    (* All we need to do here is make debugging entries. *)

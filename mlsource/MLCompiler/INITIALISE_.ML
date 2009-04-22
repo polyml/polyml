@@ -68,6 +68,7 @@ sig
   val mkRaise:          codetree -> codetree;
 
   val evalue:           codetree -> machineWord;
+  val structureEq:      machineWord * machineWord -> bool;
 end;
 
 (*****************************************************************************)
@@ -339,10 +340,30 @@ struct
         (* ref something *)
         fun Ref (base : types) : types  =
             mkTypeConstruction ("ref", refType, [base], declInBasis);
-        
+
+        local
+            open ADDRESS PRETTY;
+
+            fun defaultPrinter depth _ value = PrettyString "Unset printer"
+            val monocode =
+                mkTuple[
+                    mkConst (toMachineWord structureEq),
+                    mkConst (toMachineWord (ref defaultPrinter))
+                ]
+            (* Poly-types provide an extra argument to the equality function. *)
+            val polycode =
+                mkTuple[
+                    mkConst (toMachineWord(fn _ => structureEq)),
+                    mkConst (toMachineWord (ref defaultPrinter))
+                ]
+        in
+            val monotypeCode = Global monocode
+            val polytypeCode = Global polycode
+        end
+       
         (* option something *)
         val optionType = (* Can't freeze it because we add constructors *)
-            makeDatatypeConstr("option", [makeTV()], makeFreeId true, 0, declInBasis);
+            makeDatatypeConstr("option", [makeTV()], makeFreeId(polytypeCode, true), 0, declInBasis);
         
         fun Option (base : types) : types  =
             mkTypeConstruction ("option", optionType, [base], declInBasis);
@@ -495,13 +516,10 @@ struct
 (*****************************************************************************)
 (*                  'a vector                                                *)
 (*****************************************************************************)
-(* The only reason we have vector here is to get equality right.  We need
-   vector to be an equality type and to use structure equality.  We can't
-   add an overload for "=" as we do with arrays because that causes the
-   type to have a ref-style equality i.e. 'a vector would permit equality
-   even if 'a did not. *)
+    (* The only reason we have vector here is to get equality right.  We need
+       vector to be an equality type and to use structure equality. *)
         val vectorType =
-            makeFrozenTypeConstrs("vector", [makeTV()], makeFreeId true, 0, declInBasis);
+            makeFrozenTypeConstrs("vector", [makeTV()], makeFreeId(polytypeCode, true), 0, declInBasis);
         val () = enterGlobalType  ("vector", vectorType);
 
 
@@ -780,7 +798,8 @@ struct
             (* Types for the basic values.  These are opaque. *)
             fun createType typeName =
             let
-                val typeconstr = makeFrozenTypeConstrs(typeName, [], makeFreeId false, 0, declInBasis);
+                val typeconstr =
+                    makeFrozenTypeConstrs(typeName, [], makeFreeId(monotypeCode, false), 0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
@@ -867,7 +886,7 @@ struct
         local
             (* Pretty print context information. *)
             open TYPETREE
-            val typeconstr = makeDatatypeConstr("context", [], makeFreeId false, 0, declInBasis);
+            val typeconstr = makeDatatypeConstr("context", [], makeFreeId(monotypeCode, false), 0, declInBasis);
             val ContextType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("context", typeconstr);
  
@@ -894,7 +913,7 @@ struct
 (*****************************************************************************)
         local
             open TYPETREE
-            val typeconstr = makeDatatypeConstr("pretty", [], makeFreeId false, 0, declInBasis);
+            val typeconstr = makeDatatypeConstr("pretty", [], makeFreeId(monotypeCode, false), 0, declInBasis);
             val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val constrs = (* Order is significant. *)
@@ -1005,11 +1024,11 @@ struct
             end;
 
             (* type 'a tag *)
-            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], makeFreeId false, 0, declInBasis);
+            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], makeFreeId(polytypeCode, false), 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)
-            val univConstr = makeFrozenTypeConstrs("universal", [], makeFreeId false, 0, declInBasis);
+            val univConstr = makeFrozenTypeConstrs("universal", [], makeFreeId(monotypeCode, false), 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -1049,7 +1068,7 @@ struct
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
-			val propConstr = makeDatatypeConstr("ptProperties", [], makeFreeId false, 0, declInBasis);
+			val propConstr = makeDatatypeConstr("ptProperties", [], makeFreeId(monotypeCode, false), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
@@ -1061,7 +1080,7 @@ struct
 
             (* Representation of the type of a value. *)
 			val typesConstr =
-                makeFrozenTypeConstrs("typeExpression", [], makeFreeId false, 0, declInBasis);    
+                makeFrozenTypeConstrs("typeExpression", [], makeFreeId(monotypeCode, false), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 
@@ -1151,7 +1170,7 @@ struct
                 val () = #enterVal argEnv ("ex_iden", exIdenVal);
             
             in
-                val argSig0 = makeCopy ("", sig0, 0, 0, inBasis)
+                val argSig0 = makeCopy ("", sig0, 0, 0, inBasis, fn _ => raise Subscript)
             end
 
             (* Result signature. *)
@@ -1162,7 +1181,7 @@ struct
                 val exVal = makeFormalEx ("ex", TYPETREE.exnType, 0, declInBasis);
                 val () = #enterVal resEnv ("ex", exVal);
             in
-                val resSig0 = makeCopy ("", sig0, 0, 0, inBasis);
+                val resSig0 = makeCopy ("", sig0, 0, 0, inBasis, fn _ => raise Subscript);
             end
                  
             (* The functor turns the value into an exception by returning the argument. *)
@@ -1187,8 +1206,9 @@ struct
              sig exception ex of exType end *) 
         local
             (* Make a nullary type constructor (the type of the exception) *)
+            val boundId = makeBoundId (monotypeCode(* Unused*), 0, false)
             val exTypeConstr = 
-                makeFrozenTypeConstrs ("ex_type", [], makeBoundId (0, false), 0, declInBasis);
+                makeFrozenTypeConstrs ("ex_type", [], boundId, 0, declInBasis);
             
             (* Argument signature. *)
             local
@@ -1203,7 +1223,8 @@ struct
                 val () = #enterVal  argEnv ("ex_iden", exIdenVal);
             in
                 (* Contains 1 bound type *)
-                val argSig1 = makeCopy ("", sig1, 0, 1, inBasis);
+                val argSig1 =
+                    makeCopy ("", sig1, 0, 1, inBasis, fn 0 => boundId | _ => raise Subscript);
             end
             
             (* Result signature. *)
@@ -1219,7 +1240,7 @@ struct
                 val () = #enterVal resEnv ("ex", exVal);
             in      
                 (* 1 bound type inherited from argument sig *)
-                val resSig1 = makeCopy ("", sig1, 0, 1, inBasis);
+                val resSig1 = makeCopy ("", sig1, 0, 1, inBasis, fn 0 => boundId |  _ => raise Subscript);
             end
              
             (* The functor turns the value into an exception by returning the argument. *)
