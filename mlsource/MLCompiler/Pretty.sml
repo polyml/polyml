@@ -54,6 +54,30 @@ struct
     in
         val getPrintOutput = getTag printOutputTag
         and getCompilerOutput = getTag compilerOutputTag
+        
+        (* The low-level code-generators print strings a bit at a time and separate the lines
+           with new-line characters.  This provides a simple string printer for backwards
+           compatibility. *)
+        fun getSimplePrinter parameters =
+        let
+            val compilerOut: pretty -> unit = getTag compilerOutputTag parameters
+            val buff = ref ""
+            fun printStream (s: string) =
+            let
+                (* If there's a newline split there. *)
+                val (a, b) = Substring.splitl(fn #"\n" => false | _ => true) (Substring.full(!buff ^ s))
+            in
+                if Substring.size b = 0 (* No newline. *)
+                then buff := Substring.string a
+                else
+                (
+                    compilerOut(PrettyString(Substring.string a));
+                    buff := "";
+                    printStream(Substring.string(Substring.slice(b, 1, NONE))) 
+                )
+            end
+        in
+            printStream
+        end
     end
-
 end;

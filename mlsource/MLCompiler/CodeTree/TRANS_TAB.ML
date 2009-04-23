@@ -709,8 +709,7 @@ local
      
     fun ttabCreate debugSwitches =
     let
-        val compilerOut = PRETTY.getCompilerOutput debugSwitches
-        fun printStream (s: string) = compilerOut(PRETTY.PrettyString s)
+        val printStream = PRETTY.getSimplePrinter debugSwitches
     in
         Ttab
         {

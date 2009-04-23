@@ -40,5 +40,7 @@ sig
     
     val getPrintOutput : Universal.universal list -> pretty -> unit
     and getCompilerOutput : Universal.universal list -> pretty -> unit
+    (* getSimplePrinter prints strings through compilerOutput. *)
+    and getSimplePrinter: Universal.universal list -> string -> unit
 
 end;

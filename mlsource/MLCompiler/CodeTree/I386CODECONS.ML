@@ -405,8 +405,7 @@ struct
     fun codeCreate (noClosure : bool, name : string, parameters) : code =
     let
         val words = codesize div 4
-        val compilerOut = PRETTY.getCompilerOutput parameters;
-        fun printStream (s: string) = compilerOut(PrettyString s)
+        val printStream = PRETTY.getSimplePrinter parameters;
     in
     Code
       { 

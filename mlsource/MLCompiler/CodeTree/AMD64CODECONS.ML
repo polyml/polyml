@@ -423,8 +423,7 @@ struct
   (* create and initialise a code segment *)
   fun codeCreate (noClosure : bool, name : string, parameters) : code =
   let
-        val compilerOut = PRETTY.getCompilerOutput parameters;
-        fun printStream (s: string) = compilerOut(PrettyString s)
+        val printStream = PRETTY.getSimplePrinter parameters;
   in
     Code
       { 
