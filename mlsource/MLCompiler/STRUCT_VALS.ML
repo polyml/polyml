@@ -44,7 +44,10 @@ sig
   val mkTuple:            codetree list -> codetree;
   val mkConst:            machineWord -> codetree;
   val mkEval:             codetree * codetree list * bool -> codetree;
+  val mkInlproc:          codetree * int * int * string -> codetree;
+  val mkLoad:             int * int -> codetree;
   val structureEq: machineWord * machineWord -> bool;
+  val genCode:   codetree * Universal.universal list -> (unit -> codetree);
 end;
 
 (*****************************************************************************)
@@ -394,19 +397,13 @@ struct
     fun sigMaxTypes   (Signatures {maxTypes,...})   = maxTypes;
     fun sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt;
     fun sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap;
-  
-    fun makeSignatures (name, location) = 
-		Signatures { name       = name,
-			   tab        = makeUnivTable(),
-               typeIdMap  = fn _ => raise Subscript,
-			   minTypes   = 0, 
-			   maxTypes   = 0,
-               declaredAt = location };
-       
-    (* Used when we want to give a name to a signature. *)
-    fun makeCopy (name, copy, minTypes, maxTypes, location, typeIdMap) =
-    	Signatures { name       = name,
-			   tab        = univFreeze(sigTab copy),
+
+    val makeSignatureTable = makeUnivTable
+
+    (* Make a signature, freezing the table. *)
+    fun makeSignature (name, table, minTypes, maxTypes, location, typeIdMap) =
+    	Signatures { name = name,
+			   tab        = univFreeze table,
                typeIdMap  = typeIdMap,
 			   minTypes   = minTypes, 
 			   maxTypes   = maxTypes,
@@ -574,65 +571,115 @@ struct
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
 
     (* The code for a type is a pair.
-       The first field is the equality function which is either a function from a pair of
-       arguments to a bool, if the type is a monotype, or is a function that takes a set
-       of equality functions one for each of the parameter types and returns a function
-       from the pair of values to a bool.  The pairs and the set of functions are passed
-       as Poly parameters not ML tuples.
+       The first field is the equality function which is a function that takes a set
+       of equality functions one for each of the parameter types, or an empty argument
+       if it is a monotype and returns a function from the pair of values to a bool.
+       The pairs and the set of functions are passed as Poly parameters not ML tuples.
        The second field is a ref to a pretty print function.  The ref allows the default
        function to be replaced by a user-supplied pretty-printer function.  This function
        has the form of an ML pretty-print function. *)
     local
         open Address PRETTY;
 
-        fun defaultPrinter depth _ value = PrettyString "Unset printer"
-        val monocode =
-            mkTuple[
-                mkConst (toMachineWord structureEq),
-                mkConst (toMachineWord (ref defaultPrinter))
-            ]
-        (* Poly-types provide an extra argument to the equality function. *)
-        val polycode =
-            mkTuple[
-                mkConst (toMachineWord(fn _ => structureEq)),
-                mkConst (toMachineWord (ref defaultPrinter))
-            ]
+        fun defaultPrinter depth _ value = PrettyString "?"
     in
-        val monotypeCode = Global monocode
-        val polytypeCode = Global polycode
+        fun defaultEqAndPrintCode() =
+        let
+            (* The structure equality function takes a pair of arguments.  We need a
+               function that takes two Poly-style arguments. *)
+            val defaultEqCode =
+                mkInlproc(
+                    mkInlproc(
+                        mkEval(mkConst(toMachineWord structureEq),
+                            [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
+                    0, 0, "eq-helper()")
+            val code =
+                mkTuple[
+                    defaultEqCode,
+                    mkConst (toMachineWord (ref defaultPrinter))
+                ]
+        in
+            Global (genCode(code, []) ())
+        end
     end
 
-    fun baseType name eq =
-        makeFrozenTypeConstrs (name, [], makeFreeId(monotypeCode, eq), 0, [DeclaredAt inBasis]);
+    (* Eqtypes with built-in equality functions. *)
+    local
+        open Address PRETTY RuntimeCalls
+        fun defaultPrinter depth _ value = PrettyString "?"
 
-    val boolType   = makeDatatypeConstr ("bool", [], makeFreeId(monotypeCode, true), 0, [DeclaredAt inBasis]);
-    val intType    = baseType "int"    true;
-    val charType   = baseType "char"   true;
-    val stringType = baseType "string" true;
-    val wordType   = baseType "word"   true;
-    val realType   = baseType "real"   false; (* Not an eqtype in ML97. *)
-    val exnType    = baseType "exn"    false;
+        fun eqAndPrintCode eqFun =
+        let
+            (* The structure equality function takes a pair of arguments.  We need a
+               function that takes two Poly-style arguments. *)
+            val defaultEqCode =
+                mkInlproc(
+                    mkConst (toMachineWord(RunCall.run_call1 POLY_SYS_io_operation eqFun)),
+                    0, 0, "eq-helper()")
+            val code =
+                mkTuple[
+                    defaultEqCode,
+                    mkConst (toMachineWord (ref defaultPrinter))
+                ]
+        in
+            Global (genCode(code, []) ())
+        end
+        
+
+        fun makeType(name, eqFun) =
+            makeFrozenTypeConstrs (name, [], makeFreeId(eqAndPrintCode eqFun, true), 0, [DeclaredAt inBasis]);
+    in
+        val intType    = makeType("int",    POLY_SYS_equala) (* Need arbitrary precision equality *)
+        val charType   = makeType("char",   POLY_SYS_int_eq) (* Always short *)
+        val stringType = makeType("string", POLY_SYS_teststreq)
+        val wordType   = makeType("word",   POLY_SYS_word_eq)
+
+        (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
+           Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
+           even if the 'a is not an eqType. *)
+        val refType =
+            makeDatatypeConstr 
+                ("ref", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+        val arrayType =
+            makeFrozenTypeConstrs 
+                ("array", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+        val array2Type =
+            makeFrozenTypeConstrs 
+                ("array", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+        (* Bool is a datatype.  The constructors are added in INITIALISE. *)
+        val boolType =
+            makeDatatypeConstr 
+                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true), 0, [DeclaredAt inBasis]);
+   end
+
+    (* Non-eqtypes *)
+    local
+        open Address PRETTY;
+        fun makeType name =
+            makeFrozenTypeConstrs (name, [], makeFreeId(defaultEqAndPrintCode(), false), 0, [DeclaredAt inBasis]);
+    in
+        val realType   = makeType "real"; (* Not an eqtype in ML97. *)
+        val exnType    = makeType "exn";
+    end
+
     (* The unit type is equivalent to the empty record. *)
     val unitType   =
         makeTypeAbbreviation ("unit", [],
 	       LabelledType {recList = [], frozen = true, genericInstance = []},
 		   [DeclaredAt inBasis]);
-   
+  
     val listType =
         makeDatatypeConstr 
             ("list", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-            makeFreeId(polytypeCode, true), 0, [DeclaredAt inBasis]);
-            
-    val refType =
-        makeDatatypeConstr 
-            ("ref",
-            [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
-            makeFreeId(polytypeCode, true), 0, [DeclaredAt inBasis]);
+            makeFreeId(defaultEqAndPrintCode(), true), 0, [DeclaredAt inBasis]);
 
     (* "undefType" is used as a place-holder during parsing for the actual type
        constructor. *)
     val undefType = 
-        makeFrozenTypeConstrs ("undefined", [], makeFreeId(monotypeCode, false), 0, [DeclaredAt inBasis]);
+        makeFrozenTypeConstrs ("undefined", [], makeFreeId(defaultEqAndPrintCode(), false), 0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  
@@ -678,18 +725,26 @@ struct
     |   structLocations (Struct {locations,...}) = locations;
 
     (* Return the signature. *)
-    fun structSignat NoStruct = makeSignatures ("", inBasis) (* only if an error *)
+    fun structSignat NoStruct =
+            makeSignature("", makeSignatureTable(), 0, 0, inBasis, fn _ => raise Subscript) (* only if an error *)
     |   structSignat (Struct {signat,...}) = signat;
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, location) =
 		makeStruct (name,
-            makeCopy("", signat, sigMinTypes signat, sigMaxTypes signat, location, sigTypeIdMap signat),
+            makeSignature("", sigTab signat, sigMinTypes signat, sigMaxTypes signat, location, sigTypeIdMap signat),
             makeGlobal code, [DeclaredAt location]);
  
-    (* This is used for the top-level name space so must be mutable. *)
+    (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
-		makeStruct (name, makeSignatures ("", inBasis), makeGlobal CodeZero, [DeclaredAt inBasis]);
+		makeStruct (name,
+            Signatures { name = "",
+    			   tab        = makeUnivTable(),
+                   typeIdMap  = fn _ => raise Subscript,
+    			   minTypes   = 0, 
+    			   maxTypes   = 0,
+                   declaredAt = inBasis  },
+            makeGlobal CodeZero, [DeclaredAt inBasis]);
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -819,12 +874,9 @@ struct
         enterFunct:   string * functors    -> unit
       };
 
-  (* This creates functions for entering and looking up names. *)
-  fun makeEnv s =
-  let
-    val tab = sigTab s;
-  in
-    Env { lookupVal    = makeLook  valueVar      tab,
+    (* This creates functions for entering and looking up names. *)
+    fun makeEnv tab =
+        Env { lookupVal    = makeLook  valueVar      tab,
           lookupType   = makeLook  typeConstrVar tab,
           lookupFix    = makeLook  fixVar        tab,
           lookupStruct = makeLook  structVar     tab,
@@ -837,5 +889,4 @@ struct
           enterSig     = makeEnter signatureVar  tab,
           enterFunct   = makeEnter functorVar    tab
         }
-  end; 
 end (* STRUCTVALS *);

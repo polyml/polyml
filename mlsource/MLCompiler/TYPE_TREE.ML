@@ -612,7 +612,7 @@ struct
                             case lookupStruct structName of
                                 SOME str =>
                                     let
-                                        val Env { lookupType, lookupStruct, ...} = makeEnv(structSignat str)
+                                        val Env { lookupType, lookupStruct, ...} = makeEnv(sigTab(structSignat str))
                                     in
                                         findType({lookupType=lookupType, lookupStruct=lookupStruct}, tail)
                                     end
@@ -1263,15 +1263,15 @@ struct
   end (* copyType *);
   
 
-    (* Copy a type constructor.  If this refers to a type function copies that as well.
-       Does not copy value constructors. *)
-    fun copyTypeConstr (tcon, mustCopy, makeId, typeMap as {enter,lookup}, copyTypeVar, strName) =
+    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
+       function copies that as well. Does not copy value constructors. *)
+    fun copyTypeConstr (tcon, mustCopy, typeMap, copyTypeVar, strName) =
         case tcIdentifier tcon of
             TypeFunction(args, equiv) =>
             let
                 val copiedEquiv =
                     copyType(equiv, trivMap, (* Don't bother with type variables. *)
-		                fn tcon => copyTypeConstr (tcon, mustCopy, makeId, typeMap, trivMap, strName))
+		                fn tcon => copyTypeConstr (tcon, mustCopy, typeMap, trivMap, strName))
                 val oldName = tcName tcon
         		val newName = strName ^ #second(splitString oldName)
             in
@@ -1284,26 +1284,20 @@ struct
                     makeDatatypeConstr(newName, tcTypeVars tcon, TypeFunction(args, copiedEquiv),
                                         0 (* Always global. *), tcLocations tcon)
             end
-        |   id =>
-            if mustCopy id
+
+        |   id as Bound { offset, ...} =>
+            if mustCopy offset
             then (* Must copy the identifier. *)
             let
-                val newId =
-                    case lookup id of
-                        NONE =>
-                        let (* There's no id for this one.  Make a new one and enter it. *)
-                            val newId = makeId (tcEquality tcon)
-                        in
-                            enter (id, newId);
-                            newId
-                        end
-                    |   SOME tyId => tyId
+                val newId = typeMap offset
                 (* Replace any signature name by the given structure name. *)
                 val newName = strName ^ #second(splitString(tcName tcon))
             in
                 makeDatatypeConstr(newName, tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
             end
-            else tcon;
+            else tcon
+
+        |   id (* Free*) => tcon;
 
     datatype match = Matched of {old: typeVarForm, new: types};
 
@@ -1507,16 +1501,11 @@ struct
 	(* The Definition of Standard ML says that ref is the ONLY type
 	   constructor which is treated in this way.  The standard basis
 	   library says that other mutable types such as array should
-	   also work this way.  We allow this by searching for an overloaded
-	   equality operation on the type.  If it is there we treat the
-	   type as admitting equality whether it is monomorphic or
-	   polymorphic and whatever the types it is applied to.  *)
-	else if not (isCodeNil(getOverload("=", constr, fn()=>CodeNil)))
-	  then Yes
-
-	(* "real" is an equality type in ML90 but not in ML97. *)
-	else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.realType)
-	  then No
+	   also work this way. *)
+    else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.refType) orelse
+            sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.arrayType) orelse
+            sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.array2Type)
+    then Yes
 	  
         (* Others apart from ref and real *)
 	else if tcEquality constr (* Equality allowed. *)

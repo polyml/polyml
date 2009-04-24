@@ -245,6 +245,7 @@ sharing type
 sharing type
   CODETREE.codetree
 = VALUEOPS.codetree
+= STRUCTVALS.codetree
 
 sharing type
   LEX.pretty
@@ -5490,20 +5491,10 @@ struct
                     Local{ addr, level=lev } =>
                     let
                         val newAddr = mkAddr();
-                        fun defaultPrinter depth _ value = PrettyString "Unset printer"
-                        val defaultEquality =
-                            if tcArity tc = 0
-                            then mkConst (toMachineWord structureEq)
-                            else mkConst (toMachineWord (fn _ => structureEq))
                     in
                         addr := newAddr;
                         lev := !level;
-                        mkDec(newAddr,
-                            mkTuple[
-                                defaultEquality,
-                                mkConst(toMachineWord(ref defaultPrinter))
-                            ]
-                        )
+                        mkDec(newAddr, vaGlobal(defaultEqAndPrintCode()))
                     end
                 |   _ => raise InternalError "codeDatatypeBinding: Not local"
 

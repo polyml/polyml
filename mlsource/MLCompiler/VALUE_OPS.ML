@@ -87,14 +87,9 @@ structure TYPESTRUCT : TYPETREESIG
 (*****************************************************************************)
 structure PRINTTABLE :
 sig
-  type machineWord
-  type typeId
-  type pretty
   type typeConstrs
   type codetree
   
-  val addPp:    typeId *  (int -> machineWord -> machineWord -> pretty) -> unit
-  val getPrint: typeId -> (int -> machineWord -> machineWord -> pretty)
   val addOverload: string * typeConstrs * codetree -> unit
   val getOverloads: string -> (typeConstrs * codetree) list
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
@@ -206,16 +201,11 @@ sharing type
 = TYPESTRUCT.values
 
 sharing type
-  STRUCTVALS.typeId
-= PRINTTABLE.typeId
-
-sharing type
   LEX.lexan
 = TYPESTRUCT.lexan
 
 sharing type
-  PRINTTABLE.pretty
-= TYPESTRUCT.pretty
+  TYPESTRUCT.pretty
 = PRETTY.pretty
 = LEX.pretty
 
@@ -226,7 +216,6 @@ sharing type
 sharing type
   ADDRESS.machineWord 
 = CODETREE.machineWord
-= PRINTTABLE.machineWord
 
 sharing type
   UNIVERSALTABLE.univTable
@@ -990,7 +979,7 @@ struct
     lookupStr name 
       (fn baseStruct =>
        let
-           val look = #lookupStruct (mkEnv (structSignat baseStruct));
+           val look = #lookupStruct (mkEnv(sigTab(structSignat baseStruct)));
            (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
            val baseLoc =
             case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
@@ -1036,7 +1025,7 @@ struct
   (* Look up a structure but return the actual structure even if it is a formal. *)
   fun lookupStructureDirectly (kind, {lookupStruct}, name, errorMessage) =
     lookupAny (name, lookupStruct, lookupStruct, 
-          fn baseStruct => #lookupStruct (mkEnv (structSignat baseStruct)),
+          fn baseStruct => #lookupStruct (mkEnv(sigTab(structSignat baseStruct))),
           kind, undefinedStruct, errorMessage);
  
   (* Look up a value, possibly in a structure. If it is in
@@ -1045,7 +1034,7 @@ struct
     lookupAny (name, lookupVal, lookupStruct,
            fn baseStruct =>
            let
-               val look = #lookupVal (mkEnv (structSignat baseStruct));
+               val look = #lookupVal (mkEnv(sigTab (structSignat baseStruct)));
                (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                val baseLoc =
                 case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
@@ -1060,7 +1049,7 @@ struct
     lookupAny (name, lookupType, lookupStruct,
           (* Types do not require a selection from the source
          structure since there is no actual value. *)
-           fn s => #lookupType (mkEnv (structSignat s)),
+           fn s => #lookupType (mkEnv(sigTab (structSignat s))),
           "Type constructor", undefType, errorMessage);
  
  
@@ -1452,15 +1441,26 @@ struct
                                 [] => CodeZero
                               | [t] => makeArg t
                               | args => mkTuple(map makeArg args)
+                        fun getPrint typeId =
+                            case idAccess typeId of
+                                Global code => ! (unsafeCast(evalue(mkInd(1, code))))
+                            |   _ => raise Subscript
                     in
-                      getPrint (tcIdentifier constr) depth (evalue argTuple) value
-                      handle Subscript =>
-                          ( if not (null (tcConstructors constr))
-                            then printConstruction args (tcConstructors constr)
-                            else if tcIsAbbreviation constr  (* May be an alias *)
-                            then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
-                            else PrettyString "?"
-                          )
+                        if tcIsAbbreviation constr  (* May be an alias *)
+                        then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
+                        else
+                        (
+                            (* Get the "print" function out of the type ID if it's there. *)
+                            case idAccess(tcIdentifier constr) of
+                                Global code =>
+                                let
+                                    val printer: int -> machineWord -> machineWord -> pretty =
+                                        ! (unsafeCast(evalue(mkInd(1, code))))
+                                in
+                                    printer depth (evalue argTuple) value
+                                end
+                            |   _ => PrettyString "?"
+                        )
                     end
                     (* isTypeConstruction *)
                 end
@@ -1678,7 +1678,7 @@ struct
                         fun order (s1: string, _) (s2: string, _) = s1 <= s2
                     in
                         (* Put all the entries into a list. *)
-                        for (univOver (sigTab str)) addToList;
+                        for (univOver str) addToList;
                         (* Sort the list and print it. *)
                         List.foldl
                             (fn (a, l) => displaySpec a @ l)
@@ -1709,7 +1709,7 @@ struct
                     ]
                 ),
             PrettyBreak (1, 2),
-            displaySig (str, depth, 1, nameSpace)
+            displaySig (sigTab str, depth, 1, nameSpace)
             ])
 
   (* print structure in a block (no external spacing) *)
@@ -1738,7 +1738,7 @@ struct
             PrettyBreak(1, 2),
             if signatureName <> ""
             then PrettyString signatureName
-            else displaySig (structSignat str, depth - 1, 1, nameSpace)
+            else displaySig (sigTab(structSignat str), depth - 1, 1, nameSpace)
         ])
     end
 
@@ -1763,10 +1763,10 @@ struct
             then [ PrettyString((structName (functorArg funct)) ^ " :"), PrettyBreak(1, 3) ]
             else []) @
             [
-                displaySig (structSignat (functorArg funct), depth - 1, 0, nameSpace),
+                displaySig (sigTab(structSignat (functorArg funct)), depth - 1, 0, nameSpace),
                 PrettyString ") :",
                 PrettyBreak(1, 3),
-                displaySig (functorResult funct, depth - 1, 1, nameSpace)
+                displaySig (sigTab(functorResult funct), depth - 1, 1, nameSpace)
             ]
             )
         )
@@ -2064,15 +2064,19 @@ struct
             case searchList (!datatypeList) of
                 SOME addr => TwoArgs(recursiveEq(addr, args))
             |    NONE =>
-                let
-                    val eq = equalityForDatatype(constr, vConstrs)
-                in
-                    case args of
-                        [] => TwoArgs eq
-                    |    _ => 
-                        TwoArgs(fn l =>
-                            mkEval(eq l, map (getArg l) args, true))
-                end
+                    if isFreeId(tcIdentifier constr) andalso isGlobal(idAccess(tcIdentifier constr))
+                    then TwoArgs(fn l =>
+                            mkEval(mkInd(0, vaGlobal(idAccess(tcIdentifier constr))), map (getArg l) args, true))
+                    else
+                    let
+                        val eq = equalityForDatatype(constr, vConstrs)
+                    in
+                        case args of
+                            [] => TwoArgs eq
+                        |    _ => 
+                            TwoArgs(fn l =>
+                                mkEval(eq l, map (getArg l) args, true))
+                    end
         end
     in
         case ty of
@@ -2093,39 +2097,13 @@ struct
             let
                 val constr = pling value
                 val id = tcIdentifier constr
-                 (* See if we have a special version of equality for this type.
-                   N.B.  The only special functions we have for polytypes are
-                   for 'a ref and 'a array.  In these cases the function does
-                   pointer equality and is applied directly.  We must not use
-                   the normal approach of combining the equality function for
-                   the polytype with that for the argument because in this
-                   case there may not be an equality function for the argument.
-                   e.g. we can use equality on (int->int) ref. *)
-                val special = getOverload("=", constr, fn () => CodeNil);
             in
-                if not (isCodeNil special) (* There's an overloading. *)
-                then returnFun(PairArg(fn _ => special), resKind)
-                else (* Not there *)
-                    if sameTypeId (id, tcIdentifier unitType)
-                then (* unit - always true for equality. *)
-                        returnCode(fn _ => CodeTrue, resKind)
-                else case tcConstructors constr of
-                    [] => (* Not a datatype. *)
-                    if tcIsAbbreviation constr  (* May be an alias *)
-                    then makeEq (makeEquivalent (constr, args), resKind, findTyVars)
-                    else (* An opaque eqtype - probably a functor argument.  N.B. since
-                            we're returning the structure equality function we mustn't
-                            apply it to the equality function for the arguments. *)
-                        returnFun(default, resKind)
-                |    Value{access=Formal _, ...} :: _ =>
-                        (* If the datatype constructor is a parameter to a functor
-                           the value constructors will be in parameter structure.
-                           It's too complicated to find out where the structure is
-                           so we just use structure equality. *)
-                        returnFun(default, resKind)
-                |    vConstrs => (* Datatype. *)
-                        returnFun(
-                            equalityForConstruction(constr, args, vConstrs), resKind)
+                if tcIsAbbreviation constr  (* May be an alias *)
+                then makeEq (makeEquivalent (constr, args), resKind, findTyVars)
+                (* TODO: For the moment we can only get the equality function for globals. *)
+                else if isFreeId(tcIdentifier constr) andalso isGlobal(idAccess(tcIdentifier constr))
+                then returnFun(equalityForConstruction(constr, args, tcConstructors constr), resKind)
+                else returnFun(default, resKind)
             end
 
         |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
@@ -2462,10 +2440,17 @@ struct
                contained in the PolyML structure we may compile a reference to a polymorphic
                version of this for the structure record.  It's replaced in the final structure
                by this version. *)
-            fun installPp (pprint:int -> machineWord -> machineWord -> pretty) =
+            val installPp =
                 case constrId of
-                    SOME (typeId, _, _) => addPp (typeId, pprint)
-                |   NONE => raise Fail "addPrettyPrint: The argument type was not a simple type construction"
+                    SOME (typeId, _, _) =>
+                    (fn (pprint:int -> machineWord -> machineWord -> pretty) =>
+                        case idAccess typeId of
+                            Global code =>
+                                unsafeCast(evalue(mkInd(1, code))) := pprint
+                        |   _ => () (* Do nothing silently at the moment. *)
+                    )
+                |   NONE =>
+                    (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")
         in
             mkConst (toMachineWord installPp)
         end
@@ -2648,7 +2633,10 @@ struct
                         |   _ => raise Fail "Incorrect nesting of begin...end blocks"
                     end
                 in
-                    addPp (typeToInstallFor, createPretty)
+                    case idAccess typeToInstallFor of
+                        Global code =>
+                                unsafeCast(evalue(mkInd(1, code))) := createPretty
+                        |   _ => () (* Do nothing silently at the moment. *)
                 end (* installPp *)
 
         in

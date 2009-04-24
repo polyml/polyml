@@ -204,9 +204,11 @@ sig
     val intType:    typeConstrs;
     val charType:   typeConstrs; (* added 22/8/96 SPF *)
     val stringType: typeConstrs;
-    val wordType:	  typeConstrs;
+    val wordType:	typeConstrs;
     val realType:   typeConstrs;
     val refType:    typeConstrs;
+    val arrayType:  typeConstrs;
+    val array2Type: typeConstrs;
     val unitType:   typeConstrs;
     val exnType:    typeConstrs;
     val listType:   typeConstrs;
@@ -267,8 +269,8 @@ sig
       val sigDeclaredAt: signatures -> location;
       val sigTypeIdMap:  signatures -> (int -> typeId);
 
-      val makeSignatures: string * location -> signatures;
-      val makeCopy: string * signatures * int * int * location * (int -> typeId) -> signatures;
+      val makeSignatureTable: unit -> univTable;
+      val makeSignature: string * univTable * int * int * location * (int -> typeId) -> signatures;
 
       (* Values. *)
       val valName: values -> string
@@ -309,7 +311,7 @@ sig
             enterFunct:   string * functors    -> unit
         };
 
-    val makeEnv: signatures -> env;
+    val makeEnv: univTable -> env;
 
     val valueVar:      values      Universal.tag;
     val typeConstrVar: typeConstrs Universal.tag;
@@ -317,6 +319,9 @@ sig
     val structVar:     structVals  Universal.tag;
     val signatureVar:  signatures  Universal.tag;
     val functorVar:    functors    Universal.tag;
+
+    (* Temporary addition *)
+    val defaultEqAndPrintCode: unit -> valAccess
 
 end;
 
