@@ -138,66 +138,6 @@ infix  0  before
     fun it x = if x >= zero then x else ~ x
   end;
   RunCall.addOverload it "abs";
-	
-  (* Equality functions.  In this case we
-     are not actually adding overloadings (equality is
-	 handled specially by the type system) but telling
-	 the compiler about functions which provide faster
-	 implementation of equality than the general-purpose
-	 structure equality. *)
-  (* POLY_SYS_equala performs equality checking on both short and long
-     versions of arbitrary precision integers. *)
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_equala;
-  RunCall.addOverload it "=";
-  (* POLY_SYS_int_eq does a simple bitwise comparison on its
-     arguments which is sufficient if the values are always short. *)
-  val it: bool*bool->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_eq;
-  RunCall.addOverload it "=";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_eq;
-  RunCall.addOverload it "=";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststreq;
-  RunCall.addOverload it "=";
-  (* POLY_SYS_word_eq is the same as POLY_SYS_int_eq in the memory mapped
-     version of Poly/ML.  It used to be different in the persistent store
-	 version because it was possible for two pointers to the same object
-	 to have different values.  *)
-  (* Adding an overload for equality on 'a ref has the effect of allowing
-     equality on all ref types. *)
-  local
-    (* This is even more messy than usual because we have a type variable
-	   in the type. *)
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq
-  in
-   fun it (x: 'a ref, y: 'a ref) = RunCall.unsafeCast f (x,y)
-  end;
-  RunCall.addOverload it "=";
-  val it : word * word -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-  RunCall.addOverload it "=";
-
-
-  local
-  	val not = RunCall.run_call1 RuntimeCalls.POLY_SYS_not_bool
-  in
-    fun it(i:int, j: int): bool = not(RunCall.run_call2 RuntimeCalls.POLY_SYS_equala(i, j))
-  end;
-  RunCall.addOverload it "<>";
-  val it: bool*bool->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_neq;
-  RunCall.addOverload it "<>";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_neq;
-  RunCall.addOverload it "<>";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrneq;
-  RunCall.addOverload it "<>";
-  local
-    (* This is even more messy than usual because of the types. *)
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq
-  in
-   fun it (x: 'a ref, y: 'a ref) = RunCall.unsafeCast f (x,y)
-  end;
-  RunCall.addOverload it "<>";
-  val it : word * word -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-  RunCall.addOverload it "<>";
 
   (* div, mod and / are overloaded in ML97.  *)
   val it: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real;
