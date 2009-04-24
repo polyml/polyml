@@ -22,8 +22,8 @@
 
 signature ARRAY =
   sig
-    eqtype  'a array
-    type  'a vector
+    eqtype 'a array
+    type 'a vector
 
     val maxLen : int
     val array : (int * 'a) -> 'a array
@@ -67,9 +67,7 @@ local
 	   most efficient in storage.  The current version uses the first word
 	   to hold the length. *)
 	open RuntimeCalls
-    (* We want to allow equality so we have to use a datatype, but we don't
-       want anything printed. *)
-    datatype 'a array = Array of word;
+    type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
 	val System_alloc: int*int*int->word  = RunCall.run_call3 POLY_SYS_alloc_store;
 	val System_loadw: word*int->word = RunCall.run_call2 POLY_SYS_load_word;
@@ -82,11 +80,11 @@ local
 	(* Unsafe subscript and update functions used internally for cases
 	   where we've already checked the range. 
 	   N.B.  THESE ADD THE ONE WHICH IS NECESSARY TO SKIP THE LENGTH WORD *)
-	fun unsafeSub(Array v: 'a array, i: int): 'a =
-		RunCall.unsafeCast(System_loadw (v, i+1))
+	fun unsafeSub(v: 'a array, i: int): 'a =
+		RunCall.unsafeCast(System_loadw (RunCall.unsafeCast v, i+1))
 
-	and unsafeUpdate(Array v: 'a array, i: int, new: 'a): unit =
-		System_setw (v, i+1, RunCall.unsafeCast new);
+	and unsafeUpdate(v: 'a array, i: int, new: 'a): unit =
+		System_setw (RunCall.unsafeCast v, i+1, RunCall.unsafeCast new);
 
 	val intAsWord: int -> word = RunCall.unsafeCast
 	and wordAsInt: word -> int = RunCall.unsafeCast
@@ -95,7 +93,7 @@ local
 	   zero-length object is different.  Locking the resultant object turns
 	   into an immutable object and changes the equality function from pointer
 	   equality to value equality. *)
-	fun makeVector(Array v: 'a array, start, length): 'a vector =
+	fun makeVector(v: 'a array, start, length): 'a vector =
 		if length = 0 then RunCall.unsafeCast System_zero (* Special case for zero *)
 		else
 		let
@@ -103,14 +101,14 @@ local
 			val new_vec =
 				System_alloc(length, 0, 0) handle Range => raise General.Size;
 		in
-			System_move_words(v, start+1, new_vec, 0, length);
+			System_move_words(RunCall.unsafeCast v, start+1, new_vec, 0, length);
 			System_lock new_vec;
 			RunCall.unsafeCast new_vec
 		end
 in
 structure Array: ARRAY =
 struct
-	datatype array = datatype array
+	type 'a array = 'a array
 	type 'a vector = 'a Vector.vector
 	
 	(* Internal function: Construct an array initialised to zero. That's probably
@@ -120,7 +118,7 @@ struct
 			val vec = System_alloc(len+1, 0x40, 0)
 		in
 			System_setw(vec, 0, RunCall.unsafeCast len);
-			Array vec
+			RunCall.unsafeCast vec
 		end
 	 
 	fun array(len, a) =
@@ -128,11 +126,11 @@ struct
 			val vec = System_alloc(len+1, 0x40, RunCall.unsafeCast a)
 		in
 			System_setw(vec, 0, RunCall.unsafeCast len);
-			Array vec
+			RunCall.unsafeCast vec
 		end
 
 	val listLength = length; (* Pick this up from the prelude. *)
-    fun length (Array vec: 'a array): int = RunCall.unsafeCast(System_loadw(vec, 0))
+    fun length (vec: 'a array): int = RunCall.unsafeCast(System_loadw(RunCall.unsafeCast vec, 0))
 	
 	(* The maximum array size is limited by the size of the length field. On a
 	   32 bit machine we have 24 bits of length field and 8 bits of flags so
@@ -146,14 +144,14 @@ struct
 		val maxLen = doCall(100, ()) - 1
 	end;
 	
-	fun op sub (vec: 'a array as Array v, i: int): 'a =
+	fun op sub (vec: 'a array as v, i: int): 'a =
 		if i < 0 orelse i >= length vec then raise General.Subscript
-		else RunCall.unsafeCast(System_loadw (v, i+1))
+		else RunCall.unsafeCast(System_loadw (RunCall.unsafeCast v, i+1))
  
-    fun update (vec: 'a array as Array v, i: int, new: 'a) : unit =
+    fun update (vec: 'a array as v, i: int, new: 'a) : unit =
 		if i < 0 orelse i >= length vec
 		then raise General.Subscript
-		else System_setw (v, i+1, RunCall.unsafeCast new);
+		else System_setw (RunCall.unsafeCast v, i+1, RunCall.unsafeCast new);
 
  	(* Create an array from a list. *)
     fun fromList (l : 'a list) : 'a array =
@@ -194,30 +192,30 @@ struct
 	   zero-length object is different.  Locking the resultant object turns
 	   into an immutable object and changes the equality function from pointer
 	   equality to value equality. *)
-	fun vector (vec: 'a array as Array v): 'a vector = makeVector(vec, 0, length vec)
+	fun vector (vec: 'a array as v): 'a vector = makeVector(vec, 0, length vec)
 	
 	(* Copy one array into another.  It's possible for the arrays
 	   to be the same and for the source and destinations to overlap so we
 	   have to take care of that.  We don't actually check that the source
 	   and destination are the same but simply use either incrementing or
 	   decrementing copy operations depending on the index values. *)
-	fun copy {src: 'a array as Array s, dst: 'a array as Array d, di: int} =
+	fun copy {src: 'a array as s, dst: 'a array as d, di: int} =
 		let
 			val len = length src
 		in
 			if di < 0 orelse di+len > length dst
 			then raise General.Subscript
-			else System_move_words(s, 1, d, di+1, len)
+			else System_move_words(RunCall.unsafeCast s, 1, RunCall.unsafeCast d, di+1, len)
 		end
 
 	(* Copy a vector into an array. *)
-	fun copyVec {src: 'a vector, dst: 'a array as Array d, di: int} =
+	fun copyVec {src: 'a vector, dst: 'a array as d, di: int} =
 		let
 			val len = Vector.length src
 		in
 			if di < 0 orelse di+len > length dst
 			then raise General.Subscript
-			else System_move_words(RunCall.unsafeCast src, 0, d, di+1, len)
+			else System_move_words(RunCall.unsafeCast src, 0, RunCall.unsafeCast d, di+1, len)
 		end
 		
 
@@ -323,22 +321,22 @@ struct
 	   have to take care of that.  We don't actually check that the source
 	   and destination are the same but simply use either incrementing or
 	   decrementing copy operations depending on the index values. *)
-	fun copy {src = Slice{array=Array s, start=srcStart, length=srcLen}, dst as Array d, di: int} =
+	fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst as d, di: int} =
 		let
 		in
 			if di < 0 orelse di+srcLen > Array.length dst
 			then raise General.Subscript
-			else System_move_words(s, srcStart+1, d, di+1, srcLen)
+			else System_move_words(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast d, di+1, srcLen)
 		end
 
 	(* Copy a vector into an array. *)
-	fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as Array d, di: int} =
+	fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as d, di: int} =
 		let
 			val (v, i, len) = VectorSlice.base src
 		in
 			if di < 0 orelse di+len > Array.length dst
 			then raise General.Subscript
-			else System_move_words(RunCall.unsafeCast v, i, d, di+1, len)
+			else System_move_words(RunCall.unsafeCast v, i, RunCall.unsafeCast d, di+1, len)
 		end
 
 	fun isEmpty(Slice{length, ...}) = length = 0
@@ -439,29 +437,3 @@ local
 in
 	val _ = PolyML.addPrettyPrinter pretty
 end
-
-(* Install overloaded equality functions.  This has two effects.
-   It speeds up equality checking by providing a type-specific
-   equality function which is faster than the default structure
-   equality.  More importantly, it indicates to the type checker
-   that equality on this type is allowed whatever the 'a .  That
-   does not comply with the Definition of Standard ML, which
-   restricts this privilege to ref, but is implied by the Basis
-   library definition. *)
-local
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq
-in
-   fun it (x: 'a Array.array, y: 'a Array.array) = RunCall.unsafeCast f (x,y)
-end;
-RunCall.addOverload it "=";
-local
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq
-in
-   fun it (x: 'a Array.array, y: 'a Array.array) = RunCall.unsafeCast f (x,y)
-end;
-RunCall.addOverload it "<>";
-
-(* Available unqualified at the top level. *)
-type 'a array = 'a Array.array;

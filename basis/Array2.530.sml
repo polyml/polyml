@@ -62,9 +62,14 @@ struct
 	   simple implementation in terms of arrays of arrays. *)
 	(* This is implemented as a vector of rows i.e. Vector.sub(v, 0)
 	   returns the first row, Vector.sub(v, 1) the second. *)
-	(* N.B. we have to use a datatype here so that we can install a
-	   pretty printer. *)
-	datatype 'a array = Array2 of 'a Array.array Vector.vector
+    (* It's a bit messy though.  In order for this to be an eqtype for
+       any 'a it needs to be treated specially by the compiler so we
+       have to inherit a type that has been created specially for the
+       purpose. *)
+    type 'a array = 'a Bootstrap.array
+    type 'a implementation = 'a Array.array Vector.vector
+    fun toArray(impl: 'a implementation): 'a array = RunCall.unsafeCast impl
+    fun fromArray(a: 'a array): 'a implementation = RunCall.unsafeCast a
 
 	type 'a region =
 	{
@@ -78,7 +83,7 @@ struct
 	datatype traversal = RowMajor | ColMajor
 
 	fun array(r, c, init) =
-		Array2(Vector.tabulate(r, fn _ => Array.array(c, init)))
+		toArray(Vector.tabulate(r, fn _ => Array.array(c, init)))
 
 	fun fromList l =
 	let
@@ -91,11 +96,11 @@ struct
 		val checkLengths = List.foldl checkLen NONE l
 	in
 		(* Build the arrays. *)
-		Array2(Vector.fromList(List.map (fn ll => Array.fromList ll) l))
+		toArray(Vector.fromList(List.map (fn ll => Array.fromList ll) l))
 	end
 
 	fun tabulate RowMajor (r, c, f) =
-		Array2(Vector.tabulate(r, fn r' => Array.tabulate(c, fn c' => f(r', c'))))
+		toArray(Vector.tabulate(r, fn r' => Array.tabulate(c, fn c' => f(r', c'))))
 	|   tabulate ColMajor (r, c, f) =
 		let
 			(* First tabulate into column-major vectors. *)
@@ -111,22 +116,22 @@ struct
 	(* Internal functions: These are used where we have already checked
 	   that the indexes are in range.  Actually, at the moment these
 	   repeat the checking anyway. *)
-	fun uncheckedSub(Array2 a, i, j) = Array.sub(Vector.sub(a, i), j)
-	and uncheckedUpdate(Array2 arr, i, j, a) = Array.update(Vector.sub(arr, i), j, a)
+	fun uncheckedSub(a, i, j) = Array.sub(Vector.sub(fromArray a, i), j)
+	and uncheckedUpdate(arr, i, j, a) = Array.update(Vector.sub(fromArray arr, i), j, a)
 
-	fun sub(Array2 a, i, j) = Array.sub(Vector.sub(a, i), j)
+	fun sub(a, i, j) = Array.sub(Vector.sub(fromArray a, i), j)
 
-    fun update (Array2 arr, i, j, a) = Array.update(Vector.sub(arr, i), j, a)
+    fun update (arr, i, j, a) = Array.update(Vector.sub(fromArray arr, i), j, a)
 
-	fun nRows(Array2 a) = Vector.length a
+	fun nRows a = Vector.length(fromArray a)
 
 	(* This next is wrong in the case where nRows = 0. It'll do
 	   for the moment. *)
-	fun nCols(Array2 a) = Array.length(Vector.sub(a, 0))
+	fun nCols a = Array.length(Vector.sub(fromArray a, 0))
 
 	fun dimensions a = (nRows a, nCols a)
 
-	fun row(Array2 a, i) = Array.vector(Vector.sub(a, i))
+	fun row(a, i) = Array.vector(Vector.sub(fromArray a, i))
 
 	fun column(a, j) = Vector.tabulate(nRows a, fn i => sub(a, i, j))
 
@@ -308,30 +313,3 @@ struct
 		val () = PolyML.addPrettyPrinter pretty
 	end
 end;
-
-
-(* Install overloaded equality functions.  This has two effects.
-   It speeds up equality checking by providing a type-specific
-   equality function which is faster than the default structure
-   equality.  More importantly, it indicates to the type checker
-   that equality on this type is allowed whatever the 'a .  That
-   does not comply with the Definition of Standard ML, which
-   restricts this privilege to ref, but is implied by the Basis
-   library definition. *)
-local
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq
-in
-   fun it (x: 'a Array2.array, y: 'a Array2.array) =
-   		RunCall.unsafeCast f (x,y)
-end;
-RunCall.addOverload it "=";
-local
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq
-in
-   fun it (x: 'a Array2.array, y: 'a Array2.array) =
-   		RunCall.unsafeCast f (x,y)
-end;
-RunCall.addOverload it "<>";
-
