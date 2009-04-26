@@ -36,9 +36,7 @@ functor TYPE_TREE (
 (*****************************************************************************)
 structure ADDRESS :
 sig
-    type machineWord
     val wordEq: 'a * 'a -> bool
-    val toMachineWord    : 'a    -> machineWord
 end;
 
 (*****************************************************************************)
@@ -105,9 +103,6 @@ sig
   
   val CodeNil:          codetree;
   val isCodeNil:        codetree -> bool;
-  type machineWord
-  val mkConst:            machineWord -> codetree;
-  val structureEq: machineWord * machineWord -> bool;
 end;
 
 (*****************************************************************************)
@@ -141,10 +136,6 @@ sharing type
 sharing type
     EXPORTTREE.locationProp
 =   STRUCTVALS.locationProp
-
-sharing type
-    ADDRESS.machineWord
-=   CODETREE.machineWord
 
 ) :  TYPETREESIG =
 
@@ -2568,35 +2559,26 @@ struct
 		        an overload set) and it is not generic i.e. it
 				must have come from an expansive expression. *)
 			let
-				val name = "_" ^ genName(!count)
-				val _ = count := !count + 1;
+                val name = "_" ^ genName(!count)
+                val _ = count := !count + 1;
 
-                local
-                    (* Create a suitable print and equality pair for the type. *)
-                    fun defaultPrinter _ _ _ = PrettyString "?"
-                    val pair = (structureEq, ref defaultPrinter)
-                    open ADDRESS
-                in
-                    val eqAndPrint = Global(mkConst(toMachineWord pair))
-                end
-
-				val tCons =
-					makeFrozenTypeConstrs (name, [], makeFreeId(eqAndPrint, tvEquality tvar),
-						0, [DeclaredAt(location lex)]);
-	            val newVal = mkTypeConstruction(name, tCons, [], [])
-			in
-				warningMessage(lex, location lex, 
-					concat["The type of (", valName,
-						") contains a free type variable.\n",
-						"Setting it to a unique monotype."]);
-				tvSetValue (tvar, newVal)
-			end
-		else ()
-	 |  checkTypes _ () = ()
+                val tCons =
+                	makeFrozenTypeConstrs (name, [], makeFreeId(defaultEqAndPrintCode(), tvEquality tvar),
+                        0, [DeclaredAt(location lex)]);
+                val newVal = mkTypeConstruction(name, tCons, [], [])
+            in
+                warningMessage(lex, location lex, 
+                    concat["The type of (", valName,
+                        ") contains a free type variable.\n",
+                        "Setting it to a unique monotype."]);
+                tvSetValue (tvar, newVal)
+            end
+        else ()
+     |  checkTypes _ () = ()
 
   in
-  	foldType checkTypes ty ();
-	()
+      foldType checkTypes ty ();
+    ()
   end
 
 
