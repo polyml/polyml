@@ -2559,7 +2559,7 @@ struct
                 then undefinedSignature 
                 else (valRef := result; structSignat result ) 
           end
-                
+
         | FunctorAppl {name, arg, valRef, nameLoc, fullLoc} =>
           (* The result structure must be copied to generate a new
              environment. This will make new types so that different
@@ -2588,38 +2588,34 @@ struct
               
                 val resultSig : signatures = functorResult functr;
                 val argStruct : structVals = functorArg functr;
-
-                val v = Array.array (Int.max(0, sigMaxTypes resultSig), NONE);
+                val formalArgSig = structSignat argStruct
+                
+                (* This provides information about the arguments. *)
+                val v = Array.array (sigMaxTypes formalArgSig, NONE);
                 val typeMap: typeIdMap =
-                    typeMatchTab (v, sigMinTypes resultSig, sigMaxTypes resultSig);
-               
+                    typeMatchTab (v, sigMinTypes formalArgSig, sigMaxTypes formalArgSig);
                 (* Get the actual parameter value. *)
-                val argSig = structValue(arg, newTypeId, currentTypeCount, Env env, fullLoc, "");
-
+                val actualArgSig = structValue(arg, newTypeId, currentTypeCount, Env env, fullLoc, "");
                 (* Check that the actual arguments match formal arguments,
                    and instantiate the variables. *)
-                val () = matchSigs (argSig, structSignat argStruct, typeMap, str, fullLoc, lex);
-
-                (* The array contains SOME entries for type IDs that are present in
-                   the argument and passed to the result.  We need to create new entries
-                   for all the others. *)
-                fun fillTable n =
-                    if n >= sigMaxTypes resultSig
-                    then ()
-                    else
-                    (
-                        case Array.sub(v, n) of
-                            NONE =>
-                                Array.update(v, n, SOME(newTypeId false (isEquality(sigTypeIdMap resultSig n))))
-                        |   SOME _ => (); (* Already there. *)
-                        fillTable (n+1)
-                    )
-                val () = fillTable(sigMinTypes resultSig)
+                val () = matchSigs (actualArgSig, formalArgSig, typeMap, str, fullLoc, lex);
+                
+                (* Now create the generative typeIDs.  There are, currently, two cases here.  If the
+                   result signature of the functor was a named signature and used opaque matching
+                   sigMinTypes will be zero and all the type IDs are generative.  There can be no
+                   sharing with the arguments so we need to overwrite the argument entries in "v".
+                   In all other cases there may be some sharing so sigMinTypes resultSig will
+                   be sigMaxTypes argSig + 1.  The generative IDs will follow on from the arguments. *)
+                val resVector =
+                    Vector.tabulate(sigMaxTypes resultSig - sigMinTypes resultSig,
+                        fn n => newTypeId false (isEquality(sigTypeIdMap resultSig(n+sigMinTypes resultSig))))
+                fun getFinalTypeId n =
+                    if n < sigMinTypes resultSig
+                    then getOpt(Array.sub(v, n), tcIdentifier undefType)
+                    else Vector.sub(resVector, n - sigMinTypes resultSig)
             in
-                (* Finally copy the result signature, incorporating the actual
-                   args, and creating new stamps for any generative stamps
-                   (i.e. stamps that were not put in the table before. *)
-                copySig (resultSig, fn _ => true, fn n => valOf(Array.sub(v, n)), 0, strName)
+                (* Finally copy the result signature. *)
+                copySig (resultSig, fn _ => true, getFinalTypeId, 0, strName)
             end
           end
                            
@@ -3067,76 +3063,38 @@ struct
                       
               val functorSig =
                 case sigStruct of
-                    NONE => (* No signature to match. *)
-                        makeSignature (sigName resSig, sigTab resSig, 0, !typeStamps, sigDeclaredAt resSig, 
-                            fn n => if n < sigMaxTypes signat then sigTypeIdMap signat n else sigTypeIdMap resSig n)
+                    NONE => resSig (* No signature to match. *)
                 |   SOME (sigStruct, opaque, sigLoc) =>
-                 let (* Get the explicit result signature. *)
-                  val startTypes = sigMaxTypes signat;
+                    let (* Get the explicit result signature. *)
+                        val startTypes = sigMaxTypes signat;
                   
-                    val explicitSig : signatures =
-                        sigVal (sigStruct, startTypes, Env envWithArgs, line, strName ^ name ^ "().");
-                    (* explicitSig is the only circumstances in which sigMinTypes of a signature
-                       may be non-zero.  In all other cases it will be zero.  If the explicit
-                       signature was simply the name of a signature sigMinTypes will be zero
-                       because we don't copy it in sigVal.  If it is anything else it will
-                       be startTypes.  When we come to copy the signature we have to maintain
-                       any sharing with the argument (as a result of sharing or "where type")
-                       and we can only do that if we can distinguish the IDs that have been
-                       inherited from resSig from those that are new to explicitSig.  A simple
-                       named signature can't share with resSig. *)
+                        val explicitSig : signatures =
+                            sigVal (sigStruct, startTypes, Env envWithArgs, line, strName ^ name ^ "().");
+                        (* explicitSig is the only circumstances in which sigMinTypes of a signature
+                           may be non-zero.  In all other cases it will be zero.  If the explicit
+                           signature was simply the name of a signature sigMinTypes will be zero
+                           because we don't copy it in sigVal.  If it is anything else it will
+                           be startTypes.  When we come to copy the signature we have to maintain
+                           any sharing with the argument (as a result of sharing or "where type")
+                           and we can only do that if we can distinguish the IDs that have been
+                           inherited from resSig from those that are new to explicitSig.  A simple
+                           named signature can't share with resSig. *)
                   
-                    val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig
-                    val a = Array.array (Int.max(0, maxExplicitSig), NONE) ;
-                    val typeMap = typeMatchTab(a, minExplicitSig, maxExplicitSig);
+                        val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig
+                        val a = Array.array (Int.max(0, maxExplicitSig), NONE) ;
+                        val typeMap = typeMatchTab(a, minExplicitSig, maxExplicitSig);
                      
-                    (* Match the signature. *)
-                    val () = matchSigs (resSig, explicitSig, typeMap, s, sigLoc, lex);
-				    (* These maps are used to construct the resultant signature.
-				       If we are using transparent matching we use the map constructed
-				       from matching the signature to the structure but if we are
-				       using opaque matching we need to make new instances of
-				       every type. *)
-        			val (resTypeMap, finalMap) = 
+                        (* Match the signature. *)
+                        val () = matchSigs (resSig, explicitSig, typeMap, s, sigLoc, lex);
+                    in
         				if opaque
         				then
-                        let
-                            (* Reset the type stamp count so that type IDs in the result signature
-                               follow immediately from those in the args.  There could already be
-                               sharing between types in the result with types in the args as a result
-                               of explicit "where types" but unlike with transparent matching we
-                               don't inherit any type IDs from the functor body. *)
-                            val () = typeStamps := startTypes
-                            local
-                                fun makeNewId n =
-                                let
-                                    val oldId = sigTypeIdMap explicitSig (n+minExplicitSig)
-                                    val nId = !typeStamps
-                                    val () = typeStamps := nId + 1;
-                                    (* We have one entry in the run-time result vector for each type ID,
-                                       starting with a copy of the IDs in argument and following with
-                                       each of the generative type IDs. *)
-                                    val newId = makeBoundId (Formal(n+startTypes), nId, isEquality oldId)
-                                in
-                                    newId
-                                end
-                            in
-                                (* Create new IDs for all the bound IDs in the signature. *)
-                                val v = Vector.tabulate (maxExplicitSig-minExplicitSig, makeNewId)
-                            end
-                            (* Create new IDs for the arguments.  They will have the same "offset" and
-                               so share with the arguments but the run-time address may be different.
-                               Because these are located at the start of the run-time vector the
-                               run-time address (argument to Formal) is the same as the "offset". *)
-                            val argv =
-                                Vector.tabulate(sigMaxTypes signat,
-                                    fn n => makeBoundId (Formal n, n, isEquality(sigTypeIdMap signat n)))
-                        in
-                            (
-                            fn n => if n < minExplicitSig then Vector.sub(argv, n) else Vector.sub (v, n - minExplicitSig),
-                            fn n => if n < startTypes then Vector.sub(argv, n) else Vector.sub (v, n - startTypes)
-                            )
-                        end
+                        (
+                            typeStamps := maxExplicitSig+1; (* This isn't needed for a functor.  Leave it here for the moment. *)
+                            (* Just return the explicit signature.  There may be sharing with the arguments
+                               specified as part of the signature but we don't inherit any bindings in the body. *)
+                            explicitSig
+                        )
         				else (* Transparent: Use the IDs from the structure. *)
                         let
                             (* Make a vector for the type IDs created in the body.  We have an entry here for
@@ -3148,43 +3106,25 @@ struct
                                     (* Either inherited from the argument or a new type ID. *)
                                     makeBoundId (Formal(n+startTypes), offset, isEquality id)
                             |   convertId (_, id) = id (* Free or TypeFunction. *)
-                            local
-                                val bodyVec = Vector.fromList(List.rev(!localStamps))
-                                fun makeNewId n = convertId(n, Vector.sub(bodyVec, n))
-                            in
-                                val bodyVec = Vector.tabulate(Vector.length bodyVec, makeNewId)
-                            end
-                            (* Arguments as for the opaque case. *)
-                            val argv =
-                                Vector.tabulate(sigMaxTypes signat,
-                                    fn n => makeBoundId (Formal n, n, isEquality(sigTypeIdMap signat n)))
+                            val bodyVec = Vector.mapi convertId (Vector.fromList(List.rev(!localStamps)))
+                            fun resTypeMap n =
+                                convertId(n-minExplicitSig, getOpt(Array.sub(a, n), tcIdentifier undefType))
+                            (* Now copy bound IDs that don't share with IDs in the argument and replace them either by entries
+                               from the functor body or newly created IDs.  This also ensures that when we apply the
+                               functor we can distinguish generative IDs from those that are inherited from the argument.
+                               Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
+                               argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
+                            val resSig =
+                                copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap,
+                                    !typeStamps (* Start the run-time offsets after the type IDs *),
+                                    strName ^ name ^ "().")
                         in
-                            (
-                            fn n =>
-                                (* Normally every ID in the explicit signature will have an
-                                   entry in the structure and so each item in "a" will be SOME.
-                                   If we have had an error and an entry in the structure is missing
-                                   we need to use a default. *)
-                                if n < minExplicitSig
-                                then Vector.sub(argv, n) 
-                                else convertId(n-minExplicitSig, getOpt(Array.sub(a, n), tcIdentifier undefType)),
-                            fn n => if n < startTypes then Vector.sub(argv, n) else Vector.sub(bodyVec, n-startTypes)
-                            )
+                            (* The resulting signature includes both the type IDs from the arguments and generative type
+                               IDs from the body (transparent matching) or result signature (opaque matching). *)
+                            makeSignature (sigName resSig, sigTab resSig, startTypes, !typeStamps,
+                                            sigDeclaredAt resSig, fn n => Vector.sub(bodyVec, n-startTypes))
                         end
-                    (* Now copy bound IDs that don't share with IDs in the argument and replace them either by entries
-                       from the functor body or newly created IDs.  This also ensures that when we apply the
-                       functor we can distinguish generative IDs from those that are inherited from the argument.
-                       Any bound ID with an offset < sigMaxTypes argSig is assumed to be inherited from the
-                       argument while new IDs are created for any with offset >= sigMaxTypes argSig. *)
-                    val resSig =
-                        copySig (explicitSig, fn s => true, resTypeMap,
-                            !typeStamps (* Start the run-time offsets after the type IDs*),
-                            strName ^ name ^ "().")
-                in
-                    (* The resulting signature includes both the type IDs from the arguments and generative type
-                       IDs from the body (transparent matching) or result signature (opaque matching). *)
-                    makeSignature (sigName resSig, sigTab resSig, 0, !typeStamps, sigDeclaredAt resSig, finalMap)
-                end;
+                    end;
                 
              (* Now make a local functor variable and put it in the
                 name space. Because functors can only be declared at
@@ -3509,12 +3449,14 @@ struct
           val useOriginal = ref true;
           
           (* We put the entries into this vector and then flatten it. *)
-          val resVec   = StretchArray.stretchArray (10 (* Guess *), CodeZero);
+          val resVec   = StretchArray.stretchArray (10 (* Guess *), NONE);
           val maxEntry = ref 0;
           
           fun addToList code addr =
             (
-              StretchArray.update (resVec, addr, code); 
+                case StretchArray.sub(resVec, addr) of
+                    NONE => StretchArray.update (resVec, addr, SOME code)
+                |   SOME _ => raise InternalError "addToList: Duplicate entry";
               if addr >= !maxEntry then maxEntry := addr + 1 else ()
             );
         
@@ -3643,25 +3585,35 @@ struct
 				then (* We need to process the value constructors.  We may well process them
 				        as values anyway but we don't always. *)
 					let
-		            	val tcons = tagProject typeConstrVar dVal;
-						val matchedType = valOf(univLookup (source, typeConstrVar, dName))
+                        val tcons = tagProject typeConstrVar dVal;
+                        val matchedType = valOf(univLookup (source, typeConstrVar, dName))
 
-						fun processConstructor(Value{access=Formal dstAddr, ...},
-											   Value{access=Formal svAddr, ...}) =
-							(* Selecting from a signature. *)
-			                  (
-							  if svAddr <> dstAddr then useOriginal := false else (); 
-					          addToList (mkInd (svAddr, load)) dstAddr
-			                  )
+                        fun processConstructor(Value{access=Formal dstAddr, ...},
+                                               Value{access=Formal svAddr, ...}) =
+                            (* Selecting from a signature. *)
+                            (
+                                case StretchArray.sub (resVec, dstAddr) of
+                                    NONE =>
+                                    (
+                                        if svAddr <> dstAddr then useOriginal := false else (); 
+                                        addToList (mkInd (svAddr, load)) dstAddr
+                                    )
+                                |   SOME _ => ()
+                            )
 
-						  | processConstructor(Value{access=Formal dstAddr, typeOf, ...}, sourceVal) =
-						  	  (* Any other source. *)
-						 	  (
-							  useOriginal := false;
-							  addToList (codeVal (sourceVal, !level, typeOf, lex, location nullLex)) dstAddr
-							  )
+                          | processConstructor(Value{access=Formal dstAddr, typeOf, ...}, sourceVal) =
+                                (* Any other source. *)
+                            (
+                                case StretchArray.sub (resVec, dstAddr) of
+                                    NONE =>
+                                    (
+                                        useOriginal := false;
+                                        addToList (codeVal (sourceVal, !level, typeOf, lex, location nullLex)) dstAddr
+                                    )
+                                |   SOME _ => ()
+                            )
 
-						  | processConstructor _ = ()
+                          | processConstructor _ = ()
 					in
 						ListPair.app processConstructor (tcConstructors tcons, tcConstructors matchedType)
 					end
@@ -3712,7 +3664,9 @@ struct
           else (* Put the entries into a list for the vector. *)
           let
               val codeList =
-                  List.tabulate (!maxEntry, fn i => StretchArray.sub (resVec,i))
+                  List.tabulate (!maxEntry,
+                    fn i => case StretchArray.sub (resVec,i) of SOME v => v |
+                     NONE => ((*print ("Missing: " ^ Int.toString i ^ "\n");*) CodeZero))
           in
             {
               code      = mkEnv (#dec decs @ [mkTuple codeList]),
