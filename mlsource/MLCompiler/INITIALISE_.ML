@@ -68,7 +68,6 @@ sig
   val mkRaise:          codetree -> codetree;
 
   val evalue:           codetree -> machineWord;
-  val structureEq:      machineWord * machineWord -> bool;
 end;
 
 (*****************************************************************************)
@@ -1204,7 +1203,7 @@ struct
                 
                 val (Env argEnv) = makeEnv sig1;
                 
-                val exIdenVal = makeFormalV ("ex_iden", Int, 0, declInBasis);
+                val exIdenVal = makeFormalV ("ex_iden", Int, 1, declInBasis);
                 
                 val () = #enterType argEnv ("ex_type", exTypeConstr);
                 val () = #enterVal  argEnv ("ex_iden", exIdenVal);
@@ -1222,12 +1221,12 @@ struct
                 
                 (* get the actual type from the nullary type constructor *)
                 val exType = mkTypeConstruction ("ex_type", exTypeConstr, [], declInBasis);
-                val exVal  = makeFormalEx ("ex", exType ->> TYPETREE.exnType, 0, declInBasis);
+                val exVal  = makeFormalEx ("ex", exType ->> TYPETREE.exnType, 1, declInBasis);
                 
                 val () = #enterVal resEnv ("ex", exVal);
-            in      
-                (* 1 bound type inherited from argument sig *)
-                val resSig1 = makeSignature ("", sig1, 0, 1, inBasis, fn 0 => boundId |  _ => raise Subscript);
+            in
+                (* The result signature refers to a type in the argument but doesn't contain a type ID. *)
+                val resSig1 = makeSignature ("", sig1, 1, 1, inBasis, fn _ => raise Subscript);
             end
              
             (* The functor turns the value into an exception by returning the argument. *)
