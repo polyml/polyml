@@ -45,14 +45,15 @@ sig
     type program
     type exportTree
     type typeParsetree
+    type formalArgStruct
 
     val isEmptyStruct:      structs -> bool;
     val emptyStruct:        structs
     val mkStructureDec:     structBind list * location -> structs;
     val mkStruct:           structs list * location -> structs;
-    val mkSignatureDec:     sigBind list * location -> structs;
+    val mkSignatureDec:     sigBind list * location -> topdec;
     val mkSig:              structs list * location -> structs;
-    val mkFunctorDec:       functorBind list * location -> structs;
+    val mkFunctorDec:       functorBind list * location -> topdec;
     val mkInclude:          structs list -> structs;
     val mkLocaldec:         structs list * structs list * bool * location -> structs;
     val mkCoreLang:         parsetree * location -> structs;
@@ -63,9 +64,9 @@ sig
     val mkValSig:           (string * location) * typeParsetree * location -> structs;
     val mkExSig:            (string * location) * typeParsetree option * location -> structs;
     val mkFunctorAppl:      string * structs * location * location -> structs;
-    val mkFormalArg:        string * structs -> structs;
+    val mkFormalArg:        string * structs -> formalArgStruct;
     val mkFunctorBinding:
-        string * location * (structs * bool * location) option * structs * structs * location -> functorBind;
+        string * location * (structs * bool * location) option * structs * formalArgStruct * location -> functorBind;
     val mkSharing:          bool * string list * location -> structs;
     val mkWhereType:          structs * types list * string * types * location -> structs
     val mkSigConstraint:    structs * structs * bool * location -> structs
@@ -73,10 +74,6 @@ sig
     val mkProgram:          topdec list * location -> program
 
     val pass2Structs:   program * lexan * env -> unit;
-
-    val checkForFreeTypeVars:
-      ((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
-        ((string*functors->unit)->unit) * lexan -> unit
 
     val pass4Structs:
         codetree * program ->

@@ -271,8 +271,6 @@ struct
       { alist: structs list, (* List of items in it. *) location: location,
         value: univTable (* Value *), localIds: typeId list ref }
 
-  | SignatureDec   of sigBind list * location  (* List of signature decs *)
-
   | SignatureIdent of string * location  (* A signature name *)
 
   | SigDec         of structs list *location (* sig ... end *)
@@ -283,7 +281,6 @@ struct
   | ExSig          of (* Signature of an exception.  May be a nullary exception. *)
         { name: string * location, typeof: typeParsetree option, line: location }
 
-  | FunctorDec     of functorBind list * location       (* List of functor decs. *)
   | FunctorAppl    of functorApplForm    (* Appln of a functor *)
 
   | CoreLang      of (* Any other decln. *)
@@ -294,7 +291,6 @@ struct
         location: location
     }
 
-  | FormalArg      of formalArgStruct    (* Functor arg. *)
   | Sharing        of shareConstraint    (* Sharing constraints. *)
   | WhereType	   of whereTypeStruct    (* type realisation. *)
   | Localdec       of localdecStruct     (* Local/Let. *)
@@ -308,7 +304,6 @@ struct
 	   }
   | EmptyStruct                          (* Error cases. *)
 
-  (* List of structures. *)
   withtype structBind =
       {
         name:      string,         (* The name of the structure *)
@@ -325,15 +320,6 @@ struct
       structure S = STREXP: SIG.  structBind is also used for structures
       within signatures where this wouldn't work so a separate data structure
       for structure specifications would be needed. *)
-
-  and sigBind =
-      {
-        name:      string, (* The name of the signature *)
-        nameLoc:   location,
-        sigStruct: structs,(* Its value *)
-		sigRef:    signatures ref, (* The "value" of the signature. *)
-        line:      location
-      }   
 
   (* A reference to a name *)
   and structureIdentForm =
@@ -352,25 +338,6 @@ struct
         nameLoc: location,      (* The location of the name itself. *)
         fullLoc: location       (* The location of the full application. *)
       }
-
-  (* Functor binding. *)
-  and functorBind =
-      {
-        name:      string,
-        nameLoc:   location,
-        sigStruct: (structs * bool * location) option,
-        body:      structs,
-        arg:       structs,
-        valRef:    functors ref,    (* The functor variable declared. *)
-        line:      location
-      } 
-
-  and formalArgStruct =
-      {
-        name:      string,
-        sigStruct: structs,
-        valRef:    structVals ref
-      } (* The structure variable. *) 
 
   and shareConstraint =
       {
@@ -444,17 +411,6 @@ struct
           localIds = ref nil
         };
   
-    val mkSignatureDec = SignatureDec;
-  
-    fun mkSignatureBinding ((name, nameLoc), sg, ln) =
-        { 
-          name     = name,
-          nameLoc  = nameLoc,
-          sigStruct = sg,
-          line      = ln,
-		  sigRef   = ref undefinedSignature
-        };
-  
     val mkSigIdent = SignatureIdent;
   
     val mkSig = SigDec;
@@ -466,19 +422,6 @@ struct
             vars  = ref [],
             typeIds = ref [],
             location = location
-        };
-  
-    val mkFunctorDec = FunctorDec;
-  
-    fun mkFunctorBinding (name, nameLoc, signat, body, arg, line) =
-        {
-          name      = name,
-          nameLoc   = nameLoc,
-          sigStruct = signat,
-          body      = body,
-          arg       = arg,
-          valRef    = ref undefinedFunctor,
-          line      = line
         };
 
     fun mkFunctorAppl (name, arg, nameLoc, fullLoc) =
@@ -508,7 +451,6 @@ struct
         };
   
     fun mkFormalArg (name, signat) =
-      FormalArg
         {
           name      = name,
           sigStruct = signat,
@@ -546,29 +488,76 @@ struct
 	fun mkSigConstraint(str, csig, opaque, sigLoc) =
 	   SigConstraint{str=str, csig=csig, opaque=opaque, sigLoc=sigLoc}
        
-       
-    (* Top level declarations and program. *)
-    type topdec = structs
-    type program = topdec list * location
 
-    fun mkTopDec t = t
+    type formalArgStruct =
+      {
+        name:      string,
+        sigStruct: structs,
+        valRef:    structVals ref
+      } (* The structure variable. *) 
+
+    (* Top level declarations and program. *)
+    datatype topdec =
+        StrDec          of structs                          (* Structure decs and core lang. *)
+    |   FunctorDec      of functorBind list * location      (* List of functor decs. *)
+    |   SignatureDec    of sigBind list * location  (* List of signature decs *)
+    withtype   (* Functor binding. *)
+        functorBind =
+        {
+            name:      string,
+            nameLoc:   location,
+            sigStruct: (structs * bool * location) option,
+            body:      structs,
+            arg:       formalArgStruct,
+            valRef:    functors ref,    (* The functor variable declared. *)
+            line:      location
+        } 
+
+    and sigBind =
+        {
+            name:      string, (* The name of the signature *)
+            nameLoc:   location,
+            sigStruct: structs,(* Its value *)
+    		sigRef:    signatures ref, (* The "value" of the signature. *)
+            line:      location
+        }
+
+    fun mkTopDec t = StrDec t
+    and mkFunctorDec s = FunctorDec s
+    and mkSignatureDec s = SignatureDec s;
+  
+    fun mkFunctorBinding (name, nameLoc, signat, body, arg, line) =
+        {
+          name      = name,
+          nameLoc   = nameLoc,
+          sigStruct = signat,
+          body      = body,
+          arg       = arg,
+          valRef    = ref undefinedFunctor,
+          line      = line
+        }
+    and mkSignatureBinding ((name, nameLoc), sg, ln) =
+        { 
+          name     = name,
+          nameLoc  = nameLoc,
+          sigStruct = sg,
+          line      = ln,
+		  sigRef   = ref undefinedSignature
+        }
+
+    type program = topdec list * location
     fun mkProgram tl = tl
 
   (* Pretty printing *)
 
-    fun displayStructs 
-        (strs : structs list, 
-         depth : int
-        ) : pretty =
-    let (* Prints a list of items. *)
     fun displayList ([], separator, depth) dodisplay = []
     
-      | displayList ([v], separator, depth) dodisplay =
+    |   displayList ([v], separator, depth) dodisplay =
             if depth <= 0
             then [PrettyString "..."]
             else [dodisplay (v, depth)]
       
-      | displayList (v::vs, separator, depth) dodisplay =
+    |   displayList (v::vs, separator, depth) dodisplay =
             if depth <= 0
             then [PrettyString "..."]
             else
@@ -586,7 +575,7 @@ struct
                 displayList (vs, separator, depth - 1) dodisplay
             end (* displayList *) 
 
-    fun display (str, depth) =
+    fun displayStruct (str, depth) =
         if depth <= 0 (* elide further text. *)
         then PrettyString "..."
 
@@ -605,7 +594,7 @@ struct
                                 [
     		                        PrettyString (if opaque then " :>" else " :"),
     		                        PrettyBreak (1, 0),
-    		                        display (sigStruct, depth - 1)
+    		                        displayStruct (sigStruct, depth - 1)
                                 ]
                         ) @
                         (
@@ -616,7 +605,7 @@ struct
                                 [
     		                        PrettyString " =",
     		                        PrettyBreak (1, 0),
-    		                        display (value, depth - 1)
+    		                        displayStruct (value, depth - 1)
                                 ]
                         )
 		            )
@@ -635,27 +624,9 @@ struct
             PrettyBlock (1, true, [],
                 PrettyString "struct" ::
                 PrettyBreak (1, 0) ::
-                displayList (alist, "", depth) display @
+                displayList (alist, "", depth) displayStruct @
                 [ PrettyBreak (1, 0), PrettyString "end"]
             )
-
-      | SignatureDec (structList : sigBind list, _) =>
-        let
-			fun displaySigBind ({name, sigStruct, ...}: sigBind, depth) =
-		        PrettyBlock (3, false, [],
-                    [
-		                PrettyString (name ^ " ="),
-		                PrettyBreak (1, 0),
-		                display (sigStruct, depth - 1)
-                    ]
-                )
-		in 
-            PrettyBlock (3, false, [],
-                PrettyString "signature" ::
-                PrettyBreak (1, 0) ::
-                displayList (structList, "and", depth) displaySigBind
-            )
-        end
 
       | SignatureIdent (name : string, _) =>
             PrettyString name
@@ -664,7 +635,7 @@ struct
             PrettyBlock (1, true, [],
                 PrettyString "sig" ::
                 PrettyBreak (1, 0) ::
-                displayList (structList, "", depth) display @
+                displayList (structList, "", depth) displayStruct @
                 [ PrettyBreak (1, 0), PrettyString "end"]
             )
 
@@ -699,58 +670,15 @@ struct
                 ]
             )
 
-      | FunctorDec (structList : functorBind list, _) =>
-        let
-			fun displayFunctBind (
-					{name, arg, sigStruct, body, ...}: functorBind, depth) =
-		        PrettyBlock (3, false, [],
-                    PrettyString (name ^ "(") ::
-		            PrettyBreak (1, 0) ::
-		            PrettyBlock (3, true, [], [ display (arg, depth - 1) ]) ::
-		            PrettyString ")" ::
-                    (
-		                case sigStruct of
-                            NONE  => [] (* Signature is optional *)
-                        |   SOME (sigStruct, opaque, _) =>
-                            [
-                                PrettyString(if opaque then " :>" else " :"),
-    		                    PrettyBreak (1, 0),
-    		                    display (sigStruct, depth - 1)
-                            ]
-		            ) @
-		            [
-                        PrettyBreak (1, 0),
-		                PrettyString "=",
-		                PrettyBreak (1, 0),
-		                display (body, depth - 1)
-                    ]
-                )
-		in 
-            PrettyBlock (3, false, [],
-                PrettyString "functor" ::
-                PrettyBreak (1, 0) ::
-                displayList (structList, "and", depth) displayFunctBind
-            )
-        end
-
       | FunctorAppl {name, arg, ...} =>
             PrettyBlock (1, false, [],
                 [
                     PrettyString (name ^ "("),
                     PrettyBreak (0, 0),
-                    display (arg, depth),
+                    displayStruct (arg, depth),
                     PrettyBreak (0, 0),
                     PrettyString ")"
                 ]
-            )
-
-      | FormalArg {name, sigStruct, ...} =>
-            PrettyBlock (1, false, [],
-                (
-                    if name = "" then []
-                    else [ PrettyString (name ^ " :"), PrettyBreak (1, 2)]
-                ) @
-                [display (sigStruct, depth - 1)]
             )
 
       | Sharing { isType, shares, ... } =>
@@ -767,7 +695,7 @@ struct
 
       | WhereType { sigExp, typeVars, typeName, realisation, ... } =>
 			PrettyBlock (3, false, [],
-                display (sigExp, depth) ::
+                displayStruct (sigExp, depth) ::
 			    PrettyBreak (1, 0) ::
 			    PrettyString "where" ::
 			    PrettyBreak (1, 0) ::
@@ -787,9 +715,9 @@ struct
             PrettyBlock (3, false, [],
                 PrettyString (if localDec then "local" else "let") ::
                 PrettyBreak (1, 0) ::
-                displayList (decs, ";", depth - 1) display @
+                displayList (decs, ";", depth - 1) displayStruct @
                 [ PrettyBreak (1, 0), PrettyString "in", PrettyBreak (1, 0)] @
-                displayList (body, ";", depth - 1) display @
+                displayList (body, ";", depth - 1) displayStruct @
                 [ PrettyBreak (1, 0), PrettyString "end" ]
             )
 
@@ -797,7 +725,7 @@ struct
             PrettyBlock (3, true, [],
                 PrettyString "include" ::
                 PrettyBreak (1, 0) ::
-                displayList (structList, "", depth - 1) display
+                displayList (structList, "", depth - 1) displayStruct
             )
 
       | CoreLang {dec, ...} =>
@@ -806,29 +734,95 @@ struct
       | SigConstraint{str, csig, opaque, ...} =>
             PrettyBlock (0, false, [],
                 [
-                    display (str, depth - 1),
+                    displayStruct (str, depth - 1),
                     PrettyString (if opaque then " :>" else " :"),
                     PrettyBreak (1, 0),
-                    display (csig, depth - 1)
+                    displayStruct (csig, depth - 1)
                 ]
             )
 
       | EmptyStruct =>
           PrettyString "<bad>"
-    in
-        PrettyBlock(0, true, [],
-            displayList (strs, "", depth) display
-        )
-    end (* displayStructs *);
+      (* End displayStruct *)
+    
+    fun displayTopDec(top, depth) =
+        if depth <= 0 (* elide further text. *)
+        then PrettyString "..."
+
+        else
+        case top of
+            StrDec s => displayStruct(s, depth)
+
+        |   SignatureDec (structList : sigBind list, _) =>
+            let
+    			fun displaySigBind ({name, sigStruct, ...}: sigBind, depth) =
+    		        PrettyBlock (3, false, [],
+                        [
+    		                PrettyString (name ^ " ="),
+    		                PrettyBreak (1, 0),
+    		                displayStruct (sigStruct, depth - 1)
+                        ]
+                    )
+    		in 
+                PrettyBlock (3, false, [],
+                    PrettyString "signature" ::
+                    PrettyBreak (1, 0) ::
+                    displayList (structList, "and", depth) displaySigBind
+                )
+            end
+
+        |   FunctorDec (structList : functorBind list, _) =>
+            let
+    			fun displayFunctBind (
+    					{name, arg={name=argName, sigStruct=argStruct, ...}, sigStruct, body, ...}, depth) =
+    		        PrettyBlock (3, false, [],
+                        PrettyString (name ^ "(") ::
+    		            PrettyBreak (1, 0) ::
+    		            PrettyBlock (1, false, [],
+                            (
+                                if argName = "" then []
+                                else [ PrettyString (argName ^ " :"), PrettyBreak (1, 2)]
+                            ) @
+                            [displayStruct (argStruct, depth - 1)]
+                        ) ::
+    		            PrettyString ")" ::
+                        (
+    		                case sigStruct of
+                                NONE  => [] (* Signature is optional *)
+                            |   SOME (sigStruct, opaque, _) =>
+                                [
+                                    PrettyString(if opaque then " :>" else " :"),
+        		                    PrettyBreak (1, 0),
+        		                    displayStruct (sigStruct, depth - 1)
+                                ]
+    		            ) @
+    		            [
+                            PrettyBreak (1, 0),
+    		                PrettyString "=",
+    		                PrettyBreak (1, 0),
+    		                displayStruct (body, depth - 1)
+                        ]
+                    )
+    		in 
+                PrettyBlock (3, false, [],
+                    PrettyString "functor" ::
+                    PrettyBreak (1, 0) ::
+                    displayList (structList, "and", depth) displayFunctBind
+                )
+            end
+        (* End displayTopDec *)
  
-    fun displayProgram ((sl, _), d) = displayStructs (sl, d)
+    fun displayProgram ((sl, _), d) =
+        PrettyBlock(0, true, [],
+            displayList (sl, "", d) displayTopDec
+        )
     
     
     fun structExportTree(navigation, s: structs) =
     let
          (* Common properties for navigation and printing. *)
         val commonProps =
-            PTprint(fn d => displayStructs([s], d)) ::
+            PTprint(fn d => displayStruct(s, d)) ::
             exportNavigationProps navigation
 
         fun asParent () = structExportTree(navigation, s)
@@ -887,22 +881,6 @@ struct
         |   StructDec{ location, alist, ...} =>
                 (location, exportList(structExportTree, SOME asParent) alist @ commonProps)
 
-        |   SignatureDec(sigs, location) =>
-            let
-                fun exportSB(navigation, sb as {name, nameLoc, sigStruct, line, ...}) =
-                    let
-                        fun exportThis () = exportSB(navigation, sb)
-                        fun getName () =
-                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getSig}, name, nameLoc, [])
-                        and getSig () =
-                            structExportTree({parent=SOME exportThis, previous=SOME getName, next=NONE}, sigStruct)
-                    in
-                        (line, PTfirstChild getName :: exportNavigationProps navigation)
-                    end
-            in
-                (location, exportList(exportSB, SOME asParent) sigs @ commonProps)
-            end
-
         |   SignatureIdent _ => (nullLocation, commonProps)
 
         |   SigDec(structList, location) =>
@@ -941,33 +919,10 @@ struct
                 (line, PTfirstChild getName :: commonProps)
             end
 
-        |   FunctorDec(fbl, location) =>
-            let
-                fun exportFB(navigation, fb as {name, sigStruct, arg, body, line, ...}) =
-                    let
-                        val sbProps = exportNavigationProps navigation
-                        fun exportThis () = exportFB(navigation, fb)
-                        (* TODO: Visit the functor name here? *)
-                        val sigEntry: structs list =
-                            case sigStruct of
-                                NONE => []
-                            |   SOME (sigStruct, _, _) => [sigStruct]
-                        val asChild = exportList(structExportTree, SOME exportThis) (arg :: (sigEntry @ [body]))
-                    in
-                        (line, asChild @ sbProps)
-                    end
-
-                val expChild = exportList(exportFB, SOME asParent) fbl
-            in
-                (location, expChild @ commonProps)
-            end
-
         |   FunctorAppl _ => (nullLocation, commonProps)
 
         |   CoreLang {dec, ...} => (* A value parse-tree entry. *)
                 getExportTree(navigation, dec)
-
-        |   FormalArg _ => (nullLocation, commonProps)
 
         |   Sharing _ => (nullLocation, commonProps)
 
@@ -983,8 +938,59 @@ struct
         |   EmptyStruct => (nullLocation, commonProps)
  
     end
+    
+    fun topDecExportTree(navigation, top: topdec) =
+    let
+         (* Common properties for navigation and printing. *)
+        val commonProps =
+            PTprint(fn d => displayTopDec(top, d)) ::
+            exportNavigationProps navigation
 
-    fun structsExportTree (parentOpt, trees) =
+        fun asParent () = topDecExportTree(navigation, top)
+    in
+        case top of
+            StrDec s => structExportTree(navigation, s)
+
+        |   SignatureDec(sigs, location) =>
+            let
+                fun exportSB(navigation, sb as {name, nameLoc, sigStruct, line, ...}) =
+                    let
+                        fun exportThis () = exportSB(navigation, sb)
+                        fun getName () =
+                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getSig}, name, nameLoc, [])
+                        and getSig () =
+                            structExportTree({parent=SOME exportThis, previous=SOME getName, next=NONE}, sigStruct)
+                    in
+                        (line, PTfirstChild getName :: exportNavigationProps navigation)
+                    end
+            in
+                (location, exportList(exportSB, SOME asParent) sigs @ commonProps)
+            end
+
+        |   FunctorDec(fbl, location) =>
+            let
+                fun exportFB(navigation, fb as {name, sigStruct, arg={sigStruct=argStruct, ...}, body, line, ...}) =
+                    let
+                        val sbProps = exportNavigationProps navigation
+                        fun exportThis () = exportFB(navigation, fb)
+                        (* TODO: Visit the functor name here? *)
+                        val sigEntry: structs list =
+                            case sigStruct of
+                                NONE => []
+                            |   SOME (sigStruct, _, _) => [sigStruct]
+                        val asChild = exportList(structExportTree, SOME exportThis) (argStruct :: (sigEntry @ [body]))
+                    in
+                        (line, asChild @ sbProps)
+                    end
+
+                val expChild = exportList(exportFB, SOME asParent) fbl
+            in
+                (location, expChild @ commonProps)
+            end
+    end
+
+    (* Convert a "program" into a navigable tree. *)
+    fun structsExportTree (parentOpt, trees: program) =
     let
         (* If a parent tree has been provided include it here. *)
         val parentTree =
@@ -997,7 +1003,7 @@ struct
         |   exportTree(topdec as (sl, location)) =
         let
             fun getEntry(this as (s :: sl), getPrevious) (): exportTree =
-                structExportTree(
+                topDecExportTree(
                     {
                         parent = SOME(fn () => exportTree topdec), (* Parent is this. *)
                         previous = getPrevious,
@@ -1012,7 +1018,7 @@ struct
                     )
             |   getEntry _ () = raise Empty
         in
-            (location, parentTree @ [PTfirstChild(getEntry(sl, NONE)), PTprint(fn d => displayStructs(sl, d))])
+            (location, parentTree @ [PTfirstChild(getEntry(sl, NONE))])
         end
     in
         exportTree trees
@@ -1037,7 +1043,7 @@ struct
         reportError lex
         {
             hard = hard, location = lno, message = message,
-            context = SOME(displayStructs ([near], errorDepth))
+            context = SOME(near errorDepth)
         }
     end;
 
@@ -1120,13 +1126,13 @@ struct
             [
                 PrettyString ("While checking (" ^ name ^ ") near"),
                 PrettyBreak (1, 2),
-                displayStructs ([sVal], errorDepth lex)
+                displayStruct(sVal, errorDepth lex)
             ]
         )
 
     (* Error message routine for lookupType and lookupStructure. *)
     fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
-        fn (message : string) => errorNear (lex, true, sVal, lno, message);
+        fn (message : string) => errorNear (lex, true, fn n => displayStruct(sVal, n), lno, message);
 
     (* Turn a result from matchTypes into a pretty structure so that it
        can be included in a message.
@@ -1258,7 +1264,7 @@ struct
        (candidate     : signatures,
         target        : signatures,
         { lookup = lookupType, enter = enterType} : typeIdMap, 
-        near,
+        near          : int->pretty,
         lno           : LEX.location,
         lex           : lexan
        ) : unit =
@@ -1804,28 +1810,18 @@ struct
   val makeEnv = fn x => let val Env e = makeEnv x in e end;  
 
   (* Second pass - identify names with values and type-check *)
-  fun pass2Structs ((strs, _): program, lex : lexan, Env env : env) : unit =
-  let 
-    fun pass2Struct 
-        (strs     : structs list,
-         makeTypeId : bool -> bool -> typeId,
-         makeCurrentTypeCount: unit -> int,
-         Env env  : env, 
-         lno      : LEX.location,
-		 strName  : string
-         ) : unit =
-    let
+ 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
          The type IDs in the signature are bound names. *)
-      fun sigVal 
-            (str           : structs,
+    fun sigVal(str           : structs,
              initTypeId    : int,
              Env globalEnv : env,
+             lex,
              lno           : LEX.location,
 			 strName	   : string
             ) : signatures =
-      let
+    let
        (* Process a sharing constraint. *)
         fun applySharingConstraint 
               ({shares = tlist, isType, line}: shareConstraint,
@@ -1847,7 +1843,7 @@ struct
                         PrettyBlock(0, false, context, [PrettyString(tcName t)])
                     end
                 in
-                    errorMsgNear (lex, true, near, lno,
+                    errorMsgNear (lex, true, fn n => displayStruct(near, n), lno,
                         PrettyBlock(0, false, [],
                             [
                                 PrettyString "Cannot share type",
@@ -2128,7 +2124,7 @@ struct
 			fun checkAndEnter enter lookup kind (s: string, v) =
                 case lookup s of
                    SOME _ => (* Already there. *)
-				     errorNear (lex, true, str, lno, 
+				     errorNear (lex, true, fn n => displayStruct(str, n), lno, 
                          kind ^ " (" ^ s ^ ") is already present in this signature.")
                 |  NONE => enter(s, v)
 
@@ -2545,13 +2541,13 @@ struct
                 (* Set the size of the type table for the signature we return. *)
                 makeSignature (sigName resultSig, sigTab resultSig, initTypeId, !typeCounter, sigDeclaredAt resultSig, typeIDMap)
             end (* not (isSignatureIdent str) *)
-      end (* sigVal *);
+    end (* sigVal *);
                   
       (* Process structure-returning expressions i.e. structure names,
          struct..end values and functor applications. *)
-      fun structValue(str, newTypeId: bool->bool->typeId, currentTypeCount, Env env, lno, strName) =
-      let (* Look up a structure name. *)         
-      in
+    fun structValue(str, newTypeId: bool->bool->typeId, currentTypeCount, Env env, lex, lno, strName) =
+    let (* Look up a structure name. *)         
+    in
         case str of
           StructureIdent {name, valRef, location} =>
           let (* Look up the name and save the value. *)
@@ -2599,10 +2595,10 @@ struct
                 val typeMap: typeIdMap =
                     typeMatchTab (v, sigMinTypes formalArgSig, sigMaxTypes formalArgSig);
                 (* Get the actual parameter value. *)
-                val actualArgSig = structValue(arg, newTypeId, currentTypeCount, Env env, fullLoc, "");
+                val actualArgSig = structValue(arg, newTypeId, currentTypeCount, Env env, lex, fullLoc, "");
                 (* Check that the actual arguments match formal arguments,
                    and instantiate the variables. *)
-                val () = matchSigs (actualArgSig, formalArgSig, typeMap, str, fullLoc, lex);
+                val () = matchSigs (actualArgSig, formalArgSig, typeMap, fn n => displayStruct(str, n), fullLoc, lex);
                 
                 (* Now create the generative typeIDs.  There are, currently, two cases here.  If the
                    result signature of the functor was a named signature and used opaque matching
@@ -2749,7 +2745,7 @@ struct
             };
             
             (* process body of structure *)
-            val () = pass2Struct (alist, makeLocalTypeId, currentTypeCount, Env newEnv, lno, strName);
+            val () = pass2Struct (alist, makeLocalTypeId, currentTypeCount, Env newEnv, lex, lno, strName);
             (* Save the list of the type IDs created in this structure. *)
             val v = Vector.fromList(List.rev(!formalTypeIds))
           in
@@ -2786,21 +2782,21 @@ struct
              
             (* Process the local declarations. *)
             val U : unit =
-              pass2Struct (decs, newTypeId, currentTypeCount, Env localEnv, line, strName);
+              pass2Struct (decs, newTypeId, currentTypeCount, Env localEnv, lex, line, strName);
                    
           in
             (* There should just be one entry in the "body" list. *)
-            structValue(localStr, newTypeId, currentTypeCount, Env localEnv, line, strName)
+            structValue(localStr, newTypeId, currentTypeCount, Env localEnv, lex, line, strName)
           end
 		  
         | SigConstraint { str, csig, opaque, sigLoc } =>
           let (* struct: sig or struct :> sig *)
-            val resSig = structValue(str, newTypeId, currentTypeCount, Env env, lno, strName);
+            val resSig = structValue(str, newTypeId, currentTypeCount, Env env, lex, lno, strName);
             (* Create the signature using bound Id values that are distinct from
                those we've previously used but at this stage don't increment
                the counters. *)
             val explicitSig  : signatures = 
-              sigVal(csig, currentTypeCount(), Env env, sigLoc, strName);
+              sigVal(csig, currentTypeCount(), Env env, lex, sigLoc, strName);
                      
             (* Make tables to contain the matched ids. *)
             val a = Array.array (Int.max(0, sigMaxTypes explicitSig), NONE) ;
@@ -2809,7 +2805,7 @@ struct
 
             (* Match the structure to the signature.  This will fill in entries
                in the array. *)
-            val () = matchSigs (resSig, explicitSig, typeMap, str, sigLoc, lex);
+            val () = matchSigs (resSig, explicitSig, typeMap, fn n => displayStruct(str, n), sigLoc, lex);
               
 			(* These maps are used to construct the resultant signature.
 			   If we are using transparent matching we use the map constructed
@@ -2850,8 +2846,18 @@ struct
                 
         | _ =>
            raise InternalError "structValue: not a value"
-      end (* structValue *);
-      
+    end (* structValue *)
+
+    and pass2Struct 
+        (strs     : structs list,
+         makeTypeId : bool -> bool -> typeId,
+         makeCurrentTypeCount: unit -> int,
+         Env env  : env,
+         lex,
+         lno      : LEX.location,
+		 strName  : string
+         ) : unit =
+    let
       fun pass2StructureDec (str : structs, structList : structBind list) : unit =
       let (* Declaration of structures. *)
         (* The declarations must be made in parallel. i.e.
@@ -2860,7 +2866,7 @@ struct
         val sEnv =  (* The new names. *)
           noDuplicates 
             (fn(name, _, _) => 
-              errorNear (lex, true, str, lno, 
+              errorNear (lex, true, fn n => displayStruct(str, n), lno, 
                          "Structure " ^ name ^ 
                          " has already been bound in this declaration")
             );
@@ -2879,7 +2885,7 @@ struct
             end;
 
             val resSig =
-				structValue(value, sbindMakeTypeId, makeCurrentTypeCount, Env env, line, strName ^ name ^".");
+				structValue(value, sbindMakeTypeId, makeCurrentTypeCount, Env env, lex, line, strName ^ name ^".");
               
             val resultSig =
                 case sigStruct of
@@ -2890,7 +2896,7 @@ struct
                        we have to make any new bound names outside the range
                        we have already used. *)
                     val explicitSig  : signatures = 
-                      sigVal(sigStruct, makeCurrentTypeCount(), Env env, sigLoc, strName ^ name ^ ".");
+                      sigVal(sigStruct, makeCurrentTypeCount(), Env env, lex, sigLoc, strName ^ name ^ ".");
                      
                     (* Make tables to contain the matched ids. *)
                     val a = Array.array (Int.max(0, sigMaxTypes explicitSig), NONE) ;
@@ -2898,7 +2904,7 @@ struct
                       typeMatchTab (a, sigMinTypes explicitSig, sigMaxTypes explicitSig);
 
                     (* Match the signature.  This instantiates entries in typeMap. *)
-                    val () = matchSigs (resSig, explicitSig, typeMap, str, sigLoc, lex);    
+                    val () = matchSigs (resSig, explicitSig, typeMap, fn n => displayStruct(str, n), sigLoc, lex);    
               
     				(* These maps are used to construct the resultant signature.
     				   If we are using transparent matching we use the map constructed
@@ -2944,249 +2950,6 @@ struct
         (* Put them into the enclosing env. *)
         #apply sEnv (#enterStruct env)
       end; (* pass2StructureDec *)
-      
-      fun pass2FunctorDec (s: structs, structList : functorBind list) : unit =
-      let
-        (* There is a restriction that the same name may not be bound twice.
-		   As with other bindings functor bindings happen in parallel.
-		   DCJM 6/1/00. *)
-        val sEnv =  (* The new names. *)
-          noDuplicates 
-            (fn (name, _, _) => 
-              errorNear (lex, true, s, lno, 
-                         "Functor " ^ name ^ 
-                         " has already been bound in this declaration")
-            );
-
-         (* Put the new names into this environment. *)
-        fun pass2FunctorBind
-                {name,
-                 arg = FormalArg {name = argName, sigStruct = argSig, valRef = argVal},
-                 body, sigStruct, valRef, line, ...} =
-          let
-            (* We must copy the signatures to ensure that arguments with
-               the same signature are different. Make an environment to
-               contain the arguments. *)
-            val argEnv = makeEnv (makeSignatureTable());
-             
-            (* If it is a "spec" it must be wrapped up in sig...end.
-               We can't have a functor declaration in another functor
-               (at least in the current definition of ML) so we can 
-               start this at 0, rather than !typeNo. *)
-            val signat : signatures =
-              let
-			  	val spec =
-					case argSig of
-						SignatureIdent _ => argSig
-					|	SigDec _ => argSig
-					|	WhereType _ => argSig
-					|	_ => mkSig([argSig], line (* TODO: What's this? *))
-              in
-                sigVal (spec, 0, Env env, line, "")
-              end;
-              
-            val resArg = makeLocalStruct (argName, signat, [DeclaredAt line]);
-          in (* Put the copied version in. *)
-            if argName <> ""
-            then #enterStruct argEnv (argName, resArg)
-            else
-              (* Open the dummy argument. Similar to "open" in treestruct. *)
-              univFold
-               (sigTab signat,
-                (fn (dName, dVal, ()) =>
-                   if tagIs typeConstrVar dVal
-                     then
-                       #enterType argEnv
-                         (dName, tagProject typeConstrVar dVal)
-                       
-                   else if tagIs valueVar dVal
-                     then
-                       #enterVal argEnv 
-                         (dName, mkSelectedVar (tagProject valueVar dVal, resArg, []))
-                          
-                   else if tagIs structVar dVal
-                     then
-                       #enterStruct argEnv 
-                         (dName, makeSelectedStruct (tagProject structVar dVal, resArg, []))
-                         
-                   else ()
-                 ),
-                ()
-               );
-             
-            argVal := resArg;
-             
-            (* Now process the body of the functor using the environment of
-               the arguments to the functor and the global environment. *)
-            let
-              val envWithArgs = 
-               {
-                lookupVal     =
-                  lookupDefault (#lookupVal    argEnv) (#lookupVal    env),
-                lookupType    =
-                  lookupDefault (#lookupType   argEnv) (#lookupType   env),
-                lookupFix     = #lookupFix    env,
-                lookupStruct  =
-                  lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
-                lookupSig     = #lookupSig    env,
-                lookupFunct   = #lookupFunct  env,
-                enterVal      = #enterVal     env,
-                enterType     = #enterType    env,
-                enterFix      = fn _ => (),
-                enterStruct   = #enterStruct  env,
-                enterSig      = #enterSig     env,
-                enterFunct    = #enterFunct   env
-               };
-               
-              (* In sigVal we will have allocated a range of bound stamps
-                 for the argument signature. We need to extend the range
-                 for stamps in the body. *)
-              val typeStamps = ref (sigMaxTypes signat);
-
-              val localStamps = ref []
-
-             
-            local
-                (* Create local IDs for any datatypes declared in the body or any generative
-                   functor applications. *)
-                fun newTypeId isVar eq =
-                let
-                    val n = !typeStamps
-                    val () = typeStamps := n + 1;
-                    val newId =
-                        (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                            (Local{addr = ref 0, level = ref 0}, n, eq)
-                in
-                    localStamps := newId :: !localStamps;
-                    newId
-                end
-            in
-                val resSig =
-                    structValue(body, newTypeId, fn () => !typeStamps, Env envWithArgs, line, strName ^ name ^ "().")
-            end;
-                      
-              val functorSig =
-                case sigStruct of
-                    NONE => resSig (* No signature to match. *)
-                |   SOME (sigStruct, opaque, sigLoc) =>
-                    let (* Get the explicit result signature. *)
-                        val startTypes = sigMaxTypes signat;
-                  
-                        val explicitSig : signatures =
-                            sigVal (sigStruct, startTypes, Env envWithArgs, line, strName ^ name ^ "().");
-                        (* explicitSig is the only circumstances in which sigMinTypes of a signature
-                           may be non-zero.  In all other cases it will be zero.  If the explicit
-                           signature was simply the name of a signature sigMinTypes will be zero
-                           because we don't copy it in sigVal.  If it is anything else it will
-                           be startTypes.  When we come to copy the signature we have to maintain
-                           any sharing with the argument (as a result of sharing or "where type")
-                           and we can only do that if we can distinguish the IDs that have been
-                           inherited from resSig from those that are new to explicitSig.  A simple
-                           named signature can't share with resSig. *)
-                  
-                        val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig
-                        val a = Array.array (Int.max(0, maxExplicitSig), NONE) ;
-                        val typeMap = typeMatchTab(a, minExplicitSig, maxExplicitSig);
-                     
-                        (* Match the signature. *)
-                        val () = matchSigs (resSig, explicitSig, typeMap, s, sigLoc, lex);
-                    in
-        				if opaque
-        				then
-                        (
-                            typeStamps := maxExplicitSig+1; (* This isn't needed for a functor.  Leave it here for the moment. *)
-                            (* Just return the explicit signature.  There may be sharing with the arguments
-                               specified as part of the signature but we don't inherit any bindings in the body. *)
-                            explicitSig
-                        )
-        				else (* Transparent: Use the IDs from the structure. *)
-                        let
-                            (* Make a vector for the type IDs created in the body.  We have an entry here for
-                               every type ID whether or not it is mentioned directly in the signature.  We
-                               could have types that are mentioned indirectly e.g. we have type t = s * s
-                               with "s" being local to the functor and only "t" mentioned in the signature.
-                               We need to ensure that "t" is generative. *)
-                            fun convertId(n, id as Bound { offset, ...}) =
-                                    (* Either inherited from the argument or a new type ID. *)
-                                    makeBoundId (Formal(n+startTypes), offset, isEquality id)
-                            |   convertId (_, id) = id (* Free or TypeFunction. *)
-                            val bodyVec = Vector.mapi convertId (Vector.fromList(List.rev(!localStamps)))
-                            fun resTypeMap n =
-                                convertId(n-minExplicitSig, getOpt(Array.sub(a, n), tcIdentifier undefType))
-                            (* Now copy bound IDs that don't share with IDs in the argument and replace them either by entries
-                               from the functor body or newly created IDs.  This also ensures that when we apply the
-                               functor we can distinguish generative IDs from those that are inherited from the argument.
-                               Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
-                               argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
-                            val resSig =
-                                copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap,
-                                    !typeStamps (* Start the run-time offsets after the type IDs *),
-                                    strName ^ name ^ "().")
-                        in
-                            (* The resulting signature includes both the type IDs from the arguments and generative type
-                               IDs from the body (transparent matching) or result signature (opaque matching). *)
-                            makeSignature (sigName resSig, sigTab resSig, startTypes, !typeStamps,
-                                            sigDeclaredAt resSig, fn n => Vector.sub(bodyVec, n-startTypes))
-                        end
-                    end;
-                
-             (* Now make a local functor variable and put it in the
-                name space. Because functors can only be declared at
-                the top level the only way it can be used is if we have 
-                functor F(..) = ... functor G() = ..F.. with no semicolon
-                between them. They will then be taken as a single
-                declaration and F will be picked up as a local. *)
-              (* Set the size of the type map. *)
-              
-              val var = makeFunctor (name, resArg, functorSig, makeLocal (), line);
-              
-            in
-              #enter sEnv (name, var);
-              valRef := var
-            end
-          end
-        | pass2FunctorBind _ =
-			raise InternalError "pass2FunctorBind"
-      in
-        (* Each element in the list is a functor binding. *)
-        List.app pass2FunctorBind structList;
-        (* Put them into the enclosing env. *)
-        #apply sEnv (#enterFunct env)		
-      end; (* pass2FunctorDec *)
-      
-      fun pass2SignatureDec (str: structs, structList : sigBind list) : unit =
-      let
-        (* There is a restriction that the same name may not be bound twice.
-		   As with other bindings functor bindings happen in parallel.
-		   DCJM 6/1/00. *)
-        val sEnv =  (* The new names. *)
-          noDuplicates 
-            (fn (name, _, _) => 
-              errorNear (lex, true, str, lno, 
-                         "Signature " ^ name ^ 
-                         " has already been bound in this declaration")
-            );
-
-        fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
-          let (* Each element in the list is a signature binding. *)
-            (* Get the signature.  We can't have a declaration of a
-               signature inside a functor so we can start at 0
-               rather than !typeNo. *)
-            val resSig : signatures =
-				sigVal (sigStruct, 0, Env env, line, strName ^ name ^ ".");
-            (* Generate a signature with the new name and put it
-               in the table *)
-			val copiedSig =
-                makeSignature (name, sigTab resSig, sigMinTypes resSig, sigMaxTypes resSig, line, sigTypeIdMap resSig)
-          in
-		     sigRef := copiedSig; (* Remember the signature for pass4. *)
-             #enter sEnv (name, copiedSig)
-           end
-      in
-        List.app pass2SignatureBind structList;
-        (* Put them into the enclosing env. *)
-        #apply sEnv (#enterSig env)		
-      end; (* pass2SignatureDec *)
 
        fun pass2Localdec (decs : structs list, body : structs list) : unit =
        let
@@ -3213,7 +2976,7 @@ struct
            };
         
         (* Process the local declarations. *)
-        val () = pass2Struct (decs, makeTypeId, makeCurrentTypeCount, Env localEnv, lno, strName);
+        val () = pass2Struct (decs, makeTypeId, makeCurrentTypeCount, Env localEnv, lex, lno, strName);
              
         (* This is the environment used for the body of the declaration.
            Declarations are added both to the local environment and to
@@ -3257,7 +3020,7 @@ struct
           };
       in 
         (* Now the body. *)
-        pass2Struct (body, makeTypeId, makeCurrentTypeCount, Env bodyEnv, lno, strName)
+        pass2Struct (body, makeTypeId, makeCurrentTypeCount, Env bodyEnv, lex, lno, strName)
       end; (* pass2Localdec *)
       
       fun pass2Singleton (dec : parsetree, vars, typeIds) : unit =
@@ -3319,74 +3082,348 @@ struct
          ()
        end; (* pass2Singleton *)
 
-      fun pass2Dec (str : structs) : unit =
-        case str of
-          StructureDec (structList : structBind list, _) =>
-            pass2StructureDec (str, structList)
-   
-        | FunctorDec (structList : functorBind list, _) =>
-            pass2FunctorDec (str, structList)
+        fun pass2Dec (str as StructureDec (structList : structBind list, _)) =
+                pass2StructureDec (str, structList)
 
-        | SignatureDec (structList : sigBind list, _) =>
-            pass2SignatureDec (str, structList)
-
-        | Localdec {decs, body, ...} =>
-            pass2Localdec (decs, body)
+        |   pass2Dec(Localdec {decs, body, ...}) =
+                pass2Localdec (decs, body)
         
-        | CoreLang {dec, vars, typeIds, ...} =>
-            pass2Singleton (dec, vars, typeIds)
+        |   pass2Dec(CoreLang {dec, vars, typeIds, ...}) =
+                pass2Singleton (dec, vars, typeIds)
         
-        | _ => (* empty (we should check this!!!) *)
-            ();
+        |   pass2Dec _ = () (* empty (we should check this!!!) *)
     in        
-       List.app pass2Dec strs (* Process all the top level entries. *)
+        List.app pass2Dec strs (* Process all the top level entries. *)
     end (* pass2Struct *)
 
+
+    fun pass2Structs ((strs, _): program, lex : lexan, Env globals : env) : unit =
+    let
+        (* Create a local environment to capture declarations.
+           We don't want to add them to the global environment at this point. *)
+        val newValEnv   = UTILITIES.searchList()
+        and newTypeEnv  = UTILITIES.searchList()
+        and newStrEnv   = UTILITIES.searchList()
+        and newSigEnv   = UTILITIES.searchList()
+        and newFuncEnv  = UTILITIES.searchList()
+
+        (* create an "env" from the throw-away environment *)
+        val lookupVal =
+            lookupDefault (#lookup newValEnv)  (#lookupVal globals)
+        and lookupType =
+            lookupDefault (#lookup newTypeEnv) (#lookupType globals)
+        and lookupStruct =
+            lookupDefault (#lookup newStrEnv)  (#lookupStruct globals)
+        and lookupSig =
+            lookupDefault (#lookup newSigEnv)  (#lookupSig globals)
+        and lookupFunct =
+            lookupDefault (#lookup newFuncEnv) (#lookupFunct globals)
+
+        val env = 
+        {
+            lookupVal     = lookupVal,
+            lookupType    = lookupType,
+            lookupFix     = #lookupFix globals,
+            lookupStruct  = lookupStruct,
+            lookupSig     = lookupSig,
+            lookupFunct   = lookupFunct,
+            enterVal      = #enter newValEnv,
+            enterType     = #enter newTypeEnv,
+            enterFix      = fn _ => (), (* ?? Already entered by the parser. *)
+            enterStruct   = #enter newStrEnv,
+            enterSig      = #enter newSigEnv,
+            enterFunct    = #enter newFuncEnv
+        };
+
+        (* Check for free type-variables. *)
+		(* Check the type of a value. *)
+		fun checkValueForFreeTypeVariables(name: string, v: values) =
+			checkForFreeTypeVariables(name, valTypeOf v, lex)
+
+		(* Find all the values in the structure. *)
+		fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
+		let
+			fun checkEntry(dName: string, dVal: universal, ()) =
+				if tagIs structVar dVal
+				then checkStructSigForFreeTypeVariables(name ^ dName ^ ".",
+						structSignat((tagProject structVar) dVal))
+				else if tagIs valueVar dVal
+				then checkValueForFreeTypeVariables(name ^ dName, (tagProject valueVar) dVal)
+				else ()
+		in
+			univFold(sigTab s, checkEntry, ())
+		end
+
+        (* Structures and types at the top level are free identifiers. *)
         fun makeId isVar eq =
             (if isVar then makeFreeIdEqUpdate else makeFreeId)
                 (Local{addr = ref 0, level = ref 0}, eq)
-    in (* Structures and types at the top level are free identifiers. *)
-        pass2Struct (strs, makeId, fn () => 0, Env env, location lex, "")
+        fun makeCurrentTypeCount () = 0
+
+        fun pass2TopDec (StrDec str) =
+        (
+            (* strdec: structure or core-language topdec. *)
+            pass2Struct([str], makeId, fn () => 0, Env env, lex, location lex, "");
+            (* Check for free type variables.  We have to do this after unification
+               within the strdec because later declarations may freeze earlier but
+               we must do this for each topdec.  Otherwise it's possible to associate
+               a global ref with a functor argument and break the type system. *)
+            if errorOccurred lex then ()
+		  	else
+            (
+        		#apply newValEnv (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
+        		#apply newStrEnv (
+        			fn (n: string, s: structVals) =>
+        				checkStructSigForFreeTypeVariables(n^".", structSignat s))
+            )
+        )
+   
+        |   pass2TopDec(topdec as FunctorDec (structList : functorBind list, lno)) =
+            let
+                (* There is a restriction that the same name may not be bound twice.
+        		   As with other bindings functor bindings happen in parallel.
+        		   DCJM 6/1/00. *)
+                val sEnv =  (* The new names. *)
+                  noDuplicates 
+                    (fn (name, _, _) =>
+                        errorNear(lex, true, fn n => displayTopDec(topdec, n), lno,
+                            "Functor " ^ name ^ " has already been bound in this declaration")
+                    );
+
+                (* Put the new names into this environment. *)
+                fun pass2FunctorBind
+                    {name,
+                     arg = {name = argName, sigStruct = argSig, valRef = argVal},
+                     body, sigStruct, valRef, line, ...} =
+                let
+                    (* We must copy the signatures to ensure that arguments with
+                       the same signature are different. Make an environment to
+                       contain the arguments. *)
+                    val argEnv = makeEnv (makeSignatureTable());
+             
+                    (* If it is a "spec" it must be wrapped up in sig...end.
+                       We can't have a functor declaration in another functor
+                       (at least in the current definition of ML) so we can 
+                       start this at 0, rather than !typeNo. *)
+                    val signat : signatures =
+                    let
+        			  	val spec =
+        					case argSig of
+        						SignatureIdent _ => argSig
+        					|	SigDec _ => argSig
+        					|	WhereType _ => argSig
+        					|	_ => mkSig([argSig], line (* TODO: What's this? *))
+                    in
+                        sigVal (spec, 0, Env env, lex, line, "")
+                    end;
+              
+                    val resArg = makeLocalStruct (argName, signat, [DeclaredAt line]);
+                    (* Put the copied version in. *)
+                    
+                    val () = 
+                        if argName <> ""
+                        then #enterStruct argEnv (argName, resArg)
+                        else
+                        (* Open the dummy argument. Similar to "open" in treestruct. *)
+                        univFold
+                                (sigTab signat,
+                            (fn (dName, dVal, ()) =>
+                               if tagIs typeConstrVar dVal
+                                 then
+                                   #enterType argEnv
+                                     (dName, tagProject typeConstrVar dVal)
+                       
+                               else if tagIs valueVar dVal
+                                 then
+                                   #enterVal argEnv 
+                                     (dName, mkSelectedVar (tagProject valueVar dVal, resArg, []))
+                          
+                               else if tagIs structVar dVal
+                                 then
+                                   #enterStruct argEnv 
+                                     (dName, makeSelectedStruct (tagProject structVar dVal, resArg, []))
+                         
+                               else ()
+                             ),
+                            ()
+                           );
+             
+                    val () = argVal := resArg;
+             
+                    (* Now process the body of the functor using the environment of
+                           the arguments to the functor and the global environment. *)
+                    val envWithArgs = 
+                    {
+                        lookupVal     =
+                          lookupDefault (#lookupVal    argEnv) (#lookupVal    env),
+                        lookupType    =
+                          lookupDefault (#lookupType   argEnv) (#lookupType   env),
+                        lookupFix     = #lookupFix    env,
+                        lookupStruct  =
+                          lookupDefault (#lookupStruct argEnv) (#lookupStruct env),
+                        lookupSig     = #lookupSig    env,
+                        lookupFunct   = #lookupFunct  env,
+                        enterVal      = #enterVal     env,
+                        enterType     = #enterType    env,
+                        enterFix      = fn _ => (),
+                        enterStruct   = #enterStruct  env,
+                        enterSig      = #enterSig     env,
+                        enterFunct    = #enterFunct   env
+                    };
+               
+                    (* In sigVal we will have allocated a range of bound stamps
+                         for the argument signature. We need to extend the range
+                         for stamps in the body. *)
+                    val typeStamps = ref (sigMaxTypes signat);
+
+                    val localStamps = ref []
+
+             
+                    local
+                        (* Create local IDs for any datatypes declared in the body or any generative
+                           functor applications. *)
+                        fun newTypeId isVar eq =
+                        let
+                            val n = !typeStamps
+                            val () = typeStamps := n + 1;
+                            val newId =
+                                (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
+                                    (Local{addr = ref 0, level = ref 0}, n, eq)
+                        in
+                            localStamps := newId :: !localStamps;
+                            newId
+                        end
+                    in
+                        val resSig =
+                            structValue(body, newTypeId, fn () => !typeStamps, Env envWithArgs, lex, line, name ^ "().")
+                        val () =
+                            if errorOccurred lex then ()
+		  	                else checkStructSigForFreeTypeVariables(name^"().", resSig)
+                    end;
+
+                    val functorSig =
+                    case sigStruct of
+                        NONE => resSig (* No signature to match. *)
+                    |   SOME (sigStruct, opaque, sigLoc) =>
+                        let (* Get the explicit result signature. *)
+                            val startTypes = sigMaxTypes signat;
+              
+                            val explicitSig : signatures =
+                                sigVal (sigStruct, startTypes, Env envWithArgs, lex, line, name ^ "().");
+                            (* explicitSig is the only circumstances in which sigMinTypes of a signature
+                               may be non-zero.  In all other cases it will be zero.  If the explicit
+                               signature was simply the name of a signature sigMinTypes will be zero
+                               because we don't copy it in sigVal.  If it is anything else it will
+                               be startTypes.  When we come to copy the signature we have to maintain
+                               any sharing with the argument (as a result of sharing or "where type")
+                               and we can only do that if we can distinguish the IDs that have been
+                               inherited from resSig from those that are new to explicitSig.  A simple
+                               named signature can't share with resSig. *)
+              
+                            val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig
+                            val a = Array.array (Int.max(0, maxExplicitSig), NONE) ;
+                            val typeMap = typeMatchTab(a, minExplicitSig, maxExplicitSig);
+                 
+                            (* Match the signature. *)
+                            val () = matchSigs (resSig, explicitSig, typeMap, fn n => displayTopDec(topdec, n), sigLoc, lex);
+                        in
+            				if opaque
+            				then
+                            (
+                                typeStamps := maxExplicitSig+1; (* This isn't needed for a functor.  Leave it here for the moment. *)
+                                (* Just return the explicit signature.  There may be sharing with the arguments
+                                   specified as part of the signature but we don't inherit any bindings in the body. *)
+                                explicitSig
+                            )
+            				else (* Transparent: Use the IDs from the structure. *)
+                            let
+                                (* Make a vector for the type IDs created in the body.  We have an entry here for
+                                   every type ID whether or not it is mentioned directly in the signature.  We
+                                   could have types that are mentioned indirectly e.g. we have type t = s * s
+                                   with "s" being local to the functor and only "t" mentioned in the signature.
+                                   We need to ensure that "t" is generative. *)
+                                fun convertId(n, id as Bound { offset, ...}) =
+                                        (* Either inherited from the argument or a new type ID. *)
+                                        makeBoundId (Formal(n+startTypes), offset, isEquality id)
+                                |   convertId (_, id) = id (* Free or TypeFunction. *)
+                                val bodyVec = Vector.mapi convertId (Vector.fromList(List.rev(!localStamps)))
+                                fun resTypeMap n =
+                                    convertId(n-minExplicitSig, getOpt(Array.sub(a, n), tcIdentifier undefType))
+                                (* Now copy bound IDs that don't share with IDs in the argument and replace them either by entries
+                                   from the functor body or newly created IDs.  This also ensures that when we apply the
+                                   functor we can distinguish generative IDs from those that are inherited from the argument.
+                                   Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
+                                   argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
+                                val resSig =
+                                    copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap,
+                                        !typeStamps (* Start the run-time offsets after the type IDs *),
+                                        name ^ "().")
+                            in
+                                (* The resulting signature includes both the type IDs from the arguments and generative type
+                                   IDs from the body (transparent matching) or result signature (opaque matching). *)
+                                makeSignature (sigName resSig, sigTab resSig, startTypes, !typeStamps,
+                                                sigDeclaredAt resSig, fn n => Vector.sub(bodyVec, n-startTypes))
+                            end
+                        end;
+                
+                     (* Now make a local functor variable and put it in the
+                        name space. Because functors can only be declared at
+                        the top level the only way it can be used is if we have 
+                        functor F(..) = ... functor G() = ..F.. with no semicolon
+                        between them. They will then be taken as a single
+                        declaration and F will be picked up as a local. *)
+                      (* Set the size of the type map. *)
+                    val var = makeFunctor (name, resArg, functorSig, makeLocal (), line);
+                in
+                    #enter sEnv (name, var);
+                    valRef := var
+                end
+            in
+                (* Each element in the list is a functor binding. *)
+                List.app pass2FunctorBind structList;
+                (* Put them into the enclosing env. *)
+                #apply sEnv (#enterFunct env)		
+            end (* FunctorDec *)
+
+        |   pass2TopDec(topdec as SignatureDec (structList : sigBind list, lno)) =
+            let
+                (* There is a restriction that the same name may not be bound twice.
+    		       As with other bindings functor bindings happen in parallel.
+    		       DCJM 6/1/00. *)
+                val sEnv =  (* The new names. *)
+                    noDuplicates 
+                    (fn (name, _, _) => 
+                      errorNear (lex, true, fn n => displayTopDec(topdec, n), lno, 
+                                 "Signature " ^ name ^ " has already been bound in this declaration")
+                    );
+
+                fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
+                let (* Each element in the list is a signature binding. *)
+                    val resSig : signatures =
+				        sigVal (sigStruct, makeCurrentTypeCount(), Env env, lex, line, name ^ ".");
+                    (* Generate a signature with the new name and put it in the table *)
+			        val copiedSig =
+                        makeSignature (name, sigTab resSig, sigMinTypes resSig, sigMaxTypes resSig, line, sigTypeIdMap resSig)
+                in
+		            sigRef := copiedSig; (* Remember the signature for pass4. *)
+                    #enter sEnv (name, copiedSig)
+                end
+            in
+                List.app pass2SignatureBind structList;
+                (* Put them into the enclosing env. *)
+                #apply sEnv (#enterSig env)		
+            end
+    in 
+        List.app pass2TopDec strs
     end (*pass2Structs *);
+    
+    
+    
 
 
   (*							*
    *     Code-generation phase.	*
    *							*)
-
-  (* When we have done all the unification we can we need to check all
-     the values for free type variables.  The arguments to this function
-	 are functions which yield all the values, structures and functors
-	 in the top-level environment. *)
-  fun checkForFreeTypeVars(applyVal, applyStruct, applyFunc, lex : lexan) =
-  let
-		(* Check the type of a value. *)
-		fun checkValue(name: string, v: values) =
-			checkForFreeTypeVariables(name, valTypeOf v, lex)
-
-		(* Find all the values in the structure. *)
-		fun checkStruct(name: string, s: signatures) =
-		let
-			fun checkEntry(dName: string, dVal: universal, ()) =
-				if tagIs structVar dVal
-				then checkStruct(name ^ dName ^ ".",
-						structSignat((tagProject structVar) dVal))
-				else if tagIs valueVar dVal
-				then checkValue(name ^ dName, (tagProject valueVar) dVal)
-				else ()
-		in
-			univFold(sigTab s, checkEntry, ())
-		end
-  in
-		applyVal(fn (s: string, v: values) => checkValue(s, v));
-		applyStruct(
-			fn (n: string, s: structVals) =>
-				checkStruct(n^".", structSignat s));
-		(* Look at the result signature of the functor. *)
-		applyFunc(
-			fn (n: string, f: functors) => checkStruct(n^"().", functorResult f))
-  end;
-
 
   (* Generate code from the expressions and arrange to return the results
       so that "pass4" can find them. *)
@@ -3762,56 +3799,6 @@ struct
           mapPair codeStructureBind structList debugEnv
         end
          
-      | FunctorDec (structList : functorBind list, _) =>
-        let
-          fun codeFunctorBind ({name, arg = FormalArg {valRef = ref argVal, ...}, body, valRef, ...}: functorBind,
-		  					   debugEnv) =
-            let
-            
-              (* Go down one level. *)
-              val () = level := !level + 1;
-              
-              (* Save the value and set to 1 *)
-              val addr = !addresses;
-              val () = addresses := 1;
-              val arg = vaLocal (structAccess argVal);
-              val () = #addr  arg := ~1; 
-              val () = #level arg := !level;
-              val func = !valRef;
-              
-              val name : string = strName ^ name;
-              
-              (* Process the body and make a procedure out of it. *)
-              val functorCode : codetree =
-                (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                (structureCode (body, functorResult func, name ^ "().", debugEnv),
-                 !level, 1, name);
-                  
-              (* Go back down a level and add 1 to address. *)
-              val () = level := !level - 1; 
-              val () = addresses := addr + 1;
-              
-              (* Set the address of this variable. Because functors can only
-                 be declared at the top level the only way it can be used is
-                 if we have 
-                    functor F(..) = ... functor G() = ..F..
-                 with no semicolon between them. They will then be taken as
-                 a single declaration and F will be picked up as a local. *)
-              val var = vaLocal (functorAccess func);
-              val ()  = #addr  var := addr;
-              val ()  = #level var := !level;
-            in
-              {
-                code = [mkDec (addr, functorCode)],
-                load = [mkLoad (addr, 0)], (* Load the variable. *)
-				debug = debugEnv
-              }
-            end
-          | codeFunctorBind _ =
-              raise InternalError "codeFunctorBind: not a FunctorBind"
-        in
-          mapPair codeFunctorBind structList debugEnv
-        end
  
       | Localdec {decs, body, ...} =>
         let (* Accumulate the code from the declarations,
@@ -3862,8 +3849,57 @@ struct
           mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
 		  	strs debugEnv;
 
-    val coded = mapStrdecs strs "" ([], fn _ => CodeZero); (* Process top level list. *)
+    fun codeTopdecs (StrDec str, debugEnv) = codeStrdecs("", str, debugEnv)
 
+    |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv) =
+        let
+            fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, ...}, debugEnv) =
+            let
+              (* Go down one level. *)
+              val () = level := !level + 1;
+              
+              (* Save the value and set to 1 *)
+              val addr = !addresses;
+              val () = addresses := 1;
+              val arg = vaLocal (structAccess argVal);
+              val () = #addr  arg := ~1; 
+              val () = #level arg := !level;
+              val func = !valRef;              
+              (* Process the body and make a procedure out of it. *)
+              val functorCode : codetree =
+                (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
+                (structureCode (body, functorResult func, name ^ "().", debugEnv),
+                 !level, 1, name);
+                  
+              (* Go back down a level and add 1 to address. *)
+              val () = level := !level - 1; 
+              val () = addresses := addr + 1;
+              
+              (* Set the address of this variable. Because functors can only
+                 be declared at the top level the only way it can be used is
+                 if we have 
+                    functor F(..) = ... functor G() = ..F..
+                 with no semicolon between them. They will then be taken as
+                 a single declaration and F will be picked up as a local. *)
+              val var = vaLocal (functorAccess func);
+              val ()  = #addr  var := addr;
+              val ()  = #level var := !level;
+            in
+              {
+                code = [mkDec (addr, functorCode)],
+                load = [mkLoad (addr, 0)], (* Load the variable. *)
+				debug = debugEnv
+              }
+            end
+        in
+          mapPair codeFunctorBind structList debugEnv
+        end
+
+    |   codeTopdecs(SignatureDec _, debugEnv) = { code = [], load = [], debug = debugEnv }
+    
+    val coded = (* Process top level list. *)
+        mapPair (fn (str, debug) => codeTopdecs (str, debug))
+		  	strs ([], fn _ => CodeZero)
   in 
     (* The result is code for a vector containing the results of the
        declarations which pass4 can use to pull out the values after
@@ -3880,7 +3916,7 @@ struct
   (* This previously only processed declarations which required some code-generation and
      evaluation (structures, values and functors).  It now includes types, signatures and
 	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
-  fun pass4Structs (results, (strs, _)) =
+  fun pass4Structs (results, (strs: topdec list, _)) =
   let
 	(* Process the datatypes in the structure and turn their value constructors
 	   into Global entries.  We only need this in order to be able to print values
@@ -3946,31 +3982,8 @@ struct
     ) (* end extractValsToSig *)
       
     fun extractStruct(str, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
-      case str of
-        FunctorDec (structList : functorBind list, _) =>
-        let
-          fun extractFunctorBind ({name, valRef, ...}: functorBind, (addr, funcs)) =
-            let
-              val code = mkInd (addr, results);
-              val func = !valRef;
-              val funcTree = 
-                makeFunctor 
-                 (functorName func,
-                  functorArg func,
-                  functorResult func,
-                  makeGlobal code,
-                  functorDeclaredAt func);
-            in
-              (addr + 1, (name, funcTree) :: funcs)
-            end
-          (* Get the functor values. *)
-          val (newAddr, newfunctors ) = List.foldl extractFunctorBind (addr, functors) structList
-        in
-          (newAddr, { functors=newfunctors, fixes=fixes, values=values,
-                      signatures=signatures, structures=structures, types=types })
-        end
- 
-      | StructureDec (structList : structBind list, _) =>
+    case str of
+        StructureDec (structList : structBind list, _) =>
         let
           fun extractStructureBind ({name, valRef, line, typeIds=ref typeIds, ...}: structBind, (addr, structures)) =
             let
@@ -4060,6 +4073,35 @@ struct
             newIDs
         end
 
+     | _ => args; (* end extractStruct *)
+    
+    fun extractTopDec(str, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
+    case str of
+        StrDec str => extractStruct (str, args)
+
+    |   FunctorDec (structList : functorBind list, _) =>
+        let
+          fun extractFunctorBind ({name, valRef, ...}: functorBind, (addr, funcs)) =
+            let
+              val code = mkInd (addr, results);
+              val func = !valRef;
+              val funcTree = 
+                makeFunctor 
+                 (functorName func,
+                  functorArg func,
+                  functorResult func,
+                  makeGlobal code,
+                  functorDeclaredAt func);
+            in
+              (addr + 1, (name, funcTree) :: funcs)
+            end
+          (* Get the functor values. *)
+          val (newAddr, newfunctors ) = List.foldl extractFunctorBind (addr, functors) structList
+        in
+          (newAddr, { functors=newfunctors, fixes=fixes, values=values,
+                      signatures=signatures, structures=structures, types=types })
+        end
+
      | SignatureDec (structList : sigBind list, _) =>
 		let
             val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, s)) structList
@@ -4067,11 +4109,9 @@ struct
            (addr, { fixes=fixes, values=values, structures=structures,
                     signatures=newSigs @ signatures, functors=functors, types=types } )
 		end
-
-     | _ => args; (* end extractStruct *)
-
+    
     val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
-    val (lastAddr, result) = List.foldl extractStruct (0, empty) strs;
+    val (lastAddr, result) = List.foldl extractTopDec (0, empty) strs;
     (* The entries in "result" are in reverse order of declaration and may contain duplicates.
        We need to reverse and filter the lists so that we end up with the lists in order
        and with duplicates removed. *)

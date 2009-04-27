@@ -2146,7 +2146,7 @@ struct
   end (* signatureSpec *);
 
 
-  fun signatureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs =
+  fun signatureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
   let
     val UUU = insymbol lex
     fun doSigDec () =
@@ -2319,7 +2319,7 @@ struct
     end (* end of structureDec *)
 
   (* Functor declarations. *)
-  and functorDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs =
+  and functorDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
   let
     val UUU = insymbol lex; (* remove ``functor'' *)
     fun doFunctDec () : functorBind * location =
@@ -2454,7 +2454,7 @@ struct
         else if startSym inside topdecStartSy
         then
         let
-            val (aDec : structs, newOkStartSet : symset) =
+            val (aDec : topdec, newOkStartSet : symset) =
                 if startSym eq SYMBOLS.functorSy
                 then (functorDec tsys lex globalEnv, functorSy)
           
@@ -2462,18 +2462,18 @@ struct
                 then (signatureDec tsys lex globalEnv, signatureSy)
           
                 else if startSym eq SYMBOLS.structureSy
-                then (structureDec tsys lex globalEnv, structureLocalStartDecSy)
+                then (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
           
                 (* Local declarations are ambiguous; we treat them as strDecs *)
                 else if startSym eq SYMBOLS.localSy
-                then (structureDec tsys lex globalEnv, structureLocalStartDecSy)
+                then (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
           
                 (* let, val, fun etc. *)
-                else (mkCoreLang (dec(tsys, lex, true, globalEnv)), structureLocalStartDecSy);
+                else (mkTopDec(mkCoreLang (dec(tsys, lex, true, globalEnv))), structureLocalStartDecSy);
 
             val (rest, locRest) = parseTopDecs newOkStartSet
         in
-            (mkTopDec aDec :: rest, locSpan(startLoc, locRest))
+            (aDec :: rest, locSpan(startLoc, locRest))
         end
      
         else (notfound (";", lex); ([], startLoc))

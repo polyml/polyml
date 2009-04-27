@@ -389,66 +389,9 @@ struct
 	      if errorOccurred lex
 		  then (SOME(structsExportTree (parentTreeOpt, parseTree)), NONE) (* Error: No result. *)
 		  else let (* let3 *)
-	 
-	      (* extend throw-away compiling environment *)
-	      val newValEnv   = UTILITIES.searchList();
-	      val newTypeEnv  = UTILITIES.searchList();
-	      val newStrEnv   = UTILITIES.searchList();
-	      val newSigEnv   = UTILITIES.searchList();
-	      val newFuncEnv  = UTILITIES.searchList();
-	   
-	      (* create an "env" from the throw-away environment *)
-	      val lookupVal =
-	        lookupDefault (#lookup newValEnv)  (#lookupVal globals);
-	         
-	      val lookupType =
-	        lookupDefault (#lookup newTypeEnv) (#lookupType globals);
-	         
-	      val lookupStruct =
-	        lookupDefault (#lookup newStrEnv)  (#lookupStruct globals);
-	        
-	      val lookupSig =
-	        lookupDefault (#lookup newSigEnv)  (#lookupSig globals);
-	 
-	      val lookupFunct =
-	        lookupDefault (#lookup newFuncEnv) (#lookupFunct globals);
-	 
-	     (* For each declaration we enter a reference to the identifier in this
-	        table. We can then construct code which will load each value into 
-	        a vector which can be returned. Used for variables and exceptions. *)
-	      val locals  = 
-	          {
-	           lookupVal     = lookupVal,
-	           lookupType    = lookupType,
-	           lookupFix     = lookupFix,
-	           lookupStruct  = lookupStruct,
-	           lookupSig     = lookupSig,
-	           lookupFunct   = lookupFunct,
-	           enterVal      = #enter newValEnv,
-	           enterType     = #enter newTypeEnv,
-	           enterFix      = enterFix,
-	           enterStruct   = #enter newStrEnv,
-	           enterSig      = #enter newSigEnv,
-	           enterFunct    = #enter newFuncEnv
-	          };
-	 
-	      val localEnv : env = STRUCTVALS.Env locals;
-	 
 	      (* If no errors then do second pass to match identifiers
 	         and declarations and return type of expression. *)
-	      val UUU:unit = STRUCTURES.pass2Structs (parseTree, lex, localEnv);
-	
-		  (* We need to check that no top-level value has a free type
-		     variable in its type.  We can only do that once unification
-			 is complete because one declaration may "freeze" the type of
-			 another within a single "topdec".
-			 Don't do this check if we've already reported an error.
-			 Mistyped top-level functions are given type ('a) which then
-			 would be reported as an error here. *)
-		  val () =
-		  	if errorOccurred lex then ()
-		  	else STRUCTURES.checkForFreeTypeVars(#apply newValEnv, #apply newStrEnv,
-								 #apply newFuncEnv, lex);
+	      val UUU:unit = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
 	 
 	      val pass2Time = cpuTime startTime;
 		  
