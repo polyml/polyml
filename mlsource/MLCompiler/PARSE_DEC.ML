@@ -420,12 +420,10 @@ sig
   type lexan;
   type symset;
   type fixStatus;
-  type structs;
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+  type program
   
   val parseDec: symset * lexan * { enterFix:  string * fixStatus -> unit,
-                                   lookupFix: string -> fixStatus option } -> structs list * location;
+                                   lookupFix: string -> fixStatus option } -> program;
 end =
 
 (*****************************************************************************)
@@ -521,7 +519,7 @@ struct
 
  (* Global declarations *)
    
- fun parseDec (fsys, lex, {enterFix,lookupFix}) : structs list * location =
+ fun parseDec (fsys, lex, {enterFix,lookupFix}) : program =
  let
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
@@ -1983,7 +1981,7 @@ struct
                         )
                 }
             in
-                [mkTopLevel (datatypeDecOrRepl(sys, newenv, true, startLocn))]
+                [mkCoreLang (datatypeDecOrRepl(sys, newenv, true, startLocn))]
             end
 
          else if sym eq SYMBOLS.typeSy
@@ -1996,7 +1994,7 @@ struct
                 val () = insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, false, env))
             in
-                [mkTopLevel (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreLang (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
          else if sym eq SYMBOLS.eqtypeSy
@@ -2007,7 +2005,7 @@ struct
                 val () = insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, true, env))
             in
-                [mkTopLevel (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreLang (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
          else if sym eq SYMBOLS.valSy
@@ -2408,7 +2406,7 @@ struct
             let
                 val lno = location lex
             in
-                (mkTopLevel (dec(tsys, lex, true, env))) :: getDecs()
+                (mkCoreLang (dec(tsys, lex, true, env))) :: getDecs()
             end
             else (* May be empty *) []
         end (* getDecs *)
@@ -2443,9 +2441,9 @@ struct
        declarations as strDecs since this includes the case of
        local dec in dec. *)
     then structureDec tsys lex globalEnv
-    else mkTopLevel (dec(tsys, lex, true, globalEnv))
+    else mkCoreLang (dec(tsys, lex, true, globalEnv))
          
-    fun parseTopDecs (okStartSet : symset) : structs list * location =
+    fun parseTopDecs (okStartSet : symset) : topdec list * location =
     let
         val startSym = sy lex and startLoc = location lex;
     in
@@ -2471,11 +2469,11 @@ struct
                 then (structureDec tsys lex globalEnv, structureLocalStartDecSy)
           
                 (* let, val, fun etc. *)
-                else (mkTopLevel (dec(tsys, lex, true, globalEnv)), structureLocalStartDecSy);
+                else (mkCoreLang (dec(tsys, lex, true, globalEnv)), structureLocalStartDecSy);
 
             val (rest, locRest) = parseTopDecs newOkStartSet
         in
-            (aDec :: rest, locSpan(startLoc, locRest))
+            (mkTopDec aDec :: rest, locSpan(startLoc, locRest))
         end
      
         else (notfound (";", lex); ([], startLoc))
@@ -2492,19 +2490,19 @@ in (* body of parseDec *)
     *)
 
     if (sy lex) inside topdecStartSy
-    then parseTopDecs topdecStartSy
+    then mkProgram(parseTopDecs topdecStartSy)
   
     else
     let (* expression - only one allowed. *)
         val startLoc = location lex;
-        val aDec : structs = mkTopLevel (dec(tsys, lex, false, globalEnv));
+        val aDec = mkCoreLang (dec(tsys, lex, false, globalEnv));
         val () = 
             if (sy lex) neq SYMBOLS.semicolon andalso
               (sy lex) neq SYMBOLS.abortParse
             then notfound (";", lex)
             else ()
     in
-        ([aDec], locSpan(startLoc, location lex))
+        mkProgram([mkTopDec aDec], locSpan(startLoc, location lex))
     end
 end; (* parseDec *)
 

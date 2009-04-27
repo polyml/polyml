@@ -286,7 +286,7 @@ struct
   | FunctorDec     of functorBind list * location       (* List of functor decs. *)
   | FunctorAppl    of functorApplForm    (* Appln of a functor *)
 
-  | Singleton      of (* Any other decln. *)
+  | CoreLang      of (* Any other decln. *)
     {
         dec:   parsetree,           (* The value *)
         vars:  coreDeclaration list ref, (* The declarations *)
@@ -397,9 +397,7 @@ struct
         localDec: bool,
         line:     location
       }
-      
-    and topdec = structs list * location
-  
+   
     fun isSignatureIdent (SignatureIdent x) = true | isSignatureIdent _ = false;
     fun isEmptyStruct     EmptyStruct       = true | isEmptyStruct    _ = false;
     
@@ -461,8 +459,8 @@ struct
   
     val mkSig = SigDec;
   
-    fun mkTopLevel (dec, location) =
-        Singleton
+    fun mkCoreLang (dec, location) =
+        CoreLang
         {
             dec   = dec,
             vars  = ref [],
@@ -547,8 +545,14 @@ struct
 
 	fun mkSigConstraint(str, csig, opaque, sigLoc) =
 	   SigConstraint{str=str, csig=csig, opaque=opaque, sigLoc=sigLoc}
-      
-  (*  end; structs abstype *)
+       
+       
+    (* Top level declarations and program. *)
+    type topdec = structs
+    type program = topdec list * location
+
+    fun mkTopDec t = t
+    fun mkProgram tl = tl
 
   (* Pretty printing *)
 
@@ -796,7 +800,7 @@ struct
                 displayList (structList, "", depth - 1) display
             )
 
-      | Singleton {dec, ...} =>
+      | CoreLang {dec, ...} =>
           ptDisplay (dec, depth - 1)
 
       | SigConstraint{str, csig, opaque, ...} =>
@@ -817,7 +821,7 @@ struct
         )
     end (* displayStructs *);
  
-    fun displayTopdec((sl, _), d) = displayStructs (sl, d)
+    fun displayProgram ((sl, _), d) = displayStructs (sl, d)
     
     
     fun structExportTree(navigation, s: structs) =
@@ -960,7 +964,7 @@ struct
 
         |   FunctorAppl _ => (nullLocation, commonProps)
 
-        |   Singleton {dec, ...} => (* A value parse-tree entry. *)
+        |   CoreLang {dec, ...} => (* A value parse-tree entry. *)
                 getExportTree(navigation, dec)
 
         |   FormalArg _ => (nullLocation, commonProps)
@@ -1800,7 +1804,7 @@ struct
   val makeEnv = fn x => let val Env e = makeEnv x in e end;  
 
   (* Second pass - identify names with values and type-check *)
-  fun pass2Structs ((strs, _): topdec, lex : lexan, Env env : env) : unit =
+  fun pass2Structs ((strs, _): program, lex : lexan, Env env : env) : unit =
   let 
     fun pass2Struct 
         (strs     : structs list,
@@ -2335,7 +2339,7 @@ struct
                  offset (* No entry *)
               end
                 
-              | Singleton {dec, ...} =>
+              | CoreLang {dec, ...} =>
               let (* datatype or type binding(s) *)
                 (* This pass puts the data constructors into the environment. *)
 				val addrs = ref offset
@@ -3329,7 +3333,7 @@ struct
         | Localdec {decs, body, ...} =>
             pass2Localdec (decs, body)
         
-        | Singleton {dec, vars, typeIds, ...} =>
+        | CoreLang {dec, vars, typeIds, ...} =>
             pass2Singleton (dec, vars, typeIds)
         
         | _ => (* empty (we should check this!!!) *)
@@ -3823,7 +3827,7 @@ struct
           }
         end
  
-      | Singleton {dec, vars=ref vars, typeIds=ref typeIds, ...} =>
+      | CoreLang {dec, vars=ref vars, typeIds=ref typeIds, ...} =>
         let
             (* Code generate the declaration.  This also assigns addresses so must be
                done before we load the results. *)
@@ -4006,7 +4010,7 @@ struct
           List.foldl extractStruct args body
  
       (* Value, exception or type declaration at the top level. *)
-      | Singleton {vars=ref vars, typeIds=ref typeIds, ...} =>
+      | CoreLang {vars=ref vars, typeIds=ref typeIds, ...} =>
         let (* Enter the values and exceptions. *)
 		  fun makeDecs (CoreValue dec, (addr, { fixes, values, structures, signatures, functors, types } )) =
                  ( case dec of

@@ -63,75 +63,12 @@ end;
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type structVals
-  type signatures
-  type fixStatus
-  type functors
-  type typeConstrs;
-  
-  type types
-  val isEmpty:          types -> bool
-
-  type values
-  val isValueConstructor:      values -> bool
-  
-  datatype env = Env of
-    {
-      lookupVal:    string -> values option,
-      lookupType:   string -> typeConstrs option,
-      lookupFix:    string -> fixStatus option,
-      lookupStruct: string -> structVals option,
-      lookupSig:    string -> signatures option,
-      lookupFunct:  string -> functors option,
-      enterVal:     string * values      -> unit,
-      enterType:    string * typeConstrs -> unit,
-      enterFix:     string * fixStatus   -> unit,
-      enterStruct:  string * structVals  -> unit,
-      enterSig:     string * signatures  -> unit,
-      enterFunct:   string * functors    -> unit
-    };
-end; 
+structure STRUCTVALS : STRUCTVALSIG; 
 
 (*****************************************************************************)
 (*                  VALUEOPS                                                 *)
 (*****************************************************************************)
-structure VALUEOPS :
-sig
-  type values
-  type structVals
-  type functors
-  type signatures
-  type fixStatus
-  type typeConstrs
-
-   type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-  
-  val exnName : exn -> string
-end;
+structure VALUEOPS : VALUEOPSSIG;
 
 (*****************************************************************************)
 (*                  EXPORTTREE                                               *)
@@ -142,40 +79,9 @@ structure EXPORTTREE: EXPORTTREESIG
 (*****************************************************************************)
 (*                  STRUCTURES                                               *)
 (*****************************************************************************)
-structure STRUCTURES :
-sig
-  type structs
-  type lexan
-  type pretty
-  type codetree
-  type env
-  type types
-
-  type values
-  type structVals
-  type functors
-  type fixStatus
-  type typeConstrs
-  type signatures
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-  type topdec = structs list * location
-  type exportTree = EXPORTTREE.exportTree
-
-  val pass2Structs: topdec * lexan * env -> unit
-  val checkForFreeTypeVars:
-  	((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
-		((string*functors->unit)->unit) * lexan -> unit
-  val pass4Structs:
-    codetree * topdec ->
-       { fixes: (string * fixStatus) list, values: (string * values) list,
-         structures: (string * structVals) list, signatures: (string * signatures) list,
-         functors: (string * functors) list, types: (string* typeConstrs) list };
-  val gencodeStructs: topdec * lexan -> codetree;
-  val displayTopdec: topdec * int -> pretty
-
-    val structsExportTree:  (unit->exportTree) option * topdec -> exportTree
-end;
+structure STRUCTURES : STRUCTURESSIG
+        where type exportTree = EXPORTTREE.exportTree
+;
 
 (*****************************************************************************)
 (*                  PARSEDEC                                                 *)
@@ -185,13 +91,10 @@ sig
   type lexan
   type symset
   type fixStatus
-  type structs
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+  type program
   
   val parseDec: symset * lexan *
-    { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option }
-     -> structs list * location
+    { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
 end;
 
 (*****************************************************************************)
@@ -264,8 +167,8 @@ sharing type
 = STRUCTURES.fixStatus
 
 sharing type
-  PARSEDEC.structs
-= STRUCTURES.structs
+  PARSEDEC.program
+= STRUCTURES.program
 
 sharing type
   STRUCTURES.codetree
@@ -471,15 +374,15 @@ struct
       val enterFix  = #enter newFixEnv;
       val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals);
    
-      (* parse a topdec *)
-      val parseTree : STRUCTURES.structs list * STRUCTURES.location = 
+      (* parse a program: a sequence of topdecs ending with a semicolon. *)
+      val parseTree : STRUCTURES.program = 
         PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix});
 
       val parseTime = cpuTime startTime;
 
       val () = 
         if printParsetree
-        then compilerOutput (STRUCTURES.displayTopdec (parseTree, 10000))
+        then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
         else ();
         
       in (* let2 *)

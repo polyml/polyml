@@ -41,7 +41,8 @@ sig
     type fixStatus
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    type topdec = structs list * location
+    type topdec
+    type program
     type exportTree
     type typeParsetree
 
@@ -54,7 +55,7 @@ sig
     val mkFunctorDec:       functorBind list * location -> structs;
     val mkInclude:          structs list -> structs;
     val mkLocaldec:         structs list * structs list * bool * location -> structs;
-    val mkTopLevel:         parsetree * location -> structs;
+    val mkCoreLang:         parsetree * location -> structs;
     val mkStructureBinding: (string * location) * (structs * bool * location) option * structs option * location -> structBind
     val mkStructIdent:      string * location -> structs;
     val mkSigIdent:         string * location -> structs;
@@ -68,24 +69,26 @@ sig
     val mkSharing:          bool * string list * location -> structs;
     val mkWhereType:          structs * types list * string * types * location -> structs
     val mkSigConstraint:    structs * structs * bool * location -> structs
+    val mkTopDec:           structs -> topdec
+    val mkProgram:          topdec list * location -> program
 
-    val pass2Structs:   topdec * lexan * env -> unit;
+    val pass2Structs:   program * lexan * env -> unit;
 
     val checkForFreeTypeVars:
       ((string*values->unit)->unit) * ((string*structVals->unit)->unit) *
         ((string*functors->unit)->unit) * lexan -> unit
 
     val pass4Structs:
-        codetree * topdec ->
+        codetree * program ->
             {
                 fixes: (string * fixStatus) list, values: (string * values) list,
                 structures: (string * structVals) list, signatures: (string * signatures) list,
                 functors: (string * functors) list, types: (string* typeConstrs) list
             };
 
-    val gencodeStructs: topdec * lexan -> codetree;
+    val gencodeStructs: program * lexan -> codetree;
 
-    val displayTopdec: topdec * int -> pretty;
+    val displayProgram: program * int -> pretty;
 
-    val structsExportTree: (unit->exportTree) option * topdec -> exportTree
+    val structsExportTree: (unit->exportTree) option * program -> exportTree
 end;
