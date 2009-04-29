@@ -660,4 +660,11 @@ struct
         endLine=endLine, endPosition=endPosition
     }
 
+    structure Sharing =
+    struct
+        type pretty     = pretty
+        and  lexan      = lexan
+        and  sys        = sys
+    end
+
 end (* LEX functor body *);

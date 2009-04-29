@@ -55,6 +55,12 @@ sig
                    {enter: 'a * 'b -> unit, lookup: 'a -> 'b option};
      
   val splitString: string -> { first:string,second:string }
+
+    structure Sharing:
+    sig
+        type lexan = lexan
+    end
+  
 end (* UTILITIES export signature *) =
 
 
@@ -203,6 +209,11 @@ struct
 	  else {first  = Substring.string(Substring.trimr 1 first),
 	  	    second = Substring.string second }
    end
+
+    structure Sharing =
+    struct
+        type lexan = lexan
+    end
 
 end;
    

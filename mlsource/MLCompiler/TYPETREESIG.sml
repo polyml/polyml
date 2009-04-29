@@ -30,10 +30,14 @@ sig
     type lexan;
     type typeId;
     type pretty;
-    type exportTree
-    type navigation
+    type ptProperties
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
+    type exportTree = location * ptProperties list
+    type navigation =
+        {parent: (unit -> exportTree) option,
+         next: (unit -> exportTree) option,
+         previous: (unit -> exportTree) option}
     type matchResult = (types * types * string) option
     type locationProp
     type structVals
@@ -165,6 +169,21 @@ sig
     val typeFromTypeParse: typeParsetree -> types
 
     val typeExportTree: navigation * typeParsetree -> exportTree
+
+    (* Types that can be shared. *)
+    structure Sharing:
+    sig
+        type types      = types
+        and  values     = values
+        and  typeId     = typeId
+        and  structVals = structVals
+        and  typeConstrs= typeConstrs
+        and  typeParsetree = typeParsetree
+        and  locationProp = locationProp
+        and  pretty     = pretty
+        and  lexan      = lexan
+        and  ptProperties = ptProperties
+    end
 
 end;
 

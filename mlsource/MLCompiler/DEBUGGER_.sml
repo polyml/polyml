@@ -38,12 +38,7 @@ sig
   val CodeZero:         codetree;
 end
 
-structure TYPETREE:
-sig
-    type types
-    val unitType:   types;
-    val exnType:    types;
-end
+structure TYPETREE: TYPETREESIG
 
 structure ADDRESS :
 sig
@@ -51,108 +46,9 @@ sig
   val toMachineWord: 'a -> machineWord
 end;
 
-sharing type
-  CODETREE.machineWord
-= VALUEOPS.machineWord
-= ADDRESS.machineWord
-
-sharing type
-  CODETREE.codetree
-= VALUEOPS.codetree
-= STRUCTVALS.codetree
-
-sharing type
-  STRUCTVALS.values 
-= VALUEOPS.values
-
-sharing type
-  STRUCTVALS.types 
-= VALUEOPS.types
-= TYPETREE.types
-
-sharing type
-  STRUCTVALS.typeConstrs 
-= VALUEOPS.typeConstrs
-
-sharing type
-  STRUCTVALS.fixStatus 
-= VALUEOPS.fixStatus
-
-sharing type
-  STRUCTVALS.structVals 
-= VALUEOPS.structVals
-
-sharing type
-  STRUCTVALS.signatures 
-= VALUEOPS.signatures
-
-sharing type
-  STRUCTVALS.functors 
-= VALUEOPS.functors
-
-sharing type
-  STRUCTVALS.locationProp 
-= VALUEOPS.locationProp
+sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = CODETREE = ADDRESS
 )
-:
-sig
-    type types
-	type values
-	type machineWord
-    type fixStatus
-    type structVals
-    type typeConstrs
-    type signatures
-    type functors
-    type locationProp
-    type location
-
-	datatype environEntry =
-		EnvValue of string * types * locationProp list
-	|	EnvException of string * types * locationProp list
-	|	EnvVConstr of string * types * bool * int * locationProp list
-	|	EnvStaticLevel
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-    (* The debugger function supplied to the compiler. *)
-    type debugger = int * values * int * string * string * nameSpace -> unit
-    val nullDebug: debugger
-
-    val debuggerFunTag : debugger Universal.tag
-    
-    datatype debugReason =
-        DebugEnter of machineWord * types
-    |   DebugLeave of machineWord * types
-    |   DebugException of exn
-    |   DebugStep
-
-    (* Functions inserted into the compiled code. *)
-	val debugFunction:
-		debugger * debugReason * string * location -> environEntry list -> machineWord list -> unit
-end
+: DEBUGGERSIG
 =
 struct
     open STRUCTVALS VALUEOPS CODETREE
@@ -298,4 +194,18 @@ struct
 	in
         debugger(code, value, #startLine location, #file location, processedName, makeSpace staticEnv valueList)
 	end
+
+    structure Sharing =
+    struct
+        type types          = types
+    	type values         = values
+    	type machineWord    = machineWord
+        type fixStatus      = fixStatus
+        type structVals     = structVals
+        type typeConstrs    = typeConstrs
+        type signatures     = signatures
+        type functors       = functors
+        type locationProp   = locationProp
+        type environEntry   = environEntry
+    end
 end;

@@ -182,52 +182,9 @@ end;
 (*****************************************************************************)
 (*                  VALUEOPS sharing constraints                             *)
 (*****************************************************************************)
-sharing type
-  CODETREE.codetree
-= STRUCTVALS.codetree
-= PRINTTABLE.codetree
 
-sharing type
-  STRUCTVALS.typeConstrs
-= TYPESTRUCT.typeConstrs
-= PRINTTABLE.typeConstrs
-
-sharing type
-  STRUCTVALS.types
-= TYPESTRUCT.types
-
-sharing type
-  STRUCTVALS.values
-= TYPESTRUCT.values
-
-sharing type
-  LEX.lexan
-= TYPESTRUCT.lexan
-
-sharing type
-  TYPESTRUCT.pretty
-= PRETTY.pretty
-= LEX.pretty
-
-sharing type
-  UNIVERSALTABLE.iter
-= MISC.iter
-    
-sharing type
-  ADDRESS.machineWord 
-= CODETREE.machineWord
-
-sharing type
-  UNIVERSALTABLE.univTable
-= STRUCTVALS.univTable
-
-sharing type
-  STRUCTVALS.locationProp
-= TYPESTRUCT.locationProp
-
-sharing type
-  STRUCTVALS.structVals
-= TYPESTRUCT.structVals
+sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
+      = CODETREE = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
 
 ) : VALUEOPSSIG =
 
@@ -2888,6 +2845,25 @@ struct
 
   |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
 
+
+    (* Types that can be shared. *)
+    structure Sharing =
+    struct
+        type machineWord    = machineWord
+        type lexan          = lexan
+        type codetree       = codetree
+        type types          = types
+        type values         = values
+        type structVals     = structVals
+        type functors       = functors
+        type valAccess      = valAccess
+        type typeConstrs    = typeConstrs
+        type signatures     = signatures
+        type fixStatus      = fixStatus
+        type univTable      = univTable
+        type pretty         = pretty
+        type locationProp   = locationProp
+    end
 
 end (* body of VALUEOPS *);
 

@@ -101,4 +101,13 @@ struct
         List.map prop locs
     end
 
+    (* Types that can be shared. *)
+    structure Sharing =
+    struct
+        type types          = types
+        and  locationProp   = locationProp
+        and  pretty         = pretty
+        and  ptProperties   = ptProperties
+    end
+
 end;

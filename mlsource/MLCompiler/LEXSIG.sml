@@ -68,5 +68,14 @@ sig
        individual lexical units into a location for a larger syntactic unit. *)
     val locSpan: location * location -> location
 
+    (* Types that can be shared. *)
+    structure Sharing:
+    sig
+        type pretty     = pretty
+        and  lexan      = lexan
+        and  sys        = sys
+    end
+
+
 end (* LEX export signature *);
 

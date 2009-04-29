@@ -889,4 +889,21 @@ struct
           enterSig     = makeEnter signatureVar  tab,
           enterFunct   = makeEnter functorVar    tab
         }
+
+    structure Sharing =
+    struct
+        type codetree   = codetree
+        and  signatures = signatures
+        and  types      = types
+        and  values     = values
+        and  typeId     = typeId
+        and  structVals = structVals
+        and  valAccess  = valAccess
+        and  typeConstrs= typeConstrs
+        and  env        = env
+        and  univTable  = univTable
+        and  fixStatus  = fixStatus
+        and  functors   = functors
+        and  locationProp = locationProp
+    end
 end (* STRUCTVALS *);

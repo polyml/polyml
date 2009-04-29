@@ -53,4 +53,13 @@ sig
     val rootTreeTag: (unit -> exportTree) option Universal.tag
     
     val mapLocationProps: locationProp list -> ptProperties list
+
+    (* Types that can be shared. *)
+    structure Sharing:
+    sig
+        type types          = types
+        and  locationProp   = locationProp
+        and  pretty         = pretty
+        and  ptProperties   = ptProperties
+    end
 end;

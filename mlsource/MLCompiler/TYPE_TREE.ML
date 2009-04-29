@@ -111,31 +111,8 @@ end;
 
 structure EXPORTTREE: EXPORTTREESIG;
 
-(*****************************************************************************)
-(*                  TYPETREE sharing constraints                             *)
-(*****************************************************************************)
-
-sharing type
-  LEX.pretty
-= PRETTY.pretty
-= EXPORTTREE.pretty
-
-sharing type
-  PRINTTABLE.codetree
-= CODETREE.codetree
-= STRUCTVALS.codetree
-
-sharing type
-  PRINTTABLE.typeConstrs
-= STRUCTVALS.typeConstrs
-
-sharing type
-    EXPORTTREE.types
-=   STRUCTVALS.types
-
-sharing type
-    EXPORTTREE.locationProp
-=   STRUCTVALS.locationProp
+sharing LEX.Sharing = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing
+      = CODETREE = PRINTTABLE
 
 ) :  TYPETREESIG =
 
@@ -2751,5 +2728,19 @@ struct
           (tcConstructors constructor) of
           SOME v => if equalTypes (valTypeOf v) t then v else copied
       |   NONE => copied
-  end; 
+  end;
+
+    structure Sharing =
+    struct
+        type types      = types
+        and  values     = values
+        and  typeId     = typeId
+        and  structVals = structVals
+        and  typeConstrs= typeConstrs
+        and  typeParsetree = typeParsetree
+        and  locationProp = locationProp
+        and  pretty     = pretty
+        and  lexan      = lexan
+        and  ptProperties = ptProperties
+    end
 end (* TYPETREE *);

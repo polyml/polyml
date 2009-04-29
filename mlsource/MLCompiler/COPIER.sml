@@ -421,4 +421,14 @@ struct
      )
 	 end;
 
+    structure Sharing =
+    struct
+        type signatures     = signatures
+        type typeConstrs    = typeConstrs
+        type structVals     = structVals
+        type values         = values
+        type typeId         = typeId
+        type valAccess      = valAccess
+    end
+
 end;

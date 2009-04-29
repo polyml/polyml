@@ -80,4 +80,11 @@ struct
             printStream
         end
     end
+
+    (* Types that can be shared. *)
+    structure Sharing =
+    struct
+        type pretty     = pretty
+        and  context    = context
+    end
 end;

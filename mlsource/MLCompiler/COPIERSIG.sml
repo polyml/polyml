@@ -31,4 +31,14 @@ sig
     val copySig: signatures * (int -> bool) * (int -> typeId) * int * string -> signatures
     val fullCopySig: int * signatures * tsvEnv * (typeId -> typeId) * (valAccess->valAccess) * string -> int
     val copyTypeConstructors: signatures * (typeId -> typeId) * string -> unit
+    
+    structure Sharing:
+    sig
+        type signatures     = signatures
+        type typeConstrs    = typeConstrs
+        type structVals     = structVals
+        type values         = values
+        type typeId         = typeId
+        type valAccess      = valAccess
+    end
 end;

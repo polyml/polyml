@@ -136,4 +136,23 @@ sig
 
     val createNullaryConstructor: representations * string -> codetree
     val createUnaryConstructor: representations * string -> codetree
+
+    (* Types that can be shared. *)
+    structure Sharing:
+    sig
+        type machineWord    = machineWord
+        type lexan          = lexan
+        type codetree       = codetree
+        type types          = types
+        type values         = values
+        type structVals     = structVals
+        type functors       = functors
+        type valAccess      = valAccess
+        type typeConstrs    = typeConstrs
+        type signatures     = signatures
+        type fixStatus      = fixStatus
+        type univTable      = univTable
+        type pretty         = pretty
+        type locationProp   = locationProp
+    end
 end;

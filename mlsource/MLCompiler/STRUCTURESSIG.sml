@@ -43,7 +43,8 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     type topdec
     type program
-    type exportTree
+    type ptProperties
+    type exportTree = location * ptProperties list
     type typeParsetree
     type formalArgStruct
 
@@ -88,4 +89,30 @@ sig
     val displayProgram: program * int -> pretty;
 
     val structsExportTree: (unit->exportTree) option * program -> exportTree
+
+    structure Sharing:
+    sig
+        type structs        = structs
+        type structVals     = structVals
+        type types          = types
+        type parsetree      = parsetree
+        type lexan          = lexan
+        type pretty         = pretty
+        type values         = values
+        type typeConstrs    = typeConstrs
+        type codetree       = codetree
+        type signatures     = signatures
+        type functors       = functors
+        type env            = env
+        type sigBind        = sigBind
+        and  functorBind    = functorBind
+        and  structBind     = structBind
+        type machineWord    = machineWord
+        type fixStatus      = fixStatus
+        type topdec         = topdec
+        type program        = program
+        type typeParsetree  = typeParsetree
+        type formalArgStruct= formalArgStruct
+        type ptProperties   = ptProperties
+    end
 end;

@@ -74,39 +74,11 @@ structure EXPORTTREE: EXPORTTREESIG
 (*                  TYPETREE                                                 *)
 (*****************************************************************************)
 structure TYPETREE : TYPETREESIG
-    where type exportTree = EXPORTTREE.exportTree
-    and   type navigation = EXPORTTREE.navigation;
 
 (*****************************************************************************)
 (*                  PARSETREE                                                *)
 (*****************************************************************************)
-structure PARSETREE :
-sig
-  type parsetree;
-  type types;
-  type lexan;
-  type pretty;
-  type typeId;
-  type env;
-  type codetree;
-  type environEntry
-  type fixStatus
-  type values
-  type exportTree = EXPORTTREE.exportTree
-  type navigation = EXPORTTREE.navigation
-  type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-  val ptDisplay: parsetree * int -> pretty;
-
-  val pass2: parsetree * (bool -> typeId) * env * lexan * string -> types;
-
-  type debugenv = environEntry list * (int->codetree)
-
-  val gencode: parsetree * lexan * debugenv * int * int ref * string -> codetree list * debugenv
-
-    val getExportTree: navigation * parsetree -> exportTree
-end;
+structure PARSETREE : PARSETREESIG
 
 (*****************************************************************************)
 (*                  UTILITIES                                                *)
@@ -156,87 +128,9 @@ structure PRETTY : PRETTYSIG
 
 structure COPIER: COPIERSIG
 
-(*****************************************************************************)
-(*                  STRUCTURES sharing constraints                           *)
-(*****************************************************************************)
-
-sharing type
-  LEX.lexan
-= VALUEOPS.lexan
-= TYPETREE.lexan
-= PARSETREE.lexan
-
-sharing type
-  LEX.pretty
-= TYPETREE.pretty
-= PARSETREE.pretty
-= PRETTY.pretty
-= EXPORTTREE.pretty
-= VALUEOPS.pretty
-
-sharing type
-  CODETREE.codetree
-= VALUEOPS.codetree
-= PARSETREE.codetree
-= STRUCTVALS.codetree
-
-sharing type
-  STRUCTVALS.types
-= VALUEOPS.types
-= TYPETREE.types
-= PARSETREE.types
-= EXPORTTREE.types
-
-sharing type
-  STRUCTVALS.values
-= VALUEOPS.values
-= PARSETREE.values
-= TYPETREE.values
-= COPIER.values
-
-sharing type
-  STRUCTVALS.typeId
-= TYPETREE.typeId
-= PARSETREE.typeId
-= COPIER.typeId
-
-sharing type
-  STRUCTVALS.structVals
-= VALUEOPS.structVals
-= TYPETREE.structVals
-= COPIER.structVals
-
-sharing type
-  STRUCTVALS.valAccess
-= VALUEOPS.valAccess
-
-sharing type
-  STRUCTVALS.typeConstrs
-= VALUEOPS.typeConstrs
-= TYPETREE.typeConstrs
-= COPIER.typeConstrs
- 
-sharing type
-  STRUCTVALS.env 
-= PARSETREE.env
-
-sharing type
-  UNIVERSALTABLE.univTable
-= STRUCTVALS.univTable
-
-sharing type
-  STRUCTVALS.fixStatus
-= PARSETREE.fixStatus
-= VALUEOPS.fixStatus
-
-sharing type
-  STRUCTVALS.signatures
-= VALUEOPS.signatures
-= COPIER.signatures
-
-sharing type
-  STRUCTVALS.functors
-= VALUEOPS.functors
+sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
+    = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
+    = CODETREE = UNIVERSALTABLE
 
 ) : STRUCTURESSIG =
 
@@ -3763,4 +3657,30 @@ struct
     { fixes=revFilter [] (#fixes result), values=revFilter [] (#values result), structures=revFilter [] (#structures result),
       functors=revFilter [] (#functors result), types=revFilter [] (#types result), signatures=revFilter [] (#signatures result) }
   end (* pass4Structs *)
+
+    structure Sharing =
+    struct
+        type structs        = structs
+        type structVals     = structVals
+        type types          = types
+        type parsetree      = parsetree
+        type lexan          = lexan
+        type pretty         = pretty
+        type values         = values
+        type typeConstrs    = typeConstrs
+        type codetree       = codetree
+        type signatures     = signatures
+        type functors       = functors
+        type env            = env
+        type sigBind        = sigBind
+        and  functorBind    = functorBind
+        and  structBind     = structBind
+        type machineWord    = machineWord
+        type fixStatus      = fixStatus
+        type topdec         = topdec
+        type program        = program
+        type typeParsetree  = typeParsetree
+        type formalArgStruct= formalArgStruct
+        type ptProperties   = ptProperties
+    end
 end;

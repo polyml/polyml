@@ -43,4 +43,10 @@ sig
     (* getSimplePrinter prints strings through compilerOutput. *)
     and getSimplePrinter: Universal.universal list -> string -> unit
 
+    (* Types that can be shared. *)
+    structure Sharing:
+    sig
+        type pretty     = pretty
+        and  context    = context
+    end
 end;

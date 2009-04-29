@@ -29,9 +29,6 @@
 
 functor COMPILER_BODY (
 
-(*****************************************************************************)
-(*                  SYMSET                                                   *)
-(*****************************************************************************)
 structure SYMSET :
 sig
   type sys
@@ -43,14 +40,8 @@ sig
   val semicolon:    symset
 end;
 
-(*****************************************************************************)
-(*                  LEX                                                      *)
-(*****************************************************************************)
 structure LEX : LEXSIG
 
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
 structure CODETREE :
 sig
   type codetree
@@ -60,32 +51,14 @@ sig
   val pretty:    codetree -> pretty;
 end;
 
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
 structure STRUCTVALS : STRUCTVALSIG; 
 
-(*****************************************************************************)
-(*                  VALUEOPS                                                 *)
-(*****************************************************************************)
 structure VALUEOPS : VALUEOPSSIG;
-
-(*****************************************************************************)
-(*                  EXPORTTREE                                               *)
-(*****************************************************************************)
 
 structure EXPORTTREE: EXPORTTREESIG
 
-(*****************************************************************************)
-(*                  STRUCTURES                                               *)
-(*****************************************************************************)
 structure STRUCTURES : STRUCTURESSIG
-        where type exportTree = EXPORTTREE.exportTree
-;
 
-(*****************************************************************************)
-(*                  PARSEDEC                                                 *)
-(*****************************************************************************)
 structure PARSEDEC :
 sig
   type lexan
@@ -97,9 +70,6 @@ sig
     { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
 end;
 
-(*****************************************************************************)
-(*                  DEBUG                                                    *)
-(*****************************************************************************)
 structure DEBUG :
 sig
     val parsetreeTag   : bool Universal.tag
@@ -112,9 +82,6 @@ sig
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
-(*****************************************************************************)
-(*                  UTILITIES                                                *)
-(*****************************************************************************)
 structure UTILITIES :
 sig
   val searchList: unit ->
@@ -123,14 +90,8 @@ sig
       lookup: string -> 'a  option}
 end;
 
-(*****************************************************************************)
-(*                  PRETTY                                                   *)
-(*****************************************************************************)
 structure PRETTY : PRETTYSIG
 
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
 structure MISC :
 sig
   exception InternalError of string
@@ -138,70 +99,8 @@ sig
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 end;
 
-(*****************************************************************************)
-(*                  COMPILERBODY sharing constraints                         *)
-(*****************************************************************************)
-
-sharing type
-  PRETTY.pretty
-= STRUCTURES.pretty
-= CODETREE.pretty
-
-sharing type
-  SYMSET.sys
-= LEX.sys
-
-sharing type
-  SYMSET.symset
-= PARSEDEC.symset
-
-sharing type
-  LEX.lexan
-= PARSEDEC.lexan
-= STRUCTURES.lexan
-
-sharing type
-  STRUCTVALS.fixStatus
-= PARSEDEC.fixStatus
-= VALUEOPS.fixStatus
-= STRUCTURES.fixStatus
-
-sharing type
-  PARSEDEC.program
-= STRUCTURES.program
-
-sharing type
-  STRUCTURES.codetree
-= CODETREE.codetree
-
-sharing type
-  STRUCTVALS.env
-= STRUCTURES.env
-
-sharing type
-  STRUCTVALS.typeConstrs
-= STRUCTURES.typeConstrs
-= VALUEOPS.typeConstrs
-
-sharing type
-  VALUEOPS.values
-= STRUCTVALS.values
-= STRUCTURES.values
-
-sharing type
-  VALUEOPS.structVals
-= STRUCTVALS.structVals
-= STRUCTURES.structVals
-
-sharing type
-  VALUEOPS.functors
-= STRUCTVALS.functors
-= STRUCTURES.functors
-
-sharing type
-  VALUEOPS.signatures
-= STRUCTVALS.signatures
-= STRUCTURES.signatures
+sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Sharing
+      = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE
 
 (*****************************************************************************)
 (*                  COMPILERBODY export signature                            *)
