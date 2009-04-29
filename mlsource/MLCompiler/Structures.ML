@@ -31,4 +31,5 @@ structure Structures =
     structure DEBUG      = Debug
 	structure DEBUGGER   = Debugger
     structure EXPORTTREE = ExportTreeStruct
+    structure COPIER     = CopierStruct
   );

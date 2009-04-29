@@ -210,6 +210,8 @@ sig
         debugger * debugReason * string * location -> environEntry list -> machineWord list -> unit
 end;
 
+structure COPIER: COPIERSIG
+
 (*****************************************************************************)
 (*                  PARSETREE sharing constraints                            *)
 (*****************************************************************************)
@@ -225,10 +227,12 @@ sharing type
   STRUCTVALS.typeConstrs
 = TYPETREE.typeConstrs
 = VALUEOPS.typeConstrs
+= COPIER.typeConstrs
 
 sharing type
   STRUCTVALS.structVals
 = VALUEOPS.structVals
+= COPIER.structVals
 
 sharing type
   STRUCTVALS.types
@@ -241,6 +245,7 @@ sharing type
   STRUCTVALS.values
 = VALUEOPS.values
 = TYPETREE.values
+= COPIER.values
 
 sharing type
   CODETREE.codetree
@@ -278,6 +283,12 @@ sharing type
 sharing type
   TYPETREE.typeId
 = STRUCTVALS.typeId
+= COPIER.typeId
+
+sharing type
+  STRUCTVALS.signatures
+= VALUEOPS.signatures
+= COPIER.signatures
 
 ) : 
 
@@ -2539,8 +2550,62 @@ struct
                             |   _ => [OpenedAt location]
 
                         val sigTbl = structSignat str; (* Get the tables. *)
-              
-                        fun copyEntry (dName, dVal, ()) = 
+                        
+                        (* We have to convert typeIds from Formal into Selected.  We need to do
+                           this for all IDs in the structure we're opening and also any within
+                           substructures if they use IDs in the parent, which is usually the case.
+                           We may, though, have IDs that are local to substructures so we need to check. *)
+                        fun copyId(id as Free{ uid, allowUpdate, access=ref(Formal addr) }) =
+                                if isInStructure id (* Have to search. *)
+                                then Free { uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
+                                else id
+                        |   copyId(id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =
+                                if offset >= sigMinTypes sigTbl andalso offset < sigMaxTypes sigTbl
+                                then Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
+                                else id
+                        |   copyId id = id
+                        and isInStructure id =
+                        let
+                            fun check n =
+                                if n = sigMaxTypes sigTbl
+                                then false
+                                else sameTypeId(id, sigTypeIdMap sigTbl n) orelse check(n+1)
+                        in
+                            check(sigMinTypes sigTbl)
+                        end
+                        
+                        val _ =
+                            COPIER.fullCopySig 
+                            (0, sigTbl,
+                            {
+                              enterType   =
+                                fn (s,v) => #enterType env (s, v),
+                              enterStruct =
+                              fn (name, strVal) =>
+                                    let
+                                        val selectedStruct = 
+                                            makeSelectedStruct (strVal, str, openLocs);
+                                    in
+                                        #enterStruct env (name, selectedStruct)
+                                    end,
+                              enterVal    =
+                                fn (name, value) =>
+                                    let
+                                        (* If this is a datatype we could use findValueConstructor here
+                                           to save constructing a new object.  It's probably not worth it. *)
+                                        val selectedVar = 
+                                            mkSelectedVar (value, str, openLocs);
+                                    in
+                                        HashTable.hashSet(valTable, name, selectedVar);
+                                        #enterVal env (name, selectedVar)
+                                    end
+                            },
+                            copyId, fn x => x, "");
+                    in
+                        ()
+                    end
+
+(*                        fun copyEntry (dName, dVal, ()) = 
                         if (tagIs typeConstrVar dVal)
                         then
                         let
@@ -2552,7 +2617,7 @@ struct
                                environment at this point.  While a signature cannot contain
                                values which "mask" constructors we can have a structure
                                containing values which mask constructors. *)
-                            val tcons = tagProject typeConstrVar dVal
+                            val tcons = copyTypeCons(tagProject typeConstrVar dVal)
                         in
                             #enterType env (dName, 
                                 if null(tcConstructors tcons)
@@ -2566,7 +2631,7 @@ struct
                             (* If this is a datatype we could use findValueConstructor here
                                to save constructing a new object.  It's probably not worth it. *)
                             val selectedVar = 
-                                mkSelectedVar (tagProject valueVar dVal, str, openLocs);
+                                mkSelectedVar (tagProject valueVar dVal, str, copyTyp, openLocs);
                         in
                             HashTable.hashSet(valTable, dName, selectedVar);
                             #enterVal env (dName, selectedVar)
@@ -2575,6 +2640,7 @@ struct
                         else if (tagIs structVar dVal)
                         then
                         let
+                            (* TODO: Apply the type copying here as well. *)
                             val selectedStruct = 
                                 makeSelectedStruct (tagProject structVar dVal, str, openLocs);
                         in
@@ -2583,7 +2649,7 @@ struct
                         else ()
                     in
                         univFold (sigTab sigTbl, copyEntry, ())
-                    end
+                    end *)
     
                     (* ...then put them into the name space. *)
                     val () = List.app copyEntries strs;

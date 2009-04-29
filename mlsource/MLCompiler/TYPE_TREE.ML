@@ -1256,13 +1256,13 @@ struct
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
        function copies that as well. Does not copy value constructors. *)
-    fun copyTypeConstr (tcon, mustCopy, typeMap, copyTypeVar, strName) =
+    fun copyTypeConstr (tcon, typeMap, copyTypeVar, strName) =
         case tcIdentifier tcon of
             TypeFunction(args, equiv) =>
             let
                 val copiedEquiv =
                     copyType(equiv, trivMap, (* Don't bother with type variables. *)
-		                fn tcon => copyTypeConstr (tcon, mustCopy, typeMap, trivMap, strName))
+		                fn tcon => copyTypeConstr (tcon, typeMap, trivMap, strName))
                 val oldName = tcName tcon
         		val newName = strName ^ #second(splitString oldName)
             in
@@ -1276,19 +1276,18 @@ struct
                                         0 (* Always global. *), tcLocations tcon)
             end
 
-        |   id as Bound { offset, ...} =>
-            if mustCopy offset
-            then (* Must copy the identifier. *)
+        |   id =>
             let
-                val newId = typeMap offset
-                (* Replace any signature name by the given structure name. *)
-                val newName = strName ^ #second(splitString(tcName tcon))
+                val newId = typeMap id
             in
-                makeDatatypeConstr(newName, tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+                (* If this is free and is the same Id and it was already global then
+                   we aren't doing anything and can just return it unchanged. *)
+                if isFreeId id andalso sameTypeId(newId, id) andalso isGlobal(idAccess id)
+                then tcon
+                else (* Replace any signature name by the given structure name. *)
+                    makeDatatypeConstr(strName ^ #second(splitString(tcName tcon)),
+                        tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
             end
-            else tcon
-
-        |   id (* Free*) => tcon;
 
     datatype match = Matched of {old: typeVarForm, new: types};
 

@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000,2009
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -33,4 +33,5 @@ structure ParseTree =
     structure RUNCALL    = RunCall
 	structure DEBUGGER   = Debugger
     structure EXPORTTREE = ExportTreeStruct
+    structure COPIER     = CopierStruct
   ) ;

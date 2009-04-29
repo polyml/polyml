@@ -122,7 +122,7 @@ sig
     val findValueConstructor: values -> values;
 
     val copyTypeConstr:
-        typeConstrs * (int -> bool) * (int -> typeId) * (types -> types) * string -> typeConstrs;
+        typeConstrs * (typeId -> typeId) * (types -> types) * string -> typeConstrs;
 
     val setTypeConstr: typeConstrs * (bool -> typeId) -> unit;
 
