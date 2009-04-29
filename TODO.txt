@@ -4,4 +4,10 @@ A list of things to do:
   error response.
 
 * Make sure that side effects in the "--ideprotocol" do not destroy
-  error messages.
+  error messages. Proposal: send all output to stdout before reporting
+  the compilation state. 
+
+* Add to docs that threads run during compilation are the coder's
+  responsibility; we suggest that to ensure correct behaviour of the
+  IDE, all threads should be complete by the end of the execution of a
+  file.
