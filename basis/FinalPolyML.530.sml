@@ -870,26 +870,7 @@ local
 
     end
 
-
-    val bindName = ref "ml_bind";
-    val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
-    (* The architecture-specific suffixes take precedence. *)
-    val suffixes = ref [archSuffix, "",archSuffix^".ML", ".ML", archSuffix^".sml", ".sml"];
-
-    (* isDir raises an exception if the file does not exist so this is
-       an easy way to test for the file. *)
-    fun fileDirExists (name : string) : bool =
-       (OS.FileSys.isDir name; true) handle OS.SysErr _ => false
-
-    fun findFileTuple (directory, object) [] = NONE
-    |   findFileTuple (directory, object) (suffix :: suffixes) =
-    let
-        val fileName  = object ^ suffix
-    in
-        if fileDirExists (OS.Path.joinDirFile{dir=directory, file = fileName})
-        then SOME (directory, fileName)
-        else findFileTuple (directory, object) suffixes
-    end;
+    val suffixes = ref ["", ".ML", ".sml"];
 
     (* If we are building under the IDE we need to record the dependencies
        and also save the state before each file we "use". *)
@@ -1050,7 +1031,18 @@ local
     end;
     
     fun filePresent (directory : string, object : string) =
-        findFileTuple (directory, object) (!suffixes)
+    let
+        (* Construct suffixes with the architecture and version number in so
+           we can compile architecture- and version-specific code. *)
+        val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
+        val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
+        val extraSuffixes = [archSuffix, versionSuffix, "" ]
+        val addedSuffixes =
+            List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+    in
+        (* For each of the suffixes in the list try it. *)
+        findFileTuple (directory, object) addedSuffixes
+    end
     
     (* See if the corresponding file is there and if it is a directory. *)
     fun testForDirectory (name: string) : bool =
@@ -1124,7 +1116,7 @@ local
                     (* If the object is a directory the source is in the bind file. *)
                     val (dir : string, file : string) =
                         if objIsDir
-                        then (here, !bindName)
+                        then (here,"ml_bind")
                         else (directory, objName);
                 in
                     case filePresent (dir, file) of
@@ -1913,6 +1905,7 @@ in
             datatype compilerParameters = datatype compilerParameters
 
             val compilerVersion = Bootstrap.compilerVersion
+            val compilerVersionNumber = Bootstrap.compilerVersionNumber
 
             val forgetSignature: string -> unit = forgetSig
             and forgetStructure: string -> unit = forgetStruct

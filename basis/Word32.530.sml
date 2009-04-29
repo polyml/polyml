@@ -105,14 +105,6 @@ end;
 (* Because we are using opaque signature matching we have to install
    type-dependent functions OUTSIDE the structure. *)
 local
-    open RuntimeCalls
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
         (* The string may be either 0wnnn or 0wxXXX *)
         fun convWord s : Word32.word =
                 let
@@ -121,7 +113,7 @@ local
                         if String.sub(s, 2) = #"x" then StringCvt.HEX else StringCvt.DEC
                 in
                         case StringCvt.scanString (Word32.scan radix) s of
-                                NONE => raise Conversion "Invalid word8 constant"
+                                NONE => raise RunCall.Conversion "Invalid word8 constant"
                           | SOME res => res
                 end
 

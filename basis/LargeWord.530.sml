@@ -463,13 +463,6 @@ local
 
 	(* Converter to word values. *)
 	local
-	    structure Conversion =
-	      RunCall.Run_exception1
-	        (
-	          type ex_type = string;
-	          val ex_iden  = EXC_conversion
-	        );
-	    exception Conversion = Conversion.ex;
 
 		(* The string may be either 0wnnn or 0wxXXX *)
 		fun getRadix s =
@@ -481,7 +474,7 @@ local
 			val radix = getRadix s
 			in
 				case StringCvt.scanString (Words.Word.scan radix) s of
-					NONE => raise Conversion "Invalid word constant"
+					NONE => raise RunCall.Conversion "Invalid word constant"
 				  | SOME res => res
 			end
 		and convLarge s =
@@ -489,7 +482,7 @@ local
 			val radix = getRadix s
 			in
 				case StringCvt.scanString (Words.LargeWord.scan radix) s of
-					NONE => raise Conversion "Invalid word constant"
+					NONE => raise RunCall.Conversion "Invalid word constant"
 				  | SOME res => res
 			end
 

@@ -19,17 +19,5 @@
 
 structure ForeignException : ForeignExceptionSig =
     struct
-	local
-	    structure Type =
-		struct
-		    type ex_type = string;
-		    val  ex_iden = 23;
-		end;
-	
-	    structure E: sig exception ex of string end =
-		RunCall.Run_exception1(Type);
-	in
-	    exception Foreign = E.ex;
-	end;
-
+        exception Foreign = PolyML.Foreign
     end;

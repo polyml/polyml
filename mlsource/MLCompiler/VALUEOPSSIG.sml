@@ -112,9 +112,6 @@ sig
     val raiseMatch:     codetree
     val makeGuard:      values * codetree * int -> codetree 
     val makeInverse:    values * codetree * int -> codetree
-  
-    val lookupAny:  string * (string -> 'a option) * (string -> structVals option) *
-                       (structVals -> string -> 'a option) * string * 'a * (string -> unit) -> 'a
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals

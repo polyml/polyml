@@ -19,17 +19,7 @@
 
 structure XCall =
 struct
-  local
-    structure Type =
-    struct
-      type ex_type = string;
-      val  ex_iden = 10;
-    end;
-
-    structure E: sig exception ex of string end = RunCall.Run_exception1(Type);
-  in
-    exception XWindows = E.ex;
-  end;
+    exception XWindows = PolyML.XWindows;
   
   fun xcall n = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows n
 

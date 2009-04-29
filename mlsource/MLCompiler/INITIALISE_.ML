@@ -28,20 +28,8 @@
 functor INITIALISE_ (
 
 structure LEX: LEXSIG
-
-(*****************************************************************************)
-(*                  TYPETREE                                                 *)
-(*****************************************************************************)
 structure TYPETREE : TYPETREESIG;
-
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
 structure STRUCTVALS : STRUCTVALSIG;
-
-(*****************************************************************************)
-(*                  VALUEOPS                                                 *)
-(*****************************************************************************)
 structure VALUEOPS : VALUEOPSSIG;
 
 (*****************************************************************************)
@@ -69,10 +57,6 @@ sig
 
   val evalue:           codetree -> machineWord;
 end;
-
-(*****************************************************************************)
-(*                  EXPORTTREE                                               *)
-(*****************************************************************************)
 
 structure EXPORTTREE: EXPORTTREESIG
 
@@ -111,18 +95,12 @@ sig
 	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
 end;
 
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
 structure ADDRESS :
 sig
   type machineWord
   val toMachineWord : 'a -> machineWord;
 end;
 
-(*****************************************************************************)
-(*                  DEBUG                                                    *)
-(*****************************************************************************)
 structure DEBUG :
 sig
   val lineNumberTag: (unit->int) Universal.tag
@@ -145,9 +123,6 @@ sig
   val debugTag				  : bool Universal.tag;
 end;
 
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
 structure MISC :
 sig
   type 'a iter
@@ -157,98 +132,16 @@ sig
   exception Conversion of string;     (* string to int conversion failure *)
 end;
 
-(*****************************************************************************)
-(*                  DEBUGGER                                                 *)
-(*****************************************************************************)
-structure DEBUGGER :
-sig
-    type values;
-    type nameSpace;
-
-    (* The debugger function supplied to the compiler. *)
-    type debugger = int * values * int * string * string * nameSpace -> unit
-
-    val debuggerFunTag : debugger Universal.tag
-end;
-
-(*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
-(*****************************************************************************)
+structure DEBUGGER : DEBUGGERSIG
 structure PRETTY : PRETTYSIG
-
-(*****************************************************************************)
-(*                  VERSION                                                  *)
-(*****************************************************************************)
 
 structure VERSION:
 sig
    val compilerVersion: string
+   val versionNumber: int
 end;
 
-(*****************************************************************************)
-(*                  INITIALISE sharing constraints                           *)
-(*****************************************************************************)
-
-sharing type
-  ADDRESS.machineWord
-= CODETREE.machineWord
-    
-sharing type
-  CODETREE.codetree
-= VALUEOPS.codetree
-= STRUCTVALS.codetree
-
-sharing type
-  STRUCTVALS.values 
-= VALUEOPS.values
-= MAKE.values
-  
-sharing type
-  TYPETREE.types
-= STRUCTVALS.types 
-= VALUEOPS.types
-= EXPORTTREE.types
-
-sharing type
-  TYPETREE.typeConstrs
-= STRUCTVALS.typeConstrs 
-= MAKE.typeConstrs
-= VALUEOPS.typeConstrs
-
-sharing type
-  STRUCTVALS.env
-= MAKE.env
-
-sharing type
-  STRUCTVALS.functors
-= MAKE.functors
-= VALUEOPS.functors
-
-sharing type
-  STRUCTVALS.structVals
-= MAKE.structVals
-= VALUEOPS.structVals
-
-sharing type
-  STRUCTVALS.signatures
-= MAKE.signatures
-= VALUEOPS.signatures
-
-sharing type
-  STRUCTVALS.fixStatus
-= MAKE.fixStatus
-= VALUEOPS.fixStatus
-
-sharing type
-  VALUEOPS.pretty
-= TYPETREE.pretty
-= PRETTY.pretty
-= EXPORTTREE.pretty
-
-sharing type
-  TYPETREE.locationProp
-= STRUCTVALS.locationProp
-= VALUEOPS.locationProp
+sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing = PRETTY.Sharing = MAKE = ADDRESS = CODETREE
 
 ) : 
 
@@ -654,6 +547,53 @@ struct
             val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type);
             val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type);
         end;
+        
+(*****************************************************************************)
+(*                  Run-time exceptions in RunCall                           *)
+(*****************************************************************************)
+        
+        local
+            (* Create nullary exception. *)
+            fun makeException0(name, id) =
+            let
+                val exc =
+                    Value{ name = name, typeOf = TYPETREE.exnType,
+                           access = Global(mkConst(toMachineWord id)),
+                           class = Exception, locations = declInBasis }
+            in
+                #enterVal runCallEnv (name, exc)
+            end
+            (* Create exception with parameter. *)
+            and makeException1(name, id, exType) =
+            let
+                val exc =
+                    Value{ name = name, typeOf = exType ->> TYPETREE.exnType,
+                           access = Global(mkConst(toMachineWord id)),
+                           class = Exception, locations = declInBasis }
+            in
+                #enterVal runCallEnv (name, exc)
+            end
+        in
+            val () = List.app makeException0
+                [
+                    ("Interrupt",   EXC_interrupt),
+                    ("Size",        EXC_size),
+                    ("Bind",        EXC_Bind),
+                    ("Div",         EXC_divide),
+                    ("Match",       EXC_Match),
+                    ("Overflow",    EXC_overflow),
+                    ("Subscript",   EXC_subscript)
+                 ]
+             val () = List.app makeException1
+                [
+                    ("Fail",        EXC_Fail,           String),
+                    ("Conversion",  EXC_conversion,     String),
+                    ("XWindows",    EXC_XWindows,       String),
+                    ("Foreign",     EXC_foreign,        String),
+                    ("Thread",      EXC_thread,         String),
+                    ("SysErr",      EXC_syserr,         String ** Option Int)
+                ]
+        end
 
 (*****************************************************************************)
 (*                  Bootstrapping functions (in structure Bootstrap)         *)
@@ -1136,112 +1076,6 @@ struct
             val () = enterGlobalValue ("mod", mkOverloaded "mod"   addType);
             val () = enterGlobalValue ("/", mkOverloaded "/"   addType);
         end;
-
-
-(*****************************************************************************)
-(*                  Funny functor PolyML.Run_exception0                      *)
-(*****************************************************************************)
-   (* "Run_exception0" and "Run_exception1" allow exceptions in the run-time
-      system to be passed into ML. Run_exception0 is used for exceptions without
-      arguments, and Run_exception1 for exceptions that have arguments. *)
-   (* functor Run_exception0(val ex_iden: int end) : sig exception ex end *)
-        
-        local
-            (* Argument signature. *)
-            local
-                (* make an anonymous, empty signature *)
-                val sig0    = makeSignatureTable ();
-                val (Env argEnv) = makeEnv sig0;
-                val exIdenVal : values = makeFormalV ("ex_iden", Int, 0, declInBasis);
-                val () = #enterVal argEnv ("ex_iden", exIdenVal);
-            
-            in
-                val argSig0 = makeSignature ("", sig0, 0, 0, inBasis, fn _ => raise Subscript)
-            end
-
-            (* Result signature. *)
-            local
-                (* make an anonymous, empty signature *)
-                val sig0    = makeSignatureTable ()
-                val (Env resEnv) = makeEnv sig0;
-                val exVal = makeFormalEx ("ex", TYPETREE.exnType, 0, declInBasis);
-                val () = #enterVal resEnv ("ex", exVal);
-            in
-                val resSig0 = makeSignature ("", sig0, 0, 0, inBasis, fn _ => raise Subscript);
-            end
-                 
-            (* The functor turns the value into an exception by returning the argument. *)
-            val Run_exception0 = 
-                makeFunctor
-                (
-                    "Run_exception0",
-                    makeLocalStruct ("", argSig0, declInBasis),
-                    resSig0,
-                    makeGlobal (identityFunction "Run_exception0"),
-                    inBasis
-                );
-        in
-            val () = #enterFunct runCallEnv ("Run_exception0", Run_exception0);
-        end;
-   
-
-(*****************************************************************************)
-(*                  Funny functor RunCall.Run_exception1                     *)
-(*****************************************************************************)
-   (* functor Run_exception1(sig type exType; val ex_iden: int end) :
-             sig exception ex of exType end *) 
-        local
-            (* Make a nullary type constructor (the type of the exception) *)
-            val boundId = makeBoundId (Formal 0, 0, false)
-            val exTypeConstr = 
-                makeFrozenTypeConstrs ("ex_type", [], boundId, 0, declInBasis);
-            
-            (* Argument signature. *)
-            local
-                (* make an anonymous, empty signature *)
-                val sig1 = makeSignatureTable ();
-                
-                val (Env argEnv) = makeEnv sig1;
-                
-                val exIdenVal = makeFormalV ("ex_iden", Int, 1, declInBasis);
-                
-                val () = #enterType argEnv ("ex_type", exTypeConstr);
-                val () = #enterVal  argEnv ("ex_iden", exIdenVal);
-            in
-                (* Contains 1 bound type *)
-                val argSig1 =
-                    makeSignature ("", sig1, 0, 1, inBasis, fn 0 => boundId | _ => raise Subscript);
-            end
-            
-            (* Result signature. *)
-            local
-                (* make an anonymous, empty signature *)
-                val sig1 = makeSignatureTable ();
-                val (Env resEnv) = makeEnv sig1;
-                
-                (* get the actual type from the nullary type constructor *)
-                val exType = mkTypeConstruction ("ex_type", exTypeConstr, [], declInBasis);
-                val exVal  = makeFormalEx ("ex", exType ->> TYPETREE.exnType, 1, declInBasis);
-                
-                val () = #enterVal resEnv ("ex", exVal);
-            in
-                (* The result signature refers to a type in the argument but doesn't contain a type ID. *)
-                val resSig1 = makeSignature ("", sig1, 1, 1, inBasis, fn _ => raise Subscript);
-            end
-             
-            (* The functor turns the value into an exception by returning the argument. *)
-            val Run_exception1 = 
-                makeFunctor
-                    (
-                    "Run_exception1",
-                    makeLocalStruct ("", argSig1, declInBasis),
-                    resSig1,
-                    makeGlobal (identityFunction "Run_exception1"),
-                    inBasis
-                    );
-        in
-            val () = #enterFunct runCallEnv ("Run_exception1", Run_exception1);
-        end;
    
 (*****************************************************************************)
 (*                  Bootstrap entries copied from DEBUG                *)
@@ -1267,6 +1101,7 @@ struct
             val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [
                 ("compilerVersion",        toMachineWord VERSION.compilerVersion, String),
+                ("compilerVersionNumber",  toMachineWord VERSION.versionNumber,  Int),
                 ("lineNumberTag",          toMachineWord lineNumberTag,          Tag (Unit->>Int)),
                 ("offsetTag",              toMachineWord offsetTag,              Tag (Unit->>Int)),
                 ("fileNameTag",            toMachineWord fileNameTag,            Tag String),

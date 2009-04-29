@@ -175,13 +175,6 @@ signature SUBSTRING =
 local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport;
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
 
     val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
     val System_loadb: string*word->char = RunCall.run_call2 POLY_SYS_load_byte;
@@ -563,11 +556,11 @@ local
                     else SOME(unsafeSub(s, i), i+0w1)
                 in
                     case scan rdr 0w0 of
-                        NONE => raise Conversion "Invalid character constant"
+                        NONE => raise RunCall.Conversion "Invalid character constant"
                       | SOME(res, index') =>
                             (* Check that we have converted all the string. *)
                             if index' <> len
-                            then raise Conversion "Not exactly one character"
+                            then raise RunCall.Conversion "Not exactly one character"
                             else res
                 end
 
@@ -879,7 +872,7 @@ local
                     if i = len then [] (* Finished *)
                     else case Char.scan rdr i of
                         NONE => (* Bad conversion *)
-                            raise Conversion "Invalid string constant"
+                            raise RunCall.Conversion "Invalid string constant"
                       | SOME(res, j) => res :: convChars j
                 in
                     implode(convChars 0w0)

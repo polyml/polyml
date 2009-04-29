@@ -172,13 +172,7 @@ struct
 
 	(* The calls themselves raise the SysCall exception.
 	   That has to be turned into a SysError exception. *)
-    structure SysErr =
-      RunCall.Run_exception1
-        (
-          type ex_type = string * syserror Option.option
-          val ex_iden  = RuntimeCalls.EXC_syserr
-        );
-	exception SysErr = SysErr.ex
+	exception SysErr = RunCall.SysErr
 
 	local
 		val doCall: int*syserror -> string

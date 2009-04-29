@@ -1669,7 +1669,10 @@ struct
             case #lookupSig globalEnv name of
                 SOME v => v
             |   NONE =>
-                    ( giveError (str, lno, lex); undefinedSignature )
+                    (
+                        giveError (str, lno, lex)("Signature (" ^ name ^ ") has not been declared");
+                        undefinedSignature
+                    )
 
 		(* Construct a signature.  All the type IDs within the signature are variables. *)
         fun sigValue (str : structs, Env env : env, lno : LEX.location, structName) =
@@ -2132,18 +2135,15 @@ struct
              dependencies between the parameters and result signatures so
              copying may have to take that into account. *)
           let 
-            (* Look up the name, and copy the structure. Strictly functors
-               cannot be contained in structures but this allows structures
-               to be used as general name spaces. *)
+            (* Look up the functor name.  ML doesn't allow functors to be in structures. *)
             val functr: functors =
-              lookupAny 
-                (name,
-                 #lookupFunct env, 
-                 #lookupStruct env,
-                (fn s => #lookupFunct (makeEnv(sigTab (structSignat s)))),
-                "Functor",
-                undefinedFunctor,
-                giveError (str, nameLoc, lex));
+                case #lookupFunct env name of
+                    SOME f => f
+                |   NONE =>
+                    (
+                        giveError (str, nameLoc, lex) ("Functor (" ^ name ^ ") has not been declared");
+                        undefinedFunctor
+                    )
           in
             if isUndefinedFunctor functr
             then undefinedSignature

@@ -274,13 +274,6 @@ struct
 	   function for ints installed in the bootstrap process. In
 	   particular this converter can handle hexadecimal. *)
 	local
-	    structure Conversion =
-	      RunCall.Run_exception1
-	        (
-	          type ex_type = string;
-	          val ex_iden  = EXC_conversion
-	        );
-	    exception Conversion = Conversion.ex;
 		(* The string may be either decimal or hex. *)
 		(* TODO: We could rewrite scan so that it raises Conversion with
 		   a string giving more information and then handle.  It's
@@ -294,7 +287,7 @@ struct
 				then StringCvt.HEX else StringCvt.DEC
 			in
 				case StringCvt.scanString (scan radix) s of
-					NONE => raise Conversion "Invalid integer constant"
+					NONE => raise RunCall.Conversion "Invalid integer constant"
 				  | SOME res => res
 			end
 			

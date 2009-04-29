@@ -191,18 +191,9 @@ infix  0  before
   val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word;
   RunCall.addOverload it "mod";
 
-local
 	(* We need to use the same identifier for this that we used when
 	   compiling the compiler, particularly "make". *)
-    structure Fail =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = RuntimeCalls.EXC_Fail
-        )
-in
-    exception Fail = Fail.ex
-end;
+    exception Fail = RunCall.Fail
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
@@ -246,14 +237,6 @@ local
 	   the Char structure. *)
 	open RuntimeCalls;
 
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
-
 	val isShortString   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
 	fun convChar (s: string) : char =
@@ -262,7 +245,7 @@ local
 	in
 		(* Should be exactly a single character i.e. a single short value. *)
 		if isShortString convS then RunCall.unsafeCast convS
-		else raise Conversion "Bad character"
+		else raise RunCall.Conversion "Bad character"
 	end;
 
 in
