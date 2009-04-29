@@ -1,0 +1,7 @@
+A list of things to do: 
+
+* exceptions thrown in the "--ideprotocol" mode, should result in an
+  error response.
+
+* Make sure that side effects in the "--ideprotocol" do not destroy
+  error messages.
