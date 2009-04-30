@@ -1,7 +1,9 @@
 A list of things to do: 
 
-* exceptions thrown in the "--ideprotocol" mode, should result in an
-  error response.
+* Exceptions thrown during compilation in the "--ideprotocol" mode,
+  should result in an error response. The error response should
+  include information about the file the error was raised in, and if
+  easy the location.
 
 * Make sure that side effects in the "--ideprotocol" do not destroy
   error messages. Proposal: send all output to stdout before reporting
@@ -11,3 +13,13 @@ A list of things to do:
   responsibility; we suggest that to ensure correct behaviour of the
   IDE, all threads should be complete by the end of the execution of a
   file.
+
+* Clean up protocol for IDE interaction: add explicit list element
+  "L", avoid combined content and sub-elements (e.g. 
+  compile result from poly, is currently: 
+
+  ESC 'R' result ESC ',' finaloffset errors ESC-r
+
+  Change to: 
+
+  ESC 'R' result ESC ',' finaloffset ESC ',' ESC 'L' errors ESC 'l'  ESC-r
