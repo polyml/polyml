@@ -291,10 +291,14 @@ local
                 )
             )
 	    end
+        
+    fun print_ref depth doArg (ref x) =
+        PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), doArg(x, depth) ])
 
 in
-  	val it = addPrettyPrinter print_bool;
-  	val it = addPrettyPrinter print_string;
-  	val it = addPrettyPrinter print_char;
-  	val it = addPrettyPrinter print_list
+  	val () = addPrettyPrinter print_bool;
+  	val () = addPrettyPrinter print_string;
+  	val () = addPrettyPrinter print_char;
+  	val () = addPrettyPrinter print_list
+  	val () = addPrettyPrinter print_ref
 end;
