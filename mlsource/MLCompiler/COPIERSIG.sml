@@ -23,14 +23,17 @@ sig
     type structVals
     type values
     type typeId
-    type valAccess
 
     type tsvEnv = { enterType:   string * typeConstrs -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
-    val copySig: signatures * (int -> bool) * (int -> typeId) * int * string -> signatures
-    val fullCopySig: int * signatures * tsvEnv * (typeId -> typeId) * (valAccess->valAccess) * string -> int
+    val copySig: signatures * (int -> bool) * (int -> typeId) * string -> signatures
+    val copySigAndRenumber: signatures * (int -> bool) * (int -> typeId) * int * string -> signatures
+
+    val fullCopySig: signatures * tsvEnv * (typeId -> typeId) * string -> unit
     val copyTypeConstructors: signatures * (typeId -> typeId) * string -> unit
+    
+    val fullCopyDatatype: typeConstrs * (typeId -> typeId) * string -> typeConstrs
     
     structure Sharing:
     sig
@@ -39,6 +42,5 @@ sig
         type structVals     = structVals
         type values         = values
         type typeId         = typeId
-        type valAccess      = valAccess
     end
 end;

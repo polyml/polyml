@@ -2336,29 +2336,10 @@ struct
                         (* We have to convert typeIds from Formal into Selected.  We need to do
                            this for all IDs in the structure we're opening and also any within
                            substructures if they use IDs in the parent, which is usually the case.
-                           We may, though, have IDs that are local to substructures so we need to check. *)
-                        fun copyId(id as Free{ uid, allowUpdate, access=ref(Formal addr) }) =
-                                if isInStructure id (* Have to search. *)
-                                then Free { uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
-                                else id
-                        |   copyId(id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =
-                                if offset >= sigMinTypes sigTbl andalso offset < sigMaxTypes sigTbl
-                                then Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
-                                else id
-                        |   copyId id = id
-                        and isInStructure id =
-                        let
-                            fun check n =
-                                if n = sigMaxTypes sigTbl
-                                then false
-                                else sameTypeId(id, sigTypeIdMap sigTbl n) orelse check(n+1)
-                        in
-                            check(sigMinTypes sigTbl)
-                        end
-                        
+                           We may, though, have IDs that are local to substructures so we need to check. *)                        
                         val _ =
                             COPIER.fullCopySig 
-                            (0, sigTbl,
+                            (sigTbl,
                             {
                               enterType   =
                                 fn (s,v) => #enterType env (s, v),
@@ -2382,7 +2363,7 @@ struct
                                         #enterVal env (name, selectedVar)
                                     end
                             },
-                            copyId, fn x => x, "");
+                            idFromStructure str, "");
                     in
                         ()
                     end

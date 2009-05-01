@@ -40,6 +40,7 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     type locationProp
+    type typeId
 
     val exnId    : exn -> machineWord
     val exnName  : exn -> string
@@ -105,6 +106,8 @@ sig
     val mkExIden:       unit -> codetree
     val codeVal:        values * int * types * lexan * location -> codetree
     val codeExFunction: values * int * types * lexan * location -> codetree
+    val codeId:         typeId * int -> codetree
+    val codeOpaqueId:   typeId * (int->codetree) * int -> codetree
     val applyFunction:  values * codetree * int * types * lexan * location -> codetree
     val getOverloadInstance: string * types * bool * lexan * location -> codetree*string
     val isTheSameException: values * values -> bool
@@ -116,8 +119,8 @@ sig
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals
                                            
-    val lookupStructureDirectly: string * {lookupStruct: string -> structVals option} * 
-                               string * (string -> unit) -> structVals
+    val lookupStructureAsSignature:
+        (string -> structVals option) *  string * (string -> unit) -> structVals
                                            
     val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
                           string * (string -> unit) -> values
@@ -133,6 +136,8 @@ sig
 
     val createNullaryConstructor: representations * string -> codetree
     val createUnaryConstructor: representations * string -> codetree
+
+    val idFromStructure: structVals -> typeId -> typeId
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -151,5 +156,6 @@ sig
         type univTable      = univTable
         type pretty         = pretty
         type locationProp   = locationProp
+        type typeId         = typeId
     end
 end;

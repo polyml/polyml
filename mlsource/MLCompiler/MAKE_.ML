@@ -422,7 +422,7 @@ struct
 						(_, NONE) => raise Fail "Static Errors"
 					 |  (_, SOME c) => c
                     (* execute the code and get the resulting declarations. *)
-                    val { fixes, values, structures, signatures, functors, types } = code ()
+                    val { fixes, values, structures, signatures, functors, types } = PolyML.exception_trace code
                 in
                     (* Just enter the values in the environment without printing. *)
                     List.app (#enterFix useEnv) fixes;

@@ -172,7 +172,7 @@ struct
 
   | StructDec      of (* struct ... end *)
       { alist: structs list, (* List of items in it. *) location: location,
-        value: univTable (* Value *), localIds: typeId list ref }
+        value: univTable (* Value *), localIds: { source: typeId, dest: typeId } list ref }
 
   | SignatureIdent of string * location  (* A signature name *)
 
@@ -215,7 +215,7 @@ struct
                                    (* Its signature and whether it's opaque. *)
         value:     structs option,        (* And its value *)
         valRef:    structVals ref, (* The structure variable declared. *)
-        typeIds:   typeId list ref,
+        opaqueIds: { source: typeId, dest: typeId } list ref, (* Extra type IDs needed for opaque matching. *)
         line:      location
       }
    (* The constraint could be removed from here and instead the parser could
@@ -292,7 +292,7 @@ struct
           sigStruct = signat,
           value     = value,
           valRef    = ref undefinedStruct,
-          typeIds   = ref [],
+          opaqueIds = ref [],
           line      = fullLoc
         };
   
@@ -1374,14 +1374,15 @@ struct
         matchVals (candidate, target); (* Do the match. *)
         resultType (* Return the function to look up the results. *)
     end (* matchSigs *);
-  
-  fun tsvEnv (Env E) = {enterType   = #enterType   E,
-                        enterStruct = #enterStruct E,
-                        enterVal    = #enterVal    E};
 
+    val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
-
-  val makeEnv = fn x => let val Env e = makeEnv x in e end;  
+    (* Turn a locally created ID into a Formal which can be returned in a structure. *)
+    fun convertIdToFormal(n, Bound { offset, eqType, ...}) =
+            Bound { access = Formal n, offset = offset, eqType = eqType }
+    |   convertIdToFormal(n, Free { uid, allowUpdate, ... }) =
+            Free { access = ref(Formal n), uid = uid, allowUpdate = allowUpdate }
+    |   convertIdToFormal _ = raise InternalError "Not bound or free"
 
   (* Second pass - identify names with values and type-check *)
  
@@ -1649,14 +1650,10 @@ struct
                 fun getStructSignat (name: string) : signatures =
                 let
                   val subStr : structVals =
-				    lookupStructureDirectly 
-				      ("Structure" ,
-				       {lookupStruct = #lookupStruct tEnv}, 
-				       name,
-				       lookupFailure);
-					in
-					  structSignat subStr
-					end
+                    lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure);
+                in
+                      structSignat subStr
+                end
               in  (* Now share all these signatures. *)
                 shareStructures (map getStructSignat tlist, line)
               end
@@ -1758,10 +1755,33 @@ struct
                 fun typeMap id = Vector.sub (v, id - minOffset)
                 fun copyId(id as Bound{ offset, ...}) = typeMap offset
                 |   copyId id = id
-            in
+
+                (* Renumber the values and structures.  We don't need to do the types
+                   because they will be renumbered at the end. *)
+                val address = ref offset
+                fun newAccess(Formal _) =
+                    let val addr = !address in address := addr+1; Formal addr end
+                |   newAccess _ = raise InternalError "newAccess: Not Formal"
+  
+                val tsvEnv =
+                {
+                    enterType   = #enterType structEnv,
+                    enterStruct =
+                        fn (name, str) =>
+                            #enterStruct structEnv
+                                (name, Struct{ name = structName str, signat = structSignat str,
+                                        access = newAccess(structAccess str),
+                                        locations = structLocations str}),
+                    enterVal =
+                        fn (dName, Value { name, typeOf, access, class, locations }) =>
+                            #enterVal structEnv (dName,
+                                Value{name=name, typeOf = typeOf, access=newAccess access,
+                                      class=class, locations=locations})
+                }
 				(* Copy the signature into the result. *)
-				fullCopySig(offset, sourceSig, tsvEnv (Env structEnv), 
-                        copyId, fn x => x, strName)
+				val () = fullCopySig(sourceSig, tsvEnv, copyId, strName)
+            in
+                ! address
             end
   
           | SigDec (sigsList : structs list, _) =>  (* sig .... end *)
@@ -2208,7 +2228,7 @@ struct
                    argument. *)
                 copySig (makeSignature(sigName resultSig, sigTab resultSig, minCopy,
                                     sigMaxTypes resultSig, sigDeclaredAt resultSig, sigTypeIdMap resultSig),
-                         fn n => n >= minCopy, getFinalTypeId, 0, strName)
+                         fn n => n >= minCopy, getFinalTypeId, strName)
             end
           end
                            
@@ -2219,134 +2239,90 @@ struct
             (* Some of the environment, the types and the value constructors,
                is generated during the first pass. Get the environment from
                the structure. *)
-            val structEnv = makeEnv structTable;
-            
-            (* The result of processing these declarations are two "signatures", one
-               aassociated with the "value" field of the StructDec and a second "resultSig"
-               is returned as the result.
-               The contents of the two are much the same with one crucial difference:
-               values and structure values in the "value" signature represent the source
-               for the values (often Local declarations but possibly Selected or Globals)
-               whereas the entries in the "resultSig" are a sequence of Formal entries.
-               The purpose of constructing these is to provide a default signature if
-               there is no explicit signature. *)
+            val structEnv = makeEnv structTable
             val initialBoundCount = currentTypeCount()
-            val resultTable = makeSignatureTable();
-            val resultEnv = makeEnv resultTable
-            val addrs = ref 0;
-            val formalTypeIds = ref []
             
+            val newEnv =
+            {
+                enterType = #enterType structEnv,
+                enterVal = #enterVal structEnv,
+                enterStruct = #enterStruct structEnv,
+                enterSig = fn _ => raise InternalError "Signature in Struct End",
+                enterFunct = fn _ => raise InternalError "Functor in Struct End",
+                lookupVal = lookupDefault (#lookupVal structEnv) (#lookupVal env),
+                lookupType = lookupDefault (#lookupType structEnv) (#lookupType env),
+                lookupStruct = lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
+                lookupSig    = #lookupSig   env, (* Global *)
+                lookupFunct  = #lookupFunct env, (* Global *)
+                lookupFix    = #lookupFix   env,
+			    (* Fixity declarations are dealt with in the parsing process.  They
+			       are only processed again in this pass in order to get declarations
+				   in the right order. *)
+                enterFix     = fn _ => ()
+            }
+
+            val addrs = ref 0; (* Entries in the run-time vector. *)
+
+            (* When making new IDs remember them in the list. *)
             fun makeLocalTypeId isVar isEq =
             let
                 val newId = newTypeId isVar isEq
+                (* We add an entry to the run-time vector ready for this to be returned. *)
 	            val a = !addrs;
                 val () = addrs := a + 1
-                val formalId =
-                    case newId of
-                        Free{ uid, allowUpdate, ...} =>
-                            Free { uid=uid, allowUpdate=allowUpdate, access = ref(Formal a)}
-                    |   Bound { offset, eqType, ... } =>
-                            Bound { offset = offset, eqType = eqType, access = Formal a}
-                    |   _ => raise InternalError "makeLocalTypeId: Not Bound or Free"
+                val convertId = convertIdToFormal(a, newId)
             in
-                localIds := newId :: ! localIds;
-                formalTypeIds := formalId :: ! formalTypeIds;
+                localIds := { source = newId, dest = convertId } :: ! localIds;
                 newId
             end
-            
-            (* This environment receives the declarations from calling pass2. *)
-            val newEnv = 
-              {
-                enterType =
-                  fn (pair as (name,v)) =>
-                    (
-                     #enterType structEnv pair;
-                     #enterType resultEnv pair
-                    ),
-                    
-               (* Should never occur. *)
-                enterSig = 
-                  fn (pair as (name,v)) =>
-                    (
-                     #enterSig  structEnv pair;
-                     #enterSig  resultEnv pair
-                    ),
-                    
-               (* Never occurs in normal ML, might happen if we opened a
-                  structure that was actually a name space. *)
-               enterFunct =
-                  fn (pair as (name,v)) =>
-                   (
-                     #enterFunct structEnv pair;
-                     #enterFunct resultEnv pair
-                   ),
-                   
-               (* Enter the value in the environment of the struct..end,
-                  but turn local declarations  or selections from other
-                  structures into entries for the result vector. *)
-              enterVal =
-                  fn (pair as (name,v)) =>
-                  (
-                    #enterVal structEnv pair;
-
-                    case v of
-						Value{access=Overloaded _, ...} =>
-							#enterVal resultEnv pair (* Just copy. *)
-					|	Value{class, typeOf, locations, ...} =>
-	                    let (* Local or selected. *)
-	                      val isVal = not (isConstructor v);
-	                        
-	                      val a = !addrs;
-	                    in
-	                      #enterVal resultEnv (name, mkFormal (name, class, typeOf, a, locations));
-	                      addrs := a + 1
-	                    end
-                  ),
-                  
-              (* Make entries in the result vector. *)
-              enterStruct =
-                fn (pair as (name, str)) => 
-                let
-                  val U = #enterStruct structEnv pair;
-                  val resSig = structSignat str;
-                  val locations = structLocations str
-                  val a = !addrs;
-                in
-                  #enterStruct resultEnv (name, makeFormalStruct (name, resSig, a, locations));
-                  addrs := a + 1
-                end,
-                
-              lookupVal =
-                lookupDefault (#lookupVal    structEnv) (#lookupVal    env),
-                
-              lookupType =
-                lookupDefault (#lookupType   structEnv) (#lookupType   env),
-                
-              lookupStruct =
-                lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
-                 
-              lookupSig    = #lookupSig   env, (* Global *)
-              
-              lookupFunct  = #lookupFunct env, (* Global *)
-              
-              lookupFix    = #lookupFix   env,
-
-			  (* Fixity declarations are dealt with in the parsing process.  They
-			     are only processed again in this pass in order to get declarations
-				 in the right order. *)
-              enterFix     = fn _ => ()
-            };
-            
             (* process body of structure *)
             val () = pass2Struct (alist, makeLocalTypeId, currentTypeCount, Env newEnv, lex, lno, strName);
-            (* Save the list of the type IDs created in this structure. *)
-            val v = Vector.fromList(List.rev(!formalTypeIds))
+
+            (* Copy the result signature.  We need all entries to be Formals.  This signature is really
+               only used if we have a structure or functor without an explicit result signature. *)
+            val idVec = Vector.fromList(List.rev(!localIds)) (* This has local IDs *)
+            val finalTable = makeSignatureTable();
+            val finalEnv = makeEnv finalTable
+
+            fun copyId oldId =
+                case Vector.find (fn { dest, ...} => sameTypeId(dest, oldId)) idVec of
+                    SOME { dest, ...} => dest
+                |   NONE => oldId
+            val _ =
+                COPIER.fullCopySig 
+                (makeSignature("", structTable, initialBoundCount, initialBoundCount+Vector.length idVec, location,
+                                fn n => #source(Vector.sub(idVec, n-initialBoundCount))),
+                {
+                    enterType   = fn (s,v) => #enterType finalEnv (s, v),
+                    enterStruct =
+                        fn (name, strVal) =>
+                        let
+                            val resSig = structSignat strVal;
+                            val locations = structLocations strVal
+                            val a = !addrs;
+                        in
+                            #enterStruct finalEnv (name, makeFormalStruct (name, resSig, a, locations));
+                            addrs := a + 1
+                        end,
+                    enterVal    =
+                        fn (name, value as Value{access = Overloaded _, typeOf, locations, ...}) =>
+                            #enterVal finalEnv (name, value)
+                        |  (name, Value{class, typeOf, locations, ...}) =>
+                        let
+                            (* TODO: There was a special case here for Overloaded.  Is that still needed? *)
+                            val a = ! addrs
+                        in
+                            #enterVal finalEnv (name, mkFormal (name, class, typeOf, a, locations));
+                            addrs := a + 1
+                        end
+                },
+                copyId, "");
           in
             (* The value for maxTypes is set to the length of the vector plus minTypes.  This works
                both for Bound IDs in a functor and also for Free IDs where currentTypeCount()
                always returns zero. *)
-            makeSignature("", resultTable, initialBoundCount, initialBoundCount+Vector.length v, location,
-                fn n => Vector.sub(v, n-initialBoundCount))
+            makeSignature("", finalTable, initialBoundCount, initialBoundCount+Vector.length idVec, location,
+                fn n => #dest(Vector.sub(idVec, n-initialBoundCount)))
           end
                 
         | Localdec {decs, body = [localStr], line, ...} =>
@@ -2429,7 +2405,7 @@ struct
                 These are distinct from those in the surrounding space and,
                 because we're now incrementing the counter, distinct from any
                 we make anywhere else. *)
-             copySig (explicitSig, fn s => s >= sigMinTypes explicitSig, resTypeMap, 0, strName)
+             copySig (explicitSig, fn s => s >= sigMinTypes explicitSig, resTypeMap, strName)
          end
                 
         | _ =>
@@ -2460,15 +2436,16 @@ struct
             );
          (* Put the new names into this environment. *)
          
-        fun pass2StructureBind ({name, sigStruct, value = SOME value, valRef, line, typeIds, ...}) : unit=
+        fun pass2StructureBind ({name, sigStruct, value = SOME value, valRef, line, opaqueIds, ...}) : unit=
           let (* Each element in the list is a structure binding. *)
-            (* Keep a list of the local type IDs.  If this is a top-level declaration they have to
-               be turned into globals. *)
+            (* Keep a list of the type IDs created in the body.  They're created as Local but if
+               they're exported as part of the signature they have to be made Formal. *)
+            val bodyIds = ref []
             fun sbindMakeTypeId isVar eq =
             let
                 val newId = makeTypeId isVar eq
             in
-                typeIds := newId :: ! typeIds;
+                bodyIds := newId :: ! bodyIds;
                 newId
             end;
 
@@ -2479,46 +2456,91 @@ struct
                 case sigStruct of
                     NONE => resSig (* No signature to match. *)
                 |   SOME (sigStruct, opaque, sigLoc) =>
-                  let
-                   (* Get the explicit signature. If we are inside a functor
-                       we have to make any new bound names outside the range
-                       we have already used. *)
-                    val explicitSig  : signatures = 
-                      sigVal(sigStruct, makeCurrentTypeCount(), Env env, lex, sigLoc, strName ^ name ^ ".");
+                    let
+                        (* Get the explicit signature. If we are inside a functor
+                           we have to make any new bound names outside the range
+                           we have already used. *)
+                        val startTypes = makeCurrentTypeCount()
+                        val explicitSig  : signatures = 
+                            sigVal(sigStruct, startTypes, Env env, lex, sigLoc, strName ^ name ^ ".");
+                        val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig                 
 
-                    (* Match the signature.  This instantiates entries in typeMap. *)
-                    val matchResults = matchSigs (resSig, explicitSig, fn n => displayStruct(str, n), sigLoc, lex);    
-              
-    				(* These maps are used to construct the resultant signature.
-    				   If we are using transparent matching we use the map constructed
-    				   from matching the signature to the structure but if we are
-    				   using opaque matching we need to make new instances of
-    				   every type. *)
-        			val resTypeMap = 
-        				if opaque
-        				then
+                        (* Match the signature.  This instantiates entries in typeMap. *)
+                        val matchResults = matchSigs (resSig, explicitSig, fn n => displayStruct(str, n), sigLoc, lex);
+                    in
+                        if opaque
+                        then
                         let
-                            fun makeNewId n =
+                            (* TODO: We could reset the Bound Id count for type IDs in a functor since
+                               we're not returning any of the IDs created in the structure value. *)
+                            val opaques = ref nil
+                            val resTypeMap = 
                             let
-                                val oldId = sigTypeIdMap explicitSig n
+                                (* Construct new IDs for the generic IDs.  For each ID in the signature
+                                   we need to make a new Local ID.  The access values are copied from
+                                   the original signature (they should all be Formals). *)
+                                fun makeNewId n =
+                                let
+                                    val oldId = sigTypeIdMap explicitSig (n+minExplicitSig)
+                                    val newId = makeTypeId false(isEquality oldId)
+                                    val oldAccess = idAccess oldId
+                                    (* Construct a list of the newIds and their source. *)
+                                    val () = opaques := { dest = newId, source = matchResults n } :: ! opaques
+                                in
+                                    case newId of
+                                        Bound { offset, eqType, ... } =>
+                                            Bound { access = oldAccess, offset = offset, eqType = eqType }
+                                    |   Free { uid, allowUpdate, ... } =>
+                                            Free { access = ref oldAccess, uid = uid, allowUpdate = allowUpdate }
+                                    |   _ => raise InternalError "Not bound or free"
+                                end;
+                                (* Create new IDs for all the bound IDs in the signature. *)
+                                val v = Vector.tabulate (maxExplicitSig-minExplicitSig, makeNewId)
                             in
-                                sbindMakeTypeId false(isEquality oldId)
-                            end;
-                            (* Create new IDs for all the bound IDs in the signature. *)
-                            val minOffset = sigMinTypes explicitSig and maxOffset = sigMaxTypes explicitSig
-                            val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId (n+minOffset))
+                                fn id => Vector.sub (v, id - minExplicitSig)
+                            end
+                            (* Add the matching IDs to a list.  When we create the code for
+                               the structure we need to create new run-time ID values using
+                               the original equality code and a new ref to hold the printer. *)
+                            val () = opaqueIds := List.rev (!opaques)
                         in
-                            fn id => Vector.sub (v, id - minOffset)
+                            (* And copy it to put in the names from the structure. *)
+                            copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap, strName ^ name ^ ".")
                         end
-        				else (* Transparent: Use the IDs from the structure. *)
-                            fn n => matchResults n
-                  in
-                    (* And copy it to put in the names from the structure. *)
-                    copySig (explicitSig, fn s => s >= sigMinTypes explicitSig, resTypeMap, 0, strName ^ name ^ ".")
-                  end;
+                        else (* Transparent: Use the IDs from the structure. *)
+                        let
+                            (* We need to return ALL the IDs that were created by the structure value
+                               in case they're used in the signature.  Convert them into Bound IDs. *)
+                            (* Local IDs are put into run-time offsets 0..N. *)
+                            val bodyVec = Vector.mapi convertIdToFormal (Vector.fromList(List.rev(!bodyIds)))
+                            val nIDs = Vector.length bodyVec
+                            (* When we copy the result we want to replace any IDs that were local with
+                               references to these new entries.  But matchResults may return a mixture
+                               of types, some local, some not. *)
+                            fun resTypeMap n =
+                            let
+                                val matched = matchResults n
+                            in
+                                (* If we have the typeID in the vector, ignoring the changed access,
+                                   then we use that entry. *)
+                                case Vector.find(fn id => sameTypeId(id, matched)) bodyVec of
+                                    SOME newId => newId
+                                |   NONE => matched
+                            end
+                            val resSig =
+                                copySigAndRenumber (explicitSig, fn s => s >= sigMinTypes explicitSig, resTypeMap,
+                                    nIDs, (* Start the run-time offsets after the type IDs *) strName ^ name ^ ".")
+                        in
+                            (* The result signature.  This needs to be able to enumerate the type IDs
+                               including those we've added. *)
+                            makeSignature (sigName resSig, sigTab resSig,
+                                            startTypes, startTypes+nIDs,
+                                            sigDeclaredAt resSig, fn n => Vector.sub(bodyVec, n-startTypes))
+                        end
+                    end;
 
-            (* Now make a local structure variable using this signature. *)
-            val var = makeLocalStruct (name, resultSig, [DeclaredAt line]);
+             (* Now make a local structure variable using this signature. *)
+             val var = makeLocalStruct (name, resultSig, [DeclaredAt line]);
             
           in
             #enter sEnv (name, var);
@@ -2818,7 +2840,7 @@ struct
                             |   copyId id = id                        
                             val _ =
                                 COPIER.fullCopySig 
-                                (0, signat,
+                                (signat,
                                 {
                                   enterType   =
                                     fn (s,v) => #enterType argEnv (s, v),
@@ -2829,7 +2851,7 @@ struct
                                     fn (name, value) =>
                                         #enterVal argEnv (name, mkSelectedVar (value, resArg, []))
                                 },
-                                copyId, fn x => x, "");
+                                copyId, "");
                         in
                             ()
                         end
@@ -2937,7 +2959,7 @@ struct
                                    Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
                                    argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
                                 val resSig =
-                                    copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap,
+                                    copySigAndRenumber (explicitSig, fn s => s >= minExplicitSig, resTypeMap,
                                         !typeStamps-startTypes (* Start the run-time offsets after the type IDs *),
                                         name ^ "().")
                             in
@@ -3051,7 +3073,7 @@ struct
 
    (* Code-generate a structure value, and return the result 
       after matching it to the required signature. *)
-    fun structureCode (str, resultSig, strName, debugEnv) =
+    fun structureCode (str, resultSig, opaqueIds, strName, debugEnv) =
     let
        (* Generate a new structure which will match the given signature.
           A structure is represented by a vector of entries, and its
@@ -3079,7 +3101,7 @@ struct
             (
                 case StretchArray.sub(resVec, addr) of
                     NONE => StretchArray.update (resVec, addr, SOME code)
-                |   SOME _ => (print ("addToList: Duplicate entry " ^ Int.toString addr ^ "\n"));
+                |   SOME _ => raise InternalError ("addToList: Duplicate entry " ^ Int.toString addr ^ "\n");
               if addr >= !maxEntry then maxEntry := addr + 1 else ()
             );
         
@@ -3119,7 +3141,8 @@ struct
                       end;
                     val sourceSig = structSignat sourceStruct
                     val matched =
-                      matchStructure (code, sigTab sourceSig, sigTypeIdMap sourceSig, structSignat dval);
+                      matchStructure (code, sigTab sourceSig, (*sigTypeIdMap sourceSig*)
+                                                fn n => makeFreeId(defaultEqAndPrintCode(), false), structSignat dval);
                         
                     val U : unit = 
                       if not (#unchanged matched)
@@ -3258,9 +3281,13 @@ struct
                 case idAccess typeId of
                     Formal addr =>
                     let
-                        (* TODO: Do this properly.  This is just temporary. *)
-                        (*val id = sourceIds n*)
-                        val id = makeFreeId(defaultEqAndPrintCode(), false)
+                        val id = sourceIds n
+                            handle Subscript =>
+                                (
+                                    print(concat["Value ", Int.toString n, " invalid\n"]);
+                                    useOriginal := false;
+                                    makeFreeId(defaultEqAndPrintCode(), false)
+                                )
                     in
                         case idAccess id of
                             Formal svAddr =>
@@ -3270,14 +3297,14 @@ struct
                                 else ();
                                 addToList (mkInd (svAddr, load)) addr
                             )
-                        |   access =>
+                        |   _ =>
                             (
                                 useOriginal := false;
-                                addToList (codeAccess(access, !level)) addr
+                                addToList (codeId(id, !level)) addr
                             )
                     end
                 |   _ => ()
-                else ()
+                else () (* I don't understand how this can occur. *)
             end
             val () = tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID)
 
@@ -3293,25 +3320,35 @@ struct
           let
               val codeList =
                   List.tabulate (!maxEntry,
-                    fn i => case StretchArray.sub (resVec,i) of SOME v => v |
-                     NONE => (print ("Missing: " ^ strName ^ " " ^ Int.toString i ^ "\n"); CodeZero))
+                    fn i => getOpt(StretchArray.sub (resVec,i), CodeZero))
           in
             {
               code      = mkEnv (#dec decs @ [mkTuple codeList]),
               unchanged = false
             }
           end
-        end handle exn as InternalError _ =>
-            (
-                print(PRETTY.uglyPrint(displaySignatures(dest, 100, nullEnvironment)));
-                raise exn
-            )
-        
+        end
+
+        (* If we are declaring a structure with an opaque signature we need to create
+           the run-time IDs for newly generated IDs. *)
+        fun loadOpaqueIds(getFormal, opaqueIds) =
+        let
+            fun decId { dest, source } =
+                let
+                    val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
+                    val addr = mkAddr();
+                    val () = idAddr := addr and () = idLevel := ! level;
+                in
+                    mkDec(addr, codeOpaqueId(source, getFormal, !level))
+                end
+        in
+            List.map decId opaqueIds
+        end
     in
       case str of
         FunctorAppl {name, arg, valRef = ref functs, argHolder=ref argHolder, ...} =>
         let
-            val argCode = structureCode (arg, structSignat (functorArg functs), strName, debugEnv)
+            val argCode = structureCode (arg, structSignat (functorArg functs), [], strName, debugEnv)
             (* We need to save the actual argument in a local variable.  It will be passed to
                the functor but if type IDs in the argument are shared with the result structure
                we need to make sure the actual argument is around. *)
@@ -3325,15 +3362,19 @@ struct
         in
             (* Evaluate the functor and match to the result. *)
             mkEnv [mkDec(addr, argCode),
-                    #code (matchStructure (applyCode, sigTab sourceSig, sigTypeIdMap sourceSig, resultSig))]
+                    #code (matchStructure (applyCode, sigTab sourceSig, fn n => makeFreeId(defaultEqAndPrintCode(), false) (*sigTypeIdMap sourceSig*), resultSig))]
         end
 
       | StructureIdent {valRef = ref v, ...} =>
         let
             val valCode = codeStruct (v, !level); (* Get the structure. *)
             val sourceSig = structSignat v
+            fun getFormal addr = mkInd(addr, valCode)
         in
-          #code (matchStructure (valCode, sigTab sourceSig, sigTypeIdMap sourceSig, resultSig))
+            mkEnv(loadOpaqueIds(getFormal, opaqueIds) @
+              [#code (matchStructure (valCode, sigTab sourceSig,
+                fn n => makeFreeId(defaultEqAndPrintCode(), false) (*sigTypeIdMap sourceSig*), resultSig))]
+            )
         end
 
       | Localdec {decs, body = [localStr], ...} =>
@@ -3345,20 +3386,29 @@ struct
 				decs debugEnv;
         in
           mkEnv (#code coded @
-                 [structureCode (localStr, resultSig, strName, #debug coded)])
+                 [structureCode (localStr, resultSig, [], strName, #debug coded)])
         end
 
       | StructDec {alist, value, localIds=ref localIds, ...} =>
         let
-          val coded = mapStrdecs alist strName debugEnv;
+            val coded = mapStrdecs alist strName debugEnv;
+            val ids = List.rev localIds
+
+            (* Type IDs to match the result signature come from the opaque list. *)
+            fun getTypeId n =
+                case opaqueIds of
+                    [] => #source (List.nth (ids, n))
+                |   _  => #dest (List.nth (opaqueIds, n))
+            fun getFormal addr =
+                codeId(#source (List.nth(ids, addr)), !level)
         in 
           (* The result is a block containing the declarations and
              code to load the results. *)
-          mkEnv (#code coded @
-            [#code (matchStructure (mkTuple (#load coded), value, fn n => List.nth(localIds, n), resultSig))])
+          mkEnv (#code coded @ loadOpaqueIds(getFormal, opaqueIds) @
+            [#code (matchStructure (mkTuple (#load coded), value, getTypeId, resultSig))])
         end
 
-      | SigConstraint { str, ... } => structureCode (str, resultSig, strName, debugEnv)
+      | SigConstraint { str, ... } => structureCode (str, resultSig, [], strName, debugEnv)
 
       | _ =>
          raise InternalError "structureCode: not a structure"
@@ -3371,7 +3421,7 @@ struct
       case str of
         StructureDec (structList : structBind list, _) =>
         let
-          fun codeStructureBind ({name, value = SOME value, valRef, typeIds=ref typeIds, ...}: structBind, debug) =
+          fun codeStructureBind ({name, value = SOME value, valRef, opaqueIds=ref opaqueIds, ...}: structBind, debug) =
             let
                 (* Set the address of the variable representing this structure. *)
                 val addr = mkAddr(); 
@@ -3379,8 +3429,8 @@ struct
                 val () = #addr var  := addr; 
                 val () = #level var := !level;
 			    val sName = strName ^ name ^ "."
-			    val strCode =
-			  	    structureCode (value, structSignat (!valRef), sName, debug)
+ 			    val strCode =
+			  	    structureCode (value, structSignat (!valRef), opaqueIds, sName, debug)
             in (* Get the code and save the result in the variable. *)
               {
                 code = [mkDec (addr, strCode)],
@@ -3406,7 +3456,7 @@ struct
         in  (* Combine the lists. *)
           { 
             code = #code codeDecs @ #code codeBody,
-            load = #load codeBody, (* Result is just the body. *)
+            load = #load codeBody, (* Result is the body. *)
 			debug = #debug codeBody (* TODO: This isn't correct. *)
           }
         end
@@ -3447,7 +3497,14 @@ struct
           mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
 		  	strs debugEnv;
 
-    fun codeTopdecs (StrDec(str, _), debugEnv) = codeStrdecs("", str, debugEnv)
+    fun codeTopdecs (StrDec(str, ref typeIds), debugEnv) =
+        let
+            val { code, load, debug } = codeStrdecs("", str, debugEnv)
+            (* Load all the IDs created in this topdec even if they're not directly referenced. *)
+            fun loadIds id = codeId(id, !level)
+        in
+            { code = code, load = List.map loadIds typeIds @ load, debug = debug }
+        end
 
     |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv) =
         let
@@ -3466,7 +3523,7 @@ struct
               (* Process the body and make a procedure out of it. *)
               val functorCode : codetree =
                 (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                (structureCode (body, functorResult func, name ^ "().", debugEnv),
+                (structureCode (body, functorResult func, [], name ^ "().", debugEnv),
                  !level, 1, name);
                   
               (* Go back down a level and add 1 to address. *)
@@ -3514,29 +3571,53 @@ struct
   (* This previously only processed declarations which required some code-generation and
      evaluation (structures, values and functors).  It now includes types, signatures and
 	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
-  fun pass4Structs (results, (strs: topdec list, _)) =
-  let
-     
-    fun extractStruct(str, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
-    case str of
-        StructureDec (structList : structBind list, _) =>
+    fun pass4Structs (results, (strs: topdec list, _)) =
+    let
+        (* Extract the equality/print value from the result vector and set this in the type ID.  Unlike
+           values we can't simply return a new value here because the type ID is pointed at by types
+           within the values and type constructors. *)
+        fun convertTypeID(typeId, (addr, decs)) =
         let
-          fun extractStructureBind ({name, valRef, line, typeIds=ref typeIds, ...}: structBind, (addr, structures)) =
-            let
-              val resultSig = structSignat (!valRef);
-			  val structCode = mkInd (addr, results)
-            in
-              (* Make a global structure. *)
-              (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, line)) :: structures)
-            end
-          val (newAddr, newstructures) = List.foldl extractStructureBind (addr, structures) structList
+            val codeID = mkInd(addr, results)
         in
-          (newAddr, { structures=newstructures, functors=functors, signatures=signatures,
-                      fixes=fixes, values=values, types=types })
+            setTypeAccess(typeId, Global codeID);
+            (addr+1, decs)
         end
+
+        fun extractStruct(str, mapTypeIds, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
+        case str of
+            StructureDec (structList : structBind list, _) =>
+            let
+                fun extractStructureBind ({name, valRef, line, ...}: structBind, (addr, structures)) =
+                let
+                    val source = structSignat (!valRef);
+			        val structCode = mkInd (addr, results);
+                    (* We need to replace type IDs with their Global versions. *)
+                    val tab = makeSignatureTable ();
+                    val tsvEnv =
+                    {
+                        enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
+                        enterStruct = fn (s,v) => univEnter (tab, structVar, s, v),
+                        enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
+                    }
+                    (* Copy everything into the new signature. *)
+                    val () = COPIER.fullCopySig (source, tsvEnv, mapTypeIds, "");
+                    val resultSig =
+                        makeSignature(sigName source, tab, sigMinTypes source,
+                                      sigMaxTypes source, sigDeclaredAt source, sigTypeIdMap source)
+                in
+                    (* Make a global structure. *)
+                    (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, line)) :: structures)
+                end
+
+                val (newAddr, newstructures) = List.foldl extractStructureBind (addr, structures) structList
+            in
+                (newAddr, { structures=newstructures, functors=functors, signatures=signatures,
+                      fixes=fixes, values=values, types=types })
+            end
  
       | Localdec {body, ...} =>
-          List.foldl extractStruct args body
+            List.foldl (fn(s, a) => extractStruct(s, mapTypeIds, a))args body          
  
       (* Value, exception or type declaration at the top level. *)
       | CoreLang {vars=ref vars, typeIds=ref typeIds, ...} =>
@@ -3579,16 +3660,6 @@ struct
 
             val newDecs = List.foldl makeDecs args vars
 
-            (* Extract the equality/print value from the result vector and set this in the type ID.  Unlike
-               values we can't simply return a new value here because the type ID is pointed at by types
-               within the values and type constructors. *)
-            fun convertTypeID(typeId, (addr, decs)) =
-            let
-                val codeID = mkInd(addr, results)
-            in
-                setTypeAccess(typeId, Global codeID);
-                (addr+1, decs)
-            end
 
             val newIDs = List.foldl convertTypeID newDecs typeIds
         in
@@ -3597,14 +3668,21 @@ struct
 
      | _ => raise InternalError "extractStruct"; (* end extractStruct *)
     
-    fun extractTopDec(str, (addr, env as { fixes, values, structures, signatures, functors, types }, previousTypeIds)) =
+    fun extractTopDec(str, (addr, env as { fixes, values, structures, signatures, functors, types }, mapPrevTypIds)) =
     case str of
         StrDec(str, ref typeIds) =>
         let
-            (* TODO: Convert the Bound type IDs to Free type IDs. *)
-            val (resAddr, resEnv) = extractStruct (str, (addr, env))
+            fun loadId(Free{uid, allowUpdate, ...}, (n, ids)) =
+                (n+1, Free{uid=uid, allowUpdate=allowUpdate, access=ref(Global(mkInd(n, results)))} :: ids)
+            |   loadId _ = raise InternalError "Not Free"
+            val (newAddr, mappedIds) = List.foldl loadId (addr, []) typeIds
+            fun mapTypeIds id =
+                case List.find(fn n => sameTypeId(id, n)) mappedIds of
+                    SOME newId => newId
+                |   NONE => mapPrevTypIds id
+            val (resAddr, resEnv) = extractStruct (str, mapTypeIds, (newAddr, env))
         in
-            (resAddr, resEnv, typeIds @ previousTypeIds)
+            (resAddr, resEnv, mapTypeIds)
         end
 
     |   FunctorDec (structList : functorBind list, _) =>
@@ -3626,7 +3704,7 @@ struct
           val (newAddr, newfunctors ) = List.foldl extractFunctorBind (addr, functors) structList
         in
           (newAddr, { functors=newfunctors, fixes=fixes, values=values,
-                      signatures=signatures, structures=structures, types=types }, previousTypeIds)
+                      signatures=signatures, structures=structures, types=types }, mapPrevTypIds)
         end
 
      | SignatureDec (structList : sigBind list, _) =>
@@ -3637,11 +3715,15 @@ struct
              with globals.  *)
 		in
            (addr, { fixes=fixes, values=values, structures=structures,
-                    signatures=newSigs @ signatures, functors=functors, types=types }, previousTypeIds)
+                    signatures=newSigs @ signatures, functors=functors, types=types }, mapPrevTypIds)
 		end
     
     val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
-    val (lastAddr, result, _) = List.foldl extractTopDec (0, empty, []) strs;
+
+    fun defaultMap(id as Free{access=ref(Global _), ...}) = id
+    |   defaultMap _ = raise InternalError "Not there"
+
+    val (lastAddr, result, _) = List.foldl extractTopDec (0, empty, fn id => id) strs;
     (* The entries in "result" are in reverse order of declaration and may contain duplicates.
        We need to reverse and filter the lists so that we end up with the lists in order
        and with duplicates removed. *)

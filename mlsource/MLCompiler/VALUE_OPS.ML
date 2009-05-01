@@ -179,12 +179,14 @@ sig
   val splitString: string -> { first:string,second:string }
 end;
 
+structure COPIER: COPIERSIG
+
 (*****************************************************************************)
 (*                  VALUEOPS sharing constraints                             *)
 (*****************************************************************************)
 
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
-      = CODETREE = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
+      = COPIER.Sharing = CODETREE = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
 
 ) : VALUEOPSSIG =
 
@@ -895,34 +897,109 @@ struct
   end;
   
   (* Create exception values - Small integer values are used for
-     run-time system exceptions but only (currently) up to 22. *)
+     run-time system exceptions. *)
   val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
   val matchExceptionVal = mkConst (toMachineWord EXC_Match);
  
 (*****************************************************************************)
-
   (* Look-up functions. *)
-  fun mkEnv x = let val Env e = makeEnv x in e end
-  
-  (* Look up a structure. *)
-  fun lookupStructure (kind, {lookupStruct:string -> structVals option},
-               name, errorMessage) =
-  let
-    fun lookupStr name secondary =
+
+    (* Turn a typeId from Formal into Selected if it is from the given structure.
+       In most cases Formals will be from the given structure but if we have a
+       substructure we could have Formal that is relative to the parent or to the
+       substructure and we have to distinguish those cases. *)
+    fun idFromStructure str : typeId -> typeId =
     let
-      val {first = prefix, second = suffix} = splitString name;
-      val strLookedUp =
-        if prefix = "" then lookupStruct suffix
-        else let  (* Look up the first part in the structure environment. *)
-        val str =
-         lookupStructure
-           ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-        in 
-            (* If the structure is not there the value can't be. *)
-            if isUndefinedStruct str
-            then SOME undefinedStruct
-            else secondary str suffix (* Look up in it and select. *)
+        val strSig = structSignat str
+        fun isInStructure id =
+        let
+            fun check n =
+                if n = sigMaxTypes strSig
+                then false
+                else sameTypeId(id, sigTypeIdMap strSig n) orelse check(n+1)
+        in
+            check(sigMinTypes strSig)
         end
+    in
+        fn (id as Free{ uid, allowUpdate, access=ref(Formal addr) }) =>
+                if isInStructure id (* Have to search. *)
+                then Free { uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
+                else id
+        |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =>
+                if offset >= sigMinTypes strSig andalso offset < sigMaxTypes strSig
+                then Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
+                else id
+        |   id => id
+    end
+    
+  
+    (* Look up a structure. *)
+    (* TODO: This copies the signature of the structure to ensure that type IDs within
+       the structure become Selected entries. lookupStructure is also used when we are
+       looking up a value, type or substructure so this will result in unnecessary
+       copying when we have A.B.x . *)
+    fun lookupStructure (kind, {lookupStruct:string -> structVals option},
+               name, errorMessage) =
+    let
+        val {first = prefix, second = suffix} = splitString name;
+        val strLookedUp =
+            if prefix = ""
+            then lookupStruct suffix
+            else
+            let  (* Look up the first part in the structure environment. *)
+                val str =
+                    lookupStructure
+                        ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
+            in 
+                if isUndefinedStruct str
+                then SOME undefinedStruct (* Error somewhere else? *)
+                else 
+                let
+                    val parentSig = structSignat str
+                    val Env{lookupStruct, ...} = makeEnv(sigTab parentSig)
+                    (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
+                    val baseLoc =
+                    case List.find (fn DeclaredAt _ => true | _ => false) (structLocations str) of
+                        SOME (DeclaredAt loc) => [StructureAt loc]
+                    |   _ => []
+                in
+                    case lookupStruct suffix of
+                        SOME structFound =>
+                        let
+                            (* We need to copy this structure so that any type IDs are converted
+                               from Formal to Selected. *)
+                            val tab = makeSignatureTable ();
+                            (* Copy everything into the new signature. *)
+                            val source = structSignat structFound
+                            val Env sigEnv = makeEnv tab
+                            val copyId = idFromStructure str
+                            val lastAddr =
+                                COPIER.fullCopySig 
+                                    (source,
+                                    {
+                                      enterType   = fn (s,v) => #enterType sigEnv (s, v),
+                                      enterStruct = fn (s,v) => #enterStruct sigEnv (s, v),
+                                      enterVal    = fn (s,v) => #enterVal sigEnv (s, v)
+                                    },
+                                    copyId, "");
+                            val copiedSig = 
+                                makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source,
+                                              sigDeclaredAt source, copyId o sigTypeIdMap source)
+                            (* Convert Formal access to Selected and leave the others (Global?). *)
+                            val newAccess =
+                                case structAccess structFound of
+                                    Formal sel => makeSelected (sel, str)
+                                |   access => access
+                            
+                            val newStruct =
+                                Struct { name = structName structFound, signat = copiedSig,
+                                         access = newAccess, locations = baseLoc @ structLocations structFound}
+                        in
+                            SOME newStruct
+                        end
+                    |   NONE => NONE
+                end
+            end
     in
         case strLookedUp of
            SOME s => s
@@ -931,86 +1008,117 @@ struct
                 (errorMessage (kind ^ " (" ^ suffix ^  ") has not been declared" ^
                    (if prefix = "" then "" else " in structure " ^ prefix));
                 undefinedStruct)
-    end (* lookupStr *) 
-  in
-    lookupStr name 
-      (fn baseStruct =>
-       let
-           val look = #lookupStruct (mkEnv(sigTab(structSignat baseStruct)));
-           (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
-           val baseLoc =
-            case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
-                SOME (DeclaredAt loc) => [StructureAt loc]
-            |   _ => []
-       in
-           fn name => case look name of SOME s => SOME(makeSelectedStruct (s, baseStruct, baseLoc)) | NONE => NONE
-       end)
-  end;
-    
-  fun lookupAny
-    (name : string,
-     primary:     string -> 'a option,
-     lookupStruct:string -> structVals option,
-     secondary:   structVals -> string -> 'a option,
-     kind,
-     undefined:'a,
-     errorMessage)
-    : 'a =
-  let
-    val {first = prefix, second = suffix} = splitString name;
-    val found =
-      if prefix = "" then primary suffix
-      else let (* Look up the first part in the structure environment. *)
-        val str =
-            lookupStructure
-                ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-      in
+    end;
+
+  fun mkEnv x = let val Env e = makeEnv x in e end
+
+    (* Look up a structure but ignore the access. This is used in sharing constraints
+       where we're only interested in the signature. *)
+    fun lookupStructureAsSignature (lookupStruct, name, errorMessage) =
+    let
+        val {first = prefix, second = suffix} = splitString name;
+        val found =
+            if prefix = "" then lookupStruct suffix
+            else
+            let (* Look up the first part in the structure environment. *)
+                val str =
+                    lookupStructureAsSignature(lookupStruct, prefix, errorMessage);
+            in
+                if isUndefinedStruct str
+                then SOME undefinedStruct (* Error detected earlier. *)
+                else #lookupStruct (mkEnv(sigTab(structSignat str))) suffix
+            end
+    in
+        case found of
+            SOME v => v
+        |   NONE => (* Not declared? *)
+            (
+                errorMessage ("Structure" ^ " (" ^ suffix ^ ") has not been declared" ^
+                (if prefix = "" then "" else " in structure " ^ prefix));
+                undefinedStruct
+            )
+    end (* lookupStructureAsSignature *) 
+
+    (* Look up a value, possibly in a structure. If it is in
+       a structure we may have to apply a selection. *)
+    fun lookupValue (kind, {lookupVal,lookupStruct}, name, errorMessage) =
+    let
+        val {first = prefix, second = suffix} = splitString name;
+        val found =
+        if prefix = "" then lookupVal suffix
+        else
+        let (* Look up the first part in the structure environment. *)
+            val baseStruct =
+                lookupStructure
+                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
+        in
+            (* If the structure is not there the value can't be. *)
+            if isUndefinedStruct baseStruct
+            then SOME undefinedValue
+            else
+            let
+                val parentSig = structSignat baseStruct
+                (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
+                val baseLoc =
+                    case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
+                        SOME (DeclaredAt loc) => [StructureAt loc]
+                    |   _ => []
+            in
+                case #lookupVal (mkEnv(sigTab parentSig)) suffix of
+                    SOME (Value{ name, typeOf, access, class, locations }) =>
+                    let
+                        val copiedType =
+                            copyType (typeOf, fn x => x,
+                                fn tcon => copyTypeConstr (tcon, idFromStructure baseStruct, fn x => x, ""));
+                    in
+                        SOME(mkSelectedVar (
+                                Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations },
+                                baseStruct, baseLoc))
+                    end
+                |   NONE => NONE
+            end
+        end
+    in
+        case found of
+            SOME v => v
+        |   NONE => (* Not declared? *)
+            (
+                errorMessage (kind ^ " (" ^ suffix ^ ") has not been declared" ^
+                    (if prefix = "" then "" else " in structure " ^ prefix));
+                undefinedValue
+            )
+    end
+
+    fun lookupTyp ({lookupType,lookupStruct}, name, errorMessage) =
+    let
+        val {first = prefix, second = suffix} = splitString name;
+        val found =
+        if prefix = "" then lookupType suffix
+        else
+        let (* Look up the first part in the structure environment. *)
+            val str =
+                lookupStructure
+                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
+        in
             (* If the structure is not there the value can't be. *)
             if isUndefinedStruct str
-            then SOME undefined
-            else secondary str suffix (* Look up in it and select. *)
-      end
-  in
-      case found of
-          SOME v => v
-      |   NONE => (* Not declared? *)
-            (errorMessage (kind ^ " (" ^ suffix ^ ") has not been declared" ^
+            then SOME undefType
+            else
+                case #lookupType (mkEnv(sigTab (structSignat str))) suffix of
+                    SOME typeConstr => SOME(COPIER.fullCopyDatatype(typeConstr, idFromStructure str, ""))
+                |   NONE => NONE
+        end
+    in
+        case found of
+            SOME v => v
+        |   NONE => (* Not declared? *)
+            (
+                errorMessage ("Type constructor" ^ " (" ^ suffix ^ ") has not been declared" ^
                 (if prefix = "" then "" else " in structure " ^ prefix));
-            undefined)
-  end (* lookupAny *) 
- 
-  (* Look up a structure but return the actual structure even if it is a formal. *)
-  fun lookupStructureDirectly (kind, {lookupStruct}, name, errorMessage) =
-    lookupAny (name, lookupStruct, lookupStruct, 
-          fn baseStruct => #lookupStruct (mkEnv(sigTab(structSignat baseStruct))),
-          kind, undefinedStruct, errorMessage);
- 
-  (* Look up a value, possibly in a structure. If it is in
-     a structure we may have to apply a selection. *)
-  fun lookupValue (kind, {lookupVal,lookupStruct}, name, errorMessage) =
-    lookupAny (name, lookupVal, lookupStruct,
-           fn baseStruct =>
-           let
-               val look = #lookupVal (mkEnv(sigTab (structSignat baseStruct)));
-               (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
-               val baseLoc =
-                case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
-                    SOME (DeclaredAt loc) => [StructureAt loc]
-                |   _ => []
-           in
-               (fn name => case look name of SOME v => SOME(mkSelectedVar (v, baseStruct, baseLoc)) | NONE => NONE)
-           end,
-          kind, undefinedValue, errorMessage);
- 
-  fun lookupTyp ({lookupType,lookupStruct}, name, errorMessage) =
-    lookupAny (name, lookupType, lookupStruct,
-          (* Types do not require a selection from the source
-         structure since there is no actual value. *)
-           fn s => #lookupType (mkEnv(sigTab (structSignat s))),
-          "Type constructor", undefType, errorMessage);
- 
- 
- 
+                undefType
+            )
+    end 
+
  
       (* Printing. *)
 
@@ -2397,19 +2505,20 @@ struct
                contained in the PolyML structure we may compile a reference to a polymorphic
                version of this for the structure record.  It's replaced in the final structure
                by this version. *)
-            val installPp =
-                case constrId of
-                    SOME (typeId, _, _) =>
-                    (fn (pprint:int -> machineWord -> machineWord -> pretty) =>
-                        case idAccess typeId of
-                            Global code =>
-                                unsafeCast(evalue(mkInd(1, code))) := pprint
-                        |   _ => () (* Do nothing silently at the moment. *)
-                    )
-                |   NONE =>
-                    (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")
         in
-            mkConst (toMachineWord installPp)
+            case constrId of
+                SOME (typeId, _, _) =>
+                    (* Generate a function that will set the "print" ref for the type to
+                       the argument function. *)
+                    mkProc(
+                        mkEval(
+                            mkConst (ioOp POLY_SYS_assign_word),
+                            [mkInd(1, codeAccess(idAccess typeId, level+1)), CodeZero, arg1],
+                            false), 1, 1, "addPP")
+                  (*mkConst (toMachineWord (fn _ => ()))*)
+            |   NONE =>
+                    mkConst (toMachineWord
+                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
         end
 
   |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, lex, loc) =
@@ -2845,6 +2954,50 @@ struct
 
   |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
 
+   (* If we are declaring a structure with an opaque signature we need to create
+       the run-time IDs for newly generated IDs. *)
+    fun codeOpaqueId(source, getFormal, level) =
+    let
+        (* Get the code for the source type Id. *)
+        val idCode =
+            if isFreeId source orelse isBoundId source
+            then
+            let
+                val sourceCode =
+                    case idAccess source of
+                        Formal addr => getFormal addr
+                    |   _ => codeId(source, level)
+            in
+                sourceCode
+            end
+            else
+            (
+                print(concat["Value is a type function\n"]);
+                vaGlobal(defaultEqAndPrintCode())
+            )
+        val mutableFlags = F_words orb F_mutable;
+    in
+            mkTuple
+            [
+                mkInd(0, idCode),
+                mkEval
+                    (mkConst (ioOp POLY_SYS_alloc_store),
+                    [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                     mkEval(mkConst(ioOp POLY_SYS_load_word),
+                        [mkInd(1, idCode), CodeZero], false)
+                      ],
+                false)  
+            ]
+    end
+
+    and codeId(typeId, level) =
+        case idAccess typeId of
+            Local { addr = ref 0, level = ref 0 } =>
+            (
+                print(concat["Local value unset\n"]);
+                vaGlobal(defaultEqAndPrintCode())
+            )
+        |   _ => codeAccess(idAccess typeId, level)
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -2863,6 +3016,7 @@ struct
         type univTable      = univTable
         type pretty         = pretty
         type locationProp   = locationProp
+        type typeId         = typeId
     end
 
 end (* body of VALUEOPS *);

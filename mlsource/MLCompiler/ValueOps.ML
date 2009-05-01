@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000, 2009
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -31,4 +31,5 @@ structure ValueOps =
     structure PRETTY     = Pretty
     structure UNIVERSAL     = Universal
 	structure UTILITIES		= Utilities
+    structure COPIER     = CopierStruct
   ) ;
