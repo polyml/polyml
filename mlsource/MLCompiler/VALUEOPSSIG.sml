@@ -106,8 +106,6 @@ sig
     val mkExIden:       unit -> codetree
     val codeVal:        values * int * types * lexan * location -> codetree
     val codeExFunction: values * int * types * lexan * location -> codetree
-    val codeId:         typeId * int -> codetree
-    val codeOpaqueId:   typeId * (int->codetree) * int -> codetree
     val applyFunction:  values * codetree * int * types * lexan * location -> codetree
     val getOverloadInstance: string * types * bool * lexan * location -> codetree*string
     val isTheSameException: values * values -> bool

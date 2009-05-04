@@ -32,4 +32,5 @@ structure Structures =
 	structure DEBUGGER   = Debugger
     structure EXPORTTREE = ExportTreeStruct
     structure COPIER     = CopierStruct
+    structure TYPEIDCODE = TypeIDCodeStruct
   );

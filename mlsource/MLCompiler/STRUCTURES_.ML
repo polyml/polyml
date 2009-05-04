@@ -1,6 +1,8 @@
 (*
-	Copyright (c) 2000-9
+	Copyright (c) 2000
 		Cambridge University Technical Services Limited
+        
+    Modified D.C.J. Matthews 2001-2009
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -128,9 +130,11 @@ structure PRETTY : PRETTYSIG
 
 structure COPIER: COPIERSIG
 
+structure TYPEIDCODE: TYPEIDCODESIG
+
 sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
     = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
-    = CODETREE = UNIVERSALTABLE
+    = CODETREE = UNIVERSALTABLE = TYPEIDCODE.Sharing
 
 ) : STRUCTURESSIG =
 
@@ -153,6 +157,7 @@ struct
   open UNIVERSALTABLE;
   open Universal; (* for tag record selectors *)
   open EXPORTTREE;
+  open TYPEIDCODE
 
   val displayType = TYPETREE.display;
 
@@ -171,8 +176,13 @@ struct
   | StructureIdent of structureIdentForm (* A structure name *)
 
   | StructDec      of (* struct ... end *)
-      { alist: structs list, (* List of items in it. *) location: location,
-        value: univTable (* Value *), localIds: { source: typeId, dest: typeId } list ref }
+      {
+        alist: structs list, (* List of items in it. *)
+        location: location,
+        value: univTable (* Value *),
+        localIds: { source: typeId, dest: typeId } list ref,
+        resultSig: signatures ref
+      }
 
   | SignatureIdent of string * location  (* A signature name *)
 
@@ -240,7 +250,10 @@ struct
         valRef: functors ref,      (* The functor looked up. *)
         nameLoc: location,      (* The location of the name itself. *)
         fullLoc: location,      (* The location of the full application. *)
-        argHolder: structVals ref  (* A dummy structure that holds the actual argument *)
+        argHolder: structVals ref, (* A dummy structure that holds the actual argument *)
+        argIds:  { source: typeId, dest: typeId } list ref, (* The IDs that are required in the arguments. *)
+        resIds:  { source: typeId, dest: typeId } list ref, (* Generative IDs in the result. *)
+        resultSig: signatures ref
       }
 
   and shareConstraint =
@@ -312,7 +325,8 @@ struct
           alist = alist,
           location = location,
           value = makeSignatureTable (),
-          localIds = ref nil
+          localIds = ref nil,
+          resultSig = ref undefinedSignature
         };
   
     val mkSigIdent = SignatureIdent;
@@ -336,7 +350,10 @@ struct
           valRef = ref undefinedFunctor,
           nameLoc = nameLoc,
           fullLoc = fullLoc,
-          argHolder = ref undefinedStruct
+          argHolder = ref undefinedStruct,
+          argIds  = ref nil,
+          resIds  = ref nil,
+          resultSig = ref undefinedSignature
         };
   
     fun mkValSig (nameLoc, typeof, line) = 
@@ -2148,7 +2165,7 @@ struct
                 else (valRef := result; structSignat result ) 
           end
 
-        | FunctorAppl {name, arg, valRef, nameLoc, fullLoc, argHolder } =>
+        | FunctorAppl {name, arg, valRef, nameLoc, fullLoc, argHolder, argIds, resIds, resultSig, ... } =>
           (* The result structure must be copied to generate a new
              environment. This will make new types so that different
              applications of the functor yield different types. There may be 
@@ -2171,7 +2188,7 @@ struct
             let
                 val () = valRef := functr; (* save it till later. *)
               
-                val resultSig : signatures = functorResult functr;
+                val functorResSig : signatures = functorResult functr;
                 val argStruct : structVals = functorArg functr;
                 val formalArgSig = structSignat argStruct
                 
@@ -2181,6 +2198,15 @@ struct
                 (* Check that the actual arguments match formal arguments,
                    and instantiate the variables. *)
                 val matchResults = matchSigs (actualArgSig, formalArgSig, fn n => displayStruct(str, n), fullLoc, lex);
+                (* Create a list of the type IDs that the argument must supply. *)
+                local
+                    val args = ref nil
+                    fun makeList n =
+                        args := { source = matchResults n, dest = sigTypeIdMap formalArgSig n } :: ! args
+                in
+                    val () = tabulate(sigMinTypes formalArgSig, sigMaxTypes formalArgSig, makeList)
+                    val () = argIds := List.rev(! args); (* Save for code-generation. *)
+                end
                 
                 (* Create a holding structure for the actual argument.  This allows us to have something
                    to extract typeIDs from if there is sharing between the argument and the result. *)
@@ -2191,13 +2217,14 @@ struct
                    result signature of the functor was a named signature and used opaque matching
                    sigMinTypes will be zero and all the type IDs are generative.  There can be no
                    sharing with the arguments so we need to overwrite the argument entries in "v".
-                   In all other cases there may be some sharing so sigMinTypes resultSig will
+                   In all other cases there may be some sharing so sigMinTypes functorResSig will
                    be sigMaxTypes argSig + 1.  The generative IDs will follow on from the arguments. *)
                 fun makeNewTypeId n =
                 let
-                    val oldId = sigTypeIdMap resultSig(n+sigMinTypes resultSig)
+                    val oldId = sigTypeIdMap functorResSig(n+sigMinTypes functorResSig)
                     val newId = newTypeId false (isEquality oldId)
                     val newAccess = idAccess oldId
+                    val () = resIds := { source = oldId, dest = newId } :: ! resIds
                 in
                     case newId of
                         Free { uid, allowUpdate, ...} =>
@@ -2207,9 +2234,9 @@ struct
                     |   _ => raise InternalError "makeLocalTypeId: Not Bound or Free"
                 end
                 val resVector =
-                    Vector.tabulate(sigMaxTypes resultSig - sigMinTypes resultSig, makeNewTypeId)
+                    Vector.tabulate(sigMaxTypes functorResSig - sigMinTypes functorResSig, makeNewTypeId)
                 (* We need to extract the argument type IDs from the holder. *)
-                val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes resultSig)
+                val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
                 fun convertArg n =
                     case matchResults n of
                         Free { uid, allowUpdate, access=ref(Formal addr) } =>
@@ -2220,19 +2247,22 @@ struct
                     
                 val convertedArgs = Vector.tabulate(sigMaxTypes formalArgSig-minCopy, convertArg)
                 fun getFinalTypeId n =
-                    if n < sigMinTypes resultSig
+                    if n < sigMinTypes functorResSig
                     then Vector.sub(convertedArgs, n-minCopy)
-                    else Vector.sub(resVector, n - sigMinTypes resultSig)
-            in
+                    else Vector.sub(resVector, n - sigMinTypes functorResSig)
                 (* Build a modified signature for the result that begins at the smaller of the result or
                    argument. *)
-                copySig (makeSignature(sigName resultSig, sigTab resultSig, minCopy,
-                                    sigMaxTypes resultSig, sigDeclaredAt resultSig, sigTypeIdMap resultSig),
-                         fn n => n >= minCopy, getFinalTypeId, strName)
+                val resSig =
+                    copySig (makeSignature(sigName functorResSig, sigTab functorResSig, minCopy,
+                                        sigMaxTypes functorResSig, sigDeclaredAt functorResSig, sigTypeIdMap functorResSig),
+                             fn n => n >= minCopy, getFinalTypeId, strName)
+            in
+                resultSig := resSig;
+                resSig
             end
           end
                            
-        | StructDec {alist, value = structTable, location, localIds, ...} =>
+        | StructDec {alist, value = structTable, location, localIds, resultSig, ...} =>
           let
             (* Collection of declarations packaged into a structure
                 or a collection of signatures. *)
@@ -2241,25 +2271,6 @@ struct
                the structure. *)
             val structEnv = makeEnv structTable
             val initialBoundCount = currentTypeCount()
-            
-            val newEnv =
-            {
-                enterType = #enterType structEnv,
-                enterVal = #enterVal structEnv,
-                enterStruct = #enterStruct structEnv,
-                enterSig = fn _ => raise InternalError "Signature in Struct End",
-                enterFunct = fn _ => raise InternalError "Functor in Struct End",
-                lookupVal = lookupDefault (#lookupVal structEnv) (#lookupVal env),
-                lookupType = lookupDefault (#lookupType structEnv) (#lookupType env),
-                lookupStruct = lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
-                lookupSig    = #lookupSig   env, (* Global *)
-                lookupFunct  = #lookupFunct env, (* Global *)
-                lookupFix    = #lookupFix   env,
-			    (* Fixity declarations are dealt with in the parsing process.  They
-			       are only processed again in this pass in order to get declarations
-				   in the right order. *)
-                enterFix     = fn _ => ()
-            }
 
             val addrs = ref 0; (* Entries in the run-time vector. *)
 
@@ -2275,6 +2286,64 @@ struct
                 localIds := { source = newId, dest = convertId } :: ! localIds;
                 newId
             end
+
+            (* When we enter a structure into the environment we have to add any
+               type IDs that were marked as Formal to the id list.  This lifts the
+               IDs up to the top level ensuring that any if we have a Formal id
+               in the result signature they are relative to the vector for this
+               "struct end" block not relative to the internal structure.
+               This is only a matter of the run-time type ID data.  The compile-time
+               ID is unaffected. *)
+            fun enterStructure(name, str) =
+            let
+                val strSig = structSignat str
+                fun convertId n =
+                let
+                    val id = sigTypeIdMap strSig n
+                in
+                    if (isFreeId id orelse isBoundId id) andalso isFormal(idAccess id)
+                    then
+                    let
+                        (* The source has to be Selected on the structure. *)
+                        val newId =
+                            case id of
+                                Bound { offset, eqType, access = Formal addr } =>
+                                    Bound { access = makeSelected(addr, str), offset = offset, eqType = eqType }
+                            |   Free { uid, allowUpdate, access = ref(Formal addr) } =>
+                                    Free{uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
+                            |   id => id
+        	            val a = !addrs;
+                        val () = addrs := a + 1
+                        val convertId = convertIdToFormal(a, id)
+                    in
+                        localIds := { source = newId, dest = convertId } :: ! localIds
+                    end
+                    else ()
+                end
+                val () = tabulate(sigMinTypes strSig, sigMaxTypes strSig, convertId)
+            in
+                #enterStruct structEnv(name, str)
+            end
+
+            val newEnv =
+            {
+                enterType = #enterType structEnv,
+                enterVal = #enterVal structEnv,
+                enterStruct = enterStructure,
+                enterSig = fn _ => raise InternalError "Signature in Struct End",
+                enterFunct = fn _ => raise InternalError "Functor in Struct End",
+                lookupVal = lookupDefault (#lookupVal structEnv) (#lookupVal env),
+                lookupType = lookupDefault (#lookupType structEnv) (#lookupType env),
+                lookupStruct = lookupDefault (#lookupStruct structEnv) (#lookupStruct env),
+                lookupSig    = #lookupSig   env, (* Global *)
+                lookupFunct  = #lookupFunct env, (* Global *)
+                lookupFix    = #lookupFix   env,
+			    (* Fixity declarations are dealt with in the parsing process.  They
+			       are only processed again in this pass in order to get declarations
+				   in the right order. *)
+                enterFix     = fn _ => ()
+            }
+
             (* process body of structure *)
             val () = pass2Struct (alist, makeLocalTypeId, currentTypeCount, Env newEnv, lex, lno, strName);
 
@@ -2297,19 +2366,26 @@ struct
                     enterStruct =
                         fn (name, strVal) =>
                         let
-                            val resSig = structSignat strVal;
+                            val strSig = structSignat strVal;
                             val locations = structLocations strVal
                             val a = !addrs;
+                            (* Set the id range to empty as the bound IDs have now been lifted.
+                               This maintains the rule that all bound IDs are included in the top
+                               level of the signature and substructures have no bound IDs of their own. *)
+                            val resSig =
+                                makeSignature (sigName strSig, sigTab strSig,
+                                               sigMaxTypes strSig (* Min set to max. *), sigMaxTypes strSig,
+                                               sigDeclaredAt strSig, fn _ => raise Subscript)
                         in
                             #enterStruct finalEnv (name, makeFormalStruct (name, resSig, a, locations));
                             addrs := a + 1
                         end,
                     enterVal    =
+                            (* TODO: There was a special case here for Overloaded.  Is that still needed? *)
                         fn (name, value as Value{access = Overloaded _, typeOf, locations, ...}) =>
                             #enterVal finalEnv (name, value)
                         |  (name, Value{class, typeOf, locations, ...}) =>
                         let
-                            (* TODO: There was a special case here for Overloaded.  Is that still needed? *)
                             val a = ! addrs
                         in
                             #enterVal finalEnv (name, mkFormal (name, class, typeOf, a, locations));
@@ -2317,12 +2393,15 @@ struct
                         end
                 },
                 copyId, "");
-          in
             (* The value for maxTypes is set to the length of the vector plus minTypes.  This works
                both for Bound IDs in a functor and also for Free IDs where currentTypeCount()
                always returns zero. *)
-            makeSignature("", finalTable, initialBoundCount, initialBoundCount+Vector.length idVec, location,
-                fn n => #dest(Vector.sub(idVec, n-initialBoundCount)))
+            val resSig =
+                makeSignature("", finalTable, initialBoundCount, initialBoundCount+Vector.length idVec, location,
+                    fn n => #dest(Vector.sub(idVec, n-initialBoundCount)))
+          in
+            resultSig := resSig;
+            resSig
           end
                 
         | Localdec {decs, body = [localStr], line, ...} =>
@@ -3071,348 +3150,372 @@ struct
        }
      end;
 
-   (* Code-generate a structure value, and return the result 
-      after matching it to the required signature. *)
-    fun structureCode (str, resultSig, opaqueIds, strName, debugEnv) =
+    fun matchStructure (code : codetree, source : univTable, sourceIds: int->typeId, dest : signatures) =
     let
-       (* Generate a new structure which will match the given signature.
-          A structure is represented by a vector of entries, and its
-          signature is a map which gives the offset in the vector of 
-          each value. When we match a signature the candidate structure
-          will in general not have its entries in the same positions as
-          the target. We have to construct a new structure from it with
-          the entries in the correct positions. In most cases the optimiser
-          will simplify this code considerably so there is no harm in using
-          a general mechanism. *)
-      fun matchStructure (code : codetree, source : univTable, sourceIds: int->typeId, dest : signatures) =
-      let
-          val decs = multipleUses (code, mkAddr, !level);
-          val load = #load decs (!level); (* All local *)
+        (* Generate a new structure which will match the given signature.
+           A structure is represented by a vector of entries, and its
+           signature is a map which gives the offset in the vector of 
+           each value. When we match a signature the candidate structure
+           will in general not have its entries in the same positions as
+           the target. We have to construct a new structure from it with
+           the entries in the correct positions. In most cases the optimiser
+           will simplify this code considerably so there is no harm in using
+           a general mechanism.  Nevertheless, we check for the case when
+           we are building a structure which is a direct copy of the original
+           and use the original code if possible. *)
+        fun matchSubStructure (code, source, sourceIds, dest) =
+        let
+            val decs = multipleUses (code, mkAddr, !level);
+            val load = #load decs (!level); (* All local *)
           
-          (* To save taking apart a structure and then rebuilding it, if the
-             structure has not changed we just copy it. *)
-          val useOriginal = ref true;
+            (* To save taking apart a structure and then rebuilding it, if the
+               structure has not changed we just copy it. *)
+            val useOriginal = ref true;
           
-          (* We put the entries into this vector and then flatten it. *)
-          val resVec   = StretchArray.stretchArray (10 (* Guess *), NONE);
-          val maxEntry = ref 0;
+            (* We put the entries into this vector and then flatten it. *)
+            val resVec   = StretchArray.stretchArray (10 (* Guess *), NONE);
+            val maxEntry = ref 0;
           
-          fun addToList code addr =
+            fun addToList code addr =
             (
                 case StretchArray.sub(resVec, addr) of
                     NONE => StretchArray.update (resVec, addr, SOME code)
                 |   SOME _ => raise InternalError ("addToList: Duplicate entry " ^ Int.toString addr ^ "\n");
-              if addr >= !maxEntry then maxEntry := addr + 1 else ()
+                if addr >= !maxEntry then maxEntry := addr + 1 else ()
             );
         
-          val () =      (* Structures. *)
-            univFold
-             (sigTab dest,
-              (fn (dName, dVal, ()) =>
-                if tagIs structVar dVal
-                then let
-                  val dval = tagProject structVar dVal;
+            fun foldEntry(dName, dVal, ()) =
+                if tagIs structVar dVal (* Structures. *)
+                then
+                let
+                    val dval = tagProject structVar dVal;
                 in
-                  if isFormal (structAccess dval)
-                  then let
-                    val destAddr     = vaFormal (structAccess dval);
-                    val sourceStruct =
-                       valOf(univLookup (source, structVar, dName));
-                         
-                    val access = structAccess sourceStruct;
-                    (* Since these have come from a signature we might expect all
-                       the entries to be "formal". However if the structure is
-                       global the entries in the signature may be global, and if
-                       the structure is in a "struct .. end" it may be local. *)
-                    val code = 
-                      if isFormal access
-                      then let (* select from the code. *)
-                        val U : unit = 
-                          if vaFormal access <> destAddr
-                          then useOriginal := false
-                          else ()
-                      in
-                        mkInd (vaFormal access, load)
-                      end
-                      else let
-                        val U : unit = useOriginal := false;
-                      in
-                        codeStruct (sourceStruct, !level)
-                      end;
-                    val sourceSig = structSignat sourceStruct
-                    val matched =
-                      matchStructure (code, sigTab sourceSig, (*sigTypeIdMap sourceSig*)
-                                                fn n => makeFreeId(defaultEqAndPrintCode(), false), structSignat dval);
-                        
-                    val U : unit = 
-                      if not (#unchanged matched)
-                      then useOriginal := false
-                      else ();
-                  in
-                    addToList (#code matched) destAddr
-                  end
-                  else ()
+                    if isFormal (structAccess dval)
+                    then
+                    let
+                        val destAddr     = vaFormal (structAccess dval);
+                        val sourceStruct =
+                            valOf(univLookup (source, structVar, dName));
+             
+                        val access = structAccess sourceStruct;
+                        (* Since these have come from a signature we might expect all
+                           the entries to be "formal". However if the structure is
+                           global the entries in the signature may be global, and if
+                           the structure is in a "struct .. end" it may be local. *)
+                        val code = 
+                        if isFormal access
+                        then
+                        let (* select from the code. *)
+                            val () = 
+                                if vaFormal access <> destAddr
+                                then useOriginal := false
+                                else ()
+                        in
+                            mkInd (vaFormal access, load)
+                        end
+                        else
+                        (
+                            useOriginal := false;
+                            codeStruct (sourceStruct, !level)
+                        );
+                        val sourceSig = structSignat sourceStruct
+                        val (matched, unchanged) =
+                            matchSubStructure (code, sigTab sourceSig, NONE, structSignat dval);
+            
+                        val () = if not unchanged then useOriginal := false else ();
+                    in
+                        addToList matched destAddr
+                    end
+                    else ()
                 end
 
                 else if tagIs valueVar dVal
-                then let (* values. *)
-                  val dval = tagProject valueVar dVal;
+                then
+                let (* values. *)
+                    val dval = tagProject valueVar dVal;
                 in
-				  case dval of
-				  	Value{access=Formal addr, ...} =>
-                  let
-                    val sourceVal =
-                      valOf(univLookup (source, valueVar, dName));
-                       
-                    (* If we have an exception matching a value we have to
-                        generate a packet or a function yielding a packet. *)
-                     val excBecomesVal =
-					 	case (dval, sourceVal) of
-							(Value{class=SimpleValue, ...}, Value{class=Exception, ...}) =>
-								true
-							|	_ => false
-					 (* Similarly, if we have a constructor which becomes a value we
-					    have to extract the injection function or the value. *)
-					 val constrBecomesVal =
-					 	case (dval, sourceVal) of
-							(Value{class=SimpleValue, ...}, Value{class=Constructor _, ...}) =>
-								true
-							|	_ => false
-                       
-                      (* If the entry is from a signature select from the code. *)
-                     val code =
-					   case sourceVal of
-					   	Value{access=Formal svAddr, ...} =>
-						   let
-	                         val UUU =
-	                           if svAddr <> addr orelse excBecomesVal orelse constrBecomesVal
-	                           then useOriginal := false
-	                           else ();
-	                       in
-	                         if excBecomesVal
-	                         then (* Have to make a packet or a function returning a packet. *)
-	                           if not (isSome(getFnArgType (valTypeOf dval)))
-	                           then 
-	                             mkTuple [mkInd (svAddr, load), mkStr (valName dval), CodeZero]
-	                            else
-	                              mkProc 
-	                                (mkTuple
-	                                   [mkInd (svAddr, #load decs (!level + 1)),
-	                                    mkStr (valName dval),
-	                                    mkLoad (~1, 0)],
-	                                1, 1, "")
-	                         else if constrBecomesVal
-							 then mkInd(1, mkInd (svAddr, load))
-							 else mkInd (svAddr, load)
-	                       end
-
-						 | _ =>
-	                         let
-	                           val UUU = useOriginal := false;
-	                         in
-	                           if excBecomesVal
-							   then codeExFunction(sourceVal, !level, valTypeOf dval, lex, location nullLex)
-							   else let
-								  val valu =
-									 	codeVal (sourceVal, !level, valTypeOf dval, lex, location nullLex)
-							   in
-							   	  if constrBecomesVal
-								  then mkInd(1, valu)
-								  else valu
-							   end
-	                         end;
-                  in
-		             addToList code addr
-                  end
-				  | _ => ()
-                  end
-
-                else if tagIs typeConstrVar dVal
-				then (* We need to process the value constructors.  We may well process them
-				        as values anyway but we don't always. *)
-					let
-                        val tcons = tagProject typeConstrVar dVal;
-                        val matchedType = valOf(univLookup (source, typeConstrVar, dName))
-
-                        fun processConstructor(Value{access=Formal dstAddr, ...},
-                                               Value{access=Formal svAddr, ...}) =
-                            (* Selecting from a signature. *)
-                            (
-                                case StretchArray.sub (resVec, dstAddr) of
-                                    NONE =>
+                    case dval of
+                        Value{access=Formal addr, ...} =>
+                        let
+                            val sourceVal =
+                                valOf(univLookup (source, valueVar, dName));
+           
+                            (* If we have an exception matching a value we have to
+                               generate a packet or a function yielding a packet. *)
+                            val excBecomesVal =
+                                case (dval, sourceVal) of
+                                    (Value{class=SimpleValue, ...}, Value{class=Exception, ...}) =>
+                                        true
+                                |    _ => false
+                            (* Similarly, if we have a constructor which becomes a value we
+                               have to extract the injection function or the value. *)
+                            val constrBecomesVal =
+                                case (dval, sourceVal) of
+                                    (Value{class=SimpleValue, ...}, Value{class=Constructor _, ...}) =>
+                                        true
+                                |    _ => false
+           
+                            (* If the entry is from a signature select from the code. *)
+                            val code =
+                                case sourceVal of
+                                    Value{access=Formal svAddr, ...} =>
                                     (
-                                        if svAddr <> dstAddr then useOriginal := false else (); 
-                                        addToList (mkInd (svAddr, load)) dstAddr
+                                        if svAddr <> addr orelse excBecomesVal orelse constrBecomesVal
+                                        then useOriginal := false
+                                        else ();
+                                        if excBecomesVal
+                                        then (* Have to make a packet or a function returning a packet. *)
+                                            if not (isSome(getFnArgType (valTypeOf dval)))
+                                        then 
+                                            mkTuple [mkInd (svAddr, load), mkStr (valName dval), CodeZero]
+                                        else
+                                            mkProc 
+                                            (mkTuple
+                                               [mkInd (svAddr, #load decs (!level + 1)),
+                                                mkStr (valName dval),
+                                                mkLoad (~1, 0)],
+                                            1, 1, "")
+                                        else if constrBecomesVal
+                                        then mkInd(1, mkInd (svAddr, load))
+                                        else mkInd (svAddr, load)
                                     )
-                                |   SOME _ => ()
-                            )
 
-                          | processConstructor(Value{access=Formal dstAddr, typeOf, ...}, sourceVal) =
-                                (* Any other source. *)
-                            (
-                                case StretchArray.sub (resVec, dstAddr) of
-                                    NONE =>
+                                | _ =>
                                     (
                                         useOriginal := false;
-                                        addToList (codeVal (sourceVal, !level, typeOf, lex, location nullLex)) dstAddr
-                                    )
-                                |   SOME _ => ()
-                            )
-
-                          | processConstructor _ = ()
-					in
-						ListPair.app processConstructor (tcConstructors tcons, tcConstructors matchedType)
-					end
-
-                else ()
-               ),
-               ()
-              );
-            
-            (* Process the type IDs in the signature.  We're only interested in typeIDs that are
-               marked as Formal because those are the only ones that need to be extracted from
-               the structure. *)
-            fun doTypeID n =
-            let
-                val typeId = sigTypeIdMap dest n
-            in
-                if isFreeId typeId orelse isBoundId typeId
-                then 
-                case idAccess typeId of
-                    Formal addr =>
-                    let
-                        val id = sourceIds n
-                            handle Subscript =>
-                                (
-                                    print(concat["Value ", Int.toString n, " invalid\n"]);
-                                    useOriginal := false;
-                                    makeFreeId(defaultEqAndPrintCode(), false)
-                                )
-                    in
-                        case idAccess id of
-                            Formal svAddr =>
-                            (
-                                if svAddr <> addr
-                                then useOriginal := false
-                                else ();
-                                addToList (mkInd (svAddr, load)) addr
-                            )
-                        |   _ =>
-                            (
-                                useOriginal := false;
-                                addToList (codeId(id, !level)) addr
-                            )
-                    end
-                |   _ => ()
-                else () (* I don't understand how this can occur. *)
-            end
-            val () = tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID)
-
-        in  
-          (* If we have copied the original we can use it unchanged. *)
-          if !useOriginal
-          then
-            {
-              code = code,
-              unchanged = true
-            }
-          else (* Put the entries into a list for the vector. *)
-          let
-              val codeList =
-                  List.tabulate (!maxEntry,
-                    fn i => getOpt(StretchArray.sub (resVec,i), CodeZero))
-          in
-            {
-              code      = mkEnv (#dec decs @ [mkTuple codeList]),
-              unchanged = false
-            }
-          end
-        end
-
-        (* If we are declaring a structure with an opaque signature we need to create
-           the run-time IDs for newly generated IDs. *)
-        fun loadOpaqueIds(getFormal, opaqueIds) =
-        let
-            fun decId { dest, source } =
-                let
-                    val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
-                    val addr = mkAddr();
-                    val () = idAddr := addr and () = idLevel := ! level;
-                in
-                    mkDec(addr, codeOpaqueId(source, getFormal, !level))
+                                        if excBecomesVal
+                                        then codeExFunction(sourceVal, !level, valTypeOf dval, lex, location nullLex)
+                                        else
+                                        let
+                                            val valu =
+                                                codeVal (sourceVal, !level, valTypeOf dval, lex, location nullLex)
+                                        in
+                                            if constrBecomesVal
+                                            then mkInd(1, valu)
+                                            else valu
+                                        end
+                                    );
+                        in
+                            addToList code addr
+                        end
+                    |   _ => ()
                 end
-        in
-            List.map decId opaqueIds
+
+                else if tagIs typeConstrVar dVal
+                then (* We need to process the value constructors.  We may well process them
+                    as values anyway but we don't always. *)
+                let
+                    val tcons = tagProject typeConstrVar dVal;
+                    val matchedType = valOf(univLookup (source, typeConstrVar, dName))
+
+                    fun processConstructor(Value{access=Formal dstAddr, ...},
+                                           Value{access=Formal svAddr, ...}) =
+                        (* Selecting from a signature. *)
+                        (
+                            case StretchArray.sub (resVec, dstAddr) of
+                                NONE =>
+                                (
+                                    if svAddr <> dstAddr then useOriginal := false else (); 
+                                    addToList (mkInd (svAddr, load)) dstAddr
+                                )
+                            |   SOME _ => ()
+                        )
+
+                      | processConstructor(Value{access=Formal dstAddr, typeOf, ...}, sourceVal) =
+                            (* Any other source. *)
+                        (
+                            case StretchArray.sub (resVec, dstAddr) of
+                                NONE =>
+                                (
+                                    useOriginal := false;
+                                    addToList (codeVal (sourceVal, !level, typeOf, lex, location nullLex)) dstAddr
+                                )
+                            |   SOME _ => ()
+                        )
+
+                      | processConstructor _ = ()
+                in
+                    ListPair.app processConstructor (tcConstructors tcons, tcConstructors matchedType)
+                end
+
+            else ()
+         in  
+            (* Structures, values and datatypes. *)
+            univFold (sigTab dest, foldEntry, () );
+            
+            (* Type Ids.  Only at the top-level.*)
+            case sourceIds of
+                NONE => ()
+            |   SOME sourceIds =>
+                let
+                    (* Process the type IDs in the signature.  We're only interested in typeIDs that are
+                       marked as Formal because those are the only ones that need to be extracted from
+                       the structure. *)
+                    fun doTypeID n =
+                    let
+                        val typeId = sigTypeIdMap dest n
+                    in
+                        if isFreeId typeId orelse isBoundId typeId
+                        then 
+                        case idAccess typeId of
+                            Formal addr =>
+                            let
+                                (* Get the corresponding source ID. *)
+                                val id = sourceIds n
+                                val codedId =
+                                    if isFreeId id orelse isBoundId id
+                                    then case idAccess id of
+                                        Formal svAddr =>
+                                        (
+                                            if svAddr <> addr then useOriginal := false else ();
+                                            mkInd (svAddr, load)
+                                        )
+                                    |   _ => (useOriginal := false; codeId(id, !level))
+                                    else (useOriginal := false; codeId(id, !level))
+                            in
+                                addToList codedId addr
+                            end
+                        |   _ => ()
+                        else () (* I don't understand how this can occur. *)
+                    end
+                in
+                    tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID)
+                end;
+             
+            (* If we have copied the original we can use it unchanged. *)
+            if !useOriginal
+            then (code, true)
+            else (* Put the entries into a list for the vector. *)
+            let
+                val codeList =
+                      List.tabulate (!maxEntry,
+                        fn i => getOpt(StretchArray.sub (resVec,i), CodeZero))
+            in
+                (mkEnv (#dec decs @ [mkTuple codeList]), false)
+            end
         end
     in
-      case str of
-        FunctorAppl {name, arg, valRef = ref functs, argHolder=ref argHolder, ...} =>
+        #1 (matchSubStructure (code, source, SOME sourceIds, dest))
+    end
+
+    (* If we are declaring a structure with an opaque signature we need to create
+       the run-time IDs for newly generated IDs. *)
+    fun loadOpaqueIds(getFormal, opaqueIds) =
+    let
+        fun decId { dest, source } =
         let
-            val argCode = structureCode (arg, structSignat (functorArg functs), [], strName, debugEnv)
+            val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
+            val addr = mkAddr();
+            val () = idAddr := addr and () = idLevel := ! level;
+            (* The source ID for an opaque ID may be a type function.  It may
+               also be a Formal.  These cases have to handled specially. *)
+            val idCode =
+                case source of
+                    TypeFunction (args, result) =>
+                        codeGenerativeTypeFunction(args, result, !level)
+                |   other =>
+                    let
+                        val sourceCode =
+                            case idAccess other of
+                                Formal addr => getFormal addr
+                            |   access => codeId(source, !level)
+                    in
+                        codeGenerativeId(sourceCode, !level)
+                    end
+        in
+            mkDec(addr, idCode)
+        end
+    in
+        List.map decId opaqueIds
+    end
+
+    (* Code-generate a structure value. *)
+    fun structureCode (str, strName, debugEnv): codetree * signatures =
+    case str of
+        FunctorAppl {name, arg, valRef = ref functs, argHolder=ref argHolder,
+                     argIds=ref argIds, resIds=ref resIds, resultSig=ref resultSig, ...} =>
+        let
+            val (argCodeSource, argCodeSig) =
+                structureCode (arg, strName, debugEnv)
+            (* Match the actual argument to the required arguments. *)
+            local
+                val startIds = sigMinTypes(structSignat(functorArg functs))
+            in
+                fun getMatchedId n = #source (List.nth (argIds, n-startIds))
+            end
+            val argCode =
+                matchStructure(argCodeSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs))
             (* We need to save the actual argument in a local variable.  It will be passed to
                the functor but if type IDs in the argument are shared with the result structure
                we need to make sure the actual argument is around. *)
-            val addr = mkAddr ()
+            val argAddr = mkAddr ()
             val var = vaLocal(structAccess argHolder)
-            val () = #addr var := addr and () = #level var := !level
-            
-            val applyCode : codetree = 
-                mkEval (codeAccess (functorAccess functs, !level), [mkLoad(addr, 0)], false);
-            val sourceSig = functorResult functs
+            val () = #addr var := argAddr and () = #level var := !level
+            (* Similarly we need to retain the result in order to produce the generative type IDs. *)
+            val resAddr = mkAddr()
+            val ids = List.rev resIds
+            val loadIds = loadOpaqueIds(fn n => mkInd(n, mkLoad(resAddr, 0)), ids)
+            local
+                val startIds = sigMinTypes(functorResult functs)
+            in
+                fun getTypeId n = #source (List.nth (ids, n-startIds))
+            end
         in
-            (* Evaluate the functor and match to the result. *)
-            mkEnv [mkDec(addr, argCode),
-                    #code (matchStructure (applyCode, sigTab sourceSig, fn n => makeFreeId(defaultEqAndPrintCode(), false) (*sigTypeIdMap sourceSig*), resultSig))]
-        end
-
-      | StructureIdent {valRef = ref v, ...} =>
-        let
-            val valCode = codeStruct (v, !level); (* Get the structure. *)
-            val sourceSig = structSignat v
-            fun getFormal addr = mkInd(addr, valCode)
-        in
-            mkEnv(loadOpaqueIds(getFormal, opaqueIds) @
-              [#code (matchStructure (valCode, sigTab sourceSig,
-                fn n => makeFreeId(defaultEqAndPrintCode(), false) (*sigTypeIdMap sourceSig*), resultSig))]
+            (* Evaluate the functor. *)
+            (
+                mkEnv(
+                    mkDec(argAddr, argCode) ::
+                    mkDec(resAddr, mkEval (codeAccess (functorAccess functs, !level), [mkLoad(argAddr, 0)], false)) ::
+                    loadIds @
+                    [matchStructure(mkLoad(resAddr, 0), sigTab(functorResult functs), getTypeId, resultSig)]
+                ),
+                resultSig
             )
         end
 
-      | Localdec {decs, body = [localStr], ...} =>
+    |   StructureIdent {valRef = ref v, ...} =>
+            ( codeStruct (v, !level), structSignat v)
+
+    |   Localdec {decs, body = [localStr], ...} =>
         let (* let strdec in strexp end *)
          (* Generate the declarations but throw away the loads. *)
 		 (* TODO: Get the debug environment correct here. *)
           val coded =
 		  	mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
 				decs debugEnv;
+            val (bodyCode, bodySig) = structureCode (localStr, strName, #debug coded)
         in
-          mkEnv (#code coded @
-                 [structureCode (localStr, resultSig, [], strName, #debug coded)])
+            (mkEnv (#code coded @ [bodyCode]), bodySig)
         end
 
-      | StructDec {alist, value, localIds=ref localIds, ...} =>
+      | StructDec {alist, value, localIds=ref localIds, resultSig=ref resultSig, ...} =>
         let
             val coded = mapStrdecs alist strName debugEnv;
             val ids = List.rev localIds
+            (* We match to the dummy signature here.  If there is a signature outside
+               we will match again.  This results in double copying but that should
+               all be sorted out by the optimiser.
+               The advantage is that we make sure that all IDs created in the body are
+               included in the result signature. *)
 
-            (* Type IDs to match the result signature come from the opaque list. *)
-            fun getTypeId n =
-                case opaqueIds of
-                    [] => #source (List.nth (ids, n))
-                |   _  => #dest (List.nth (opaqueIds, n))
-            fun getFormal addr =
-                codeId(#source (List.nth(ids, addr)), !level)
-        in 
+            (* Return the type IDs to match the result. *)
+            val startIds = sigMinTypes resultSig
+            fun getTypeId n = #source (List.nth (ids, n-startIds))
+       in 
           (* The result is a block containing the declarations and
              code to load the results. *)
-          mkEnv (#code coded @ loadOpaqueIds(getFormal, opaqueIds) @
-            [#code (matchStructure (mkTuple (#load coded), value, getTypeId, resultSig))])
+          (
+            mkEnv (#code coded @
+                [matchStructure (mkTuple (#load coded), value, getTypeId, resultSig)]),
+            resultSig
+          )
         end
 
-      | SigConstraint { str, ... } => structureCode (str, resultSig, [], strName, debugEnv)
+    |   SigConstraint { str, ... } => structureCode (str, strName, debugEnv)
 
-      | _ =>
+    |   _ =>
          raise InternalError "structureCode: not a structure"
-    end (* structureCode *)
+        (* structureCode *)
 
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
@@ -3423,17 +3526,29 @@ struct
         let
           fun codeStructureBind ({name, value = SOME value, valRef, opaqueIds=ref opaqueIds, ...}: structBind, debug) =
             let
-                (* Set the address of the variable representing this structure. *)
+                (* This is a bit complicated because of the opaque IDs.
+                   1. Get the code for the structure expression and save that in a local.
+                   2. Create any opaque IDs using the saved local address to get
+                      references to existing IDs.
+                   3. Match this to the result signature *)
+			    val sName = strName ^ name ^ "."
+ 			    val (strCode, strSig) = structureCode (value, sName, debug)
+                val tempDecs = multipleUses (strCode, mkAddr, !level);
+                val tempLoad = #load tempDecs (!level); (* All local *)
+                val ids = loadOpaqueIds(fn n => mkInd(n, tempLoad), opaqueIds)
+                fun loadId n =
+                    case opaqueIds of
+                        [] => sigTypeIdMap strSig n
+                    |   _  => #dest(List.nth(opaqueIds, n))
+                val matchedCode =
+                    matchStructure (tempLoad, sigTab strSig, loadId, structSignat (!valRef))
                 val addr = mkAddr(); 
                 val var  = vaLocal (structAccess (!valRef));
                 val () = #addr var  := addr; 
                 val () = #level var := !level;
-			    val sName = strName ^ name ^ "."
- 			    val strCode =
-			  	    structureCode (value, structSignat (!valRef), opaqueIds, sName, debug)
             in (* Get the code and save the result in the variable. *)
               {
-                code = [mkDec (addr, strCode)],
+                code = #dec tempDecs @ ids @ [mkDec (addr, matchedCode)],
                 (* Load the variable. *)
                 load = [mkLoad (addr, 0)],
 				debug = debug (* We don't do structures at the moment. *)
@@ -3521,10 +3636,14 @@ struct
               val () = #level arg := !level;
               val func = !valRef;              
               (* Process the body and make a procedure out of it. *)
+              val (strCode, strSig) = structureCode (body, name ^ "().", debugEnv)
+              val matchedCode =
+                    matchStructure (strCode, sigTab strSig,
+                        fn n => makeFreeId(defaultEqAndPrintCode(), false), functorResult func)
+
               val functorCode : codetree =
                 (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                (structureCode (body, functorResult func, [], name ^ "().", debugEnv),
-                 !level, 1, name);
+                    (matchedCode, !level, 1, name);
                   
               (* Go back down a level and add 1 to address. *)
               val () = level := !level - 1; 

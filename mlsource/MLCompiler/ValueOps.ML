@@ -32,4 +32,5 @@ structure ValueOps =
     structure UNIVERSAL     = Universal
 	structure UTILITIES		= Utilities
     structure COPIER     = CopierStruct
+    structure TYPEIDCODE = TypeIDCodeStruct
   ) ;

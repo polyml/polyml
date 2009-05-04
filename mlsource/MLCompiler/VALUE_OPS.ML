@@ -181,12 +181,15 @@ end;
 
 structure COPIER: COPIERSIG
 
+structure TYPEIDCODE: TYPEIDCODESIG
+
 (*****************************************************************************)
 (*                  VALUEOPS sharing constraints                             *)
 (*****************************************************************************)
 
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
       = COPIER.Sharing = CODETREE = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
+      = TYPEIDCODE.Sharing
 
 ) : VALUEOPSSIG =
 
@@ -208,6 +211,7 @@ struct
   open UNIVERSALTABLE;
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
+  open TYPEIDCODE;
   
   val lengthW  = ADDRESS.length;
   val length   = List.length;
@@ -2953,51 +2957,6 @@ struct
         aAddr = bAddr andalso aLevel = bLevel
 
   |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
-
-   (* If we are declaring a structure with an opaque signature we need to create
-       the run-time IDs for newly generated IDs. *)
-    fun codeOpaqueId(source, getFormal, level) =
-    let
-        (* Get the code for the source type Id. *)
-        val idCode =
-            if isFreeId source orelse isBoundId source
-            then
-            let
-                val sourceCode =
-                    case idAccess source of
-                        Formal addr => getFormal addr
-                    |   _ => codeId(source, level)
-            in
-                sourceCode
-            end
-            else
-            (
-                print(concat["Value is a type function\n"]);
-                vaGlobal(defaultEqAndPrintCode())
-            )
-        val mutableFlags = F_words orb F_mutable;
-    in
-            mkTuple
-            [
-                mkInd(0, idCode),
-                mkEval
-                    (mkConst (ioOp POLY_SYS_alloc_store),
-                    [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                     mkEval(mkConst(ioOp POLY_SYS_load_word),
-                        [mkInd(1, idCode), CodeZero], false)
-                      ],
-                false)  
-            ]
-    end
-
-    and codeId(typeId, level) =
-        case idAccess typeId of
-            Local { addr = ref 0, level = ref 0 } =>
-            (
-                print(concat["Local value unset\n"]);
-                vaGlobal(defaultEqAndPrintCode())
-            )
-        |   _ => codeAccess(idAccess typeId, level)
 
     (* Types that can be shared. *)
     structure Sharing =
