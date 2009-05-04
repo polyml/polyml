@@ -904,7 +904,23 @@ struct
      run-time system exceptions. *)
   val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
   val matchExceptionVal = mkConst (toMachineWord EXC_Match);
- 
+
+    (* Locations in exception packets.  In order to have a defined ordering of the fields,
+       when we put the location in an exception packet we use this datatype rather than
+       the "location" type. *)
+     (* *)
+    datatype RuntimeLocation =
+        NoLocation
+    |   SomeLocation of
+            (* file: *) string * 
+            (*startLine:*) int *  (*startPosition:*) int *
+            (*endLine:*) int * (*endPosition:*) int
+
+    fun codeLocation({file="", startLine=0, startPosition=0, ...}) =
+        mkConst(toMachineWord NoLocation) (* No useful information *)
+    |   codeLocation({file, startLine, startPosition, endLine, endPosition}) =
+        mkConst(toMachineWord(file, startLine, startPosition, endLine, endPosition))
+
 (*****************************************************************************)
   (* Look-up functions. *)
 
@@ -2726,10 +2742,10 @@ struct
        (* If we are applying it as a function we cannot be after the
           exception id, we must be constructing an exception packet. *)
        (* Get the exception id, put it in the packet with the exception name
-          and the argument. *)
+          the argument and, currently, an empty location as the exception location. *)
          val exIden = codeVal (value, level, instance, lex, lineno);
      in
-         mkTuple (exIden :: mkStr (valName value) :: [argument])
+         mkTuple (exIden :: mkStr (valName value) :: argument :: [mkConst(toMachineWord NoLocation)])
      end
 
   | applyFunction(value as Value{class=Constructor _, ...},

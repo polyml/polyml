@@ -42,10 +42,6 @@ sig
     type locationProp
     type typeId
 
-    val exnId    : exn -> machineWord
-    val exnName  : exn -> string
-    val exnValue : exn -> machineWord
-
     val overloadType:      values * bool -> types
 
     val chooseConstrRepr : (string*types) list -> codetree list
@@ -136,6 +132,8 @@ sig
     val createUnaryConstructor: representations * string -> codetree
 
     val idFromStructure: structVals -> typeId -> typeId
+
+    val codeLocation: location -> codetree
 
     (* Types that can be shared. *)
     structure Sharing:

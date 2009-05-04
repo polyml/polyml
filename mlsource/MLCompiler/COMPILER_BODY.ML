@@ -331,6 +331,12 @@ struct
 			                val () = startProfile wasProfiling;
 			
 			                val resultVec = (* Now run it *)
+                                (* If we were profiling or timing we have to handle the exception to turn
+                                   these off even though it will mess up information about where the exception
+                                   was raised. *)
+                                if wasProfiling <> 0 orelse timing
+                                then
+                                (
 			                     resultCode ()
 			                         handle exn => (* Exceptions in run-time code. *)
 			                         let
@@ -343,6 +349,8 @@ struct
 			                             if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
 			                             raise exn
 			                         end
+                                )
+                                else resultCode ()
 			 
 			                val () = stopProfile wasProfiling;
 			                val endRunTime = cpuTime startRunTime;
@@ -401,7 +409,7 @@ struct
       | exn =>
      	let
 		  val s' =
-		      "Exception- " ^ VALUEOPS.exnName exn ^ " unexpectedly raised while compiling"
+		      "Exception- " ^ General.exnName exn ^ " unexpectedly raised while compiling"
 		in
 		  printReport (s' ^ "\n");
 		  raise Fail s'

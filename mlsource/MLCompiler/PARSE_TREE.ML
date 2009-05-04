@@ -5156,8 +5156,17 @@ struct
                  all except the last into declarations. *)
                 mkblock (codeList debugEnv ptl) : codetree
   
-            | Raise (pt, _) =>
-                makeRaise (codegen (pt, debugEnv, decName)) : codetree
+            | Raise (pt, location) =>
+                let
+                    val {dec, load} = 
+                        multipleUses (codegen (pt, debugEnv, decName), mkAddr, !level);
+                    val load = load(!level)
+                in
+                    (* Copy the identifier, name and argument from the packet and add this location. *)
+                    makeRaise (
+                        mkEnv(dec @
+                            [mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location]]))
+                end
 
             | HandleTree {exp, hrules, location, ...} =>
               (* Execute an expression in the scope of a handler *)

@@ -367,6 +367,7 @@ public:
     PolyWord    ex_id; /* Exc identifier */
     PolyWord    ex_name;/* Exc name */
     PolyWord    arg; /* Exc arguments */
+    PolyWord    ex_location; // Location of "raise".  Always zero for RTS exceptions.
 };
 
 typedef PolyException poly_exn;

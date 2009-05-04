@@ -246,7 +246,8 @@ Handle make_exn(TaskData *taskData, int id, Handle arg)
     DEREFEXNHANDLE(exnHandle)->ex_id   = TAGGED(id);
     DEREFEXNHANDLE(exnHandle)->ex_name = DEREFWORD(pushed_name);
     DEREFEXNHANDLE(exnHandle)->arg     = DEREFWORDHANDLE(arg);
-    
+    DEREFEXNHANDLE(exnHandle)->ex_location = TAGGED(0);
+
     return exnHandle;
 }
 
@@ -437,7 +438,22 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     PolyWord *handler = DEREFWORD(handler_handle).AsStackAddr();
     
     fputs("\nException trace for exception - ", stdout);
-    print_string(((poly_exn *)DEREFHANDLE(exnHandle))->ex_name);
+    print_string((DEREFEXNHANDLE(exnHandle))->ex_name);
+    // For backwards compatibility check the packet length first
+    if (DEREFHANDLE(exnHandle)->Length() == SIZEOF(poly_exn)) {
+        if (DEREFEXNHANDLE(exnHandle)->ex_location.IsDataPtr()) {
+            PolyObject *location = DEREFEXNHANDLE(exnHandle)->ex_location.AsObjPtr();
+            PolyWord fileName = location->Get(0);
+            POLYSIGNED lineNo = get_C_long(taskData, location->Get(1));
+            if (fileName.IsTagged() || ((PolyStringObject *)fileName.AsObjPtr())->length != 0) {
+                printf(" raised in ");
+                print_string(fileName);
+                if (lineNo != 0) printf(" line %d", lineNo);
+            }
+            else if (lineNo != 0) printf(" raised at line %d", lineNo);
+            fputs("\n", stdout);
+        }
+    }
     putc('\n',stdout);
     
     /* Trace down as far as the dummy handler on the stack. */

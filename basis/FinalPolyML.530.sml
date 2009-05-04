@@ -247,6 +247,24 @@ local
         prettyMarkup markup (stream, lineWidth)
     end;
 
+    fun exceptionLocation(exn: exn): PolyML.location option =
+    let
+    	open RuntimeCalls
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+        val loc = RunCall.run_call2 POLY_SYS_load_word(exn, 3): RuntimeLocation
+    in
+        case loc of
+            NoLocation => NONE
+        |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
+                SOME { file=file, startLine=startLine, startPosition=startPosition,
+                       endLine=endLine, endPosition=endPosition }
+    end
+
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
     
@@ -692,11 +710,25 @@ local
                 in
                     code ()
                     (* Report exceptions in running code. *)
-                        handle  exn =>
-                        (
-                            printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                        handle exn =>
+                        let
+                            open PolyML
+                            val exLoc =
+                                case exceptionLocation exn of
+                                    NONE => []
+                                |   SOME loc => [ContextLocation loc]
+                        in
+                            prettyPrintWithMarkup(TextIO.print, ! lineLength)
+                                (PrettyBlock(0, false, [],
+                                    [
+                                        PrettyBlock(0, false, exLoc, [PrettyString "Exception-"]),
+                                        PrettyBreak(1, 3),
+                                        PrettyString(PolyML.makestringInNameSpace(exn, globalNameSpace)),
+                                        PrettyBreak(1, 3),
+                                        PrettyString "raised"
+                                    ]));
                             raise exn
-                        )
+                        end
                 end
             end; (* readEvalPrint *)
             
@@ -1608,14 +1640,15 @@ local
                     fun findLoc [] = ()
                     |   findLoc (hd::tl) =
                         case getLoc hd of
-                            SOME {file, startLine, startPosition, endPosition, ...} =>
-                                (
-                                    print "\u001b,";
-                                    print file; (* TODO double any escapes. *) print "\u001b,";
-                                    print (Int.toString startLine); print "\u001b,";
-                                    print (Int.toString startPosition); print "\u001b,";
-                                    print (Int.toString endPosition)
-                                )
+                            SOME { file, startLine, startPosition, endPosition, ...} =>
+                            (
+                                print "\u001b,";
+                                print file; (* TODO double any escapes. *) print "\u001b,";
+                                print (Int.toString startLine); print "\u001b,";
+                                print (Int.toString startPosition); print "\u001b,";
+                                print (Int.toString endPosition)
+                            )
+
                         |   NONE => findLoc tl
                 in
                     gotoPosition (Char.toLower startCh); printLocation startCh;
@@ -1715,17 +1748,7 @@ local
                                             handle _ => NONE
                                     val result =
                                     case code of
-                                        SOME code =>
-                                        (
-                                            (code (); true)
-                                            (* Report exceptions in running code. TODO: Report this as an error. *)
-                                            handle exn =>
-                                                (
-                                                    printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace)
-                                                        ^ " raised\n");
-                                                    false
-                                                )
-                                        )
+                                        SOME code => (code () (* Run the code. *); true)
                                     |   NONE => false
                                 in
                                     if result then compilerLoop ()
@@ -1737,51 +1760,84 @@ local
                                     (
                                         (* First reload the state.  If it raises an exception stop here. *)
                                         if loadFile <> "" andalso
-                                            ((PolyML.SaveState.loadState loadFile; false) handle _ => true)
-                                        then (* Load error. *)
-                                            ( print "\u001bRL\u001b,"; print(Int.toString(! byteCount)); endPacket #"r" )
+                                            not (
+                                                (PolyML.SaveState.loadState loadFile; true)
+                                                    handle exn =>
+                                                    let (* Loading failed. *)
+                                                        val reason =
+                                                            case exn of
+                                                                Fail s => s
+                                                            |   OS.SysErr(s, _) => s
+                                                            |   exn => PolyML.makestringInNameSpace(exn, globalNameSpace) (* ?? *)
+                                                    in
+                                                        print "\u001bRL\u001b,"; print(Int.toString(! byteCount));
+                                                        print "\u001b,"; print reason;
+                                                        endPacket #"r";
+                                                        false
+                                                    end
+                                            )
+                                        then () (* Stop here *)
                                         else
-                                        (
+                                        let
+                                            val except = ref NONE
+                                        in
                                             (* Now compile the source until either we get the end
                                                marker or an exception. *)
-                                            compilerLoop ();
+                                            compilerLoop () handle exn => ( except := SOME exn; () );
                                             (* If we had an exception skip until we get the end marker. *)
                                             while not (! endMarkerFound) do readin();
 
                                             (* Print the result packet containing error messages. *)
                                             print "\u001bR"; (* Escape R - start of packet. *)
-                                            case (! errorList, ! resultTrees) of
-                                                ([], _) => print "S" (* No errors *)
-                                            |   (_, NONE) => print "P" (* Errors and no trees *)
+                                            case (! errorList, ! resultTrees, !except) of
+                                                ([], _, NONE) => print "S" (* No errors *)
+                                            |   ([], _, SOME exn) => print "X" (* Exception in code *)
+                                            |   (_, NONE, _) => print "P" (* Errors and no trees *)
                                             |   _  => print "F"; (* Errors but have trees. *)
                                             print "\u001b,";
                                             print(Int.toString(! byteCount));
-
-                                            let
-                                                fun printErr {message: PolyML.pretty, hard: bool,
-                                                              location = {startPosition, endPosition, ...}, ...} =
-                                                (
-                                                    print(String.concat
-                                                        [
-                                                            "\u001bE",
-                                                            if hard then "E" else "W", "\u001b,",
-                                                            Int.toString startPosition, "\u001b,",
-                                                            Int.toString endPosition, "\u001b,"
-                                                        ]);
-                                                    prettyPrintWithMarkup(print, !lineLength)
-                                                        ((* Always add prefixes. *)addStructurePrefix true message);
-                                                    endPacket #"e" (* Escape e - end *)
-                                                )
-                                            in
-                                                List.app printErr (! errorList)
-                                            end;
+                                            case ! errorList of
+                                                nil => ()
+                                            |   errors =>
+                                                let
+                                                    fun printErr {message: PolyML.pretty, hard: bool,
+                                                                  location = {startPosition, endPosition, ...}, ...} =
+                                                    (
+                                                        print(String.concat
+                                                            [
+                                                                "\u001bE",
+                                                                if hard then "E" else "W", "\u001b,",
+                                                                Int.toString startPosition, "\u001b,",
+                                                                Int.toString endPosition, "\u001b,"
+                                                            ]);
+                                                        prettyPrintWithMarkup(print, !lineLength)
+                                                            ((* Always add prefixes. *)addStructurePrefix true message);
+                                                        endPacket #"e" (* Escape e - end *)
+                                                    )
+                                                in
+                                                    print "\u001b,";
+                                                    List.app printErr errors
+                                                end;
+                                            case !except of
+                                                NONE => ()
+                                            |   SOME exn =>
+                                                let
+                                                    val exLoc =
+                                                        case exceptionLocation exn of
+                                                            SOME loc => [ContextLocation loc]
+                                                        |   NONE => []
+                                                in
+                                                    prettyPrintWithMarkup(print, ! lineLength)
+                                                        (PrettyBlock(0, false, exLoc,
+                                                            [ PrettyString(PolyML.makestringInNameSpace(exn, globalNameSpace)) ]))
+                                                end;
                                             case ! resultTrees of SOME trees => parseTrees := trees | NONE => ();
                                             (* Set the current parse tree pointer to the first tree. *)
                                             case ! parseTrees of
                                                 [] => lastParsetree := NONE
                                             |   hd :: _ => lastParsetree := SOME hd;
                                             endPacket #"r" (* Escape-r - end of compilation. *)
-                                        )
+                                        end
                                     )
                                 |   SOME #"r" => (* Reached terminator too early. *)
                                         (print "\u001bR"; endPacket #"r")
@@ -1896,6 +1952,8 @@ in
         
         val saveDirectory = saveDirectory
         and dependencies = dependencies
+        
+        val exceptionLocation = exceptionLocation
 
         (* Main root function: run the main loop. *)
         val rootFunction: unit->unit = rootShell
