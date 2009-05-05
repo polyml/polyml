@@ -2467,20 +2467,7 @@ struct
                 val constr = pling value
             in
                 if not (tcIsAbbreviation constr)
-                then
-                let
-                    val typeId = tcIdentifier constr
-                in
-                    (* Check that it's a top-level datatype (NOT in a functor) *)
-                    if isFreeId typeId
-                    then SOME(typeId, constr, List.length args)
-                    else
-                    (
-                        errorMessage(lex, loc,
-                            "A pretty printer cannot be installed for a type within a functor");
-                        NONE
-                    )
-                end
+                then SOME(tcIdentifier constr, constr, List.length args)
                 else followTypes (makeEquivalent (constr, args))
             end
             |   followTypes (TypeVar tv) =
@@ -2586,20 +2573,7 @@ struct
                 val constr = pling value
             in
                 if not (tcIsAbbreviation constr)
-                then
-                let
-                    val typeId = tcIdentifier constr
-                in
-                    (* Check that it's a top-level datatype (NOT in a functor) *)
-                    if isFreeId typeId
-                    then SOME(typeId, constr, List.length args)
-                    else
-                    (
-                        errorMessage(lex, loc,
-                            "A pretty printer cannot be installed for a type within a functor");
-                        NONE
-                    )
-                end
+                then SOME(tcIdentifier constr, constr, List.length args)
                 else followTypes (makeEquivalent (constr, args))
             end
             |   followTypes (TypeVar tv) =
