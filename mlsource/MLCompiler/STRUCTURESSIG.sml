@@ -36,7 +36,7 @@ sig
     type signatures;
     type functors;
     type env;
-    type sigBind and functorBind and structBind
+    type sigBind and functorBind and structBind and structSigBind
     type machineWord
     type fixStatus
     type location =
@@ -51,6 +51,7 @@ sig
     val isEmptyStruct:      structs -> bool;
     val emptyStruct:        structs
     val mkStructureDec:     structBind list * location -> structs;
+    val mkStructureSig:     structSigBind list * location -> structs;
     val mkStruct:           structs list * location -> structs;
     val mkSignatureDec:     sigBind list * location -> topdec;
     val mkSig:              structs list * location -> structs;
@@ -58,7 +59,8 @@ sig
     val mkInclude:          structs list -> structs;
     val mkLocaldec:         structs list * structs list * bool * location -> structs;
     val mkCoreLang:         parsetree * location -> structs;
-    val mkStructureBinding: (string * location) * (structs * bool * location) option * structs option * location -> structBind
+    val mkStructureBinding: (string * location) * (structs * bool * location) option * structs * location -> structBind
+    val mkStructureSigBinding: (string * location) * (structs * bool * location) * location -> structSigBind
     val mkStructIdent:      string * location -> structs;
     val mkSigIdent:         string * location -> structs;
     val mkSignatureBinding: (string * location) * structs * location -> sigBind;
@@ -114,5 +116,6 @@ sig
         type typeParsetree  = typeParsetree
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
+        type structSigBind  = structSigBind
     end
 end;

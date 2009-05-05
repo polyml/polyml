@@ -1903,10 +1903,10 @@ struct
                     val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
                     val locs = locSpan(idLoc, sgnLoc)
                 in
-                    (mkStructureBinding (idAndLoc, SOME (sgn, false, sgnLoc), NONE, locs), locs)
+                    (mkStructureSigBinding (idAndLoc, (sgn, false, sgnLoc), locs), locs)
                 end
             in
-                [mkStructureDec (getList(SYMBOLS.andSy, empty, lex, doStructure))]
+                [mkStructureSig(getList(SYMBOLS.andSy, empty, lex, doStructure))]
             end
 
          else if sym eq SYMBOLS.includeSy
@@ -2130,7 +2130,7 @@ struct
                 val locs = locSpan(idLoc, strLoc)
             in
                 (* And finally the structure value. *)
-                (mkStructureBinding (idAndLoc, sgn, SOME strVal, locs), locs)
+                (mkStructureBinding (idAndLoc, sgn, strVal, locs), locs)
             end
         in  
             mkStructureDec (getList (SYMBOLS.andSy, structSy, lex, doStrDec))
