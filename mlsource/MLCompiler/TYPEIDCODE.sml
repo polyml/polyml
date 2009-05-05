@@ -116,7 +116,6 @@ struct
         |   _ => codeAccess(idAccess typeId, level)
         else (* Type function. *)
         (
-            print(concat["codeTypeId: Value is a type function\n"]);
             vaGlobal(defaultEqAndPrintCode())
         )
 
@@ -146,7 +145,6 @@ struct
     fun codeGenerativeTypeFunction(typeArgs, typeResult, level) =
     let
     in
-        print(concat["Value is a type function\n"]);
         vaGlobal(defaultEqAndPrintCode())
     end    
 
