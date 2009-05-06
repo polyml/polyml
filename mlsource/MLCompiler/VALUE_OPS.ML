@@ -27,64 +27,11 @@
 
 functor VALUE_OPS (
 
-(*****************************************************************************)
-(*                  LEX                                                      *)
-(*****************************************************************************)
 structure LEX : LEXSIG;
-
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
-structure CODETREE :
-sig
-  type machineWord
-  type codetree
-  
-  val CodeNil:          codetree;
-  val CodeTrue:         codetree;
-  val CodeZero:         codetree;
-  val isCodeNil:        codetree -> bool;
-  val mkTuple:          codetree list -> codetree;
-  val mkRecLoad:        int -> codetree;
-  val mkLoad:           int * int -> codetree;
-  val mkInd:            int * codetree -> codetree;
-  val mkConst:          machineWord -> codetree;
-  val mkEnv:            codetree list -> codetree;
-  val mkProc:           codetree * int * int * string -> codetree;
-  val mkInlproc:        codetree * int * int * string -> codetree;
-  val mkEval:           codetree * codetree list * bool -> codetree;
-  val mkStr:            string   -> codetree;
-  val mkRaise:          codetree -> codetree;
-  val mkNot:            codetree -> codetree;
-  val mkTestnull:       codetree -> codetree;
-  val mkTestnotnull:    codetree -> codetree;
-  val mkTestinteq:      codetree * codetree -> codetree;
-  val mkTestptreq:      codetree * codetree -> codetree;
-  val mkCand:           codetree * codetree -> codetree;
-  val mkCor:              codetree * codetree -> codetree;
-  val mkMutualDecs:       codetree list -> codetree;
-  val mkIf:               codetree * codetree * codetree -> codetree;
-  val mkDec:              int * codetree -> codetree;
-  val evalue:           codetree -> machineWord;
-  
-  val structureEq:      machineWord * machineWord -> bool
-
-  val genCode:          codetree * Universal.universal list -> unit -> codetree
-end;
-    
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
+structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG;
-
-(*****************************************************************************)
-(*                  TYPESTRUCT                                               *)
-(*****************************************************************************)
 structure TYPESTRUCT : TYPETREESIG
 
-(*****************************************************************************)
-(*                  PRINTTABLE                                               *)
-(*****************************************************************************)
 structure PRINTTABLE :
 sig
   type typeConstrs
@@ -95,9 +42,6 @@ sig
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
 end;
 
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE:
 sig
   type universal = Universal.universal
@@ -107,9 +51,6 @@ sig
   val univOver: univTable -> (string * universal) iter;
 end;
 
-(*****************************************************************************)
-(*                  DEBUG                                                    *)
-(*****************************************************************************)
 structure DEBUG :
 sig
     val printDepthFunTag : (unit->int) Universal.tag
@@ -118,9 +59,6 @@ sig
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
 structure MISC :
 sig
   exception InternalError of string; (* compiler error *)
@@ -132,10 +70,6 @@ sig
   val iterList : 'a iter -> 'a list
 end;
 
-
-(*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
-(*****************************************************************************)
 structure PRETTY : PRETTYSIG;
 
 structure ADDRESS :
@@ -171,9 +105,6 @@ sig
   val F_mutable   : Word8.word;
 end;
 
-(*****************************************************************************)
-(*                  UTILITIES                                                *)
-(*****************************************************************************)
 structure UTILITIES :
 sig
   val splitString: string -> { first:string,second:string }
@@ -183,12 +114,8 @@ structure COPIER: COPIERSIG
 
 structure TYPEIDCODE: TYPEIDCODESIG
 
-(*****************************************************************************)
-(*                  VALUEOPS sharing constraints                             *)
-(*****************************************************************************)
-
 sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing = LEX.Sharing = PRETTY.Sharing
-      = COPIER.Sharing = CODETREE = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
+      = COPIER.Sharing = CODETREE.Sharing = PRINTTABLE = ADDRESS = UNIVERSALTABLE = MISC
       = TYPEIDCODE.Sharing
 
 ) : VALUEOPSSIG =
@@ -2149,19 +2076,8 @@ struct
             case searchList (!datatypeList) of
                 SOME addr => TwoArgs(recursiveEq(addr, args))
             |    NONE =>
-                    if isFreeId(tcIdentifier constr) andalso isGlobal(idAccess(tcIdentifier constr))
-                    then TwoArgs(fn l =>
-                            mkEval(mkInd(0, vaGlobal(idAccess(tcIdentifier constr))), map (getArg l) args, true))
-                    else
-                    let
-                        val eq = equalityForDatatype(constr, vConstrs)
-                    in
-                        case args of
-                            [] => TwoArgs eq
-                        |    _ => 
-                            TwoArgs(fn l =>
-                                mkEval(eq l, map (getArg l) args, true))
-                    end
+                    TwoArgs(fn l =>
+                            mkEval(mkInd(0, codeId(tcIdentifier constr, #level l)), map (getArg l) args, true))
         end
     in
         case ty of
@@ -2185,10 +2101,7 @@ struct
             in
                 if tcIsAbbreviation constr  (* May be an alias *)
                 then makeEq (makeEquivalent (constr, args), resKind, findTyVars)
-                (* TODO: For the moment we can only get the equality function for globals. *)
-                else if isFreeId(tcIdentifier constr) andalso isGlobal(idAccess(tcIdentifier constr))
-                then returnFun(equalityForConstruction(constr, args, tcConstructors constr), resKind)
-                else returnFun(default, resKind)
+                else returnFun(equalityForConstruction(constr, args, tcConstructors constr), resKind)
             end
 
         |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
