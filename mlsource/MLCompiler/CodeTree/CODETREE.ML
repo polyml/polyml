@@ -74,63 +74,7 @@ sharing type
 sharing type
   BASECODETREE.codetree
 = GCODE.codetree
-) :
-
-(*****************************************************************************)
-(*                  CODETREE export signature                                *)
-(*****************************************************************************)
-sig
-  type machineWord
-  type codetree
-  type pretty
-     
-  val isCodeNil:          codetree -> bool;
-  val CodeNil:            codetree; (* Empty codetree NOT the code for "nil" *)
-  val CodeTrue:           codetree; (* code for "true"  *)
-  val CodeFalse:          codetree; (* code for "false" *)
-  val CodeZero:           codetree; (* code for 0, nil etc. *)
-  
-  val MatchFail:          codetree; (* pattern match has failed *)
-  val mkAltMatch:         codetree * codetree -> codetree;
-
-  val mkRecLoad:          int-> codetree;
-  val mkLoad:             int * int -> codetree;
-  val mkConst:            machineWord -> codetree;
-  val mkDec:              int * codetree -> codetree;
-  val mkInd:              int * codetree -> codetree;
-  val mkProc:             codetree * int * int * string -> codetree;
-  val mkInlproc:          codetree * int * int * string -> codetree;
-  val mkMacroProc:        codetree * int * int * string -> codetree;
-  val mkIf:               codetree * codetree * codetree -> codetree;
-  val mkWhile:            codetree * codetree -> codetree;
-  val mkEnv:              codetree list -> codetree;
-  val mkStr:              string -> codetree;
-  val mkTuple:            codetree list -> codetree;
-  val mkMutualDecs:       codetree list -> codetree;
-  val mkRaise:            codetree -> codetree;
-  val mkNot:              codetree -> codetree;
-  val mkTestnull:         codetree -> codetree;
-  val mkTestnotnull:      codetree -> codetree;
-  val mkCor:              codetree * codetree -> codetree;
-  val mkCand:             codetree * codetree -> codetree;
-  val mkTestptreq:        codetree * codetree -> codetree;
-  val mkTestinteq:        codetree * codetree -> codetree;
-  val mkHandle:           codetree * codetree list * codetree -> codetree;
-  val mkEval:             codetree * codetree list * bool -> codetree;
-  val identityFunction:   string -> codetree;
-  val Ldexc:              codetree;
-  val mkContainer:        int -> codetree
-  val mkSetContainer:     codetree * codetree * int -> codetree
-  val mkTupleFromContainer: codetree * int -> codetree
-
-  val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
-
-  val pretty:    codetree -> pretty;
-  val evalue:    codetree -> machineWord;
-  val genCode:   codetree * Universal.universal list -> (unit -> codetree);
-
-  val structureEq: machineWord * machineWord -> bool;
-end (* CODETREE export signature *) =
+) : CODETREESIG =
 
 (*****************************************************************************)
 (*                  CODETREE functor body                                    *)
@@ -4338,5 +4282,13 @@ DCJM 2000.
           end
       end
   end; (* genCode *)
+
+
+    structure Sharing =
+    struct
+        type machineWord = machineWord
+        type codetree    = codetree
+        type pretty      = pretty
+    end
 
 end (* CODETREE functor body *);
