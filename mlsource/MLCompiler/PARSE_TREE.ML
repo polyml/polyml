@@ -28,80 +28,17 @@
 
 functor PARSE_TREE (
 
-(*****************************************************************************)
-(*                  LEX                                                      *)
-(*****************************************************************************)
 structure LEX : LEXSIG
-
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
-
-(* This tree represents the intermediate code between the parse tree and
-   the final machine code *)
-
-structure CODETREE :
-sig
-  type machineWord
-  type codetree
-
-  val CodeNil:       codetree
-  val CodeZero:      codetree
-  val Ldexc:         codetree
-  val MatchFail:     codetree
-  val mkAltMatch:    codetree * codetree -> codetree
-  val mkConst:       machineWord -> codetree
-  val mkLoad:        int * int -> codetree
-  val mkInd:         int * codetree -> codetree
-  val mkProc:        codetree * int * int * string -> codetree
-  val mkInlproc:     codetree * int * int * string -> codetree
-  val mkEval:        codetree * codetree list * bool -> codetree
-  val mkStr:         string   -> codetree
-  val mkNot:         codetree -> codetree
-  val mkCand:        codetree * codetree -> codetree
-  val mkCor:         codetree * codetree -> codetree
-  val mkRaise:       codetree -> codetree
-  val mkDec:         int * codetree -> codetree
-  val mkIf:          codetree * codetree * codetree -> codetree
-  val mkWhile:       codetree * codetree -> codetree
-  val mkEnv:         codetree list -> codetree
-  val mkTuple:       codetree list -> codetree
-  val mkHandle:      codetree * codetree list * codetree -> codetree
-  val mkMutualDecs:  codetree list -> codetree
-  val mkContainer:   int -> codetree
-  val mkSetContainer: codetree * codetree * int -> codetree
-  val mkTupleFromContainer: codetree * int -> codetree
-
-  val multipleUses:  codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
-  val evalue:           codetree -> machineWord;
-  val structureEq:      machineWord * machineWord -> bool
-end;
-
-
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
+structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG;
-
-(*****************************************************************************)
-(*                  EXPORTTREE                                               *)
-(*****************************************************************************)
-
 structure EXPORTTREE: EXPORTTREESIG;
-
-(*****************************************************************************)
-(*                  TYPETREE                                                 *)
-(*****************************************************************************)
 structure TYPETREE : TYPETREESIG
-
-(*****************************************************************************)
-(*                  VALUEOPS                                                 *)
-(*****************************************************************************)
 structure VALUEOPS : VALUEOPSSIG;
+structure PRETTY : PRETTYSIG
+structure DEBUGGER : DEBUGGERSIG
+structure COPIER: COPIERSIG
+structure TYPEIDCODE: TYPEIDCODESIG
 
-(*****************************************************************************)
-(*                  UTILITIES                                                *)
-(*****************************************************************************)
 structure UTILITIES :
 sig
   type lexan;
@@ -127,9 +64,6 @@ sig
     end
 end;
 
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE:
 sig
   type universal = Universal.universal;
@@ -138,9 +72,6 @@ sig
   val univFold: univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
-(*****************************************************************************)
-(*                  DEBUG                                                    *)
-(*****************************************************************************)
 structure DEBUG :
 sig
     val debugTag: bool Universal.tag
@@ -150,9 +81,6 @@ sig
            'a Universal.tag -> Universal.universal list -> 'a 
 end;
 
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
 structure MISC :
 sig
   (* These are handled in the compiler *)
@@ -166,14 +94,6 @@ sig
   val lookupDefault :  ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end (* MISC *);
 
-(*****************************************************************************)
-(*                  PRETTYPRINTER                                            *)
-(*****************************************************************************)
-structure PRETTY : PRETTYSIG
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
 structure ADDRESS :
 sig
   type machineWord;    (* any legal bit-pattern (tag = 0 or 1) *)
@@ -181,20 +101,13 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  DEBUGGER                                                  *)
-(*****************************************************************************)
-structure DEBUGGER : DEBUGGERSIG
-
-structure COPIER: COPIERSIG
-
-(*****************************************************************************)
 (*                  PARSETREE sharing constraints                            *)
 (*****************************************************************************)
 
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = EXPORTTREE.Sharing = UTILITIES.Sharing
-       = DEBUGGER.Sharing = PRETTY.Sharing
-       = ADDRESS = CODETREE
+       = DEBUGGER.Sharing = PRETTY.Sharing = TYPEIDCODE.Sharing
+       = ADDRESS = CODETREE.Sharing
 
 ) : PARSETREESIG =
    
@@ -215,6 +128,7 @@ struct
   open PRETTY;
   open ADDRESS;
   open EXPORTTREE
+  open TYPEIDCODE
   open RuntimeCalls; (* for POLY_SYS numbers *)
   
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
@@ -5323,19 +5237,6 @@ struct
             end
           end (* codeProc *);
 
-            (* We have to create the equality and printing code here. *)
-            fun codeDatatypeBinding(DatatypeBind {tcon = ref tc, ...}) =
-                case idAccess(tcIdentifier tc) of
-                    Local{ addr, level=lev } =>
-                    let
-                        val newAddr = mkAddr();
-                    in
-                        addr := newAddr;
-                        lev := !level;
-                        mkDec(newAddr, vaGlobal(defaultEqAndPrintCode()))
-                    end
-                |   _ => raise InternalError "codeDatatypeBinding: Not local"
-
          in      (* codeSequence *)
            if null dlist then ([], debugEnv)
            else let
@@ -5798,8 +5699,10 @@ struct
                        the constructors but the result shouldn't.  For the moment
                        ignore the constructors. *)
                     val (code, newDebug) = codeSequence (declist, debugEnv, decName);
+                    val typeIds =
+                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
                 in
-                    (List.map codeDatatypeBinding typelist @ code, newDebug)
+                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ code, newDebug)
                 end
   
             |   DatatypeDeclaration {typelist, ...} =>
@@ -5815,8 +5718,10 @@ struct
 
                     val (decs: codetree list, newDebugenv: debugenv) =
                         List.foldl getConstrs ([], debugEnv) typelist
+                    val typeIds =
+                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
                 in
-                    (List.map codeDatatypeBinding typelist @ decs, newDebugenv)
+                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ decs, newDebugenv)
                 end
 
            | OpenDec {variables=ref vars, ...} =>

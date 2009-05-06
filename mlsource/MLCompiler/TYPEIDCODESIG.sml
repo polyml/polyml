@@ -21,14 +21,18 @@ sig
     type typeId
     type codetree
     type types
+    type typeConstrs
     val codeId: typeId * int -> codetree
     val codeGenerativeId: codetree * int -> codetree
     val codeGenerativeTypeFunction: types list * types * int -> codetree
+    
+    val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
 
     structure Sharing:
     sig
         type typeId     = typeId
         type codetree   = codetree
         type types      = types
+        type typeConstrs= typeConstrs
     end
 end;

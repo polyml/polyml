@@ -18,42 +18,7 @@
 
 functor TYPEIDCODE (
     structure LEX : LEXSIG;
-    structure CODETREE :
-    sig
-        type machineWord
-        type codetree
-
-        val CodeNil:          codetree;
-        val CodeTrue:         codetree;
-        val CodeZero:         codetree;
-        val isCodeNil:        codetree -> bool;
-        val mkTuple:          codetree list -> codetree;
-        val mkRecLoad:        int -> codetree;
-        val mkLoad:           int * int -> codetree;
-        val mkInd:            int * codetree -> codetree;
-        val mkConst:          machineWord -> codetree;
-        val mkEnv:            codetree list -> codetree;
-        val mkProc:           codetree * int * int * string -> codetree;
-        val mkInlproc:        codetree * int * int * string -> codetree;
-        val mkEval:           codetree * codetree list * bool -> codetree;
-        val mkStr:            string   -> codetree;
-        val mkRaise:          codetree -> codetree;
-        val mkNot:            codetree -> codetree;
-        val mkTestnull:       codetree -> codetree;
-        val mkTestnotnull:    codetree -> codetree;
-        val mkTestinteq:      codetree * codetree -> codetree;
-        val mkTestptreq:      codetree * codetree -> codetree;
-        val mkCand:           codetree * codetree -> codetree;
-        val mkCor:              codetree * codetree -> codetree;
-        val mkMutualDecs:       codetree list -> codetree;
-        val mkIf:               codetree * codetree * codetree -> codetree;
-        val mkDec:              int * codetree -> codetree;
-        val evalue:           codetree -> machineWord;
-
-        val structureEq:      machineWord * machineWord -> bool
-
-        val genCode:          codetree * Universal.universal list -> unit -> codetree
-    end;
+    structure CODETREE : CODETREESIG
 
     structure STRUCTVALS : STRUCTVALSIG;
 
@@ -76,7 +41,7 @@ functor TYPEIDCODE (
         val F_mutable   : Word8.word;
     end;
     
-    sharing LEX.Sharing = STRUCTVALS.Sharing = PRETTY.Sharing = CODETREE = ADDRESS
+    sharing LEX.Sharing = STRUCTVALS.Sharing = PRETTY.Sharing = CODETREE.Sharing = ADDRESS
 ) : TYPEIDCODESIG =
 struct
     open CODETREE STRUCTVALS PRETTY ADDRESS
@@ -87,6 +52,7 @@ struct
     val andb = Word8.andb and orb = Word8.orb
     infix 6 andb;
     infix 7 orb;
+    val mutableFlags = F_words orb F_mutable;
 
     (* codeStruct and codeAccess are copied from ValueOps. *)
     fun codeStruct (str, level) =
@@ -107,13 +73,7 @@ struct
     (* Load an identifier. *)
     fun codeId(typeId, level) =
         if isFreeId typeId orelse isBoundId typeId
-        then case idAccess typeId of
-            Local { addr = ref 0, level = ref 0 } =>
-            (
-                print(concat["Local value unset\n"]);
-                vaGlobal(defaultEqAndPrintCode())
-            )
-        |   _ => codeAccess(idAccess typeId, level)
+        then codeAccess(idAccess typeId, level)
         else (* Type function. *)
         (
             vaGlobal(defaultEqAndPrintCode())
@@ -125,33 +85,110 @@ struct
        ref is created so that if a pretty printer is installed for the new type it
        does not affect the old type. *)
     fun codeGenerativeId(sourceCode, level) =
-    let
-        val mutableFlags = F_words orb F_mutable;
-    in
-            mkTuple
-            [
-                mkInd(0, sourceCode),
-                mkEval
-                    (mkConst (ioOp POLY_SYS_alloc_store),
-                    [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                     mkEval(mkConst(ioOp POLY_SYS_load_word),
-                        [mkInd(1, sourceCode), CodeZero], false)
-                      ],
-                false)  
-            ]
-    end
+        mkTuple
+        [
+            mkInd(0, sourceCode),
+            mkEval
+                (mkConst (ioOp POLY_SYS_alloc_store),
+                [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                 mkEval(mkConst(ioOp POLY_SYS_load_word),
+                    [mkInd(1, sourceCode), CodeZero], false)
+                  ],
+            false)  
+        ]
 
     (* A generative ID may also be derived from a type function.  *)
     fun codeGenerativeTypeFunction(typeArgs, typeResult, level) =
-    let
-    in
         vaGlobal(defaultEqAndPrintCode())
-    end    
+
+    (* Create the equality and type functions for a set of mutually recursive datatypes. *)
+    fun createDatatypeFunctions(typelist, mkAddr, level) =
+    let
+        (* Each entry has an equality function and a ref to a print function.
+           The print functions for each type needs to indirect through the refs
+           when printing other types so that if a pretty printer is later
+           installed for one of the types the others will use the new pretty
+           printer.  That means that the code has to be produced in stages. *)
+        (* Create the equality functions.  Because mutual decs can only be functions we
+           can't create the typeIDs themselves as mutual declarations. *)
+        val eqAddresses = List.map(fn _ => mkAddr()) typelist (* Make addresses for the equalities. *)
+        local
+            fun createEquality(tc, addr) =
+            let
+                val code =
+                if tcEquality tc
+                then
+                let
+                    (* The structure equality function takes an argument pair.  We need a
+                       function that takes two Poly-style arguments. *)
+                    val defaultEqCode =
+                        mkInlproc(
+                            mkInlproc(
+                                mkEval(mkConst(toMachineWord structureEq),
+                                    [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
+                            0, 0, "eq-helper()")
+                in
+                    defaultEqCode
+                end
+                else (* The type system should ensure that this is never called. *)
+                    mkConst(toMachineWord(fn _ => fn _ => raise Fail "Not an equality type"))
+            in
+                mkDec(addr, code)
+            end
+        in
+            val equalityFunctions =
+                mkMutualDecs(ListPair.map createEquality (typelist, eqAddresses))
+        end
+
+        (* Create the typeId values and set their addresses.  The print function is
+           initially set as zero. *)
+        local
+            fun makeTypeId(tc, eqAddr) =
+            let
+                val var = vaLocal(idAccess(tcIdentifier tc))
+                val newAddr = mkAddr()
+                val idCode =
+                mkTuple
+                [
+                    mkLoad(eqAddr, 0),
+                    mkEval
+                        (mkConst (ioOp POLY_SYS_alloc_store),
+                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                         CodeZero (* Temporary value. *)],
+                    false)  
+                ]
+            in
+                #addr var := newAddr;
+                #level var:= level;
+                mkDec(newAddr, idCode)
+            end
+        in
+            val typeIdCode = ListPair.map makeTypeId (typelist, eqAddresses)
+        end
+
+        (* Create the print functions and set the printer code for each typeId. *)
+        local
+            fun setPrinter tc =
+            let
+                fun printer depth typeArgs value = PrettyString ("(" ^ tcName tc ^ ")")
+            in
+                mkEval(
+                    mkConst (ioOp POLY_SYS_assign_word),
+                    [mkInd(1, codeId(tcIdentifier tc, level)), CodeZero, mkConst (toMachineWord printer)],
+                    false)
+            end
+        in
+            val printerCode = List.map setPrinter typelist
+        end
+    in
+        equalityFunctions :: typeIdCode @ printerCode
+    end
 
     structure Sharing =
     struct
         type typeId     = typeId
         type codetree   = codetree
         type types      = types
+        type typeConstrs= typeConstrs
     end
 end;

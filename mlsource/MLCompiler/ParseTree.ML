@@ -34,4 +34,5 @@ structure ParseTree =
 	structure DEBUGGER   = Debugger
     structure EXPORTTREE = ExportTreeStruct
     structure COPIER     = CopierStruct
+    structure TYPEIDCODE = TypeIDCodeStruct
   ) ;
