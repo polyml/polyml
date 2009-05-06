@@ -3360,43 +3360,6 @@ struct
                     |   _ => ()
                 end
 
-                else if tagIs typeConstrVar dVal
-                then (* We need to process the value constructors.  We may well process them
-                    as values anyway but we don't always. *)
-                let
-                    val tcons = tagProject typeConstrVar dVal;
-                    val matchedType = valOf(univLookup (source, typeConstrVar, dName))
-
-                    fun processConstructor(Value{access=Formal dstAddr, ...},
-                                           Value{access=Formal svAddr, ...}) =
-                        (* Selecting from a signature. *)
-                        (
-                            case StretchArray.sub (resVec, dstAddr) of
-                                NONE =>
-                                (
-                                    if svAddr <> dstAddr then useOriginal := false else (); 
-                                    addToList (mkInd (svAddr, load)) dstAddr
-                                )
-                            |   SOME _ => ()
-                        )
-
-                      | processConstructor(Value{access=Formal dstAddr, typeOf, ...}, sourceVal) =
-                            (* Any other source. *)
-                        (
-                            case StretchArray.sub (resVec, dstAddr) of
-                                NONE =>
-                                (
-                                    useOriginal := false;
-                                    addToList (codeVal (sourceVal, !level, typeOf, lex, location nullLex)) dstAddr
-                                )
-                            |   SOME _ => ()
-                        )
-
-                      | processConstructor _ = ()
-                in
-                    ListPair.app processConstructor (tcConstructors tcons, tcConstructors matchedType)
-                end
-
             else ()
          in  
             (* Structures, values and datatypes. *)
