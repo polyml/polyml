@@ -5695,14 +5695,31 @@ struct
   
             |   AbstypeDeclaration {typelist, declist, ...} =>
                 let (* Code-generate the declarations. *)
+                    (* We have to put the constructors back onto the abstype
+                       temporarily so that we can create the equality and print functions. *)
+                    (* TODO: We need to do this differently.  We should have two different
+                       type constructors, one in the outer environment and one in the
+                       inner but sharing a single type identifier. *)
+                    (* TODO: ******  We have switched off equality and haven't switched it back on. *)
+                    val () = 
+                        List.app
+                            (fn (DatatypeBind{tcon=ref tc, valueConstrs = ref vconstrs, ...}) =>
+                                tcSetConstructors (tc, vconstrs)
+                            ) typelist;
                     (* The debugging environment for the declarations should include
                        the constructors but the result shouldn't.  For the moment
                        ignore the constructors. *)
                     val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                     val typeIds =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+                    val typeFns = createDatatypeFunctions(typeIds, mkAddr, !level)
+                    (* Now we can take the constructors off again. *)
+                    val () =
+                        List.app
+                            (fn (DatatypeBind{tcon=ref tc, ...}) => tcSetConstructors (tc, []))
+                            typelist;
                 in
-                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ code, newDebug)
+                    (typeFns @ code, newDebug)
                 end
   
             |   DatatypeDeclaration {typelist, ...} =>
