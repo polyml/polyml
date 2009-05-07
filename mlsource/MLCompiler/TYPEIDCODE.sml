@@ -46,8 +46,9 @@ functor TYPEIDCODE (
             = TYPETREE.Sharing = ADDRESS
 ) : TYPEIDCODESIG =
 struct
-    open CODETREE STRUCTVALS PRETTY ADDRESS
-    open Misc RuntimeCalls
+    open CODETREE PRETTY ADDRESS STRUCTVALS
+    open RuntimeCalls
+    val InternalError = Misc.InternalError
 
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
@@ -55,7 +56,8 @@ struct
     infix 6 andb;
     infix 7 orb;
     val mutableFlags = F_words orb F_mutable;
-    
+
+    fun notFormal _ = raise InternalError "Not Formal"
 
     (* Temporary fall-back code. *)
     fun defaultEqAndPrintCode() =
@@ -63,8 +65,8 @@ struct
         (* The structure equality function takes a pair of arguments.  We need a
            function that takes two Poly-style arguments. *)
         val defaultEqCode =
-            mkInlproc(
-                mkInlproc(
+            mkProc(
+                mkProc(
                     mkEval(mkConst(toMachineWord structureEq),
                         [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
                 0, 0, "eq-helper()")
@@ -103,13 +105,20 @@ struct
                 [depthCode, mkConst(toMachineWord allowedDepth)],
                 true),
             codeFail,
-            codeOk)    
+            codeOk)
+
+    (* Subtract a depth from the current depth to produce the depth for sub-elements. *)
+    and adjustDepth(depthCode, 0) = depthCode
+    |   adjustDepth(depthCode, n) =
+        mkEval(mkConst(toMachineWord(ioOp POLY_SYS_aminus)),
+               [depthCode, mkConst(toMachineWord n)],
+               true)
 
     (* codeStruct and codeAccess are copied from ValueOps. *)
     fun codeStruct (str, level) =
         if isUndefinedStruct str
         then CodeNil
-        else codeAccess (structAccess str, fn _ => raise InternalError "codeStruct", level)
+        else codeAccess (structAccess str, notFormal, level)
 
     and codeAccess (Global code, _, _) = code
       
@@ -145,19 +154,21 @@ struct
     (* Create a printer for a type function.  This is used to create the general
        print function for any type. *)
     and printerForTypeFunction(argTypes, resType, getFormal, level) =
-    let
-        val levelInside = level+3 (* We're three levels down. *)
-        
-        (* Code to adjust the "depth" value. *)
-        fun depthCode 0 = mkLoad(~1, 2)
-        |   depthCode n =
-                mkEval(mkConst(toMachineWord(ioOp POLY_SYS_aminus)),
-                       [mkLoad(~1, 2), mkConst(toMachineWord n)],
-                       true)
+        (* Wrap this in the functions for the depth and the type arguments. *)
+        mkProc(
+            mkProc(
+                mkProc(
+                    printCodeForType(
+                        resType, mkLoad(~1, 0), 0, mkLoad(~1, 2), level+3, argTypes, getFormal),
+                    level+2, 1, "print-helper"),
+                level+1, 1, "print-helper()"),
+            level, 1, "print-helper()()")
 
-        fun printCode(TypeVar tyVar, valToPrint, depth) =
+    and printCodeForType(ty, valToPrint, depth, depthCode, level, argTypes, getFormal) =
+    let
+        fun printCode(TypeVar tyVar, valToPrint, depth, depthCode, level) =
             if not (isEmpty(tvValue tyVar))
-            then printCode(tvValue tyVar, valToPrint, depth) (* Just a bound type variable. *)
+            then printCode(tvValue tyVar, valToPrint, depth, depthCode, level) (* Just a bound type variable. *)
             else (* It should be an argument. *)
             let
                 fun findPos(_, []) = ~1 (* Not there. *)
@@ -179,19 +190,20 @@ struct
                             [_] => mkLoad(~1, 1)
                     |   _ => mkInd(position, mkLoad(~1, 1))
                 in
-                    mkEval(argCode, [mkTuple[valToPrint, depthCode depth]], false)
+                    mkEval(argCode, [mkTuple[valToPrint, adjustDepth(depthCode, depth)]], false)
                 end
             end
 
-        |   printCode(TypeConstruction { value, args, ...}, valToPrint, depth) =
+        |   printCode(TypeConstruction { value, args, ...}, valToPrint, depth, depthCode, level) =
             let
                 val typConstr = pling value
             in
                 if tcIsAbbreviation typConstr (* Handle type abbreviations directly *)
-                then printCode(TYPETREE.makeEquivalent (typConstr, args), valToPrint, depth)
+                then printCode(TYPETREE.makeEquivalent (typConstr, args),
+                               valToPrint, depth, depthCode, level)
                 else
                 let
-                    val codedId = codeIdWithFormal(tcIdentifier typConstr, getFormal, levelInside)
+                    val codedId = codeIdWithFormal(tcIdentifier typConstr, getFormal, level)
                         handle exn =>
                         (
                             print(concat["codedId: ", tcName typConstr, "\n"]);
@@ -202,27 +214,34 @@ struct
                             [mkInd(1, codedId), CodeZero], false)
                     (* The printer functions for the arguments have to
                        be tupled if there's more than one. *)
+                    (* The argument printer functions have type 'a*int->pretty
+                       i.e. they take a pair of the value and the depth. *)
+                    fun makePrinterArgFunction t =
+                        mkProc(
+                            printCode(t, mkInd(0, mkLoad(~1, 0)), 0, mkInd(1, mkLoad(~1, 0)), level+1),
+                            level, 1, "arg-printer")
+                
                     val argTuple =
                         case args of
-                            [] => CodeZero
-                          | [t] => printerForType(t, getFormal, levelInside)
-                          | args => mkTuple(map (fn t => printerForType(t, getFormal, levelInside)) args)
+                            []   => CodeZero
+                          | [t]  => makePrinterArgFunction t
+                          | args => mkTuple(map makePrinterArgFunction args)
                     (* Apply the function for the type constructor to the functions
                        for the argument types, then to the depth and finally to the
                        argument. *)
                 in
                     mkEval(
                         mkEval(
-                            mkEval(printForConstructor, [depthCode depth], true (* This can be early *)),
+                            mkEval(printForConstructor, [adjustDepth(depthCode, depth)], true (* This can be early *)),
                             [argTuple], true (* This can be early *)),
                         [valToPrint], false (* Not early *))
                 end
             end
 
-        |   printCode(record as LabelledType { recList=[], ...}, _, _) =
+        |   printCode(LabelledType { recList=[], ...}, _, _, _, _) =
                 (* Empty tuple: This is the unit value. *) codePrettyString "()"
 
-        |   printCode(record as LabelledType { recList, frozen, ...}, valToPrint, depth) =
+        |   printCode(LabelledType { recList, frozen, ...}, valToPrint, depth, depthCode, level) =
             let
                 (* See if this has fields numbered 1=, 2= etc. *)
                 fun isRec([], _) = true
@@ -237,8 +256,8 @@ struct
                             (* Last or only field: no separator. *)
                             if offset = 0
                             then (* optimised unary records *)
-                                printCode(typeof, valToPrint, depth)
-                            else printCode(typeof, mkInd(offset, valToPrint), depth)
+                                printCode(typeof, valToPrint, depth, depthCode, level)
+                            else printCode(typeof, mkInd(offset, valToPrint), depth, depthCode, level)
                         val (start, terminator) =
                             if isTuple then ([], ")")
                             else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
@@ -252,11 +271,11 @@ struct
                             if isTuple then ([], ")")
                             else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
                     in
-                        checkDepth(depthCode 0, depth,
+                        checkDepth(depthCode, depth,
                             codeList(
                                 start @
                                 [
-                                     printCode(typeof, mkInd(offset, valToPrint), depth),
+                                    printCode(typeof, mkInd(offset, valToPrint), depth, depthCode, level),
                                     codePrettyString ",",
                                     codePrettyBreak (1, 0)
                                 ],
@@ -269,25 +288,19 @@ struct
                     mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(recList, 0, depth+1)])
             end
 
-        |   printCode(FunctionType _, _, depth) = codePrettyString "fn"
+        |   printCode(FunctionType _, _, _, _, _) = codePrettyString "fn"
 
         |   printCode _ = codePrettyString "<empty>"
-
     in
-        (* Wrap this in the functions for the depth and the type arguments. *)
-        mkInlproc(
-            mkInlproc(
-                mkInlproc(printCode(resType, mkLoad(~1, 0), 0), level+2, 1, "print-helper"),
-                level+1, 1, "print-helper()"),
-            level, 1, "print-helper()()")
+        printCode(ty, valToPrint, depth, depthCode, level)
     end
 
     (* Create an equality function for a type function. *)
     and equalityForTypeFunction(argTypes, resType, getFormal, level) =
     let
     in
-        mkInlproc(
-            mkInlproc(
+        mkProc(
+            mkProc(
                 mkEval(mkConst(toMachineWord structureEq),
                     [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
             0, 0, "eq-helper()")
@@ -299,7 +312,7 @@ struct
        fn (v, depth) => ptf depth () v
        *)
     and printerForType (ty: types, getFormal, level): codetree =
-        mkInlproc(
+        mkProc(
             mkEval(
                 mkEval(
                     mkEval(
@@ -317,7 +330,67 @@ struct
 
     (* As for printerForType, but this is simpler. *)
     fun equalityForType(ty: types, getFormal, level): codetree =
-        mkEval(equalityForTypeFunction([], ty, getFormal, level), [], true)    
+        mkEval(equalityForTypeFunction([], ty, getFormal, level), [], true)
+
+    (* Create a printer function for a datatype when the datatype is declared.
+       We don't have to treat mutually recursive datatypes specially because
+       this is called after the type IDs have been created. *)
+    fun printerForDatatype(typeConstr, level) =
+    let
+        val name = tcName typeConstr
+        val argTypes = tcTypeVars typeConstr
+        val argCode = mkLoad(~1, 0)
+        and depthCode = mkLoad(~1, 2)
+        val innerLevel = level+3
+
+        fun printerForConstructors
+                (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest, depth) =
+            let
+                (* The "value" for a value constructor is a tuple containing
+                   the test code, the injection and the projection functions. *)
+                val constructorCode =
+                    codeAccess(access, notFormal, innerLevel)
+                val testValue = mkEval(mkInd(0, constructorCode), [argCode], true)
+                val getValue = mkEval(mkInd(2, constructorCode), [argCode], true)
+                val printCode =
+                    if nullary
+                    then (* Just the name *) codePrettyString name
+                    else
+                    let
+                        val typeOfArg =
+                            case typeOf of
+                                FunctionType{arg, ...} => arg
+                            |   _ => raise InternalError "contructor not a function"
+                    in
+                        codePrettyBlock(1, false, [],
+                            codeList(
+                                [
+                                    codePrettyString name,
+                                    codePrettyBreak (1, 0),
+                                    printCodeForType(typeOfArg, getValue, depth, depthCode,
+                                                     innerLevel, argTypes, notFormal)
+                                ], CodeZero))
+                    end
+            in
+                (* If this was the last or only constructor we don't need to test. *)
+                checkDepth(depthCode, depth,
+                    if null rest
+                    then printCode
+                    else mkIf(testValue, printCode, printerForConstructors(rest, depth+1)),
+                    codePrettyString "...")
+            end
+
+        |   printerForConstructors _ = raise InternalError ("No constructors:"^name)
+            
+        val printerCode = printerForConstructors(tcConstructors typeConstr, 0)
+    in
+        (* Wrap this in the functions for the depth and the type arguments. *)
+        mkProc(
+            mkProc(
+                mkProc(printerCode, level+2, 1, "print-"^name),
+                level+1, 1, "print"^name^"()"),
+            level, 1, "print"^name^"()()")
+    end    
 
     (* Opaque matching and functor application create new type IDs using an existing
        type as implementation.  The equality function is inherited whether the type
@@ -347,25 +420,10 @@ struct
             ]
         end
     
-    fun codeId(source, level) =
-        codeIdWithFormal(source, fn _ => raise InternalError "Formal", level)
+    fun codeId(source, level) = codeIdWithFormal(source, notFormal, level)
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(typelist, mkAddr, level) =
-(*    let
-        fun createFunction tc =
-        let
-            val addr = mkAddr()
-            val var = vaLocal(idAccess(tcIdentifier tc))
-        in
-            #addr var := addr;
-            #level var:= level;
-            mkDec(addr, defaultEqAndPrintCode())
-        end
-        val eqAddresses = List.map(fn _ => mkDec(mkAddr(), CodeZero)) typelist
-    in
-        eqAddresses @ List.map createFunction typelist
-    end*)
     let
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
@@ -385,8 +443,8 @@ struct
                     (* The structure equality function takes an argument pair.  We need a
                        function that takes two Poly-style arguments. *)
                     val defaultEqCode =
-                        mkInlproc(
-                            mkInlproc(
+                        mkProc(
+                            mkProc(
                                 mkEval(mkConst(toMachineWord structureEq),
                                     [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
                             0, 0, "eq-helper()")
@@ -432,15 +490,11 @@ struct
         (* Create the print functions and set the printer code for each typeId. *)
         local
             fun setPrinter tc =
-            let
-                fun printer depth typeArgs value = PrettyString ("(" ^ tcName tc ^ ")")
-            in
                 mkEval(
                     mkConst (ioOp POLY_SYS_assign_word),
                     [mkInd(1, codeId(tcIdentifier tc, level)),
-                              CodeZero, mkConst(toMachineWord printer)],
+                              CodeZero, printerForDatatype(tc, level)],
                     false)
-            end
         in
             val printerCode = List.map setPrinter typelist
         end
