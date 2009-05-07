@@ -22,9 +22,9 @@ sig
     type codetree
     type types
     type typeConstrs
+    type typeVarForm
     val codeId: typeId * int -> codetree
-    val codeGenerativeId: codetree * int -> codetree
-    val codeGenerativeTypeFunction: types list * types * int -> codetree
+    val codeGenerativeId: typeId * (int*int->codetree) * int -> codetree
     
     val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
 
@@ -34,5 +34,6 @@ sig
         type codetree   = codetree
         type types      = types
         type typeConstrs= typeConstrs
+        type typeVarForm=typeVarForm
     end
 end;

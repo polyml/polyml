@@ -24,4 +24,5 @@ structure TypeIDCodeStruct =
         and       DEBUG = Debug
         and       PRETTY = Pretty
         and       ADDRESS = Address
+        and       TYPETREE = TypeTree
         );

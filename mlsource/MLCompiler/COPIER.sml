@@ -238,8 +238,8 @@ struct
         val mustCopy = ref (not (identicalConstr (newConstr, oldConstr)));
            
         local
-            val oldTypeVars : types list = tcTypeVars oldConstr;
-            val newTypeVars : types list = tcTypeVars newConstr;
+            val oldTypeVars : types list = List.map TypeVar (tcTypeVars oldConstr);
+            val newTypeVars : types list = List.map TypeVar (tcTypeVars newConstr);
 (* 
    We CAN legitimately get different numbers of type variables here,
    it we're trying to recover from a user error that we've already

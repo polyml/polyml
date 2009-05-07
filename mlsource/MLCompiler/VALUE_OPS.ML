@@ -817,8 +817,8 @@ struct
      using [ ... ] and are also used for initialisation. *)
   local
     val listTypeVars  = tcTypeVars listType;
-    val alpha         = hd listTypeVars;
-    val alphaList     = mkTypeConstruction ("list", listType, listTypeVars, [DeclaredAt inBasis]);
+    val alpha         = TypeVar(hd listTypeVars);
+    val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
     val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
   in
     val nilConstructor  =
@@ -1921,12 +1921,10 @@ struct
             fun newTvFun tv =
             let
                 fun findTv [] n = findTyVars tv (* Not in this list. *)
-                 |  findTv (TypeVar tv' :: tvs) n =
+                 |  findTv (tv' :: tvs) n =
                          if sameTv(tv, tv')
                         then TwoArgs(fn {level, ...} => mkLoad(n, level-outerFunLevel))
                         else findTv tvs (n+1)
-                 |  findTv _ _ =
-                         raise InternalError "findTv: not a type variable"
             in
                 findTv constructorTypeVars (~nTypeVars)
             end
@@ -1972,7 +1970,7 @@ struct
                                constructors as for the datatype. (This only
                                applies for polytypes). *)
                             val resType =
-                                constructorResult(typeOf, constructorTypeVars)
+                                constructorResult(typeOf, List.map TypeVar constructorTypeVars)
 
                             (* Code to extract the value. *)
                             fun destruct argNo {level=l, ...} =
@@ -2067,7 +2065,7 @@ struct
                         map (getArg lA) args, true)
                 else if ListPair.foldl
                             (fn(a, b, t) => t andalso sameTypeVars(a,b))
-                            true (args, tcTypeVars constr)
+                            true (args, List.map TypeVar (tcTypeVars constr))
                 then mkRecLoad(level-baseLevel-2)
                 else mkEval(mkRecLoad(level-baseLevel-1),
                         map (getArg lA) args, true)
@@ -2619,8 +2617,8 @@ struct
   |  codeVal (value as Value{access = Overloaded _, ...}, level, instance, lex, lineno) =
        (* AddOverload, Equal, NotEqual, TypeDep *)
          mkProc
-           (applyFunction (value, arg1, level, instance, lex, lineno),
-           1, 1, "")
+           (applyFunction (value, arg1, level+1, instance, lex, lineno),
+           level, 1, "")
      (* codeVal *)
 
  (* Some of these have a more efficient way of calling them as functions. *)

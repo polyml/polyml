@@ -271,7 +271,7 @@ struct
         TypeBind of
          {
            name: string,
-           typeVars: types list,
+           typeVars: typeVarForm list,
            decType: typeParsetree option,
            isEqtype: bool, (* True if this was an eqtype in a signature. *)
            nameLoc:  location,
@@ -282,7 +282,7 @@ struct
         DatatypeBind of
          {
            name:          string,
-           typeVars:      types list,
+           typeVars:      typeVarForm list,
            constrs:       {constrName: string, constrArg: typeParsetree option, idLocn: location} list,
            tcon:          typeConstrs ref,
            valueConstrs:  values list ref,
@@ -306,10 +306,10 @@ struct
    withtype valDecForm = 
      {
        dec:    valbind list,
-       explicit: {lookup: string -> types option,
-               apply: (string * types -> unit) -> unit },
-       implicit: {lookup: string -> types option,
-               apply: (string * types -> unit) -> unit },
+       explicit: {lookup: string -> typeVarForm option,
+               apply: (string * typeVarForm -> unit) -> unit },
+       implicit: {lookup: string -> typeVarForm option,
+               apply: (string * typeVarForm -> unit) -> unit },
        variables: values list ref, (* list of variables declared *)
        location: location
      } 
@@ -317,10 +317,10 @@ struct
    and funDecForm = 
      {
        dec:    fvalbind list,
-       explicit: {lookup: string -> types option,
-               apply: (string * types -> unit) -> unit },
-       implicit: {lookup: string -> types option,
-               apply: (string * types -> unit) -> unit },
+       explicit: {lookup: string -> typeVarForm option,
+               apply: (string * typeVarForm -> unit) -> unit },
+       implicit: {lookup: string -> typeVarForm option,
+               apply: (string * typeVarForm -> unit) -> unit },
        location: location
      } 
 
@@ -3298,7 +3298,7 @@ struct
         val numOfConstrs = length constrs;
         
         (* The new constructor applied to the type variables (if any) *)
-        val resultType = mkTypeConstruction (name, typ, typeVars, [DeclaredAt nameLoc]);
+        val resultType = mkTypeConstruction (name, typ, List.map TypeVar typeVars, [DeclaredAt nameLoc]);
 
         (* Sort the constructors by name.  This simplifies matching with
            datatypes in signatures. *)
@@ -5753,6 +5753,7 @@ struct
         and  typeId     = typeId
         and  structVals = structVals
         and  typeConstrs= typeConstrs
+        and  typeVarForm=typeVarForm
         and  env        = env
         and  fixStatus  = fixStatus
         and  structureIdentForm = structureIdentForm

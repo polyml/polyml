@@ -33,8 +33,8 @@ sig
     type typeId;
     type codetree;
     type env;
-  
     type typeConstrs;
+    type typeVarForm
     type values;
     type structVals;
     type environEntry;
@@ -77,23 +77,23 @@ sig
   val mkValDeclaration : 
        valbind list * 
        {
-         lookup: string -> types option,
-         apply: (string * types -> unit) -> unit
+         lookup: string -> typeVarForm option,
+         apply: (string * typeVarForm -> unit) -> unit
        } *
        {
-         lookup: string -> types option,
-         apply: (string * types -> unit) -> unit
+         lookup: string -> typeVarForm option,
+         apply: (string * typeVarForm -> unit) -> unit
        } * location ->  parsetree;
   
   val mkFunDeclaration : 
        fvalbind list *
        {
-         lookup: string -> types option,
-         apply: (string * types -> unit) -> unit
+         lookup: string -> typeVarForm option,
+         apply: (string * typeVarForm -> unit) -> unit
        } *
        {
-         lookup: string -> types option,
-         apply: (string * types -> unit) -> unit
+         lookup: string -> typeVarForm option,
+         apply: (string * typeVarForm -> unit) -> unit
        } * location ->  parsetree;
     
   val mkOpenTree : structureIdentForm list * location -> parsetree;
@@ -115,9 +115,9 @@ sig
           newLoc: location, oldLoc: location, location: location } -> parsetree;
   val mkAbstypeDeclaration :
       datatypebind list * typebind list * parsetree list * location -> parsetree;
-  val mkTypeBinding : string * types list * typeParsetree option * bool * location * location -> typebind;
+  val mkTypeBinding : string * typeVarForm list * typeParsetree option * bool * location * location -> typebind;
   val mkDatatypeBinding :
-    string * types list *
+    string * typeVarForm list *
         {constrName: string, constrArg: typeParsetree option, idLocn: location} list * location * location -> datatypebind;
   val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
   val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
@@ -160,6 +160,7 @@ sig
         and  typeId     = typeId
         and  structVals = structVals
         and  typeConstrs= typeConstrs
+        and  typeVarForm=typeVarForm
         and  env        = env
         and  fixStatus  = fixStatus
         and  structureIdentForm = structureIdentForm

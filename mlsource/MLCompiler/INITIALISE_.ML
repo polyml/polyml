@@ -205,6 +205,7 @@ struct
             fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false);
             fun makeTV    () = mkTypeVar (generalisable, false, false, false);
             fun makeImpTV () = mkTypeVar (generalisable, false, false, true);
+            fun makeTypeVariable() = makeTv (emptyType, generalisable, false, false, false)
             
             (* Make some functions *)
             infixr 5 ->>
@@ -235,7 +236,7 @@ struct
        
         (* option something *)
         val optionType = (* Can't freeze it because we add constructors *)
-            makeDatatypeConstr("option", [makeTV()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
+            makeDatatypeConstr("option", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
         
         fun Option (base : types) : types  =
             mkTypeConstruction ("option", optionType, [base], declInBasis);
@@ -320,8 +321,8 @@ struct
 (*****************************************************************************)
         local
             val optionTypeVars  = tcTypeVars optionType;
-            val alpha         = hd optionTypeVars;
-            val alphaOption   = mkTypeConstruction ("option", optionType, optionTypeVars, declInBasis);
+            val alpha         = TypeVar(hd optionTypeVars);
+            val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], declInBasis);
             val someType      = TYPETREE.mkFunctionType (alpha, alphaOption);
             (* These two representations are built into the RTS. *)
             val NoneForm = EnumForm 0;
@@ -661,7 +662,7 @@ struct
     (* The only reason we have vector here is to get equality right.  We need
        vector to be an equality type and to use structure equality. *)
         val vectorType =
-            makeFrozenTypeConstrs("vector", [makeTV()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
+            makeFrozenTypeConstrs("vector", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
         val () = enterGlobalType  ("vector", vectorType);
         
         
@@ -950,7 +951,7 @@ struct
             end;
 
             (* type 'a tag *)
-            val tagConstr = makeFrozenTypeConstrs("tag", [makeTV()], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+            val tagConstr = makeFrozenTypeConstrs("tag", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)

@@ -32,6 +32,7 @@ sig
     type pretty;
     type values;
     type typeConstrs;
+    type typeVarForm
     type codetree;
     type signatures;
     type functors;
@@ -71,7 +72,7 @@ sig
     val mkFunctorBinding:
         string * location * (structs * bool * location) option * structs * formalArgStruct * location -> functorBind;
     val mkSharing:          bool * string list * location -> structs;
-    val mkWhereType:          structs * types list * string * types * location -> structs
+    val mkWhereType:          structs * typeVarForm list * string * types * location -> structs
     val mkSigConstraint:    structs * structs * bool * location -> structs
     val mkTopDec:           structs -> topdec
     val mkProgram:          topdec list * location -> program
@@ -117,5 +118,6 @@ sig
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
         type structSigBind  = structSigBind
+        type typeVarForm    =typeVarForm
     end
 end;

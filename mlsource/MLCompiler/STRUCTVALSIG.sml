@@ -50,7 +50,7 @@ sig
     |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
-    |   TypeFunction    of types list * types
+    |   TypeFunction    of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -169,9 +169,9 @@ sig
 
     val tcName:            typeConstrs -> string;
     val tcArity:           typeConstrs -> int;
-    val tcTypeVars:        typeConstrs -> types list;
+    val tcTypeVars:        typeConstrs -> typeVarForm list;
     val tcEquivalent:      typeConstrs -> types;
-    val tcSetEquivalent:   typeConstrs * types list * types -> unit;
+    val tcSetEquivalent:   typeConstrs * typeVarForm list * types -> unit;
     val tcConstructors:    typeConstrs -> values list;
     val tcSetConstructors: typeConstrs * values list -> unit;
     val tcEquality:        typeConstrs -> bool;
@@ -182,11 +182,11 @@ sig
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeDatatypeConstr:
-        string * types list * typeId * int * locationProp list -> typeConstrs;
+        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
     val makeFrozenTypeConstrs:
-        string * types list * typeId * int * locationProp list -> typeConstrs;
+        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
     val makeTypeAbbreviation:
-        string * types list * types * locationProp list -> typeConstrs;
+        string * typeVarForm list * types * locationProp list -> typeConstrs;
 
     val tvLevel:        typeVarForm -> int;
     val tvEquality:     typeVarForm -> bool;
@@ -339,6 +339,7 @@ sig
         and  fixStatus  = fixStatus
         and  functors   = functors
         and  locationProp = locationProp
+        and  typeVarForm = typeVarForm
     end
 end;
 

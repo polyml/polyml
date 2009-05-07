@@ -272,7 +272,7 @@ struct
   and whereTypeStruct =
       {
         sigExp: structs,
-		typeVars: types list,
+		typeVars: typeVarForm list,
         typeName: string,
         realisation: types,
 		line: location
@@ -1204,7 +1204,7 @@ struct
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
-        val tvars : types list = tcTypeVars target; (* either will do *)
+        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
         (* If we get an error in the datatype itself print the full datatype. *)
         val errorInDatatype =
             sigStructMatchMsg(lex, near, lno)(fn t => displayTypeConstrs(t, errorDepth lex))
@@ -3072,6 +3072,8 @@ struct
 		  	                else checkStructSigForFreeTypeVariables(name^"().", resSig)
                     end;
 
+                    val resultIds = ref []
+
                     val functorSig =
                         let
                             val minSig = sigMinTypes resSig and maxSig = sigMaxTypes resSig
@@ -3098,8 +3100,8 @@ struct
                                     name ^ "().")
                             (* Record the ID map for code-generation. *)
                             fun makeId n =
-                                resIds :=
-                                    { dest = Vector.sub(bodyVec, n), source = Vector.sub(localVector, n) } :: !resIds
+                                resultIds :=
+                                    { dest = Vector.sub(bodyVec, n), source = Vector.sub(localVector, n) } :: !resultIds
                             val () = tabulate(0, !typeStamps-startTypes, makeId)
                         in
                             (* The resulting signature includes both the type IDs from the arguments and generative type
@@ -3107,7 +3109,7 @@ struct
                             makeSignature (sigName resSig, sigTab resSig, startTypes, !typeStamps,
                                             sigDeclaredAt resSig, fn n => Vector.sub(bodyVec, n-startTypes))
                         end
-                
+
                      (* Now make a local functor variable and put it in the
                         name space. Because functors can only be declared at
                         the top level the only way it can be used is if we have 
@@ -3117,6 +3119,7 @@ struct
                       (* Set the size of the type map. *)
                     val var = makeFunctor (name, resArg, functorSig, makeLocal (), line);
                 in
+                    resIds := List.rev(!resultIds);
                     #enter sEnv (name, var);
                     valRef := var
                 end
@@ -3426,21 +3429,7 @@ struct
             val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
             val addr = mkAddr();
             val () = idAddr := addr and () = idLevel := ! level;
-            (* The source ID for an opaque ID may be a type function.  It may
-               also be a Formal.  These cases have to handled specially. *)
-            val idCode =
-                case source of
-                    TypeFunction (args, result) =>
-                        codeGenerativeTypeFunction(args, result, !level)
-                |   other =>
-                    let
-                        val sourceCode =
-                            case idAccess other of
-                                Formal addr => getFormal addr
-                            |   access => codeId(source, !level)
-                    in
-                        codeGenerativeId(sourceCode, !level)
-                    end
+            val idCode = codeGenerativeId(source, getFormal, !level)
         in
             mkDec(addr, idCode)
         end
@@ -3480,7 +3469,7 @@ struct
             (* Similarly we need to retain the result in order to produce the generative type IDs. *)
             val resAddr = mkAddr()
             val ids = List.rev resIds
-            val loadIds = loadOpaqueIds(fn n => mkInd(n, mkLoad(resAddr, 0)), ids)
+            val loadIds = loadOpaqueIds(fn(n, l) => mkInd(n, mkLoad(resAddr, l - !level)), ids)
             val offset = sigMinTypes(functorResult functs)
             fun getTypeId n = idAccess(#dest (List.nth (ids, n-offset)))
         in
@@ -3545,8 +3534,7 @@ struct
                 (* TODO: Copied from structure binding code. *)
  			    val (strCode, strSig) = structureCode (str, strName, debugEnv)
                 val tempDecs = multipleUses (strCode, mkAddr, !level);
-                val tempLoad = #load tempDecs (!level); (* All local *)
-                val ids = loadOpaqueIds(fn n => mkInd(n, tempLoad), opaqueIds)
+                val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
                 fun loadId n =
                 let
                     val id =
@@ -3559,7 +3547,7 @@ struct
                     else Global(codeId(id, !level))
                 end
                 val matchedCode =
-                    matchStructure (tempLoad, sigTab strSig, loadId, resultSig)
+                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
             in
                 (mkEnv(#dec tempDecs @ ids @ [matchedCode]), resultSig)
             end
@@ -3585,8 +3573,7 @@ struct
 			    val sName = strName ^ name ^ "."
  			    val (strCode, strSig) = structureCode (value, sName, debug)
                 val tempDecs = multipleUses (strCode, mkAddr, !level);
-                val tempLoad = #load tempDecs (!level); (* All local *)
-                val ids = loadOpaqueIds(fn n => mkInd(n, tempLoad), opaqueIds)
+                val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
                 val resultSig = structSignat (!valRef)
                 fun loadId n =
                 let
@@ -3604,7 +3591,7 @@ struct
                     else Global(codeId(id, !level))
                 end
                 val matchedCode =
-                    matchStructure (tempLoad, sigTab strSig, loadId, resultSig)
+                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
                 val addr = mkAddr(); 
                 val var  = vaLocal (structAccess (!valRef));
                 val () = #addr var  := addr; 
@@ -3695,7 +3682,7 @@ struct
                 val arg = vaLocal (structAccess argVal);
                 val () = #addr  arg := ~1; 
                 val () = #level arg := !level;
-                val func = !valRef;              
+                val func = !valRef;
                 (* Process the body and make a procedure out of it. *)
                 local
                     val (strCode, strSig) = structureCode (body, name ^ "().", debugEnv)
@@ -3954,5 +3941,6 @@ struct
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
         type structSigBind  = structSigBind
+        type typeVarForm    =typeVarForm
     end
 end;

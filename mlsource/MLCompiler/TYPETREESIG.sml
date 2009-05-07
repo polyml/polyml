@@ -27,6 +27,7 @@ sig
     type types;
     type values;
     type typeConstrs;
+    type typeVarForm
     type lexan;
     type typeId;
     type pretty;
@@ -63,8 +64,8 @@ sig
     val getFnArgType:   types -> types option
    
     (* Unify two type variables which would otherwise be non-unifiable. *)
-    val linkTypeVars: types * types -> unit;
-    val setTvarLevel: types * int -> unit;
+    val linkTypeVars: typeVarForm * typeVarForm -> unit;
+    val setTvarLevel: typeVarForm * int -> unit;
 
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
@@ -81,7 +82,7 @@ sig
     val displayTypeConstrs: typeConstrs * int -> pretty;
 
     (* A list of type variables. *)
-    val displayTypeVariables: types list * int -> pretty list;
+    val displayTypeVariables: typeVarForm list * int -> pretty list;
 
     (* Create an instance of an overloaded type. *)
     val generaliseOverload: types * typeConstrs list * bool -> types;
@@ -101,7 +102,7 @@ sig
 
     (* Used to link a type constructor to a type as the result of a "where type"
        construction. *)
-    val setWhereType: typeConstrs * types list * types * (string -> unit) -> unit;
+    val setWhereType: typeConstrs * typeVarForm list * types * (string -> unit) -> unit;
 
     (* Check that a type constructor permits equality. *)
     val permitsEquality: typeConstrs -> bool;
@@ -152,7 +153,7 @@ sig
 
     (* If this is simply giving a new name to a type constructor returns the
        type identifier of the constructor that is being rebound. *)
-    val typeNameRebinding: types list * types -> typeId option
+    val typeNameRebinding: typeVarForm list * types -> typeId option
 
     (* Parse tree operations. *)
     type typeParsetree
@@ -163,7 +164,7 @@ sig
     val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
     val makeParseTypeLabelled:
         ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
-    val makeParseTypeId: types * location -> typeParsetree
+    val makeParseTypeId: typeVarForm * location -> typeParsetree
     val unitTree: location -> typeParsetree
 
     val typeFromTypeParse: typeParsetree -> types
@@ -183,6 +184,7 @@ sig
         and  pretty     = pretty
         and  lexan      = lexan
         and  ptProperties = ptProperties
+        and  typeVarForm = typeVarForm
     end
 
 end;

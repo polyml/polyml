@@ -104,27 +104,7 @@ sig
                          lookup: string -> 'a option };
 end
 
-(*****************************************************************************)
-(*                  TYPETREE                                                 *)
-(*****************************************************************************)
-structure TYPETREE :
-sig
-    type types
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    (* Parse tree operations. *)
-    type typeParsetree
-    val ParseTypeBad: typeParsetree
-    val makeParseTypeConstruction:
-        (string * location) * (typeParsetree list * location) * location -> typeParsetree
-    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
-    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
-    val makeParseTypeLabelled:
-        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
-    val makeParseTypeId: types * location -> typeParsetree
-    val unitTree: location -> typeParsetree
-end;
+structure TYPETREE : TYPETREESIG
 
 (*****************************************************************************)
 (*                  PARSETYPE sharing constraints                            *)
@@ -154,10 +134,11 @@ sig
     type lexan;
     type types;
     type typeParsetree;
+    type typeVarForm
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
      
-    val parseType: symset * lexan * {lookupTvar:string -> types} -> typeParsetree * location;
+    val parseType: symset * lexan * {lookupTvar:string -> typeVarForm} -> typeParsetree * location;
 end =
      
 
@@ -165,11 +146,10 @@ end =
 (*                  PARSETYPE functor body                                   *)
 (*****************************************************************************)
 struct
-
+    open TYPETREE;
     open LEX;
     open SYMSET;
     open SKIPS;
-    open TYPETREE;
     open SYMBOLS;    
     open UTILITIES;
    

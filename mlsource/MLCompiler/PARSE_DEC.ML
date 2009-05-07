@@ -197,10 +197,11 @@ sig
     type lexan;
     type types;
     type typeParsetree;
+    type typeVarForm
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
      
-    val parseType: symset * lexan * {lookupTvar:string -> types} -> typeParsetree * location;
+    val parseType: symset * lexan * {lookupTvar:string -> typeVarForm} -> typeParsetree * location;
 end;
 
 structure UTILITIES :
@@ -237,6 +238,10 @@ sharing SYMBOLS = SYMSET = SKIPS = LEX.Sharing
 sharing type
   PARSETYPE.types =
   STRUCTVALS.Sharing.types
+
+sharing type
+  PARSETYPE.typeVarForm =
+  STRUCTVALS.Sharing.typeVarForm
 
 sharing type
   PARSETYPE.typeParsetree =
@@ -370,10 +375,10 @@ struct
         (* The type identifiers must be remembered since they will occur
            subsequently in the components. This is the only case where type
            variables are actually bound. *)
-        fun getTypeVar (): types * location =
+        fun getTypeVar (): typeVarForm * location =
         (* Read a type variable and return it. *)
         if (sy lex) neq SYMBOLS.typeIdent
-        then (badsyms (SYMBOLS.typeIdent, lex); (badType, location lex))
+        then (badsyms (SYMBOLS.typeIdent, lex); (makeTv (emptyType, generalisable, true, true, false), location lex))
         else
         let
             val iden = id lex;
@@ -396,7 +401,7 @@ struct
                I don't think it matters what it is set to in datatypes. *)
             val isEqtype = isDatatype andalso isEqtype iden;
             val isWeak = isDatatype andalso isWeak (iden, lex);
-            val tyVar = mkTypeVar (generalisable, isEqtype, true, isWeak);
+            val tyVar = makeTv (emptyType, generalisable, isEqtype, true, isWeak)
         in
             enter (iden, tyVar);
             insymbol lex;
@@ -489,7 +494,7 @@ struct
                  (
                    errorMessage (lex, location lex, 
                         name ^  " has not been declared in type declaration");
-                  badType
+                   makeTv (emptyType, generalisable, false, true, true)
                  )
              )
    } (* genTypeVarEnv *);
@@ -664,7 +669,7 @@ struct
        let
          (* These type variables are not unifiable until they are generalised. *)
          val newTypeVar =
-           mkTypeVar (generalisable, isEqtype name, true, isWeak(name, lex));
+           makeTv (emptyType, generalisable, isEqtype name, true, isWeak(name, lex));
            
          val () = enter (name, newTypeVar);
        in
@@ -715,7 +720,7 @@ struct
         fun parseInfix fsys opSys startSys atomic
              {enterFix: string * fixStatus -> unit,
               lookupFix: string -> fixStatus option,
-              lookupTvar: string -> types } =
+              lookupTvar: string -> typeVarForm } =
         let
             (* Infix operators have a precedence value associated with them,
                the larger the value the more tightly they bind. *)
@@ -2264,7 +2269,7 @@ struct
           val () =
             errorMessage (lex, location lex, "Free type variables not allowed");
         in
-          mkTypeVar (generalisable, false, true, true)
+          makeTv (emptyType, generalisable, false, true, true)
         end}
 
     (* May be structure/functor dec, signature dec or top-level dec. Treat

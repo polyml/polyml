@@ -116,7 +116,7 @@ struct
     |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
-    |   TypeFunction    of types list * types
+    |   TypeFunction    of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
     and types = 
@@ -133,7 +133,7 @@ struct
         {
             name:       string,
             arity:      int,
-            typeVars:   types list,
+            typeVars:   typeVarForm list,
 		    constrs:    values list possRef, (* List of value constructors. *)
             identifier: typeId,
 		    letDepth:	int, (* Needed to check for local datatypes. *)
@@ -639,15 +639,15 @@ struct
            even if the 'a is not an eqType. *)
         val refType =
             makeDatatypeConstr 
-                ("ref", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                ("ref", [makeTv (EmptyType, generalisable, false, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
         val arrayType =
             makeFrozenTypeConstrs 
-                ("array", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                ("array", [makeTv (EmptyType, generalisable, false, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
         val array2Type =
             makeFrozenTypeConstrs 
-                ("array", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+                ("array", [makeTv (EmptyType, generalisable, false, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolType =
@@ -673,7 +673,7 @@ struct
   
     val listType =
         makeDatatypeConstr 
-            ("list", [TypeVar (makeTv (EmptyType, generalisable, false, false, false))],
+            ("list", [makeTv (EmptyType, generalisable, false, false, false)],
             makeFreeId(defaultEqAndPrintCode(), true), 0, [DeclaredAt inBasis]);
 
     (* "undefType" is used as a place-holder during parsing for the actual type
@@ -905,5 +905,6 @@ struct
         and  fixStatus  = fixStatus
         and  functors   = functors
         and  locationProp = locationProp
+        and  typeVarForm = typeVarForm
     end
 end (* STRUCTVALS *);

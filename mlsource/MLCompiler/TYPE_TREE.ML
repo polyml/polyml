@@ -789,7 +789,7 @@ struct
 
   (* Print out one or more type variables (unblocked) *)
   fun printTypeVars
-     (vars : types list,
+     (vars : typeVarForm list,
       depth : int,
       typeV : typeVarForm -> string)
      : pretty list =
@@ -800,7 +800,7 @@ struct
     if numOfVars = 1 
     then 
     [
-      tDisp (hd vars, depth, typeV, NONE), 
+      tDisp (TypeVar(hd vars), depth, typeV, NONE), 
       PrettyBreak (1, 0)
     ]
     else if numOfVars > 1 
@@ -817,7 +817,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (hd vars, depth, typeV, NONE),
+                            tDisp (TypeVar(hd vars), depth, typeV, NONE),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -835,7 +835,7 @@ struct
   
   
   (* Version used in parsetree. *)
-  fun displayTypeVariables (vars : types list, depth : int) =
+  fun displayTypeVariables (vars : typeVarForm list, depth : int) =
       printTypeVars (vars, depth, varNameSequence ())
     
     
@@ -989,7 +989,7 @@ struct
     end
 
     fun makeParseTypeId(types, location) =
-        ParseTypeId{ typeof = types, location = location }
+        ParseTypeId{ typeof = TypeVar types, location = location }
 
     fun unitTree location =
         ParseTypeConstruction{
@@ -1361,10 +1361,10 @@ struct
 	
   (* Make a match list from a list of type variables and types. *)
   
-  fun copyVars (varlist : types list, arglist : types list) : match list =
+  fun copyVars (varlist : typeVarForm list, arglist : types list) : match list =
     case (varlist, arglist) of
       (var::vars, arg::args) =>
-        Matched {old = typesTypeVar var, new = arg} :: copyVars (vars, args)
+        Matched {old = var, new = arg} :: copyVars (vars, args)
     | _  => [] (* These will normally be nil at the same time but if we have
 				  had an error they may not be. *)
   
@@ -1380,7 +1380,7 @@ struct
   in
     generaliseTypes
       (#arg constrFun, 
-       copyVars (#args (typesTypeConstruction (#result constrFun)), typeArgs))
+       copyVars (List.map typesTypeVar (#args (typesTypeConstruction (#result constrFun))), typeArgs))
   end;
 
   (* If we have a type construction which is an alias for another type
@@ -2587,7 +2587,7 @@ struct
        if tcEquality constr then true
        else if not(tcIsAbbreviation constr) then false
        else not (equality 
-                   (mkTypeConstruction (tcName constr, constr, tcTypeVars constr, []),
+                   (mkTypeConstruction (tcName constr, constr, List.map TypeVar (tcTypeVars constr), []),
                     fn tri => No,
                     fn tri => Yes)
                   = No);
@@ -2598,7 +2598,7 @@ struct
        (s in this example) is just a simple type name. *)
     fun typeNameRebinding(typeArgs, typeResult): typeId option =
     let
-        fun eqTypeVar(TypeVar ta, TypeVar tb) = sameTv (ta, tb)
+        fun eqTypeVar(TypeVar ta, tb) = sameTv (ta, tb)
         |   eqTypeVar _ = false
     in
         case typeResult of
@@ -2615,7 +2615,7 @@ struct
     end
 
     (* Try to set the type identifier of the target to be a type function. *)
-    fun setWhereType (tcToSet, typeFunArgs, typeFunResult, cantSet) =
+    fun setWhereType (tcToSet, typeFunArgs: typeVarForm list, typeFunResult, cantSet) =
         if isUndefined tcToSet
 	    then () (* Probably because looking up the type constructor name failed. *)
         
@@ -2691,19 +2691,19 @@ struct
        as a global one. *)
   fun linkTypeVars (a, b) =
   let
-    val ta = typesTypeVar (eventual a); (* Must both be type vars. *)
-    val tb = typesTypeVar (eventual b);
+    val ta = typesTypeVar (eventual(TypeVar a)); (* Must both be type vars. *)
+    val tb = typesTypeVar (eventual(TypeVar b));
   in  (* Set the one with the higher level to point to the one with the
          lower, so that the effective level is the lower. *)
     if (tvLevel ta) > (tvLevel tb)
-    then tvSetValue (ta, b)
-    else tvSetValue (tb, a)
+    then tvSetValue (ta, TypeVar b)
+    else tvSetValue (tb, TypeVar a)
   end;
 
   (* Set its level by setting it to a new type variable. *)
   fun setTvarLevel (typ, level) =
   let
-    val tv = typesTypeVar (eventual typ); (* Must be type var. *)
+    val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
   in
     tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, false))
   end;
@@ -2742,5 +2742,6 @@ struct
         and  pretty     = pretty
         and  lexan      = lexan
         and  ptProperties = ptProperties
+        and  typeVarForm = typeVarForm
     end
 end (* TYPETREE *);
