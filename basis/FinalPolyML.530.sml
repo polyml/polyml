@@ -1827,6 +1827,7 @@ local
                                                             SOME loc => [ContextLocation loc]
                                                         |   NONE => []
                                                 in
+                                                    print "\u001b,";
                                                     prettyPrintWithMarkup(print, ! lineLength)
                                                         (PrettyBlock(0, false, exLoc,
                                                             [ PrettyString(PolyML.makestringInNameSpace(exn, globalNameSpace)) ]))
