@@ -88,7 +88,7 @@ struct
                         endContext context;
                         s
                     )
-                |   NONE => (* Doesn't fit - break line somwhere. *)
+                |   NONE => (* Doesn't fit - break line somewhere. *)
                     let
                         (* Lay out this block, breaking where necessary. *)
                         fun doPrint([], left) = (* Finished: return what's left. *) left
@@ -96,19 +96,32 @@ struct
                         |   doPrint([PrettyBreak _], left) =
                                 left (* Ignore trailing breaks. *)
 
-                        |   doPrint(PrettyBreak (blanks, breakOffset) :: next :: rest, left) =
-                            if consistent orelse not(isSome(getSize(next, left)))
-                            then (* Either a consistent break or the next item won't fit. *)
-                            (
-                                stream "\n";
-                                printBlanks(blockIndent+breakOffset);
-                                doPrint(next :: rest, lineWidth-blockIndent-breakOffset)
-                            )
-                            else (* We don't need to break here. *)
-                            (
-                                printBlanks blanks;
-                                doPrint(rest, layOut(next, blockIndent, spaceLeft-blanks))
-                            )
+                        |   doPrint(PrettyBreak (blanks, breakOffset) :: rest, left) =
+                            let
+                                (* Compute the space of the next item(s) up to the end or the
+                                   next space.  Since we only break at spaces if there are
+                                   Blocks or Strings without spaces between we need to know
+                                   the total size. *)
+                                fun getsp([], left) = SOME left
+                                |   getsp(PrettyBreak _ :: _, left) = SOME left
+                                |   getsp(next::rest, left) =
+                                        case getSize(next, left) of
+                                            NONE => NONE
+                                        |   SOME sp => getsp(rest, sp)
+                            in
+                                if consistent orelse not(isSome(getsp(rest, left)))
+                                then (* Either a consistent break or the next item won't fit. *)
+                                (
+                                    stream "\n";
+                                    printBlanks(blockIndent+breakOffset);
+                                    doPrint(rest, lineWidth-blockIndent-breakOffset)
+                                )
+                                else (* We don't need to break here. *)
+                                (
+                                    printBlanks blanks;
+                                    doPrint(rest, left-blanks)
+                                )
+                            end
  
                         |   doPrint(PrettyString s :: rest, left) =
                             (
