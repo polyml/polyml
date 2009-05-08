@@ -30,10 +30,9 @@ struct
         PrettyBlock of int * bool * context list * pretty list
     |   PrettyBreak of int * int
     |   PrettyString of string
-    
-    
+
     fun uglyPrint(PrettyBlock(_,_,_,l)) = String.concat(map uglyPrint l)
-    |   uglyPrint(PrettyBreak _) = " "
+    |   uglyPrint(PrettyBreak(n, _)) = String.implode(List.tabulate(n, fn _ => #" "))
     |   uglyPrint(PrettyString s) = s
 
     local
