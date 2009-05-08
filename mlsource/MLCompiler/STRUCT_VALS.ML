@@ -177,9 +177,8 @@ struct
        *, + etc  which are overloaded on a limited range of types. *)  
     and typeDependent =
         Print
-    |   PrintSpace
+    |   GetPretty
     |   MakeString
-    |   MakeStringSpace
     |   InstallPP
     |   AddPretty
     |   Equal

@@ -167,13 +167,6 @@ local
     |   CPPrintStream of string->unit
         (* This is bound into any occurrence of PolyML.print and is used to produce
            the outut.  Default: CPOutStream. *)
-    |   CPPrinterNameSpace of PolyML.NameSpace.nameSpace
-        (* This is bound into any occurrence of PolyML.print, PolyML.makestring or
-           General.exnMessage.  It is used to search for an exception identifier in
-           order to print the argument of an exception packet.  It is also used to find
-           infixed datatype constructors when printing values. e.g. it might print
-           1::2 rather than ::(1,2) if lists weren't treated specially.
-           Default: CPNameSpace *)
     |   CPErrorDepth of int
         (* Controls the depth of context to produce in error messages.
            Default : value of PolyML.error_depth. *)
@@ -584,7 +577,6 @@ local
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
                (printAndEnter(printInOrder, nameSpace, outstream, printDepth(), printWithStruct)) parameters
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
-            val printenv = find (fn CPPrinterNameSpace s => SOME s | _ => NONE) nameSpace parameters
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) defaultErrorProc parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             local
@@ -627,7 +619,6 @@ local
                     tagInject lineLengthTag (! lineLength),
                     tagInject traceCompilerTag (! traceCompiler),
                     tagInject debugTag debugging,
-                    tagInject printEnvironTag printenv,
                     tagInject debuggerTag debugFunction,
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree
@@ -723,7 +714,7 @@ local
                                     [
                                         PrettyBlock(0, false, exLoc, [PrettyString "Exception-"]),
                                         PrettyBreak(1, 3),
-                                        PrettyString(PolyML.makestringInNameSpace(exn, globalNameSpace)),
+                                        prettyRepresentation(exn, ! printDepth),
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
@@ -997,7 +988,7 @@ local
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
-                TextIO.print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.closeIn inStream;
                 raise exn
             )
@@ -1298,7 +1289,7 @@ local
                             handle exn as Fail _ => raise exn
                             |  exn =>
                             (
-                                print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                                print ("Exception- " ^ exnMessage exn ^ " raised\n");
                                 raise exn
                             )
                     end
@@ -1768,7 +1759,7 @@ local
                                                             case exn of
                                                                 Fail s => s
                                                             |   OS.SysErr(s, _) => s
-                                                            |   exn => PolyML.makestringInNameSpace(exn, globalNameSpace) (* ?? *)
+                                                            |   exn => exnMessage exn (* ?? *)
                                                     in
                                                         print "\u001bRL\u001b,"; print(Int.toString(! byteCount));
                                                         print "\u001b,"; print reason;
@@ -1830,7 +1821,7 @@ local
                                                     print "\u001b,";
                                                     prettyPrintWithMarkup(print, ! lineLength)
                                                         (PrettyBlock(0, false, exLoc,
-                                                            [ PrettyString(PolyML.makestringInNameSpace(exn, globalNameSpace)) ]))
+                                                            [ prettyRepresentation(exn, !printDepth) ]))
                                                 end;
                                             case ! resultTrees of SOME trees => parseTrees := trees | NONE => ();
                                             (* Set the current parse tree pointer to the first tree. *)

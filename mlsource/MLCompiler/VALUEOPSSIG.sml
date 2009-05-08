@@ -94,7 +94,6 @@ sig
     val displayValues: values * int * nameSpace -> pretty
     val printValues: values * int * nameSpace -> pretty
 
-    val printSpaceTag: nameSpace Universal.tag
     val nullEnvironment : nameSpace
 
     val codeStruct:     structVals * int -> codetree

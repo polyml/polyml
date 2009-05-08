@@ -107,9 +107,8 @@ sig
     (* Values. *)
     and typeDependent =
         Print
-    |   PrintSpace
+    |   GetPretty
     |   MakeString
-    |   MakeStringSpace
     |   InstallPP
     |   AddPretty
     |   Equal

@@ -35,7 +35,9 @@ local
                     PrettyBreak(1, 1),
                     param
                 ])
-        fun stringException(s, arg) = parameterException(s, PrettyString arg)
+        (* Use prettyRepresentation because this correctly quotes the string. *)
+        fun stringException(s, arg: string) =
+            parameterException(s, PolyML.prettyRepresentation(arg, depth-1))
     in
         if run_call1 RuntimeCalls.POLY_SYS_is_short exnId
         then
@@ -45,33 +47,9 @@ local
             |   Foreign s => stringException(exnName, s)
             |   Thread s => stringException(exnName, s)
             |   XWindows s => stringException(exnName, s)
-            |   OS.SysErr(s, err) =>
+            |   OS.SysErr param =>
                     parameterException("SysErr",
-                        PrettyBlock(1, false, [],
-                            [
-                                PrettyString "(",
-                                PrettyBreak(0, 0),
-                                PrettyString s,
-                                PrettyBreak(0, 0),
-                                PrettyString ",",
-                                PrettyBreak(1, 0),
-                                (
-                                case err of
-                                    NONE => PrettyString "NONE"
-                                |   SOME syserr =>
-                                    PrettyBlock(1, false, [],
-                                            [
-                                                PrettyString "SOME",
-                                                PrettyBreak(1, 0),
-                                                PrettyString(OS.errorName syserr)
-                                            ]
-                                        )
-                                ),
-                                PrettyBreak(0, 0),
-                                PrettyString ")"
-                            ]
-                        )
-                    )
+                        if depth <= 1 then PrettyString "..." else PolyML.prettyRepresentation(param, depth-1))
             |   exn => (* Anything else is nullary. *)
                     nullaryException exnName
         else 

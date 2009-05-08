@@ -1090,6 +1090,9 @@ struct
  
       (* Printing. *)
 
+    (* This name space is used to help find type identifiers.
+       However, because the functions are passed through to the resulting environment
+       by INITIALISE we have to use the same type as the normal top-level environment. *)
     type nameSpace =
       { 
         lookupVal:    string -> values option,
@@ -1136,14 +1139,6 @@ struct
         allFunct = fn () => []
         }
 
-    (* Debug tag for the name space for the printer environment. *)
-    val printSpaceTag: nameSpace tag = Universal.tag()
-    
-    fun getPrintSpace parameters =
-        case List.find (Universal.tagIs printSpaceTag) parameters of
-            SOME a => Universal.tagProject printSpaceTag a
-        |   NONE => nullEnvironment
-
     (* Print a value given its type. *)
     fun printValueForType (value:machineWord, types, depth): pretty =
     let
@@ -1158,9 +1153,6 @@ struct
     in
         pretty
     end
-
-    fun printStruct(value:machineWord, types, depth, _): pretty =
-        printValueForType(value, types, depth)
 
     fun displayFixStatus Nonfix = PrettyString "nonfix"
     | displayFixStatus (Infix prec) =
@@ -1201,20 +1193,20 @@ struct
         else
         case (class, access) of
         (SimpleValue, Global code) => (* Normal top-level values *)
-             PrettyBlock (0, false, [],
+             PrettyBlock (3, false, [],
                 [
                     valPart "=",
-                    PrettyBreak (1, 3),
+                    PrettyBreak (1, 0),
                     printValueForType (evalue code, typeOf, depth),
-                    PrettyBreak (1, 3),
-                    PrettyBlock (0, false, [],
+                    PrettyBreak (1, 0),
+                    PrettyBlock (3, false, [],
                         [ PrettyString ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
                  ])
 
         |    (SimpleValue, _) => (* Values in structures and overloaded values (from PolyML). *)
                 (* We can't get a value to print in this case. *)
-             PrettyBlock (0, false, [],
-                [ valPart ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
+             PrettyBlock (3, false, [],
+                [ valPart ":", PrettyBreak (1, 0), display (typeOf, depth, typeEnv) ])
 
         |    (Exception, _) => (* exceptions *)
              PrettyBlock (0, false, [],
@@ -1933,20 +1925,6 @@ struct
             mkConst (toMachineWord printProc)
        end 
 
-  |  codeVal (Value{access = Overloaded PrintSpace, ...}, level, instance, _, _) =
-        let 
-            (* "instance" should be 'a * namespace * printer * int -> 'a. We need to get the 'a. *)
-            val argType =
-                case getFnArgType instance of
-                    SOME (LabelledType { recList = {typeof, ...} ::_, ...}) => typeof
-                |   _ => badType;
-
-            fun printProc (value, _, printer, depth): unit =
-                printer(printValueForType (value, argType, depth))
-         in
-            mkConst (toMachineWord printProc)
-        end 
-
   |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, lex, _) =
        let 
          (* "instance" should be 'a -> string. We need to get the 'a. *)
@@ -1957,19 +1935,16 @@ struct
          mkConst (toMachineWord makeString)
        end
 
-  |  codeVal (Value{access = Overloaded MakeStringSpace, ...}, level, instance, lex, _) =
-        let 
-            (* "instance" should be 'a * namespace -> string. We need to get the 'a. *)
-            val argType =
-                case getFnArgType instance of
-                    SOME (LabelledType { recList = {typeof, ...} ::_, ...}) => typeof
-                |   _ => badType;
-
-            fun printProc (value, _) =
-                uglyPrint (printValueForType (value, argType, 10000))
-        in
-            mkConst (toMachineWord printProc)
-        end
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, instance, lex, _) =
+       let (* Get the pretty code for the specified argument. *)
+         (* "instance" should be 'a * int -> pretty. We need to get the 'a.  *)
+         val argType =
+            case getFnArgType instance of
+                SOME(LabelledType{recList=({typeof, ...} :: _), ...}) => typeof
+            |   _ => badType
+       in
+            printerForType(argType, level)
+       end
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, level, instance, lex, loc) =
         let 

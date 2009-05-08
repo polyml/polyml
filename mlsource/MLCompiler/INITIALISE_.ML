@@ -873,14 +873,6 @@ struct
         end;
 
         local
-            val printType =
-                let val a = makeTV () in TYPETREE.mkProductType[a, nameSpaceType, PrettyType ->> Unit, Int] ->> Unit end;
-            val printVal  = mkSpecialFun "printInNameSpace" printType PrintSpace;
-        in
-            val () = enterPolyMLVal ("printInNameSpace", printVal);
-        end;
-
-        local
             val makeStringType = let val a = makeTV () in a ->> String end;
             val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
         in
@@ -888,10 +880,10 @@ struct
         end;
 
         local
-            val makeStringType = let val a = makeTV () in a ** nameSpaceType ->> String end;
-            val makeStringVal  = mkSpecialFun "makestringInNameSpace" makeStringType MakeStringSpace;
+            val prettyType = let val a = makeTV () in a ** Int ->> PrettyType end;
+            val prettyVal  = mkSpecialFun "prettyRepresentation" prettyType GetPretty;
         in
-            val () = enterPolyMLVal ("makestringInNameSpace", makeStringVal);
+            val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
         end;
  
         local
@@ -972,21 +964,6 @@ struct
             val () = enterUniversal ("tagIs", mkConst (toMachineWord Universal.tagIs), testType)
          in
             val Tag = Tag and Universal = Universal
-        end
-
-(*****************************************************************************)
-(*                  Bootstrap.ExnMessage                                     *)
-(*****************************************************************************)
-(* This wraps PolyML.makestring to allow it to be used in General.exnMessage
-   without capturing the environment at that point. *)
-        local
-            open TYPETREE
-            val exnStruct = makeEmptyGlobal "ExnMessage";
-            val _ = #enterStruct bootstrapEnv ("ExnMessage", exnStruct);
-            val (Env exnStructEnv) = makeEnv (sigTab(structSignat exnStruct));
-        in
-            val () = #enterVal exnStructEnv
-                ("exnMessage", makeOverloaded("exnMessage", exnType ->> String, MakeString))
         end
 		
 (*****************************************************************************)
@@ -1120,7 +1097,6 @@ struct
                 ("printDepthFunTag",       toMachineWord DEBUG.printDepthFunTag, Tag (Unit->>Int)),
                 ("errorDepthTag",          toMachineWord DEBUG.errorDepthTag,    Tag Int),
                 ("lineLengthTag",          toMachineWord DEBUG.lineLengthTag,    Tag Int),
-                ("printEnvironTag",        toMachineWord VALUEOPS.printSpaceTag, Tag nameSpaceType),
                 ("debuggerTag",            toMachineWord DEBUGGER.debuggerFunTag, Tag debuggerType),
                 ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
