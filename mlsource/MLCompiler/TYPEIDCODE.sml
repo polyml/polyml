@@ -59,27 +59,6 @@ struct
 
     fun notFormal _ = raise InternalError "Not Formal"
 
-    (* Temporary fall-back code. *)
-    fun defaultEqAndPrintCode() =
-    let
-        (* The structure equality function takes a pair of arguments.  We need a
-           function that takes two Poly-style arguments. *)
-        val defaultEqCode =
-            mkProc(
-                mkProc(
-                    mkEval(mkConst(toMachineWord structureEq),
-                        [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
-                0, 0, "eq-helper()")
-        fun defaultPrinter depth _ value = PrettyString "?"
-        val code =
-            mkTuple[
-                defaultEqCode,
-                mkConst (toMachineWord (ref defaultPrinter))
-            ]
-    in
-        code
-    end
-
     (* Pretty printer code.  These produce code to apply the pretty printer functions. *)
     fun codePrettyString(s: string) = mkConst(toMachineWord(PrettyString s))
     and codePrettyStringVar(s: codetree) =
@@ -343,6 +322,18 @@ struct
         and depthCode = mkLoad(~1, 2)
         val innerLevel = level+3
 
+        (* If we have an expression as the argument we parenthesise it unless it is
+           a simple string, a tuple, a record or a list.
+           A reference to this function is copied into the code.
+           N.B.  This code is also in InitialBasis to handle "ref" and "option". *)
+        fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
+        |   parenthesise(s as PrettyBlock _) =
+                PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), s, PrettyBreak(0, 0), PrettyString ")" ])
+        |   parenthesise s = s (* String or Break *)
+
         fun printerForConstructors
                 (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest, depth) =
             let
@@ -367,8 +358,11 @@ struct
                                 [
                                     codePrettyString name,
                                     codePrettyBreak (1, 0),
-                                    printCodeForType(typeOfArg, getValue, depth, depthCode,
-                                                     innerLevel, argTypes, notFormal)
+                                    (* Print the argument and parenthesise it if necessary. *)
+                                    mkEval(mkConst(toMachineWord parenthesise),
+                                        [printCodeForType(typeOfArg, getValue, depth, depthCode,
+                                                     innerLevel, argTypes, notFormal)],
+                                        false)
                                 ], CodeZero))
                     end
             in
@@ -501,6 +495,13 @@ struct
     in
         equalityFunctions :: typeIdCode @ printerCode
     end
+
+    (* This code is used when the type checker has to construct a unique monotype
+       because a type variable has escaped to the top level.
+       The equality code always returns true and the printer prints "?". *)
+    fun codeForUniqueId() =
+        mkConst(ADDRESS.toMachineWord((fn _ => fn _ => true, ref(fn _ => fn _ => fn _ => PrettyString "?"))))
+
 
     structure Sharing =
     struct

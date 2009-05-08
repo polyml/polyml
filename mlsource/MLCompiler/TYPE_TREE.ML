@@ -2521,7 +2521,7 @@ struct
      code from evaluating, to giving a warning and setting the type
 	 variables to unique type variables.  That allows, for example,
 	 fun f x = raise x; f Subscript; to work.  DCJM 8/3/01. *)
-  fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan) : unit =
+  fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan, printAndEqCode) : unit =
   let
   	(* Generate new names for the type constructors. *)
     val count = ref 0
@@ -2537,9 +2537,8 @@ struct
 			let
                 val name = "_" ^ genName(!count)
                 val _ = count := !count + 1;
-
                 val tCons =
-                	makeFrozenTypeConstrs (name, [], makeFreeId(defaultEqAndPrintCode(), tvEquality tvar),
+                	makeFrozenTypeConstrs (name, [], makeFreeId(Global(printAndEqCode()), tvEquality tvar),
                         0, [DeclaredAt(location lex)]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
             in
@@ -2743,5 +2742,6 @@ struct
         and  lexan      = lexan
         and  ptProperties = ptProperties
         and  typeVarForm = typeVarForm
+        and  codetree   = codetree
     end
 end (* TYPETREE *);

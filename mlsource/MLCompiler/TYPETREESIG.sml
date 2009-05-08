@@ -42,6 +42,7 @@ sig
     type matchResult = (types * types * string) option
     type locationProp
     type structVals
+    type codetree
 
     val mkTypeVar:          int * bool * bool * bool -> types;
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
@@ -120,7 +121,7 @@ sig
     val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
 
     (* Check for free type variables.  Added for ML97. *)
-    val checkForFreeTypeVariables: string * types * lexan -> unit;
+    val checkForFreeTypeVariables: string * types * lexan * (unit->codetree) -> unit;
 
     val constructorResult: types * types list -> types;
 
@@ -185,6 +186,7 @@ sig
         and  lexan      = lexan
         and  ptProperties = ptProperties
         and  typeVarForm = typeVarForm
+        and  codetree   = codetree
     end
 
 end;

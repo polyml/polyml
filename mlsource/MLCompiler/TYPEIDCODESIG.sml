@@ -27,6 +27,8 @@ sig
     val codeGenerativeId: typeId * (int*int->codetree) * int -> codetree
     
     val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
+    
+    val codeForUniqueId: unit->codetree
 
     structure Sharing:
     sig

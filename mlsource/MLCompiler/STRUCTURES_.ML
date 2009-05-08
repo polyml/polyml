@@ -2888,7 +2888,7 @@ struct
         (* Check for free type-variables. *)
 		(* Check the type of a value. *)
 		fun checkValueForFreeTypeVariables(name: string, v: values) =
-			checkForFreeTypeVariables(name, valTypeOf v, lex)
+			checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
 
 		(* Find all the values in the structure. *)
 		fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
