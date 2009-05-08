@@ -307,6 +307,9 @@ struct
             ),
             level, 1, "print-helper")
 
+    (* Exported version. *)
+    val printerForType = fn (ty, level) => printerForType(ty, notFormal, level)
+
     (* As for printerForType, but this is simpler. *)
     fun equalityForType(ty: types, getFormal, level): codetree =
         mkEval(equalityForTypeFunction([], ty, getFormal, level), [], true)

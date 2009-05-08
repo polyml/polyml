@@ -30,6 +30,9 @@ sig
     
     val codeForUniqueId: unit->codetree
 
+    (* Generate a function of the form t*int->pretty for values of type t. *)
+    val printerForType: types * int -> codetree
+
     structure Sharing:
     sig
         type typeId     = typeId

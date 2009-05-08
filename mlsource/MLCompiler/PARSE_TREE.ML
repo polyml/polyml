@@ -5654,9 +5654,9 @@ struct
                       constitutes a unique identifier. Non-generative exception
                       bindings i.e. exception ex=ex'  merely copy the word from
                       the previous exception. *)
-                   val (lvAddr, lvLevel) =
+                   val (lvAddr, lvLevel, exType) =
                       case ex of
-                          Value{access=Local{addr, level}, ...} => (addr, level)
+                          Value{access=Local{addr, level}, typeOf, ...} => (addr, level, typeOf)
                        | _ => raise InternalError "lvAddr"
                  in
                    lvAddr  := mkAddr ();
@@ -5669,8 +5669,10 @@ struct
                             (* Generate a new exception. This is a single
                                mutable word which acts as a token. It is a
                                mutable to ensure that there is precisely one
-                               copy of it. *)
-                            mkExIden ()
+                               copy of it. It contains a function to print values
+                               of the type so when we raise the exception we can print
+                               the exception packet without knowing the type. *)
+                            mkExIden (exType, !level)
                       | Ident{value=ref prevVal, location, ...} =>
                               (* Copy the previous value. N.B. We want the exception
                                identifier here so we can't call codegen. *)

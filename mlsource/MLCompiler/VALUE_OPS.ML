@@ -308,20 +308,6 @@ struct
     end
 
 (*****************************************************************************)
-(*             Representation of Exceptions (incomplete!)                    *)
-(*****************************************************************************)
-  fun exnId (value : exn) : machineWord = 
-    loadWord (toAddress value, 0w0);
-
-  fun exnName (value : exn) : string = 
-    unsafeCast (loadWord (toAddress value, 0w1));
-
-  fun exnValue (value : exn) : machineWord = 
-    unsafeCast (loadWord (toAddress value, 0w2));
-
-  val toExn : machineWord -> exn = unsafeCast;
-
-(*****************************************************************************)
 (*             Representation of Datatype Constructors                       *)
 (*****************************************************************************)
   (* These are the possible representations of a value constructor. *)
@@ -371,12 +357,20 @@ struct
   val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
   val arg2     = mkLoad (~2, 0);
 
+    val mutableFlags = F_words orb F_mutable;
+
+    (* allocate 1 mutable word, initialise to "v"; do not evaluate "early" *)
+    fun refApplyCode (v: codetree) =
+      mkEval
+        (mkConst (ioOp POLY_SYS_alloc_store),
+        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
+        false);
+
 (* Don't do this ...
     val OnlyOne  = UnboxedForm;
 ... because that gives the wrong test if the value isn't boxed. SPF 22/10/94 *)
 
   local
-    val mutableFlags = F_words orb F_mutable;
     
     fun abstract (doIt: codetree -> codetree) (name : string) : codetree =
       mkInlproc (doIt arg1, 0, 1, name);
@@ -452,13 +446,6 @@ struct
     in  
       mkEval (proc, [arg], true)
     end;
-
-    (* allocate 1 mutable word, initialise to "v"; do not evaluate "early" *)
-    fun refApplyCode (v: codetree) =
-      mkEval
-        (mkConst (ioOp POLY_SYS_alloc_store),
-        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
-        false);
 
     (* If we need to make a "real" functions, here's how *)
     val refCode      = abstract refApplyCode "ref";
@@ -630,8 +617,6 @@ struct
           genCode (code, [] (* No debugging output *)) ()
       end
 
-      (* Construct a nex execption identifier - it's really just a unit ref. *)
-      fun mkExIden () : codetree = refApplyCode CodeZero;
   end;
 
 (* 
@@ -826,11 +811,47 @@ struct
     val consConstructor =
         mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, 2, [DeclaredAt inBasis]);
   end;
+
+    local
+        val typev = makeTv (emptyType, generalisable, false, false, false)
+        val optionType = (* Can't freeze it because we add constructors *)
+            makeDatatypeConstr("option", [typev],
+                makeFreeId(defaultEqAndPrintCode(), true), 0, [DeclaredAt inBasis]);
+        val NoneForm = EnumForm 0;
+        val SomeForm = BoxedForm;
+        val optionTypeVars  = tcTypeVars optionType;
+        val alpha         = TypeVar(hd optionTypeVars);
+        val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
+        val someType      = mkFunctionType (alpha, alphaOption);
+    in
+        val optionType = optionType
+        val noneConstructor  =
+            mkGconstr ("NONE", alphaOption,
+                createNullaryConstructor(NoneForm, "NONE"),  true, 2, [DeclaredAt inBasis]);
+        val someConstructor =
+            mkGconstr ("SOME",  someType,
+                createUnaryConstructor(SomeForm, "SOME"), false, 2, [DeclaredAt inBasis]);
+    end;
   
-  (* Create exception values - Small integer values are used for
-     run-time system exceptions. *)
-  val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
-  val matchExceptionVal = mkConst (toMachineWord EXC_Match);
+    (* Create exception values - Small integer values are used for
+       run-time system exceptions. *)
+    val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
+    val matchExceptionVal = mkConst (toMachineWord EXC_Match);
+
+    (* Construct an exception identifier - This is a ref (so we can uniquely
+         identify it) containing a print function for the type. *)
+    fun mkExIden(ty, level) =
+    let
+        val makeSome = case someConstructor of Value { access, ...} => vaGlobal access
+        val makeNone = case noneConstructor of Value { access, ...} => vaGlobal access
+        val printerCode =
+            case ty of
+                FunctionType { arg, ...} =>
+                    mkEval(mkInd(1, makeSome), [printerForType(arg, level)], true)
+            |   _ => mkInd(1, makeNone)
+    in
+        refApplyCode printerCode
+    end
 
     (* Locations in exception packets.  In order to have a defined ordering of the fields,
        when we put the location in an exception packet we use this datatype rather than
@@ -1122,406 +1143,24 @@ struct
         case List.find (Universal.tagIs printSpaceTag) parameters of
             SOME a => Universal.tagProject printSpaceTag a
         |   NONE => nullEnvironment
-    
 
-  (* Checks to see whether a labelled record is in the form of
-     a product i.e. 1=, 2=   We only need this for prettyprinting. *)
-  fun isProductType(LabelledType{recList, frozen=true, ...}) =
-      let
-        fun isRec [] n = true
-         |  isRec ({name, typeof} :: l) n =
-                 name = Int.toString n andalso isRec l (n+1)
-    in
-        isRec recList 1
-    end
-    | isProductType _ = false;
-
-    (* Find an exception with the given identifier. *)
-    fun findException (allValues: values list, allStructs: structVals list) (w: machineWord): values option =
+    (* Print a value given its type. *)
+    fun printValueForType (value:machineWord, types, depth): pretty =
     let
-        fun searchList f [] = NONE
-        |   searchList f (hd::tl) =
-            case f hd of
-                NONE => searchList f tl
-            |    result => result
-
-          open ADDRESS
-
-        (* Test a value to see if it's the exception we want. *)
-        fun testValue base valu =
-        case valu of
-            (* Top-level exception *)
-            Value{class = Exception, access = Global code, ...} =>
-                if wordEq(evalue code, w) then SOME valu else NONE
-
-            (* Exception in a structure. *)
-        |    Value{class = Exception, access=Formal addr, ...} =>
-                if wordEq(loadWord(toAddress base, toShort addr), w)
-                then SOME valu else NONE
-
-        |    _ => NONE
-
-        (* Search for the exception in a structure. *)
-        fun searchSpace(u: univTable, base: machineWord) =
-        let
-            (* Get a list of all the entries in this space. *)
-            val decList = iterList (univOver u)
-
-          fun findItem (s: string, u: universal): values option =
-               if tagIs valueVar u (* Values *)
-             then testValue base (tagProject valueVar u)
-
-             else if tagIs structVar u
-             then (* Search this structure recursively. *)
-             let
-                 val str = tagProject structVar u
-                val access = structAccess str
-             in
-                 case access of
-                    Global code => (* Top-level structures. *)
-                        searchSpace(sigTab (structSignat str), evalue code)
-
-                |    Formal addr => (* Sub-structures. *)
-                        searchSpace(sigTab (structSignat str),
-                            loadWord(toAddress base, toShort addr))
-
-                |    _ => NONE
-             end
-
-             else NONE (* Not a structure or a value. *)
-      in
-            searchList findItem decList
-      end
-
-        val globalBase = ADDRESS.toMachineWord 0 (* Unused. *)
+        (* Constuct printer code applied to the argument and the depth.
+           Code-generate and evaluate it. *)
+        val printerCode =
+            mkEval(
+                printerForType(types, 0),
+                [mkTuple[mkConst value, mkConst(toMachineWord depth)]],
+                false)
+        val pretty = RunCall.unsafeCast(evalue(genCode(printerCode, [])()))
     in
-        (* First try the global values. *)
-        case searchList (testValue globalBase) allValues of
-            ex as SOME _ => ex (* found *)
-        |   NONE => (* Not found; try in the structures. *)
-                searchList (
-                    fn s =>
-                        case structAccess s of
-                            Global code =>
-                                searchSpace(sigTab (structSignat s), evalue code)
-                        | _ => NONE (* Should just be globals. *))
-                    allStructs
+        pretty
     end
 
-    (* This module prints a structure by following the type structure. *)
-    fun printStruct (value:machineWord, types, depth, nameSpace: nameSpace): pretty =
-    let
-        fun exceptionSearch (w: machineWord) : values option =
-        let
-            val values = #allVal nameSpace ()
-            and strs   = #allStruct nameSpace ()
-            (* Filter out the strings.  Order doesn't matter. *)
-            fun getVal []            l = l
-            |   getVal ((_, v) :: r) l = getVal r (v::l)
-        in
-            findException(getVal values [], getVal strs []) w
-        end
-
-        val { lookupFix, lookupExnById} = { lookupFix = #lookupFix nameSpace, lookupExnById = exceptionSearch }
- 
-        fun pVec (num, value : machineWord, [], separator, leftPrec, rightPrec, depth) doPrint = []
-      
-        |   pVec (num, value : machineWord, [t], separator, leftPrec, rightPrec, depth) doPrint =
-            if num = 0 (* optimised unary tuples - no indirection! *)
-            then [doPrint (value, t, depth, rightPrec)]
-            else
-            let
-                val addr : address = toAddress value;
-                val entryValue : machineWord = loadWord (addr, toShort num);
-            in
-                [doPrint (entryValue, t, depth, rightPrec)]
-            end
-      
-        |   pVec (num, value, t::ts, separator, leftPrec, rightPrec, depth) doPrint =
-            if depth <= 0
-            then [PrettyString "..."]
-            else
-            let
-                val addr : address = toAddress value;
-                val entryValue : machineWord = loadWord (addr, toShort num);
-            in
-                doPrint (entryValue, t, depth, leftPrec) ::
-                (
-                (* Precede infix ops by a space. *)
-                (if separator <> "," then [PrettyBreak (1, 0)] else []) @
-                [PrettyString separator, PrettyBreak (1, 0)] @
-                pVec (num + 1, value, ts, separator, leftPrec, rightPrec, depth-1) doPrint
-                )
-            end (* pVec *);
-
-        fun prints (value : machineWord, types, depth, precedence, objList) : pretty =
-        let (* Print out the contents of a tuple or labelled record. *)
-      
-            (* Print the constructor in infix notation if appropriate. *)
-            fun printInfixed(constrName, argType, args, objList): pretty =
-            let
-                val maxPrec = 999;
-                val thisPrecedence = getOpt(lookupFix constrName, Nonfix);
-
-                (* Some of these need to be parenthesised.  We replace values at
-                   level 1 by "..." rather than printing "(...)". *)
-                fun mayParenthesise true (f: int -> pretty list): pretty list =
-                    if depth <= 1
-                    then [PrettyString "..."]
-                    else PrettyString "(" :: (f (depth-1) @ [PrettyString ")"])
-                |    mayParenthesise false f = f depth
-
-            in
-                PrettyBlock(3, false, [],
-                case (thisPrecedence, argType) of
-                    (Infix precNo,
-                        LabelledType{recList=recList as [{name="1", ...}, {name="2", ...}], ...}) =>
-                      mayParenthesise (precNo < precedence)
-                           (fn depth =>
-                          pVec (0, args, recList, constrName, precNo, precNo + 1, depth)
-                              (fn (value, {name, typeof}, depth, precedence) =>
-                                  prints (value, typeof, depth, precedence, objList)
-                            ))
-
-                  | (InfixR precNo,
-                        LabelledType{recList=recList as [{name="1", ...}, {name="2", ...}], ...}) =>
-                      mayParenthesise (precNo < precedence)
-                           (fn depth =>
-                          pVec (0, args, recList, constrName, precNo + 1, precNo, depth)
-                              (fn (value, {name, typeof}, depth, precedence) =>
-                                  prints (value, typeof, depth, precedence, objList)
-                            ))
-
-                  | _ =>
-                      (* This constructor is not infix - print it in prefix notation.
-                         If the constructor is already applied to something we must
-                         parenthesise it. The argument precedence is set to infinity
-                         - i.e. any constructors must be in parentheses. *)
-                      mayParenthesise (precedence = maxPrec)
-                           (fn depth =>
-                               (
-                              (* Must precede infix constructors by ``op''. *)
-                              (case thisPrecedence of
-                                Nonfix => []
-                                | _ => [PrettyString "op", PrettyBreak (1, 0)]
-                              ) @
-                              [
-                                  PrettyString constrName,
-                                  PrettyBreak (1, 0),
-                                  prints (args, argType, depth, maxPrec, objList)
-                              ]
-                             ))
-                )
-            end (* printInfixed *);
- 
-            (* Prints out a type construction by undoing the value constructors *)
-            fun printConstruction typeArgs []: pretty =
-                raise InternalError "none matches" (* Shouldn't happen *)
-         
-            | printConstruction typeArgs
-                (Value{name, typeOf, access=Global code, class = Constructor{nullary, ...}, ...} :: constrs) =
-                let   (* Try this constructor *)
-                    open ADDRESS
-                    val base = toAddress (evalue code)
-                    val test = loadWord(base, 0w0) (* First word is the test. *)
-                    val matches: bool = unsafeCast test value
-                in
-                    if not matches (* try the next *) then printConstruction typeArgs constrs
-            
-                    (* matches *)
-                    else if nullary then (* Just a constant *) PrettyString name
-            
-                    (* Not just a constant. *) 
-                    else if depth <= 0
-                    then PrettyString "..."
-                    else
-                    let
-                        (* The test succeeded so this is the constructor that made
-                           this value  - get the value out. *)
-                        val project = loadWord(base, 0w2) (* Third word is projection fn. *)
-                        val v : machineWord = unsafeCast project value
-           
-                        (* Find the argument type which gives this result when the
-                           constructor is applied. If we have, for example, a value of
-                           type int list and we have discovered that this is a `::' node
-                           we have to work back by comparing the type of `::' 
-                           ('a * 'a list -> 'a list) to find the argument of the
-                           constructor (int * int list) and hence how to print it.
-                           (Actually `list' is treated specially). *)
-                        val resType = constructorResult (typeOf, typeArgs);
-                        (* If the value we get back from undoing the constructor
-                           is the same as the constructed value, i.e. applying the
-                           constructor simply returns the argument, we don't want to
-                           add this value to the list.  If we do we won't be able to
-                           print the constructed value. *)
-                        val newList =
-                            if ADDRESS.wordEq(v, value) then objList
-                            else value :: objList
-                    in
-                        printInfixed(name, resType, v, newList)
-                    end
-                end
-
-                  (* Normally a datatype constructor will be global. If, though, we
-                   call PolyML.print within a functor on a datatype passed in as
-                   a functor argument the code to test for constructor will be
-                   in the actual argument.  We could generate code to handle that
-                   case but it's probably not worth it. *)
-            | printConstruction typeArgs _ = PrettyString "?"
-                  (* printConstruction *)
-
-        in (* prints *)
-            (* If we have a circular structure we could end up looping until
-               we reach the maximum depth.  Instead we check for any structure
-               we've seen before and just print .... We really only need to include
-               mutable structures in the list because only they can form loops
-               but it's easier to include everything. *)
-            if List.exists (fn v => ADDRESS.wordEq(value, v)) objList
-            then PrettyString "..."
-    
-            else case types of
-                TypeVar tyVar =>
-                let
-                  (* The type variable may be bound to something *)
-                  val tyVal = tvValue tyVar
-                in
-                  if isEmpty tyVal then PrettyString "?"
-                  else prints (value, tyVal, depth, precedence, objList)
-                end
-    
-            | TypeConstruction{value=tval, args, ...} =>
-                let
-                    val constr = pling tval
-                in
-                  (* Type-specific printing is all handled by the libraries now. *)
-                  (* Although unit is a type construction it is treated as
-                     equivalent to the empty labelled record.  That means we
-                     can't install a pretty printer for it using addPrettyPrinter. *)
-                  if sameTypeId (tcIdentifier constr, tcIdentifier unitType)
-                    then PrettyString "()"
-        
-                  (* Leave this one, at least for the moment, since we need to be able
-                     to look the exception up in the environment. *)
-                  else if sameTypeId (tcIdentifier constr, tcIdentifier exnType)
-                    then let (* Exception. *)
-                      val exn  : exn    = unsafeCast value;
-                      val name : string = exnName exn;
-                      (* In order to be able to print this exception we need to find the type of
-                         any arguments.  Previously we used the name to search for a global
-                         exception with that name but that doesn't help if the exception is in
-                         a structure.  We now do a search of the complete name space.  *)
-                    in
-                      case lookupExnById (exnId exn) of
-                          SOME exc =>
-                        let
-                            val typeof = valTypeOf exc
-                        in
-                            case getFnArgType typeof of
-                                NONE => PrettyString name
-                            |   SOME typeof => printInfixed(name, typeof, exnValue exn, value::objList)
-                        end
-                      |    NONE => PrettyString name (* Just put the name. *)
-                    end
-                
-                  else (* All the others. *)
-                    let    (* Use the given print function if it is in the table,
-                              otherwise use the default. *)
-                        (* If we have a print function installed for this type constructor
-                           we have to pass it the functions to print the argument types
-                           (if any). *)
-                        fun makeArg argType =
-                            let
-                                fun printArg(v, depth) =
-                                let
-                                    (* If we have an identity constructor (datatype 'a t = T of 'a)
-                                       then we mustn't add this item to the list because we'll see
-                                       it again. *)
-                                    val newList =
-                                        if ADDRESS.wordEq(v, value) then objList
-                                        else value :: objList
-                                in
-                                    prints(v, argType, depth, ~1, newList)
-                                end
-                            in
-                                mkConst(toMachineWord printArg)
-                            end
-                        (* The easiest way to make a tuple is to use Codetree.mkTuple
-                           which makes a tuple immediately if all the arguments
-                           are constants. *)
-                        val argTuple =
-                            case args of
-                                [] => CodeZero
-                              | [t] => makeArg t
-                              | args => mkTuple(map makeArg args)
-                        fun getPrint typeId =
-                            case idAccess typeId of
-                                Global code => ! (unsafeCast(evalue(mkInd(1, code))))
-                            |   _ => raise Subscript
-                    in
-                        if tcIsAbbreviation constr  (* May be an alias *)
-                        then prints (value, makeEquivalent (constr, args), depth, precedence, objList)
-                        else
-                        (
-                            (* Get the "print" function out of the type ID if it's there. *)
-                            case idAccess(tcIdentifier constr) of
-                                Global code =>
-                                let
-                                    val printer: int -> machineWord -> machineWord -> pretty =
-                                        ! (unsafeCast(evalue(mkInd(1, code))))
-                                in
-                                    printer depth (evalue argTuple) value
-                                end
-                            |   _ => PrettyString "?"
-                        )
-                    end
-                    (* isTypeConstruction *)
-                end
-      
-            | FunctionType _ => PrettyString "fn"
-      
-            | LabelledType {recList, ...} =>
-                if depth <= 0
-                then PrettyString "..."
-                else if isProductType types
-                then (* If it is a record of the form {1=, 2=, ... } *)
-                    PrettyBlock (1, false, [], (* Print them as (t1, t2, t3) .... *)
-                        PrettyString "(" ::
-                        (
-                            pVec (0, value, recList, ",",  ~1, ~1, depth)
-                                (fn (value, {name, typeof}, depth, precedence) =>
-                                    prints (value, typeof, depth, precedence, objList)
-                                ) @
-                            [PrettyString ")"]
-                        )
-                    )
-     
-                else
-                    PrettyBlock (1, false, [], (* Print them as ( a = X, b = Y ... ) *)
-                        PrettyString "{" ::
-                        (
-                          pVec (0, value, recList, ",", ~1, ~1, depth)
-                              (fn (value : machineWord, {name, typeof}, depth, precedence) =>
-                                PrettyBlock (0, false, [],
-                                    [
-                                        PrettyString (name ^ " ="),
-                                        PrettyBreak (1, 0),
-                                        (* Don't add the current value to objList here.  We may have an
-                                           optimised unary tuple in which case the value will be the
-                                           same as the one we've just had. Since we're only really
-                                           concerned about references making loops that should be fine. *)
-                                        prints (value, typeof, depth - 1, ~1, objList)
-                                    ]
-                                )
-                            ) @
-                            [PrettyString "}"]
-                         )
-                    )
-    
-            | _ => PrettyString "<empty>"
-        end  (* prints *);
-    in
-        prints (value, types, depth, ~1, [])
-    end (* printStruct *);
+    fun printStruct(value:machineWord, types, depth, _): pretty =
+        printValueForType(value, types, depth)
 
     fun displayFixStatus Nonfix = PrettyString "nonfix"
     | displayFixStatus (Infix prec) =
@@ -1565,11 +1204,8 @@ struct
              PrettyBlock (0, false, [],
                 [
                     valPart "=",
-                     PrettyBreak (1, 3),
-                    (printStruct (evalue code, typeOf, depth, nameSpace)
-                          handle InternalError _ => PrettyString "<undefined>"),
-                          (* evalue will fail for "undefined". *)
-                          (* I think "undefined" here was an old dummy-functor which has since been removed. *)
+                    PrettyBreak (1, 3),
+                    printValueForType (evalue code, typeOf, depth),
                     PrettyBreak (1, 3),
                     PrettyBlock (0, false, [],
                         [ PrettyString ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
@@ -1602,10 +1238,9 @@ struct
     end;
 
   (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-  fun printValues (Value{name, typeOf, class, access, ...}, depth, nameSpace) =
+  fun printValues (Value{name, typeOf, class, access, ...}, depth, _) =
         case (class, access) of
-            (SimpleValue, Global code) =>
-                printStruct (evalue code, typeOf, depth, nameSpace)
+            (SimpleValue, Global code) => printValueForType (evalue code, typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
@@ -2287,11 +1922,10 @@ struct
             when the value is actually printed. *)
          val printDepthFun = getParameter printDepthFunTag (LEX.debugParams lex)
          and prettyOut = getPrintOutput (LEX.debugParams lex)
-         and printSpace = getPrintSpace (LEX.debugParams lex)
 
          fun printProc value =
          (
-            prettyOut(printStruct (value, argType, printDepthFun(), printSpace));
+            prettyOut(printValueForType (value, argType, printDepthFun()));
             value
          );
            (* Coerce the procedure so that it can be put into the code. *)
@@ -2307,8 +1941,8 @@ struct
                     SOME (LabelledType { recList = {typeof, ...} ::_, ...}) => typeof
                 |   _ => badType;
 
-            fun printProc (value, namespace, printer, depth): unit =
-                printer(printStruct (value, argType, depth, namespace))
+            fun printProc (value, _, printer, depth): unit =
+                printer(printValueForType (value, argType, depth))
          in
             mkConst (toMachineWord printProc)
         end 
@@ -2317,11 +1951,8 @@ struct
        let 
          (* "instance" should be 'a -> string. We need to get the 'a. *)
          val argType = case getFnArgType instance of NONE => badType | SOME t => t;
-
-         val printSpace = getPrintSpace (LEX.debugParams lex)
-
          fun makeString value =
-            uglyPrint (printStruct (value, argType, 10000, printSpace));
+            uglyPrint (printValueForType (value, argType, 10000));
        in
          mkConst (toMachineWord makeString)
        end
@@ -2334,8 +1965,8 @@ struct
                     SOME (LabelledType { recList = {typeof, ...} ::_, ...}) => typeof
                 |   _ => badType;
 
-            fun printProc (value, namespace) =
-                uglyPrint (printStruct (value, argType, 10000, namespace))
+            fun printProc (value, _) =
+                uglyPrint (printValueForType (value, argType, 10000))
         in
             mkConst (toMachineWord printProc)
         end

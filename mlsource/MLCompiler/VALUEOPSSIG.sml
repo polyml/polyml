@@ -99,7 +99,7 @@ sig
 
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
-    val mkExIden:       unit -> codetree
+    val mkExIden:       types * int -> codetree
     val codeVal:        values * int * types * lexan * location -> codetree
     val codeExFunction: values * int * types * lexan * location -> codetree
     val applyFunction:  values * codetree * int * types * lexan * location -> codetree

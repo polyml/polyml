@@ -64,6 +64,7 @@ Bootstrap.use "basis/Thread.sml"; (* Non-standard. *)
 Bootstrap.use "basis/Timer.sml";
 Bootstrap.use "basis/CommandLine.sml";
 Bootstrap.use "basis/OS.sml";
+Bootstrap.use "basis/ExnPrinter.sml"; (* Relies on OS. *)
 Bootstrap.use "basis/IO.sml";
 Bootstrap.use "basis/PRIM_IO.sml";
 Bootstrap.use "basis/PrimIO.sml";
