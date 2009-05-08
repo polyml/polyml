@@ -299,12 +299,13 @@ local
     |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
     |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
     |   parenthesise(s as PrettyBlock _) =
-            PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), s, PrettyBreak(0, 0), PrettyString ")" ])
+            PrettyBlock(3, true, [], [ PrettyString "(", s, PrettyString ")" ])
     |   parenthesise s = s (* String or Break *)
 
     fun print_ref depth doArg (ref x) =
         PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth)) ])
 
+    (* For simplicity we don't provide pretty printers for datatypes declared in INITIALISE so we add them here. *)
     fun print_option _ _ NONE = PrettyString "NONE"
     |   print_option depth printEl (SOME v) =
             PrettyBlock (1, false, [],
@@ -314,6 +315,21 @@ local
                 ]
             )
 
+    (* Pretty printer for the "pretty" type itself. *)
+    fun pretty_pretty depth _ (PrettyString s) =
+            PrettyBlock(1, false, [],
+                [ PrettyString "PrettyString", PrettyBreak(1, 0),
+                    if depth <= 0 then PrettyString "..." else prettyRepresentation(s, depth-1)])
+    |   pretty_pretty depth _ (PrettyBreak args) =
+            PrettyBlock(1, false, [],
+                [ PrettyString "PrettyBreak", PrettyBreak(1, 0),
+                    if depth <= 0 then PrettyString "..." else prettyRepresentation(args, depth-1)])
+    |   pretty_pretty depth _ (PrettyBlock args) =
+            PrettyBlock(1, false, [],
+                [ PrettyString "PrettyBlock", PrettyBreak(1, 0),
+                    if depth <= 0 then PrettyString "..." else prettyRepresentation(args, depth-1)])
+            
+
 in
   	val () = addPrettyPrinter print_bool;
   	val () = addPrettyPrinter print_string;
@@ -321,4 +337,5 @@ in
   	val () = addPrettyPrinter print_list
   	val () = addPrettyPrinter print_ref
   	val () = addPrettyPrinter print_option
+  	val () = addPrettyPrinter pretty_pretty
 end;
