@@ -3232,11 +3232,11 @@ struct
       (* datatype and abstype declarations are both recursive so we can
          enter the type names into the environment during a first pass,
          and then process the value constructors during a second. *)
-        fun enterType tcon typeName =
+        fun enterType(innerType, outerType, typeName) =
         (
-            checkForDots  (typeName, lex, declaredAt(tcLocations tcon)); (* Must not be qualified *)
-            #enter newEnv (typeName, tcon); (* Check for duplicates. *)
-            #enterType env  (typeName, tcon)  (* and put in the enclosing scope *)
+            checkForDots  (typeName, lex, declaredAt(tcLocations innerType)); (* Must not be qualified *)
+            #enter newEnv (typeName, innerType); (* Check for duplicates. *)
+            #enterType env  (typeName, outerType)  (* and put in the enclosing scope *)
         );
        
        (* Make the type constructors and put them in a list. *)
@@ -3251,9 +3251,18 @@ struct
             val tc =
                 makeDatatypeConstr(strName ^ name, typeVars, newId,
                                    letDepth, [DeclaredAt nameLoc])
+            val outerType =
+                if isAbs
+                then
+                    (* Outside the with..end section the type is not a datatype.
+                       The type constructor we enter in the outer environment
+                       uses the same typeId but with the constructors removed. *)
+                    makeFrozenTypeConstrs(strName ^ name, typeVars, newId,
+                                          letDepth, [DeclaredAt nameLoc])
+                else tc
         in
             tcon := tc;
-            enterType tc name;
+            enterType(tc, outerType, name);
             tc
         end
       
@@ -3280,7 +3289,7 @@ struct
             val tcon =
                 makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
         in
-            enterType tcon name
+            enterType(tcon, tcon, name)
         end
 
         val () = ListPair.app enterWithType (withtypes, decTypes);
@@ -3400,24 +3409,10 @@ struct
           }
         end;
   
-          (* Process the declarations, discarding the result. *)
-          val U : types = assignSeq decEnv letDepth declist;
-          
-          fun setConstructors (DatatypeBind {tcon=ref tc, valueConstrs, ...}) = 
-            (    
-              tcSetEquality (tc, false);
-              valueConstrs := tcConstructors tc;
-              tcSetConstructors (tc, [])
-            )
         in
-          (* Now clobber the equality operations and the constructor list
-             - equality and printing are not allowed outside the abstract
-             type declaration, and the type should not match a datatype
-             in a signature. The problem is that we need the constructor
-             list for exhaustiveness checking of patterns inside the abstype
-             declaration but we do exhaustiveness checking during the code
-             generation phase. *)
-          List.app setConstructors typeList
+            (* Process the declarations, discarding the result. *)
+            assignSeq decEnv letDepth declist;
+            ()
         end;
         in
       badType (* Does not return a type *)
@@ -5695,31 +5690,14 @@ struct
   
             |   AbstypeDeclaration {typelist, declist, ...} =>
                 let (* Code-generate the declarations. *)
-                    (* We have to put the constructors back onto the abstype
-                       temporarily so that we can create the equality and print functions. *)
-                    (* TODO: We need to do this differently.  We should have two different
-                       type constructors, one in the outer environment and one in the
-                       inner but sharing a single type identifier. *)
-                    (* TODO: ******  We have switched off equality and haven't switched it back on. *)
-                    val () = 
-                        List.app
-                            (fn (DatatypeBind{tcon=ref tc, valueConstrs = ref vconstrs, ...}) =>
-                                tcSetConstructors (tc, vconstrs)
-                            ) typelist;
                     (* The debugging environment for the declarations should include
                        the constructors but the result shouldn't.  For the moment
                        ignore the constructors. *)
                     val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                     val typeIds =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-                    val typeFns = createDatatypeFunctions(typeIds, mkAddr, !level)
-                    (* Now we can take the constructors off again. *)
-                    val () =
-                        List.app
-                            (fn (DatatypeBind{tcon=ref tc, ...}) => tcSetConstructors (tc, []))
-                            typelist;
                 in
-                    (typeFns @ code, newDebug)
+                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ code, newDebug)
                 end
   
             |   DatatypeDeclaration {typelist, ...} =>
