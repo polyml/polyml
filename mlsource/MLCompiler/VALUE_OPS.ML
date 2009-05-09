@@ -872,10 +872,9 @@ struct
 (*****************************************************************************)
   (* Look-up functions. *)
 
-    (* Turn a typeId from Formal into Selected if it is from the given structure.
-       In most cases Formals will be from the given structure but if we have a
-       substructure we could have Formal that is relative to the parent or to the
-       substructure and we have to distinguish those cases. *)
+    (* Turn a typeId from Formal into Selected.  All typeIds are held in
+       the parent structure so we don't have to worry about whether they
+       are relative to the parent or to a sub-structure. *)
     fun idFromStructure str : typeId -> typeId =
     let
         val strSig = structSignat str
@@ -890,13 +889,9 @@ struct
         end
     in
         fn (id as Free{ uid, allowUpdate, access=Formal addr }) =>
-                if isInStructure id (* Have to search. *)
-                then Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
-                else id
+                Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
         |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =>
-                if offset >= sigMinTypes strSig andalso offset < sigMaxTypes strSig
-                then Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
-                else id
+                Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
         |   id => id
     end
     
@@ -2311,7 +2306,9 @@ struct
                     val constr = pling value
                 in
                    if not (tcIsAbbreviation constr)
-                   then constr
+                   then if not (isFreeId(tcIdentifier constr))
+                   then raise Fail "Cannot install an overload within a structure or functor"
+                   else constr
                    else followTypes (makeEquivalent (constr, args))
                 end
              | followTypes _ =
