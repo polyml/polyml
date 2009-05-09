@@ -460,46 +460,6 @@ local
 		end;
 	
 	end (* Words *)
-
-	(* Converter to word values. *)
-	local
-
-		(* The string may be either 0wnnn or 0wxXXX *)
-		fun getRadix s =
-			if String.size s > 2 andalso String.sub(s, 2) = #"x"
-			then StringCvt.HEX else StringCvt.DEC
-
-		fun convWord s =
-			let
-			val radix = getRadix s
-			in
-				case StringCvt.scanString (Words.Word.scan radix) s of
-					NONE => raise RunCall.Conversion "Invalid word constant"
-				  | SOME res => res
-			end
-		and convLarge s =
-			let
-			val radix = getRadix s
-			in
-				case StringCvt.scanString (Words.LargeWord.scan radix) s of
-					NONE => raise RunCall.Conversion "Invalid word constant"
-				  | SOME res => res
-			end
-
-	in
-		(* Install this as a conversion function for word literals.
-		   Unlike other overloaded functions there's no need to
-		   ensure that overloaded conversion functions are installed
-		   at the top-level.  The compiler has type "word" built in
-		   and will use this conversion function for literals of the
-		   form 0w... in preference to any other (e.g. for Word8.word)
-		   if unification does not give an explicit type.
-		   However, because LargeWord.word is abstract we have to
-		   install the convertor outside the structure. *)
-		val unused: unit = RunCall.addOverload convWord "convWord"
-		val unused: unit = RunCall.addOverload convLarge "convWord"
-	end
-
 	local
 		(* Install the pretty printer for Word.word *)
 		fun prettyWord _ _ x =
@@ -515,6 +475,47 @@ in
 	structure Word = Words.Word;
 	structure LargeWord = Words.LargeWord;
 end;
+
+(* Converter to word values.  These must be installed outside the structure
+   because they depend on the type identifiers. *)
+local
+
+	(* The string may be either 0wnnn or 0wxXXX *)
+	fun getRadix s =
+		if String.size s > 2 andalso String.sub(s, 2) = #"x"
+		then StringCvt.HEX else StringCvt.DEC
+
+	fun convWord s =
+		let
+		val radix = getRadix s
+		in
+			case StringCvt.scanString (Word.scan radix) s of
+				NONE => raise RunCall.Conversion "Invalid word constant"
+			  | SOME res => res
+		end
+	and convLarge s =
+		let
+		val radix = getRadix s
+		in
+			case StringCvt.scanString (LargeWord.scan radix) s of
+				NONE => raise RunCall.Conversion "Invalid word constant"
+			  | SOME res => res
+		end
+
+in
+	(* Install this as a conversion function for word literals.
+	   Unlike other overloaded functions there's no need to
+	   ensure that overloaded conversion functions are installed
+	   at the top-level.  The compiler has type "word" built in
+	   and will use this conversion function for literals of the
+	   form 0w... in preference to any other (e.g. for Word8.word)
+	   if unification does not give an explicit type.
+	   However, because LargeWord.word is abstract we have to
+	   install the convertor outside the structure. *)
+	val () = RunCall.addOverload convWord "convWord"
+	val () = RunCall.addOverload convLarge "convWord"
+end;
+
 
 
 (* Add the overloaded operators.  Do this outside the structure so
