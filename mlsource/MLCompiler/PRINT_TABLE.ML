@@ -75,8 +75,6 @@ sig
   type codetree
   type pretty
   
-  val addPp:    typeId * (int -> machineWord -> machineWord -> pretty) -> unit;
-  val getPrint: typeId -> (int -> machineWord -> machineWord -> pretty);
   val addOverload: string * typeConstrs * codetree -> unit
   val getOverloads: string -> (typeConstrs * codetree) list
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
@@ -130,36 +128,6 @@ struct
 			then v else searchList rest
   in
       searchList (! overloadTable) 
-  end;
-  	
-  (* TODO: Treat the pretty print functions as just another form of
-     overloading except that we only want the most recent occurrence. *)
-  type printEntry = typeId * (int -> machineWord -> machineWord -> pretty);
-
-  (* Create a ref to hold the list.  *)
-  val printTable : printEntry list ref = ref [];
-   
-  fun addPp (consid, pproc) = 
-     let
-		(* Remove any existing occurrences of the type. The only reason
-		   is to allow any existing function to be garbage-collected. *)
-		fun filter [] = []
-		  | filter ((this as (i, _)) :: rest) =
-		  		if sameTypeId (i, consid)
-				then filter rest
-				else this :: filter rest
-	 in
-		printTable := (consid,pproc) :: filter (!printTable)
-     end
-  
-  (* However, we should search ALL the refs when we lookup a constructor *)
-  fun getPrint id =
-  let
-      fun searchList []         = raise Subscript
-      |   searchList ((i,p)::t) = 
-            if sameTypeId (i, id) then p else searchList t;
-  in
-      searchList (! printTable) 
   end;
   
 end;
