@@ -889,9 +889,9 @@ struct
             check(sigMinTypes strSig)
         end
     in
-        fn (id as Free{ uid, allowUpdate, access=ref(Formal addr) }) =>
+        fn (id as Free{ uid, allowUpdate, access=Formal addr }) =>
                 if isInStructure id (* Have to search. *)
-                then Free { uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
+                then Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
                 else id
         |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =>
                 if offset >= sigMinTypes strSig andalso offset < sigMaxTypes strSig

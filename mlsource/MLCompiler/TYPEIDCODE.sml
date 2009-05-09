@@ -112,7 +112,7 @@ struct
     |   codeAccess _ = raise InternalError "No access"
 
     (* Load an identifier. *)
-    fun codeIdWithFormal(Free{access=ref access, ...}, getFormal, level) = codeAccess(access, getFormal, level)
+    fun codeIdWithFormal(Free{access, ...}, getFormal, level) = codeAccess(access, getFormal, level)
     |   codeIdWithFormal(Bound{access, ...}, getFormal, level) = codeAccess(access, getFormal, level)
     |   codeIdWithFormal(TypeFunction(argTypes, resType), getFormal, level) =
         let

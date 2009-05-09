@@ -47,7 +47,7 @@ sig
 
     datatype typeId =
         Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
+    |   Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
     |   TypeFunction    of typeVarForm list * types
@@ -150,7 +150,6 @@ sig
     val linkFlexibleTypeIds: typeId * typeId -> unit;
     val makeTypeIdBound: typeId * typeId -> unit;
     val setEquality:  typeId -> unit
-    val setTypeAccess:typeId * valAccess -> unit
     val removeAbstypeEquality:  typeId -> unit
 
     val makeFreeId:     valAccess * bool -> typeId;

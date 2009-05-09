@@ -113,7 +113,7 @@ struct
 
     datatype typeId =
         Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of { access: valAccess ref, uid: uniqueId, allowUpdate: bool }
+    |   Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
     |   Flexible        of typeId ref
     |   TypeFunction    of typeVarForm list * types
@@ -263,10 +263,10 @@ struct
 
     (* Identifiers *)
     (* REF HOTSPOT - 400 *)
-    fun makeFreeId(access, eq) = Free {access=ref access, uid = ref eq, allowUpdate=false};
+    fun makeFreeId(access, eq) = Free {access=access, uid = ref eq, allowUpdate=false};
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq) = Free {access=ref access, uid = ref eq, allowUpdate=true};
+    fun makeFreeIdEqUpdate(access, eq) = Free {access=access, uid = ref eq, allowUpdate=true};
 
     fun makeBoundId (access, n, eq) = Bound{access=access, offset=n, eqType=FrozenRef eq};
 
@@ -306,14 +306,9 @@ struct
 
     fun idAccess x =
         case realId x of
-            Free { access=ref access, ...} => access
+            Free { access, ...} => access
         |   Bound{ access, ...} => access
         |   _                   => raise InternalError "idAccess: Not bound or free"
-  
-    fun setTypeAccess (x, newAccess) =
-        case realId x of
-            Free { access, ...} => access := newAccess
-        |   _ => raise InternalError "setTypeAccess: Not free"
   
     (* Link two flexible type identifiers together as a result of a sharing
        constraint.  If either is an equality type the result is an equality type.

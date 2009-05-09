@@ -202,7 +202,6 @@ struct
     {
         dec:   parsetree,           (* The value *)
         vars:  coreDeclaration list ref, (* The declarations *)
-        typeIds: typeId list ref, (* Type IDs created in the declaration. *)
         location: location
     }
 
@@ -331,7 +330,6 @@ struct
         {
             dec   = dec,
             vars  = ref [],
-            typeIds = ref [],
             location = location
         };
 
@@ -1497,7 +1495,7 @@ struct
     fun convertIdToFormal(n, Bound { offset, eqType, ...}) =
             Bound { access = Formal n, offset = offset, eqType = eqType }
     |   convertIdToFormal(n, Free { uid, allowUpdate, ... }) =
-            Free { access = ref(Formal n), uid = uid, allowUpdate = allowUpdate }
+            Free { access = Formal n, uid = uid, allowUpdate = allowUpdate }
     |   convertIdToFormal _ = raise InternalError "Not bound or free"
 
   (* Second pass - identify names with values and type-check *)
@@ -2325,7 +2323,7 @@ struct
                 in
                     case newId of
                         Free { uid, allowUpdate, ...} =>
-                            Free { uid=uid, allowUpdate=allowUpdate, access=ref newAccess }
+                            Free { uid=uid, allowUpdate=allowUpdate, access=newAccess }
                     |   Bound { offset, eqType, ... } =>
                             Bound { offset = offset, eqType = eqType, access = newAccess }
                     |   _ => raise InternalError "makeLocalTypeId: Not Bound or Free"
@@ -2336,8 +2334,8 @@ struct
                 val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
                 fun convertArg n =
                     case matchResults n of
-                        Free { uid, allowUpdate, access=ref(Formal addr) } =>
-                            Free { uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, holdingStruct))}
+                        Free { uid, allowUpdate, access=Formal addr } =>
+                            Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, holdingStruct)}
                     |   Bound { offset = offset, eqType = eqType, access = Formal addr } =>
                             Bound { offset = offset, eqType = eqType, access = makeSelected(addr, holdingStruct) }
                     |   others => others
@@ -2408,8 +2406,8 @@ struct
                                 case id of
                                     Bound { offset, eqType, access = Formal addr } =>
                                         Bound { access = makeSelected(addr, str), offset = offset, eqType = eqType }
-                                |   Free { uid, allowUpdate, access = ref(Formal addr) } =>
-                                        Free{uid=uid, allowUpdate=allowUpdate, access=ref(makeSelected(addr, str))}
+                                |   Free { uid, allowUpdate, access = Formal addr } =>
+                                        Free{uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
                                 |   id => id
             	            val a = !addrs;
                             val () = addrs := a + 1
@@ -2482,7 +2480,9 @@ struct
                             addrs := a + 1
                         end,
                     enterVal    =
-                            (* TODO: There was a special case here for Overloaded.  Is that still needed? *)
+                            (* If this is a type-dependent function such as PolyML.print we must put in the
+                               original type-dependent version not the version which will have frozen
+                               its type as 'a. *)
                         fn (name, value as Value{access = Overloaded _, typeOf, locations, ...}) =>
                             #enterVal finalEnv (name, value)
                         |  (name, Value{class, typeOf, locations, ...}) =>
@@ -2587,7 +2587,7 @@ struct
                                 Bound { offset, eqType, ... } =>
                                     Bound { access = oldAccess, offset = offset, eqType = eqType }
                             |   Free { uid, allowUpdate, ... } =>
-                                    Free { access = ref oldAccess, uid = uid, allowUpdate = allowUpdate }
+                                    Free { access = oldAccess, uid = uid, allowUpdate = allowUpdate }
                             |   _ => raise InternalError "Not bound or free"
                         end
 ;
@@ -2774,7 +2774,7 @@ struct
         pass2Struct (body, makeLocalTypeId, makeFormalTypeId, makeCurrentTypeCount, Env bodyEnv, lex, lno, strName)
       end; (* pass2Localdec *)
       
-      fun pass2Singleton (dec : parsetree, vars, typeIds) : unit =
+      fun pass2Singleton (dec : parsetree, vars) : unit =
       let (* Single declaration - may declare several names. *)
         (* As well as entering the declarations we must keep a list
             of the value and exception declarations. *)
@@ -2819,16 +2819,10 @@ struct
              enterFunct    = #enterFunct   env
            };
 
-            (* Create a new type ID for each new datatype but record them here. *)
-            fun makeId eq =
-            let
-                val newId = makeLocalTypeId(true, eq)
-            in
-                typeIds := newId :: ! typeIds;
-                newId
-            end
-
-         val _ : types = pass2 (dec, makeId, Env newEnv, lex, strName);
+            (* Create a new type ID for each new datatype. *)
+            fun makeId eq = makeLocalTypeId(true, eq)
+            (* Process the body and discard the type. *)
+            val _ : types = pass2 (dec, makeId, Env newEnv, lex, strName);
        in
          ()
        end; (* pass2Singleton *)
@@ -2839,8 +2833,8 @@ struct
         |   pass2Dec(Localdec {decs, body, ...}) =
                 pass2Localdec (decs, body)
         
-        |   pass2Dec(CoreLang {dec, vars, typeIds, ...}) =
-                pass2Singleton (dec, vars, typeIds)
+        |   pass2Dec(CoreLang {dec, vars, ...}) =
+                pass2Singleton (dec, vars)
         
         |   pass2Dec _ = raise InternalError "pass2Dec"
     in        
@@ -3624,7 +3618,7 @@ struct
           }
         end
  
-      | CoreLang {dec, vars=ref vars, typeIds=ref typeIds, ...} =>
+      | CoreLang {dec, vars=ref vars, ...} =>
         let
             (* Code generate the declaration.  This also assigns addresses so must be
                done before we load the results. *)
@@ -3639,11 +3633,10 @@ struct
             |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
 		    |   filterVals _              = NONE
             val loadVals = List.mapPartial filterVals vars
-            val loadIDs = List.map(fn v => codeAccess(idAccess v, !level)) typeIds
         in
             { 
                 code = code,
-                load = loadVals @ loadIDs,
+                load = loadVals,
 			    debug = newDebug
             }
         end
@@ -3749,17 +3742,6 @@ struct
 	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
     fun pass4Structs (results, (strs: topdec list, _)) =
     let
-        (* Extract the equality/print value from the result vector and set this in the type ID.  Unlike
-           values we can't simply return a new value here because the type ID is pointed at by types
-           within the values and type constructors. *)
-        fun convertTypeID(typeId, (addr, decs)) =
-        let
-            val codeID = mkInd(addr, results)
-        in
-            setTypeAccess(typeId, Global codeID);
-            (addr+1, decs)
-        end
-
         fun extractStruct(str, mapTypeIds, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
         case str of
             StructureDec (structList : structBind list, _) =>
@@ -3796,26 +3778,34 @@ struct
             List.foldl (fn(s, a) => extractStruct(s, mapTypeIds, a))args body          
  
       (* Value, exception or type declaration at the top level. *)
-      | CoreLang {vars=ref vars, typeIds=ref typeIds, ...} =>
+      | CoreLang {vars=ref vars, ...} =>
         let (* Enter the values and exceptions. *)
-		  fun makeDecs (CoreValue dec, (addr, { fixes, values, structures, signatures, functors, types } )) =
-                 ( case dec of
-				 	Value{access=Overloaded _, ...} => (* enter it as it is. *) 
-                     	(addr+1, { fixes=fixes, values=(valName dec, dec) :: values, structures=structures,
-                                   signatures=signatures, functors=functors, types=types })
-					| Value{class, name, typeOf, locations, ...} =>
-						(* take the value out of the result vector. *)
-	                   let
-	                     val codeVal = mkInd (addr, results);
-	                     val name    = valName dec;
-	                     val val' =
-						 	Value{class=class, name=name, typeOf=typeOf, access=Global codeVal, locations=locations}
-	                   in
-                         (addr+1, { fixes=fixes, values=(name, val') :: values, structures=structures,
-                                    signatures=signatures, functors=functors, types=types } )
-	                   end
-                 )
-		  |  makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
+            (* Copy the types to replace the type IDs with the versions with Global access. *)
+            fun replaceTypes t =
+            let
+                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, mapTypeIds, fn x => x, "")
+            in
+                copyType(t, fn tv=>tv, replaceTypeConstrs)
+            end
+
+		    fun makeDecs (CoreValue(dec as Value{class, name, typeOf, locations, access, ...}),
+                          (addr, { fixes, values, structures, signatures, functors, types } )) =
+                let
+                    (* Extract the value from the result vector except if we have a type-dependent
+                       function e.g. PolyML.print where we must use the type-dependent version. *)
+                    val newAccess =
+                        case access of
+                            Overloaded _ => access
+                        |   _ => Global(mkInd (addr, results))
+                    (* Replace the typeIDs. *)
+                    val newVal =
+                        Value{class=class, name=name, typeOf=replaceTypes typeOf, access=newAccess, locations=locations}
+                in
+                    (addr+1, { fixes=fixes, values=(name, newVal) :: values, structures=structures,
+                               signatures=signatures, functors=functors, types=types } )
+                end
+
+		    |   makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
 	          (* If we open a structure we've created in the same "program" we may have a non-global
                  substructure.  We have to process any structures. *)
                 let
@@ -3827,19 +3817,21 @@ struct
                  (addr+1, { fixes=fixes, values=values, structures=(name, newStruct) :: structures,
                           signatures=signatures, functors=functors, types=types } )
                 end
-		  |   makeDecs (CoreFix pair, (addr, {fixes, values, structures, signatures, functors, types})) =
+
+		    |   makeDecs (CoreFix pair, (addr, {fixes, values, structures, signatures, functors, types})) =
                  (addr, { fixes=pair :: fixes, values=values, structures=structures,
                           signatures=signatures, functors=functors, types=types } )
-		  |   makeDecs (CoreType dec, (addr, {fixes, values, structures, signatures, functors, types})) =
-                 (addr, { fixes=fixes, values=values, structures=structures,
-                          signatures=signatures, functors=functors, types=(#second(splitString(tcName dec)), dec) :: types } )
 
-            val newDecs = List.foldl makeDecs args vars
-
-
-            val newIDs = List.foldl convertTypeID newDecs typeIds
+		    |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
+                let
+                    val copiedTC = fullCopyDatatype(tc, mapTypeIds, "")
+                    val newName = #second(splitString(tcName tc))
+                in
+                    (addr, { fixes=fixes, values=values, structures=structures,
+                             signatures=signatures, functors=functors, types=(newName, copiedTC) :: types } )
+                end
         in
-            newIDs
+            List.foldl makeDecs args vars
         end
 
      | _ => raise InternalError "extractStruct"; (* end extractStruct *)
@@ -3849,7 +3841,7 @@ struct
         StrDec(str, ref typeIds) =>
         let
             fun loadId(Free{uid, allowUpdate, ...}, (n, ids)) =
-                (n+1, Free{uid=uid, allowUpdate=allowUpdate, access=ref(Global(mkInd(n, results)))} :: ids)
+                (n+1, Free{uid=uid, allowUpdate=allowUpdate, access=Global(mkInd(n, results))} :: ids)
             |   loadId _ = raise InternalError "Not Free"
             val (newAddr, mappedIds) = List.foldl loadId (addr, []) typeIds
             fun mapTypeIds id =
@@ -3896,7 +3888,7 @@ struct
     
     val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
 
-    fun defaultMap(id as Free{access=ref(Global _), ...}) = id
+    fun defaultMap(id as Free{access=Global _, ...}) = id
     |   defaultMap _ = raise InternalError "Not there"
 
     val (lastAddr, result, _) = List.foldl extractTopDec (0, empty, fn id => id) strs;
