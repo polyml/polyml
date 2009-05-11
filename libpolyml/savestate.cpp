@@ -597,7 +597,7 @@ public:
     StateLoader(const char *file): errorResult(0), errNumber(0) { strcpy(fileName, file); }
 
     virtual void Perform(void);
-    bool LoadFile(void);
+    bool LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp);
     const char *errorResult;
     // The fileName here is the last file loaded.  As well as using it
     // to load the name can also be printed out at the end to identify the
@@ -609,7 +609,7 @@ public:
 // Called by the main thread once all the ML threads have stopped.
 void StateLoader::Perform(void)
 {
-    (void)LoadFile();
+    (void)LoadFile(true, 0);
 }
 
 // This class is used to relocate addresses in areas that have been loaded.
@@ -730,7 +730,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 }
 
 // Load a saved state file.  Calls itself to handle parent files.
-bool StateLoader::LoadFile()
+bool StateLoader::LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp)
 {
     LoadRelocate relocate;
     AutoFree<char*> thisFile(strdup(fileName));
@@ -763,6 +763,15 @@ bool StateLoader::LoadFile()
         return false;
     }
 
+    // Check that we have the required stamp before loading any children.
+    // If a parent has been overwritten we could get a loop.
+    if (! isInitial && header.timeStamp != requiredStamp)
+    {
+        // Time-stamps don't match.
+        errorResult = "The parent for this saved state does not match or has been changed";
+        return false;
+    }
+
     // Have verified that this is a reasonable saved state file.  If it isn't a
     // top-level file we have to load the parents first.
     if (header.parentNameEntry != 0)
@@ -778,19 +787,12 @@ bool StateLoader::LoadFile()
             return false;
         }
         fileName[toRead] = 0; // Should already be null-terminated, but just in case.
-        if (! LoadFile())
+
+        if (! LoadFile(false, header.parentTimeStamp))
             return false;
 
         // Check the parent time stamp.
         ASSERT(hierarchyDepth > 0 && hierarchyTable[hierarchyDepth-1] != 0);
-
-        if (header.parentTimeStamp != hierarchyTable[hierarchyDepth-1]->timeStamp)
-        {
-            // Time-stamps don't match.
-            errorResult = "The parent for this saved state does not match or has been changed";
-            return false;
-        }
-
     }
     else // Top-level file
     {
