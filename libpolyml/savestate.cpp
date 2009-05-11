@@ -50,6 +50,14 @@
 #include <sys/types.h>
 #endif
 
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -197,6 +205,34 @@ static bool AddHierarchyEntry(const char *fileName, UNSIGNEDADDR timeStamp)
     hierarchyTable[hierarchyDepth++] = newEntry;
     return true;
 }
+
+// Test whether we're overwriting a parent of ourself.
+#ifdef HAVE_WINDOWS_H
+static bool sameFile(const char *x, const char *y)
+{
+    // Get the lengths and return if either does not exist.
+    LPSTR filePart;
+    DWORD dwxLen = GetFullPathName(x, 1, 0, 0);
+    if (dwxLen == 0) return false;
+    DWORD dwyLen = GetFullPathName(y, 0, 0, 0);
+    if (dwyLen == 0) return false;
+    if (dwxLen != dwyLen) return false;
+    AutoFree<char*> xName = (char*)malloc(dwxLen+1);
+    GetFullPathName(x, dwxLen+1, xName, &filePart);
+    AutoFree<char*> yName = (char*)malloc(dwyLen+1);
+    GetFullPathName(y, dwyLen+1, yName, &filePart);
+    return strcmpi(xName, yName) == 0;
+}
+#else
+static bool sameFile(const char *x, const char *y)
+{
+    struct stat xStat, yStat;
+    // If either file does not exist that's fine.
+    if (stat(x, &xStat) != 0 || stat(y, &yStat) != 0)
+        return false;
+    return (xStat.st_dev == yStat.st_dev && xStat.st_ino == yStat.st_ino);
+}
+#endif
 
 /*
  *  Saving state.
@@ -359,6 +395,16 @@ void SaveRequest::Perform()
         errorMessage = "Cannot open save file";
         errCode = errno;
         return;
+    }
+
+    // Check that we aren't overwriting out own parent.
+    for (unsigned q = 0; q < newHierarchy-1; q++) {
+        if (sameFile(hierarchyTable[q]->fileName, fileName))
+        {
+            errorMessage = "File being saved is used as a parent of this file";
+            errCode = 0;
+            return;
+        }
     }
 
     // Scan over the permanent mutable area copying all reachable data that is
