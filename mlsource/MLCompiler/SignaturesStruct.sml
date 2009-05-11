@@ -1,6 +1,5 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright David C. J. Matthews 2009
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -17,8 +16,8 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Structures = 
-  STRUCTURES_ (
+structure SignaturesStruct =
+SIGNATURES(
     structure LEX        = Lex
     structure CODETREE   = CodeTree
     structure STRUCTVALS = StructVals
@@ -28,10 +27,9 @@ structure Structures =
     structure UTILITIES  = Utilities
     structure PRETTY     = Pretty
     structure UNIVERSALTABLE = UniversalTable
-    structure DEBUG      = Debug
-	structure DEBUGGER   = Debugger
     structure EXPORTTREE = ExportTreeStruct
     structure COPIER     = CopierStruct
-    structure TYPEIDCODE = TypeIDCodeStruct
-    structure SIGNATURES = SignaturesStruct
-  );
+    structure DEBUG      = Debug
+    structure VALUEOPS   = ValueOps
+    structure UTILITIES  = Utilities
+);

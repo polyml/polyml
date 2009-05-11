@@ -190,6 +190,7 @@ structure TYPETREE : TYPETREESIG;
 structure PARSETREE : PARSETREESIG
    
 structure STRUCTURES : STRUCTURESSIG
+structure SIGNATURES: SIGNATURESSIG
 
 structure PARSETYPE :
 sig
@@ -229,7 +230,7 @@ sig
 end;
 
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing = STRUCTURES.Sharing
-      = LEX.Sharing
+      = LEX.Sharing = SIGNATURES.Sharing
       = UTILITIES
 
 sharing SYMBOLS = SYMSET = SKIPS = LEX.Sharing
@@ -289,6 +290,7 @@ struct
  open STRUCTURES;
  open PARSETYPE;
  open UTILITIES;
+ open SIGNATURES
 
  (* constant sets defined here to reduce run-time garbage SPF 24/9/94 *)
  val structureLocalSy             = structureSy ++ localSy;
@@ -1726,14 +1728,14 @@ struct
     end (* dec *);
 
     (* Parses a signature. *)
-    fun parseSignature (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs * location =
+    fun parseSignature (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : sigs * location =
     let  (* May be either a signature name or a sig spec .. spec end seq
           followed by multiple  where type  expressions. *)
         val () = skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
         val startLocn = location lex
 
-        val sigexp : structs * location =
+        val sigexp : sigs * location =
             if testfor (SYMBOLS.sigSy, empty, lex)
             then
             let (* sig *)
@@ -1753,7 +1755,7 @@ struct
             end
 
             else (* Only if parse error which will have been reported in skipon. *)
-                (emptyStruct, location lex);
+                (emptySig, location lex);
 
         fun getWhereTypes(sigexp, sigLoc) =
         let
@@ -1797,11 +1799,11 @@ struct
 
 
  (* Sequence of "specs" *)
- and signatureSpec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs list =
+ and signatureSpec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : sigs list =
  let
    val signatureTvars = makeTypeVarEnv();
 
-   fun parseSigEntries () : structs list =
+   fun parseSigEntries () : sigs list =
    let
        val () = skipon (fsys ++ semicolonStartSigSys, fsys, "Signature", lex)
        val sym = sy lex and startLocn = location lex
@@ -1824,7 +1826,7 @@ struct
                         )
                 }
             in
-                [mkCoreLang (datatypeDecOrRepl(sys, newenv, true, startLocn))]
+                [mkCoreType (datatypeDecOrRepl(sys, newenv, true, startLocn))]
             end
 
          else if sym eq SYMBOLS.typeSy
@@ -1837,7 +1839,7 @@ struct
                 val () = insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, false, env))
             in
-                [mkCoreLang (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
          else if sym eq SYMBOLS.eqtypeSy
@@ -1848,7 +1850,7 @@ struct
                 val () = insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, true, env))
             in
-                [mkCoreLang (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
          else if sym eq SYMBOLS.valSy
@@ -1958,7 +1960,7 @@ struct
                     getLongId (declarableVarSys, fsys ++ rightParenEqualsSignAndSy, lex);
                  val (shares, _) = getShare ()
                  val () = getsym (SYMBOLS.equalsSign, lex)
-                 val share: structs =
+                 val share =
                      mkSharing
                        (isType,
                        shares :: #1 (getList (SYMBOLS.equalsSign, ident, lex, getShare)),

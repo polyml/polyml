@@ -37,7 +37,7 @@ sig
     type signatures;
     type functors;
     type env;
-    type sigBind and functorBind and structBind and structSigBind
+    type sigBind and functorBind and structBind
     type machineWord
     type fixStatus
     type location =
@@ -48,32 +48,24 @@ sig
     type exportTree = location * ptProperties list
     type typeParsetree
     type formalArgStruct
+    type sigs
 
     val isEmptyStruct:      structs -> bool;
     val emptyStruct:        structs
     val mkStructureDec:     structBind list * location -> structs;
-    val mkStructureSig:     structSigBind list * location -> structs;
     val mkStruct:           structs list * location -> structs;
     val mkSignatureDec:     sigBind list * location -> topdec;
-    val mkSig:              structs list * location -> structs;
     val mkFunctorDec:       functorBind list * location -> topdec;
-    val mkInclude:          structs list -> structs;
     val mkLocaldec:         structs list * structs list * bool * location -> structs;
     val mkCoreLang:         parsetree * location -> structs;
-    val mkStructureBinding: (string * location) * (structs * bool * location) option * structs * location -> structBind
-    val mkStructureSigBinding: (string * location) * (structs * bool * location) * location -> structSigBind
+    val mkStructureBinding: (string * location) * (sigs * bool * location) option * structs * location -> structBind
     val mkStructIdent:      string * location -> structs;
-    val mkSigIdent:         string * location -> structs;
-    val mkSignatureBinding: (string * location) * structs * location -> sigBind;
-    val mkValSig:           (string * location) * typeParsetree * location -> structs;
-    val mkExSig:            (string * location) * typeParsetree option * location -> structs;
+    val mkSignatureBinding: (string * location) * sigs * location -> sigBind;
     val mkFunctorAppl:      string * structs * location * location -> structs;
-    val mkFormalArg:        string * structs -> formalArgStruct;
+    val mkFormalArg:        string * sigs -> formalArgStruct;
     val mkFunctorBinding:
-        string * location * (structs * bool * location) option * structs * formalArgStruct * location -> functorBind;
-    val mkSharing:          bool * string list * location -> structs;
-    val mkWhereType:          structs * typeVarForm list * string * types * location -> structs
-    val mkSigConstraint:    structs * structs * bool * location -> structs
+        string * location * (sigs * bool * location) option * structs * formalArgStruct * location -> functorBind;
+    val mkSigConstraint:    structs * sigs * bool * location -> structs
     val mkTopDec:           structs -> topdec
     val mkProgram:          topdec list * location -> program
 
@@ -117,7 +109,7 @@ sig
         type typeParsetree  = typeParsetree
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
-        type structSigBind  = structSigBind
-        type typeVarForm    =typeVarForm
+        type typeVarForm    = typeVarForm
+        type sigs           = sigs
     end
 end;
