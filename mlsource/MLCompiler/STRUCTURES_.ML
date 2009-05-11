@@ -1333,7 +1333,8 @@ struct
                             then typeError(candid, target, 
                                         PrettyString "Type in structure is not a datatype")
 
-                            else if tcEquality target andalso not (permitsEquality candid)
+                            else if not(tcIsAbbreviation target) andalso tcEquality target
+                                    andalso not (permitsEquality candid)
                             then typeError(candid, target, 
                                         PrettyString "Type in structure is not an equality type")
                            
@@ -3242,7 +3243,7 @@ struct
        }
      end;
 
-    fun matchStructure (code : codetree, source : univTable, sourceIds: int->valAccess, dest : signatures) =
+    fun matchStructure (code : codetree, source : univTable, sourceIds: int*bool->valAccess, dest : signatures) =
     let
         (* Generate a new structure which will match the given signature.
            A structure is represented by a vector of entries, and its
@@ -3417,7 +3418,7 @@ struct
                             let
                                 (* Get the corresponding source ID. *)
                                 val codedId =
-                                    case sourceIds(n-sigMinTypes dest) of
+                                    case sourceIds(n-sigMinTypes dest, isEquality typeId) of
                                         Formal svAddr =>
                                         (
                                             if svAddr <> addr then useOriginal := false else ();
@@ -3459,7 +3460,7 @@ struct
             val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
             val addr = mkAddr();
             val () = idAddr := addr and () = idLevel := ! level;
-            val idCode = codeGenerativeId(source, getFormal, !level)
+            val idCode = codeGenerativeId(source, getFormal, isEquality dest, !level)
         in
             mkDec(addr, idCode)
         end
@@ -3476,13 +3477,14 @@ struct
             val (argCodeSource, argCodeSig) =
                 structureCode (arg, strName, debugEnv)
             (* Match the actual argument to the required arguments. *)
-            fun getMatchedId n =
+            fun getMatchedId(n, isEq) =
             let
-                val id = #source (List.nth (argIds, n))
+                val id = #source(List.nth (argIds, n))
             in
-                if isFreeId id orelse isBoundId id
-                then idAccess id
-                else Global(codeId(id, !level))
+                case id of
+                    TypeFunction _ => (* Have to generate a function here. *)
+                        Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                |   _ => idAccess id
             end
             val argCode =
                 matchStructure(argCodeSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs))
@@ -3497,7 +3499,7 @@ struct
             val ids = List.rev resIds
             val loadIds = loadOpaqueIds(fn(n, l) => mkInd(n, mkLoad(resAddr, l - !level)), ids)
             val offset = sigMinTypes resultSig - sigMinTypes(functorResult functs)
-            fun getTypeId n =
+            fun getTypeId(n, _) =
                 idAccess(#dest (List.nth (ids, n+offset)))
         in
             (* Evaluate the functor. *)
@@ -3538,13 +3540,14 @@ struct
                included in the result signature. *)
 
             (* Return the type IDs to match the result. *)
-            fun getTypeId n =
+            fun getTypeId(n, isEq) =
             let
-                val id = #source (List.nth (ids, n))
+                val id = #source(List.nth (ids, n))
             in
-                if isFreeId id orelse isBoundId id
-                then idAccess id
-                else Global(codeId(id, !level))
+                case id of
+                    TypeFunction _ => (* Have to generate a function here. *)
+                        Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                |   _ => idAccess id
             end
        in 
           (* The result is a block containing the declarations and
@@ -3562,16 +3565,17 @@ struct
  			    val (strCode, strSig) = structureCode (str, strName, debugEnv)
                 val tempDecs = multipleUses (strCode, mkAddr, !level);
                 val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
-                fun loadId n =
+                fun loadId(n, isEq) =
                 let
                     val id =
                         case opaqueIds of
                             [] => sigTypeIdMap strSig (n+sigMinTypes strSig)
                         |   _  => #dest(List.nth(opaqueIds, n))
                 in
-                    if isFreeId id orelse isBoundId id
-                    then idAccess id
-                    else Global(codeId(id, !level))
+                    case id of
+                        TypeFunction _ => (* Have to generate a function here. *)
+                            Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                    |   _ => idAccess id
                 end
                 val matchedCode =
                     matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
@@ -3602,7 +3606,7 @@ struct
                 val tempDecs = multipleUses (strCode, mkAddr, !level);
                 val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
                 val resultSig = structSignat (!valRef)
-                fun loadId n =
+                fun loadId(n, isEq) =
                 let
                     val id =
                         case opaqueIds of
@@ -3613,9 +3617,10 @@ struct
                                 sigTypeIdMap strSig (n + sigMinTypes resultSig)
                         |   _  => #dest(List.nth(opaqueIds, n))
                 in
-                    if isFreeId id orelse isBoundId id
-                    then idAccess id
-                    else Global(codeId(id, !level))
+                    case id of
+                        TypeFunction _ => (* Have to generate a function here. *)
+                            Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                    |   _ => idAccess id
                 end
                 val matchedCode =
                     matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
@@ -3712,13 +3717,15 @@ struct
                 (* Process the body and make a procedure out of it. *)
                 local
                     val (strCode, strSig) = structureCode (body, name ^ "().", debugEnv)
-                    fun getIds n =
+                    fun getIds(n, isEq) =
                     let
-                        val id = #source (List.nth(resIds, n))
+                        val id = #source(List.nth(resIds, n))
                     in
-                        if isFreeId id orelse isBoundId id
-                        then idAccess id
-                        else Global(codeId(id, !level))
+                        case id of
+                            TypeFunction _ => (* Have to generate a function here. *)
+                                Global(
+                                    codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                        |   _ => idAccess id
                     end
                     val matchedCode =
                         matchStructure (strCode, sigTab strSig, getIds, functorResult func)

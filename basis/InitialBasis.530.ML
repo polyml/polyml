@@ -305,37 +305,10 @@ local
     fun print_ref depth doArg (ref x) =
         PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth)) ])
 
-    (* For simplicity we don't provide pretty printers for datatypes declared in INITIALISE so we add them here. *)
-    fun print_option _ _ NONE = PrettyString "NONE"
-    |   print_option depth printEl (SOME v) =
-            PrettyBlock (1, false, [],
-                [
-                    PrettyString "SOME", PrettyBreak (1, 0),
-                    if depth <= 0 then PrettyString "..." else parenthesise(printEl(v, depth-1))
-                ]
-            )
-
-    (* Pretty printer for the "pretty" type itself. *)
-    fun pretty_pretty depth _ (PrettyString s) =
-            PrettyBlock(1, false, [],
-                [ PrettyString "PrettyString", PrettyBreak(1, 0),
-                    if depth <= 0 then PrettyString "..." else prettyRepresentation(s, depth-1)])
-    |   pretty_pretty depth _ (PrettyBreak args) =
-            PrettyBlock(1, false, [],
-                [ PrettyString "PrettyBreak", PrettyBreak(1, 0),
-                    if depth <= 0 then PrettyString "..." else prettyRepresentation(args, depth-1)])
-    |   pretty_pretty depth _ (PrettyBlock args) =
-            PrettyBlock(1, false, [],
-                [ PrettyString "PrettyBlock", PrettyBreak(1, 0),
-                    if depth <= 0 then PrettyString "..." else prettyRepresentation(args, depth-1)])
-            
-
 in
   	val () = addPrettyPrinter print_bool;
   	val () = addPrettyPrinter print_string;
   	val () = addPrettyPrinter print_char;
   	val () = addPrettyPrinter print_list
   	val () = addPrettyPrinter print_ref
-  	val () = addPrettyPrinter print_option
-  	val () = addPrettyPrinter pretty_pretty
 end;

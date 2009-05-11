@@ -200,7 +200,7 @@ sig
 
     val boolType:   typeConstrs;
     val intType:    typeConstrs;
-    val charType:   typeConstrs; (* added 22/8/96 SPF *)
+    val charType:   typeConstrs;
     val stringType: typeConstrs;
     val wordType:	typeConstrs;
     val realType:   typeConstrs;
@@ -209,8 +209,9 @@ sig
     val array2Type: typeConstrs;
     val unitType:   typeConstrs;
     val exnType:    typeConstrs;
-    val listType:   typeConstrs;
     val undefType:  typeConstrs;
+    
+    val isPointerEqType: typeId -> bool
 
     (* Access to values, structures etc. *)
 
@@ -317,9 +318,6 @@ sig
     val structVar:     structVals  Universal.tag;
     val signatureVar:  signatures  Universal.tag;
     val functorVar:    functors    Universal.tag;
-
-    (* Temporary addition *)
-    val defaultEqAndPrintCode: unit -> valAccess
 
     (* Types that can be shared. *)
     structure Sharing:

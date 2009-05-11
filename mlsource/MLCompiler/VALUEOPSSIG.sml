@@ -41,6 +41,7 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     type locationProp
     type typeId
+    type typeVarForm
 
     val overloadType:      values * bool -> types
 
@@ -57,9 +58,12 @@ sig
     val mkSelectedType: typeConstrs * string * structVals option * locationProp list -> typeConstrs
 
     (* Standard values *)
+    val listType: typeConstrs
     val nilConstructor:  values;
     val consConstructor: values;
-  
+    val optionType: typeConstrs
+    val buildBasisDatatype:
+        string * typeVarForm list * bool * (typeConstrs -> values list) -> typeConstrs
 
     type nameSpace =
     { 
@@ -152,5 +156,6 @@ sig
         type pretty         = pretty
         type locationProp   = locationProp
         type typeId         = typeId
+        type typeVarForm    = typeVarForm
     end
 end;

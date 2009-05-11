@@ -197,11 +197,6 @@ struct
             case tcIdentifier tc of
                 Bound { offset, ...} => "(" ^ Int.toString offset ^ ")"
             |   _ => "(Not bound)"
-           val _ = if tcEquality oldConstr andalso (isBoundId(tcIdentifier newConstr) orelse isFreeId(tcIdentifier newConstr))
-                        andalso not (tcEquality newConstr)
-           then TextIO.print (concat["Equality mismatch ", tcName oldConstr, idNumber oldConstr, 
-                                " ", tcName newConstr, idNumber newConstr, "\n"])
-           else ();
           in
            ()
           end

@@ -798,40 +798,84 @@ struct
 (*             Standard values and exceptions.                               *)
 (*****************************************************************************)
 
-  (* Nil and :: are used in parsetree for lists constructed
-     using [ ... ] and are also used for initialisation. *)
-  local
-    val listTypeVars  = tcTypeVars listType;
-    val alpha         = TypeVar(hd listTypeVars);
-    val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
-    val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
-  in
-    val nilConstructor  =
-        mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, 2, [DeclaredAt inBasis]);
-    val consConstructor =
-        mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, 2, [DeclaredAt inBasis]);
-  end;
+    (* Build a datatype within the basis. *)
+    fun buildBasisDatatype(tcName, tyVars, isEqType,
+            mkValConstrs: typeConstrs -> values list) =
+    let
+        (* Create a temporary datatype. *)
+        val id = makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType)
+        val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
+        (* Build the constructors. *)
+        val valConstrs = mkValConstrs dtype
+        (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
+        fun leq (Value{name=xname, ...}) (Value{name=yname, ...}) = xname < yname;
+        val sortedConstrs = quickSort leq valConstrs;
+        val () = tcSetConstructors(dtype, sortedConstrs)
+        val addrs = ref 0
+        fun mkAddrs() = ! addrs before (addrs := !addrs+1)
+        (* Create the datatype.  Sets the address of the local in "id". *)
+        val dtCode = createDatatypeFunctions([dtype], mkAddrs, 0)
+        (* Compile and execute the code to build the functions and extract the result. *)
+        val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
+        val newId = makeFreeId(Global globalCode, isEqType)
+        (* Finally copy the datatype to put in the code. *)
+        fun copyId(Bound{offset=0(* IdNumber*), ...}) = newId
+        |   copyId id = id
+    in
+        COPIER.fullCopyDatatype(dtype, copyId, "")
+    end
+
+    (* Nil and :: are used in parsetree for lists constructed
+       using [ ... ] and are also used for initialisation. *)
+    local
+        fun makeConsAndNil listType =
+        let
+            val listTypeVars  = tcTypeVars listType;
+            val alpha         = TypeVar(hd listTypeVars);
+            val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
+            val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
+            val nilConstructor  =
+                mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, 2, [DeclaredAt inBasis]);
+            val consConstructor =
+                mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, 2, [DeclaredAt inBasis]);
+        in
+            [nilConstructor, consConstructor]
+        end
+    in
+        val listType =
+            buildBasisDatatype("list",
+                [makeTv (EmptyType, generalisable, false, false, false)], true, makeConsAndNil)
+        val (nilConstructor, consConstructor) =
+            case tcConstructors listType of
+                [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}] => (nilC, consC)
+            |   _ => raise InternalError "nil and cons in wrong order"
+    end
 
     local
-        val typev = makeTv (emptyType, generalisable, false, false, false)
-        val optionType = (* Can't freeze it because we add constructors *)
-            makeDatatypeConstr("option", [typev],
-                makeFreeId(defaultEqAndPrintCode(), true), 0, [DeclaredAt inBasis]);
-        val NoneForm = EnumForm 0;
-        val SomeForm = BoxedForm;
-        val optionTypeVars  = tcTypeVars optionType;
-        val alpha         = TypeVar(hd optionTypeVars);
-        val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
-        val someType      = mkFunctionType (alpha, alphaOption);
+        fun makeNoneAndSome optionType =
+        let
+            val optionTypeVars  = tcTypeVars optionType;
+            val alpha         = TypeVar(hd optionTypeVars);
+            val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
+            val someType      = mkFunctionType (alpha, alphaOption);
+            val noneConstructor  =
+                mkGconstr ("NONE", alphaOption,
+                    createNullaryConstructor(EnumForm 0, "NONE"),  true, 2, [DeclaredAt inBasis]);
+            val someConstructor =
+                mkGconstr ("SOME",  someType,
+                    createUnaryConstructor(BoxedForm, "SOME"), false, 2, [DeclaredAt inBasis]);
+        in
+            [noneConstructor, someConstructor]
+        end
     in
-        val optionType = optionType
-        val noneConstructor  =
-            mkGconstr ("NONE", alphaOption,
-                createNullaryConstructor(NoneForm, "NONE"),  true, 2, [DeclaredAt inBasis]);
-        val someConstructor =
-            mkGconstr ("SOME",  someType,
-                createUnaryConstructor(SomeForm, "SOME"), false, 2, [DeclaredAt inBasis]);
-    end;
+        val optionType =
+            buildBasisDatatype("option",
+                [makeTv (EmptyType, generalisable, false, false, false)], true, makeNoneAndSome)
+        val (noneConstructor, someConstructor) =
+            case tcConstructors optionType of
+                [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}] => (noneC, someC)
+            |   _ => raise InternalError "NONE and SOME in wrong order"
+    end
   
     (* Create exception values - Small integer values are used for
        run-time system exceptions. *)
@@ -1441,364 +1485,6 @@ struct
  val raiseBind      = raiseException "Bind" bindExceptionVal CodeZero;
 
 (*****************************************************************************)
-(*                  Equality function compiler                               *)
-(*****************************************************************************)
-
-(*
-    This generates code to handle equality (i.e. = and <>) by generating functions
-    based on the type of the arguments to be compared.  For parameterised datatypes
-    (e.g. 'a list) that means generating functions which are parameterised on the
-    equality function for 'a.  In a few cases (e.g where the type is a functor
-    argument) we can't generate the function and we fall back to the general purpose
-    structure equality function.  The optimiser (codetree) does a good job of optimising
-    the code and turning the functions into loops. 
-*)
-
- fun genEqualityFunction(instance: types, level: int): codetree =
- let
-    (* To reduce the size of the code we pass down the kind of
-       result we want. *)
-     datatype reskind =
-        ApplyFun of ({level:int, myAddr: int}->codetree)*({level:int, myAddr: int}->codetree)
-    |   MakeFun
-    (* If we get a function back it may take a pair as an argument or
-       it may take two arguments. *)
-    datatype resfun =
-        PairArg of {level:int, myAddr: int} -> codetree
-    |    TwoArgs of {level:int, myAddr: int} -> codetree
-
-    val baseLevel = level+1
-    local
-        val addrs = ref 0
-    in
-        fun mkaddrs () = (addrs := !addrs + 1; !addrs)
-    end
-
-    (* The list of functions.  These are potentially mutually recursive. *)
-    val generatedFuns: codetree list ref = ref []
-    (* The list of addresses of functions for datatypes.  This allows us
-       to make recursive calls for recursive datatypes and also to avoid
-       generating the same function twice.
-       e.g. datatype t = A of s | B and s = C of t | D. *)
-    val datatypeList: (int * typeId) list ref = ref []
-
-    (* If we have a function we either return it or we apply it.  The
-       function will always take a single argument as a tuple. *)
-    fun returnFun (f: resfun, MakeFun) = f
-     |  returnFun (TwoArgs f, ApplyFun(a1, a2)) =
-            PairArg(fn lA => mkEval(f lA, [a1 lA, a2 lA], true))
-     |  returnFun (PairArg f, ApplyFun(a1, a2)) =
-            PairArg(fn lA => mkEval(f lA, [mkTuple[a1 lA, a2 lA]], true))
-
-    (* If we have a piece of code we may need to wrap it in a function.
-       This is generally used to create the code for handling tuples.
-       When creating a function this previously attempted to add the function to
-       the generatedFuns list but that turned out to have a bug.  If we have
-       a tuple inside a parameterised datatype e.g. datatype 'a t = X of 'a * ... then
-       we must make sure that we create the tuple equality function inside the equality
-       function for t otherwise it won't be able to find the equality function for 'a.  *)
-    fun returnCode(mkCode, ApplyFun(a1, a2)) =
-            PairArg(fn l => mkCode(a1, a2, l))
-      | returnCode(mkCode, MakeFun) =
-          let
-            fun wrappedCode {level, myAddr} =
-            let
-                val addr = mkaddrs() (* Should never be used since this isn't directly recursive. *)
-                val newLevel = level+1
-    
-                val code = mkCode(fn {level=l, ...} => mkLoad(~1, l-newLevel),
-                                  fn {level=l, ...} => mkLoad(~2, l-newLevel),
-                                  {level=newLevel, myAddr=addr});
-            in
-                mkProc(code, newLevel, 2, "eq{...}(2)")
-            end
-        in
-            TwoArgs wrappedCode
-        end
-
-     val default = PairArg(fn _ => mkConst (toMachineWord structureEq))
-
-     fun makeEq(ty: types, resKind: reskind,
-               findTyVars: typeVarForm -> resfun): resfun =
-    let
-
-        fun equalityForDatatype(constr, vConstrs) : {level:int, myAddr: int} -> codetree =
-        let
-            val id = tcIdentifier constr
-            val typeName = tcName constr
-            val addr = mkaddrs()
-            (* We need to record this address in the list. *)
-            val _ = datatypeList := (addr, id) :: !datatypeList;
-            (* If this is a polymorphic type constructor (e.g. 'a list)
-               we have to pass the equality functions for the argument
-               type (e.g. int if we have int list) as arguments to the
-               equality function. *)
-            val constructorTypeVars = tcTypeVars constr
-            val nTypeVars = List.length constructorTypeVars
-
-            val outerFunLevel = baseLevel+1
-            val newLevel =
-                if nTypeVars = 0 then outerFunLevel else outerFunLevel+1
-
-            fun newTvFun tv =
-            let
-                fun findTv [] n = findTyVars tv (* Not in this list. *)
-                 |  findTv (tv' :: tvs) n =
-                         if sameTv(tv, tv')
-                        then TwoArgs(fn {level, ...} => mkLoad(n, level-outerFunLevel))
-                        else findTv tvs (n+1)
-            in
-                findTv constructorTypeVars (~nTypeVars)
-            end
-
-            (* Filter out the EnumForm constructors.  They arise
-               in situations such as datatype t = A of int*int | B | C
-               i.e. where we have only one non-nullary constructor
-               and it is a tuple.  In this case we can deal with all
-               the nullary constructors simply by testing whether
-               the two arguments are the same.  We don't have to
-               discriminate the individual cases. *)
-            fun isEnum(Value{class=Constructor{nullary=true, ...}, access=Global code, ...}) =
-                let
-                    open ADDRESS
-                in
-                    (* If the value is a short integer then we can check
-                       for equality using pointer equality. *)
-                    isShort(loadWord(toAddress(evalue code), 0w1))
-                end
-              | isEnum _ = false
-
-            fun processConstrs [] =
-                    (* The last of the alternatives is false *) CodeZero
-
-             |    processConstrs ((vConstr as Value{class, access, typeOf, name=tempConstrName, ...}) ::rest) =
-                 if isEnum vConstr then processConstrs rest
-                else
-                 let
-                    val base = codeAccess(access, newLevel)
-                    fun matches arg =
-                        mkEval(mkInd(0, base) (* Test function. *), [arg], true)
-                in
-                    case class of
-                        Constructor{nullary=true, ...} =>
-                            mkIf(matches arg1, matches arg2, processConstrs rest)
-                    |    _ => (* We have to unwrap the value. *)
-                        let
-                            (* Get the constructor argument given
-                               the result type.  We might actually be
-                               able to take the argument type off directly
-                               but there's some uncertainty about whether
-                               we use the same type variables for the
-                               constructors as for the datatype. (This only
-                               applies for polytypes). *)
-                            val resType =
-                                constructorResult(typeOf, List.map TypeVar constructorTypeVars)
-
-                            (* Code to extract the value. *)
-                            fun destruct argNo {level=l, ...} =
-                                mkEval(mkInd(2, codeAccess(access, l)) (* projection function. *),
-                                    [mkLoad(argNo, l-newLevel)], true)
-
-                            (* Test whether the values match. *)
-                            val eqValue =
-                                applyEq(resType, destruct ~1, destruct ~2,
-                                        {level=newLevel, myAddr=addr}, newTvFun)    
-                        in
-                            (* We have equality if both values match
-                               this constructor and the values within
-                               the constructor match. *)
-                            mkIf(matches arg1,
-                                mkCand(matches arg2, eqValue),
-                                processConstrs rest)
-                        end
-                end
-
-            (* We previously only tested for bit-wise (pointer) equality if we had
-               at least one "enum" constructor in which case the test would eliminate
-               all the enum constructors.  I've now extended this to all cases where
-               there is more than one constructor.  The idea is to speed up equality
-               between identical data structures. *)
-            val eqCode =
-                case vConstrs of
-                   [vcons] => (* Single constructor. *)
-                       if isEnum vcons
-                       then CodeTrue (* Return true here: processConstrs would return false. *)
-                       else processConstrs vConstrs
-                 |  _ => (* More than one constructor: should never be zero. *)
-                        mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
-            val eqFun =
-                mkProc(eqCode, newLevel, 2, "eq-" ^ typeName ^ "(2)")
-            (* If this is a monotype we can return it directly otherwise we
-               need to wrap it up in a function to take the equality functions
-               for the argument types. *)
-            val resFun =
-                if nTypeVars = 0 then eqFun
-                else mkProc(eqFun, outerFunLevel, nTypeVars, "eq-" ^ typeName ^ "(1)")
-        in
-            generatedFuns := !generatedFuns @ [mkDec(addr, resFun)];
-            fn {level=l, myAddr} => mkLoad(addr, l-baseLevel)
-        end
-        
-        fun equalityForConstruction(constr, args, vConstrs): resfun =
-        (* Generate an equality function for a datatype construction. *)
-        let
-            (* See if we are currently making this function or
-               have already made it.  If this is recursive we may
-               be able to optimise it. *)
-            val id = tcIdentifier constr
-            val constrName = tcName constr
-
-            fun searchList [] = NONE
-            |    searchList ((addr, t) :: rest) =
-                    if sameTypeId(t, id) then SOME addr else searchList rest
-            val alreadyAddr = searchList (!datatypeList)
-            (* Get the equality functions for the argument types.
-               These want to be functions taking two arguments.
-               This applies only to polytypes. *)
-            fun getArg (lA as {level, myAddr}) ty : codetree =
-            let
-                val eqFun = makeEq(ty, MakeFun, findTyVars)
-            in
-                case eqFun of
-                    PairArg f =>
-                            (* Have to make a function which takes two arguments. *)
-                            mkInlproc(
-                                mkEval(f{level=level+1, myAddr=myAddr}, [mkTuple[arg1, arg2]], true),
-                                level+1, 2, "eq-"^constrName^"(...)")
-                |    TwoArgs f => f lA
-            end
-            (* If we are compiling a recursive polytype (e.g. list) and
-               we find a recursive call we can generate better code by
-               calling the inner function directly, provided the recursive
-               call involves the polymorphic type.  This isn't true if we
-               have datatype 'a t = X of int t | Y of 'a where the
-               recursive call is not polymorphic. *)
-             fun sameTypeVars(TypeVar tv, TypeVar tv') = sameTv(tv, tv')
-             |   sameTypeVars _ = false
-
-             fun recursiveEq (addr, []) {level:int, myAddr: int} =
-                if addr = myAddr
-                then mkRecLoad(level-baseLevel-1)
-                else mkLoad(addr, level-baseLevel)
-
-             |    recursiveEq (addr, _) (lA as {level:int, myAddr: int}) =
-                if addr <> myAddr
-                then mkEval(mkLoad(addr, level-baseLevel),
-                        map (getArg lA) args, true)
-                else if ListPair.foldl
-                            (fn(a, b, t) => t andalso sameTypeVars(a,b))
-                            true (args, List.map TypeVar (tcTypeVars constr))
-                then mkRecLoad(level-baseLevel-2)
-                else mkEval(mkRecLoad(level-baseLevel-1),
-                        map (getArg lA) args, true)
-        in
-            (* Apply the function we obtained to any type arguments. *)
-            case searchList (!datatypeList) of
-                SOME addr => TwoArgs(recursiveEq(addr, args))
-            |    NONE =>
-                    TwoArgs(fn l =>
-                            mkEval(mkInd(0, codeId(tcIdentifier constr, #level l)), map (getArg l) args, true))
-        end
-    in
-        case ty of
-            TypeVar tyVar =>
-                let
-                  (* The type variable may be bound to something. *)
-                  val tyVal = tvValue tyVar
-                in
-                  (* If we have an unbound type variable it may either
-                     be a type constructor argument or it may be a free
-                     equality type variable. *)
-                  if isEmpty tyVal
-                  then returnFun(findTyVars tyVar, resKind)
-                  else makeEq(tyVal, resKind, findTyVars)
-                end
-
-        |    TypeConstruction{value, args, ...} =>
-            let
-                val constr = pling value
-                val id = tcIdentifier constr
-            in
-                if tcIsAbbreviation constr  (* May be an alias *)
-                then makeEq (makeEquivalent (constr, args), resKind, findTyVars)
-                else returnFun(equalityForConstruction(constr, args, tcConstructors constr), resKind)
-            end
-
-        |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
-                (* Unary tuples are optimised - no indirection. *)
-                    makeEq(singleton, resKind, findTyVars)
-
-        |   LabelledType {recList, ...} =>
-                (* Combine the entries.
-                    fun eq(a,b) = #1 a = #1 b andalso #2 a = #2 b ... *)
-                let
-                    fun eqTuple(arg1, arg2, lA) =
-                    let
-                        fun combineEntries ([], n) = CodeTrue
-                        |    combineEntries ({typeof, name=_}::t, n) =
-                                mkCand
-                                (applyEq(typeof, fn l => mkInd(n, arg1 l),
-                                         fn l => mkInd(n, arg2 l),
-                                         lA, findTyVars),
-                                 combineEntries (t, n+1))
-                    in
-                        combineEntries(recList, 0)
-                    end
-                in
-                    returnCode(eqTuple, resKind)
-                end
-
-        |    _ => (* It is actually possible to get an equality function
-                    on functions in ML97 as a result of sharing constraints
-                    in a functor. The signature would not be matchable by
-                    a real structure so the functor could never be applied.
-                    Nevertheless the functor must compile so we just put
-                    in structure equality here. *)
-                returnFun(default, resKind)
-    end
-
-    (* Make an equality function and apply it to the arguments. *)
-    and applyEq(ty, arg1, arg2, lA, findTyVars): codetree =
-        case makeEq(ty, ApplyFun(arg1, arg2), findTyVars) of
-            PairArg c => c lA
-        |    TwoArgs _ => raise InternalError "applyEq: wrong result"    
-
-     (* The instance type is a function so we have to get the first
-       argument. *)
-    val argType = firstArg instance
-    (* Get the final equality function and generate any which are needed
-       as a side effect. *)
-     val resultCode = makeEq(argType, MakeFun, fn _ => default)
- in
-     (* The final result function must take a single argument.  If we have
-       generated a function the result must be one which takes two arguments.
-       If we have not generated it it must have come from somewhere else so
-       it must take a pair. *)
-     case resultCode of
-        PairArg c => c {level=baseLevel,myAddr=0}
-    |    TwoArgs c =>
-            let
-                (* Must call c BEFORE we dereference generatedFuns because
-                   the call may generate new functions. *)
-                val code = c {level=baseLevel,myAddr=0}
-                val funs = ! generatedFuns
-                val wrappedFuns =
-                    case funs of
-                        [singleton] => singleton
-                    |    funs => mkMutualDecs funs
-            in
-                (* We need to wrap this up in a new inline function for two reasons.
-                   One is that it needs to take a single pair argument, the other is
-                   that we have allocated the addresses from 1 and we may get conflicts
-                   with addresses in the surrounding scope. *)
-                mkInlproc(CODETREE.mkEnv[wrappedFuns,
-                          mkEval(code, [mkInd(0, arg1), mkInd(1, arg1)], true)],
-                          baseLevel, 1, "equality")
-            end
- end
-
-
-(*****************************************************************************)
 (*                  datatype access functions                                *)
 (*****************************************************************************)
 
@@ -2266,21 +1952,21 @@ struct
                in the prelude and set it as an overload with some special
                type so that getOverload would return it as the default. *)
             let
-                val code = genEqualityFunction(instance, level)
+                (* The instance type is a function so we have to get the first argument. *)
+                val code = equalityForType(firstArg instance, level)
             in
                 mkEval (code, [argument], true) (* evaluate early *)
             end
         
         | NotEqual =>
-           let
-                (* Use the "=" function to provide inequality as well as
-                 equality. *)
-             val code = genEqualityFunction(instance, level)
-             val isEqual =
-                 mkEval (code, [argument], true) (* evaluate early *)
-           in
-             mkNot isEqual
-           end
+            let
+                (* Use the "=" function to provide inequality as well as equality. *)
+                val code = equalityForType(firstArg instance, level)
+                val isEqual =
+                    mkEval (code, [argument], true) (* evaluate early *)
+            in
+                mkNot isEqual
+            end
        
         | TypeDep =>
            let
@@ -2480,6 +2166,7 @@ struct
         type pretty         = pretty
         type locationProp   = locationProp
         type typeId         = typeId
+        type typeVarForm    = typeVarForm
     end
 
 end (* body of VALUEOPS *);

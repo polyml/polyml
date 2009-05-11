@@ -31,33 +31,7 @@ structure LEX: LEXSIG
 structure TYPETREE : TYPETREESIG;
 structure STRUCTVALS : STRUCTVALSIG;
 structure VALUEOPS : VALUEOPSSIG;
-
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
-structure CODETREE :
-sig
-  type machineWord
-  type codetree
-     
-  val CodeNil:          codetree;
-  val CodeZero:         codetree;
-  val mkEnv:            codetree list -> codetree;
-  val mkDec:            int * codetree -> codetree;
-  val mkLoad:           int * int -> codetree;
-  val mkInd:            int * codetree -> codetree;
-  val mkConst:          machineWord -> codetree;
-  val mkInlproc:        codetree * int * int * string -> codetree;
-  val mkIf:             codetree * codetree * codetree -> codetree;
-  val mkEval:           codetree * codetree list * bool -> codetree;
-  val identityFunction: string -> codetree;
-  val mkTuple:          codetree list -> codetree;
-  val mkStr:            string   -> codetree;
-  val mkRaise:          codetree -> codetree;
-
-  val evalue:           codetree -> machineWord;
-end;
-
+structure CODETREE : CODETREESIG
 structure EXPORTTREE: EXPORTTREESIG
 
 (*****************************************************************************)
@@ -141,7 +115,8 @@ sig
    val versionNumber: int
 end;
 
-sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing = PRETTY.Sharing = MAKE = ADDRESS = CODETREE
+sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
+        = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS
 
 ) : 
 
@@ -225,6 +200,32 @@ struct
             val mkTypeConstruction = mkTypeConstruction;
             val mkTypeVar = mkTypeVar;
         end;
+
+        (* Function to make a type identifier with a pretty printer that just prints "?"
+           and the structural equality function.  Most of the types we use this for
+           don't admit equality but it's simpler  to have a single function here. *)
+        local
+            fun defaultPrinter depth _ value = PRETTY.PrettyString "?"
+            val defaultEqCode =
+                mkInlproc(
+                    mkInlproc(
+                        mkEval(mkConst(toMachineWord structureEq),
+                            [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
+                    0, 0, "eq-helper()")
+        in
+            fun defaultEqAndPrintCode() =
+            let
+                (* The structure equality function takes a pair of arguments.  We need a
+                   function that takes two Poly-style arguments. *)
+                val code =
+                    mkTuple[
+                        defaultEqCode,
+                        mkConst (toMachineWord (ref defaultPrinter))
+                    ]
+            in
+                Global (genCode(code, []) ())
+            end
+        end
    
         (* List of something *)
         fun List (base : types) : types =
@@ -233,10 +234,6 @@ struct
         (* ref something *)
         fun Ref (base : types) : types  =
             mkTypeConstruction ("ref", refType, [base], declInBasis);
-       
-        (* option something *)
-        val optionType = (* Can't freeze it because we add constructors *)
-            makeDatatypeConstr("option", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
         
         fun Option (base : types) : types  =
             mkTypeConstruction ("option", optionType, [base], declInBasis);
@@ -309,39 +306,18 @@ struct
 (*****************************************************************************)
 (*                  'a list                                                  *)
 (*****************************************************************************)
+        val () = (* Enter :: and nil. *)
+            List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
+                (tcConstructors listType)
         val () = enterGlobalType  ("list", listType);
-        val () = enterGlobalValue ("::",   consConstructor);
-        val () = enterGlobalValue ("nil",  nilConstructor);
-        
-        (* Put these constructors onto the list type. *)
-        val () = tcSetConstructors (listType, [consConstructor, nilConstructor]);
 
 (*****************************************************************************)
 (*                  'a option                                                  *)
 (*****************************************************************************)
-        local
-            val optionTypeVars  = tcTypeVars optionType;
-            val alpha         = TypeVar(hd optionTypeVars);
-            val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], declInBasis);
-            val someType      = TYPETREE.mkFunctionType (alpha, alphaOption);
-            (* These two representations are built into the RTS. *)
-            val NoneForm = EnumForm 0;
-            val SomeForm = BoxedForm;
-            val noneConstructor  =
-                mkGconstr ("NONE", alphaOption,
-                    createNullaryConstructor(NoneForm, "NONE"),  true, 2, declInBasis);
-            val someConstructor =
-                mkGconstr ("SOME",  someType,
-                    createUnaryConstructor(SomeForm, "SOME"), false, 2, declInBasis);
-        in
-            val () = enterGlobalType  ("option", optionType);
-            val () = enterGlobalValue ("SOME",   someConstructor);
-            val () = enterGlobalValue ("NONE",   noneConstructor);
-            (* Put these constructors onto the option type.  N.B.  as with all
-               value constructors these need to be in alphabetical order. *)
-            val () = tcSetConstructors (optionType, [noneConstructor, someConstructor]);
-        end;
-
+        val () = (* Enter NONE and SOME. *)
+            List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
+                (tcConstructors optionType)
+        val () = enterGlobalType  ("option", optionType);
 
 (*****************************************************************************)
 (*                  ref                                                      *)
@@ -661,9 +637,12 @@ struct
 (*****************************************************************************)
     (* The only reason we have vector here is to get equality right.  We need
        vector to be an equality type and to use structure equality. *)
-        val vectorType =
-            makeFrozenTypeConstrs("vector", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
-        val () = enterGlobalType  ("vector", vectorType);
+        local
+        in
+            val vectorType =
+                makeFrozenTypeConstrs("vector", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
+            val () = enterGlobalType  ("vector", vectorType);
+        end
         
         
     (* We also need array and Array2.array to be passed through here so that
@@ -811,54 +790,59 @@ struct
 (*                  context type                                           *)
 (*****************************************************************************)
         local
-            (* Pretty print context information. *)
             open TYPETREE
-            val typeconstr = makeDatatypeConstr("context", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
-            val ContextType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
-            val () = #enterType polyMLEnv ("context", typeconstr);
- 
-            val constrs = (* Order is significant. *)
-               [ ("ContextLocation", Location),
-                 ("ContextParentStructure", String ** List ContextType),
-                 ("ContextProperty", String ** String)];
-            (* We rely on chooseConstrRepr giving us the same representation for the
-               constructors as when context was compiled by the previous compiler. *)
-            val numConstrs = List.length constrs
-            val constructors =
+            (* Pretty print context information. *)
+            fun makeConstructors typeconstr =
+            let
+                val contextType = mkTypeConstruction ("context", typeconstr, [], declInBasis)
+                val constrs =
+                   [ ("ContextLocation", Location),
+                     ("ContextParentStructure", String ** List contextType),
+                     ("ContextProperty", String ** String)];
+                (* We rely on chooseConstrRepr giving us the same representation for the
+                   constructors as when context was compiled by the previous compiler. *)
+                val numConstrs = List.length constrs
+            in
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> ContextType, code, false, numConstrs, declInBasis))
+                    mkGconstr(s, t ->> contextType, code, false, numConstrs, declInBasis))
                         (constrs, chooseConstrRepr constrs)
-            val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
-            (* Put these constructors onto the context type. *)
-			val () = tcSetConstructors (typeconstr, constructors);
-		in
+            end
+            val typeconstr =
+                buildBasisDatatype("context", [], false, makeConstructors)
+        in
+            val () = #enterType polyMLEnv ("context", typeconstr);
+            val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
+                        (tcConstructors typeconstr)
             val Context = mkTypeConstruction ("context", typeconstr, [], declInBasis)
-		end
+        end
 
 (*****************************************************************************)
 (*                  pretty datatype (for printing)                           *)
 (*****************************************************************************)
         local
             open TYPETREE
-            val typeconstr = makeDatatypeConstr("pretty", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
-            val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
-            val () = #enterType polyMLEnv ("pretty", typeconstr);
-            val constrs = (* Order is significant. *)
-               [ ("PrettyBlock", mkProductType[Int, Bool, List Context, List PrettyType]),
-                 ("PrettyBreak", Int ** Int),
-                 ("PrettyString", String)];
-            (* We rely on chooseConstrRepr giving us the same representation for the
-               constructors as when PrettyPrint was compiled by the previous compiler. *)
-            val numConstrs = List.length constrs
-            val constructors =
+            fun makeConstructors typeconstr =
+            let
+                val prettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
+                val constrs =
+                   [ ("PrettyBlock", mkProductType[Int, Bool, List Context, List prettyType]),
+                     ("PrettyBreak", Int ** Int),
+                     ("PrettyString", String)];
+                (* We rely on chooseConstrRepr giving us the same representation for the
+                   constructors as when PrettyPrint was compiled by the previous compiler. *)
+                val numConstrs = List.length constrs
+            in
                 ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> PrettyType, code, false, numConstrs, declInBasis))
+                    mkGconstr(s, t ->> prettyType, code, false, numConstrs, declInBasis))
                         (constrs, chooseConstrRepr constrs)
-            val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
-            (* Put these constructors onto the pretty print type. *)
-			val () = tcSetConstructors (typeconstr, constructors);
+            end
+            val typeconstr =
+                buildBasisDatatype("pretty", [], false, makeConstructors)
 		in
-            val PrettyType = PrettyType
+            val () = #enterType polyMLEnv ("pretty", typeconstr);
+            val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
+                        (tcConstructors typeconstr)
+            val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
 		end
 
 
@@ -943,11 +927,13 @@ struct
             end;
 
             (* type 'a tag *)
-            val tagConstr = makeFrozenTypeConstrs("tag", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+            val tagConstr =
+                makeFrozenTypeConstrs("tag", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)
-            val univConstr = makeFrozenTypeConstrs("universal", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+            val univConstr =
+                makeFrozenTypeConstrs("universal", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -972,7 +958,8 @@ struct
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
-			val propConstr = makeDatatypeConstr("ptProperties", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+			val propConstr =
+                makeDatatypeConstr("ptProperties", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 

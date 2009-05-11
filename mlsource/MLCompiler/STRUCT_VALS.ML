@@ -361,7 +361,8 @@ struct
     |   isEquality (Free{uid = ref eq, ...}) = eq
     |   isEquality (Bound{eqType, ...}) = pling eqType
     |   isEquality (Flexible(ref v)) = isEquality v
-    |   isEquality (TypeFunction _) = false (* Requires analysis of the type function. *)
+    |   isEquality (TypeFunction _) =
+            raise InternalError "isEquality: TypeFunction" (* Requires analysis of the type function. *)
 
     (* Set the equality property.  This may be either for flexible stamps as the
        result of sharing with an eqtype or, for either flexible or free datatypes,
@@ -564,39 +565,6 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
 
-    (* The code for a type is a pair.
-       The first field is the equality function which is a function that takes a set
-       of equality functions one for each of the parameter types, or an empty argument
-       if it is a monotype and returns a function from the pair of values to a bool.
-       The pairs and the set of functions are passed as Poly parameters not ML tuples.
-       The second field is a ref to a pretty print function.  The ref allows the default
-       function to be replaced by a user-supplied pretty-printer function.  This function
-       has the form of an ML pretty-print function. *)
-    local
-        open Address PRETTY;
-
-        fun defaultPrinter depth _ value = PrettyString "?"
-    in
-        fun defaultEqAndPrintCode() =
-        let
-            (* The structure equality function takes a pair of arguments.  We need a
-               function that takes two Poly-style arguments. *)
-            val defaultEqCode =
-                mkInlproc(
-                    mkInlproc(
-                        mkEval(mkConst(toMachineWord structureEq),
-                            [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
-                    0, 0, "eq-helper()")
-            val code =
-                mkTuple[
-                    defaultEqCode,
-                    mkConst (toMachineWord (ref defaultPrinter))
-                ]
-        in
-            Global (genCode(code, []) ())
-        end
-    end
-
     (* Eqtypes with built-in equality functions. *)
     local
         open Address PRETTY RuntimeCalls
@@ -647,16 +615,34 @@ struct
         val boolType =
             makeDatatypeConstr 
                 ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true), 0, [DeclaredAt inBasis]);
-   end
+    end
+
+    (* These polytypes allow equality even if the type argument is not an equality type. *)
+    fun isPointerEqType id =
+        sameTypeId (id, tcIdentifier refType) orelse
+        sameTypeId (id, tcIdentifier arrayType) orelse
+        sameTypeId (id, tcIdentifier array2Type)
 
     (* Non-eqtypes *)
     local
         open Address PRETTY;
+
         fun makeType name =
-            makeFrozenTypeConstrs (name, [], makeFreeId(defaultEqAndPrintCode(), false), 0, [DeclaredAt inBasis]);
+        let
+            fun defaultPrinter depth _ value = PrettyString "?"
+             val code =
+                mkTuple[
+                    CodeZero (* No equality. *),
+                    mkConst (toMachineWord (ref defaultPrinter))
+                ]
+        in
+            makeFrozenTypeConstrs (name, [], makeFreeId(Global (genCode(code, []) ()), false), 0, [DeclaredAt inBasis])
+        end
     in
         val realType   = makeType "real"; (* Not an eqtype in ML97. *)
         val exnType    = makeType "exn";
+        (* "undefType" is used as a place-holder during parsing for the actual type constructor. *)
+        val undefType  = makeType "undefined"
     end
 
     (* The unit type is equivalent to the empty record. *)
@@ -664,16 +650,6 @@ struct
         makeTypeAbbreviation ("unit", [],
 	       LabelledType {recList = [], frozen = true, genericInstance = []},
 		   [DeclaredAt inBasis]);
-  
-    val listType =
-        makeDatatypeConstr 
-            ("list", [makeTv (EmptyType, generalisable, false, false, false)],
-            makeFreeId(defaultEqAndPrintCode(), true), 0, [DeclaredAt inBasis]);
-
-    (* "undefType" is used as a place-holder during parsing for the actual type
-       constructor. *)
-    val undefType = 
-        makeFrozenTypeConstrs ("undefined", [], makeFreeId(defaultEqAndPrintCode(), false), 0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  

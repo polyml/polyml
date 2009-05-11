@@ -24,7 +24,7 @@ sig
     type typeConstrs
     type typeVarForm
     val codeId: typeId * int -> codetree
-    val codeGenerativeId: typeId * (int*int->codetree) * int -> codetree
+    val codeGenerativeId: typeId * (int*int->codetree) * bool * int -> codetree
     
     val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
     
@@ -32,6 +32,8 @@ sig
 
     (* Generate a function of the form t*int->pretty for values of type t. *)
     val printerForType: types * int -> codetree
+    (* Generate a function of the form (t,t) -> bool. *)
+    val equalityForType: types * int -> codetree
 
     structure Sharing:
     sig

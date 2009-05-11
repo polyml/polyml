@@ -919,7 +919,8 @@ struct
 		   val tcname = #second(splitString(tcName tCons))
         in
             PrettyBlock (3, false, [],
-                PrettyString (if tcEquality tCons then "eqtype" else "type") ::
+                PrettyString (
+                    if not(tcIsAbbreviation tCons) andalso tcEquality tCons then "eqtype" else "type") ::
                 PrettyBreak (1, 0) ::
                 printTypeVars (tcTypeVars tCons, depth, typeV) @
                 [PrettyString tcname]
@@ -1458,37 +1459,36 @@ struct
        No  (* No equality on function types! *)
     
    | TypeConstruction {value, args, ...} =>
-     let
-        val constr = pling value;
-      in
-	    if isUndefined constr
-	  then No
+        let
+            val constr = pling value;
+        in
+    	    if isUndefined constr
+    	    then No
 
-	(* ref - Equality is permitted on refs of all types *)
-	(* The Definition of Standard ML says that ref is the ONLY type
-	   constructor which is treated in this way.  The standard basis
-	   library says that other mutable types such as array should
-	   also work this way. *)
-    else if sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.refType) orelse
-            sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.arrayType) orelse
-            sameTypeId (tcIdentifier constr, tcIdentifier STRUCTVALS.array2Type)
-    then Yes
+            else if tcIsAbbreviation constr
+            then (* May be an alias for a type that allows equality. *)
+                equality (makeEquivalent (constr, args), search, lookupTypeVar)
+
+        	(* ref - Equality is permitted on refs of all types *)
+        	(* The Definition of Standard ML says that ref is the ONLY type
+        	   constructor which is treated in this way.  The standard basis
+        	   library says that other mutable types such as array should
+        	   also work this way. *)
+            else if isPointerEqType(tcIdentifier constr)
+            then Yes
+
+            (* Others apart from ref and real *)
+    	    else if tcEquality constr (* Equality allowed. *)
+    	    then eqForList (args, Yes) (* Must be allowed for all the args *)
 	  
-        (* Others apart from ref and real *)
-	else if tcEquality constr (* Equality allowed. *)
-	  then eqForList (args, Yes) (* Must be allowed for all the args *)
-	  
-	else if not (tcIsAbbreviation constr)
-	  then let (* Not an alias. - Look it up. *)
-	    val s = search (tcIdentifier constr);
-	  in 
-	    if s = No then No else eqForList (args, s)
-	  end
-	 
-	 (* May be an alias for a type that allows equality. *)
-	 else
-	   equality (makeEquivalent (constr, args), search, lookupTypeVar)
-      end (* TypeConstruction *)
+    	    else
+            let (* Not an alias. - Look it up. *)
+    	        val s = search (tcIdentifier constr);
+    	    in 
+    	        if s = No then No else eqForList (args, s)
+    	    end
+	   
+        end (* TypeConstruction *)
          
    | LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
    		(* TODO: Avoid copying the list? *)
@@ -2583,13 +2583,13 @@ struct
     (* Returns true if a type constructor permits equality. *)
     
     fun permitsEquality constr =
-       if tcEquality constr then true
-       else if not(tcIsAbbreviation constr) then false
-       else not (equality 
+        if tcIsAbbreviation constr
+        then not (equality 
                    (mkTypeConstruction (tcName constr, constr, List.map TypeVar (tcTypeVars constr), []),
                     fn tri => No,
                     fn tri => Yes)
-                  = No);
+                  = No)
+        else tcEquality constr
 
     (* See if a type abbreviation or "where type" has the form type t = s or
        type 'a t = 'a s etc and so is simply giving a new name to the type
