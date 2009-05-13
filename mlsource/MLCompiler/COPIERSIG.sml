@@ -23,17 +23,17 @@ sig
     type structVals
     type values
     type typeId
+    type types
 
     type tsvEnv = { enterType:   string * typeConstrs -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
-    val copySig: signatures * (int -> bool) * (int -> typeId) * string -> signatures
-    val copySigAndRenumber: signatures * (int -> bool) * (int -> typeId) * int * string -> signatures
-
-    val fullCopySig: signatures * tsvEnv * (typeId -> typeId) * string -> unit
-    val copyTypeConstructors: signatures * (typeId -> typeId) * string -> unit
-    
-    val fullCopyDatatype: typeConstrs * (typeId -> typeId) * string -> typeConstrs
+    val copySig: signatures * (int -> bool) * (int -> typeId) -> signatures
+    val copySigAndRenumber: signatures * (int -> bool) * (int -> typeId) * int -> signatures
+    val fullCopySig: signatures * tsvEnv * (typeId -> typeId option) * string -> unit    
+    val fullCopyDatatype: typeConstrs * (typeId -> typeId option) * string -> typeConstrs
+    val copyTypeConstr:
+        typeConstrs * (typeId -> typeId option) * (types -> types) * (string -> string) -> typeConstrs
     
     structure Sharing:
     sig
@@ -42,5 +42,6 @@ sig
         type structVals     = structVals
         type values         = values
         type typeId         = typeId
+        type types          = types
     end
 end;

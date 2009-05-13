@@ -840,7 +840,7 @@ struct
     (* Turn a result from matchTypes into a pretty structure so that it
        can be included in a message.
        TODO: Pass in the appropriate environments to print type constructors. *)
-    fun matchErrorReport lex (alpha, beta, reason) =
+    fun matchErrorReport (lex, typeEnv) (alpha, beta, reason) =
         (* This previously used a single type variable sequence for
            both types.  It may be that this is needed to make
            sensible error messages. *)
@@ -848,11 +848,11 @@ struct
             [
                 PrettyString "Can't match",
                 PrettyBreak (1, 0),
-                display (alpha, errorDepth lex, NONE),
+                display (alpha, errorDepth lex, typeEnv),
                 PrettyBreak (1, 0),
                 PrettyString "to",
                 PrettyBreak (1, 0),
-                display (beta, errorDepth lex, NONE),
+                display (beta, errorDepth lex, typeEnv),
                 PrettyBreak (1, 0),
                 PrettyString reason                        
             ])
@@ -860,10 +860,9 @@ struct
     (* Check that two types match. *)
     fun matchTypes (candidate, target, targMap: int -> typeId option) =
     let
-        fun copyId(id as Bound{ offset, ...}) =
-                getOpt(targMap offset, id)
-        |   copyId id = id
-        fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, "")
+        fun copyId(id as Bound{ offset, ...}) = targMap offset
+        |   copyId id = NONE
+        fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
         fun copyTarget t = (* Don't bother with type variables. *)
             copyType (t, fn x => x, copyATypeConstr);
         val copiedTarget = copyTarget target
@@ -881,14 +880,15 @@ struct
 
     (* Check that a matching has succeeded, and check the value
        constructors if they are datatypes. *)
-    fun checkTypeConstrs (candid, target, targTypeMap: int -> typeId option, lex, near, lno) =
+    fun checkTypeConstrs (candid, target, targTypeMap: int -> typeId option, lex, near, lno, typeEnv) =
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
         val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
         (* If we get an error in the datatype itself print the full datatype. *)
+        val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
-            sigStructMatchMsg(lex, near, lno)(fn t => displayTypeConstrs(t, errorDepth lex))
+            sigStructMatchMsg(lex, near, lno)(fn t => displayTypeConstrs(t, errorDepth lex, printTypeEnv))
         (* If we get an error with the constructors print just the constructor.
            TODO: Use the signature or structure environment to print properly. *)
         val errorInConstructor =
@@ -900,7 +900,7 @@ struct
                             PrettyBreak(1, 3),
                             PrettyString(valName value ^ ":"),
                             PrettyBreak(1, 0),
-                            display (valTypeOf value, errorDepth lex, NONE)
+                            display (valTypeOf value, errorDepth lex, typeEnv)
                         ])
             in
                 sigStructMatchMsg(lex, near, lno) displayConstructor
@@ -913,7 +913,7 @@ struct
         case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
                          mkTypeConstruction (targetName, target, tvars, []), 
                          targTypeMap) of
-                SOME error => errorInDatatype(candid, target, matchErrorReport lex error) (* Report the error. *)
+                SOME error => errorInDatatype(candid, target, matchErrorReport(lex, typeEnv) error) (* Report the error. *)
             |   NONE =>
                 let (* No error when matching the types: check the value constructors. *)
                     val candidConstrs : values list = tcConstructors candid;
@@ -937,7 +937,7 @@ struct
                                 NONE => false
                             |   SOME error =>
                                 (
-                                    errorInConstructor(cVal, tVal, matchErrorReport lex error);
+                                    errorInConstructor(cVal, tVal, matchErrorReport(lex, typeEnv) error);
                                     true
                                 )
                         )
@@ -957,7 +957,7 @@ struct
        build up a map of typeIDs in the target to type IDs in the candidate
        and that is returned as the result.
        N.B. the map function takes an argument between minTarget and maxTarget. *)
-    fun matchSigs(candidate, target, near, lno, lex): int -> typeId =
+    fun matchSigs(candidate, target, near, lno, lex, typeEnv): int -> typeId =
     let
         local
             val minTarget = sigMinTypes target
@@ -990,7 +990,8 @@ struct
             then
             let (* See if there is one with the same name. *)
                 val target = tagProject typeConstrVar dVal;
-                fun displayType t = displayTypeConstrs(t, errorDepth lex)
+                val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
+                fun displayType t = displayTypeConstrs(t, errorDepth lex, printTypeEnv)
                 val typeError = sigStructMatchMsg(lex, near, lno) displayType
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
@@ -1070,7 +1071,7 @@ struct
                   case univLookup (sigTab candidate, typeConstrVar, dName) of
                      SOME candid =>
                         (* Now check that the types match. *)
-                        checkTypeConstrs(candid, target, lookupType, lex, near, lno)
+                        checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv)
                   | NONE => () (* If the lookup failed ignore
                               the error - we've already reported it in matchNames *)
               end
@@ -1112,7 +1113,7 @@ struct
                                             |  SOME excType =>
                                                 [
                                                     PrettyBreak (1, 1), PrettyString "of",
-                                                    PrettyBreak (1, 3), display (excType, errorDepth lex, NONE) ]
+                                                    PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
                                         ))
                             in
                                 case univLookup (sigTab candidate, valueVar, dName) of
@@ -1129,7 +1130,7 @@ struct
                                                     NONE => ()
                                                 |   SOME error =>
                                                         sigStructMatchMsg(lex, near, lno)
-                                                            displayException (candid, v, matchErrorReport lex error) 
+                                                            displayException (candid, v, matchErrorReport(lex, typeEnv) error) 
                                             )
                                         |   _ =>
                                             (* It's there but it's not an exception. *)
@@ -1147,7 +1148,7 @@ struct
                                             PrettyBreak(1, 3),
                                             PrettyString(valName value ^ ":"),
                                             PrettyBreak(1, 0),
-                                            display (valTypeOf value, errorDepth lex, NONE)
+                                            display (valTypeOf value, errorDepth lex, typeEnv)
                                         ])
                             in
                                 case univLookup (sigTab candidate, valueVar, dName) of
@@ -1158,7 +1159,7 @@ struct
                                             NONE => ()
                                         |   SOME error =>
                                                 sigStructMatchMsg(lex, near, lno)
-                                                    displayValue (candid, v, matchErrorReport lex error)
+                                                    displayValue (candid, v, matchErrorReport(lex, typeEnv) error)
                                     )
                                 |   NONE => sigStructMissingMsg(lex, near, lno) displayValue v
                             end
@@ -1185,8 +1186,9 @@ struct
  
       (* Process structure-returning expressions i.e. structure names,
          struct..end values and functor applications. *)
-    fun structValue(str, newTypeId: (bool*bool)->typeId, currentTypeCount, newTypeIdEnv: int->typeId, Env env, lex, lno, strName) =
-    let (* Look up a structure name. *)         
+    fun structValue(str, newTypeId: (bool*bool)->typeId, currentTypeCount, newTypeIdEnv: int->typeId, Env env, lex, lno) =
+    let
+        val typeEnv = { lookupType = #lookupType env, lookupStruct = #lookupStruct env }
     in
         case str of
           StructureIdent {name, valRef, location} =>
@@ -1229,10 +1231,11 @@ struct
                 
                 (* This provides information about the arguments. *)
                 (* Get the actual parameter value. *)
-                val actualArgSig = structValue(arg, newTypeId, currentTypeCount, newTypeIdEnv, Env env, lex, fullLoc, "");
+                val actualArgSig = structValue(arg, newTypeId, currentTypeCount, newTypeIdEnv, Env env, lex, fullLoc);
                 (* Check that the actual arguments match formal arguments,
                    and instantiate the variables. *)
-                val matchResults = matchSigs (actualArgSig, formalArgSig, fn n => displayStruct(str, n), fullLoc, lex);
+                val matchResults =
+                    matchSigs (actualArgSig, formalArgSig, fn n => displayStruct(str, n), fullLoc, lex, typeEnv);
                 (* Create a list of the type IDs that the argument must supply. *)
                 local
                     val args = ref nil
@@ -1288,7 +1291,7 @@ struct
                 val resSig =
                     copySig (makeSignature(sigName functorResSig, sigTab functorResSig, minCopy,
                                         sigMaxTypes functorResSig, sigDeclaredAt functorResSig, sigTypeIdMap functorResSig),
-                             fn n => n >= minCopy, getFinalTypeId, strName)
+                             fn n => n >= minCopy, getFinalTypeId)
             in
                 resultSig := resSig;
                 resSig
@@ -1389,7 +1392,7 @@ struct
 
             (* process body of structure *)
             val () =
-                pass2Struct (alist, makeLocalTypeId, currentTypeCount, makeLocalTypeIdEnv, Env newEnv, lex, lno, strName);
+                pass2Struct (alist, makeLocalTypeId, currentTypeCount, makeLocalTypeIdEnv, Env newEnv, lex, lno);
 
             (* Copy the result signature.  We need all entries to be Formals.  This signature is really
                only used if we have a structure or functor without an explicit result signature. *)
@@ -1399,8 +1402,8 @@ struct
 
             fun copyId oldId =
                 case Vector.find (fn { dest, ...} => sameTypeId(dest, oldId)) idVec of
-                    SOME { dest, ...} => dest
-                |   NONE => oldId
+                    SOME { dest, ...} => SOME dest
+                |   NONE => NONE
             val _ =
                 COPIER.fullCopySig 
                 (makeSignature("", structTable, initialBoundCount, initialBoundCount+Vector.length idVec, location,
@@ -1479,11 +1482,11 @@ struct
              
             (* Process the local declarations. *)
             val U : unit =
-              pass2Struct (decs, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line, strName);
+              pass2Struct (decs, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line);
                    
           in
             (* There should just be one entry in the "body" list. *)
-            structValue(localStr, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line, strName)
+            structValue(localStr, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line)
           end
 		  
         | SigConstraint { str, csig, opaque, sigLoc, opaqueIds, resultSig, ... } =>
@@ -1503,14 +1506,14 @@ struct
                         List.find(fn Bound{offset, ...} => offset = n | _ => raise Subscript) (!bodyIds))
 
                 val resSig =
-                    structValue(str, sconstraintMakeTypeId, currentTypeCount, sconstraintTypeIdEnv, Env env, lex, lno, strName);
+                    structValue(str, sconstraintMakeTypeId, currentTypeCount, sconstraintTypeIdEnv, Env env, lex, lno);
                 (* Get the explicit signature. *)
                 val explicitSig  : signatures = 
-                    sigVal(csig, startTypes, newTypeIdEnv, Env env, lex, sigLoc, strName);
+                    sigVal(csig, startTypes, newTypeIdEnv, Env env, lex, sigLoc);
                 val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig                 
 
                 (* Match the signature.  This instantiates entries in typeMap. *)
-                val matchResults = matchSigs (resSig, explicitSig, fn n => displayStruct(str, n), sigLoc, lex);
+                val matchResults = matchSigs (resSig, explicitSig, fn n => displayStruct(str, n), sigLoc, lex, typeEnv);
                 val rSig =
                     if opaque
                     then
@@ -1543,7 +1546,7 @@ struct
                            the original equality code and a new ref to hold the printer. *)
                         val () = opaqueIds := List.rev (!opaques)
                         (* And copy it to put in the names from the structure. *)
-                        val copiedSig = copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap, strName)
+                        val copiedSig = copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap)
                         fun getNewId n = Vector.sub(v, n-startResIds)
                      in
                         makeSignature (sigName explicitSig, sigTab copiedSig, startResIds,
@@ -1572,7 +1575,7 @@ struct
                         end
                         val resSig =
                             copySigAndRenumber (explicitSig, fn s => s >= sigMinTypes explicitSig, resTypeMap,
-                                nIDs, (* Start the run-time offsets after the type IDs *) strName)
+                                nIDs (* Start the run-time offsets after the type IDs *))
                         fun transResId n = Vector.sub(bodyVec, n-startTypes)
                     in
                         (* The result signature.  This needs to be able to enumerate the type IDs
@@ -1597,8 +1600,7 @@ struct
          makeTypeIdEnv: int -> typeId,
          Env env  : env,
          lex,
-         lno      : LEX.location,
-		 strName  : string
+         lno      : LEX.location
          ) : unit =
     let
       fun pass2StructureDec (str : structs, structList : structBind list) : unit =
@@ -1630,7 +1632,7 @@ struct
 
             val resSig =
 				structValue(value, sbindMakeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv,
-                            Env env, lex, line, strName ^ name ^".");
+                            Env env, lex, line);
               
              (* Now make a local structure variable using this signature. *)
              val var = makeLocalStruct (name, resSig, [DeclaredAt line])
@@ -1670,7 +1672,7 @@ struct
            };
         
         (* Process the local declarations. *)
-        val () = pass2Struct (decs, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv, Env localEnv, lex, lno, strName);
+        val () = pass2Struct (decs, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv, Env localEnv, lex, lno);
              
         (* This is the environment used for the body of the declaration.
            Declarations are added both to the local environment and to
@@ -1714,7 +1716,7 @@ struct
           };
       in 
         (* Now the body. *)
-        pass2Struct (body, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv, Env bodyEnv, lex, lno, strName)
+        pass2Struct (body, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv, Env bodyEnv, lex, lno)
       end; (* pass2Localdec *)
       
       fun pass2Singleton (dec : parsetree, vars) : unit =
@@ -1765,7 +1767,7 @@ struct
             (* Create a new type ID for each new datatype. *)
             fun makeId eq = makeLocalTypeId(true, eq)
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex, strName);
+            val _ : types = pass2 (dec, makeId, Env newEnv, lex);
        in
          ()
        end; (* pass2Singleton *)
@@ -1885,7 +1887,7 @@ struct
                 end
             in
                 (* strdec: structure or core-language topdec. *)
-                pass2Struct([str], makeId, topLevelIdNumber, makeTopLevelIdEnv(), Env env, lex, location lex, "");
+                pass2Struct([str], makeId, topLevelIdNumber, makeTopLevelIdEnv(), Env env, lex, location lex);
                 (* Check for free type variables.  We have to do this after unification
                    within the strdec because later declarations may freeze earlier but
                    we must do this for each topdec.  Otherwise it's possible to associate
@@ -1941,9 +1943,9 @@ struct
                                than open in treestruct because all the IDs are Bound. *)
                             fun copyId(id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =
                                     if offset >= sigMinTypes signat andalso offset < sigMaxTypes signat
-                                    then Bound { offset = offset, eqType = eqType, access = makeSelected(addr, resArg) }
-                                    else id
-                            |   copyId id = id                        
+                                    then SOME(Bound { offset = offset, eqType = eqType, access = makeSelected(addr, resArg) })
+                                    else NONE
+                            |   copyId id = NONE                       
                             val _ =
                                 COPIER.fullCopySig 
                                 (signat,
@@ -2017,7 +2019,7 @@ struct
                     in
                         val resSig =
                             structValue(body, newTypeId, fn () => !typeStamps, typeIdEnv,
-                                        Env envWithArgs, lex, line, name ^ "().")
+                                        Env envWithArgs, lex, line)
                         val () =
                             if errorOccurred lex then ()
 		  	                else checkStructSigForFreeTypeVariables(name^"().", resSig)
@@ -2047,8 +2049,7 @@ struct
                                argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
                             val resSig =
                                 copySigAndRenumber (resSig, fn s => s >= minSig, resTypeMap,
-                                    !typeStamps-startTypes (* Start the run-time offsets after the type IDs *),
-                                    name ^ "().")
+                                    !typeStamps-startTypes (* Start the run-time offsets after the type IDs *))
                             (* Record the ID map for code-generation. *)
                             fun makeId n =
                                 resultIds :=
@@ -2102,7 +2103,7 @@ struct
                 fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
                 let (* Each element in the list is a signature binding. *)
                     val resSig : signatures =
-				        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line, name ^ ".");
+				        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line);
                     (* Generate a signature with the new name and put it in the table *)
 			        val copiedSig =
                         makeSignature (name, sigTab resSig, sigMinTypes resSig, sigMaxTypes resSig, line, sigTypeIdMap resSig)
@@ -2719,8 +2720,8 @@ struct
                     (* We need to replace type IDs with their Global versions. *)
                     val tab = makeSignatureTable ();
 
-                    fun copyId(id as Bound{ offset, ...}) = mapTypeIds offset
-                    |   copyId id = id
+                    fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
+                    |   copyId id = NONE
 
                     val tsvEnv =
                     {
@@ -2729,7 +2730,7 @@ struct
                         enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
                     }
                     (* Copy everything into the new signature. *)
-                    val () = COPIER.fullCopySig (source, tsvEnv, copyId, "");
+                    val () = COPIER.fullCopySig (source, tsvEnv, copyId, name ^ ".");
                     val resultSig =
                         makeSignature(sigName source, tab, sigMinTypes source,
                                       sigMaxTypes source, sigDeclaredAt source, sigTypeIdMap source)
@@ -2753,9 +2754,9 @@ struct
             (* Copy the types to replace the type IDs with the versions with Global access. *)
             fun replaceTypes t =
             let
-                fun copyId(id as Bound{ offset, ...}) = mapTypeIds offset
-                |   copyId id = id
-                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, "")
+                fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
+                |   copyId id = NONE
+                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
             in
                 copyType(t, fn tv=>tv, replaceTypeConstrs)
             end
@@ -2796,8 +2797,8 @@ struct
 
 		    |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
-                    fun copyId(id as Bound{ offset, ...}) = mapTypeIds offset
-                    |   copyId id = id
+                    fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
+                    |   copyId id = NONE
                     val copiedTC = fullCopyDatatype(tc, copyId, "")
                     val newName = #second(splitString(tcName tc))
                 in
@@ -2852,7 +2853,7 @@ struct
                             fn n =>
                                 if n < sigMinTypes fnArgSig
                                 then mapPrevTypIds n
-                                else sigTypeIdMap fnSig n, "");
+                                else sigTypeIdMap fnSig n);
                 val copiedArg =
                     Struct{name=structName fnArg, signat=copyFunctorSig fnArgSig,
                            access=structAccess fnArg, locations=structLocations fnArg}
@@ -2878,7 +2879,7 @@ struct
             fun copySignature fnSig =
                 if sigMinTypes fnSig = 0 then fnSig (* Nothing to do. *)
                 else copySig(fnSig, fn n => n < sigMinTypes fnSig,
-                        fn n => if n < sigMinTypes fnSig then mapPrevTypIds n else sigTypeIdMap fnSig n, "");
+                        fn n => if n < sigMinTypes fnSig then mapPrevTypIds n else sigTypeIdMap fnSig n);
             val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, copySignature s)) structList
 		in
            (addr, { fixes=fixes, values=values, structures=structures,

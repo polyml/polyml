@@ -256,7 +256,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1, NONE)
+                    displayType (typeFromTypeParse typeof, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -276,7 +276,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1, NONE)
+                    displayType (typeFromTypeParse typeof, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -306,7 +306,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString "=",
                     PrettyBreak (1, 0),
-                    displayType (realisation, depth - 1, NONE)
+                    displayType (realisation, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -438,8 +438,7 @@ struct
              outerTypeIdEnv: int->typeId,
              Env globalEnv : env,
              lex,
-             lno           : LEX.location,
-             strName       : string
+             lno           : LEX.location
             ) : signatures =
     let
        (* Process a sharing constraint. *)
@@ -759,7 +758,7 @@ struct
                   checkAndEnter (#enterFunct structEnv) (#lookupFunct structEnv) "Functor"
              }
             (* Create the signature and return the next entry to use in the result vector. *)
-            val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, structName, 0);
+            val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, 0);
             (* Make a copy to freeze it as immutable.*)
             (* TODO: Check these.  Aren't these always zero? *)
             val resultSig = makeSignature(sigName, newTable, 0, 0, lno, fn _ => raise Subscript)
@@ -774,7 +773,7 @@ struct
         and makeSigInto(str: sigs,
                         Env structEnv, (* The immediately enclosing sig. *)
                         Env globalEnv, (* The surrounding environment excluding this sig. *)
-                        lno: LEX.location, strName: string,
+                        lno: LEX.location,
                         offset: int): int =
           (* Either a named signature or sig ... end or one of
              these with possibly multiple where type realisations. *)
@@ -798,8 +797,8 @@ struct
   
                 val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
                 fun typeMap id = Vector.sub (v, id - minOffset)
-                fun copyId(id as Bound{ offset, ...}) = typeMap offset
-                |   copyId id = id
+                fun copyId(id as Bound{ offset, ...}) = SOME(typeMap offset)
+                |   copyId id = NONE
 
                 (* Renumber the values and structures.  We don't need to do the types
                    because they will be renumbered at the end. *)
@@ -824,7 +823,7 @@ struct
                                       class=class, locations=locations})
                 }
                 (* Copy the signature into the result. *)
-                val () = fullCopySig(sourceSig, tsvEnv, copyId, strName)
+                val () = fullCopySig(sourceSig, tsvEnv, copyId, "")
             in
                 ! address
             end
@@ -949,7 +948,7 @@ struct
                    of a list of signature expressions.
                   The contents of the signature are added to the environment. *)
                 fun includeSigExp (str: sigs, offset) =
-                    makeSigInto(str, Env structEnv, Env globalEnv, lno, strName, offset)
+                    makeSigInto(str, Env structEnv, Env globalEnv, lno, offset)
               in
                 List.foldl includeSigExp offset structList
               end
@@ -1013,7 +1012,7 @@ struct
                  };
 
                 val t : types =
-                  pass2 (dec, makeVariableId, Env newEnv, lex, strName);
+                  pass2 (dec, makeVariableId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
                    it possible that one might not be because of an error? *)
@@ -1068,7 +1067,7 @@ struct
                     enterFunct    = #enterFunct structEnv
                 }
 
-               val resAddr = makeSigInto(sigExp, Env newEnv, Env globalEnv, lno, strName, offset)
+               val resAddr = makeSigInto(sigExp, Env newEnv, Env globalEnv, lno, offset)
 
               fun lookupFailure msg =
                  giveError (str, line, lex) (msg ^ " in signature.")
@@ -1187,7 +1186,7 @@ struct
 			|	WhereType _ => argSig
 			|	_ => mkSig([argSig], line)
     in
-        sigVal (spec, initTypeId, outerTypeIdEnv, globalEnv, lex, line, "")
+        sigVal (spec, initTypeId, outerTypeIdEnv, globalEnv, lex, line)
     end
 
 

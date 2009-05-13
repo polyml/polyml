@@ -21,4 +21,5 @@ COPIER(
     structure STRUCTVALS = StructVals
     and       TYPETREE = TypeTree
     and       UNIVERSALTABLE = UniversalTable
+    and       UTILITIES = Utilities
 );

@@ -744,7 +744,7 @@ struct
                                 PrettyBreak (1, 0),
                                 PrettyString "=",
                                 PrettyBreak (1, 0),
-                                display (typeFromTypeParse t, depth, NONE)
+                                display (typeFromTypeParse t, depth, emptyTypeEnv)
                             ]
                     )
                 )
@@ -773,7 +773,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse argType, depth, NONE)
+                            display (typeFromTypeParse argType, depth, emptyTypeEnv)
                         ]
                 )
             )
@@ -950,7 +950,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString ":",
                     PrettyBreak (1, 0),
-                    display (typeFromTypeParse given, depth, NONE)
+                    display (typeFromTypeParse given, depth, emptyTypeEnv)
                 ]
             )
 
@@ -1094,7 +1094,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse typeof, depth, NONE)
+                            display (typeFromTypeParse typeof, depth, emptyTypeEnv)
                         ]
                     ) @
                     (if isEmptyTree previous then []
@@ -1604,7 +1604,7 @@ struct
        declarations. It performs the type checking. "makeTypeId" is used
        to construct unique identifiers for types depending on the context
        (i.e. in a signature, structure or functor). *)
-    fun pass2 (v, makeTypeId, env, lex, strName) =
+    fun pass2 (v, makeTypeId, env, lex) =
     let
       (* Returns a function which can be passed to unify or apply to
          print a bit of context info. *)
@@ -1641,7 +1641,7 @@ struct
         (* Turn a result from unifyTypes into a pretty structure so that it
            can be included in a message.
            TODO: Pass in the appropriate environments to print type constructors. *)
-        fun unifyErrorReport lex (alpha, beta, reason) =
+        fun unifyErrorReport(lex, typeEnv) (alpha, beta, reason) =
             (* This previously used a single type variable sequence for
                both types.  It may be that this is needed to make
                sensible error messages. *)
@@ -1649,11 +1649,11 @@ struct
                 [
                     PrettyString "Can't unify",
                     PrettyBreak (1, 0),
-                    display (alpha, errorDepth lex, NONE),
+                    display (alpha, errorDepth lex, typeEnv),
                     PrettyBreak (1, 0),
                     PrettyString "with",
                     PrettyBreak (1, 0),
-                    display (beta, errorDepth lex, NONE),
+                    display (beta, errorDepth lex, typeEnv),
                     PrettyBreak (1, 0),
                     PrettyString reason                        
                 ])
@@ -1707,7 +1707,7 @@ struct
         end;
 
         (* Display a value and its type as part of an error message. *)
-        fun valTypeMessage lex (title, value, valType) =
+        fun valTypeMessage (lex, typeEnv) (title, value, valType) =
         let
             val errorDepth = errorDepth lex
         in
@@ -1719,7 +1719,7 @@ struct
                     PrettyBreak(1, 0),
                     PrettyString ":",
                     PrettyBreak(1, 0),
-                    display(valType, errorDepth, NONE)
+                    display(valType, errorDepth, typeEnv)
                 ])
         end
 
@@ -1727,26 +1727,26 @@ struct
            removed.  *)
         fun matchError 
             (alpha : types, beta  : types, reason : string,
-            lex : lexan, location : LEX.location, moreInfo : unit -> pretty) : unit =
+            lex : lexan, location : LEX.location, moreInfo : unit -> pretty, typeEnv) : unit =
             reportError lex
             {
                 location = location,
                 hard = true,
-                message = unifyErrorReport lex (alpha, beta, reason),
+                message = unifyErrorReport(lex, typeEnv) (alpha, beta, reason),
                 context = SOME (moreInfo ())
            }
 
-        fun unify (alpha, beta, lex, location, moreInfo) =
+        fun unify (alpha, beta, lex, location, moreInfo, typeEnv) =
             case unifyTypes (alpha, beta) of
                 NONE => ()
             |   SOME(typeA, typeB, reason) =>
-                    matchError (typeA, typeB, reason, lex, location, moreInfo)
+                    matchError (typeA, typeB, reason, lex, location, moreInfo, typeEnv)
 
-        fun apply (f, arg, lex, location, moreInfo) =
+        fun apply (f, arg, lex, location, moreInfo, typeEnv) =
             case eventual f of
                 FunctionType {arg=farg, result} =>
                 (
-                    unify (farg, arg, lex, location, moreInfo);
+                    unify (farg, arg, lex, location, moreInfo, typeEnv);
                     result
                 )
             |   ef => (* Type variables etc. - Use general case. *)
@@ -1755,7 +1755,7 @@ struct
                     val fType    = mkFunctionType (arg, resType);
       
                     (* This may involve more than just assigning the type to "ef". *)
-                    val () = unify (ef, fType, lex, location, moreInfo);
+                    val () = unify (ef, fType, lex, location, moreInfo, typeEnv);
                 in
                     resType (* The result is the type variable unified to the result. *)
                 end
@@ -1763,6 +1763,7 @@ struct
 
     fun assignValues (level, letDepth, env, near, v)  =
     let
+        val typeEnv = { lookupType = #lookupType env, lookupStruct = #lookupStruct env }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
         fun assignSeq env depth (l: parsetree list) =
@@ -1880,7 +1881,7 @@ struct
                     (* Apply the converter to string to get the type of the
                        literal. *)
                     val instance =
-                        apply(instanceType, stringType, lex, location, foundNear pat)
+                        apply(instanceType, stringType, lex, location, foundNear pat, typeEnv)
                 in
                     expType := instance; (* Record the instance type.*)
                     instance
@@ -1926,7 +1927,7 @@ struct
     
                     val patType = processPattern(arg, enterResult, level, notConst, isRec);
                     (* Apply to the pattern type. *)
-                    val resultType = apply (conType, patType, lex, location, foundNear pat)
+                    val resultType = apply (conType, patType, lex, location, foundNear pat, typeEnv)
                 in
                     expType := resultType; (* Record the instance type.*)
                     resultType
@@ -1969,7 +1970,7 @@ struct
                         |   applyList (h::t) =
                         let
                             val typ = processPattern(h, enterResult, level, notConst, isRec)
-                            val () = unify (typ, basicType, lex, location, foundNear pat);
+                            val () = unify (typ, basicType, lex, location, foundNear pat, typeEnv);
                         in
                             applyList t
                         end;
@@ -1988,7 +1989,7 @@ struct
                     val () = ptAssignTypes theType pat;
 
                     (* These must be unifiable. *)
-                    val () = unify (valType, theType, lex, location, foundNear pat);
+                    val () = unify (valType, theType, lex, location, foundNear pat, typeEnv);
                 in
                     theType
                 end
@@ -2004,7 +2005,7 @@ struct
                      check that the id is not a constructor. *)
                     val varType = processPattern(var,     enterResult, level, true, isRec);
                     val patType = processPattern(pattern, enterResult, level, notConst, isRec)
-                    val () = unify (varType, patType, lex, location, foundNear pat);
+                    val () = unify (varType, patType, lex, location, foundNear pat, typeEnv);
                 in
                     varType
                 end
@@ -2059,13 +2060,13 @@ struct
                                             PrettyBreak(1, 0),
                                             PrettyString ":",
                                             PrettyBreak(1, 0),
-                                            display(ty, errorDepth, NONE)
+                                            display(ty, errorDepth, typeEnv)
                                         ])
                             in
                                 typeMismatch(errorMsg,
                                     previousValsAndType,
-                                    valTypeMessage lex (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
-                                    unifyErrorReport lex report, lex, location, foundNear v);
+                                    valTypeMessage(lex, typeEnv) (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
+                                    unifyErrorReport(lex, typeEnv) report, lex, location, foundNear v);
                                 (* Continue with "bad" which suppresses further error messages
                                    and return "bad" as the result. *)
                                 applyList(badType, n+1, t)
@@ -2100,7 +2101,7 @@ struct
                    all functions from string to the result type. *)
                 val instanceType = overloadType(converter, true)
                 val instance =
-                    apply(instanceType, stringType, lex, location, foundNear near)
+                    apply(instanceType, stringType, lex, location, foundNear near, typeEnv)
             in
                 expType := instance;
                 instance
@@ -2127,8 +2128,8 @@ struct
                                 (
                                     (* It's not a function. *)
                                     typeMismatch("Type error in function application.",
-                                        valTypeMessage lex ("Function:", f, funType),
-                                        valTypeMessage lex ("Argument:", arg, argType),
+                                        valTypeMessage (lex, typeEnv) ("Function:", f, funType),
+                                        valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
                                         PrettyString "Value being applied does not have a function type",
                                         lex, location, foundNear near);
                                     NONE
@@ -2144,9 +2145,9 @@ struct
                             NONE => ()
                         |   SOME report =>
                                 typeMismatch("Type error in function application.",
-                                    valTypeMessage lex ("Function:", f, funType),
-                                    valTypeMessage lex ("Argument:", arg, argType),
-                                    unifyErrorReport lex report, lex, location, foundNear near);
+                                    valTypeMessage (lex, typeEnv) ("Function:", f, funType),
+                                    valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
+                                    unifyErrorReport (lex, typeEnv) report, lex, location, foundNear near);
                         fResult
                     )
             end
@@ -2164,17 +2165,17 @@ struct
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Condition in if-statement must have type bool.",
-                            valTypeMessage lex ("If:", test, testType),
-                            unifyErrorReport lex report, lex, location, foundNear v);
+                            valTypeMessage (lex, typeEnv) ("If:", test, testType),
+                            unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
 
                 case unifyTypes(thenType, elseType) of
                     NONE => thenType (* or equally elseType *)
                 |   SOME report =>
                     (
                         typeMismatch("Type mismatch between then-part and else-part.",
-                            valTypeMessage lex ("Then:", thenpt, thenType),
-                            valTypeMessage lex ("Else:", elsept, elseType),
-                            unifyErrorReport lex report, lex, location, foundNear v);
+                            valTypeMessage (lex, typeEnv) ("Then:", thenpt, thenType),
+                            valTypeMessage (lex, typeEnv) ("Else:", elsept, elseType),
+                            unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
                         badType
                     )
             end
@@ -2277,56 +2278,15 @@ struct
                                         #enterVal env (name, selectedVar)
                                     end
                             },
-                            idFromStructure str, "");
+                            idFromStructure str,
+                            (* Add the structure we're opening here to the types of
+                               the values.  The name will be removed in messages if the type
+                               constructor is in scope but if it has been redefined we can
+                               get an identifiable name. *)
+                            structName str^".");
                     in
                         ()
                     end
-
-(*                        fun copyEntry (dName, dVal, ()) = 
-                        if (tagIs typeConstrVar dVal)
-                        then
-                        let
-                            (* If this is a datatype we have to apply mkSelectedVar to the
-                               value constructors.  It will not do anything if the constructors
-                               are global but if we are opening the argument to a functor we
-                               need to do this.  It's essential if we subsequently replicate
-                               this datatype.  Note: we don't add the value constructors to the
-                               environment at this point.  While a signature cannot contain
-                               values which "mask" constructors we can have a structure
-                               containing values which mask constructors. *)
-                            val tcons = copyTypeCons(tagProject typeConstrVar dVal)
-                        in
-                            #enterType env (dName, 
-                                if null(tcConstructors tcons)
-                                then tcons (* Not a datatype. *)
-                                else mkSelectedType(tcons, tcName tcons, SOME str, openLocs @ tcLocations tcons))
-                        end
-                  
-                        else if (tagIs valueVar dVal)
-                        then
-                        let
-                            (* If this is a datatype we could use findValueConstructor here
-                               to save constructing a new object.  It's probably not worth it. *)
-                            val selectedVar = 
-                                mkSelectedVar (tagProject valueVar dVal, str, copyTyp, openLocs);
-                        in
-                            HashTable.hashSet(valTable, dName, selectedVar);
-                            #enterVal env (dName, selectedVar)
-                        end
-                  
-                        else if (tagIs structVar dVal)
-                        then
-                        let
-                            (* TODO: Apply the type copying here as well. *)
-                            val selectedStruct = 
-                                makeSelectedStruct (tagProject structVar dVal, str, openLocs);
-                        in
-                            #enterStruct env (dName, selectedStruct)
-                        end
-                        else ()
-                    in
-                        univFold (sigTab sigTbl, copyEntry, ())
-                    end *)
     
                     (* ...then put them into the name space. *)
                     val () = List.app copyEntries strs;
@@ -2366,14 +2326,14 @@ struct
                     val tcon =
                         if isEmpty decType
                         then (* Type specification *)
-                            makeFrozenTypeConstrs (strName ^ name, typeVars,
+                            makeFrozenTypeConstrs (name, typeVars,
                                 makeTypeId isEqtype, 0, [DeclaredAt nameLoc])
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeFrozenTypeConstrs (strName ^ name, typeVars,
+                                makeFrozenTypeConstrs (name, typeVars,
                                     typeId, 0, [DeclaredAt nameLoc])
                         |   NONE =>
-                                makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
+                                makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -2414,7 +2374,7 @@ struct
                                 namePrefix, giveError (v, lex, oldLoc)))
 
                 (* Copy the datatype, converting any Formal constructors to Selected. *)
-                val newTypeCons = mkSelectedType(oldTypeCons, strName ^ newType, baseStruct, [DeclaredAt newLoc])
+                val newTypeCons = mkSelectedType(oldTypeCons, newType, baseStruct, [DeclaredAt newLoc])
 
                 val newValConstrs = tcConstructors newTypeCons
             in
@@ -2450,14 +2410,14 @@ struct
                     NONE => () (* OK. *)
                 |   SOME report =>
                         typeMismatch("Type mismatch in type constraint.",
-                            valTypeMessage lex ("Value:", value, valType),
+                            valTypeMessage (lex, typeEnv) ("Value:", value, valType),
                             PrettyBlock(0, false, [],
                                 [
                                     PrettyString "Constraint:",
                                     PrettyBreak(1, 0),
-                                    display(theType, errorDepth lex, NONE)
+                                    display(theType, errorDepth lex, typeEnv)
                                 ]),
-                            unifyErrorReport lex report,
+                            unifyErrorReport (lex, typeEnv) report,
                             lex, location, foundNear v);
                 theType
             end
@@ -2679,8 +2639,8 @@ struct
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Exception to be raised must have type exn.",
-                            valTypeMessage lex ("Raise:", pt, exType),
-                            unifyErrorReport lex report, lex, line, foundNear v);
+                            valTypeMessage (lex, typeEnv) ("Raise:", pt, exType),
+                            unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v);
                 (* Matches anything *)
                 mkTypeVar (generalisable, false, false, false)
             end
@@ -2694,7 +2654,7 @@ struct
             val clauses =
                 assignList("Clauses in handler have different types.", "Clause", "|", location) hrules
             val () = 
-                unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v);
+                unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v, typeEnv);
         in
           expType (* Result is expType. *)
         end
@@ -2708,8 +2668,8 @@ struct
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Loop condition of while-expression must have type bool.",
-                            valTypeMessage lex ("While:", test, testType),
-                            unifyErrorReport lex report, lex, location, foundNear v);
+                            valTypeMessage (lex, typeEnv) ("While:", test, testType),
+                            unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
                 assValues v body; (* Result of body is discarded. *)
                 unitType
             end
@@ -2723,17 +2683,17 @@ struct
           (* The matches constitute a function from the test type to
              the result of the case statement, so we apply the match type
              to the test. *)
-          apply (funType, argType, lex, location, foundNear v)
+          apply (funType, argType, lex, location, foundNear v, typeEnv)
         end
 
           | Andalso {first, second, location} =>
             let
               (* Both parts must be bool and the result is bool. *)
               val fstType  = assValues v first;
-              val U : unit = unify (fstType, boolType, lex, location, foundNear v);
+              val U : unit = unify (fstType, boolType, lex, location, foundNear v, typeEnv);
           
               val sndType  = assValues v second;
-              val U : unit = unify (sndType, boolType, lex, location, foundNear v);
+              val U : unit = unify (sndType, boolType, lex, location, foundNear v, typeEnv);
             in
               boolType
             end
@@ -2742,10 +2702,10 @@ struct
             let
               (* Both parts must be bool and the result is bool. *)
               val fstType  = assValues v first;
-              val U : unit = unify (fstType, boolType, lex, location, foundNear v);
+              val U : unit = unify (fstType, boolType, lex, location, foundNear v, typeEnv);
           
               val sndType  = assValues v second;
-              val U : unit = unify (sndType, boolType, lex, location, foundNear v);
+              val U : unit = unify (sndType, boolType, lex, location, foundNear v, typeEnv);
             in
               boolType
             end
@@ -2870,7 +2830,7 @@ struct
 
             val typ = assignValues(newLevel, letDepth, newEnv, exp, exp);
             
-            val U : unit = unify (d, typ, lex, line, foundNear v);
+            val U : unit = unify (d, typ, lex, line, foundNear v, typeEnv);
         
             (* true if the expression is a possibly-constrained fn-expression *)
             fun isConstrainedFn (exp : parsetree) : bool =
@@ -2939,7 +2899,7 @@ struct
           let
             val U : unit =
               allowGeneralisation 
-                (d, newLevel, nonExpansive exp, lex, line, foundNear v);
+                (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
             (* Check the type to make sure that a local datatype is
                not escaping.  Checking here is really only needed in the
                recursive case (where a recursive call inside the body
@@ -3090,7 +3050,7 @@ struct
             
                             (* These must be unifiable. *)
                             val U : unit =
-                                unify (patType, theType, lex, location, foundNear dec);
+                                unify (patType, theType, lex, location, foundNear dec, typeEnv);
                         in
                             (patType, argTypes)
                         end
@@ -3107,7 +3067,7 @@ struct
                             val argType = 
                                 processPattern(arg, #enter varEnv, varLevel, false, false);
                         in
-                            (apply (funType, argType, lex, location, foundNear dec), argType :: argTypes)
+                            (apply (funType, argType, lex, location, foundNear dec, typeEnv), argType :: argTypes)
                         end
 
                     |   Ident {name, value, expType, ...} =>
@@ -3192,7 +3152,7 @@ struct
                        variable for the function in each pattern. *)
                     resultType := expTyp;
                     (* Unify the pattern and the clause body. *)
-                    unify (pattType, expTyp, lex, line, foundNear dec)
+                    unify (pattType, expTyp, lex, line, foundNear dec, typeEnv)
                 end
             in (* body of processFun *)
                 List.app processClause clauses
@@ -3207,7 +3167,8 @@ struct
                 #apply newEnv 
                     (fn (pair as (name, Value{typeOf, locations, ...})) =>
                     let
-                        val () = allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v);
+                        val () =
+                            allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
                         (* Check the type to make sure that a local datatype is
                            not escaping as a result of a recursive application of
                            the function to a local datatype. *)
@@ -3249,7 +3210,7 @@ struct
                 then makeTypeId false
                 else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false)
             val tc =
-                makeDatatypeConstr(strName ^ name, typeVars, newId,
+                makeDatatypeConstr(name, typeVars, newId,
                                    letDepth, [DeclaredAt nameLoc])
             val outerType =
                 if isAbs
@@ -3257,7 +3218,7 @@ struct
                     (* Outside the with..end section the type is not a datatype.
                        The type constructor we enter in the outer environment
                        uses the same typeId but with the constructors removed. *)
-                    makeFrozenTypeConstrs(strName ^ name, typeVars, newId,
+                    makeFrozenTypeConstrs(name, typeVars, newId,
                                           letDepth, [DeclaredAt nameLoc])
                 else tc
         in
@@ -3287,7 +3248,7 @@ struct
             (* Construct a type constructor which is an alias of the
                right-hand side of the declaration. *)
             val tcon =
-                makeTypeAbbreviation (strName ^ name, typeVars, decType, [DeclaredAt nameLoc]);
+                makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
         in
             enterType(tcon, tcon, name)
         end

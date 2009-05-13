@@ -40,6 +40,11 @@ functor COPIER(
         val univLookup: univTable * 'a tag * string -> 'a option;
         val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
     end;
+    
+    structure UTILITIES:
+    sig
+        val splitString: string -> { first:string,second:string }
+    end
 
 sharing type
   STRUCTVALS.types
@@ -67,12 +72,72 @@ sharing type
 )
 :COPIERSIG =
 struct
-    open STRUCTVALS TYPETREE UNIVERSALTABLE
+    open STRUCTVALS TYPETREE UNIVERSALTABLE UTILITIES
     open Universal; (* for tag record selectors *)
 
     type tsvEnv = { enterType:   string * typeConstrs -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
+
+    (* Type constructor cache.  This maps typeIDs in the copied signature to
+       type constructors.  More importantly, it identifies a type constructor
+       that carries that type ID so that when we copy the values the string
+       name is appropriate. *)
+
+    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
+       function copies that as well. Does not copy value constructors. *)
+    fun localCopyTypeConstr (tcon, typeMap, copyTypeVar, mungeName, cache) =
+        case tcIdentifier tcon of
+            TypeFunction(args, equiv) =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+		                fn tcon =>
+                            localCopyTypeConstr (tcon, typeMap, fn x => x, mungeName, cache))
+            in
+                if identical (equiv, copiedEquiv)
+                then tcon (* Type is identical and we don't want to change the name. *)
+                else (* How do we find a type function? *) makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)
+            end
+
+        |   id =>
+            (
+                case typeMap id of
+                    NONE =>
+                    (
+                        (*print(concat[tcName tcon, " not copied\n"]);*)
+                        tcon (* No change *)
+                    )
+                |   SOME newId =>
+                    (
+                    case List.find(fn tc => sameTypeId(tcIdentifier tc, newId)) cache of
+                        SOME tc =>
+                        (
+                            (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
+                            tc (* Use the entry from the cache. *)
+                        )
+                    |   NONE =>
+                        (* Either a hidden identifier or alternatively this can happen as part of
+                           the matching process.
+                           When matching a structure to a signature we first match up the type
+                           constructors then copy the type of each value replacing bound type IDs
+                           with the actual IDs as part of the checking process.
+                           We will return SOME newId but we don't have a
+                           cache so return NONE for List.find. *)
+                        let
+                            val oldName = tcName tcon
+                            val newName = mungeName(tcName tcon)
+                        in
+                            (*print(concat[tcName tcon, " not cached\n"]);*)
+                            makeDatatypeConstr(newName,
+                                tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+                        end
+                    )
+            )
+
+    (* Exported version. *)
+    fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
+        localCopyTypeConstr(tcon, typeMap, copyTypeVar, mungeName, [])
 
     (* Generate new entries for all the elements of the signature.
        As well as copying the signature it also keeps track of addresses used in
@@ -81,25 +146,192 @@ struct
        This is used to two cases only: when we have a named signature with possible sharing or
        "where types" or when including a signature.  Really these cases should renumber the
        value entries. *)
-    fun fullCopySig 
-        (source        : signatures,
-         resEnv        : tsvEnv,
-         copyId        : typeId -> typeId,
-         strName       : string): unit =
+    fun localFullCopySig(sourceTab, resEnv, copyId, strName, cacheTail): unit =
     let
+
+        fun buildTypeCache(sourceTab, strName, buildDatatypes, initialCache, cacheTail) =
+        let
+            (* Process sub-directories first.  That way they will be further down the list. *)
+            fun foldSubStructs(dName, dVal, rest) =
+            if tagIs structVar dVal
+            then
+            let
+                val oldStruct = tagProject structVar dVal
+                val oldSig    = structSignat oldStruct
+            in
+                buildTypeCache(sigTab oldSig, strName ^ dName ^ "." (* Add structure names. *),
+                        buildDatatypes, initialCache, rest)
+            end
+            else rest
+
+            (* Then the types within this structure. *)
+            fun foldTypes(dName, dVal, rest) =
+            if tagIs typeConstrVar dVal
+            then
+            let
+                val tcon = tagProject typeConstrVar dVal
+                fun makeName s = strName ^ (#second(splitString s))
+            in
+                (* On the first pass we build datatypes, on the second type abbreviations
+                   using the copied datatypes. *)
+                case tcIdentifier tcon of
+                    TypeFunction(args, equiv) =>
+                    if buildDatatypes then rest (* Not on this pass. *)
+                    else (* Build a new entry whether the typeID has changed or not. *)
+                    let
+                        val copiedEquiv =
+                            copyType(equiv, fn x => x,
+        		                fn tcon =>
+                                    localCopyTypeConstr(tcon, copyId, fn x => x, makeName, initialCache))
+                    in
+                        makeTypeAbbreviation(makeName(tcName tcon), args, copiedEquiv, tcLocations tcon) :: rest
+                    end
+                |   id =>
+                    if not buildDatatypes then rest (* Not on this pass. *)
+                    else
+                    (
+                        case copyId id of
+                            NONE => rest (* Skip (or add to cache?) *)
+                        |   SOME newId =>
+                                makeDatatypeConstr (* We seem to need this even if tcon has no constructors. *)
+                                (makeName(tcName tcon),
+                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon) :: rest
+                    )
+            end
+            else rest
+        in
+             univFold(sourceTab, foldTypes,
+                univFold(sourceTab, foldSubStructs, cacheTail))
+        end
+
+        (* Process datatypes.  While processing these we make new entries for every
+           datatype even if they are already in the cache.  That way we end up with
+           the last entry in the list being the most local and that's the one we want
+           to use for type abbreviations and values. *)
+        val datatypeCache =
+            buildTypeCache(sourceTab, strName, true, (* Datatypes *) [], cacheTail)
+        (* Now add any type abbreviations.  These can refer to datatypes we added in the
+           previous pass but don't reuse type abbreviations we add elsewhere. *)
+        val typeCache =
+            buildTypeCache(sourceTab, strName, false, (* Type abbreviations. *)datatypeCache, datatypeCache)
+
         fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-            copyTypeConstr (tcon, copyId, fn x => x, strName);
+            localCopyTypeConstr (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
 
         fun copyTyp (t : types) : types =
-            copyType (t, fn x => x, (* Don't bother with type variables. *) copyTypeCons);
-
-        (* First copy the type constructors in this signature and any substructures.
-          It's inefficient but harmless to do this again for substructures.
-          TODO: Tidy this up. *)
-        val () = copyTypeConstructors(source, copyId, strName)
-    in
+            copyType (t, fn x => x, (* Don't bother with type variables. *) copyTypeCons)
+ 
+        fun copyDatatypeAndConstructors(oldConstr, copyId, strName) =
+        let
+               (* 
+                  The new type constructor will use the NEW polymorphic
+                  type variables. This is because copyTypeCons uses the
+                  table built by matchSigs which maps OLD constructors to
+                  NEW ones, and the NEW constructors contain NEW type variables.
+               *)
+            val newConstr = copyTypeCons oldConstr;
+           
+            (* We must copy the datatype if any of the value
+                  constructors have to be copied. The datatype may
+                  be rigid but some of the value constructors may
+                  refer to flexible type names. *)
+            val mustCopy = ref (not (identicalConstr (newConstr, oldConstr)));
+           
+            local
+                val oldTypeVars : types list = List.map TypeVar (tcTypeVars oldConstr);
+                val newTypeVars : types list = List.map TypeVar (tcTypeVars newConstr);
+    (* 
+       We CAN legitimately get different numbers of type variables here,
+       it we're trying to recover from a user error that we've already
+       diagnosed. We'll just ignore the extra variables. SPF 26/6/96
+    *)
+                fun zipTypeVars (x::xs) (y::ys) = (x, y) :: zipTypeVars xs ys
+                   | zipTypeVars _  _   = []
+                 
+                val typeVarTable : (types * types) list = 
+                   zipTypeVars oldTypeVars newTypeVars;
+             
+                fun copyTypeVar (t : types) : types =
+                let
+                   fun search [] = t
+                     | search ((oldTypeVar, newTypeVar) :: rest) =
+                        if sameTypeVar (t, oldTypeVar) then newTypeVar else search rest
+                 in
+                   search typeVarTable
+                 end;
+            in
+                 (* 
+                     Dave was wrong - we DO need to copy the polymorphic type variables -
+                      at least, we do here! This version hides the old version of
+                      copyTyp, which is in the enclosing environment. The entire
+                      type/signature matching code needs a thorough overhaul.
+                      SPF 16/4/96
+                 *)
+                 (* TODO: If SPF is right we also need to redefine
+                     copyTypeCons. DCJM 17/2/00.  *)
+                fun copyTyp (t : types) : types = copyType (t, copyTypeVar, copyTypeCons);
+            end;
+           
+               (* 
+                  Now copy the value constructors. The equality status
+                  and any equivalence (i.e. type t = ...) will have been
+                  processed when the constructor was copied.
+              
+                  What's going on here? Copying the type constructor will
+                  use the NEW polymorphic variables, but copying the rest of
+                  the type will use the OLD ones, since copyTyp doesn't copy
+                  individual type variables - what a MESS! I think this means
+                  that we end up with OLD variables throughout.
+                  SPF 15/4/96
+               *)
+            val copiedConstrs =
+                 map 
+                  (fn (v as Value{name, typeOf, class, access, locations}) =>
+                   let
+                     (* Copy its type and make a new constructor if the type
+                        has changed. *)
+                     val newType = copyTyp typeOf;
+                     val typeChanged  = not (identical (newType, typeOf));
+                     (* If this datatype shares with another one we will already have
+                        constructors available.  This can happen, in particular, if
+                        we have a signature constraining the result of a structure.
+                        There will be sharing between the datatype in the implementing
+                        structure and the result signature. *)
+                     val copy =
+                       if typeChanged
+                       then let
+                         val v' =
+                            Value{name=name, typeOf=newType, class=class,
+                                  access=access, locations = locations}
+                         (* See if the constructor already exists. *)
+                       in
+                         let
+                             val original = findValueConstructor v'
+                         in
+                             (* We try to use the original if it is global since that
+                               allows us to print values of the datatype.  If it is
+                               not global we MUSTN'T use the copy.  It may be local
+                               and so may not exist later on. *)
+                            case original of
+                                Value{access=Global _, ...} => original
+                            |    _ => v'
+                         end
+                       end
+                       else v;
+                   in
+                     if typeChanged then mustCopy := true else ();
+                     copy (* Return the copy. *)
+                   end)
+                  (tcConstructors oldConstr);
+        in
+            if not (null copiedConstrs)
+            then tcSetConstructors (newConstr, copiedConstrs)
+            else ();
+            newConstr
+        end
+   in
     univFold
-     (sigTab source,
+     (sourceTab,
       (fn (dName: string, dVal: universal, num) =>
         (if tagIs structVar dVal
          then let
@@ -110,17 +342,17 @@ struct
             val tab = makeSignatureTable ();
             (* Copy everything into the new signature. *)
             val () =
-              fullCopySig 
-                (oldSig,
+              localFullCopySig 
+                (sigTab oldSig,
                 {
                   enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
                   enterStruct = fn (s,v) => univEnter (tab, structVar,     s, v),
                   enterVal    = fn (s,v) => univEnter (tab, valueVar,      s, v)
                 },
-                copyId, strName ^ dName ^ ".");
+                copyId, strName ^ dName ^ ".", typeCache);
             (* TODO: What, if anything is the typeID map for the result. *)
             val newSig =
-                makeSignature(sigName source, tab, sigMinTypes oldSig,
+                makeSignature(sigName oldSig, tab, sigMinTypes oldSig,
                             sigMaxTypes oldSig, sigDeclaredAt oldSig, sigTypeIdMap oldSig)
            val newStruct =
                 Struct { name = structName oldStruct, signat = newSig,
@@ -133,7 +365,7 @@ struct
          then
          let
             val newConstr =
-                fullCopyDatatype(tagProject typeConstrVar dVal, copyId, strName)
+                copyDatatypeAndConstructors(tagProject typeConstrVar dVal, copyId, strName)
          in
             #enterType resEnv (dName, newConstr)
          end
@@ -164,180 +396,39 @@ struct
      )
   end (* fullCopySig *)
 
-  (* Make entries for all the type constructors.  The only reason for
-     doing this separately from fullCopySig is to try to ensure that the
-     names we give the types are appropriate.  If we do this as part of
-     fullCopySig we could get the wrong name in cases such as
-     sig structure S: sig type t end structure T : sig val x: S.t end end.
-     If fullCopySig happens to process "x" before "S" it will copy "t"
-     and give it the name "T.t" rather than "S.t". *)
-    and copyTypeConstructors(source: signatures, copyId: typeId -> typeId, strName: string): unit =
-    let
-        fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-            copyTypeConstr (tcon, copyId, fn x => x, strName);
-    in
-    univFold
-     (sigTab source,
-      (fn (dName: string, dVal: universal, ()) =>
-        (if tagIs structVar dVal
-         then let
-           val oldStruct = tagProject structVar dVal;
-           val oldSig     = structSignat oldStruct;
-         in
-           copyTypeConstructors(oldSig, copyId, strName ^ dName ^ ".")
-         end (* structures *)
-                 
-         else if tagIs typeConstrVar dVal
-         then let (* Types *)
-          (* Make a new constructor.  It will be entered in the match table
-             and picked up when we copy the signature. *)
-           val oldConstr = tagProject typeConstrVar dVal;
-           val newConstr = copyTypeCons oldConstr
-           fun idNumber tc =
-            case tcIdentifier tc of
-                Bound { offset, ...} => "(" ^ Int.toString offset ^ ")"
-            |   _ => "(Not bound)"
-          in
-           ()
-          end
-            
-        else ()
-        ) 
-      ),
-      ()
-     )
-     end
+    (* Exported versions of these. *)
+    fun fullCopySig(source, resEnv, copyId, strName) =
+        localFullCopySig(sigTab source, resEnv, copyId, strName, [])
 
     and fullCopyDatatype(oldConstr, copyId, strName) =
     let
-        fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-            copyTypeConstr (tcon, copyId, fn x => x, strName);
-
-        fun copyTyp (t : types) : types =
-            copyType (t, fn x => x, (* Don't bother with type variables. *) copyTypeCons);
-
-        (* Make a new constructor. *)
-           
-           (* 
-              The new type constructor will use the NEW polymorphic
-              type variables. This is because copyTypeCons uses the
-              table built by matchSigs which maps OLD constructors to
-              NEW ones, and the NEW constructors contain NEW type variables.
-           *)
-        val newConstr = copyTypeCons oldConstr;
-           
-        (* We must copy the datatype if any of the value
-              constructors have to be copied. The datatype may
-              be rigid but some of the value constructors may
-              refer to flexible type names. *)
-        val mustCopy = ref (not (identicalConstr (newConstr, oldConstr)));
-           
-        local
-            val oldTypeVars : types list = List.map TypeVar (tcTypeVars oldConstr);
-            val newTypeVars : types list = List.map TypeVar (tcTypeVars newConstr);
-(* 
-   We CAN legitimately get different numbers of type variables here,
-   it we're trying to recover from a user error that we've already
-   diagnosed. We'll just ignore the extra variables. SPF 26/6/96
-*)
-            fun zipTypeVars (x::xs) (y::ys) = (x, y) :: zipTypeVars xs ys
-               | zipTypeVars _  _   = []
-                 
-            val typeVarTable : (types * types) list = 
-               zipTypeVars oldTypeVars newTypeVars;
-             
-            fun copyTypeVar (t : types) : types =
-            let
-               fun search [] = t
-                 | search ((oldTypeVar, newTypeVar) :: rest) =
-                    if sameTypeVar (t, oldTypeVar) then newTypeVar else search rest
-             in
-               search typeVarTable
-             end;
-        in
-             (* 
-                 Dave was wrong - we DO need to copy the polymorphic type variables -
-                  at least, we do here! This version hides the old version of
-                  copyTyp, which is in the enclosing environment. The entire
-                  type/signature matching code needs a thorough overhaul.
-                  SPF 16/4/96
-             *)
-             (* TODO: If SPF is right we also need to redefine
-                 copyTypeCons. DCJM 17/2/00.  *)
-            fun copyTyp (t : types) : types = copyType (t, copyTypeVar, copyTypeCons);
-        end;
-           
-           (* 
-              Now copy the value constructors. The equality status
-              and any equivalence (i.e. type t = ...) will have been
-              processed when the constructor was copied.
-              
-              What's going on here? Copying the type constructor will
-              use the NEW polymorphic variables, but copying the rest of
-              the type will use the OLD ones, since copyTyp doesn't copy
-              individual type variables - what a MESS! I think this means
-              that we end up with OLD variables throughout.
-              SPF 15/4/96
-           *)
-        val copiedConstrs =
-             map 
-              (fn (v as Value{name, typeOf, class, access, locations}) =>
-               let
-                 (* Copy its type and make a new constructor if the type
-                    has changed. *)
-                 val newType = copyTyp typeOf;
-                 val typeChanged  = not (identical (newType, typeOf));
-                 (* If this datatype shares with another one we will already have
-                    constructors available.  This can happen, in particular, if
-                    we have a signature constraining the result of a structure.
-                    There will be sharing between the datatype in the implementing
-                    structure and the result signature. *)
-                 val copy =
-                   if typeChanged
-                   then let
-                     val v' =
-                        Value{name=name, typeOf=newType, class=class,
-                              access=access, locations = locations}
-                     (* See if the constructor already exists. *)
-                   in
-                     let
-                         val original = findValueConstructor v'
-                     in
-                         (* We try to use the original if it is global since that
-                           allows us to print values of the datatype.  If it is
-                           not global we MUSTN'T use the copy.  It may be local
-                           and so may not exist later on. *)
-                        case original of
-                            Value{access=Global _, ...} => original
-                        |    _ => v'
-                     end
-                   end
-                   else v;
-               in
-                 if typeChanged then mustCopy := true else ();
-                 copy (* Return the copy. *)
-               end)
-              (tcConstructors oldConstr);
+        val sigSpace = makeSignatureTable()
+        val Env { enterType, ...} = makeEnv sigSpace
+        val () = enterType(tcName oldConstr, oldConstr)
+        val resType = ref NONE
+        val resEnv =
+            {
+                enterType = fn (_, tc) => resType := SOME tc,
+                enterStruct = fn (s, _) => raise Misc.InternalError ("enterStruct "^s),
+                enterVal = fn (s, _) => raise Misc.InternalError ("enterVal "^s)
+            }
+        val () = localFullCopySig(sigSpace, resEnv, copyId, strName, [])
     in
-        if not (null copiedConstrs)
-        then tcSetConstructors (newConstr, copiedConstrs)
-        else ();
-        newConstr
+        valOf(! resType)
     end
 
     (* Copy the result signature of a structure. *)
     fun copySig 
         (source       : signatures,
          wantCopy     : int -> bool,
-         mapTypeId    : int -> typeId,
-         strName      : string)
+         mapTypeId    : int -> typeId)
         : signatures = 
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
         fun copyId(id as Bound{ offset, ...}) =
-            if wantCopy offset then mapTypeId offset else id
-        |   copyId id = id
+            if wantCopy offset then SOME(mapTypeId offset) else NONE
+        |   copyId id = NONE
 
         val tsvEnv =
         {
@@ -346,7 +437,7 @@ struct
             enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
         }
         (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, copyId, strName);
+        val () = fullCopySig (source, tsvEnv, copyId, "");
     in
         makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId)
     end (* copySig *)
@@ -357,15 +448,14 @@ struct
         (source       : signatures,
          wantCopy     : int -> bool,
          mapTypeId    : int -> typeId,
-         startValues  : int,
-         strName      : string)
+         startValues  : int)
         : signatures = 
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
         fun copyId(id as Bound{ offset, ...}) =
-            if wantCopy offset then mapTypeId offset else id
-        |   copyId id = id
+            if wantCopy offset then SOME(mapTypeId offset) else NONE
+        |   copyId id = NONE
         
         val address = ref startValues
 
@@ -392,7 +482,7 @@ struct
                               class=class, locations=locations})
         }
         (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, copyId, strName);
+        val () = fullCopySig (source, tsvEnv, copyId, "");
     in
         makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId)
     end (* copySig *)
@@ -405,6 +495,7 @@ struct
         type values         = values
         type typeId         = typeId
         type valAccess      = valAccess
+        type types          = types
     end
 
 end;

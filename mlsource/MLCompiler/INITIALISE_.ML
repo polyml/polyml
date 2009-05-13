@@ -49,7 +49,29 @@ sig
     type signatures;
     type functors;
 
-    type nameSpace;
+    type nameSpace =
+    { 
+        lookupVal:    string -> values option,
+        lookupType:   string -> typeConstrs option,
+        lookupFix:    string -> fixStatus option,
+        lookupStruct: string -> structVals option,
+        lookupSig:    string -> signatures option,
+        lookupFunct:  string -> functors option,
+
+        enterVal:     string * values      -> unit,
+        enterType:    string * typeConstrs -> unit,
+        enterFix:     string * fixStatus   -> unit,
+        enterStruct:  string * structVals  -> unit,
+        enterSig:     string * signatures  -> unit,
+        enterFunct:   string * functors    -> unit,
+
+        allVal:       unit -> (string*values) list,
+        allType:      unit -> (string*typeConstrs) list,
+        allFix:       unit -> (string*fixStatus) list,
+        allStruct:    unit -> (string*structVals) list,
+        allSig:       unit -> (string*signatures) list,
+        allFunct:     unit -> (string*functors) list
+    }
   
     val gEnvAsEnv    : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
@@ -1108,6 +1130,10 @@ struct
             
             fun getValue (Value{access = Global code, class = SimpleValue, ...}) = evalue code
             |   getValue _ = raise Fail "Not a global value"
+            
+            fun exportedDisplayType(tyCons, depth, nameSpace: nameSpace) =
+                TYPETREE.displayTypeConstrs(tyCons, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
@@ -1122,8 +1148,8 @@ struct
                     mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
                 ("displayVal",             toMachineWord displayValues,
                     mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayType",             toMachineWord displayTypeConstrs,
-                    mkProductType[typeVal, Int] ->> PrettyType),
+                ("displayType",             toMachineWord exportedDisplayType,
+                    mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
                 (* displayTypeExpression doesn't really belong here since it's used
                    as part of the parse tree rather the name space. *)
                 ("displayTypeExpression",    toMachineWord TYPETREE.display,

@@ -52,7 +52,7 @@ sig
 
     val displaySigs: sigs * int -> pretty
     val sigExportTree: navigation * sigs -> exportTree 
-    val sigVal: sigs * int * (int->typeId) * env * lexan * location * string -> signatures
+    val sigVal: sigs * int * (int->typeId) * env * lexan * location -> signatures
     val functorArgSigval: sigs * int * (int->typeId) * env * lexan * location -> signatures
     val undefinedSignature: signatures
 

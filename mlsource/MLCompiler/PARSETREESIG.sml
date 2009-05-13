@@ -136,14 +136,14 @@ sig
   val wildCard  : location -> parsetree;
   val emptyTree : parsetree;
 
-  val pass2: parsetree * (bool -> typeId) * env * lexan * string -> types;
+    val pass2: parsetree * (bool -> typeId) * env * lexan -> types
 
-  type debugenv = environEntry list * (int->codetree)
+    type debugenv = environEntry list * (int->codetree)
 
-  val gencode: parsetree * lexan * debugenv * int * int ref * string -> codetree list * debugenv;
+    val gencode: parsetree * lexan * debugenv * int * int ref * string -> codetree list * debugenv;
 
-  (* only used for debugging and error messages! *)
-  val ptDisplay: parsetree * int -> pretty;
+    (* only used for debugging and error messages! *)
+    val ptDisplay: parsetree * int -> pretty;
 
     val getExportTree: navigation * parsetree -> exportTree
 

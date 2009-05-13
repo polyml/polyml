@@ -486,11 +486,14 @@ struct
     |   isInSet(tcons: typeConstrs, []: typeConstrs list) = false
 
   (* Basic procedure to print a type structure. *)
+    type printTypeEnv =
+        { lookupType: string -> typeConstrs option,
+          lookupStruct: string -> structVals option}
+
+    val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
   
     (* prints a block of items *)
-    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string,
-               env: { lookupType: string -> typeConstrs option,
-                      lookupStruct: string -> structVals option} option) : pretty =
+    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string, env: printTypeEnv) : pretty =
     let
         (* prints a block of items *)
         fun dispP (t : types, depth : int) : pretty =
@@ -595,23 +598,16 @@ struct
                             val { first, second } = splitString s
                             val currentList = second :: l
                         in
-                            case env of
-                                SOME env =>
-                                    if findType(env, currentList)
-                                    then currentList
-                                    else nameToList(first, currentList)
-                            |   NONE => (* No environment available. *) nameToList(first, currentList)
+                            if findType(env, currentList)
+                            then currentList
+                            else nameToList(first, currentList)
                         end
-                    val names = List.rev(nameToList(constrName, []))
+                    val names = nameToList(constrName, [])
+                    val newName = String.concatWith "." names
                     (* TODO: If we don't find the type we want we should:
                        1.  If it's a type equivalence apply that.
                        2.  Report this in much more detail.  Perhaps the type has
                            been hidden e.g. by a type with the same name. *)
-                    (* Turn any structure prefixes into a ParentStructure list.  This is likely to
-                       be replaced by a more appropriate data structure. *)
-                    fun createStructureList [] = []
-                    |   createStructureList (hd :: tl) = [ContextParentStructure(hd, createStructureList tl)]
-
                      (* Get the declaration position for the type constructor. *)
                     val constrContext =
                         if isUndefined(pling value) then []
@@ -621,10 +617,8 @@ struct
                                 SOME(DeclaredAt loc) => [ContextLocation loc]
                             |   _ => []
                         )
-                    val structureList = createStructureList(tl names) @ constrContext
                     val constructorEntry = 
-                        (* Remove the structure name and leave just the type. *)
-                        PrettyBlock(0, false, structureList, [PrettyString(hd names)])
+                        PrettyBlock(0, false, constrContext, [PrettyString newName(*constrName*)])
 	 	        in
                     case args of
                         [] => constructorEntry
@@ -800,7 +794,7 @@ struct
     if numOfVars = 1 
     then 
     [
-      tDisp (TypeVar(hd vars), depth, typeV, NONE), 
+      tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv), 
       PrettyBreak (1, 0)
     ]
     else if numOfVars > 1 
@@ -817,7 +811,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (TypeVar(hd vars), depth, typeV, NONE),
+                            tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -842,9 +836,7 @@ struct
   (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
      or datatype 'a joe = bill of 'a list | mary of 'a * int or
      simply type 'a abs if the type is abstract. *)
-  fun displayTypeConstrs 
-     (tCons : typeConstrs,
-      depth : int) : pretty =
+  fun displayTypeConstrs (tCons : typeConstrs, depth : int, typeEnv) : pretty =
   let
     val typeV : typeVarForm -> string = varNameSequence ();
   in
@@ -876,7 +868,7 @@ struct
                     [
                         PrettyBreak (1, 4),
                         (* print the type as a single block of output *)
-        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV, NONE)
+        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV, typeEnv)
                     ]
                     else [])
                  )
@@ -897,8 +889,6 @@ struct
         		   pValConstrRest (T, depth - 1)
                    )
 
-        (* Remove any structure name. *)
-        val tcname = #second(splitString(tcName tCons))
         in
             PrettyBlock(0, false, [],
                 [
@@ -906,28 +896,40 @@ struct
                             PrettyString "datatype" ::
                             PrettyBreak (1, 2) ::
                             printTypeVars (tcTypeVars tCons, depth, typeV) @
-                            [ PrettyString tcname, PrettyBreak(1, 0), PrettyString "=" ]
+                            [ PrettyString(#second(splitString(tcName tCons))), PrettyBreak(1, 0), PrettyString "=" ]
                     ),
                     pValConstrList (tcConstructors tCons, depth - 1)
                 ]
             )
         end
        
-    else (* Either direct type equivalent, or an abstract type *)
-        let
-		   (* Remove any structure name. *)
-		   val tcname = #second(splitString(tcName tCons))
-        in
-            PrettyBlock (3, false, [],
-                PrettyString (
-                    if not(tcIsAbbreviation tCons) andalso tcEquality tCons then "eqtype" else "type") ::
-                PrettyBreak (1, 0) ::
-                printTypeVars (tcTypeVars tCons, depth, typeV) @
-                [PrettyString tcname]
-                )
-           (* Don't try to print the type it is equivalent to, it will probably
-              be confusing if this is the result of a functor application. *)
-        end
+    else if tcIsAbbreviation tCons
+    then
+    let
+        val typeV = varNameSequence () (* Local sequence for this binding. *)
+    in
+        PrettyBlock (3, false, [],
+            PrettyString (
+                if not(tcIsAbbreviation tCons) andalso tcEquality tCons then "eqtype" else "type") ::
+            PrettyBreak (1, 0) ::
+            printTypeVars (tcTypeVars tCons, depth, typeV) @
+            [
+                PrettyString (#second(splitString(tcName tCons))),
+                PrettyBreak(1, 0),
+                PrettyString "=",
+                PrettyBreak(1, 0),
+                tDisp(tcEquivalent tCons, depth-1, typeV, typeEnv)
+            ]
+            )
+    end
+    else (* An abstract type or a type bound to another type name. *)
+        PrettyBlock (3, false, [],
+            PrettyString (
+                if tcEquality tCons then "eqtype" else "type") ::
+            PrettyBreak (1, 0) ::
+            printTypeVars (tcTypeVars tCons, depth, typeV) @
+            [PrettyString (#second(splitString(tcName tCons)))]
+            )
   end   (* displayTypeConstrs *);
 
     (* Parse tree for types.  This is used to represent types in the source. *)
@@ -1003,7 +1005,7 @@ struct
 
         (* Common properties for navigation and printing. *)
         val commonProps =
-            PTprint(fn d => display(typeof, d, NONE)) ::
+            PTprint(fn d => display(typeof, d, emptyTypeEnv)) ::
             PTtype typeof ::
             exportNavigationProps navigation
 
@@ -1187,6 +1189,7 @@ struct
 		   using copyType to generate copies of the value constructors of
 		   replicated datatypes. *)
 		val copiedName = tcName copiedConstr
+        val oldName = tcName(pling value)
       in
 		if identicalList   (copiedArgs, args) andalso
 		   identicalConstr (copiedConstr, pling value)
@@ -1230,42 +1233,6 @@ struct
 		raise InternalError "copyType: OverloadSet found"
 
   end (* copyType *);
-  
-
-    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
-       function copies that as well. Does not copy value constructors. *)
-    fun copyTypeConstr (tcon, typeMap, copyTypeVar, strName) =
-        case tcIdentifier tcon of
-            TypeFunction(args, equiv) =>
-            let
-                val copiedEquiv =
-                    copyType(equiv, trivMap, (* Don't bother with type variables. *)
-		                fn tcon => copyTypeConstr (tcon, typeMap, trivMap, strName))
-                val oldName = tcName tcon
-        		val newName = strName ^ #second(splitString oldName)
-            in
-                if identical (equiv, copiedEquiv) (* andalso newName = oldName *) (* ??? *)
-                then tcon (* No need to copy *)
-                else if List.null (tcConstructors tcon)
-                then makeTypeAbbreviation(newName, args, copiedEquiv, tcLocations tcon)
-                else (* Use a datatype constructor here to allow constructors to be added on.
-                        The "well-formedness" rules say that shouldn't happen. *)
-                    makeDatatypeConstr(newName, tcTypeVars tcon, TypeFunction(args, copiedEquiv),
-                                        0 (* Always global. *), tcLocations tcon)
-            end
-
-        |   id =>
-            let
-                val newId = typeMap id
-            in
-                (* If this is free and is the same Id and it was already global then
-                   we aren't doing anything and can just return it unchanged. *)
-                if isFreeId id andalso sameTypeId(newId, id) andalso isGlobal(idAccess id)
-                then tcon
-                else (* Replace any signature name by the given structure name. *)
-                    makeDatatypeConstr(strName ^ #second(splitString(tcName tcon)),
-                        tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
-            end
 
     datatype match = Matched of {old: typeVarForm, new: types};
 
@@ -2407,7 +2374,7 @@ struct
                     [
                         PrettyString
                             (opName ^ " is overloaded on " ^ types ^ " but not "),
-                        display (arg, errorDepth, NONE)
+                        display (arg, errorDepth, emptyTypeEnv)
                     ]
                 ),
             context = NONE
@@ -2428,7 +2395,7 @@ struct
 	 free imperative type variables.  We don't do that in ML97 because
 	 it is possible that another declaration may "freeze" the type variable
 	 before the composite expression reaches the top level. *)
-  fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo) =
+  fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
 	let
 		fun giveError(s1: string, s2: string) =
         let
@@ -2447,7 +2414,7 @@ struct
                         [
                             PrettyString s1,
                             PrettyBreak (1, 0),
-                            tDisp (t, errorDepth, vars, NONE),
+                            tDisp (t, errorDepth, vars, typeEnv),
                             PrettyBreak (1, 0),
                             PrettyString s2
                         ]

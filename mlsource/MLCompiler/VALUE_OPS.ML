@@ -138,7 +138,8 @@ struct
   open UNIVERSALTABLE;
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
-  open TYPEIDCODE;
+  open TYPEIDCODE
+  open COPIER
   
   val lengthW  = ADDRESS.length;
   val length   = List.length;
@@ -819,10 +820,10 @@ struct
         val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
         val newId = makeFreeId(Global globalCode, isEqType)
         (* Finally copy the datatype to put in the code. *)
-        fun copyId(Bound{offset=0(* IdNumber*), ...}) = newId
-        |   copyId id = id
+        fun copyId(Bound{offset=0(* IdNumber*), ...}) = SOME newId
+        |   copyId id = NONE
     in
-        COPIER.fullCopyDatatype(dtype, copyId, "")
+        fullCopyDatatype(dtype, copyId, "")
     end
 
     (* Nil and :: are used in parsetree for lists constructed
@@ -919,24 +920,14 @@ struct
     (* Turn a typeId from Formal into Selected.  All typeIds are held in
        the parent structure so we don't have to worry about whether they
        are relative to the parent or to a sub-structure. *)
-    fun idFromStructure str : typeId -> typeId =
+    fun idFromStructure str : typeId -> typeId option =
     let
-        val strSig = structSignat str
-        fun isInStructure id =
-        let
-            fun check n =
-                if n = sigMaxTypes strSig
-                then false
-                else sameTypeId(id, sigTypeIdMap strSig n) orelse check(n+1)
-        in
-            check(sigMinTypes strSig)
-        end
     in
         fn (id as Free{ uid, allowUpdate, access=Formal addr }) =>
-                Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
+                SOME(Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)})
         |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =>
-                Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) }
-        |   id => id
+                SOME(Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) })
+        |   id => NONE
     end
     
   
@@ -981,17 +972,23 @@ struct
                             val Env sigEnv = makeEnv tab
                             val copyId = idFromStructure str
                             val lastAddr =
-                                COPIER.fullCopySig 
+                                fullCopySig 
                                     (source,
                                     {
                                       enterType   = fn (s,v) => #enterType sigEnv (s, v),
                                       enterStruct = fn (s,v) => #enterStruct sigEnv (s, v),
                                       enterVal    = fn (s,v) => #enterVal sigEnv (s, v)
                                     },
-                                    copyId, "");
+                                    copyId, prefix^".");
+                            fun newMap n =
+                            let
+                                val m = sigTypeIdMap source n
+                            in
+                                case copyId m of NONE => m | SOME l => l
+                            end
                             val copiedSig = 
                                 makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source,
-                                              sigDeclaredAt source, copyId o sigTypeIdMap source)
+                                              sigDeclaredAt source, newMap)
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case structAccess structFound of
@@ -1076,7 +1073,8 @@ struct
                     let
                         val copiedType =
                             copyType (typeOf, fn x => x,
-                                fn tcon => copyTypeConstr (tcon, idFromStructure baseStruct, fn x => x, ""));
+                                fn tcon =>
+                                    copyTypeConstr (tcon, idFromStructure baseStruct, fn x => x, fn s => prefix^"."^s))                            
                     in
                         SOME(mkSelectedVar (
                                 Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations },
@@ -1112,7 +1110,7 @@ struct
             then SOME undefType
             else
                 case #lookupType (mkEnv(sigTab (structSignat str))) suffix of
-                    SOME typeConstr => SOME(COPIER.fullCopyDatatype(typeConstr, idFromStructure str, ""))
+                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, idFromStructure str, prefix^"."))
                 |   NONE => NONE
         end
     in
@@ -1223,7 +1221,7 @@ struct
                 ]
             )
         val typeEnv = (* Environment to check for type constructors. *)
-            SOME { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace}
+            { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace}
     in
   
         if depth <= 0 
@@ -1302,6 +1300,9 @@ struct
             allSig       = #allSig nameSpace,
             allFunct     = #allFunct nameSpace
         }
+        
+        val typeEnv: printTypeEnv =
+            { lookupType = #lookupType compositeEnv, lookupStruct = #lookupStruct compositeEnv }
 
         fun displaySpec (name, value) : pretty list =
         if (tagIs signatureVar value)
@@ -1314,7 +1315,7 @@ struct
                
         else if (tagIs typeConstrVar value)
         then 
-            [ PrettyBreak(1,2), displayTypeConstrs (tagProject typeConstrVar value, depth) ]
+            [ PrettyBreak(1,2), displayTypeConstrs (tagProject typeConstrVar value, depth, typeEnv) ]
       
         else if (tagIs valueVar value)
         then
@@ -1543,14 +1544,14 @@ struct
                                     [
                                         PrettyString "Required type:",
                                         PrettyBreak (1, 0),
-                                        display (matchType, errorDepth, NONE)
+                                        display (matchType, errorDepth, emptyTypeEnv)
                                     ]),
                                 PrettyBreak (1, 3),
                                 PrettyBlock(0, false, [],
                                     [
                                         PrettyString "Argument type:",
                                         PrettyBreak (1, 0),
-                                        display (instanceType, errorDepth, NONE)
+                                        display (instanceType, errorDepth, emptyTypeEnv)
                                     ]),
                                 PrettyBreak (1, 3),
                                 PrettyBlock(0, false, [],

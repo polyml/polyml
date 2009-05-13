@@ -130,9 +130,6 @@ local
     |   CPPrintInAlphabeticalOrder of bool
         (* Whether to sort the results by alphabetical order before printing them.  Applies
            only to the default CPResultFun.  Default value of printInAlphabeticalOrder. *)
-    |   CPPrintTypesWithStructure of bool
-        (* Whether when printing the type of a value to include any structure name
-           with the type constructors.  Default value of printTypesWithStructureName. *)
     |   CPResultFun of {
             fixes: (string * fixityVal) list, values: (string * valueVal) list,
             structures: (string * structureVal) list, signatures: (string * signatureVal) list,
@@ -260,45 +257,7 @@ local
 
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
-    
-    (* If printTypesWithStructureName is set we transform the pretty
-       printed structure by adding the structure name as prefix where
-       appropriate. *)
-    fun addStructurePrefix addPrefix p =
-    let
-        open PolyML
-        (* The structure name is part of the block context. *)
-        fun doAddPrefix prefix (PrettyBlock(depth, consistent, context, list)) =
-        let
-            (* Add together the structure prefixes. *)
-            fun makePrefix context =
-            let
-                val newPrefix =
-                    List.find (fn (ContextParentStructure _) => true | _ => false)
-                        context
-            in
-                case newPrefix of
-                    SOME (ContextParentStructure(sName, subContext)) =>
-                        makePrefix subContext ^ sName ^ "."
-                |   _  => prefix (* No (more) prefixes. *)
-            end
-            val thisPrefix = makePrefix context
-        in
-            (* Add this prefix to any strings within the block. *)
-            PrettyBlock(depth, consistent, context, List.map (doAddPrefix thisPrefix) list)
-        end
-        
-        |   doAddPrefix prefix (p as PrettyString s) =
-                if prefix = "" then p else PrettyString(prefix ^ s)
 
-        |   doAddPrefix _ p = p (* PrettyBreak *)
-    in
-        if addPrefix
-        then doAddPrefix "" p
-        else p (* Return unchanged. *)
-    end
-
-    
     (* Debugger control. *)
 
     (* Whenever we enter a function we push information onto this stack. *)
@@ -451,12 +410,12 @@ local
                  (if file = "" then [] else [" in '", file, "',"]) @
                  (if line = 0 then [] else [" line ", Int.toString line]) @
                  (if line = 0 andalso file = "" then [] else [".\n"])));
-            prettyPrintWithMarkup(printOut, !lineLength) ((* Always add prefixes. *)addStructurePrefix true fullMessage)
+            prettyPrintWithMarkup(printOut, !lineLength) fullMessage
         end
 
         (* Default function to print and enter a value. *)
         fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
-                           stream: string->unit, depth: int, withStruct: bool)
+                           stream: string->unit, depth: int)
             { fixes: (string * fixityVal) list, values: (string * valueVal) list,
               structures: (string * structureVal) list, signatures: (string * signatureVal) list,
               functors: (string * functorVal) list, types: (string * typeVal) list}: unit =
@@ -512,40 +471,35 @@ local
             |   printDec(n, TypeConstrKind t) =
                 (
                     if depth > 0
-                    then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix withStruct (displayType(t, depth)))
+                    then prettyPrintWithMarkup (stream, !lineLength) (displayType(t, depth, space))
                     else ();
                     #enterType space (n,t)
                 )
             |   printDec(n, SignatureKind s) =
                 (
                     if depth > 0
-                    then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix withStruct (displaySig(s, depth, space)))
+                    then prettyPrintWithMarkup (stream, !lineLength) (displaySig(s, depth, space))
                     else ();
                     #enterSig space (n,s)
                 )
             |   printDec(n, StructureKind s) =
                 (
                     if depth > 0
-                    then prettyPrintWithMarkup (stream, !lineLength)
-                        (addStructurePrefix withStruct (displayStruct(s, depth, space)))
+                    then prettyPrintWithMarkup (stream, !lineLength) (displayStruct(s, depth, space))
                     else ();
                     #enterStruct space (n,s)
                 )
             |   printDec(n, FunctorKind f) =
                 (
                     if depth > 0
-                    then prettyPrintWithMarkup (stream, !lineLength)
-                            (addStructurePrefix withStruct (displayFunct(f, depth, space)))
+                    then prettyPrintWithMarkup (stream, !lineLength) (displayFunct(f, depth, space))
                     else ();
                     #enterFunct space (n,f)
                 )
             |   printDec(n, ValueKind v) =
                 (
                     if depth > 0
-                    then prettyPrintWithMarkup (stream, !lineLength)
-                            (addStructurePrefix withStruct (displayVal(v, depth, space)))
+                    then prettyPrintWithMarkup (stream, !lineLength) (displayVal(v, depth, space))
                     else ();
                     #enterVal space (n,v)
                 )
@@ -572,10 +526,8 @@ local
             val profiling = find (fn CPProfiling i => SOME i | _ => NONE) (!profiling) parameters
             val timing = find  (fn CPTiming b => SOME b | _ => NONE) (!timing) parameters
             val printDepth = find (fn CPPrintDepth f => SOME f | _ => NONE) (fn () => !printDepth) parameters
-            val printWithStruct = find (fn CPPrintTypesWithStructure t => SOME t | _ => NONE)
-                                (! printTypesWithStructureName) parameters
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
-               (printAndEnter(printInOrder, nameSpace, outstream, printDepth(), printWithStruct)) parameters
+               (printAndEnter(printInOrder, nameSpace, outstream, printDepth())) parameters
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) defaultErrorProc parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
@@ -1801,8 +1753,7 @@ local
                                                                 Int.toString startPosition, "\u001b,",
                                                                 Int.toString endPosition, "\u001b,"
                                                             ]);
-                                                        prettyPrintWithMarkup(print, !lineLength)
-                                                            ((* Always add prefixes. *)addStructurePrefix true message);
+                                                        prettyPrintWithMarkup(print, !lineLength) message;
                                                         endPacket #"e" (* Escape e - end *)
                                                     )
                                                 in
@@ -1983,7 +1934,6 @@ in
             val inlineFunctors = inlineFunctors
             val maxInlineSize = maxInlineSize
             val printInAlphabeticalOrder = printInAlphabeticalOrder
-            val printTypesWithStructureName = printTypesWithStructureName
             val traceCompiler = traceCompiler
         end
         

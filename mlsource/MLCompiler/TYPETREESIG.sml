@@ -44,6 +44,11 @@ sig
     type structVals
     type codetree
 
+    type printTypeEnv =
+        { lookupType: string -> typeConstrs option,
+          lookupStruct: string -> structVals option}
+    val emptyTypeEnv: printTypeEnv
+
     val mkTypeVar:          int * bool * bool * bool -> types;
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
@@ -75,12 +80,10 @@ sig
     val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
 
     (* Print it out prettily *)
-    val display: types * int *
-        { lookupType: string -> typeConstrs option,
-          lookupStruct: string -> structVals option} option -> pretty;
+    val display: types * int * printTypeEnv -> pretty;
 
     (* Print out a type constructor. *)
-    val displayTypeConstrs: typeConstrs * int -> pretty;
+    val displayTypeConstrs: typeConstrs * int * printTypeEnv -> pretty;
 
     (* A list of type variables. *)
     val displayTypeVariables: typeVarForm list * int -> pretty list;
@@ -115,7 +118,7 @@ sig
 
     (* Release type variables at this nesting level. *)
     val allowGeneralisation: types * int * bool *
-                             lexan * location * (unit -> pretty) -> unit;
+                             lexan * location * (unit -> pretty) * printTypeEnv -> unit;
 
     (* Check for a local datatype "escaping".  Added for ML97. *)
     val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
@@ -126,9 +129,6 @@ sig
     val constructorResult: types * types list -> types;
 
     val findValueConstructor: values -> values;
-
-    val copyTypeConstr:
-        typeConstrs * (typeId -> typeId) * (types -> types) * string -> typeConstrs;
 
     val setTypeConstr: typeConstrs * (bool -> typeId) -> unit;
 
