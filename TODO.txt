@@ -2,6 +2,7 @@ A list of things to do:
 
 * the .deps file should list full path names. currently changing
   directory before a use will make it incorrect. 
+  This is now an IDE issue.
 
 * Add to docs that threads run during compilation are the coder's
   responsibility; we suggest that to ensure correct behaviour of the
@@ -9,3 +10,11 @@ A list of things to do:
   file.
 
 * Add to ideprotocol: get types/values/sub-structures in a structure.
+
+* IDE protocol
+  Change R packet to include ML code rather than load file.
+  Add asynchronous code to protocol.
+  Remove preUse and put in a separate file.
+
+* Type ID changes:
+  Add "description" to type IDs.
