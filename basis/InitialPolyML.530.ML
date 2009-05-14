@@ -160,6 +160,16 @@ in
 			end
         end
     end
+
+    (* Raise an exception using a given location rather than the value in the packet. *)
+    fun raiseWithLocation(ex: exn, loc: location) =
+    let
+        open RunCall RuntimeCalls
+        fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
+        val packet = (getEntry 0, getEntry 1, getEntry 2, loc)
+    in
+        run_call1 POLY_SYS_raisex packet
+    end
     
         exception XWindows = RunCall.XWindows
         and       Foreign  = RunCall.Foreign
