@@ -856,7 +856,12 @@ local
     case saveDirectory of
         ref NONE => ()
     |   ref (SOME dirName) =>
-        (let
+        let
+            open OS.Path
+            (* Assume that the root directory is the parent of the save directory.
+               N.B. Because the directory may not yet exist we can't use OS.FileSys.fullPath. *)
+            val saveDirPath = mkAbsolute { path = dirName, relativeTo = OS.FileSys.getDir() }
+            val { dir = rootPath, ...} = splitDirFile saveDirPath
             (* Create a directory hierarchy. *)
             fun createDirs path =
                 if path = "" orelse (OS.FileSys.isDir path handle OS.SysErr _ => false)
@@ -866,42 +871,63 @@ local
                     createDirs (OS.Path.dir path);
                     OS.FileSys.mkDir path
                 );
-
-            local
-                open OS.FileSys OS.Path
-                val baseName = joinDirFile { dir = dirName, file = fileName }
-            in
-                val saveFile =
-                    mkCanonical (joinBaseExt{ base = baseName, ext = SOME "save"})
-                val depFile =
-                    mkCanonical (joinBaseExt{ base = baseName, ext = SOME "deps"})
-            end
-            (* Reset the save directory before we save so that it isn't set in the saved
-               state.  That means that "use" won't save the state unless it's explicitly
-               asked to. *)
-            val saveSave = ! saveDirectory
-       in
-            (* Create any containing directories. *)
-            createDirs(OS.Path.dir saveFile);
-            saveDirectory := NONE;
+            (* Compute the full path to the actual file taking account of any
+               change of directory then make it relative to the root. *)
+            val filePathRelativeToRoot =
+                let
+                    val fullFileName = OS.FileSys.fullPath fileName
+                    val pathFromRoot = mkRelative { path = fullFileName, relativeTo = rootPath }
+                    (* Is the file in the root directory or a sub-directory or is it in
+                       some other directory? *)
+                    val { arcs, ...} = fromString pathFromRoot
+                in
+                    case arcs of
+                        topArc :: _ =>
+                            (* If the first part of the path is ".." then it's in some other directory. *)
+                            if topArc = parentArc then NONE else SOME pathFromRoot
+                    |   _ => NONE (* No path at all? *)
+                end handle Path => NONE (* Different volumes: can't make relative path. *)
+                          | OS.SysErr _ => NONE (* If fileName doesn't actually exist. *)
+        in
+            case filePathRelativeToRoot of
+                NONE => () (* Do nothing: we can't save it. *)
+            |   SOME fileName =>
+                let
+                    local
+                        val baseName = joinDirFile { dir = dirName, file = fileName }
+                    in
+                        val saveFile =
+                            mkCanonical (joinBaseExt{ base = baseName, ext = SOME "save"})
+                        val depFile =
+                            mkCanonical (joinBaseExt{ base = baseName, ext = SOME "deps"})
+                    end
+                    (* Reset the save directory before we save so that it isn't set in the saved
+                       state.  That means that "use" won't save the state unless it's explicitly
+                       asked to. *)
+                    val saveSave = ! saveDirectory
+               in
+                    (* Create any containing directories. *)
+                    createDirs(OS.Path.dir saveFile);
+                    saveDirectory := NONE;
             
-            (* Save the state. *)
-            PolyML.SaveState.saveChild (saveFile, List.length(PolyML.SaveState.showHierarchy()));
-            (* Restore the ref. *)
-            saveDirectory := saveSave;
+                    (* Save the state. *)
+                    PolyML.SaveState.saveChild (saveFile, List.length(PolyML.SaveState.showHierarchy()));
+                    (* Restore the ref. *)
+                    saveDirectory := saveSave;
             
-            (* Write out the dependencies. *)
-            let
-                open TextIO
-                val f = openOut depFile
-            in
-                List.app(fn s => output(f, s ^ "\n")) (!dependencies);
-                closeOut f
-            end;
-            (* Add this file to the dependency list. *)
-            dependencies := ! dependencies @ [fileName]
-        end handle (ex as OS.SysErr args) =>
-                    (print (concat["Exception SysErr(", PolyML.makestring args, ") raised for ", fileName, "\n"]); raise ex))
+                    (* Write out the dependencies. *)
+                    let
+                        open TextIO
+                        val f = openOut depFile
+                    in
+                        List.app(fn s => output(f, s ^ "\n")) (!dependencies);
+                        closeOut f
+                    end;
+                    (* Add this file to the dependency list. *)
+                    dependencies := ! dependencies @ [fileName]
+                end handle (ex as OS.SysErr args) =>
+                    (print (String.concat["Exception SysErr(", PolyML.makestring args, ") raised for ", fileName, "\n"]); raise ex)
+        end
 
     (*****************************************************************************)
     (*                  "use": compile from a file.                              *)
