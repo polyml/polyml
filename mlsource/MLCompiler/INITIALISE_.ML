@@ -262,12 +262,12 @@ struct
         
         
         (* Type-dependent functions. *)
-        fun mkSpecialFun (name:string) (typeof:types) (opn: typeDependent) : values =
+        fun mkSpecialFun (name:string, typeof:types, opn: typeDependent) : values =
             makeOverloaded (name, typeof, opn);
         
         (* Overloaded functions. *)
         fun mkOverloaded (name:string) (typeof: types)
-            : values = mkSpecialFun name typeof TypeDep;
+            : values = mkSpecialFun(name, typeof, TypeDep);
          
 (*****************************************************************************)
 (*                  unit                                                     *)
@@ -688,14 +688,14 @@ struct
    That's important to allow the prelude code to expand the PolyML structure. *)
         local
             val eqType = let val a = makeEqTV () in a ** a ->> Bool end;
-            val eqVal  = mkSpecialFun "=" eqType Equal;
+            val eqVal  = mkSpecialFun("=", eqType, Equal);
         in
             val () = enterGlobalValue ("=", eqVal);
         end;        
 
         local
             val neqType = let val a = makeEqTV () in a ** a ->> Bool end;
-            val neqVal  = mkSpecialFun "<>" neqType NotEqual;
+            val neqVal  = mkSpecialFun("<>", neqType, NotEqual);
         in
             val () = enterGlobalValue ("<>", neqVal);
         end;        
@@ -873,21 +873,21 @@ struct
 (*****************************************************************************)
         local
             val printType = let val a = makeTV () in a ->> a end;
-            val printVal  = mkSpecialFun "print" printType Print;
+            val printVal  = mkSpecialFun("print", printType, Print);
         in
             val () = enterPolyMLVal ("print", printVal);
         end;
 
         local
             val makeStringType = let val a = makeTV () in a ->> String end;
-            val makeStringVal  = mkSpecialFun "makestring" makeStringType MakeString;
+            val makeStringVal  = mkSpecialFun("makestring", makeStringType, MakeString);
         in
             val () = enterPolyMLVal ("makestring", makeStringVal);
         end;
 
         local
             val prettyType = let val a = makeTV () in a ** Int ->> PrettyType end;
-            val prettyVal  = mkSpecialFun "prettyRepresentation" prettyType GetPretty;
+            val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
         in
             val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
         end;
@@ -898,7 +898,7 @@ struct
             val b = makeTV ();
         
             val addPrettyType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
-            val addPrettyVal  = mkSpecialFun "addPrettyPrinter" addPrettyType AddPretty;
+            val addPrettyVal  = mkSpecialFun("addPrettyPrinter", addPrettyType, AddPretty);
         in
             val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
         end;
@@ -917,7 +917,7 @@ struct
                    Unit ->> Unit         (* endBracket *)
                  ];
             val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
-            val installPPVal  = mkSpecialFun "install_pp" installPPType InstallPP;
+            val installPPVal  = mkSpecialFun("install_pp", installPPType, InstallPP);
         in
             val () = enterPolyMLVal ("install_pp", installPPVal);
         end;
@@ -926,9 +926,15 @@ struct
         local
             val addOverloadType =
                 let val a = makeTV () and b = makeTV () in (a ->> b) ->> String ->> Unit end;
-            val addOverloadVal  = mkSpecialFun "addOverload" addOverloadType AddOverload;
+            val addOverloadVal  = mkSpecialFun("addOverload", addOverloadType, AddOverload);
         in
             val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
+        end;
+
+        local
+            val sourceLocVal  = mkSpecialFun("sourceLocation", Unit ->> Location, GetLocation);
+        in
+            val () = enterPolyMLVal ("sourceLocation", sourceLocVal);
         end;
 
 (*****************************************************************************)

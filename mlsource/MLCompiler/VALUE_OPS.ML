@@ -1902,6 +1902,15 @@ struct
             mkConst (toMachineWord installPp)
         end
 
+  |  codeVal (value as Value{access = Overloaded GetLocation, ...}, level, instance, lex, lineno) =
+        (* This can't be used a value: It must be called immediately. *)
+        let
+            fun getLoc() =
+                raise Fail "The special function PolyML.sourceLocation cannot be used as a value"
+        in
+            mkConst (toMachineWord getLoc)
+        end
+
   |  codeVal (value as Value{access = Overloaded _, ...}, level, instance, lex, lineno) =
        (* AddOverload, Equal, NotEqual, TypeDep *)
          mkProc
@@ -2066,6 +2075,8 @@ struct
                mkEval (mkConst (toMachineWord addOverloadGeneral), [argument], false)
         end
 
+      | GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
+        
       | _ => (* Print, MakeString, InstallPP *)
          (* Just call as functions. *) (* not early *)
             mkEval (codeVal (value, level, instance, lex, lineno), [argument], false)

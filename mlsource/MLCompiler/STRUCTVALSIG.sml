@@ -113,6 +113,7 @@ sig
     |   NotEqual
     |   AddOverload
     |   TypeDep
+    |   GetLocation
 
     and values =
   	    Value of
