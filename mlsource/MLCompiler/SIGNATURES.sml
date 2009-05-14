@@ -484,6 +484,34 @@ struct
                 |   _ => raise InternalError "isVar"
             )
         |   isVariableId _ (* Free or TypeFunction *) = false
+        
+        fun linkFlexibleTypeIds(typeId1, typeId2) =
+        (* Link together and share two IDs.  The result is an equality type if either
+           was an equality type and a datatype if either was a datatype. *)
+        case (typeId1, typeId2) of
+            (Bound{offset=offset1, ...}, Bound{offset=offset2, ...}) =>
+        (
+            case (realId offset1, realId offset2) of
+                (VariableSlot{isDatatype=isDatatype1,
+                              boundId=Bound{eqType=eqType1, offset=off1, ...}},
+                 VariableSlot{isDatatype=isDatatype2,
+                              boundId=Bound{eqType=eqType2, offset=off2, ...}}) =>
+            if off1 = off2
+            then () (* They may already share. *)
+            else
+            let
+                val resOffset = Int.min(off1, off2)
+                val setOffset = Int.max(off1, off2)
+                val newId = makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2)
+                val newEntry =
+                    VariableSlot{ isDatatype=isDatatype1 orelse isDatatype2, boundId=newId }
+            in
+                StretchArray.update(mapArray, resOffset-initTypeId, newEntry);
+                StretchArray.update(mapArray, setOffset-initTypeId, SharedWith(resOffset-initTypeId))
+            end
+            |   _ => raise InternalError "linkFlexibleTypeIds: not variable"
+        )
+        |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
 
         (* Process a sharing constraint. *)
         fun applySharingConstraint 
@@ -537,33 +565,7 @@ struct
 
                 else if not (isVariableId (tcIdentifier typeB))
                 then cantShare (tcName typeB ^ " is already defined as another type.")
-                else
-                    (* Link together and share two IDs.  The result is an equality type if either
-                       was an equality type and a datatype if either was a datatype. *)
-                    case (tcIdentifier typeA, tcIdentifier typeB) of
-                        (Bound{offset=offset1, ...}, Bound{offset=offset2, ...}) =>
-                    (
-                        case (realId offset1, realId offset2) of
-                            (VariableSlot{isDatatype=isDatatype1,
-                                          boundId=Bound{eqType=eqType1, offset=off1, ...}},
-                             VariableSlot{isDatatype=isDatatype2,
-                                          boundId=Bound{eqType=eqType2, offset=off2, ...}}) =>
-                        if off1 = off2
-                        then () (* They may already share. *)
-                        else
-                        let
-                            val resOffset = Int.min(off1, off2)
-                            val setOffset = Int.max(off1, off2)
-                            val newId = makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2)
-                            val newEntry =
-                                VariableSlot{ isDatatype=isDatatype1 orelse isDatatype2, boundId=newId }
-                        in
-                            StretchArray.update(mapArray, resOffset-initTypeId, newEntry);
-                            StretchArray.update(mapArray, setOffset-initTypeId, SharedWith(resOffset-initTypeId))
-                        end
-                        |   _ => raise InternalError "linkFlexibleTypeIds: not variable"
-                    )
-                    |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
+                else linkFlexibleTypeIds(tcIdentifier typeA, tcIdentifier typeB)
             end (* shareTypes *);
 
 
@@ -1190,7 +1192,7 @@ struct
                     Bound { offset, ... } =>
                     (
                         case realId(offset-initTypeId) of
-                            VariableSlot { isDatatype, boundId=Bound{eqType, offset, ...} } =>
+                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...} } =>
                             (
                                (* The rule for "where type" says that we must check that an eqtype
                                   is only set to a type that permits equality and that the result
@@ -1201,8 +1203,14 @@ struct
                                 then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
                                       ") is an eqtype but the type does not permit equality.")
                                 else case typeNameRebinding (typeVars, realisation) of
-                                    SOME typeId => (* Renaming an existing constructor: propagate the id. *)
-                                        StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
+                                    SOME typeId =>
+                                        (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
+                                           "s" may be free or it may be within the signature and equivalent to
+                                           a sharing constraint.
+                                           e.g. sig type t structure S: sig type s end where type s = t end. *)
+                                        if isVariableId typeId
+                                        then linkFlexibleTypeIds(typeId, varId)
+                                        else StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
                                 |   NONE =>
                                         if isDatatype
                                             (* The type we're trying to set is a datatype but the type
