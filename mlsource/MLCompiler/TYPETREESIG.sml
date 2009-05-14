@@ -104,12 +104,10 @@ sig
     (* Unify two type structures to give a unified type. *)
     val unifyTypes: types * types -> matchResult
 
-    (* Used to link a type constructor to a type as the result of a "where type"
-       construction. *)
-    val setWhereType: typeConstrs * typeVarForm list * types * (string -> unit) -> unit;
-
     (* Check that a type constructor permits equality. *)
-    val permitsEquality: typeConstrs -> bool;
+    val permitsEquality: typeConstrs -> bool
+    (* And whether a type admits equality. *)
+    val typePermitsEquality: types -> bool
 
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
@@ -129,8 +127,6 @@ sig
     val constructorResult: types * types list -> types;
 
     val findValueConstructor: values -> values;
-
-    val setTypeConstr: typeConstrs * (bool -> typeId) -> unit;
 
     val identical:       types * types -> bool;
     val identicalConstr: typeConstrs * typeConstrs -> bool;

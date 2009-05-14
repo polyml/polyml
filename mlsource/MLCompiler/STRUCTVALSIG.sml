@@ -46,10 +46,8 @@ sig
     type uniqueId
 
     datatype typeId =
-        Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
+        Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
-    |   Flexible        of typeId ref
     |   TypeFunction    of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
@@ -141,20 +139,15 @@ sig
     (* type identifiers. *)
     val isFreeId:     typeId -> bool;
     val isBoundId:    typeId -> bool;
-    val isVariableId: typeId -> bool;
     val isTypeFunction: typeId -> bool;
     val isEquality:   typeId -> bool;
     val offsetId:     typeId -> int;
     val idAccess:     typeId -> valAccess;
     val sameTypeId:   typeId * typeId -> bool;
-    val linkFlexibleTypeIds: typeId * typeId -> unit;
-    val makeTypeIdBound: typeId * typeId -> unit;
     val setEquality:  typeId -> unit
-    val removeAbstypeEquality:  typeId -> unit
 
     val makeFreeId:     valAccess * bool -> typeId;
     val makeFreeIdEqUpdate:     valAccess * bool -> typeId;
-    val makeVariableId: bool -> typeId;
     val makeBoundId:    valAccess * int*bool -> typeId;
     val makeBoundIdWithEqUpdate: valAccess * int*bool -> typeId;
     
@@ -169,7 +162,6 @@ sig
     val tcArity:           typeConstrs -> int;
     val tcTypeVars:        typeConstrs -> typeVarForm list;
     val tcEquivalent:      typeConstrs -> types;
-    val tcSetEquivalent:   typeConstrs * typeVarForm list * types -> unit;
     val tcConstructors:    typeConstrs -> values list;
     val tcSetConstructors: typeConstrs * values list -> unit;
     val tcEquality:        typeConstrs -> bool;

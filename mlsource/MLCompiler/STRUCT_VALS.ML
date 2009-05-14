@@ -93,29 +93,20 @@ struct
   (* typeIds are used to distinguish between concrete types.  Two
      types that share will have the same identifier.  If the identifiers are
      different they are different types.
-     There are four classes of type identifier. Flexible types occur during
-     the construction of signatures and can be assigned to other variables
-     or constants by sharing constraints.  Free constants arise from datatypes,
-     abstypes or opaque signature matching. Bound constants occur in the arguments to
-     functors or types constructed inside a functor (and therefore generated
-     when the functor is applied).  Type functions arise from type bindings
-     (type abbreviations) or from "where type" definitions in signatures.
+     There are three classes of type identifier.  Free identifiers are used for
+     types in the global environment. Bound identifiers occur in signatures,
+     functors and while compiling structures.  Type functions arise from
+     type bindings (type abbreviations) or from "where type" definitions
+     in signatures.
      The type identifier also contains the equality attribute.
      In ML97 only types have these identifiers.  In ML90 these were also
      needed for structures.
-     Flexible type identifiers can be set to other type identifiers by
-     "sharing" or "where type" constructions.  A type identifier is
-     flexible if the end of the chain is Unset.  An Unset identifier
-     records if it refers to a datatype to allow for the
-     "well-formedness" checking.
      Free and Bound IDs contain information to find the equality and
      value-printing functions. *)
 
     datatype typeId =
-        Unset           of { isEqtype: bool, isDatatype: bool }
-    |   Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
+        Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
     |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
-    |   Flexible        of typeId ref
     |   TypeFunction    of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
@@ -273,114 +264,34 @@ struct
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
     fun makeBoundIdWithEqUpdate (access, n, eq) = Bound{access=access, offset=n, eqType=VariableRef(ref eq)}
-
-    (* REF HOTSPOT - 260 *)
-    fun makeVariableId isEq  =
-        Flexible (ref(Unset{ isEqtype = isEq, isDatatype = false}))
-
-    (* If it is a constant or an unset variable return it,
-       otherwise return the value the variable is bound to. *)
-    fun realId(id as Flexible (ref(Unset _))) = id
-    |   realId(Flexible (ref v)) = realId v
-    |   realId id = id
 		    
     (* Unset variable. *)
-    fun isVariableId x = case realId x of Flexible _ => true | _ => false;
-    fun isFreeId     x = case realId x of Free     _ => true | _ => false;
-    fun isBoundId    x = case realId x of Bound    _ => true | _ => false;
-    fun isTypeFunction x = case realId x of TypeFunction _ => true | _ => false;
+    fun isFreeId     (Free _ ) = true | isFreeId _ = false;
+    fun isBoundId    (Bound _) = true | isBoundId _ = false;
+    fun isTypeFunction (TypeFunction _) = true | isTypeFunction _ = false;
 
     (* Find the number - assuming it is bound. *)
-    fun offsetId x = 
-        case realId x of 
-	        Bound {offset, ...} => offset
-        |   _       => raise InternalError "offsetId: not a Bound";
+    fun offsetId (Bound {offset, ...}) = offset
+    |   offsetId _       = raise InternalError "offsetId: not a Bound";
 
     (* Are two type constructors the same? *)
-    fun sameTypeId (cons1, cons2) =
-        case (realId cons1, realId cons2) of
-            (Flexible a,           Flexible b)           => a = b
-        |   (Free{uid = a, ...},   Free {uid = b, ...})  => a = b
-        |   (Bound{offset=a, ...}, Bound{offset=b, ...}) => a = b
-        |   _                           => false (* Includes type functions. *)
+    fun sameTypeId (Free{uid = a, ...}, Free {uid = b, ...}) = a = b
+    |   sameTypeId (Bound{offset=a, ...}, Bound{offset=b, ...}) = a = b
+    |   sameTypeId _ = false (* Includes type functions. *)
 
-    fun idAccess x =
-        case realId x of
-            Free { access, ...} => access
-        |   Bound{ access, ...} => access
-        |   _                   => raise InternalError "idAccess: Not bound or free"
-  
-    (* Link two flexible type identifiers together as a result of a sharing
-       constraint.  If either is an equality type the result is an equality type.
-       If the two types are already linked it does nothing and doesn't report an error.  *)
-    fun linkFlexibleTypeIds (x, y) =
-    let
-	    val x1 = realId x;
-	    val y1 = realId y;
-    in
-        case (x1, y1) of
-            (Flexible(a as ref(Unset{ isEqtype = aIsEq, isDatatype = aIsD })),
-             Flexible(b as ref(Unset{ isEqtype = bIsEq, isDatatype = bIsD }))) =>
-                if a = b then () (* Same ref.  Is this possible or an error? *)
-                else
-                (
-                    (* Set one of them (either) to the other and set the end of the
-                       chain to reflect that if either is an eqtype they both are and
-                       if either had been declared as a datatype the combined type is. *)
-                    a := y1;
-                    b := Unset{isEqtype = aIsEq orelse bIsEq, isDatatype = aIsD orelse bIsD }
-                )
-        |   _ => raise InternalError "linkTypeIds: non-variable ids"
-    end
+    fun idAccess (Free { access, ...}) = access
+    |   idAccess (Bound{ access, ...}) = access
+    |   idAccess (TypeFunction _) = raise InternalError "idAccess: TypeFunction"
 
-    (* Set the typeId to be a type function.  This can only happen as a result of
-       a "where type" constraint. *)
-    fun setAsTypeFunction(typeId, args, result) =
-        case realId typeId of
-            Flexible p => p := TypeFunction(args, result)
-        |   _ => raise InternalError "setAsTypeFunction: setting non-flexible type"
-
-    (* Set a flexible type id to be a new bound type id.  This is part of the
-       last phase of constructing a signature so that one bound is used
-       for each distinct flexible type id. *)
-    fun makeTypeIdBound(t, id) =
-        case realId t of
-            Flexible p => p := id
-        |   _ => raise InternalError "makeTypeIdBound: Not originally flexible"
-
-    (* If the type has constructors then it must be a datatype.  If the type name is
-       flexible we need to record that so that we can check that it is not set to a
-       type function as a result of a "where type" constraint. *)
-    fun makeDatatype t =
-        case realId t of
-            Flexible(v as ref(Unset{ isEqtype, ... })) =>
-                v := Unset { isEqtype = isEqtype, isDatatype = true }
-        |   _ => ()
-
-    fun isEquality (Unset{ isEqtype, ...}) = isEqtype
-    |   isEquality (Free{uid = ref eq, ...}) = eq
+    fun isEquality (Free{uid = ref eq, ...}) = eq
     |   isEquality (Bound{eqType, ...}) = pling eqType
-    |   isEquality (Flexible(ref v)) = isEquality v
     |   isEquality (TypeFunction _) =
             raise InternalError "isEquality: TypeFunction" (* Requires analysis of the type function. *)
 
-    (* Set the equality property.  This may be either for flexible stamps as the
-       result of sharing with an eqtype or, for either flexible or free datatypes,
-       if the datatype admits equality because all its constructors do.*)
-    fun setEquality(Flexible(r as ref(Unset{ isDatatype, ...}))) =
-            r := Unset{isEqtype = true, isDatatype = isDatatype }
-    |   setEquality(Flexible(r as ref t)) = setEquality t
-    |   setEquality(Free{uid, allowUpdate=true, ...}) = uid := true (* For datatypes *)
+    (* Set the equality property. *)
+    fun setEquality(Free{uid, allowUpdate=true, ...}) = uid := true (* For datatypes *)
     |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true (* For datatypes *)
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
-
-    (* The only circumstances in which we remove the equality attribute is for
-       abstypes.  Equality may be permitted in the "with .. end" section but
-       not outside. *)
-    fun removeAbstypeEquality(Free{uid, allowUpdate=true, ...}) = uid := false
-    |   removeAbstypeEquality(Bound{eqType=VariableRef id, ...}) = id := false
-    |   removeAbstypeEquality _ =
-            raise InternalError "removeAbsTypeEquality: not Free"
 
     (* Signatures: Used for both signatures of local structures and for global structures 
        (name spaces). Strictly signatures do not contain fix-status functors
@@ -491,7 +402,7 @@ struct
     fun tcName       (TypeConstrs {name,...} : typeConstrs)       = name;
     fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
     fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
-    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = realId identifier;
+    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
     fun tcConstructors (TypeConstrs {constrs,...} : typeConstrs) = pling constrs;
@@ -509,16 +420,10 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
-    |   tcSetEquality(tc, false) = removeAbstypeEquality(tcIdentifier tc);
-
-    fun tcSetEquivalent(tycons, args, result) =
-        setAsTypeFunction(tcIdentifier tycons, args, result)
+    |   tcSetEquality(tc, false) = raise InternalError "tcSetEquality: Removing equality"
 	
     fun tcSetConstructors (TypeConstrs {constrs, name, identifier, ...}, newConstrs) =
-    (
-        makeDatatype identifier;
 	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
-    )
 	
     fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 

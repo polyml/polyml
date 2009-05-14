@@ -572,8 +572,7 @@ struct
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME t =>
-                                    (* TODO: A better check that these are the same type constructors.
-                                       One of these may be a type equivalence as the result of sharing. *)
+                                    (* TODO: If these are type-functions they won't match. *)
                                     sameTypeId(tcIdentifier t, tcIdentifier typeConstructor)
                             |   NONE => false
                         )
@@ -602,6 +601,7 @@ struct
                             then currentList
                             else nameToList(first, currentList)
                         end
+                    (* TODO: If this is a type function it won't have matched. *)
                     val names = nameToList(constrName, [])
                     val newName = String.concatWith "." names
                     (* TODO: If we don't find the type we want we should:
@@ -2523,40 +2523,15 @@ struct
     ()
   end
 
-
-  (* Sets any variable stamps in the type to new bound stamps.  This is used
-     in the final phase of compiling a signature when we need to turn variable
-     stamps into bound stamps. *)
-  fun setTypeConstr (tcon, makeId) =
-  let
-    val id = tcIdentifier tcon;
-  in
-    if tcIsAbbreviation tcon then setTypes (tcEquivalent tcon, makeId) else ();
-    if isVariableId id then makeTypeIdBound(id, makeId(isEquality id)) else () 
-  end
-
-  (* Applies setTypeConstr to every type constructor. *)
-  
-  and setTypes (t, makeId) =
-  let
-    fun setTypeConstrVal t () = 
-      if isTypeConstruction t 
-      then setTypeConstr(pling (#value (typesTypeConstruction t)), makeId)
-      else ();
-  in
-    foldType setTypeConstrVal t ()
-  end
-
     (* Returns true if a type constructor permits equality. *)
     
     fun permitsEquality constr =
         if tcIsAbbreviation constr
-        then not (equality 
-                   (mkTypeConstruction (tcName constr, constr, List.map TypeVar (tcTypeVars constr), []),
-                    fn tri => No,
-                    fn tri => Yes)
-                  = No)
+        then typePermitsEquality(
+                mkTypeConstruction (tcName constr, constr, List.map TypeVar (tcTypeVars constr), []))
         else tcEquality constr
+   
+    and typePermitsEquality ty = equality (ty, fn _ => No, fn _ => Yes) <> No
 
     (* See if a type abbreviation or "where type" has the form type t = s or
        type 'a t = 'a s etc and so is simply giving a new name to the type
@@ -2579,42 +2554,6 @@ struct
                 )
         |   _ => NONE
     end
-
-    (* Try to set the type identifier of the target to be a type function. *)
-    fun setWhereType (tcToSet, typeFunArgs: typeVarForm list, typeFunResult, cantSet) =
-        if isUndefined tcToSet
-	    then () (* Probably because looking up the type constructor name failed. *)
-        
-        else case tcIdentifier tcToSet of
-            Flexible(v as ref(Unset { isEqtype, isDatatype })) =>
-            let
-                fun allowEquality () =
-                    equality (typeFunResult, fn _ => No, fn _ => Yes) <> No
-                fun isRename() =
-                    isSome(typeNameRebinding (typeFunArgs, typeFunResult))
-            in
-                (* The rule for "where type" says that we must check that an eqtype
-                   is only set to a type that permits equality and that the result
-                   is "well-formed".  This seems to mean that if the type we're
-                   setting is a datatype (has constructors) it can only be set to
-                   a type that is a type name and not a general type function. *)
-                if isEqtype andalso not (allowEquality())
-                then cantSet ("Cannot apply type realisation: (" ^ tcName tcToSet ^
-                      ") is an eqtype but the type does not permit equality.")
-                else case typeNameRebinding (typeFunArgs, typeFunResult) of
-                    SOME typeId => (* Renaming an existing constructor: propagate the id. *)
-                        v := typeId
-                |   NONE =>
-                        if isDatatype
-                            (* The type we're trying to set is a datatype but the type
-                               we're setting it to isn't. *)
-                        then cantSet ("Cannot apply type realisation: (" ^ tcName tcToSet ^
-                            ") is a datatype but the type is not a simple type.")
-                        else v := TypeFunction(typeFunArgs, typeFunResult)
-            end
-        |   _ => (* Probably already bound to a type function. *)
-            cantSet("Cannot apply type realisation: (" ^
-					tcName tcToSet ^ ") has already been set to a type function.") (* TODO: Print the type function. *)
 
   (* Returns the number of the entry in the list. Used to find out the
      location of fields in a labelled record for expressions and pattern
