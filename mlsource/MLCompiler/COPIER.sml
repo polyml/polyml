@@ -97,7 +97,10 @@ struct
             in
                 if identical (equiv, copiedEquiv)
                 then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *) makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)
+                else (* How do we find a type function? *)
+                    if null (tcConstructors tcon)
+                then makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)
+                else raise Misc.InternalError "localCopyTypeConstr: Well-formedness broken"
             end
 
         |   id =>
@@ -109,30 +112,34 @@ struct
                         tcon (* No change *)
                     )
                 |   SOME newId =>
-                    (
-                    case List.find(fn tc => sameTypeId(tcIdentifier tc, newId)) cache of
-                        SOME tc =>
-                        (
-                            (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
-                            tc (* Use the entry from the cache. *)
-                        )
-                    |   NONE =>
-                        (* Either a hidden identifier or alternatively this can happen as part of
-                           the matching process.
-                           When matching a structure to a signature we first match up the type
-                           constructors then copy the type of each value replacing bound type IDs
-                           with the actual IDs as part of the checking process.
-                           We will return SOME newId but we don't have a
-                           cache so return NONE for List.find. *)
-                        let
-                            val oldName = tcName tcon
-                            val newName = mungeName(tcName tcon)
-                        in
-                            (*print(concat[tcName tcon, " not cached\n"]);*)
-                            makeDatatypeConstr(newName,
-                                tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
-                        end
-                    )
+                    let
+                        val name = #second(splitString (tcName tcon))
+                        fun cacheMatch tc =
+                            sameTypeId(tcIdentifier tc, newId) andalso #second(splitString(tcName tc)) = name
+                    in
+                        case List.find cacheMatch cache of
+                            SOME tc =>
+                            (
+                                (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
+                                tc (* Use the entry from the cache. *)
+                            )
+                        |   NONE =>
+                            (* Either a hidden identifier or alternatively this can happen as part of
+                               the matching process.
+                               When matching a structure to a signature we first match up the type
+                               constructors then copy the type of each value replacing bound type IDs
+                               with the actual IDs as part of the checking process.
+                               We will return SOME newId but we don't have a
+                               cache so return NONE for List.find. *)
+                            let
+                                val oldName = tcName tcon
+                                val newName = mungeName(tcName tcon)
+                            in
+                                (*print(concat[tcName tcon, " not cached\n"]);*)
+                                makeDatatypeConstr(newName,
+                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+                            end
+                    end
             )
 
     (* Exported version. *)
@@ -193,7 +200,7 @@ struct
                         case copyId id of
                             NONE => rest (* Skip (or add to cache?) *)
                         |   SOME newId =>
-                                makeDatatypeConstr (* We seem to need this even if tcon has no constructors. *)
+                            (if null (tcConstructors tcon) then makeFrozenTypeConstrs else makeDatatypeConstr)
                                 (makeName(tcName tcon),
                                     tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon) :: rest
                     )
