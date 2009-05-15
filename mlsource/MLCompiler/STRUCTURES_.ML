@@ -121,6 +121,7 @@ struct
         location: location,
         value: univTable (* Value *),
         localIds: { source: typeId, dest: typeId } list ref,
+        liftedIds: { source: typeId, dest: typeId } list ref,
         resultSig: signatures ref
       }
 
@@ -211,6 +212,7 @@ struct
           location = location,
           value = makeSignatureTable (),
           localIds = ref nil,
+          liftedIds = ref nil,
           resultSig = ref undefinedSignature
         };
   
@@ -1298,7 +1300,7 @@ struct
             end
           end
                            
-        | StructDec {alist, value = structTable, location, localIds, resultSig, ...} =>
+        | StructDec {alist, value = structTable, location, localIds, liftedIds, resultSig, ...} =>
           let
             (* Collection of declarations packaged into a structure
                 or a collection of signatures. *)
@@ -1343,28 +1345,26 @@ struct
                 let
                     val id = sigTypeIdMap strSig n
                 in
-                    if (isFreeId id orelse isBoundId id) andalso isFormal(idAccess id)
-                    then
-                    case List.find(fn {source, ...} => sameTypeId(source, id)) (!localIds) of
-                        NONE => (* Not there already: have to add it. *)
-                        let
-                            (* The source has to be Selected on the structure. *)
-                            val newId =
-                                case id of
-                                    Bound { offset, eqType, access = Formal addr } =>
-                                        Bound { access = makeSelected(addr, str), offset = offset, eqType = eqType }
-                                |   Free { uid, allowUpdate, access = Formal addr } =>
-                                        Free{uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)}
-                                |   id => id
-            	            val a = !addrs;
-                            val () = addrs := a + 1
-                            val convertId = convertIdToFormal(a, id)
-                        in
-                            localIds := { source = newId, dest = convertId } :: ! localIds
-                        end
+                    case id of
+                        Bound { offset, eqType, access = Formal addr } =>
+                        (
+                            case List.find(fn {source, ...} => sameTypeId(source, id)) (!liftedIds) of
+                                NONE => (* Not there already: have to add it. *)
+                                let
+                                    (* The source has to be Selected on the structure. *)
+                                    val newId = Bound { access = makeSelected(addr, str), offset = offset, eqType = eqType }
+                    	            val a = !addrs;
+                                    val () = addrs := a + 1
+                                    val convertId = convertIdToFormal(a, id)
+                                in
+                                    liftedIds := { source = newId, dest = convertId } :: ! liftedIds
+                                end
                             
-                    |   SOME _ => ()
-                    else ()
+                            |   SOME _ => ()
+                        )
+                   |    Free { access = Formal _, ...} => (* Shouldn't happen now. *)
+                            raise InternalError "Free with Formal access"
+                   |    _ => ()
                 end
                 val () = tabulate(sigMinTypes strSig, sigMaxTypes strSig, convertId)
             in
@@ -1397,12 +1397,15 @@ struct
             (* Copy the result signature.  We need all entries to be Formals.  This signature is really
                only used if we have a structure or functor without an explicit result signature. *)
             val idVec = Vector.fromList(List.rev(!localIds)) (* This has local IDs *)
+
             val finalTable = makeSignatureTable();
             val finalEnv = makeEnv finalTable
 
+            (* We have to map both locally created IDs and also those we have lifted from local structures
+               so that any IDs will then be extracted by selecting from the run-time vector for this structure. *)
             fun copyId oldId =
-                case Vector.find (fn { dest, ...} => sameTypeId(dest, oldId)) idVec of
-                    SOME { dest, ...} => SOME dest
+                case List.find (fn { source, dest } => sameTypeId(source, oldId)) (!liftedIds @ !localIds) of
+                    SOME { dest, ...} =>  SOME dest
                 |   NONE => NONE
             val _ =
                 COPIER.fullCopySig 
@@ -2170,7 +2173,8 @@ struct
        }
      end;
 
-    fun matchStructure (code : codetree, source : univTable, sourceIds: int*bool->valAccess, dest : signatures) =
+    fun matchStructure (code : codetree, source : univTable, sourceIds: int*bool->valAccess, dest : signatures,
+                        liftedIds : { dest: typeId, source: typeId } list) =
     let
         (* Generate a new structure which will match the given signature.
            A structure is represented by a vector of entries, and its
@@ -2358,8 +2362,17 @@ struct
                         |   _ => ()
                         else ()
                     end
+                    fun loadLiftedId {dest=Bound{ access = Formal addr, ...}, source} =
+                    let
+                        val codedId = codeId(source, !level)
+                    in
+                        useOriginal := false;
+                        addToList codedId addr
+                    end
+                    |   loadLiftedId _ = raise InternalError "loadLiftedId"
                 in
-                    tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID)
+                    tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID);
+                    List.app loadLiftedId liftedIds
                 end;
              
             (* If we have copied the original we can use it unchanged. *)
@@ -2414,7 +2427,7 @@ struct
                 |   _ => idAccess id
             end
             val argCode =
-                matchStructure(argCodeSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs))
+                matchStructure(argCodeSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs), [])
             (* We need to save the actual argument in a local variable.  It will be passed to
                the functor but if type IDs in the argument are shared with the result structure
                we need to make sure the actual argument is around. *)
@@ -2435,7 +2448,7 @@ struct
                     mkDec(argAddr, argCode) ::
                     mkDec(resAddr, mkEval (codeAccess (functorAccess functs, !level), [mkLoad(argAddr, 0)], false)) ::
                     loadIds @
-                    [matchStructure(mkLoad(resAddr, 0), sigTab(functorResult functs), getTypeId, resultSig)]
+                    [matchStructure(mkLoad(resAddr, 0), sigTab(functorResult functs), getTypeId, resultSig, [])]
                 ),
                 resultSig
             )
@@ -2456,7 +2469,7 @@ struct
             (mkEnv (#code coded @ [bodyCode]), bodySig)
         end
 
-      | StructDec {alist, value, localIds=ref localIds, resultSig=ref resultSig, ...} =>
+      | StructDec {alist, value, localIds=ref localIds, liftedIds=ref liftedIds, resultSig=ref resultSig, ...} =>
         let
             val coded = mapStrdecs alist strName debugEnv;
             val ids = List.rev localIds
@@ -2481,7 +2494,7 @@ struct
              code to load the results. *)
           (
             mkEnv (#code coded @
-                [matchStructure (mkTuple (#load coded), value, getTypeId, resultSig)]),
+                [matchStructure (mkTuple (#load coded), value, getTypeId, resultSig, liftedIds)]),
             resultSig
           )
         end
@@ -2505,7 +2518,7 @@ struct
                     |   _ => idAccess id
                 end
                 val matchedCode =
-                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
+                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig, [])
             in
                 (mkEnv(#dec tempDecs @ ids @ [matchedCode]), resultSig)
             end
@@ -2550,7 +2563,7 @@ struct
                     |   _ => idAccess id
                 end
                 val matchedCode =
-                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig)
+                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig, [])
                 val addr = mkAddr(); 
                 val var  = vaLocal (structAccess (!valRef));
                 val () = #addr var  := addr; 
@@ -2655,7 +2668,7 @@ struct
                         |   _ => idAccess id
                     end
                     val matchedCode =
-                        matchStructure (strCode, sigTab strSig, getIds, functorResult func)
+                        matchStructure (strCode, sigTab strSig, getIds, functorResult func, [])
                 in
                     val functorCode = (* The function that implements the functor. *)
                         (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
@@ -2731,9 +2744,9 @@ struct
                     }
                     (* Copy everything into the new signature. *)
                     val () = COPIER.fullCopySig (source, tsvEnv, copyId, name ^ ".");
+                    (* After the copy we have no Bound IDs and so minType and maxTypes are both zero. *)
                     val resultSig =
-                        makeSignature(sigName source, tab, sigMinTypes source,
-                                      sigMaxTypes source, sigDeclaredAt source, sigTypeIdMap source)
+                        makeSignature(sigName source, tab, 0, 0, sigDeclaredAt source, fn _ => raise Subscript)
                 in
                     (* Make a global structure. *)
                     (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, line)) :: structures)
