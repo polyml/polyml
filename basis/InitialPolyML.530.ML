@@ -162,11 +162,22 @@ in
     end
 
     (* Raise an exception using a given location rather than the value in the packet. *)
-    fun raiseWithLocation(ex: exn, loc: location) =
+    fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
     let
         open RunCall RuntimeCalls
         fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
-        val packet = (getEntry 0, getEntry 1, getEntry 2, loc)
+        (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
+           location in an exception packet.  It includes the possibility that the location
+           information may be missing. *)
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+       val packet =
+        (getEntry 0, getEntry 1, getEntry 2,
+                SomeLocation(file, startLine, startPosition, endLine, endPosition))
     in
         run_call1 POLY_SYS_raisex packet
     end
