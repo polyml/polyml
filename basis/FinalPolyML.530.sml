@@ -847,87 +847,6 @@ local
 
     val suffixes = ref ["", ".ML", ".sml"];
 
-    (* If we are building under the IDE we need to record the dependencies
-       and also save the state before each file we "use". *)
-    val saveDirectory: string option ref = ref NONE
-    val dependencies: string list ref = ref []
-    
-    fun preUse fileName =
-    case saveDirectory of
-        ref NONE => ()
-    |   ref (SOME dirName) =>
-        let
-            open OS.Path
-            (* Assume that the root directory is the parent of the save directory.
-               N.B. Because the directory may not yet exist we can't use OS.FileSys.fullPath. *)
-            val saveDirPath = mkAbsolute { path = dirName, relativeTo = OS.FileSys.getDir() }
-            val { dir = rootPath, ...} = splitDirFile saveDirPath
-            (* Create a directory hierarchy. *)
-            fun createDirs path =
-                if path = "" orelse (OS.FileSys.isDir path handle OS.SysErr _ => false)
-                then ()
-                else
-                (
-                    createDirs (OS.Path.dir path);
-                    OS.FileSys.mkDir path
-                );
-            (* Compute the full path to the actual file taking account of any
-               change of directory then make it relative to the root. *)
-            val filePathRelativeToRoot =
-                let
-                    val fullFileName = OS.FileSys.fullPath fileName
-                    val pathFromRoot = mkRelative { path = fullFileName, relativeTo = rootPath }
-                    (* Is the file in the root directory or a sub-directory or is it in
-                       some other directory? *)
-                    val { arcs, ...} = fromString pathFromRoot
-                in
-                    case arcs of
-                        topArc :: _ =>
-                            (* If the first part of the path is ".." then it's in some other directory. *)
-                            if topArc = parentArc then NONE else SOME pathFromRoot
-                    |   _ => NONE (* No path at all? *)
-                end handle Path => NONE (* Different volumes: can't make relative path. *)
-                          | OS.SysErr _ => NONE (* If fileName doesn't actually exist. *)
-        in
-            case filePathRelativeToRoot of
-                NONE => () (* Do nothing: we can't save it. *)
-            |   SOME fileName =>
-                let
-                    local
-                        val baseName = joinDirFile { dir = dirName, file = fileName }
-                    in
-                        val saveFile =
-                            mkCanonical (joinBaseExt{ base = baseName, ext = SOME "save"})
-                        val depFile =
-                            mkCanonical (joinBaseExt{ base = baseName, ext = SOME "deps"})
-                    end
-                    (* Reset the save directory before we save so that it isn't set in the saved
-                       state.  That means that "use" won't save the state unless it's explicitly
-                       asked to. *)
-                    val saveSave = ! saveDirectory
-               in
-                    (* Create any containing directories. *)
-                    createDirs(OS.Path.dir saveFile);
-                    saveDirectory := NONE;
-            
-                    (* Save the state. *)
-                    PolyML.SaveState.saveChild (saveFile, List.length(PolyML.SaveState.showHierarchy()));
-                    (* Restore the ref. *)
-                    saveDirectory := saveSave;
-            
-                    (* Write out the dependencies. *)
-                    let
-                        open TextIO
-                        val f = openOut depFile
-                    in
-                        List.app(fn s => output(f, s ^ "\n")) (!dependencies);
-                        closeOut f
-                    end;
-                    (* Add this file to the dependency list. *)
-                    dependencies := ! dependencies @ [fileName]
-                end handle (ex as OS.SysErr args) =>
-                    (print (String.concat["Exception SysErr(", PolyML.makestring args, ") raised for ", fileName, "\n"]); raise ex)
-        end
 
     (*****************************************************************************)
     (*                  "use": compile from a file.                              *)
@@ -945,8 +864,6 @@ local
                 handle IO.Io _ => trySuffixes l
         (* First in list is the name with no suffix. *)
         val (inStream, fileName) = trySuffixes("" :: ! suffixes)
-        
-        val () = preUse fileName
 
         val lineNo   = ref 1;
         fun getChar () : char option =
@@ -961,14 +878,22 @@ local
         while not (TextIO.endOfStream inStream) do
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
-                handle exn => (TextIO.closeIn inStream; raise exn)
+                handle exn =>
+                (
+                    TextIO.closeIn inStream;
+                    case exceptionLocation exn of
+                        NONE => raise exn
+                    |   SOME ex => PolyML.raiseWithLocation(exn, ex)
+                )
         in
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.closeIn inStream;
-                raise exn
+                case exceptionLocation exn of
+                    NONE => raise exn
+                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
             )
         end;
         (* Normal termination: close the stream. *)
@@ -1268,22 +1193,21 @@ local
                             |  exn =>
                             (
                                 print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                                raise exn
+                                case exceptionLocation exn of
+                                    NONE => raise exn
+                                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
                             )
                     end
                 end (* body of scope of inStream *)
                     handle exn => (* close inStream if an error occurs *)
                     (
                         TextIO.closeIn inStream;
-                        raise exn
+                        case exceptionLocation exn of
+                            NONE => raise exn
+                        |   SOME ex => PolyML.raiseWithLocation(exn, ex)
                     )
             in (* remake normal termination *)
-                TextIO.closeIn inStream;
-                (* For "use" we save the state before the "use" but for "make" we have
-                   to save the state after we have found any dependencies.  That means
-                   that a saved state for a file will contain declarations for the file
-                   itself. *)
-                preUse inputFile
+                TextIO.closeIn inStream 
             end (* remakeCurrentObj *)
             
         in (* body of remakeObj *)
@@ -1640,7 +1564,7 @@ local
                             #"R" =>
                             let (* Compile request. *)
                                 (* Begin a new compilation. *)
-                                (* Parameters are: load file, source file, start position and then
+                                (* Parameters are: prelude code, source text, start position and then
                                    the source text itself.*)
                                 val (loadFile, term1) = readToEscape ""
                                 val (sourceFile, term2) =
@@ -1755,6 +1679,8 @@ local
                                             compilerLoop () handle exn => ( except := SOME exn; () );
                                             (* If we had an exception skip until we get the end marker. *)
                                             while not (! endMarkerFound) do readin();
+                                            (* Changes: Remove P result and add C result.  We need to keep a
+                                               "last position" and update that when a parse tree is created. *)
 
                                             (* Print the result packet containing error messages. *)
                                             print "\u001bR"; (* Escape R - start of packet. *)
@@ -1764,7 +1690,7 @@ local
                                             |   (_, NONE, _) => print "P" (* Errors and no trees *)
                                             |   _  => print "F"; (* Errors but have trees. *)
                                             print "\u001b,";
-                                            print(Int.toString(! byteCount));
+                                            print(Int.toString(! byteCount)); (* WRONG! This needs to reflect the parse tree. *)
                                             case ! errorList of
                                                 nil => ()
                                             |   errors =>
@@ -1918,10 +1844,7 @@ in
         val use = use and make = make
         val suffixes = suffixes
         val compiler = polyCompiler
-        
-        val saveDirectory = saveDirectory
-        and dependencies = dependencies
-        
+
         val exceptionLocation = exceptionLocation
 
         (* Main root function: run the main loop. *)

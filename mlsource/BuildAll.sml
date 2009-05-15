@@ -24,8 +24,10 @@
 
 PolyML.print_depth 0;
 
-PolyML.make "mlsource/MLCompiler/Boot";
-PolyML.make "mlsource/MLCompiler";
+(*PolyML.make "mlsource/MLCompiler/Boot";
+PolyML.make "mlsource/MLCompiler";*)
+use "mlsource/ROOT.ML";
+
 
 (* Compile the prelude and basis in the new compiler. *)
 MLCompiler.use "mlsource/BuildBasis.sml";
