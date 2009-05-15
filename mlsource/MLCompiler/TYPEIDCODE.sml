@@ -212,7 +212,7 @@ struct
                     fun makePrinterArgFunction t =
                         mkProc(
                             printCode(t, mkInd(0, mkLoad(~1, 0)), 0, mkInd(1, mkLoad(~1, 0)), level+1),
-                            level, 1, "arg-printer")
+                            level, 1, concat["arg-printer:", tcName typConstr])
                 
                     val argTuple =
                         case args of
@@ -656,8 +656,7 @@ struct
                    the test code, the injection and the projection functions. *)
                 val constructorCode =
                     codeAccess(access, notFormal, innerLevel)
-                val testValue = mkEval(mkInd(0, constructorCode), [argCode], true)
-                val getValue = mkEval(mkInd(2, constructorCode), [argCode], true)
+                
                 val printCode =
                     if nullary
                     then (* Just the name *) codePrettyString name
@@ -667,6 +666,7 @@ struct
                             case typeOf of
                                 FunctionType{arg, ...} => arg
                             |   _ => raise InternalError "contructor not a function"
+                        val getValue = mkEval(mkInd(2, constructorCode), [argCode], true)
                     in
                         codePrettyBlock(1, false, [],
                             codeList(
@@ -685,7 +685,12 @@ struct
                 checkDepth(depthCode, depth,
                     if null rest
                     then printCode
-                    else mkIf(testValue, printCode, printerForConstructors(rest, depth+1)),
+                    else
+                    let
+                        val testValue = mkEval(mkInd(0, constructorCode), [argCode], true)
+                    in
+                        mkIf(testValue, printCode, printerForConstructors(rest, depth+1))
+                    end,
                     codePrettyString "...")
             end
 
