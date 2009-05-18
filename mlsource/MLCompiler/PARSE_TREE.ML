@@ -2148,6 +2148,7 @@ struct
                                     valTypeMessage (lex, typeEnv) ("Function:", f, funType),
                                     valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
                                     unifyErrorReport (lex, typeEnv) report, lex, location, foundNear near);
+                        expType := fResult; (* Preserve for browsing. *)
                         fResult
                     )
             end
