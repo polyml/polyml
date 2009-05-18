@@ -1137,8 +1137,11 @@ struct
             fun getValue (Value{access = Global code, class = SimpleValue, ...}) = evalue code
             |   getValue _ = raise Fail "Not a global value"
             
-            fun exportedDisplayType(tyCons, depth, nameSpace: nameSpace) =
+            fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
                 TYPETREE.displayTypeConstrs(tyCons, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+            and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
+                TYPETREE.display(ty, depth,
                     { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
         in
             (* Add these to the PolyML.NameSpace structure. *)
@@ -1154,12 +1157,12 @@ struct
                     mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
                 ("displayVal",             toMachineWord displayValues,
                     mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayType",             toMachineWord exportedDisplayType,
+                ("displayType",             toMachineWord exportedDisplayTypeConstr,
                     mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
                 (* displayTypeExpression doesn't really belong here since it's used
                    as part of the parse tree rather the name space. *)
-                ("displayTypeExpression",    toMachineWord TYPETREE.display,
-                    mkProductType[Types, Int] ->> PrettyType)
+                ("displayTypeExpression",    toMachineWord exportedDisplayTypeExp,
+                    mkProductType[Types, Int, nameSpaceType] ->> PrettyType)
                 ]
             (* Put this in Bootstrap, at least for the moment.
                Used to print values in the debugger without the "val", "=" and the type. *)
