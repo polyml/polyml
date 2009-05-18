@@ -108,6 +108,7 @@ Bootstrap.use "basis/HashArray.ML";
 Bootstrap.use "basis/UniversalArray.ML";
 Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
 Bootstrap.use "basis/FinalPolyML.sml";
+Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 
 (* Clean out structures and functors which are only used to build
    the library. *)
