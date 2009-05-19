@@ -1639,24 +1639,8 @@ struct
         end
 
         (* Turn a result from unifyTypes into a pretty structure so that it
-           can be included in a message.
-           TODO: Pass in the appropriate environments to print type constructors. *)
-        fun unifyErrorReport(lex, typeEnv) (alpha, beta, reason) =
-            (* This previously used a single type variable sequence for
-               both types.  It may be that this is needed to make
-               sensible error messages. *)
-            PrettyBlock(3, false, [],
-                [
-                    PrettyString "Can't unify",
-                    PrettyBreak (1, 0),
-                    display (alpha, errorDepth lex, typeEnv),
-                    PrettyBreak (1, 0),
-                    PrettyString "with",
-                    PrettyBreak (1, 0),
-                    display (beta, errorDepth lex, typeEnv),
-                    PrettyBreak (1, 0),
-                    PrettyString reason                        
-                ])
+           can be included in a message. *)
+        fun unifyErrorReport(lex, typeEnv) = unifyTypesErrorReport(lex, typeEnv, typeEnv, "unify")
 
         (* Error message for incompatible types.  Displays both expressions and their types. *)
         fun typeMismatch (title, left, right, detail, lex : lexan, location, moreInfo) =
@@ -1726,21 +1710,20 @@ struct
         (* Old error message and unification functions.  These will eventually be
            removed.  *)
         fun matchError 
-            (alpha : types, beta  : types, reason : string,
-            lex : lexan, location : LEX.location, moreInfo : unit -> pretty, typeEnv) : unit =
+            (error: matchResult, lex : lexan, location : LEX.location, moreInfo : unit -> pretty, typeEnv) : unit =
             reportError lex
             {
                 location = location,
                 hard = true,
-                message = unifyErrorReport(lex, typeEnv) (alpha, beta, reason),
+                message = unifyErrorReport(lex, typeEnv) error,
                 context = SOME (moreInfo ())
            }
 
         fun unify (alpha, beta, lex, location, moreInfo, typeEnv) =
             case unifyTypes (alpha, beta) of
                 NONE => ()
-            |   SOME(typeA, typeB, reason) =>
-                    matchError (typeA, typeB, reason, lex, location, moreInfo, typeEnv)
+            |   SOME error =>
+                    matchError (error, lex, location, moreInfo, typeEnv)
 
         fun apply (f, arg, lex, location, moreInfo, typeEnv) =
             case eventual f of
@@ -2327,8 +2310,12 @@ struct
                     val tcon =
                         if isEmpty decType
                         then (* Type specification *)
+                        let
+                            val description = { location = nameLoc, name = name, description = "" }
+                        in
                             makeFrozenTypeConstrs (name, typeVars,
-                                makeTypeId isEqtype, 0, [DeclaredAt nameLoc])
+                                makeTypeId(isEqtype, description), 0, [DeclaredAt nameLoc])
+                        end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
                                 makeFrozenTypeConstrs (name, typeVars,
@@ -3206,10 +3193,12 @@ struct
         let
             (* Make a new ID.  If this is within a let declaration we always make
                a free ID because it is purely local and can't be exported. *)
+            val description = { location = nameLoc, name = name, description = "" }
+            
             val newId =
                 if letDepth = 0
-                then makeTypeId false
-                else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false)
+                then makeTypeId(false, description)
+                else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
             val tc =
                 makeDatatypeConstr(name, typeVars, newId,
                                    letDepth, [DeclaredAt nameLoc])

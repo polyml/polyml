@@ -39,7 +39,7 @@ sig
         {parent: (unit -> exportTree) option,
          next: (unit -> exportTree) option,
          previous: (unit -> exportTree) option}
-    type matchResult = (types * types * string) option
+    type matchResult
     type locationProp
     type structVals
     type codetree
@@ -102,7 +102,10 @@ sig
     val computeDatatypeEqualities: typeConstrs list -> unit;
 
     (* Unify two type structures to give a unified type. *)
-    val unifyTypes: types * types -> matchResult
+    val unifyTypes: types * types -> matchResult option
+    
+    (* Pretty print the error message. *)
+    val unifyTypesErrorReport: lexan * printTypeEnv * printTypeEnv * string -> matchResult -> pretty
 
     (* Check that a type constructor permits equality. *)
     val permitsEquality: typeConstrs -> bool
@@ -183,6 +186,7 @@ sig
         and  ptProperties = ptProperties
         and  typeVarForm = typeVarForm
         and  codetree   = codetree
+        and  matchResult = matchResult
     end
 
 end;

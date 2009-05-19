@@ -485,6 +485,21 @@ struct
 			sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
     |   isInSet(tcons: typeConstrs, []: typeConstrs list) = false
 
+    (* Returns the preferred overload if there is one. *)
+    fun preferredOverload typeset =
+		if isInSet(STRUCTVALS.intType, typeset)
+		then SOME STRUCTVALS.intType
+		else if isInSet(STRUCTVALS.realType, typeset)
+		then SOME STRUCTVALS.realType
+		else if isInSet(STRUCTVALS.wordType, typeset)
+		then SOME STRUCTVALS.wordType
+		else if isInSet(STRUCTVALS.charType, typeset)
+		then SOME STRUCTVALS.charType
+		else if isInSet(STRUCTVALS.stringType, typeset)
+		then SOME STRUCTVALS.stringType
+		else NONE
+
+
   (* Basic procedure to print a type structure. *)
     type printTypeEnv =
         { lookupType: string -> typeConstrs option,
@@ -707,35 +722,29 @@ struct
                 (* This typically arises when printing error messages in the second pass because
                    the third pass will select a single type e.g. int where possible.  To
                    simplify the messages select a single type if possible. *)
-				if isInSet(STRUCTVALS.intType, tconslist)
-				then dispP(intType, depth)
-				else if isInSet(STRUCTVALS.realType, tconslist)
-				then dispP(realType, depth)
-				else if isInSet(STRUCTVALS.wordType, tconslist)
-				then dispP(wordType, depth)
-				else if isInSet(STRUCTVALS.charType, tconslist)
-				then dispP(charType, depth)
-				else if isInSet(STRUCTVALS.stringType, tconslist)
-				then dispP(stringType, depth)
-				else
-        	 	  (* Just print the type constructors separated by / *)
-        		let
-                    fun constrLocation tcons =
-                        case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
-                            SOME(DeclaredAt loc) => [ContextLocation loc]
-                        |   _ => []
-                    (* Type constructor with context. *)
-                    fun tconsItem tcons =
-                        PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
+                (
+                    case preferredOverload tconslist of
+                        SOME tcons => dispP(mkTypeConstruction (tcName tcons, tcons,[], []), depth)
+                    |   NONE =>
+            	 	  (* Just print the type constructors separated by / *)
+            		let
+                        fun constrLocation tcons =
+                            case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
+                                SOME(DeclaredAt loc) => [ContextLocation loc]
+                            |   _ => []
+                        (* Type constructor with context. *)
+                        fun tconsItem tcons =
+                            PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
 
-        		  	fun printTCcons [] = []
-        			  | printTCcons [tcons] = [tconsItem tcons]
-        			  | printTCcons (tcons::rest) =
-        			  	    tconsItem tcons :: PrettyBreak (0, 0) ::
-        				    PrettyString "/" :: printTCcons rest
-        		in
-        			PrettyBlock (0, false, [], printTCcons tconslist)
-        		end
+            		  	fun printTCcons [] = []
+            			  | printTCcons [tcons] = [tconsItem tcons]
+            			  | printTCcons (tcons::rest) =
+            			  	    tconsItem tcons :: PrettyBreak (0, 0) ::
+            				    PrettyString "/" :: printTCcons rest
+            		in
+            			PrettyBlock (0, false, [], printTCcons tconslist)
+            		end
+                )
 
             |   EmptyType => PrettyString "no type"
             
@@ -1605,19 +1614,22 @@ struct
             end) types
     end (* computeDatatypeEqualities *);
     
-    type matchResult = (types * types * string) option
+    datatype matchResult =
+        SimpleError of types * types * string
+    |   TypeConstructorError of types * types * typeConstrs * typeConstrs
 
     (* Type matching algorithm for both unification and signature matching. *)
     (* The mapping has now been moved out of here.  Instead when signature matching the
        target signature is copied before this is called which means that this
        process is now symmetric.  There may be some redundant tests left in here. *)
-    fun unifyTypes(Atype : types, Btype : types) : matchResult =
+    fun unifyTypes(Atype : types, Btype : types) : matchResult option =
     let
         (* Get the result in here.  This isn't very ML-like but it greatly
            simplifies converting the code. *)
-        val matchResult: matchResult ref = ref NONE
-        fun cantMatch res =
-            case matchResult of ref (SOME _) => () | r => r := SOME res
+        val matchResult: matchResult option ref = ref NONE
+        fun matchError error = (* Only report one error. *)
+            case matchResult of ref (SOME _) => () | r => r := SOME error
+        fun cantMatch(alpha, beta, text) = matchError(SimpleError(alpha, beta, text))
   
     fun match (Atype : types, Btype : types) : unit =
     let (* Check two records/tuples and return the combined type. *)
@@ -2154,7 +2166,10 @@ struct
     				in
     						matchLists tAargs tBargs
     				end
-    				else cantMatch (tA, tB, "(Different type constructors)")
+
+                    (* When we have different type constructors, especially two with the same name,
+                       we try to produce more information. *)
+    				else matchError(TypeConstructorError(tA, tB, tACons, typeBCons))
 				end
 	  	end
 
@@ -2182,7 +2197,14 @@ struct
                        most likely that the error is a mismatch between int and another
                        type rather than that the user assumed that the literal was
                        overloaded on a type it actually wasn't. *)
-				else cantMatch (tA, tB, "(Different type constructors)")
+				else
+                case preferredOverload typeset of
+                    NONE => cantMatch (tA, tB, "(Different type constructors)")
+                |   SOME prefType =>
+                    matchError(
+                        TypeConstructorError(
+                            mkTypeConstruction (tcName prefType, prefType,[], []),
+                            tB, prefType, typeBCons))
 			end
 		end
 
@@ -2197,7 +2219,14 @@ struct
     		   when unifying two types.  *)
     		else if null tAargs andalso isInSet(tACons, typeset)
     		then () (* ok. *)
-    		else cantMatch (tA, tB, "(Different type constructors)")
+    		else
+            case preferredOverload typeset of
+                NONE => cantMatch (tA, tB, "(Different type constructors)")
+            |   SOME prefType =>
+                matchError(
+                    TypeConstructorError(
+                        tA, mkTypeConstruction (tcName prefType, prefType,[], []),
+                        tACons, prefType))
 		end
 		
 	  (* (OverloadSet , OverloadSet) should not occur because that should be
@@ -2263,6 +2292,81 @@ struct
         ! matchResult
     end; (* unifyTypes *)
 
+    (* Turn a result from matchTypes into a pretty structure so that it
+       can be included in a message. *)
+    fun unifyTypesErrorReport (lex, alphaTypeEnv, betaTypeEnv, what) =
+    let
+        fun reportError(SimpleError(alpha: types, beta: types, reason)) =
+            (* This previously used a single type variable sequence for
+               both types.  It may be that this is needed to make
+               sensible error messages. *)
+            PrettyBlock(3, false, [],
+                [
+                    PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
+                    PrettyBreak (1, 0),
+                    display (alpha, 1000 (* As deep as necessary *), alphaTypeEnv),
+                    PrettyBreak (1, 0),
+                    PrettyString "to",
+                    PrettyBreak (1, 0),
+                    display (beta, 1000 (* As deep as necessary *), betaTypeEnv),
+                    PrettyBreak (1, 0),
+                    PrettyString reason                        
+                ])
+
+        |   reportError(TypeConstructorError(alpha: types, beta: types, alphaCons, betaCons)) =
+            let
+                fun expandedTypeConstr(ty, tyEnv, tyCons) =
+                let
+                    fun lastPart name = #second(splitString name)
+
+                    (* Print the type which includes the type constructor name with as
+                       much additional information as we can. *)
+                    fun printWithDesc{ location, name, description } =
+                        PrettyBlock(3, false, [],
+                            [ display (ty, 1000, tyEnv) ]
+                            @ (if lastPart name = lastPart(tcName tyCons) then []
+                               else
+                                [
+                                    PrettyBreak(1, 0),
+                                    PrettyString "=",
+                                    PrettyBreak(1, 0),
+                                    PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
+                                ]
+                              )
+                            @ (if description = "" then []
+                               else
+                                [
+                                    PrettyBreak(1, 0),
+                                    PrettyBlock(0, false, [ContextLocation location],
+                                        [PrettyString ("(*" ^ description ^ "*)")])
+                                ]
+                              )
+                            )
+                in
+                    case tcIdentifier tyCons of
+                        Free { description, ...} => printWithDesc description
+                    |   Bound { description, ...} => printWithDesc description
+                    |   TypeFunction _ => display (ty, 1000, tyEnv) (* Perhaps display *)      
+                end
+            in
+                PrettyBlock(3, false, [],
+                    [
+                        PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
+                        PrettyBreak (1, 0),
+                        expandedTypeConstr(alpha, alphaTypeEnv, alphaCons),
+                        PrettyBreak (1, 0),
+                        PrettyString (if what = "unify" then "with" else "to"),
+                        PrettyBreak (1, 0),
+                        expandedTypeConstr(beta, betaTypeEnv, betaCons),
+                        PrettyBreak (1, 0),
+                        PrettyString "(Different type constructors)"                        
+                    ])
+            end
+            
+    in
+        reportError
+    end
+
   (* Given a function type returns the first argument if the
      function takes a tuple otherwise returns the only argument.
 	 Extended to include the case where the argument is not a function
@@ -2321,17 +2425,9 @@ struct
 							tcons
 							)
 					in
-						if isInSet(STRUCTVALS.intType, typeset)
-						then freezeType STRUCTVALS.intType
-						else if isInSet(STRUCTVALS.realType, typeset)
-						then freezeType STRUCTVALS.realType
-						else if isInSet(STRUCTVALS.wordType, typeset)
-						then freezeType STRUCTVALS.wordType
-						else if isInSet(STRUCTVALS.charType, typeset)
-						then freezeType STRUCTVALS.charType
-						else if isInSet(STRUCTVALS.stringType, typeset)
-						then freezeType STRUCTVALS.stringType
-						else undefType
+                        case preferredOverload typeset of
+                            SOME tycons => freezeType tycons
+                        |   NONE => undefType
 					end
 			  | _ => undefType (* Unbound or flexible record. *)
 			)
@@ -2504,15 +2600,18 @@ struct
 			let
                 val name = "_" ^ genName(!count)
                 val _ = count := !count + 1;
+                val declLoc = location lex (* Not correct but OK for the moment. *)
+                val declDescription =
+                    { location = declLoc, name = name, description = "Constructed from a free type variable." }
                 val tCons =
-                	makeFrozenTypeConstrs (name, [], makeFreeId(Global(printAndEqCode()), tvEquality tvar),
-                        0, [DeclaredAt(location lex)]);
+                	makeFrozenTypeConstrs (name, [],
+                        makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription),
+                        0, [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
             in
                 warningMessage(lex, location lex, 
                     concat["The type of (", valName,
-                        ") contains a free type variable.\n",
-                        "Setting it to a unique monotype."]);
+                        ") contains a free type variable. Setting it to a unique monotype."]);
                 tvSetValue (tvar, newVal)
             end
         else ()
@@ -2649,5 +2748,6 @@ struct
         and  ptProperties = ptProperties
         and  typeVarForm = typeVarForm
         and  codetree   = codetree
+        and  matchResult = matchResult
     end
 end (* TYPETREE *);

@@ -662,7 +662,8 @@ struct
         local
         in
             val vectorType =
-                makeFrozenTypeConstrs("vector", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), true), 0, declInBasis);
+                makeFrozenTypeConstrs("vector", [makeTypeVariable()],
+                    makeFreeId(defaultEqAndPrintCode(), true, basisDescription "vector"), 0, declInBasis);
             val () = enterGlobalType  ("vector", vectorType);
         end
         
@@ -727,7 +728,8 @@ struct
             fun createType typeName =
             let
                 val typeconstr =
-                    makeFrozenTypeConstrs(typeName, [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+                    makeFrozenTypeConstrs(typeName, [],
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription typeName), 0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
@@ -956,12 +958,14 @@ struct
 
             (* type 'a tag *)
             val tagConstr =
-                makeFrozenTypeConstrs("tag", [makeTypeVariable()], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+                makeFrozenTypeConstrs("tag", [makeTypeVariable()],
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "tag"), 0, declInBasis);
             val () = #enterType uniStructEnv ("tag", tagConstr);
 
             (* type universal *)
             val univConstr =
-                makeFrozenTypeConstrs("universal", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+                makeFrozenTypeConstrs("universal", [],
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -987,7 +991,8 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
 			val propConstr =
-                makeDatatypeConstr("ptProperties", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);
+                makeDatatypeConstr("ptProperties", [],
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "ptProperties"), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
@@ -999,7 +1004,8 @@ struct
 
             (* Representation of the type of a value. *)
 			val typesConstr =
-                makeFrozenTypeConstrs("typeExpression", [], makeFreeId(defaultEqAndPrintCode(), false), 0, declInBasis);    
+                makeFrozenTypeConstrs("typeExpression", [],
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "typeExpression"), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 

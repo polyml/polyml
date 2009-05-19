@@ -804,7 +804,8 @@ struct
             mkValConstrs: typeConstrs -> values list) =
     let
         (* Create a temporary datatype. *)
-        val id = makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType)
+        val description = basisDescription tcName
+        val id = makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType, description)
         val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val valConstrs = mkValConstrs dtype
@@ -818,7 +819,7 @@ struct
         val dtCode = createDatatypeFunctions([dtype], mkAddrs, 0)
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
-        val newId = makeFreeId(Global globalCode, isEqType)
+        val newId = makeFreeId(Global globalCode, isEqType, description)
         (* Finally copy the datatype to put in the code. *)
         fun copyId(Bound{offset=0(* IdNumber*), ...}) = SOME newId
         |   copyId id = NONE
@@ -922,11 +923,15 @@ struct
        are relative to the parent or to a sub-structure. *)
     fun idFromStructure str : typeId -> typeId option =
     let
+        fun updateDescription{ location, name, description } =
+            { location = location, description = description, name = structName str ^ "." ^ name }
     in
-        fn (id as Free{ uid, allowUpdate, access=Formal addr }) =>
-                SOME(Free { uid=uid, allowUpdate=allowUpdate, access=makeSelected(addr, str)})
-        |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr }) =>
-                SOME(Bound { offset = offset, eqType = eqType, access = makeSelected(addr, str) })
+        fn (id as Free{ uid, allowUpdate, access=Formal addr, description }) =>
+                SOME(Free { uid=uid, allowUpdate=allowUpdate,
+                            access=makeSelected(addr, str), description = updateDescription description})
+        |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr, description }) =>
+                SOME(Bound { offset = offset, eqType = eqType,
+                             access = makeSelected(addr, str), description = updateDescription description })
         |   id => NONE
     end
     
@@ -1525,7 +1530,7 @@ struct
     fun checkPPType (instanceType, matchType, fnName, lex, location, moreInfo) =
         case unifyTypes (instanceType, matchType) of
             NONE => ()
-        |   SOME(typeA, typeB, reason) =>
+        |   SOME error =>
             let
                 open DEBUG
                 val parameters = LEX.debugParams lex
@@ -1554,12 +1559,7 @@ struct
                                         display (instanceType, errorDepth, emptyTypeEnv)
                                     ]),
                                 PrettyBreak (1, 3),
-                                PrettyBlock(0, false, [],
-                                    [
-                                        PrettyString "Reason:",
-                                        PrettyBreak (1, 0),
-                                        PrettyString reason
-                                    ])                        
+                                unifyTypesErrorReport(lex, emptyTypeEnv, emptyTypeEnv, "unify") error
                             ]),
                     context = SOME (moreInfo ())
                }

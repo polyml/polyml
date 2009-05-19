@@ -49,6 +49,7 @@ sig
         {parent: (unit -> exportTree) option,
          next: (unit -> exportTree) option,
          previous: (unit -> exportTree) option}
+    type typeIdDescription = { location: location, name: string, description: string }
 
   (* An identifier is just a name. In the second pass it is associated
      with a particular declaration and the type is assigned into the
@@ -136,7 +137,7 @@ sig
   val wildCard  : location -> parsetree;
   val emptyTree : parsetree;
 
-    val pass2: parsetree * (bool -> typeId) * env * lexan -> types
+    val pass2: parsetree * (bool * typeIdDescription -> typeId) * env * lexan -> types
 
     type debugenv = environEntry list * (int->codetree)
 

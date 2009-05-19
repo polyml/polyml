@@ -103,10 +103,12 @@ struct
      needed for structures.
      Free and Bound IDs contain information to find the equality and
      value-printing functions. *)
-
+    type typeIdDescription = { location: location, name: string, description: string }
     datatype typeId =
-        Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
-    |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
+        Free of
+            { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
+    |   Bound of
+            { access: valAccess, offset: int, eqType: bool possRef, description: typeIdDescription }
     |   TypeFunction    of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
@@ -255,16 +257,20 @@ struct
 
     (* Identifiers *)
     (* REF HOTSPOT - 400 *)
-    fun makeFreeId(access, eq) = Free {access=access, uid = ref eq, allowUpdate=false};
+    fun makeFreeId(access, eq, desc) =
+        Free {access=access, uid = ref eq, allowUpdate=false, description = desc};
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq) = Free {access=access, uid = ref eq, allowUpdate=true};
+    fun makeFreeIdEqUpdate(access, eq, desc) =
+        Free {access=access, uid = ref eq, allowUpdate=true, description = desc};
 
-    fun makeBoundId (access, n, eq) = Bound{access=access, offset=n, eqType=FrozenRef eq};
+    fun makeBoundId (access, n, eq, desc) =
+        Bound{access=access, offset=n, eqType=FrozenRef eq, description = desc};
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq) = Bound{access=access, offset=n, eqType=VariableRef(ref eq)}
+    fun makeBoundIdWithEqUpdate (access, n, eq, desc) =
+        Bound{access=access, offset=n, eqType=VariableRef(ref eq), description = desc}
 		    
     (* Unset variable. *)
     fun isFreeId     (Free _ ) = true | isFreeId _ = false;
@@ -470,6 +476,7 @@ struct
 
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
+    fun basisDescription name = { location = inBasis, description = "In Basis", name = name }
 
     (* Eqtypes with built-in equality functions. *)
     local
@@ -495,7 +502,9 @@ struct
         
 
         fun makeType(name, eqFun) =
-            makeFrozenTypeConstrs (name, [], makeFreeId(eqAndPrintCode eqFun, true), 0, [DeclaredAt inBasis]);
+            makeFrozenTypeConstrs (name, [],
+                                   makeFreeId(eqAndPrintCode eqFun, true, basisDescription name),
+                                   0, [DeclaredAt inBasis]);
     in
         val intType    = makeType("int",    POLY_SYS_equala) (* Need arbitrary precision equality *)
         val charType   = makeType("char",   POLY_SYS_int_eq) (* Always short *)
@@ -508,19 +517,23 @@ struct
         val refType =
             makeDatatypeConstr 
                 ("ref", [makeTv (EmptyType, generalisable, false, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "ref"),
+                0, [DeclaredAt inBasis]);
         val arrayType =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array.array"),
+                0, [DeclaredAt inBasis]);
         val array2Type =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true), 0, [DeclaredAt inBasis]);
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array2.array"),
+                0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolType =
             makeDatatypeConstr 
-                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true), 0, [DeclaredAt inBasis]);
+                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true, basisDescription "bool"),
+                0, [DeclaredAt inBasis]);
     end
 
     (* These polytypes allow equality even if the type argument is not an equality type. *)
@@ -542,7 +555,9 @@ struct
                     mkConst (toMachineWord (ref defaultPrinter))
                 ]
         in
-            makeFrozenTypeConstrs (name, [], makeFreeId(Global (genCode(code, []) ()), false), 0, [DeclaredAt inBasis])
+            makeFrozenTypeConstrs (
+                name, [], makeFreeId(Global (genCode(code, []) ()), false, basisDescription name),
+                0, [DeclaredAt inBasis])
         end
     in
         val realType   = makeType "real"; (* Not an eqtype in ML97. *)

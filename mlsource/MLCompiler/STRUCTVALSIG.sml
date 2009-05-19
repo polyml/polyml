@@ -44,10 +44,14 @@ sig
     type typeVarForm;
     type typeConstrs;
     type uniqueId
+    
+    type typeIdDescription = { location: location, name: string, description: string }
 
     datatype typeId =
-        Free            of { access: valAccess, uid: uniqueId, allowUpdate: bool }
-    |   Bound           of { access: valAccess, offset: int, eqType: bool possRef }
+        Free of
+            { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
+    |   Bound of
+            { access: valAccess, offset: int, eqType: bool possRef, description: typeIdDescription }
     |   TypeFunction    of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
@@ -147,10 +151,11 @@ sig
     val sameTypeId:   typeId * typeId -> bool;
     val setEquality:  typeId -> unit
 
-    val makeFreeId:     valAccess * bool -> typeId;
-    val makeFreeIdEqUpdate:     valAccess * bool -> typeId;
-    val makeBoundId:    valAccess * int*bool -> typeId;
-    val makeBoundIdWithEqUpdate: valAccess * int*bool -> typeId;
+    val basisDescription: string -> typeIdDescription
+    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
+    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId;
+    val makeBoundId:    valAccess * int * bool * typeIdDescription -> typeId;
+    val makeBoundIdWithEqUpdate: valAccess * int * bool * typeIdDescription -> typeId;
     
     (* Types *)
     val badType:   types;

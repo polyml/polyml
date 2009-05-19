@@ -443,7 +443,7 @@ struct
     let
         datatype varId =
             SharedWith of int (* Index of shared ID, always less than current index. *)
-        |   VariableSlot of { isDatatype: bool, boundId: typeId }
+        |   VariableSlot of { isDatatype: bool, boundId: typeId, descriptions: string list }
         |   FreeSlot of typeId (* Bound to a Free type ID. *)
         |   Unset
 
@@ -451,14 +451,15 @@ struct
         val mapArray =
             StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
 
-        fun makeVariableId isEq =
+        fun makeVariableId(isEq, description: typeIdDescription) =
         let
             (* Make a new bound ID after any existing ones. *)
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
-                makeBoundIdWithEqUpdate(Formal 0 (* Not used. *), newIdNumber, isEq)
+                makeBoundIdWithEqUpdate(Formal 0 (* Not used. *), newIdNumber, isEq, description)
             (* Enter a variable entry in the array. *)
-            val arrayEntry = VariableSlot{ isDatatype=false, boundId=newId }
+            val arrayEntry =
+                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [#name description] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
         in
             newId
@@ -492,9 +493,9 @@ struct
             (Bound{offset=offset1, ...}, Bound{offset=offset2, ...}) =>
         (
             case (realId offset1, realId offset2) of
-                (VariableSlot{isDatatype=isDatatype1,
-                              boundId=Bound{eqType=eqType1, offset=off1, ...}},
-                 VariableSlot{isDatatype=isDatatype2,
+                (VariableSlot{isDatatype=isDatatype1, descriptions = desc1,
+                              boundId=Bound{eqType=eqType1, offset=off1, description, ...}},
+                 VariableSlot{isDatatype=isDatatype2, descriptions = desc2,
                               boundId=Bound{eqType=eqType2, offset=off2, ...}}) =>
             if off1 = off2
             then () (* They may already share. *)
@@ -502,9 +503,10 @@ struct
             let
                 val resOffset = Int.min(off1, off2)
                 val setOffset = Int.max(off1, off2)
-                val newId = makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2)
+                val newId =
+                    makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2, description (* Not used *))
                 val newEntry =
-                    VariableSlot{ isDatatype=isDatatype1 orelse isDatatype2, boundId=newId }
+                    VariableSlot{ isDatatype=isDatatype1 orelse isDatatype2, boundId=newId, descriptions = desc1 @ desc2 }
             in
                 StretchArray.update(mapArray, resOffset-initTypeId, newEntry);
                 StretchArray.update(mapArray, setOffset-initTypeId, SharedWith(resOffset-initTypeId))
@@ -783,7 +785,7 @@ struct
                     )
 
         (* Construct a signature.  All the type IDs within the signature are variables. *)
-        fun sigValue (str : sigs, Env env : env, lno : LEX.location, structName) =
+        fun sigValue (str : sigs, Env env : env, lno : LEX.location, structPath) =
         let
             (* Make a new signature. *)
             val (sigName, loc) =
@@ -825,7 +827,7 @@ struct
                   checkAndEnter (#enterFunct structEnv) (#lookupFunct structEnv) "Functor"
              }
             (* Create the signature and return the next entry to use in the result vector. *)
-            val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, 0);
+            val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, 0, structPath);
             (* Make a copy to freeze it as immutable.*)
             (* TODO: Check these.  Aren't these always zero? *)
             val resultSig = makeSignature(sigName, newTable, 0, 0, lno, fn _ => raise Subscript)
@@ -841,7 +843,8 @@ struct
                         Env structEnv, (* The immediately enclosing sig. *)
                         Env globalEnv, (* The surrounding environment excluding this sig. *)
                         lno: LEX.location,
-                        offset: int): int =
+                        offset: int,
+                        structPath): int =
           (* Either a named signature or sig ... end or one of
              these with possibly multiple where type realisations. *)
           case str of
@@ -856,8 +859,12 @@ struct
                 fun makeNewId n =
                 let
                     val oldId = sigTypeIdMap sourceSig n
+                    val desc =
+                        case oldId of
+                            Bound { description, ...} => description
+                        |   _ => raise InternalError "Map does not return Bound Id"
                 in
-                    makeVariableId(isEquality oldId)
+                    makeVariableId(isEquality oldId, desc)
                 end;
                 
                 val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
@@ -928,7 +935,7 @@ struct
                           enterSig      = #enterSig structEnv,
                           enterFunct    = #enterFunct structEnv
                          };
-                      val (resSig, _) = sigValue (sigStruct, Env newEnv, line, name ^ ".");
+                      val (resSig, _) = sigValue (sigStruct, Env newEnv, line, structPath ^ name ^ ".");
                       (* Process the rest of the list before declaring
                          the structure. *)
                       val result = pStruct t (offset + 1);
@@ -1015,7 +1022,7 @@ struct
                    of a list of signature expressions.
                   The contents of the signature are added to the environment. *)
                 fun includeSigExp (str: sigs, offset) =
-                    makeSigInto(str, Env structEnv, Env globalEnv, lno, offset)
+                    makeSigInto(str, Env structEnv, Env globalEnv, lno, offset, structPath)
               in
                 List.foldl includeSigExp offset structList
               end
@@ -1078,8 +1085,10 @@ struct
                   enterFunct    = #enterFunct structEnv
                  };
 
-                val t : types =
-                  pass2 (dec, makeVariableId, Env newEnv, lex);
+                fun makeId (eq, { location, name, description }) =
+                    makeVariableId(eq,
+                        { location = location, name = structPath ^ name, description = description })
+                val t : types = pass2 (dec, makeId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
                    it possible that one might not be because of an error? *)
@@ -1092,10 +1101,10 @@ struct
                        If we are replicating a datatype the ID will be the same as the original
                        datatype so we mustn't do this in that case. *)
                     case tcIdentifier tyCons of
-                        id as Bound{ offset, ... } =>
+                        id as Bound{ offset, description, ... } =>
                             if offset >= initTypeId
                             then StretchArray.update(mapArray, offset-initTypeId,
-                                                VariableSlot{isDatatype=true, boundId = id})
+                                    VariableSlot{isDatatype=true, boundId = id, descriptions = [#name description]})
                             else ()
                     |   _ => ();
                     (* We need to record that this is a datatype for well-formedness checking.
@@ -1149,7 +1158,7 @@ struct
                     enterFunct    = #enterFunct structEnv
                 }
 
-               val resAddr = makeSigInto(sigExp, Env newEnv, Env globalEnv, lno, offset)
+               val resAddr = makeSigInto(sigExp, Env newEnv, Env globalEnv, lno, offset, structPath)
 
               fun lookupFailure msg =
                  giveError (str, line, lex) (msg ^ " in signature.")
@@ -1192,7 +1201,7 @@ struct
                     Bound { offset, ... } =>
                     (
                         case realId(offset-initTypeId) of
-                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...} } =>
+                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
                             (
                                (* The rule for "where type" says that we must check that an eqtype
                                   is only set to a type that permits equality and that the result
@@ -1257,19 +1266,6 @@ struct
  
                 (* Construct final bound IDs for each distinct type ID in the array. *)
                 local
-                    fun makeTypeId eq =
-                    let
-                        (* For each ID we need a new entry in the ID vector.  We also
-                           need an entry in the run-time vector for the structure so that
-                           we can pass the equality/print value at run-time. *)
-                        val n = !typeCounter
-                        val () = typeCounter := n + 1
-                        val addr = ! addrCounter
-                        val () = addrCounter := addr + 1
-                    in
-                        makeBoundId(Formal addr, n, eq)
-                    end
-
                     fun mapIds n =
                     if n = !idCount-initTypeId
                     then ([], [])
@@ -1278,9 +1274,29 @@ struct
                         (* Process lowest numbered IDs first since they represent
                            the result of any sharing. *)
                         case realId n of
-                            VariableSlot { boundId, ...} =>
+                            VariableSlot {
+                                boundId = Bound{eqType, description = { name, location, description}, ... },
+                                descriptions, ...} =>
                             let (* Need to make a new ID. *)
-                                val newId = makeTypeId(isEquality boundId)
+                                (* If we have sharing we want to produce a description that expresses that. *)
+                                val descript =
+                                    case descriptions of
+                                        descs as _ :: _ :: _ => "sharing " ^ String.concatWith "," descs
+                                    |   _ => description (* Original description. *)
+                                val newId =
+                                let
+                                    (* For each ID we need a new entry in the ID vector.  We also
+                                       need an entry in the run-time vector for the structure so that
+                                       we can pass the equality/print value at run-time. *)
+                                    val n = !typeCounter
+                                    val () = typeCounter := n + 1
+                                    val addr = ! addrCounter
+                                    val () = addrCounter := addr + 1
+                                    val description =
+                                        { name = name, location = location, description = descript }
+                                in
+                                    makeBoundId(Formal addr, n, pling eqType, description)
+                                end
                                 (* Update the entry for any sharing. *)
                                 val () = StretchArray.update(mapArray, n, FreeSlot newId)
                                 val (distinctIds, mappedIds) = mapIds (n+1)
