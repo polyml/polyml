@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=76
+NFiles=78
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -79,3 +79,5 @@ File72=basis\Universal.530.ML
 File73=basis\TextIO.530.sml
 File74=basis\InitialPolyML.530.ML
 File75=Root.ML
+File76=mlsource\BuildAll.sml
+File77=basis\TopLevelPolyML.sml
