@@ -195,7 +195,7 @@ local
                     val requestId = readToEscape("", #",")
                     val parseTreeId = readToEscape("", #",")
                     val startOffset = getInt #","
-                    val endOffset = getInt #"t"
+                    val endOffset = getInt #"o"
                 in
                     PropertyRequest{
                         requestId = requestId, parseTreeId = parseTreeId,
