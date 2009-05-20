@@ -25,6 +25,49 @@ local
 
     fun runIDEProtocol () =
     let
+        local
+            (* Separate out the output stream.  We need to interlock access to stdOut
+               to avoid user code outputing within a packet. *)
+            open TextIO TextIO.StreamIO
+            val outStream = getOutstream stdOut
+            val (writer, buffMode) = getWriter outStream
+            val TextPrimIO.WR
+                { name, chunkSize, writeVec, writeArr, block, canOutput, ioDesc, ... } = writer
+            val outputLock = Thread.Mutex.mutex()
+            (* Create a version of the stream that locks before actually sending output. *)
+            val lockedWriteVec =
+                case writeVec of
+                    NONE => NONE
+                |   SOME writeVec =>
+                        SOME(fn a => LibraryIOSupport.protect outputLock writeVec a)
+            val lockedWriteArray =
+                case writeArr of
+                    NONE => NONE
+                |   SOME writeArr =>
+                        SOME(fn a => LibraryIOSupport.protect outputLock writeArr a)
+            val lockedWriter =
+    			TextPrimIO.WR { name = name, chunkSize = chunkSize,
+                                writeVec = lockedWriteVec, writeArr = lockedWriteArray,
+    				            writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+    				            getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+    				            close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
+            (* Use this locked version for normal stdOut. *)
+            val () = setOutstream(stdOut,
+                        StreamIO.mkOutstream(TextPrimIO.augmentWriter lockedWriter, buffMode))
+            (* Create an unlocked version for use within the IDE code.  When writing to this
+               stream the IDE code will first get a lock, then output the whole packet before
+               releasing the lock.  Because mutexes are not recursive we can't use the locking
+               version. *)
+            val unLockedWriter =
+    			TextPrimIO.WR { name = name, chunkSize = chunkSize, writeVec = writeVec, writeArr = writeArr,
+    				            writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+    				            getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+    				            close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
+        in
+            val unlockedStream = StreamIO.mkOutstream(TextPrimIO.augmentWriter unLockedWriter, buffMode)
+            val outputLock = outputLock
+        end
+
         type basicLoc = (* Locations in request packets. *) { startOffset: int, endOffset: int }
         type compileError = { hardError: bool, location: basicLoc, message: string }
 
@@ -63,8 +106,8 @@ local
                 of { startCh: char }
 
         and compileResult =
-            Succeeded
-        |   RuntimeException of string
+            Succeeded of compileError list
+        |   RuntimeException of string * compileError list
         |   PreludeFail of string
         |   CompileFail of compileError list
         |   CompileCancelled of compileError list
@@ -232,7 +275,7 @@ local
         (* Send a reply packet. *)
         fun sendResponse response =
         let
-            open TextIO
+            fun print s = TextIO.StreamIO.output(unlockedStream, s)
             fun printEsc ch = print (String.concat["\u001b", String.str ch])
 
             fun printLocation {startOffset, endOffset } =
@@ -312,31 +355,41 @@ local
                         printEsc #"e"
                     )
                     fun printOffset() = (printEsc #","; print (Int.toString finalOffset))
+                    fun printErrors nil = ()
+                    |   printErrors errors = ( printEsc #","; List.app printError errors )
                 in
                     printEsc #"R";
                     print requestId; printEsc #",";
                     print parseTreeId; printEsc #",";
                     case result of
-                        Succeeded => (print "S"; printOffset())
-                    |   RuntimeException s =>
-                        ( print "X"; printOffset(); printEsc #","; print s (* May include markup *) )
+                        Succeeded errors => (print "S"; printOffset(); printErrors errors)
+                    |   RuntimeException (s, errors) =>
+                        (
+                            print "X"; printOffset(); printEsc #","; print s (* May include markup *);
+                            printErrors errors
+                        )
                     |   PreludeFail s =>
                         ( print "L"; printOffset(); printEsc #","; print s (* May include markup *) )
-                    |   CompileFail nil => (print "F"; printOffset()) 
                     |   CompileFail errors =>
-                        ( print "F"; printOffset(); printEsc #","; List.app printError errors )
-                    |   CompileCancelled nil => (print "C"; printOffset())
+                        ( print "F"; printOffset(); printErrors errors )
                     |   CompileCancelled errors =>
-                        ( print "C"; printOffset(); printEsc #","; List.app printError errors );
+                        ( print "C"; printOffset(); printErrors errors );
                     printEsc #"r"
                  end
 
             |   makeResponse (UnknownResponse { startCh: char }) =
                 (* Response to unknown command - return empty result. *)
                 ( printEsc startCh; printEsc (Char.toLower startCh))
+
+            fun sendResponse () =
+            (
+                makeResponse response handle _ => protocolError "Exception";
+                TextIO.StreamIO.flushOut unlockedStream
+            )
         in
-            makeResponse response handle _ => protocolError "Exception";
-            flushOut stdOut
+            (* Sending the response packet must be atomic with respect to any other
+               output to stdOut. *)
+            LibraryIOSupport.protect outputLock sendResponse ()
         end
 
         local
@@ -672,15 +725,15 @@ local
                 let
                     fun compileThread () =
                     let
+                        type errorMsg =
+                            { message: PolyML.pretty, hard: bool, location: PolyML.location,
+                              context: PolyML.pretty option }
+                        (* Even success may include warning messages. *)
                         datatype compileResult =
                             Success
                         |   Exception of exn
-                        |   Interrupted of
-                                { message: PolyML.pretty, hard: bool, location: PolyML.location,
-                                  context: PolyML.pretty option } list
-                        |   Errors of
-                                { message: PolyML.pretty, hard: bool, location: PolyML.location,
-                                  context: PolyML.pretty option } list
+                        |   Interrupted
+                        |   Errors
 
                         local
                             open PolyML.NameSpace
@@ -740,7 +793,7 @@ local
                             end
 
                             (* Compile the main source code. *)
-                            fun compileString(stringInput, startPosition): compileResult * int * PolyML.parseTree list =
+                            fun compileString(stringInput, startPosition) =
                             let
                                 val errorList = ref []
                                 val stringPosition = ref 0
@@ -782,8 +835,8 @@ local
                                              CPCompilerResultFun compilerResultFun, CPFileName fileName,
                                              CPRootTree (SOME(toplevelParseTree resultTrees))]),
                                          Success)
-                                         handle Fail _ => (fn() => (), Errors(! errorList))
-                                         |  _ (* E.g. Interrupted *) => (fn() => (), Interrupted(! errorList))
+                                         handle Fail _ => (fn() => (), Errors)
+                                         |  _ (* E.g. Interrupted *) => (fn() => (), Interrupted)
                                 in
                                     case result of
                                         Success => (* Compilation succeeded. *)
@@ -796,7 +849,8 @@ local
                                     |   error => error
                                 end
                             in
-                                (compilerLoop (), startPosition + !lastTreePosition, ! resultTrees)
+                                (compilerLoop (), startPosition + !lastTreePosition,
+                                 ! resultTrees, ! errorList)
                             end
                         end
                     in
@@ -818,7 +872,8 @@ local
                                 end
                         then (* We can do the main compilation. *)
                         let
-                            val (result, finalPosition, resultTrees) = compileString(sourceCode, startPosition)
+                            val (result, finalPosition, resultTrees, errors) =
+                                compileString(sourceCode, startPosition)
                             fun makeErrorPacket
                                 {message: PolyML.pretty, hard: bool, location = {startPosition, endPosition, ...}, ...} =
                                 {
@@ -826,9 +881,10 @@ local
                                     location = { startOffset = startPosition, endOffset = endPosition},
                                     message = prettyMarkupAsString message
                                 }
+                            val errorPackets = List.map makeErrorPacket errors
                             val compileResult  =
                                 case result of
-                                    Success => Succeeded
+                                    Success => Succeeded errorPackets (* May be warning messages. *)
                                 |   Exception exn =>
                                     let
                                         open PolyML
@@ -841,10 +897,10 @@ local
                                                 (PrettyBlock(0, false, exLoc,
                                                     [ prettyRepresentation(exn, !PolyML.Compiler.printDepth) ]))
                                     in
-                                        RuntimeException exceptionString
+                                        RuntimeException(exceptionString, errorPackets)
                                     end
-                                |   Interrupted errors => CompileCancelled(List.map makeErrorPacket errors)
-                                |   Errors errors => CompileFail(List.map makeErrorPacket errors)
+                                |   Interrupted => CompileCancelled errorPackets
+                                |   Errors => CompileFail errorPackets
                         in
                             (* Set the trees. *)
                             setParseTree(resultTrees, requestId);
