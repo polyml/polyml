@@ -75,12 +75,12 @@ local
             (* Requests sent by the IDE to Poly/ML. *)
             PropertyRequest (* O *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
-        |   MoveRequest (* U, C, N, P *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, direction: direction }
+        |   MoveRequest (* M *)
+                of { requestId: string, parseTreeId: string, location: basicLoc, direction: string }
         |   TypeRequest (* T *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
-        |   DecRequest (* I, J, S *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, decType: decType }
+        |   DecRequest (* I *)
+                of { requestId: string, parseTreeId: string, location: basicLoc, decType: string }
         |   CompileRequest (* R *)
                 of { requestId: string, fileName: string, startPosition: int,
                      preludeCode: string, sourceCode: string }
@@ -92,14 +92,14 @@ local
         and response =
             (* Replies sent from Poly/ML to the IDE. *)
             PropertyResponse (* O *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, commands: string }
-        |   MoveResponse  (* U, C, N, P *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, direction: direction }
+                of { requestId: string, parseTreeId: string, location: basicLoc, commands: string list }
+        |   MoveResponse  (* M *)
+                of { requestId: string, parseTreeId: string, location: basicLoc }
         |   TypeResponse (* T *)
                 of { requestId: string, parseTreeId: string, location: basicLoc, typeRes: string option }
-        |   DecResponse (* I, J, S *)
+        |   DecResponse (* I *)
                 of { requestId: string, parseTreeId: string, location: basicLoc,
-                     decType: decType, decLocation: PolyML.location option }
+                     decLocation: PolyML.location option }
         |   CompilerResponse (* R *)
                 of { requestId: string, parseTreeId: string, finalOffset: int, result: compileResult }
         |   UnknownResponse (* Provided for upwards compatibility. *)
@@ -111,9 +111,6 @@ local
         |   PreludeFail of string
         |   CompileFail of compileError list
         |   CompileCancelled of compileError list
-            
-        and direction = Up | Down | Left | Right
-        and decType = Declaration | Opened | ParentStructure
 
         fun protocolError error =
         let
@@ -152,32 +149,6 @@ local
                     NONE => 0
                 |   SOME i => i
 
-            fun navigation(termCh, direction) =
-            let
-                val requestId = readToEscape("", #",")
-                val parseTreeId = readToEscape("", #",")
-                val startOffset = getInt #","
-                val endOffset = getInt termCh
-            in
-                MoveRequest{
-                    requestId = requestId, parseTreeId = parseTreeId, direction= direction,
-                    location = { startOffset = startOffset, endOffset = endOffset }
-                    }
-            end
-
-            fun decLocation(termCh, decType) =
-            let
-                val requestId = readToEscape("", #",")
-                val parseTreeId = readToEscape("", #",")
-                val startOffset = getInt #","
-                val endOffset = getInt termCh
-            in
-                DecRequest{
-                    requestId = requestId, parseTreeId = parseTreeId, decType = decType,
-                    location = { startOffset = startOffset, endOffset = endOffset }
-                    }
-            end
-
             val () =
                 case input1 stdIn of
                     NONE => OS.Process.exit OS.Process.success (* Close down. *)
@@ -209,10 +180,21 @@ local
                 end
 
                 (* Navigation functions. *)
-            |   #"U" => navigation(#"u", Up)
-            |   #"C" => navigation(#"c", Down)
-            |   #"N" => navigation(#"n", Right)
-            |   #"P" => navigation(#"p", Left)
+                
+            |   #"M" =>
+                let
+                    val requestId = readToEscape("", #",")
+                    val parseTreeId = readToEscape("", #",")
+                    val startOffset = getInt #","
+                    val endOffset = getInt #","
+                    val requestType = readToEscape("", #"m")
+                in
+                    MoveRequest{
+                        requestId = requestId, parseTreeId = parseTreeId, direction= requestType,
+                        location = { startOffset = startOffset, endOffset = endOffset }
+                        }
+                end
+
                 (* Print the type of the selected node. *)
             |   #"T" =>
                 let
@@ -226,12 +208,21 @@ local
                         location = { startOffset = startOffset, endOffset = endOffset }
                         }
                 end
+
                 (* Print the declaration location of the selected node. *)
-            |   #"I" => decLocation(#"i", Declaration)
-                (* Print the location where the identifier was opened. *)
-            |   #"J" => decLocation(#"j", Opened)
-                (* Print the declaration location of the identifier's parent structure. *)
-            |   #"S" => decLocation(#"s", ParentStructure)
+            |   #"I" =>
+                let
+                    val requestId = readToEscape("", #",")
+                    val parseTreeId = readToEscape("", #",")
+                    val startOffset = getInt #","
+                    val endOffset = getInt #","
+                    val decType = readToEscape("", #"i")
+                in
+                    DecRequest{
+                        requestId = requestId, parseTreeId = parseTreeId, decType = decType,
+                        location = { startOffset = startOffset, endOffset = endOffset }
+                        }
+                end
 
             |   #"O" => (* Print list of valid commands. *)
                 let
@@ -282,27 +273,25 @@ local
                 print (String.concat[Int.toString startOffset, "\u001b,", Int.toString endOffset])
 
             fun makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
-                (
+                let
+                    fun printCommand comm = (printEsc #","; print comm)
+                in
                     printEsc #"O";
                     print requestId; printEsc #",";
                     print parseTreeId; printEsc #",";
                     printLocation location;
-                    printEsc #",";
-                    print commands;
+                    List.app printCommand commands;
                     printEsc #"o"
-                )
+                end
 
-            |   makeResponse (MoveResponse { requestId, parseTreeId, location, direction }) =
-                let
-                    val startCh =
-                        case direction of Up => #"U" | Down => #"C" | Left => #"P" | Right => #"N"
-                in
-                    printEsc startCh;
+            |   makeResponse (MoveResponse { requestId, parseTreeId, location }) =
+                (
+                    printEsc #"M";
                     print requestId; printEsc #",";
                     print parseTreeId; printEsc #",";
                     printLocation location;
-                    printEsc (Char.toLower startCh)
-                end
+                    printEsc #"m"
+                )
 
             |   makeResponse (TypeResponse { requestId, parseTreeId, location, typeRes }) =
                 (
@@ -320,12 +309,9 @@ local
                     printEsc #"t"
                 )
 
-            |   makeResponse (DecResponse { requestId, parseTreeId, location, decType, decLocation }) =
-                let
-                    val startCh =
-                        case decType of Declaration => #"I" | Opened => #"J" | ParentStructure => #"S"
-                in
-                    printEsc startCh;
+            |   makeResponse (DecResponse { requestId, parseTreeId, location, decLocation }) =
+                (
+                    printEsc #"I";
                     print requestId; printEsc #",";
                     print parseTreeId; printEsc #",";
                     printLocation location;
@@ -339,8 +325,8 @@ local
                             print (Int.toString endPosition)
                         )
                     |   NONE => ();
-                    printEsc (Char.toLower startCh)
-                end
+                    printEsc #"i"
+                )
 
             |   makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
                 let
@@ -487,6 +473,7 @@ local
         |   SOME(location as { startPosition, endPosition, ... }, tree) =>
             let
                 open PolyML
+                datatype direction = Up | Down | Left | Right
                 fun find([], _) = NONE (* No change *)
                 |   find(PTparent p :: _, Up) = SOME p
                 |   find(PTpreviousSibling p :: _, Left) = SOME p
@@ -568,26 +555,26 @@ local
                             val () = updateLastParse(currentParseID, newTree)
                             val commands =
                                 case newTree of
-                                    NONE => ""
+                                    NONE => []
                                 |   (SOME(_, tree)) =>
                                     let
                                         open PolyML
-                                        fun printCode(PTparent _, rest) = #"U" :: rest
-                                        |   printCode(PTpreviousSibling _, rest) = #"P" :: rest
-                                        |   printCode(PTnextSibling _, rest) = #"N" :: rest
-                                        |   printCode(PTfirstChild _, rest) = #"C" :: rest
-                                        |   printCode(PTtype _, rest) = #"T" :: rest
-                                        |   printCode(PTdeclaredAt _, rest) = #"I" :: rest
-                                        |   printCode(PTopenedAt _, rest) = #"J" :: rest
-                                        |   printCode(PTstructureAt _, rest) = #"S" :: rest
+                                        fun printCode(PTparent _, rest) = "U" :: rest
+                                        |   printCode(PTpreviousSibling _, rest) = "P" :: rest
+                                        |   printCode(PTnextSibling _, rest) = "N" :: rest
+                                        |   printCode(PTfirstChild _, rest) = "C" :: rest
+                                        |   printCode(PTtype _, rest) = "T" :: rest
+                                        |   printCode(PTdeclaredAt _, rest) = "I" :: rest
+                                        |   printCode(PTopenedAt _, rest) = "J" :: rest
+                                        |   printCode(PTstructureAt _, rest) = "S" :: rest
                                         |   printCode(PTprint _, rest) = rest
                                     in
-                                        String.implode(List.foldl printCode [] tree)
+                                        List.foldl printCode [] tree
                                     end
                         in
                             (commands, treeLocation newTree)
                         end
-                        else ("", { startOffset = 0, endOffset = 0 }) (* Wrong ID. *)
+                        else ([], { startOffset = 0, endOffset = 0 }) (* Wrong ID. *)
                 in
                     sendResponse(
                         PropertyResponse {
@@ -612,10 +599,10 @@ local
                                     let
                                         open PolyML
                                         fun find([], _) = (location, tree) (* No change *)
-                                        |   find(PTparent p :: _, Up) = p()
-                                        |   find(PTpreviousSibling p :: _, Left) = p()
-                                        |   find(PTnextSibling p :: _, Right) = p()
-                                        |   find(PTfirstChild p :: _, Down) = p()
+                                        |   find(PTparent p :: _, "U" (* Up *)) = p()
+                                        |   find(PTpreviousSibling p :: _, "P" (*Left*)) = p()
+                                        |   find(PTnextSibling p :: _, "N" (*Right*)) = p()
+                                        |   find(PTfirstChild p :: _, "C" (* Down *)) = p()
                                         |   find(_ :: tl, dir) = find (tl, dir)
                 
                                     in
@@ -630,8 +617,7 @@ local
                 in
                     sendResponse(
                         MoveResponse {
-                            requestId = requestId, parseTreeId = currentParseID,
-                            location = newLocation, direction = direction
+                            requestId = requestId, parseTreeId = currentParseID, location = newLocation
                         });
                     runProtocol currentCompilation
                 end
@@ -694,9 +680,10 @@ local
                                         open PolyML
                                         val getLoc =
                                             case decType of
-                                                Declaration => (fn (PTdeclaredAt p) => SOME p | _ => NONE)
-                                            |   Opened => (fn (PTopenedAt p) => SOME p | _ => NONE)
-                                            |   ParentStructure => (fn (PTstructureAt p) => SOME p | _ => NONE)
+                                                "I" => (fn (PTdeclaredAt p) => SOME p | _ => NONE)
+                                            |   "J" => (fn (PTopenedAt p) => SOME p | _ => NONE)
+                                            |   "S" => (fn (PTstructureAt p) => SOME p | _ => NONE)
+                                            |   _   => (fn _ => NONE (* Unknown request type. *))
                                         (* Seatch in the properties of the current node for the property we want. *)
                                         fun findLoc [] = NONE
                                         |   findLoc (hd::tl) =
@@ -714,8 +701,7 @@ local
                     sendResponse(
                         DecResponse {
                             requestId = requestId, parseTreeId = currentParseID,
-                            location = location, decType = decType,
-                            decLocation = decLocation
+                            location = location, decLocation = decLocation
                         });
                     runProtocol currentCompilation
                 end
