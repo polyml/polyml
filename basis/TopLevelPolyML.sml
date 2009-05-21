@@ -323,7 +323,7 @@ local
             |   makeResponse (DecResponse { requestId, parseTreeId, location, decType, decLocation }) =
                 let
                     val startCh =
-                        case decType of Declaration => #"I" | Opened => #"J" | ParentStructure => #"N"
+                        case decType of Declaration => #"I" | Opened => #"J" | ParentStructure => #"S"
                 in
                     printEsc startCh;
                     print requestId; printEsc #",";
