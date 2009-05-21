@@ -1720,7 +1720,7 @@ struct
                             lookupTvar = #lookupTvar newTvars};
             val (exp, expLoc) = expression fsys newEnv
         in
-            (mkValDeclaration ([mkValBinding (mkIdent ("it", expLoc), exp, expLoc)],
+            (mkValDeclaration ([mkValBinding (mkIdent ("it", nullLocation), exp, expLoc)],
                 {lookup= #lookup explicitTvars,apply= #apply explicitTvars},
                 {lookup= #lookup newTvars,apply= #apply newTvars},
                 expLoc), expLoc)

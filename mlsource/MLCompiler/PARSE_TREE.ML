@@ -232,7 +232,8 @@ struct
     |   Selector            of
             { name: string, labType: types, typeof: types, location: location }
 
-    |   List                of parsetree list * location
+    |   List                of
+            { elements: parsetree list, location: location, expType: types ref }
     |   EmptyTree
     |   WildCard            of location
     |   Unit                of location
@@ -514,7 +515,7 @@ struct
           line = line
         };
 
-    val mkList : parsetree list * location -> parsetree = List;
+    fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref EmptyType }
     
     fun mkConstraint (value, given, location) : parsetree = 
       Constraint 
@@ -935,11 +936,11 @@ struct
             )
         end
 
-      | List (ptl, _) =>
+      | List {elements, ...} =>
             PrettyBlock (3, true, [],
                 PrettyString "[" ::
                 PrettyBreak (1, 0) ::
-                displayList (ptl, ",", depth - 1) @
+                displayList (elements, ",", depth - 1) @
                 [PrettyBreak (0, 0), PrettyString "]" ]
             )
 
@@ -1345,7 +1346,16 @@ struct
 
                 val expChild = exportList(exportVB, SOME asParent) dec
             in
-                (location, expChild @ commonProps)
+                (* We need a special case for a top-level expression.  This has been converted
+                   by the parser into val it = exp but the "val it = " takes up no space.
+                   We need to go directly to the expression in that case. *)
+                case dec of
+                    [ValBind{dec=Ident{name="it", location=itLoc, ...}, exp, ...}]
+                    => if #startPosition itLoc = #endPosition itLoc andalso
+                          #startLine itLoc = #endLine itLoc
+                       then getExportTree(navigation, exp)
+                       else (location, expChild @ commonProps)
+                | _ => (location, expChild @ commonProps)
             end
 
         |   FunDeclaration{location, dec, ...}  =>
@@ -1557,8 +1567,9 @@ struct
 
         |   Selector{location, typeof, ...} => (location, PTtype typeof :: commonProps)
 
-        |   List(ptl, location) =>
-                (location, exportList(getExportTree, SOME asParent) ptl @ commonProps)
+        |   List{elements, location, expType = ref expType, ...} =>
+                (location,
+                    PTtype expType :: exportList(getExportTree, SOME asParent) elements @ commonProps)
 
         |   EmptyTree                      => (nullLocation, commonProps)
 
@@ -1940,7 +1951,7 @@ struct
                     patType
                 end
 
-            |   List(ptl, location) =>
+            |   List{elements, location, expType} =>
                 let
                 (* Applies "processPattern" to every element of a list and
                    unifies the types. Returns a type variable if the list
@@ -1961,8 +1972,11 @@ struct
                         applyList tlist;
                         basicType (*Return the type variable - united to all the types*)
                     end  (* processList *);
+                    val resType =
+                        mkTypeConstruction ("list", listType, [processList elements], [DeclaredAt inBasis])
                 in
-                    mkTypeConstruction ("list", listType, [processList ptl], [DeclaredAt inBasis])
+                    expType := resType;
+                    resType
                 end
 
             |   Constraint {value, given, location} =>
@@ -2377,14 +2391,17 @@ struct
                 badType (* Does not return a type *)
             end
 
-          | List(ptl, location) =>
+          | List{elements, location, expType, ...} =>
             let
                 val elementType =
-                    assignList("Elements in a list have different types.", "Item", ",", location) ptl
+                    assignList("Elements in a list have different types.", "Item", ",", location) elements
+                val resType =
+                    if isBadType elementType
+                    then badType
+                    else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
             in
-                if isBadType elementType
-                then badType
-                else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+                expType := resType;
+                resType
             end
 
           | Constraint {value, given, location} =>
@@ -2849,9 +2866,9 @@ struct
           This has been extended and made more explicit in ML 97. *)
        fun nonExpansive (Fn _)   = true
          | nonExpansive (Ident _) = true
-         | nonExpansive (List([], _)) = true
-         | nonExpansive (List(elems, _)) =
-                List.foldl (fn (v, a) => a andalso nonExpansive v) true elems
+         | nonExpansive (List{elements = [], ...}) = true
+         | nonExpansive (List{elements, ...}) =
+                List.foldl (fn (v, a) => a andalso nonExpansive v) true elements
          | nonExpansive (Constraint {value, ...}) = nonExpansive value
          | nonExpansive (Literal _) = true
          | nonExpansive (Unit _) = true
@@ -4081,7 +4098,7 @@ struct
             | WildCard _ =>
                 addDefault tree patNo (* matches everything *)
               
-            | List(ptl, location) =>
+            | List{elements, location, ...} =>
                 let (* Generate suitable combinations of cons and nil.
                     e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                     
@@ -4115,7 +4132,7 @@ struct
                         end
                     (* end processList *);
                 in
-                    processList ptl tree
+                    processList elements tree
                 end
   
               | Literal{converter, literal, expType=ref expType, location} =>
@@ -4186,8 +4203,8 @@ struct
             | Applic {f, arg, ...} =>
                 findVars arg varl
               
-            | List(ptl, _) =>
-                List.foldl (fn (v1, v2) => findVars v1 v2) varl ptl
+            | List{elements, ...} =>
+                List.foldl (fn (v1, v2) => findVars v1 v2) varl elements
               
             | Constraint {value, ...} =>
                 findVars value varl
@@ -4975,7 +4992,7 @@ struct
             | Unit _ => (* Use zero.  It is possible to have () = (). *)
                 CodeZero : codetree
   
-            | List(ptl, _) =>
+            | List{elements, ...} =>
               let  (* Construct a list. *)
                 (* At the end of the list put a "nil" *)
                 fun consList []       = CodeZero
@@ -4987,7 +5004,7 @@ struct
                     mkTuple [H,T]
                   end (* consList*);
               in
-                consList ptl : codetree
+                consList elements : codetree
               end
     
             | Constraint {value, ...} =>
