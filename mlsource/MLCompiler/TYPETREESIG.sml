@@ -94,10 +94,6 @@ sig
     (* Returns the preferred type constructor from an overload. *)
     val typeConstrFromOverload: types * bool -> typeConstrs;
 
-    (* Error message when overloading cannot be resolved. It is put in this
-     module because we want the message to refer to the argument. *)
-    val overloadError: types * string * string * lexan * location -> unit;
-
     (* Check a set of mutually recursive datatypes to see which admit equality. *)
     val computeDatatypeEqualities: typeConstrs list -> unit;
 

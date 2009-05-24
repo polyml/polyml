@@ -85,16 +85,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  PRINTTABLE                                               *)
-(*****************************************************************************)
-structure PRINTTABLE :
-sig
-  type typeConstrs
-  type codetree
-  val getOverload: string * typeConstrs * (unit->codetree) -> codetree
-end;
-
-(*****************************************************************************)
 (*                  CODETREE                                                 *)
 (*****************************************************************************)
 structure CODETREE :
@@ -112,7 +102,7 @@ end;
 structure EXPORTTREE: EXPORTTREESIG;
 
 sharing LEX.Sharing = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing
-      = CODETREE = PRINTTABLE
+      = CODETREE
 
 ) :  TYPETREESIG =
 
@@ -127,7 +117,6 @@ struct
   open LEX;
   open UTILITIES;
   open CODETREE;
-  open PRINTTABLE;
   open EXPORTTREE
   
   val badType : types = BadType;
@@ -2399,12 +2388,13 @@ struct
 		  | _ => raise InternalError "generaliseOverload - arg is not a type var"
 	end
 
-  (* Return a type constructor from an overload.  If there are
-     several (i.e. the overloading has not resolved to a single type)
-	 it returns the "best".  Returns undefType if there is no suitable
-	 type or if there is more than one type in ML 90. *)
-  fun typeConstrFromOverload(f, isConverter) =
-  let
+    (* Return a type constructor from an overload.  If there are
+       several (i.e. the overloading has not resolved to a single type)
+	   it returns the "best".  This is called in the third pass so it
+       should never be called if there is not at least one type that
+       is possible. *)
+    fun typeConstrFromOverload(f, isConverter) =
+    let
   	fun prefType(TypeVar tvar) =
 			( (* If we still have an overload set that's because it has
 			     not reduced to a single type.  In ML 97 we default to
@@ -2427,9 +2417,9 @@ struct
 					in
                         case preferredOverload typeset of
                             SOME tycons => freezeType tycons
-                        |   NONE => undefType
+                        |   NONE => raise InternalError "typeConstrFromOverload: No matching type"
 					end
-			  | _ => undefType (* Unbound or flexible record. *)
+			  | _ => raise InternalError "typeConstrFromOverload: No matching type" (* Unbound or flexible record. *)
 			)
   	 |  prefType(TypeConstruction{value, args, ...}) =
             let
@@ -2441,41 +2431,10 @@ struct
     						   function for 'a ref or 'a array it may not be.  *)
     			else prefType (makeEquivalent (constr, args))
 			end
-  	 |  prefType _ = undefType
-  in
-  	prefType(firstArg(eventual f))
-  end;
-  
-  (* Error message about overloading. *)
-
-  fun overloadError (t : types, opName : string, types : string,
-                     lex : lexan, location : LEX.location) : unit =
-  (* Find the argument type of the function. *)
-  let 
-    (* Get the first arg if there are more than one, and see if
-       it is matched to anything. *)
-    val arg = firstArg t
-     open DEBUG
-     val parameters = debugParams lex
-     val errorDepth = getParameter errorDepthTag parameters
-  in
-    if isTypeVar arg (* Unresolved *)
-    then errorMessage (lex, location, "Unable to resolve overloading for " ^ opName)
-    else
-        reportError lex {
-            location = location,
-            hard = true,
-            message =
-                PrettyBlock (3, true, [],
-                    [
-                        PrettyString
-                            (opName ^ " is overloaded on " ^ types ^ " but not "),
-                        display (arg, errorDepth, emptyTypeEnv)
-                    ]
-                ),
-            context = NONE
-        }
-  end (* overloadError *);
+  	 |  prefType _ = raise InternalError "typeConstrFromOverload: No matching type"
+    in
+  	    prefType(firstArg(eventual f))
+    end;
 
     (* Return the result type of a function.  Also used to test if the value is
        a function type. *)

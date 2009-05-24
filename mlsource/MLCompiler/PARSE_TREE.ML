@@ -856,7 +856,7 @@ struct
             PrettyBlock (3, true, [],
                 (
                     PrettyString "(" ::
-                    PrettyBreak (1, 0) ::
+                    PrettyBreak (0, 0) ::
                     displayList (ptl, ",", depth - 1)
                 ) @ [PrettyBreak (0, 0), PrettyString ")"]
             )
@@ -939,7 +939,7 @@ struct
       | List {elements, ...} =>
             PrettyBlock (3, true, [],
                 PrettyString "[" ::
-                PrettyBreak (1, 0) ::
+                PrettyBreak (0, 0) ::
                 displayList (elements, ",", depth - 1) @
                 [PrettyBreak (0, 0), PrettyString "]" ]
             )
@@ -1360,7 +1360,20 @@ struct
 
         |   FunDeclaration{location, dec, ...}  =>
             let
-                fun exportFB(navigation, fb as FValBind{clauses, location, ...}) =
+                fun exportFB(navigation, fb as FValBind{clauses=[FValClause{ dec, exp, line}], location, ...}) =
+                    (* If there's just one clause go straight to it.  Otherwise we have an
+                       unnecessary level of navigation. *)
+                    let
+                        val fbProps = exportNavigationProps navigation
+                        (* First child should give the pattern *)
+                        (* Second child should give the expression *)
+                        fun exportThis () = exportFB(navigation, fb)
+                        val asChild = exportList(getExportTree, SOME exportThis) [dec, exp]
+                    in
+                        (location, asChild @ fbProps)
+                    end
+                
+                |   exportFB(navigation, fb as FValBind{clauses, location, ...}) =
                     let
                         val fbProps = exportNavigationProps navigation
                         (* Each child gives a clause. *)
@@ -1379,7 +1392,7 @@ struct
                         end
                             
                         val asChild = exportList(exportClause, SOME exportThis) clauses
-                     in
+                    in
                         (location, asChild @ fbProps)
                     end
 
@@ -1951,43 +1964,45 @@ struct
                     patType
                 end
 
-            |   List{elements, location, expType} =>
+            |   (aList as List{elements, location, expType}) =>
                 let
-                (* Applies "processPattern" to every element of a list and
-                   unifies the types. Returns a type variable if the list
-                   is empty *)
-                    fun processList tlist =
-                    let
-                        (* Construct a type variable and unite all the types to that. *)
-                        val basicType = mkTypeVar (generalisable, false, false, false);
-                        fun applyList []     = ()
-                        |   applyList (h::t) =
-                        let
-                            val typ = processPattern(h, enterResult, level, notConst, isRec)
-                            val () = unify (typ, basicType, lex, location, foundNear pat, typeEnv);
-                        in
-                            applyList t
-                        end;
-                    in
-                        applyList tlist;
-                        basicType (*Return the type variable - united to all the types*)
-                    end  (* processList *);
+                    (* Applies "processPattern" to every element of a list and
+                       unifies the types. Returns a type variable if the list
+                       is empty *)
+                    fun processElement elem =
+                        processPattern(elem, enterResult, level, notConst, isRec)
+                    val elementType =
+                        assignList processElement
+                            ("Elements in a list have different types.", "Item", ",", location, aList) elements
                     val resType =
-                        mkTypeConstruction ("list", listType, [processList elements], [DeclaredAt inBasis])
+                        if isBadType elementType
+                        then badType
+                        else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
                 in
                     expType := resType;
                     resType
                 end
 
-            |   Constraint {value, given, location} =>
+            |   aConstraint as Constraint {value, given, location} =>
                 let
                     val valType  = processPattern(value, enterResult, level, notConst, isRec);
                     val theType = typeFromTypeParse given
                     val () = ptAssignTypes theType pat;
-
-                    (* These must be unifiable. *)
-                    val () = unify (valType, theType, lex, location, foundNear pat, typeEnv);
                 in
+                    (* These must be unifiable. *)
+                    case unifyTypes(valType, theType) of
+                        NONE => () (* OK. *)
+                    |   SOME report =>
+                            typeMismatch("Type mismatch in type constraint.",
+                                valTypeMessage (lex, typeEnv) ("Value:", value, valType),
+                                PrettyBlock(0, false, [],
+                                    [
+                                        PrettyString "Constraint:",
+                                        PrettyBreak(1, 0),
+                                        display(theType, errorDepth lex, typeEnv)
+                                    ]),
+                                unifyErrorReport (lex, typeEnv) report,
+                                lex, location, foundNear aConstraint);
                     theType
                 end
 
@@ -2016,24 +2031,24 @@ struct
             |   _ => (* not a legal pattern *)
                     badType
 
-        end; (* processPattern *)
+        end (* processPattern *)
 
         
-        (* Applies "assignValues" to every element of a list and unifies the
+        (* Applies "assignValues" or "processPattern" to every element of a list and unifies the
            types. Returns a type variable if the list is empty.
            This is used for lists, function values (fn .. => ...),
            handlers and case expressions. *)
-        fun assignList _ [] = mkTypeVar (generalisable, false, false, false)
-        |   assignList _ [single] = assValues v single
+        and assignList _ _ [] = mkTypeVar (generalisable, false, false, false)
+        |   assignList processValue _ [single] = processValue single
 
-        |   assignList (errorMsg, itemName, separator, location) (tlist as hd :: tl) =
+        |   assignList processValue (errorMsg, itemName, separator, location, near) (tlist as hd :: tl) =
             let
-                val firstType = assValues v hd
+                val firstType = processValue hd
 
                 fun applyList(ty, _, []) = ty
                 |   applyList(ty, n, h::t) =
                     let
-                        val typ = assValues v h
+                        val typ = processValue h
                     in
                         case unifyTypes (ty, typ) of
                             NONE => applyList(ty, n+1, t)
@@ -2063,7 +2078,7 @@ struct
                                 typeMismatch(errorMsg,
                                     previousValsAndType,
                                     valTypeMessage(lex, typeEnv) (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
-                                    unifyErrorReport(lex, typeEnv) report, lex, location, foundNear v);
+                                    unifyErrorReport(lex, typeEnv) report, lex, location, foundNear near);
                                 (* Continue with "bad" which suppresses further error messages
                                    and return "bad" as the result. *)
                                 applyList(badType, n+1, t)
@@ -2391,10 +2406,10 @@ struct
                 badType (* Does not return a type *)
             end
 
-          | List{elements, location, expType, ...} =>
+          | (aList as List{elements, location, expType, ...}) =>
             let
                 val elementType =
-                    assignList("Elements in a list have different types.", "Item", ",", location) elements
+                    assignList(assValues v)("Elements in a list have different types.", "Item", ",", location, aList) elements
                 val resType =
                     if isBadType elementType
                     then badType
@@ -2427,8 +2442,8 @@ struct
                 theType
             end
 
-          | Fn (ptl, location) =>  (* Must unify the types of each of the alternatives.*)
-              assignList("Clauses in fn expression have different types.", "Clause", "|", location) ptl
+          | (aFun as Fn (ptl, location)) =>  (* Must unify the types of each of the alternatives.*)
+              assignList(assValues aFun)("Clauses in fn expression have different types.", "Clause", "|", location, aFun) ptl
 
           | MatchTree {vars, exp, location, resType, argType} =>
             let 
@@ -2650,19 +2665,22 @@ struct
                 mkTypeVar (generalisable, false, false, false)
             end
   
-      | HandleTree {exp, hrules, location} =>
-        let
-            (* If the expression returns type E
-             the handler must be exn -> E *)
-            val expType = assValues v exp;
-            (* Unify the handler with a function from exn -> expType *)
-            val clauses =
-                assignList("Clauses in handler have different types.", "Clause", "|", location) hrules
-            val () = 
-                unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v, typeEnv);
-        in
-          expType (* Result is expType. *)
-        end
+        | (aHandler as HandleTree {exp, hrules, location}) =>
+            let
+                (* If the expression returns type E
+                 the handler must be exn -> E *)
+                val expType = assValues aHandler exp;
+                (* Unify the handler with a function from exn -> expType *)
+                val clauses =
+                    assignList(assValues aHandler)
+                        ("Clauses in handler have different types.", "Clause", "|", location, aHandler) hrules
+                (* The result type of the handlers must match the result type of the expression being
+                   handled and the arguments must all have type exn. *)
+                val () = 
+                    unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v, typeEnv);
+            in
+              expType (* Result is expType. *)
+            end
 
           | While {test, body, location} =>
             let
@@ -2679,40 +2697,50 @@ struct
                 unitType
             end
 
-      | Case {test, match, location} =>
-        let
-            val funType =
-                assignList("Clauses in case have different types.", "Clause", "|", location) match;
-            val argType = assValues v test;
-        in
-          (* The matches constitute a function from the test type to
-             the result of the case statement, so we apply the match type
-             to the test. *)
-          apply (funType, argType, lex, location, foundNear v, typeEnv)
-        end
-
-          | Andalso {first, second, location} =>
+          | aCase as Case {test, match, location} =>
             let
-              (* Both parts must be bool and the result is bool. *)
-              val fstType  = assValues v first;
-              val U : unit = unify (fstType, boolType, lex, location, foundNear v, typeEnv);
-          
-              val sndType  = assValues v second;
-              val U : unit = unify (sndType, boolType, lex, location, foundNear v, typeEnv);
+                val funType =
+                    assignList(assValues aCase)("Clauses in case have different types.", "Clause", "|", location, aCase) match;
+                val argType = assValues aCase test;
             in
-              boolType
+              (* The matches constitute a function from the test type to
+                 the result of the case statement, so we apply the match type
+                 to the test. *)
+              apply (funType, argType, lex, location, foundNear aCase, typeEnv)
             end
 
-          | Orelse {first, second, location} =>
+          | anAndAlso as Andalso {first, second, location} =>
             let
-              (* Both parts must be bool and the result is bool. *)
-              val fstType  = assValues v first;
-              val U : unit = unify (fstType, boolType, lex, location, foundNear v, typeEnv);
-          
-              val sndType  = assValues v second;
-              val U : unit = unify (sndType, boolType, lex, location, foundNear v, typeEnv);
+                (* Both parts must be bool and the result is bool. *)
+                val pairArgs = mkTupleTree([first, second], location)
+                val argTypes  = assValues anAndAlso pairArgs;
+                val boolStarBool = mkProductType[boolType, boolType]
+                val () =
+                    case unifyTypes(argTypes, boolStarBool) of
+                        NONE => ()
+                    |   SOME report =>
+                            typeWrong("Arguments of andalso must have type bool*bool.",
+                                valTypeMessage (lex, typeEnv) ("Arguments:", pairArgs, argTypes),
+                                unifyErrorReport (lex, typeEnv) report, lex, location, foundNear anAndAlso)
             in
-              boolType
+                boolType
+            end
+
+          | anOrElse as Orelse {first, second, location} =>
+            let
+                (* Both parts must be bool and the result is bool. *)
+                val pairArgs = mkTupleTree([first, second], location)
+                val argTypes  = assValues anOrElse pairArgs;
+                val boolStarBool = mkProductType[boolType, boolType]
+                val () =
+                    case unifyTypes(argTypes, boolStarBool) of
+                        NONE => ()
+                    |   SOME report =>
+                            typeWrong("Arguments of orelse must have type bool*bool.",
+                                valTypeMessage (lex, typeEnv) ("Arguments:", pairArgs, argTypes),
+                                unifyErrorReport (lex, typeEnv) report, lex, location, foundNear anOrElse)
+            in
+                boolType
             end
 
           | Directive { tlist, fix, ... } => 
@@ -3659,7 +3687,7 @@ struct
         fun getLiteralValue(converter, literal, instance, line, near): machineWord option =
             let
                 val (conv, name) =
-                     getOverloadInstance(valName converter, instance, true, lex, line)
+                     getOverloadInstance(valName converter, instance, true)
             in
                 SOME(RunCall.unsafeCast(evalue conv) literal)
                     handle Match => NONE (* Overload error *)
@@ -4137,14 +4165,15 @@ struct
   
               | Literal{converter, literal, expType=ref expType, location} =>
                 let
-                   (* At the same time we have to get the equality function
-                      for this type to plug into the code.  This will find
-                      a type-specific equality function if there is one
-                      otherwise default to structure equality. *)
-                    val (equality, _) =
-                         getOverloadInstance("=", expType, false, lex, location)
-                   val litValue: machineWord option =
-                      getLiteralValue(converter, literal, expType, location, vars)
+                    (* At the same time we have to get the equality function
+                       for this type to plug into the code.  Literals are overloaded
+                       so this may require first resolving the overload to the
+                       preferred type. *)
+                    val constr = typeConstrFromOverload(expType, true)
+                    val equality =
+                        equalityForType(mkTypeConstruction(tcName constr, constr, [], []), !level)
+                    val litValue: machineWord option =
+                        getLiteralValue(converter, literal, expType, location, vars)
                 in
                     addSconstr equality litValue tree patNo
                 end

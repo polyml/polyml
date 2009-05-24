@@ -1494,36 +1494,16 @@ struct
 (*                  datatype access functions                                *)
 (*****************************************************************************)
 
- (* Get the appropriate instance of an overloaded function.  If the
-    overloading has not resolved to a single type it finds the preferred
-    type if possible (i.e. int for most overloadings, but possibly real,
-    word, string or char for conversion functions.) *)
- fun getOverloadInstance(name, instance, isConv, lex, lineno): codetree*string =
-      let
-     val constr = typeConstrFromOverload(instance, isConv)
-     (* If there is no matching type produce a message. That should only
-        happen if we are running in ML90 mode and the overloading has not
-        reduced to a single type.  *)
-     fun notFound () =
-         if name = "=" (* Special case *)
-        then mkConst (toMachineWord structureEq)
-        else
-         let
-            val ops = getOverloads name
-            (* Construct a list of the current overloadings. *)
-            fun makeOverloadList [] = ""
-             |  makeOverloadList [(last, _)] = tcName last
-             |  makeOverloadList ((h, _)::l) =
-                     tcName h ^ "/" ^ makeOverloadList l
-            val overloads = makeOverloadList ops
-        in
-           overloadError (instance, name, overloads, lex, lineno);
-           CodeNil
-        end
-
-     in
-        (getOverload(name, constr, notFound), tcName constr)
-     end
+    (* Get the appropriate instance of an overloaded function.  If the
+       overloading has not resolved to a single type it finds the preferred
+       type if possible (i.e. int for most overloadings, but possibly real,
+       word, string or char for conversion functions.) *)
+    fun getOverloadInstance(name, instance, isConv): codetree*string =
+    let
+        val constr = typeConstrFromOverload(instance, isConv)
+    in
+        (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName constr)
+    end
 
     (* This is only used in addPrettyPrint and install_pp.  There's no point in
        producing a lot of detailed information. *)
@@ -1980,8 +1960,7 @@ struct
        
         | TypeDep =>
            let
-             val (code, _) =
-                 getOverloadInstance(valName, instance, false, lex, lineno)
+             val (code, _) = getOverloadInstance(valName, instance, false)
            in
              mkEval (code, [argument], true) (* evaluate early *)
            end

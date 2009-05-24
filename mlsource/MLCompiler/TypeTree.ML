@@ -28,6 +28,5 @@ structure TypeTree =
       structure MISC       = Misc
       structure PRETTY     = Pretty
       structure CODETREE   = CodeTree
-      structure PRINTTABLE = PrintTable
       structure EXPORTTREE = ExportTreeStruct
     ) ;

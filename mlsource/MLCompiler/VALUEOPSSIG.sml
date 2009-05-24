@@ -106,7 +106,7 @@ sig
     val codeVal:        values * int * types * lexan * location -> codetree
     val codeExFunction: values * int * types * lexan * location -> codetree
     val applyFunction:  values * codetree * int * types * lexan * location -> codetree
-    val getOverloadInstance: string * types * bool * lexan * location -> codetree*string
+    val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
     val raiseBind:      codetree
     val raiseMatch:     codetree
