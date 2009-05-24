@@ -110,6 +110,20 @@ Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structur
 Bootstrap.use "basis/FinalPolyML.sml";
 Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 
+val use = PolyML.use;
+
+(* Copy everything out of the original name space. *)
+(* Do this AFTER we've finished compiling PolyML and after adding "use". *)
+val () = List.app (#enterVal PolyML.globalNameSpace) (#allVal Bootstrap.globalSpace ())
+and () = List.app (#enterFix PolyML.globalNameSpace) (#allFix Bootstrap.globalSpace ())
+and () = List.app (#enterSig PolyML.globalNameSpace) (#allSig Bootstrap.globalSpace ())
+and () = List.app (#enterType PolyML.globalNameSpace) (#allType Bootstrap.globalSpace ())
+and () = List.app (#enterFunct PolyML.globalNameSpace) (#allFunct Bootstrap.globalSpace ())
+and () = List.app (#enterStruct PolyML.globalNameSpace) (#allStruct Bootstrap.globalSpace ())
+
+(* We don't want Bootstrap copied over. *)
+val () = PolyML.Compiler.forgetStructure "Bootstrap";
+
 (* Clean out structures and functors which are only used to build
    the library. *)
 PolyML.Compiler.forgetStructure "LibrarySupport";

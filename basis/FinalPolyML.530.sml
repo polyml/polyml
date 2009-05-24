@@ -1506,18 +1506,3 @@ in
         and line_length i = Compiler.lineLength := i
     end
 end (* PolyML. *);
-
-val use = PolyML.use;
-
-(* Copy everything out of the original name space. *)
-(* Do this AFTER we've finished compiling PolyML and after adding "use". *)
-val () = List.app (#enterVal PolyML.globalNameSpace) (#allVal Bootstrap.globalSpace ())
-and () = List.app (#enterFix PolyML.globalNameSpace) (#allFix Bootstrap.globalSpace ())
-and () = List.app (#enterSig PolyML.globalNameSpace) (#allSig Bootstrap.globalSpace ())
-and () = List.app (#enterType PolyML.globalNameSpace) (#allType Bootstrap.globalSpace ())
-and () = List.app (#enterFunct PolyML.globalNameSpace) (#allFunct Bootstrap.globalSpace ())
-and () = List.app (#enterStruct PolyML.globalNameSpace) (#allStruct Bootstrap.globalSpace ())
-
-(* We don't want Bootstrap copied over. *)
-val () = PolyML.Compiler.forgetStructure "Bootstrap";
-
