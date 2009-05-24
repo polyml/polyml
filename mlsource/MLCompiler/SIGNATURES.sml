@@ -451,7 +451,7 @@ struct
         val mapArray =
             StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
 
-        fun makeVariableId(isEq, description: typeIdDescription) =
+        fun makeVariableId(isEq, description: typeIdDescription, structPath) =
         let
             (* Make a new bound ID after any existing ones. *)
             val newIdNumber = !idCount before (idCount := !idCount+1)
@@ -459,7 +459,7 @@ struct
                 makeBoundIdWithEqUpdate(Formal 0 (* Not used. *), newIdNumber, isEq, description)
             (* Enter a variable entry in the array. *)
             val arrayEntry =
-                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [#name description] }
+                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [structPath ^ #name description] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
         in
             newId
@@ -864,7 +864,7 @@ struct
                             Bound { description, ...} => description
                         |   _ => raise InternalError "Map does not return Bound Id"
                 in
-                    makeVariableId(isEquality oldId, desc)
+                    makeVariableId(isEquality oldId, desc, structPath)
                 end;
                 
                 val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
@@ -1085,9 +1085,7 @@ struct
                   enterFunct    = #enterFunct structEnv
                  };
 
-                fun makeId (eq, { location, name, description }) =
-                    makeVariableId(eq,
-                        { location = location, name = structPath ^ name, description = description })
+                fun makeId (eq, loc) = makeVariableId(eq, loc, structPath)
                 val t : types = pass2 (dec, makeId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
