@@ -870,8 +870,8 @@ struct
                 val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
   
                 val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
-                fun typeMap id = Vector.sub (v, id - minOffset)
-                fun copyId(id as Bound{ offset, ...}) = SOME(typeMap offset)
+                fun copyId(id as Bound{ offset, ...}) =
+                        if offset < minOffset then NONE else SOME(Vector.sub (v, offset - minOffset))
                 |   copyId id = NONE
 
                 (* Renumber the values and structures.  We don't need to do the types
@@ -1301,12 +1301,43 @@ struct
                             in
                                 (newId :: distinctIds, newId :: mappedIds)
                             end
+
+                        |   FreeSlot (id as TypeFunction(args, equiv)) =>
+                            let
+                                val (distinctIds, mappedIds) = mapIds (n+1)
+                                (* Generally, IDs in a FreeSlot will be either Bound or Free but
+                                   they could be TypeFunctions as a result of a "where type" and
+                                   the function could involve type IDs within the signature.  We
+                                   have to copy the ID now after all the new IDs have been created. *)
+                                fun copyTypeConstr tcon =
+                                    case tcIdentifier tcon of
+                                        Bound { offset, ...} =>
+                                        if offset < initTypeId then tcon
+                                        else
+                                        let
+                                            (* At this stage we've overwritten all entries with FreeSlots. *)
+                                            val newId =
+                                                case realId(offset-initTypeId) of
+                                                    FreeSlot id => id
+                                                |   _ => raise InternalError "mapIds:copyTypeConstr"
+                                        in
+                                            makeFrozenTypeConstrs(
+                                                tcName tcon, tcTypeVars tcon, newId, 0, tcLocations tcon)
+                                        end
+                                    |   _ => tcon
+                                val copiedEquiv = copyType(equiv, fn x => x, copyTypeConstr)
+                                val copiedId = TypeFunction(args, copiedEquiv)
+                            in
+                                (distinctIds, copiedId :: mappedIds)
+                            end
+
                         |   FreeSlot id => (* Free or shares with existing type ID. *)
                             let
                                 val (distinctIds, mappedIds) = mapIds (n+1)
                             in
                                 (distinctIds, id :: mappedIds)
                             end
+
                         |   _ => raise InternalError "mapIds"
                     )
                     val (distinctIds, mappedIds) = mapIds 0
