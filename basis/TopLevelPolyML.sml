@@ -22,9 +22,32 @@
    Poly/ML top-level loop. *)
 
 local
+    (* Parse trees for topdecs in current file. *)
+    val parseTree = ref ("", []) (* Parsetree ID and parsetrees as a list. *)
+    (* "parseTree is not completely interlocked against parallel access. *)
 
     fun runIDEProtocol () =
     let
+        (* Save the last parsetree here. *)
+        val lastParsetree =
+            ref (case parseTree of ref(_, hd::_) => SOME hd | _ => NONE)
+
+        val parseLock = Thread.Mutex.mutex()
+
+        (* Access the parse tree and other information with the lock held. *)
+        fun withLock f =
+        let
+            open Thread.Thread Thread.Mutex
+            val originalState = getAttributes()
+            val () = setAttributes[InterruptState InterruptDefer]
+            val () = lock parseLock
+            val result = f ()
+            val () = unlock parseLock
+            val () = setAttributes originalState
+        in
+            result
+        end
+
         local
             (* Separate out the output stream.  We need to interlock access to stdOut
                to avoid user code outputing within a packet. *)
@@ -378,54 +401,30 @@ local
             LibraryIOSupport.protect outputLock sendResponse ()
         end
 
-        local
-            (* Parse trees for topdecs in current file. *)
-            val parseTrees = ref []
-            (* Save the last parsetree here. *)
-            val lastParsetree = ref NONE
-            val currentParseTree = ref ""
-            val parseLock = Thread.Mutex.mutex()
-            
-            (* Access the parse tree and other information with the lock held. *)
-            fun withLock f =
-            let
-                open Thread.Thread Thread.Mutex
-                val originalState = getAttributes()
-                val () = setAttributes[InterruptState InterruptDefer]
-                val () = lock parseLock
-                val result = f ()
-                val () = unlock parseLock
-                val () = setAttributes originalState
-            in
-                result
-            end
+        (* Get the current parse tree and identifier. *)
+        fun getCurrentParse() =
+            withLock (fn () => let val (id, trees) = ! parseTree in (trees, ! lastParsetree, id) end)
+        (* Update lastParsetree if the id is still valid. *)
+        fun updateLastParse(id, pt) =
+        let
+            fun f () =
+            if id = #1 (! parseTree) then lastParsetree := pt else ()
         in
-            (* Get the current parse tree and identifier. *)
-            fun getCurrentParse() =
-                withLock (fn () => (! parseTrees, ! lastParsetree, ! currentParseTree))
-            (* Update lastParsetree if the id is still valid. *)
-            fun updateLastParse(id, pt) =
-            let
-                fun f () =
-                if id = ! currentParseTree then lastParsetree := pt else ()
-            in
-                withLock f
-            end
-            (* Set parse tree and ID as a result of a compilation.  Sets lastParsetree to the
-               head of the updated parse tree. *)
-            fun setParseTree(pt, id) =
-            let
-                fun f () =
-                (
-                    currentParseTree := id;
-                    parseTrees := pt; 
-                    case pt of
-                        [] => lastParsetree := NONE
-                    |   hd :: _ => lastParsetree := SOME hd
-                )
-            in
-                withLock f
-            end
+            withLock f
+        end
+        (* Set parse tree and ID as a result of a compilation.  Sets lastParsetree to the
+           head of the updated parse tree. *)
+        fun setParseTree(pt, id) =
+        let
+            fun f () =
+            (
+                parseTree := (id, pt); 
+                case pt of
+                    [] => lastParsetree := NONE
+                |   hd :: _ => lastParsetree := SOME hd
+            )
+        in
+            withLock f
         end
 
         (* The source text may consist of several "programs".  When we compile a "program" we
@@ -783,7 +782,9 @@ local
                                 List.app (#enterVal globalNameSpace) values
                             end
                         in
-                            (* Compile the prelude.  Simply returns true if it succeeded and false on any error. *)
+                            (* Compile the prelude.  Simply returns true if it succeeded and false on any error.
+                               Note: Unlike the main compilation this is run with the interlock held and
+                               interrupts deferred. *)
                             fun compilePreludeString stringInput: string option =
                             let
                                 val stringStream = TextIO.openString stringInput
@@ -818,8 +819,20 @@ local
                                         )
                                     |   error => error
                                 end
+                                
+                                fun runloop () =
+                                let
+                                    val res = compilerLoop()
+                                in
+                                    (* The prelude may update the current parse tree. *)
+                                    case !parseTree of
+                                        (_, []) => lastParsetree := NONE
+                                    |   (_, hd :: _) => lastParsetree := SOME hd;
+                                    res
+                                end
                             in
-                                compilerLoop ()
+                                (* This is run with the lock held. *)
+                                withLock runloop
                             end
 
                             (* Compile the main source code. *)
@@ -902,6 +915,15 @@ local
                                 end
                         then (* We can do the main compilation. *)
                         let
+                            local
+                                open Thread.Thread
+                            in
+                                (* The rest of this code is interruptible
+                                   TODO: Multiple interrupts could result in not sending a
+                                   result packet. *)
+                                val () =
+                                    setAttributes [EnableBroadcastInterrupt true, InterruptState InterruptAsynch]
+                            end;
                             val (result, finalPosition, resultTrees, errors) =
                                 compileString(sourceCode, startPosition)
                             fun makeErrorPacket
@@ -931,13 +953,16 @@ local
                                     end
                                 |   Interrupted => CompileCancelled errorPackets
                                 |   Errors => CompileFail errorPackets
+                            (* Update the tree unless parsing failed and we don't have one. *)
+                            val parseTreeId =
+                                case resultTrees of
+                                    [] => #3 (getCurrentParse()) (* Return existing tree. *)
+                                |   _ => (setParseTree(resultTrees, requestId); requestId)
                         in
-                            (* Set the trees. *)
-                            setParseTree(resultTrees, requestId);
                             (* Send the response. *)
                             sendResponse(
                                 CompilerResponse {
-                                    requestId = requestId, parseTreeId = requestId,
+                                    requestId = requestId, parseTreeId = parseTreeId,
                                     finalOffset = finalPosition, result = compileResult
                                 })
                         end
@@ -954,10 +979,8 @@ local
                             then protocolError "Multiple Compilations"
                             else ();
                     let
-                        (* Even though the main thread is non-interruptible we need the compile thread
-                           to respond to interrupts. *)
-                        val thread =
-                            fork(compileThread, [EnableBroadcastInterrupt true, InterruptState InterruptAsynch])
+                        (* The compile thread is run with interrupts deferred initially. *)
+                        val thread = fork(compileThread, [InterruptState InterruptDefer])
                     in
                         runProtocol (SOME(requestId, thread))
                     end
@@ -1041,6 +1064,11 @@ in
                 PolyML.shell ();
                 OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
             end
+        end;
+
+        structure IDEInterface =
+        struct
+            val parseTree = parseTree
         end;
 
         open PolyML (* Add this to the PolyML structure. *)
