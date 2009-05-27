@@ -286,7 +286,7 @@ struct
         
       in (* let2 *)
 	      if errorOccurred lex
-		  then (SOME(structsExportTree (parentTreeNav, parseTree)), NONE) (* Error: No result. *)
+		  then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
 		  else let (* let3 *)
 	      (* If no errors then do second pass to match identifiers
 	         and declarations and return type of expression. *)
