@@ -209,7 +209,6 @@ local
         val openDeclaration = "\u001bD"
         val closeDeclaration = "\u001bd"
         val separator = "\u001b,"
-        val finalSeparator = "\u001b;"
         
         fun beginMarkup context =
             case List.find (fn ContextLocation _ => true | _ => false) context of
@@ -228,7 +227,7 @@ local
                     stream(Int.toString startPosition);
                     stream separator;
                     stream(Int.toString endPosition);
-                    stream finalSeparator
+                    stream separator
                 end
             |   _ => ()
             
@@ -400,7 +399,9 @@ local
 
         (* Default error message function. *)
         fun defaultErrorProc
-            {message: PolyML.pretty, hard: bool, location={startLine=line, file, ...}, context: PolyML.pretty option} =
+            {message: PolyML.pretty, hard: bool,
+             location={startLine, startPosition, endPosition, file, ...},
+             context: PolyML.pretty option} =
         let
             open PolyML
             val fullMessage =
@@ -412,12 +413,36 @@ local
                                 PrettyBlock(2, false, [], [PrettyString "Found near", PrettyBreak(1, 0), ctxt])
                             ])
         in
-            printOut(concat
-               ( (if hard then ["Error-"] else ["Warning-"]) @
-                 (if file = "" then [] else [" in '", file, "',"]) @
-                 (if line = 0 then [] else [" line ", Int.toString line]) @
-                 (if line = 0 andalso file = "" then [] else [".\n"])));
-            prettyPrintWithOptionalMarkup(printOut, !lineLength) fullMessage
+            if ! useMarkupInOutput
+            then (* IDE mark-up of error messages.  This is actually the same as within the IDE. *)
+            let
+                val openError = "\u001bE"
+                val closeError = "\u001be"
+                val separator = "\u001b,"
+            in
+                printOut(
+                    concat
+                        [
+                            openError,
+                            if hard then "E" else "W", separator,
+                            file, (* TODO double any escapes. *) separator,
+                            Int.toString startLine, separator,
+                            Int.toString startPosition, separator,
+                            Int.toString endPosition, separator
+                         ]
+                    );
+                prettyPrintWithIDEMarkup(printOut, !lineLength) fullMessage;
+                printOut closeError
+            end
+            else (* Plain text form. *)
+            (
+                printOut(concat
+                   ( (if hard then ["Error-"] else ["Warning-"]) @
+                     (if file = "" then [] else [" in '", file, "',"]) @
+                     (if startLine = 0 then [] else [" line ", Int.toString startLine]) @
+                     (if startLine = 0 andalso file = "" then [] else [".\n"])));
+                PolyML.prettyPrint(printOut, !lineLength) fullMessage
+            )
         end
 
         (* Default function to print and enter a value. *)

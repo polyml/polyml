@@ -92,7 +92,7 @@ local
         end
 
         type basicLoc = (* Locations in request packets. *) { startOffset: int, endOffset: int }
-        type compileError = { hardError: bool, location: basicLoc, message: string }
+        type compileError = { hardError: bool, location: PolyML.location, message: string }
 
         datatype request =
             (* Requests sent by the IDE to Poly/ML. *)
@@ -295,6 +295,14 @@ local
             fun printLocation {startOffset, endOffset } =
                 print (String.concat[Int.toString startOffset, "\u001b,", Int.toString endOffset])
 
+            and printFullLocation { file, startLine, startPosition, endPosition, ...} =
+            (
+                print file; (* TODO double any escapes. *) printEsc #",";
+                print (Int.toString startLine); printEsc #",";
+                print (Int.toString startPosition); printEsc #",";
+                print (Int.toString endPosition)
+            )
+
             fun makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
                 let
                     fun printCommand comm = (printEsc #","; print comm)
@@ -339,14 +347,7 @@ local
                     print parseTreeId; printEsc #",";
                     printLocation location;
                     case decLocation of
-                        SOME { file, startLine, startPosition, endPosition, ...} =>
-                        (
-                            printEsc #",";
-                            print file; (* TODO double any escapes. *) printEsc #",";
-                            print (Int.toString startLine); printEsc #",";
-                            print (Int.toString startPosition); printEsc #",";
-                            print (Int.toString endPosition)
-                        )
+                        SOME location => (printEsc #","; printFullLocation location)
                     |   NONE => ();
                     printEsc #"i"
                 )
@@ -358,7 +359,7 @@ local
                         printEsc #"E";
                         if hardError then print "E" else print "W";
                         printEsc #",";
-                        printLocation location;
+                        printFullLocation location;
                         printEsc #",";
                         print message; (* May include markup *)
                         printEsc #"e"
@@ -927,10 +928,10 @@ local
                             val (result, finalPosition, resultTrees, errors) =
                                 compileString(sourceCode, startPosition)
                             fun makeErrorPacket
-                                {message: PolyML.pretty, hard: bool, location = {startPosition, endPosition, ...}, ...} =
+                                {message: PolyML.pretty, hard: bool, location, ...} =
                                 {
                                     hardError = hard,
-                                    location = { startOffset = startPosition, endOffset = endPosition},
+                                    location = location,
                                     message = prettyMarkupAsString message
                                 }
                             val errorPackets = List.map makeErrorPacket errors
