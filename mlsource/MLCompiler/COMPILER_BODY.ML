@@ -255,10 +255,10 @@ struct
       then insymbol lex
       else ();
       
-    val parentTreeOpt =
+    val parentTreeNav =
         case List.find (Universal.tagIs rootTreeTag) debugSwitches of
-            SOME f => Universal.tagProject rootTreeTag f
-        |   NONE => NONE
+            SOME opt => Universal.tagProject rootTreeTag opt
+        |   NONE => { parent = NONE, next = NONE, previous = NONE }
   in (* let1 *)
     (* An empty declaration (or end of file!) *)
     if SYMSET.inside (sy lex, stopSyms)
@@ -286,7 +286,7 @@ struct
         
       in (* let2 *)
 	      if errorOccurred lex
-		  then (SOME(structsExportTree (parentTreeOpt, parseTree)), NONE) (* Error: No result. *)
+		  then (SOME(structsExportTree (parentTreeNav, parseTree)), NONE) (* Error: No result. *)
 		  else let (* let3 *)
 	      (* If no errors then do second pass to match identifiers
 	         and declarations and return type of expression. *)
@@ -296,7 +296,7 @@ struct
 		  
 		  in (* let3 *)
 	        if errorOccurred lex
-	        then (SOME(structsExportTree(parentTreeOpt, parseTree)), NONE)
+	        then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
 	        else let (* let4 *)
 		      
 		      (* Only code-generate if there were no errors and
@@ -308,7 +308,7 @@ struct
 			  in
 		        if errorOccurred lex
 		        then (* Errors can be produced during the code-generation phase. *)
-		           (SOME(structsExportTree(parentTreeOpt, parseTree)), NONE) (* Error: No result. *)
+		           (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
 		        else let (* let5 *)
 				       val () =
 				         if printCodetree
@@ -365,7 +365,7 @@ struct
 			            end
 				     
 				    in
-					    (SOME(structsExportTree (parentTreeOpt, parseTree)), SOME executeCode)
+					    (SOME(structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
 			    	end (* let5 *)
 				end (* let4 *)
 			end (* let3 *)

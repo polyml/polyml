@@ -1095,7 +1095,19 @@ struct
             in
                 mkLabelled(sortLabels fields, true) ->> Unit
             end
-                
+            val navigationType =
+            let
+                open TYPETREE
+                val optNav = Option(Unit->>ParseTree)
+                val fields =
+                [
+                    mkLabelEntry("parent", optNav),
+                    mkLabelEntry("next", optNav),
+                    mkLabelEntry("previous", optNav)
+                ]
+            in
+                mkLabelled(sortLabels fields, true)
+            end
         in
             val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [
@@ -1122,7 +1134,7 @@ struct
                 ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
                 ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType),
-                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag (Option(Unit->>ParseTree)))
+                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag navigationType)
                 ]
         end;
  

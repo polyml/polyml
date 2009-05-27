@@ -431,40 +431,84 @@ local
         (* The source text may consist of several "programs".  When we compile a "program" we
            have to provide a way for the parsetree for this "program" to navigate to others
            even though they won't have been compiled yet.  This enables it to work. *)
-        fun toplevelParseTree parseRootRef () =
-        case ! parseRootRef of
-            [] => raise Fail "Empty Tree"
-        |   trees as (hd :: _) =>
-            let
-                open PolyML
-                (* Navigation for one or more topdecs. *)
-                val fullLoc =
-                    case (hd, List.last trees) of
-                        (({ file, startLine, startPosition, ... }, _),
-                         ({ endLine, endPosition, ... }, _)) =>
-                        {
-                            file=file, startLine=startLine,
-                            startPosition=startPosition,
-                            endLine=endLine, endPosition=endPosition
-                        }
-                fun makelist([], _) = (* Shouldn't happen *) raise Fail "Null list"
-                |   makelist(l as (locn, props) :: tl, previous) =
+        (* We have to return functions for the parent, for the next sibling even if there
+           isn't one and for the previous sibling. *)
+        fun toplevelParseTree (parseRootRef as ref currentList) =
+        let
+            open PolyML
+            (* This is called when we have processed the previous "programs" but
+               not yet processed this one. *)
+            fun makelist([], _) = (* Shouldn't happen *) raise Fail "Null list"
+            |   makelist(l as (locn, props) :: tl, previous) =
+                let
+                    fun this () = makelist(l, previous)
+                    (* If there is another item in the list we need a
+                       property that moves there whose "previous" property
+                       comes here. *)
+                    val next =
+                        case tl of
+                            [] => []
+                        |   n => [PTnextSibling(
+                                    fn () => makelist(tl, [PTpreviousSibling this]))]
+                in
+                    (locn, previous @ next @ props)
+                end
+            fun parent () =
+                case ! parseRootRef of
+                    [] => raise Fail "Empty Tree"
+                |   trees as (hd :: _) =>
                     let
-                        fun this () = makelist(l, previous)
-                        (* If there is another item in the list we need a
-                           property that moves there whose "previous" property
-                           comes here. *)
-                        val next =
-                            case tl of
-                                [] => []
-                            |   n => [PTnextSibling(
-                                        fn () => makelist(tl, [PTpreviousSibling this]))]
+                        (* Navigation for one or more topdecs. *)
+                        val fullLoc =
+                            case (hd, List.last trees) of
+                                (({ file, startLine, startPosition, ... }, _),
+                                 ({ endLine, endPosition, ... }, _)) =>
+                                {
+                                    file=file, startLine=startLine,
+                                    startPosition=startPosition,
+                                    endLine=endLine, endPosition=endPosition
+                                }
                     in
-                        (locn, previous @ next @ props)
+                        (fullLoc, [PTfirstChild(fn () => makelist(trees, []))])
                     end
+
+            val itemCount = List.length currentList
+
+            fun moveToNth n =
+            let
+                fun move (tree, 0) = tree
+                |   move (tree as (loc, opts), n) =
+                    case List.find(fn PTnextSibling f => true | _ => false) opts of
+                        NONE =>
+                        let
+                            (* We have to put a dummy item in at the end since when we
+                               created the parent properties for the last "program" we will
+                               have passed in a "next" entry even though there wasn't
+                               actually a "next". *)
+                            val { file, startLine, startPosition, ... } = loc
+                            val lastPos =
+                                { file = file, startLine = startLine, endLine = startLine,
+                                  startPosition = startPosition, endPosition = startPosition }
+                            val opts =
+                                List.filter(fn PTparent _ => true | PTpreviousSibling _ => true | _ => false) opts
+                        in
+                            (lastPos, opts)
+                        end
+                    |   SOME (PTnextSibling f) => move(f(), n-1)
+                    |   SOME _ => raise Match (* Shouldn't happen *)
             in
-                (fullLoc, [PTfirstChild(fn () => makelist(trees, []))])
+                case ! parseRootRef of
+                    [] => raise Fail "Empty Tree"
+                |   trees => move(makelist(trees, []), n)
             end
+            val previous =
+                case currentList of
+                    [] => NONE (* This is the first. *)
+                |   list => SOME(fn () => moveToNth(itemCount-1))
+            fun next () = moveToNth(itemCount+1)
+        in
+            { parent = SOME parent, next = SOME next, previous = previous }
+        end
 
         (* Move in the selected direction.  Returns the tree as the result of the move. *)
         fun navigateTo(searchLocation as {startOffset, endOffset}, lastParsetree) =
@@ -819,7 +863,7 @@ local
                                             [CPOutStream TextIO.print, CPLineOffset (fn () => startPosition + !stringPosition),
                                              CPErrorMessageProc (fn msg => errorList := !errorList @ [msg]),
                                              CPCompilerResultFun compilerResultFun, CPFileName fileName,
-                                             CPRootTree (SOME(toplevelParseTree resultTrees))]),
+                                             CPRootTree (toplevelParseTree resultTrees)]),
                                          Success)
                                          handle Fail _ => (fn() => (), Errors)
                                          |  _ (* E.g. Interrupted *) => (fn() => (), Interrupted)

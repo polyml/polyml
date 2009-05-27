@@ -693,16 +693,11 @@ struct
     end
 
     (* Convert a "program" into a navigable tree. *)
-    fun structsExportTree (parentOpt, trees: program) =
+    fun structsExportTree (parentTree, trees: program) =
     let
-        (* If a parent tree has been provided include it here. *)
-        val parentTree =
-            case parentOpt of
-                NONE => []
-            |   SOME getParent => [PTparent getParent]
-
+        val parentTreeNav = exportNavigationProps parentTree
         (* The top level is actually a list. *)
-        fun exportTree(([], location)) = (location, parentTree)
+        fun exportTree(([], location)) = (location, parentTreeNav)
         |   exportTree(topdec as (sl, location)) =
         let
             fun getEntry(this as (s :: sl), getPrevious) (): exportTree =
@@ -721,7 +716,7 @@ struct
                     )
             |   getEntry _ () = raise Empty
         in
-            (location, parentTree @ [PTfirstChild(getEntry(sl, NONE))])
+            (location, parentTreeNav @ [PTfirstChild(getEntry(sl, NONE))])
         end
     in
         exportTree trees

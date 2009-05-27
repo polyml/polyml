@@ -50,7 +50,7 @@ sig
 
     val getStringAsTree: navigation * string * location * ptProperties list -> exportTree
     
-    val rootTreeTag: (unit -> exportTree) option Universal.tag
+    val rootTreeTag: navigation Universal.tag
     
     val mapLocationProps: locationProp list -> ptProperties list
 

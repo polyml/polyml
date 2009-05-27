@@ -89,7 +89,7 @@ struct
          (location, otherProps @ exportNavigationProps navigation @ [PTprint(fn _ => PrettyString s)])
 
     (* Tag used to indicate the root tree node in the compiler arguments. *)
-    val rootTreeTag: (unit -> exportTree) option Universal.tag = Universal.tag()
+    val rootTreeTag: navigation Universal.tag = Universal.tag()
 
     (* Map value locations into properties. *)
     fun mapLocationProps locs =

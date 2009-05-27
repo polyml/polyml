@@ -173,7 +173,12 @@ local
     |   CPLineLength of int
         (* Bound into any occurrences of PolyML.print.  This is the length of a line
            used in the pretty printer.  Default: value of PolyML.line_length. *)
-    |   CPRootTree of (unit -> PolyML.parseTree) option
+    |   CPRootTree of
+        {
+            parent: (unit -> PolyML.parseTree) option,
+            next: (unit -> PolyML.parseTree) option,
+            previous: (unit -> PolyML.parseTree) option
+        }
         (* This can be used to provide a parent for parse trees created by the
            compiler.  This appears as a PTparent property in the tree.
            The default is NONE which does not to provide a parent.  *)
@@ -547,8 +552,10 @@ local
             
             val compilerOut = prettyPrintWithOptionalMarkup(outstream, !lineLength)
 
-            (* Parent tree is *)
-            val parentTree = find (fn CPRootTree f => SOME f | _ => NONE) NONE parameters
+            (* Parent tree defaults to empty. *)
+            val parentTree =
+                find (fn CPRootTree f => SOME f | _ => NONE)
+                    { parent = NONE, next = NONE, previous = NONE } parameters
 
             (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)
             val treeAndCode =

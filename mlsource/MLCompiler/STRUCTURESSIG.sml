@@ -46,6 +46,10 @@ sig
     type program
     type ptProperties
     type exportTree = location * ptProperties list
+    type navigation =
+        {parent: (unit -> exportTree) option,
+         next: (unit -> exportTree) option,
+         previous: (unit -> exportTree) option}
     type typeParsetree
     type formalArgStruct
     type sigs
@@ -83,7 +87,7 @@ sig
 
     val displayProgram: program * int -> pretty;
 
-    val structsExportTree: (unit->exportTree) option * program -> exportTree
+    val structsExportTree: navigation * program -> exportTree
 
     structure Sharing:
     sig
