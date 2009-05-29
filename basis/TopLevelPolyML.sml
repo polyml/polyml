@@ -372,18 +372,18 @@ local
                     print requestId; printEsc #",";
                     print parseTreeId; printEsc #",";
                     case result of
-                        Succeeded errors => (print "S"; printOffset(); printErrors errors)
+                        Succeeded errors => (print "S"; printOffset(); printEsc #";"; printErrors errors)
                     |   RuntimeException (s, errors) =>
                         (
-                            print "X"; printOffset(); printEsc #","; print s (* May include markup *);
+                            print "X"; printOffset(); printEsc #";"; print s (* May include markup *);
                             printErrors errors
                         )
                     |   PreludeFail s =>
-                        ( print "L"; printOffset(); printEsc #","; print s (* May include markup *) )
+                        ( print "L"; printOffset(); printEsc #";"; print s (* May include markup *) )
                     |   CompileFail errors =>
-                        ( print "F"; printOffset(); printErrors errors )
+                        ( print "F"; printOffset(); printEsc #";"; printErrors errors )
                     |   CompileCancelled errors =>
-                        ( print "C"; printOffset(); printErrors errors );
+                        ( print "C"; printOffset(); printEsc #";"; printErrors errors );
                     printEsc #"r"
                  end
 
