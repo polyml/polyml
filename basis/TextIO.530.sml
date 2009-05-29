@@ -906,6 +906,16 @@ structure TextIO :> TEXT_IO = struct
             )
                    
     end
+
+    local
+        open PolyML
+        fun prettyIn depth _ (InStream(ref(Direct{ name, ... }), _)) =
+                PolyML.PrettyString(String.concat["Instream-\"", String.toString name, "\""])
+        |   prettyIn depth _ (InStream(ref(Underlying s), _)) =
+                PolyML.prettyRepresentation(s, depth)
+    in
+        val () = addPrettyPrinter prettyIn
+    end
 end;
 
 (* Available unqualified at top-level. *)

@@ -743,6 +743,32 @@ struct
         val it = PolyML.onEntry doOnEntry;
         val it = doOnEntry() (* Set it up for this session as well. *)
     end
+
+    local
+        open PolyML
+        fun printWithName(s, name) =
+            PolyML.PrettyString(String.concat[s, "-\"", String.toString name, "\""])
+
+        fun prettyIn depth a (Committed { rest, ...}) =
+                prettyIn depth a rest
+        |   prettyIn depth a (Uncommitted { state = ref streamState, ...}) =
+            let
+                fun prettyState Truncated =
+                        PolyML.PrettyString("Instream-truncated")
+                |   prettyState (HaveRead{ rest = ref rest, ...}) =
+                        prettyState rest
+                |   prettyState (ToRead(RD{name, ...})) =
+                        printWithName("Instream", name)
+            in
+                prettyState streamState
+            end
+
+        fun prettyOut _ _ (OutStream { wrtr = WR { name, ...}, ...}) =
+            printWithName("Outstream", name)
+    in
+        val () = addPrettyPrinter prettyIn
+        val () = addPrettyPrinter prettyOut
+    end
 end;
 
 (* Define the StreamIO functor in terms of BasicStreamIO to filter
