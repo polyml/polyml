@@ -1917,34 +1917,41 @@ struct
             end
 
          else if sym eq SYMBOLS.includeSy
-           then let
-            (* In ML 97 we can have "include sigexp" but in addition as
-               a derived form we can have "include ident...ident".
-               Presumably this is for backwards compatibility.
-               sigexp may be a single identifier but could
-               also be an identifier with a "where type" constraint.
-               I hate this sort of inconsistency. 
-               The simplest way to deal with this is to parse the
-               first one as a general signature and then allow multiple
-               identifiers.  That is rather more general than the syntax
-               allows and perhaps we should check that the first signature
-               was simply an identifier. *)
-             val UUU = insymbol lex
-             val () =
-                 skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
+            then
+            let
+                (* In ML 97 we can have "include sigexp" but in addition as
+                   a derived form we can have "include ident...ident".
+                   Presumably this is for backwards compatibility.
+                   sigexp may be a single identifier but could
+                   also be an identifier with a "where type" constraint.
+                   I hate this sort of inconsistency. 
+                   The simplest way to deal with this is to parse the
+                   first one as a general signature and then allow multiple
+                   identifiers.  That is rather more general than the syntax
+                   allows and perhaps we should check that the first signature
+                   was simply an identifier. *)
+                val () = insymbol lex
+                val () =
+                    skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
-             val (firstSig, _) =
-                 parseSignature (fsys ++ startSigEndSy ++ declarableVarSys) lex env
+                val (firstSig, firstLoc) =
+                    parseSignature (fsys ++ startSigEndSy ++ declarableVarSys) lex env
 
-             fun sigids () =
+                fun sigids locs =
                 if (sy lex) eq SYMBOLS.ident
-                then mkSigIdent (getShortId (declarableVarSys, fsys, lex))
-                    :: sigids()
-                else []
+                then
+                let
+                    val nameLoc as (_, loc) = getShortId (declarableVarSys, fsys, lex)
+                    val (rest, lastLoc) = sigids loc
+                in
+                    (mkSigIdent nameLoc :: rest, lastLoc)
+                end
+                else ([], locs)
 
-           in
-             [mkInclude (firstSig :: sigids())]
-           end
+                val (otherSigs, finalLoc) = sigids firstLoc
+            in
+                [mkInclude (firstSig :: otherSigs, locSpan(startLocn, finalLoc))]
+            end
 
          else if sym eq SYMBOLS.sharingSy
          then let (* sharing *)

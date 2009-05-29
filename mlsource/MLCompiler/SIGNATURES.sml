@@ -79,11 +79,11 @@ struct
     open VALUEOPS UTILITIES Universal
 
     datatype sigs =
-        SignatureIdent of string * location  (* A signature name *)
+        SignatureIdent of string * location * location option ref  (* A signature name *)
 
     |   StructureSig   of structSigBind list * location
 
-    |   SigDec         of sigs list *location (* sig ... end *)
+    |   SigDec         of sigs list * location (* sig ... end *)
 
     |   ValSig         of (* Signature of a value. *)
             { name: string * location, typeof: typeParsetree, line: location }
@@ -99,7 +99,7 @@ struct
 
     |   Sharing        of shareConstraint    (* Sharing constraints. *)
     |   WhereType       of whereTypeStruct    (* type realisation. *)
-    |   IncludeSig     of sigs list       (* Include. *)
+    |   IncludeSig     of sigs list * location       (* Include. *)
     |   EmptySig    (* Error cases. *)
 
   withtype shareConstraint =
@@ -126,7 +126,7 @@ struct
         line: location
       }
 
-    val mkSigIdent = SignatureIdent;
+    fun mkSigIdent(name, nameLoc) = SignatureIdent(name, nameLoc, ref NONE);
   
     fun mkCoreType (dec, location) =
         CoreType { dec = dec, location = location };
@@ -238,7 +238,7 @@ struct
                 )
             end
 
-        |   SignatureIdent (name : string, _) =>
+        |   SignatureIdent (name : string, _, _) =>
             PrettyString name
 
         |   SigDec (structList : sigs list, _) =>
@@ -310,7 +310,7 @@ struct
                 ]
             )
 
-        |   IncludeSig (structList : sigs list) =>
+        |   IncludeSig (structList : sigs list, _) =>
             PrettyBlock (3, true, [],
                 PrettyString "include" ::
                 PrettyBreak (1, 0) ::
@@ -353,7 +353,9 @@ struct
                 (location, expChild @ commonProps)
             end
 
-        |   SignatureIdent _ => (nullLocation, commonProps)
+        |   SignatureIdent(_, loc, ref decLoc) =>
+                (loc,
+                    (case decLoc of NONE => [] | SOME decl => [PTdeclaredAt decl]) @ commonProps)
 
         |   SigDec(structList, location) =>
                 (location, exportList(sigExportTree, SOME asParent) structList @ commonProps)
@@ -398,7 +400,8 @@ struct
 
         |   WhereType _ => (nullLocation, commonProps)
 
-        |   IncludeSig _ => (nullLocation, commonProps)
+        |   IncludeSig (sigs, loc) =>
+                (loc, exportList(sigExportTree, SOME asParent) sigs @ commonProps)
 
         |   EmptySig => (nullLocation, commonProps)
  
@@ -790,7 +793,7 @@ struct
             (* Make a new signature. *)
             val (sigName, loc) =
                 case str of
-                    SignatureIdent nameLoc => nameLoc
+                    SignatureIdent(name, loc, _) => (name, loc)
                 |    _ => ("", lno)
             val newTable = makeSignatureTable();
             (* Copy everything into the new signature. *)
@@ -848,11 +851,13 @@ struct
           (* Either a named signature or sig ... end or one of
              these with possibly multiple where type realisations. *)
           case str of
-            SignatureIdent nameLoc =>
+            SignatureIdent(name, loc, declLoc) =>
             let
                 (* Look up the signature and copy it to turn bound IDs into variables.
                    This is needed because we may have sharing. *)
-                val sourceSig = lookSig nameLoc;
+                val sourceSig = lookSig(name, loc);
+                (* Remember the declaration location for possible browsing. *)
+                val () = declLoc := SOME(sigDeclaredAt sourceSig)
 
                 (* Create a new variable ID for each bound ID.  We must only create
                    one for each and must return the same variable ID for each bound ID. *)
@@ -1015,7 +1020,7 @@ struct
                   (offset + 1)
                 end
                
-              | IncludeSig (structList : sigs list) =>
+              | IncludeSig (structList : sigs list, _) =>
               let
                 (* include sigid ... sigid or include sigexp.  For
                    simplicity we handle the slightly more general case
@@ -1241,11 +1246,17 @@ struct
             raise InternalError "makeSigInto: not a SigIdent nor a SigDec"; (* end makeSigInto *)
       in
         case str of 
-            SignatureIdent nameLoc =>
+            SignatureIdent(name, loc, declLoc) =>
+            let
+                val foundSig = lookSig (name, loc)
                 (* We can speed things up because the stamps are already bound. Also in this
                    case if this is being used as the result signature of a functor we can't
                    have sharing with the arguments so we don't have to renumber any bound IDs. *)
-                lookSig nameLoc
+            in
+                (* Remember declaration location for possible browsing. *)
+                declLoc := SOME(sigDeclaredAt foundSig);
+                foundSig
+            end
         
         | _ =>
             let

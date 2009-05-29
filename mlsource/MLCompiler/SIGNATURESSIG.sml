@@ -45,7 +45,7 @@ sig
     val mkCoreType:         parsetree * location -> sigs
     val mkSharing:          bool * string list * location -> sigs
     val mkWhereType:        sigs * typeVarForm list * string * types * location -> sigs
-    val mkInclude:          sigs list -> sigs
+    val mkInclude:          sigs list * location -> sigs
     val mkSigIdent:         string * location -> sigs;
     val mkSig:              sigs list * location -> sigs;
     val emptySig:           sigs
