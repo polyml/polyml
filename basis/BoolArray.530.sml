@@ -23,7 +23,7 @@ local
 	open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
 	open LibrarySupport
 
-	datatype address = Address of word(* Abstract *)
+	datatype address = Address of int Vector.vector (* Abstract but using structure equality. *)
 	
 	(* TODO: Use a single word for vectors of size <= 31 (30 on Sparc). *)
 	datatype vector = Vector of int*address
