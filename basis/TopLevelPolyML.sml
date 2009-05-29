@@ -360,7 +360,7 @@ local
                         if hardError then print "E" else print "W";
                         printEsc #",";
                         printFullLocation location;
-                        printEsc #",";
+                        printEsc #";"; (* N.B. Semicolon here, not comma. *)
                         print message; (* May include markup *)
                         printEsc #"e"
                     )
@@ -1070,6 +1070,7 @@ in
         structure IDEInterface =
         struct
             val parseTree = parseTree
+            val runIDEProtocol = runIDEProtocol
         end;
 
         open PolyML (* Add this to the PolyML structure. *)

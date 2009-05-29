@@ -209,6 +209,7 @@ local
         val openDeclaration = "\u001bD"
         val closeDeclaration = "\u001bd"
         val separator = "\u001b,"
+        val finalSeparator = "\u001b;"
         
         fun beginMarkup context =
             case List.find (fn ContextLocation _ => true | _ => false) context of
@@ -227,7 +228,7 @@ local
                     stream(Int.toString startPosition);
                     stream separator;
                     stream(Int.toString endPosition);
-                    stream separator
+                    stream finalSeparator
                 end
             |   _ => ()
             
@@ -419,6 +420,7 @@ local
                 val openError = "\u001bE"
                 val closeError = "\u001be"
                 val separator = "\u001b,"
+                val finalSeparator = "\u001b;"
             in
                 printOut(
                     concat
@@ -428,7 +430,7 @@ local
                             file, (* TODO double any escapes. *) separator,
                             Int.toString startLine, separator,
                             Int.toString startPosition, separator,
-                            Int.toString endPosition, separator
+                            Int.toString endPosition, finalSeparator
                          ]
                     );
                 prettyPrintWithIDEMarkup(printOut, !lineLength) fullMessage;
