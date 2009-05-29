@@ -36,12 +36,15 @@ local
     datatype vector = datatype LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+    val System_loads: string*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_loadb: address*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setb: address * word * Word8.word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
-    val System_isShort   : address -> bool = RunCall.run_call1 POLY_SYS_is_short
+    val System_move_str:
+        string*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
+    val System_isShort   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
     val emptyVec: vector = (* This is represented by a null string not a null vector. *)
         RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_emptystring;
 
@@ -74,7 +77,7 @@ in
             if i < 0 orelse i >= length v then raise General.Subscript
             else if System_isShort s
             then RunCall.unsafeCast s 
-            else System_loadb (s, intAsWord i + wordSize)
+            else System_loads (s, intAsWord i + wordSize)
      
         (* Because Word8Vector.vector is implemented as a string and Word8.word
            as a byte all these functions have the same implementation in
@@ -102,7 +105,7 @@ in
                     type vector = vector and elem = elem
                     val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
                     fun unsafeSub (v as Vector s, i) =
-                        if System_isShort s then RunCall.unsafeCast s else System_loadb(s, i + wordSize);
+                        if System_isShort s then RunCall.unsafeCast s else System_loads(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
     
@@ -213,8 +216,7 @@ in
             else
             let
                 (* Make an array initialised to zero. *)
-                val new_vec =
-                    LibrarySupport.Word8Array.fromString(allocString len)
+                val new_vec = allocString len
             in
                 System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
                 System_lock new_vec;
@@ -245,7 +247,7 @@ in
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
                     System_setb(d, diW, RunCall.unsafeCast s)
-                else System_move_bytes(s, wordSize, d, diW, len)
+                else System_move_str(s, wordSize, d, diW, len)
             end
 
         (* Create the other functions. *)
@@ -302,7 +304,7 @@ in
                     val vecLength = wVecLength
                     fun unsafeVecSub(v as Vector s, i: word) =
                         if System_isShort s then RunCall.unsafeCast s
-                        else System_loadb(s, i + wordSize)
+                        else System_loads(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -384,8 +386,7 @@ in
                 let
                     val len = intAsWord length
                     (* Make an array initialised to zero. *)
-                    val new_vec =
-                        LibrarySupport.Word8Array.fromString(allocString len)
+                    val new_vec = allocString len
                 in
                     System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
                     System_lock new_vec;
@@ -417,7 +418,7 @@ in
                         so we just need to insert the character into the array. *)
                     System_setb(d, diW + offset, RunCall.unsafeCast source)
                     (* The source is represented by a string whose first word is the length. *)
-                else System_move_bytes(source, offset + wordSize, d, diW, len)
+                else System_move_str(source, offset + wordSize, d, diW, len)
             end
         
     end (* Word8ArraySlice *);
@@ -451,14 +452,3 @@ in
     end
 
 end;
-
-(* Install overloaded equality functions. Since Word8.word
-   is an equality type the only effect of this is to speed
-   up equality. (c.f. Array ) *)
-val it: Word8Array.array * Word8Array.array -> bool = 
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-RunCall.addOverload it "=";
-val it: Word8Array.array * Word8Array.array -> bool = 
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-RunCall.addOverload it "<>";
-

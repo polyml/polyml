@@ -169,11 +169,3 @@ RunCall.addOverload Word8.< "<";
 RunCall.addOverload Word8.> ">";
 RunCall.addOverload Word8.<= "<=";
 RunCall.addOverload Word8.>= ">=";
-(* Add overloadings for = and <>.  The effect of this is to provide
-   more efficient implementations than the default structure equality. *)
-val it : Word8.word * Word8.word -> bool =
-	RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-RunCall.addOverload it "=";
-val it : Word8.word * Word8.word -> bool =
-	RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-RunCall.addOverload it "<>";

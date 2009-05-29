@@ -452,7 +452,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			send(sock, v, i + Word.toInt wordSize, length, don't_route, oob)
+			send(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVec (sock, vbuff) = sendVec'(sock, vbuff, nullOut)
 		
@@ -460,7 +460,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendNB(sock, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendNB(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecNB (sock, vbuff) = sendVecNB'(sock, vbuff, nullOut)
 	
@@ -484,7 +484,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendTo(sock, addr, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendTo(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecTo (sock, addr, vbuff) = sendVecTo'(sock, addr, vbuff, nullOut)
 
@@ -492,7 +492,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendToNB(sock, addr, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendToNB(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecToNB (sock, addr, vbuff) = sendVecToNB'(sock, addr, vbuff, nullOut)
 

@@ -195,7 +195,7 @@ struct
 		val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
 		val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
 	in
-		sys_write_bin(n, (v, iW+wordSize, lenW))
+		sys_write_bin(n, (LibrarySupport.stringAsAddress v, iW+wordSize, lenW))
 	end
 
 
@@ -288,7 +288,7 @@ struct
 		fun writeVector (slice: CharVectorSlice.slice): int =
 		let
 			val (buf, i, len) = CharVectorSlice.base slice
-			val v = RunCall.unsafeCast buf
+			val v = LibrarySupport.stringAsAddress buf
 			val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
 			val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
 		in

@@ -39,6 +39,7 @@ local
 
 	val realSize: word = RunCall.run_call2 POLY_SYS_Real_Dispatch (28, ())
 	val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+	val System_locks: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 
 	local
 		val System_loadb: address * word -> Word8.word =
@@ -78,12 +79,12 @@ in
 	
 		fun toBytes r =
 		let
-			val v = fromString(allocString realSize)
+			val v = allocString realSize
 			(* r is actually represented by a pointer to a vector. *)
 			val addr: address = RunCall.unsafeCast r
 		in
-			doMove(addr, 0w0, v, wordSize, isBigEndian);
-			System_lock v;
+			doMove(addr, 0w0, stringAsAddress v, wordSize, isBigEndian);
+			System_locks v;
 			Vector v
 		end
 
@@ -96,7 +97,7 @@ in
 			let
 				val r = allocBytes realSize
 			in
-				doMove(vec, wordSize, r, 0w0, isBigEndian);
+				doMove(stringAsAddress vec, wordSize, r, 0w0, isBigEndian);
 				System_lock r;
 				(RunCall.unsafeCast r): real
 			end
@@ -111,7 +112,7 @@ in
 			let
 				val r = allocBytes realSize
 			in
-				doMove(vec, wordSize + iW, r, 0w0, isBigEndian);
+				doMove(stringAsAddress vec, wordSize + iW, r, 0w0, isBigEndian);
 				System_lock r;
 				(RunCall.unsafeCast r): real
 			end
@@ -156,12 +157,12 @@ in
 		val isBigEndian = false
 		fun toBytes r =
 		let
-			val v = fromString(allocString realSize)
+			val v = allocString realSize
 			(* r is actually represented by a pointer to a vector. *)
 			val addr: address = RunCall.unsafeCast r
 		in
-			doMove(addr, 0w0, v, wordSize, isBigEndian);
-			System_lock v;
+			doMove(addr, 0w0, stringAsAddress v, wordSize, isBigEndian);
+			System_locks v;
 			Vector v
 		end
 
@@ -174,7 +175,7 @@ in
 			let
 				val r = allocBytes realSize
 			in
-				doMove(vec, wordSize, r, 0w0, isBigEndian);
+				doMove(stringAsAddress vec, wordSize, r, 0w0, isBigEndian);
 				System_lock r;
 				(RunCall.unsafeCast r): real
 			end
@@ -189,7 +190,7 @@ in
 			let
 				val r = allocBytes realSize
 			in
-				doMove(vec, wordSize+iW, r, 0w0, isBigEndian);
+				doMove(stringAsAddress vec, wordSize+iW, r, 0w0, isBigEndian);
 				System_lock r;
 				(RunCall.unsafeCast r): real
 			end
