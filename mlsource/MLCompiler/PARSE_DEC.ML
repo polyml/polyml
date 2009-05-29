@@ -1991,21 +1991,24 @@ struct
   end (* signatureSpec *);
 
 
-  fun signatureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
-  let
-    val UUU = insymbol lex
-    fun doSigDec () =
-     let
-       val idAndLoc as (_, idLoc) = getShortId (variableSys, empty, lex);
-       val () = getsym (SYMBOLS.equalsSign, lex)
-       val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
-       val locs = locSpan(idLoc, sigLoc)
-     in
-        (mkSignatureBinding (idAndLoc, sgn, locs), locs)
-     end 
-  in
-    mkSignatureDec (getList (SYMBOLS.andSy, empty, lex, doSigDec))
-  end
+    fun signatureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
+    let
+        val startLocn = location lex
+        val () = insymbol lex
+        fun doSigDec () =
+        let
+            val idAndLoc as (_, idLoc) = getShortId (variableSys, empty, lex);
+            val () = getsym (SYMBOLS.equalsSign, lex)
+            val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
+            val locs = locSpan(idLoc, sigLoc)
+        in
+            (mkSignatureBinding (idAndLoc, sgn, locs), locs)
+        end
+        
+        val (sigs, sigLoc) = getList (SYMBOLS.andSy, empty, lex, doSigDec)
+    in
+        mkSignatureDec (sigs, locSpan(startLocn, sigLoc))
+    end
        
     
   fun structVal (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs * location =
@@ -2055,13 +2058,8 @@ struct
             if testfor (SYMBOLS.leftParen, empty, lex)
             then
             let (* functor application *)
-                (* Functor names shouldn't be qualified, so we ought to
-                   check this here using:
-                        checkForDots (iden, lex, location lex)
-                   Unfortunately, this breaks the Poly/ML prelude, which
-                   needs the functor RunCall.Run_exception1, so I've
-                   taken this check out again! SPF 17/4/96
-                *)
+                (* Functor names must not be qualified. *)
+                val () = checkForDots (iden, lex, idLoc);
                 val parameter =
                     if (sy lex) eq SYMBOLS.rightParen (* Empty parameter list *)
                     then mkStruct([], locSpan(startLoc, location lex))
@@ -2076,7 +2074,7 @@ struct
                         let
                             val structEnv = mkLocalFixEnv env
                             val str = strDec tsys lex structEnv
-                            val locs = locSpan(startLocn, location lex)
+                            val locs = locSpan(startLoc, location lex)
                         in
                             mkStruct(str, locs)
                         end
@@ -2139,8 +2137,9 @@ struct
                 (* And finally the structure value. *)
                 (mkStructureBinding (idAndLoc, sgn, strVal, locs), locs)
             end
+            val (strs, strLocs) = getList (SYMBOLS.andSy, structSy, lex, doStrDec)
         in  
-            mkStructureDec (getList (SYMBOLS.andSy, structSy, lex, doStrDec))
+            mkStructureDec (strs, locSpan(startLocn, strLocs))
         end
 
         else if testfor (SYMBOLS.localSy, empty, lex)
@@ -2163,70 +2162,75 @@ struct
         else emptyStruct
     end (* end of structureDec *)
 
-  (* Functor declarations. *)
-  and functorDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
-  let
-    val UUU = insymbol lex; (* remove ``functor'' *)
-    fun doFunctDec () : functorBind * location =
-    let (* Read fncId (<<paramSpec>> ) <<: sig>> = str *)
-      (* First the identifier *)
-      val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
-      val () = getsym (SYMBOLS.leftParen, lex);
-      (* Now the parameters *)
-      val tsys = fsys ++ rightParenCommaSy;
+    (* Functor declarations. *)
+    and functorDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
+    let
+        val startLocn = location lex
+        val () = insymbol lex; (* remove ``functor'' *)
 
-       val parameter = (* empty | name:sigexp | spec *)
-         if (sy lex) eq SYMBOLS.rightParen
-         (* empty *)
-         then mkFormalArg ("", mkSig([], location lex))
+        fun doFunctDec () : functorBind * location =
+        let (* Read fncId (<<paramSpec>> ) <<: sig>> = str *)
+            (* First the identifier *)
+            val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
+            val () = getsym (SYMBOLS.leftParen, lex);
+            (* Now the parameters *)
+            val tsys = fsys ++ rightParenCommaSy;
+
+            val parameter = (* empty | name:sigexp | spec *)
+                if (sy lex) eq SYMBOLS.rightParen
+                    (* empty *)
+                then mkFormalArg ("", mkSig([], location lex))
             
-         else if (sy lex) inside startSigSys
-           (* spec *)
-         then
-            let
-                val startLocn = location lex
-                val sigs = signatureSpec tsys lex env
-            in
-                mkFormalArg ("", mkSig (sigs, locSpan(startLocn, location lex)))
-            end
+                else if (sy lex) inside startSigSys
+                (* spec *)
+                then
+                let
+                    val startLocn = location lex
+                    val sigs = signatureSpec tsys lex env
+                in
+                    mkFormalArg ("", mkSig (sigs, locSpan(startLocn, location lex)))
+                end
          
-         (* name : sigexp *)
-         else let
-           val (strId, _) = getShortId (declarableVarSys, tsys ++ colon, lex);
-           val () = getsym (SYMBOLS.colon, lex)
+                (* name : sigexp *)
+                else
+                let
+                    val (strId, _) = getShortId (declarableVarSys, tsys ++ colon, lex);
+                    val () = getsym (SYMBOLS.colon, lex)
  
-           (* Next the signature. *)
-           val (sgn, _) = parseSignature (tsys ++ sharingSy) lex env
-         in
-           mkFormalArg (strId, sgn)
-         end (* parameter *)
+                    (* Next the signature. *)
+                    val (sgn, _) = parseSignature (tsys ++ sharingSy) lex env
+                in
+                    mkFormalArg (strId, sgn)
+                end (* parameter *)
 
-       val () = getsym (SYMBOLS.rightParen, lex)
+            val () = getsym (SYMBOLS.rightParen, lex)
        
-       (* Next the signature if there is one. *)
-       val isOpaque = (sy lex) eq SYMBOLS.colonGt;
+            (* Next the signature if there is one. *)
+            val isOpaque = (sy lex) eq SYMBOLS.colonGt;
        
-       val sigOpt =
-         if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
-         then
-            let
-                val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
-            in
-                SOME(sign, isOpaque, sigLoc)
-            end
-         else NONE
+            val sigOpt =
+                if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
+                then
+                let
+                    val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
+                in
+                    SOME(sign, isOpaque, sigLoc)
+                end
+                else NONE
            
-       (* Now the equals sign *)
-       val () = getsym (SYMBOLS.equalsSign, lex)
-       (* And finally the functor value. *)
-       val (strVal, strLoc) = structVal fsys lex env
-       val locs = locSpan(idLocn, strLoc)
-     in
-       (mkFunctorBinding (strId, idLocn, sigOpt, strVal, parameter, locs), locs)
-     end (* doFunctDec *)
-  in
-        mkFunctorDec (getList (SYMBOLS.andSy, structSy, lex, doFunctDec))
-  end (* functorDec *)
+            (* Now the equals sign *)
+            val () = getsym (SYMBOLS.equalsSign, lex)
+            (* And finally the functor value. *)
+            val (strVal, strLoc) = structVal fsys lex env
+            val locs = locSpan(idLocn, strLoc)
+        in
+            (mkFunctorBinding (strId, idLocn, sigOpt, strVal, parameter, locs), locs)
+        end (* doFunctDec *)
+        
+        val (functs, functLoc) = getList (SYMBOLS.andSy, structSy, lex, doFunctDec)
+    in
+        mkFunctorDec (functs, locSpan(startLocn, functLoc))
+    end (* functorDec *)
 
 
     and strDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs list =

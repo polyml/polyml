@@ -617,12 +617,25 @@ struct
                 (location, expChild @ commonProps)
             end
 
-        |   StructureIdent _ => (nullLocation, commonProps)
+        |   StructureIdent { valRef = ref var, location, ... } =>
+                (* Get the location properties for the identifier. *)
+                (location, mapLocationProps (structLocations var) @ commonProps)
 
         |   StructDec{ location, alist, ...} =>
                 (location, exportList(structExportTree, SOME asParent) alist @ commonProps)
 
-        |   FunctorAppl _ => (nullLocation, commonProps)
+        |   FunctorAppl { valRef = ref fnctr, name, nameLoc, fullLoc, arg, ... } =>
+            let
+                (* Navigate between the functor name and the argument. *)
+                (* The first position is the expression, the second the type *)
+                fun getFunctorName () =
+                    getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getFunctorArg},
+                        name, nameLoc, [PTdeclaredAt(functorDeclaredAt fnctr)])
+                and getFunctorArg () =
+                    structExportTree({parent=SOME asParent, previous=SOME getFunctorName, next=NONE}, arg)
+            in
+                (fullLoc, PTfirstChild getFunctorName :: commonProps)
+            end
 
         |   CoreLang {dec, ...} => (* A value parse-tree entry. *)
                 getExportTree(navigation, dec)
@@ -630,7 +643,17 @@ struct
         |   Localdec {decs, body, line, ...} =>
                 (line, exportList(structExportTree, SOME asParent) (decs @ body) @ commonProps)
 
-        |   SigConstraint _ => (nullLocation, commonProps)
+        |   SigConstraint { str, csig, sigLoc, ... } =>
+            let
+                (* Navigate between the functor name and the argument. *)
+                (* The first position is the expression, the second the type *)
+                fun getStructure () =
+                    structExportTree({parent=SOME asParent, previous=NONE, next=SOME getSignature}, str)
+                and getSignature () =
+                    sigExportTree({parent=SOME asParent, previous=SOME getStructure, next=NONE}, csig)
+            in
+                (sigLoc, PTfirstChild getStructure :: commonProps)
+            end
 
         |   EmptyStruct => (nullLocation, commonProps)
  
@@ -666,24 +689,43 @@ struct
 
         |   FunctorDec(fbl, location) =>
             let
-                fun exportFB(navigation, fb as {name, haveSig, arg={sigStruct=argStruct, ...}, body, line, ...}) =
+                fun exportFB(navigation,
+                        fb as {name, nameLoc, haveSig, arg={sigStruct=argStruct, ...}, body, line, ...}) =
                     let
                         val (sigStruct, body) =
                             case (haveSig, body) of
                                 (true, SigConstraint{str, csig, opaque, sigLoc, ...}) =>
                                     (SOME(csig, opaque, sigLoc), str)
                             |   _ => (NONE, body)
-                        val sbProps = exportNavigationProps navigation
+                        val fbProps = exportNavigationProps navigation
                         fun exportThis () = exportFB(navigation, fb)
-                        (* TODO: Visit the functor name here? *)
-                        val sigEntry: sigs list =
-                            case sigStruct of
-                                NONE => []
-                            |   SOME (sigStruct, _, _) => [sigStruct]
-                        (* TODO: Reinstate argStruct and sigEntry *)
-                        val asChild = exportList(structExportTree, SOME exportThis) ((*argStruct ::*) ((*sigEntry @*) [body]))
+                        (* Because the signature is optional navigation on the arg and body depends on
+                           whether there's a signature. *)
+                        fun getName() =
+                            getStringAsTree({parent=SOME exportThis, previous=NONE, next=SOME getArg},
+                                name, nameLoc, [])
+                        
+                        and getArg() =
+                        let
+                            val next =
+                                if isSome sigStruct then getSig else getBody
+                        in
+                            sigExportTree({parent=SOME exportThis, previous=SOME getName, next=SOME next},
+                                        argStruct)
+                        end
+            
+                        and getSig() =
+                            sigExportTree({parent=SOME exportThis, previous=SOME getArg, next=SOME getBody},
+                                        #1(valOf sigStruct))
+            
+                        and getBody() =
+                        let
+                            val previous = if isSome sigStruct then getSig else getArg
+                        in
+                            structExportTree({parent=SOME exportThis, previous=SOME getSig, next=NONE}, body)
+                        end
                     in
-                        (line, asChild @ sbProps)
+                        (line, PTfirstChild getName :: fbProps)
                     end
 
                 val expChild = exportList(exportFB, SOME asParent) fbl
