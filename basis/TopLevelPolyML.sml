@@ -365,8 +365,7 @@ local
                         printEsc #"e"
                     )
                     fun printOffset() = (printEsc #","; print (Int.toString finalOffset))
-                    fun printErrors nil = ()
-                    |   printErrors errors = ( printEsc #","; List.app printError errors )
+                    fun printErrors errors = (List.app printError errors)
                 in
                     printEsc #"R";
                     print requestId; printEsc #",";
@@ -375,7 +374,10 @@ local
                         Succeeded errors => (print "S"; printOffset(); printEsc #";"; printErrors errors)
                     |   RuntimeException (s, errors) =>
                         (
-                            print "X"; printOffset(); printEsc #";"; print s (* May include markup *);
+                            print "X"; printOffset(); 
+                            printEsc #";";
+                            printEsc #"X"; print s; (* May include markup *)
+                            printEsc #"x"; 
                             printErrors errors
                         )
                     |   PreludeFail s =>
