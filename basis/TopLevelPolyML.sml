@@ -286,6 +286,19 @@ local
                 end
         end
 
+        fun sendStartedMessage () = 
+        let 
+            fun print s = TextIO.StreamIO.output(unlockedStream, s)
+            fun printEsc ch = print (String.concat["\u001b", String.str ch])
+            fun sendResponse () =
+            (
+                printEsc #"H"; print "hello"; printEsc #"h";
+                TextIO.StreamIO.flushOut unlockedStream
+            )
+        in
+            LibraryIOSupport.protect outputLock sendResponse ()
+        end
+            
         (* Send a reply packet. *)
         fun sendResponse response =
         let
@@ -1013,6 +1026,7 @@ local
         in
             setAttributes[EnableBroadcastInterrupt false, InterruptState InterruptDefer]
         end;
+        sendStartedMessage(); 
         runProtocol NONE (* No compilation. *)
     end (* runIDEProtocol. *)
 in
