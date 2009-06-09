@@ -794,7 +794,7 @@ struct
                 (structValue: 'a, sigValue: 'a, reason) =
         let
             val message =
-                PrettyBlock(0, true, [],
+                PrettyBlock(3, true, [],
                     [
                         PrettyString
                             ("Structure does not match signature" ^
@@ -828,7 +828,7 @@ struct
     fun sigStructMissingMsg (lex, near, lno, structName) (doDisplay: 'a -> pretty) (sigValue: 'a) =
         let
             val message =
-                PrettyBlock(0, true, [],
+                PrettyBlock(3, true, [],
                     [
                         PrettyString
                             ("Structure does not match signature" ^
@@ -919,22 +919,6 @@ struct
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
             sigStructMatchMsg(lex, near, lno, structPath)(fn t => displayTypeConstrs(t, errorDepth lex, printTypeEnv))
-        (* If we get an error with the constructors print just the constructor.
-           TODO: Use the signature or structure environment to print properly. *)
-        val errorInConstructor =
-            let
-                fun displayConstructor value =
-                    PrettyBlock(0, false, [],
-                        [
-                            PrettyString "constructor",
-                            PrettyBreak(1, 3),
-                            PrettyString(valName value ^ ":"),
-                            PrettyBreak(1, 0),
-                            display (valTypeOf value, errorDepth lex, typeEnv)
-                        ])
-            in
-                sigStructMatchMsg(lex, near, lno, structPath) displayConstructor
-            end
     in
         if tcArity candid <> tcArity target
         then () (* Have already given the error message. *)
@@ -944,40 +928,10 @@ struct
                          mkTypeConstruction (targetName, target, tvars, []), 
                          targTypeMap) of
                 SOME error => errorInDatatype(candid, target, matchErrorReport(lex, typeEnv, typeEnv) error) (* Report the error. *)
-            |   NONE =>
-                let (* No error when matching the types: check the value constructors. *)
-                    val candidConstrs : values list = tcConstructors candid;
-                    val targetConstrs : values list = tcConstructors target;
-                in 
-                    (* We have already checked for matching a type in the structure
-                       to a datatype in the signature. *)
-                    if null targetConstrs orelse null candidConstrs
-                    then ()
-                    else if not (ListPair.allEq
-                                    (fn(cVal, tVal) => valName cVal = valName tVal)
-                                    (candidConstrs, targetConstrs))
-                    then errorInDatatype(candid, target,
-                                PrettyString "Mismatched constructor names or different numbers of constructors")
-                    else
-                    let
-                        (* Fold this so we only report a single error even if there are multiple errors. *)
-                        fun matchConstructors(cVal, tVal, false) =
-                        (
-                            case matchTypes (valTypeOf cVal, valTypeOf tVal, targTypeMap) of
-                                NONE => false
-                            |   SOME error =>
-                                (
-                                    errorInConstructor(cVal, tVal, matchErrorReport(lex, typeEnv, typeEnv) error);
-                                    true
-                                )
-                        )
-                                
-                        |   matchConstructors(_, _, true) = true
-                    in
-                        ListPair.foldl matchConstructors false (candidConstrs, targetConstrs);
-                        ()
-                    end
-                end
+            |   NONE => () (* We have already checked for matching a type in the structure to a datatype in the signature.
+                              In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
+                              must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
+                              So we can check the constructors when we check the values. *)
     end (* checkTypeConstrs *);
 
     (* Check that a candidate signature (actually the environment part of
@@ -1124,79 +1078,76 @@ struct
            ()
           );
 
+        fun displayValue value =
+        let
+            fun dispVal(kind, typeof) =
+                PrettyBlock(0, false, [],
+                    [
+                        PrettyString kind,
+                        PrettyBreak(1, 3),
+                        PrettyString(valName value ^ ":"),
+                        PrettyBreak(1, 0),
+                        display (typeof, errorDepth lex, typeEnv)
+                    ])
+        in
+            case value of
+                Value{class=Constructor _, ...} =>
+                    (* When displaying the constructor show the function type.  We may have rebound
+                       the constructor in the candidate structure so that it creates a different datatype. *)
+                    dispVal("constructor", valTypeOf value)
+            |   Value{class=Exception, ...} =>
+                    PrettyBlock(0, false, [],
+                            PrettyString "exception" ::
+                            PrettyBreak(1, 3) ::
+                            PrettyString(valName value) ::
+                        (
+                            case getFnArgType (valTypeOf value) of
+                               NONE => []
+                            |  SOME excType =>
+                                [
+                                    PrettyBreak (1, 1), PrettyString "of",
+                                    PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
+                        ))
+            |   _ => dispVal("val", valTypeOf value)    
+        end
+
         val checkValuesAndExceptions : unit =
             (* Finally the values and exceptions. *)
             univFold 
                 (sigTab target,
                     (fn (dName, dVal, ()) =>
                         if tagIs valueVar dVal
-                        then case tagProject valueVar dVal of
-                            Value{class=Constructor _, ...} => () (* Already checked with datatype. *)
-                        |   (v as Value{class=Exception, ...}) => (* The candidate must be an exception. *)
-                            let
-                                fun displayException value =
-                                    PrettyBlock(0, false, [],
-                                            PrettyString "exception" ::
-                                            PrettyBreak(1, 3) ::
-                                            PrettyString(valName value) ::
-                                        (
-                                            case getFnArgType (valTypeOf value) of
-                                               NONE => []
-                                            |  SOME excType =>
-                                                [
-                                                    PrettyBreak (1, 1), PrettyString "of",
-                                                    PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
-                                        ))
-                            in
-                                case univLookup (sigTab candidate, valueVar, dName) of
-                                    (* Look up a corresponding value and check the type. *)
-                                    SOME candid =>
-                                    let
-                                    in
-                                        (* Check that exceptions have matched with exceptions 
-                                           and values with values, and have not mixed. *)
-                                        case candid of
-                                            Value {class = Exception, ...} =>
-                                            (
-                                                case matchTypes (valTypeOf candid, valTypeOf v, lookupType) of
-                                                    NONE => ()
-                                                |   SOME error =>
-                                                        sigStructMatchMsg(lex, near, lno, structPath)
-                                                            displayException (candid, v,
-                                                                matchErrorReport(lex, typeEnv, typeEnv) error) 
-                                            )
-                                        |   _ =>
-                                            (* It's there but it's not an exception. *)
-                                            sigStructMissingMsg(lex, near, lno, structPath) displayException candid
-                                    end
-                                |   NONE =>
-                                        sigStructMissingMsg(lex, near, lno, structPath) displayException v
-                            end
-		                |   v => (* An ordinary value *)
-                            let
-                                fun displayValue value =
-                                    PrettyBlock(0, false, [],
-                                        [
-                                            PrettyString "val",
-                                            PrettyBreak(1, 3),
-                                            PrettyString(valName value ^ ":"),
-                                            PrettyBreak(1, 0),
-                                            display (valTypeOf value, errorDepth lex, typeEnv)
-                                        ])
-                            in
-                                case univLookup (sigTab candidate, valueVar, dName) of
-                                    (* Look up a corresponding value and check the type. *)
-                                    SOME candid =>
-                                    (
+                        then
+                        let
+                            val v = tagProject valueVar dVal
+                        in
+                            case univLookup (sigTab candidate, valueVar, dName) of
+                                NONE => sigStructMissingMsg(lex, near, lno, structPath) displayValue v
+                            |   SOME candid =>
+                                let
+                                    (* If the target is a constructor or exception the candidate must be
+                                       similar. *)
+                                    val matchKind =
+                                        case (v, candid) of
+                                            (Value{class = Constructor _, ...}, Value {class = Constructor _, ...}) => NONE
+                                        |   (Value{class = Constructor _, ...}, _) => SOME(PrettyString "Value is not a constructor")
+                                        |   (Value{class = Exception, ...}, Value {class = Exception, ...}) => NONE
+                                        |   (Value{class = Exception, ...}, _) => SOME(PrettyString "Value is not an exception")
+                                        |   _ => NONE
+                                in
+                                    case matchKind of
+                                        SOME error =>
+                                            sigStructMatchMsg(lex, near, lno, structPath)
+                                                displayValue (candid, v, error)
+                                    |   NONE =>
                                         case matchTypes (valTypeOf candid, valTypeOf v, lookupType) of
                                             NONE => ()
                                         |   SOME error =>
                                                 sigStructMatchMsg(lex, near, lno, structPath)
                                                     displayValue (candid, v,
-                                                        matchErrorReport(lex, typeEnv, typeEnv) error)
-                                    )
-                                |   NONE => sigStructMissingMsg(lex, near, lno, structPath) displayValue v
-                            end
+                                                        matchErrorReport(lex, typeEnv, typeEnv) error) 
+                                end
+                        end
                         else ()
                     ),
                     ()
