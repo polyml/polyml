@@ -291,8 +291,8 @@ local
             fun print s = TextIO.StreamIO.output(unlockedStream, s)
             fun printEsc ch = print (String.concat["\u001b", String.str ch])
             fun sendResponse () =
-            (
-                printEsc #"H"; print "hello"; printEsc #"h";
+            ( (* send the version number of the protocol *)
+                printEsc #"H"; print "1.0.0"; printEsc #"h";
                 TextIO.StreamIO.flushOut unlockedStream
             )
         in
