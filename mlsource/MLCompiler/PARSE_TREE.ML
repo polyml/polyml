@@ -4288,8 +4288,24 @@ struct
 
           fun makePatcode code pat : patcode = { code = code, pat = pat };
           val matchFailCode  : patcode = makePatcode [MatchFail] 0;
-          val raiseMatchCode : patcode = makePatcode [raiseMatch] 0;
-          val raiseBindCode  : patcode = makePatcode [raiseBind] 0;
+
+            local
+                 (* Raises an exception. *)
+                 (* TODO: Set the location of the exception rather than using
+                    the null location. *)
+                fun raiseException(exName, exIden, line) =
+                    makeRaise (mkTuple [exIden, mkStr exName, CodeZero, codeLocation line]);
+                (* Create exception values - Small integer values are used for
+                   run-time system exceptions. *)
+                val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
+                val matchExceptionVal = mkConst (toMachineWord EXC_Match);
+            in
+                (* Raise match and bind exceptions. *)
+                fun raiseMatchCode line : patcode =
+                    makePatcode [raiseException("Match", matchExceptionVal, line)] 0
+                and raiseBindCode line  : patcode =
+                    makePatcode [raiseException("Bind", bindExceptionVal, line)] 0;
+            end
  
           (* Code generate a set of patterns.  tree is the aot we are working
              on, arg is the code representing the argument to take apart.
@@ -4732,7 +4748,7 @@ struct
              val codeDefault : unit -> patcode =
                if isHandlerMatch
                then (fn () => makePatcode [makeRaise loadExpCode] 0)
-               else (fn () => (exhaustive := false; raiseMatchCode));
+               else (fn () => (exhaustive := false; raiseMatchCode lineNo));
          
              (* Generate the code and also check for redundancy
                 and exhaustiveness. *)
@@ -4824,7 +4840,7 @@ struct
               (* Set to false if we find it is not exhaustive. *)
 
               (* Make some code to insert at defaults. *)
-              fun codeDefault () = (exhaustive := false; raiseBindCode);
+              fun codeDefault () = (exhaustive := false; raiseBindCode line);
               
               (* Generate the code and also check for redundancy and exhaustiveness. *)
               val code : patcode =

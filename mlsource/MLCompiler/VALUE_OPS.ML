@@ -878,11 +878,6 @@ struct
                 [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}] => (noneC, someC)
             |   _ => raise InternalError "NONE and SOME in wrong order"
     end
-  
-    (* Create exception values - Small integer values are used for
-       run-time system exceptions. *)
-    val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
-    val matchExceptionVal = mkConst (toMachineWord EXC_Match);
 
     (* Construct an exception identifier - This is a ref (so we can uniquely
          identify it) containing a print function for the type. *)
@@ -1481,14 +1476,6 @@ struct
      
  | codeAccess (acc, level) = raise InternalError "No access"
      (* codeAccess *);
-
-     (* Raises an exception. *)
- fun raiseException exName exIden parm =
-   mkRaise (mkTuple [exIden,mkStr exName,parm]);
-
- (* Raise match and bind exceptions. *)
- val raiseMatch     = raiseException "Match" matchExceptionVal CodeZero;
- val raiseBind      = raiseException "Bind" bindExceptionVal CodeZero;
 
 (*****************************************************************************)
 (*                  datatype access functions                                *)

@@ -108,8 +108,6 @@ sig
     val applyFunction:  values * codetree * int * types * lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
-    val raiseBind:      codetree
-    val raiseMatch:     codetree
     val makeGuard:      values * codetree * int -> codetree 
     val makeInverse:    values * codetree * int -> codetree
                     
