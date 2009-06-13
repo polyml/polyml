@@ -2415,12 +2415,12 @@ struct
     end
 
     (* Code-generate a structure value. *)
-    fun structureCode (str, strName, debugEnv): codetree * signatures =
+    fun structureCode (str, strName, debugEnv): { code: codetree list, load: codetree, ressig: signatures } =
     case str of
         FunctorAppl {name, arg, valRef = ref functs, argHolder=ref argHolder,
                      argIds=ref argIds, resIds=ref resIds, resultSig=ref resultSig, ...} =>
         let
-            val (argCodeSource, argCodeSig) =
+            val {code = argCodeSource, load = argLoadSource, ressig = argCodeSig} =
                 structureCode (arg, strName, debugEnv)
             (* Match the actual argument to the required arguments. *)
             fun getMatchedId(n, isEq) =
@@ -2432,14 +2432,16 @@ struct
                         Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
                 |   _ => idAccess id
             end
-            val argCode =
-                matchStructure(argCodeSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs), [])
             (* We need to save the actual argument in a local variable.  It will be passed to
                the functor but if type IDs in the argument are shared with the result structure
-               we need to make sure the actual argument is around. *)
+               we need to make sure the actual argument is around.
+               We've used "actualArgSig" for the signature of this local variable which may have
+               different locations for the type IDs than are required for the formal argument. *)
             val argAddr = mkAddr ()
             val var = vaLocal(structAccess argHolder)
             val () = #addr var := argAddr and () = #level var := !level
+            val argCode =
+                matchStructure(mkLoad(argAddr, 0), sigTab argCodeSig, getMatchedId, structSignat (functorArg functs), [])
             (* Similarly we need to retain the result in order to produce the generative type IDs. *)
             val resAddr = mkAddr()
             val ids = List.rev resIds
@@ -2449,30 +2451,34 @@ struct
                 idAccess(#dest (List.nth (ids, n+offset)))
         in
             (* Evaluate the functor. *)
-            (
-                mkEnv(
-                    mkDec(argAddr, argCode) ::
-                    mkDec(resAddr, mkEval (codeAccess (functorAccess functs, !level), [mkLoad(argAddr, 0)], false)) ::
-                    loadIds @
-                    [matchStructure(mkLoad(resAddr, 0), sigTab(functorResult functs), getTypeId, resultSig, [])]
-                ),
-                resultSig
-            )
+            {
+                code =
+                    argCodeSource @
+                    (mkDec(argAddr, argLoadSource) ::
+                    mkDec(resAddr, mkEval (codeAccess (functorAccess functs, !level), [argCode], false)) ::
+                    loadIds),
+                load = matchStructure(mkLoad(resAddr, 0), sigTab(functorResult functs), getTypeId, resultSig, []),
+                ressig = resultSig
+            }
         end
 
     |   StructureIdent {valRef = ref v, ...} =>
-            ( codeStruct (v, !level), structSignat v)
+            { code = [], load = codeStruct (v, !level), ressig = structSignat v }
 
     |   Localdec {decs, body = [localStr], ...} =>
         let (* let strdec in strexp end *)
-         (* Generate the declarations but throw away the loads. *)
-		 (* TODO: Get the debug environment correct here. *)
-          val coded =
-		  	mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
-				decs debugEnv;
-            val (bodyCode, bodySig) = structureCode (localStr, strName, #debug coded)
+            (* Generate the declarations but throw away the loads. *)
+		    (* TODO: Get the debug environment correct here. *)
+            val coded = 
+		  	    mapPair (fn (str, debug) => codeStrdecs (strName, str, debug)) decs debugEnv;
+            val {code = bodyCode, load = bodyLoad, ressig = bodySig} =
+                structureCode (localStr, strName, #debug coded)
         in
-            (mkEnv (#code coded @ [bodyCode]), bodySig)
+            {
+                code = #code coded @ bodyCode,
+                load = bodyLoad,
+                ressig = bodySig
+            }
         end
 
       | StructDec {alist, value, localIds=ref localIds, liftedIds=ref liftedIds, resultSig=ref resultSig, ...} =>
@@ -2495,39 +2501,40 @@ struct
                         Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
                 |   _ => idAccess id
             end
-       in 
+        in 
           (* The result is a block containing the declarations and
              code to load the results. *)
-          (
-            mkEnv (#code coded @
-                [matchStructure (mkTuple (#load coded), value, getTypeId, resultSig, liftedIds)]),
-            resultSig
-          )
+            {
+                code = #code coded,
+                load = matchStructure (mkTuple (#load coded), value, getTypeId, resultSig, liftedIds),
+                ressig = resultSig
+            }
         end
 
     |   SigConstraint { str, opaqueIds=ref opaqueIds, resultSig = ref resultSig, ... } =>
+        let
+		    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (str, strName, debugEnv)
+            val tempDecs = multipleUses (strLoad, mkAddr, !level);
+            val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
+            fun loadId(n, isEq) =
             let
-                (* TODO: Copied from structure binding code. *)
- 			    val (strCode, strSig) = structureCode (str, strName, debugEnv)
-                val tempDecs = multipleUses (strCode, mkAddr, !level);
-                val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
-                fun loadId(n, isEq) =
-                let
-                    val id =
-                        case opaqueIds of
-                            [] => sigTypeIdMap strSig (n+sigMinTypes strSig)
-                        |   _  => #dest(List.nth(opaqueIds, n))
-                in
-                    case id of
-                        TypeFunction _ => (* Have to generate a function here. *)
-                            Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
-                    |   _ => idAccess id
-                end
-                val matchedCode =
-                    matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig, [])
+                val id =
+                    case opaqueIds of
+                        [] => sigTypeIdMap strSig (n+sigMinTypes strSig)
+                    |   _  => #dest(List.nth(opaqueIds, n))
             in
-                (mkEnv(#dec tempDecs @ ids @ [matchedCode]), resultSig)
+                case id of
+                    TypeFunction _ => (* Have to generate a function here. *)
+                        Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                |   _ => idAccess id
             end
+        in
+            {
+                code = strCode @ #dec tempDecs @ ids,
+                load = matchStructure (#load tempDecs (!level), sigTab strSig, loadId, resultSig, []),
+                ressig = resultSig
+            }
+        end
 
     |   _ =>
          raise InternalError "structureCode: not a structure"
@@ -2548,8 +2555,8 @@ struct
                       references to existing IDs.
                    3. Match this to the result signature *)
 			    val sName = strName ^ name ^ "."
- 			    val (strCode, strSig) = structureCode (value, sName, debug)
-                val tempDecs = multipleUses (strCode, mkAddr, !level);
+ 			    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (value, sName, debug)
+                val tempDecs = multipleUses (strLoad, mkAddr, !level);
                 val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
                 val resultSig = structSignat (!valRef)
                 fun loadId(n, isEq) =
@@ -2576,7 +2583,7 @@ struct
                 val () = #level var := !level;
             in (* Get the code and save the result in the variable. *)
               {
-                code = #dec tempDecs @ ids @ [mkDec (addr, matchedCode)],
+                code = strCode @ #dec tempDecs @ ids @ [mkDec (addr, matchedCode)],
                 (* Load the variable. *)
                 load = [mkLoad (addr, 0)],
 				debug = debug (* We don't do structures at the moment. *)
@@ -2662,7 +2669,7 @@ struct
                 val func = !valRef;
                 (* Process the body and make a procedure out of it. *)
                 local
-                    val (strCode, strSig) = structureCode (body, name ^ "().", debugEnv)
+                    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (body, name ^ "().", debugEnv)
                     fun getIds(n, isEq) =
                     let
                         val id = #source(List.nth(resIds, n))
@@ -2674,11 +2681,11 @@ struct
                         |   _ => idAccess id
                     end
                     val matchedCode =
-                        matchStructure (strCode, sigTab strSig, getIds, functorResult func, [])
+                        matchStructure (strLoad, sigTab strSig, getIds, functorResult func, [])
                 in
                     val functorCode = (* The function that implements the functor. *)
                         (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                            (matchedCode, !level, 1, name);
+                            (mkEnv(strCode @ [matchedCode]), !level, 1, name);
                 end
 
                 (* Go back down a level and add 1 to address. *)
