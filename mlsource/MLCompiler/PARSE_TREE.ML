@@ -2979,20 +2979,6 @@ struct
                     name ^ " has already been bound in this declaration");
            
             val newEnv = noDuplicates msgFn;
-
-            fun getName pat =
-            case pat of
-                Constraint {value, ...} => getName value
-            | Applic {f, arg, ...}         => getName f
-            | Ident {name, ...}       => name
-            | _  =>  ""; (* error - report it later. *)
-           
-            fun getArity pat =
-            case pat of
-                Constraint {value, ...} => getArity value
-            | Applic {f, arg, ...}         => getArity f + 1
-            | Ident {name, ...}       => 0
-            | _  =>  0; (* error - report it later. *)
            
             (* Since this is a recursive declaration we must get the function
              names first. Because of the way they are parsed they are hidden
@@ -3003,18 +2989,24 @@ struct
              function name in the third pass so we save them in the
              function binding. *)
          
-            (* findNameAndPatts. Find the name and number of patterns in the
-             first of the clauses. The other clauses should be the same.
-             We check that later. *)
             fun findNameAndPatts (FValBind {clauses = (FValClause {dec, exp, line}::_), numOfPatts, functVar, ...}) =
             let
+                (* findNameAndPatts. Find the name and number of patterns in the
+                   first of the clauses. The other clauses should be the same.
+                   We check that later.  The declaration location is the first occurrence
+                   of the function name. *)
+                fun getData(pat, a) =
+                case pat of
+                    Constraint {value, ...} => getData(value, a)
+                |   Applic {f, ...}         => getData(f, a+1)
+                |   Ident {name, location, ...}       => { name = name, location = location, arity = a }
+                |   _  =>  { name = "", location = line, arity = a }; (* error - report it later. *)
                 (* Just look at the first clause for the moment. *)
-                val name  = getName  dec;
-                val arity = getArity dec;
+                val {name, arity, location }  = getData(dec, 0);
         
                 (* Declare a new identifier with this name. *)
                 val funVar =
-                    mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt line]);
+                    mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location]);
            
                 val U : unit = numOfPatts := arity;
 
