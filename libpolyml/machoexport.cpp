@@ -57,6 +57,7 @@
 #include <mach-o/reloc.h>
 #include <mach-o/nlist.h>
 #include <mach-o/ppc/reloc.h>
+#include <mach-o/x86_64/reloc.h>
 
 #ifdef HAVE_STRING_H
 #include <string.h>
@@ -83,7 +84,7 @@
 // offsets to match that.
 void MachoExport::adjustOffset(unsigned area, POLYUNSIGNED &offset)
 {
-     // Add in the offset.  If sect is memTableEntries it's actually the
+    // Add in the offset.  If sect is memTableEntries it's actually the
     // descriptors so doesn't have any additional offset.
     if (area != memTableEntries)
     {
@@ -116,8 +117,13 @@ PolyWord MachoExport::createRelocation(PolyWord p, void *relocAddr)
     setRelocationAddress(relocAddr, &relInfo.r_address);
     relInfo.r_symbolnum = 1; // Section numbers start at 1
     relInfo.r_pcrel = 0;
+#if (SIZEOF_VOIDP == 8)
+    relInfo.r_length = 3; // 8 bytes
+    relInfo.r_type = X86_64_RELOC_UNSIGNED;
+#else
     relInfo.r_length = 2; // 4 bytes
     relInfo.r_type = GENERIC_RELOC_VANILLA;
+#endif
     relInfo.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
 
     fwrite(&relInfo, sizeof(relInfo), 1, exportFile);
@@ -150,8 +156,13 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             setRelocationAddress(addr, &reloc.r_address);
             reloc.r_symbolnum = 1; // Section numbers start at 1
             reloc.r_pcrel = 0;
+#if (defined(HOSTARCHITECTURE_X86_64))
+            reloc.r_length = 3; // 8 bytes
+            reloc.r_type = X86_64_RELOC_UNSIGNED;
+#else
             reloc.r_length = 2; // 4 bytes
             reloc.r_type = GENERIC_RELOC_VANILLA;
+#endif
             reloc.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
 
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
@@ -163,7 +174,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
-#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
+#if (defined(HOSTARCHITECTURE_X86))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             // We don't need a relocation since everything is in the same segment
@@ -244,7 +255,11 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
 
 void MachoExport::writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset)
 {
+#if (SIZEOF_VOIDP == 8)
+    struct nlist_64 symbol;
+#else
     struct nlist symbol;
+#endif
     memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
     symbol.n_un.n_strx = stringTable.makeEntry(symbolName);
     symbol.n_type = nType;
@@ -272,8 +287,13 @@ void MachoExport::createStructsRelocation(unsigned sect, POLYUNSIGNED offset)
     reloc.r_address = offset;
     reloc.r_symbolnum = 1; // Section numbers start at 1
     reloc.r_pcrel = 0;
+#if (SIZEOF_VOIDP == 8)
+    reloc.r_length = 3; // 8 bytes
+    reloc.r_type = X86_64_RELOC_UNSIGNED;
+#else
     reloc.r_length = 2; // 4 bytes
     reloc.r_type = GENERIC_RELOC_VANILLA;
+#endif
     reloc.r_extern = 0; // r_symbolnum is a section number.
 
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -283,39 +303,55 @@ void MachoExport::createStructsRelocation(unsigned sect, POLYUNSIGNED offset)
 void MachoExport::exportStore(void)
 {
     PolyWord    *p;
+#if (SIZEOF_VOIDP == 8)
+    struct mach_header_64 fhdr;
+    struct segment_command_64 sHdr;
+    struct section_64 theSection;
+#else
     struct mach_header fhdr;
     struct segment_command sHdr;
-    struct symtab_command symTab;
     struct section theSection;
+#endif
+    struct symtab_command symTab;
     unsigned i;
 
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
     memset(&fhdr, 0, sizeof(fhdr));
-    fhdr.magic = MH_MAGIC; // Feed Face (0xfeedface)
     fhdr.filetype = MH_OBJECT;
     fhdr.ncmds = 2; // One for the segment and one for the symbol table.
-    fhdr.sizeofcmds = sizeof(struct segment_command) + sizeof(struct section)*(memTableEntries+1)
-        + sizeof(struct symtab_command);
+    fhdr.sizeofcmds = sizeof(sHdr) + sizeof(theSection) + sizeof(symTab);
     fhdr.flags = 0;
     // The machine needs to match the machine we're compiling for
     // even if this is actually portable code.
+#if (SIZEOF_VOIDP == 8)
+    fhdr.magic = MH_MAGIC_64; // (0xfeedfacf) 64-bit magic number
+#else
+    fhdr.magic = MH_MAGIC; // Feed Face (0xfeedface)
+#endif
 #if defined(HOSTARCHITECTURE_X86)
     fhdr.cputype = CPU_TYPE_I386;
     fhdr.cpusubtype = CPU_SUBTYPE_I386_ALL;
 #elif defined(HOSTARCHITECTURE_PPC)
     fhdr.cputype = CPU_TYPE_POWERPC;
     fhdr.cpusubtype = CPU_SUBTYPE_POWERPC_ALL;
+#elif defined(HOSTARCHITECTURE_X86_64)
+    fhdr.cputype = CPU_TYPE_X86_64;
+    fhdr.cpusubtype = CPU_SUBTYPE_X86_64_ALL;
 #else
 #error "No support for exporting on this architecture"
 #endif
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
     // Segment header.
-    memset(&sHdr, 0, sizeof(struct segment_command));
+    memset(&sHdr, 0, sizeof(sHdr));
+#if (SIZEOF_VOIDP == 8)
+    sHdr.cmd = LC_SEGMENT_64;
+#else
     sHdr.cmd = LC_SEGMENT;
+#endif
     sHdr.nsects = 1;
-    sHdr.cmdsize = sizeof(struct segment_command) + sizeof(struct section) * sHdr.nsects;
+    sHdr.cmdsize = sizeof(sHdr) + sizeof(theSection) * sHdr.nsects;
     // Add up the sections to give the file size
     sHdr.filesize = 0;
     for (i = 0; i < memTableEntries; i++)
@@ -331,7 +367,7 @@ void MachoExport::exportStore(void)
     fwrite(&sHdr, sizeof(sHdr), 1, exportFile);
 
     // Section header.
-    memset(&theSection, 0, sizeof(struct section));
+    memset(&theSection, 0, sizeof(theSection));
     sprintf(theSection.sectname, "poly");
     sprintf(theSection.segname, "POLY");
     //theSection.offset is set later
@@ -342,17 +378,17 @@ void MachoExport::exportStore(void)
     theSection.flags = S_ATTR_LOC_RELOC | S_ATTR_SOME_INSTRUCTIONS | S_REGULAR; // 
 
     // Write it out for the moment.
-    fwrite(&theSection, sizeof(struct section), 1, exportFile);
+    fwrite(&theSection, sizeof(theSection), 1, exportFile);
 
     // Symbol table header.
-    memset(&symTab, 0, sizeof(struct symtab_command));
+    memset(&symTab, 0, sizeof(symTab));
     symTab.cmd = LC_SYMTAB;
-    symTab.cmdsize = sizeof(struct symtab_command);
+    symTab.cmdsize = sizeof(symTab);
     //symTab.symoff is set later
     //symTab.nsyms is set later
     //symTab.stroff is set later
     //symTab.strsize is set later
-    fwrite(&symTab, sizeof(struct symtab_command), 1, exportFile);
+    fwrite(&symTab, sizeof(symTab), 1, exportFile);
 
     // Create the symbol table first before we mess up the addresses by turning them
     // into relocations.
@@ -474,12 +510,11 @@ void MachoExport::exportStore(void)
     {
         fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
     }
-
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // File header
     fwrite(&sHdr, sizeof(sHdr), 1, exportFile); // Segment header
-    fwrite(&theSection, sizeof(struct section), 1, exportFile); // Section headers
-    fwrite(&symTab, sizeof(struct symtab_command), 1, exportFile); // Symbol table header
+    fwrite(&theSection, sizeof(theSection), 1, exportFile); // Section headers
+    fwrite(&symTab, sizeof(symTab), 1, exportFile); // Symbol table header
     fclose(exportFile); exportFile = NULL;
 }
