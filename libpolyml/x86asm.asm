@@ -2180,11 +2180,7 @@ IFDEF WINDOWS
     PUBLIC  registerMaskVector
 registerMaskVector  dd  Mask_all                ;# 0 is unused
 ELSE
-IFNDEF HOSTARCHITECTURE_X86_64
         GLOBAL EXTNAME(registerMaskVector)
-ELSE
-        .global EXTNAME(registerMaskVector)
-ENDIF
 EXTNAME(registerMaskVector):
 #define dd  .long
     dd  Mask_all                ;# 0 is unused
