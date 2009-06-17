@@ -1005,7 +1005,8 @@ void Waiter::Wait(unsigned maxMillisecs)
     // Unix
     fd_set read_fds, write_fds, except_fds;
     struct timeval toWait = { 0, 0 };
-    toWait.tv_usec = maxMillisecs * 1000;
+    toWait.tv_sec = maxMillisecs / 1000;
+    toWait.tv_usec = (maxMillisecs % 1000) * 1000;
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     FD_ZERO(&except_fds);
@@ -1042,7 +1043,8 @@ void WaitInputFD::Wait(unsigned maxMillisecs)
 {
     fd_set read_fds, write_fds, except_fds;
     struct timeval toWait = { 0, 0 };
-    toWait.tv_usec = maxMillisecs * 1000;
+    toWait.tv_sec = maxMillisecs / 1000;
+    toWait.tv_usec = (maxMillisecs % 1000) * 1000;
     FD_ZERO(&read_fds);
     if (m_waitFD >= 0) FD_SET(m_waitFD, &read_fds);
     FD_ZERO(&write_fds);
