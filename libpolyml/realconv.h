@@ -33,14 +33,11 @@
 extern "C" {
 #endif
 
-#ifndef HAVE_STRTOD
-extern double strtod(const char *s00, char **se);
-#endif
+extern double poly_strtod(const char *s00, char **se);
 
-#ifndef HAVE_DTOA
-extern char *dtoa(double d, int mode, int ndigits,
+extern char *poly_dtoa(double d, int mode, int ndigits,
             int *decpt, int *sign, char **rve);
-#endif
+extern void poly_freedtoa(char *s);
 
 #ifdef __cplusplus
 };

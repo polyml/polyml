@@ -361,7 +361,7 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     }
         
     /* Now convert it */
-    result = strtod(string_buffer, &finish);
+    result = poly_strtod(string_buffer, &finish);
     bool isError = *finish != '\0'; // Test before deallocating
     free(string_buffer);
     // We no longer detect overflow and underflow and instead return
@@ -577,11 +577,12 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
     int     mode = get_C_long(mdTaskData, DEREFWORDHANDLE(hMode));
     int     digits = get_C_long(mdTaskData, DEREFWORDHANDLE(hDigits));
     /* Compute the shortest string which gives the required value. */
-    /* N.B. dtoa uses static buffers and is NOT thread-safe. */
-    char *chars = dtoa(dx, mode, digits, &decpt, &sign, NULL);
+    /*  */
+    char *chars = poly_dtoa(dx, mode, digits, &decpt, &sign, NULL);
     /* We have to be careful in case an allocation causes a
        garbage collection. */
     PolyWord pStr = C_string_to_Poly(mdTaskData, chars);
+    poly_freedtoa(chars);
     Handle ppStr = mdTaskData->saveVec.push(pStr);
     /* Allocate a triple for the results. */
     PolyObject *result = alloc(mdTaskData, 3);
