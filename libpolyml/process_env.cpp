@@ -165,7 +165,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             argv[0] = getenv("COMSPEC"); // Default CLI.
             if (argv[0] == 0)
             {
-                if (_osver & 0x8000) argv[0] = "command.com"; // Win 95 etc.
+                if (GetVersion() & 0x80000000) argv[0] = "command.com"; // Win 95 etc.
                 else argv[0] = "cmd.exe"; // Win NT etc.
             }
             argv[1] = (char*)"/c";

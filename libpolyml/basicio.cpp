@@ -1404,7 +1404,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
         if (dwErr != /* ERROR_FILE_EXISTS */ ERROR_ALREADY_EXISTS)
             raise_syscall(taskData, "MoveFile failed", -(int)dwErr);
         /* Failed because destination file exists. */
-		if (_osver & 0x8000)
+		if (GetVersion() & 0x80000000)
         {
             /* Windows 95 - must use delete. */
             if (!DeleteFile(newName))
