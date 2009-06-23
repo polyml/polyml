@@ -31,10 +31,6 @@ extern struct _userOptions {
     const char  *programName;
     unsigned    debug;              /* debugging  flags                       */
     bool        noDisplay;          /* X display flag                         */
-    // Not all of these can be set any longer.
-    unsigned long    heapSize, immutableSegSize, mutableSegSize;
-    unsigned long    immutableFreeSpace, mutableFreeSpace;
-    unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 } userOptions;
 
 // Values for debugging flags

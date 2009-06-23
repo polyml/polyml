@@ -78,14 +78,11 @@ PolyWord *IoEntry(unsigned sysOp)
     return space->bottom + sysOp * IO_SPACING;
 }
 
-/* This macro must make a whole number of chunks */
-#define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
-
 struct _userOptions userOptions;
 
 UNSIGNEDADDR exportTimeStamp;
 
-unsigned hsize, isize, msize;
+static unsigned hsize, isize, msize;
 
 struct __argtab {
     const char *argName, *argHelp;
@@ -102,16 +99,6 @@ struct __argtab {
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
-
-    POLYUNSIGNED memsize = GetPhysicalMemorySize();
-    if (memsize == 0) // Unable to determine memory size so default to 64M.
-        memsize = 64 * 1024 * 1024;
-
-    // Set the default initial size to half the memory.
-    hsize = memsize / 2 / 1024;
-    isize = 0; /* use standard default */
-    msize = 0; /* use standard default */
-
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
 
@@ -171,42 +158,11 @@ int polymain(int argc, char **argv, exportDescription *exports)
 
     if (exports == 0 && importFileName == 0)
         Usage("Missing import file name");
-    
-    if (hsize < 500) Usage ("Invalid heap-size value");
-    
-    if (hsize < isize) hsize = isize;
-    if (hsize < msize) hsize = msize;
-    
-    if (msize == 0) msize = 4 * 1024 + hsize / 5;  /* set default mutable buffer size */
-    if (isize == 0) isize = hsize - msize;  /* set default immutable buffer size */
-    
-    // Set the heap size and segment sizes.  We allocate in units of this size,
-    userOptions.heapSize           = K_to_words(hsize);
-    userOptions.immutableSegSize   = K_to_words(isize);
-    userOptions.mutableSegSize     = K_to_words(msize);
-
-    // The space we need to have free at the end of a partial collection.  If we have less
-    // than this we do a full GC.
-    // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
-    // mutable segment size since we allocate new objects in the mutable area and this
-    // determines how soon we will need to do another GC.
-    userOptions.immutableMinFree = 0;
-    userOptions.mutableMinFree = userOptions.mutableSegSize - userOptions.mutableSegSize / 5;
-
-    // This is the space we try to have free at the end of a major collection.  If
-    // we have less than this we allocate another segment.
-    userOptions.immutableFreeSpace = userOptions.immutableSegSize/2; // 50% full
-    if (userOptions.immutableFreeSpace < userOptions.immutableMinFree)
-        userOptions.immutableFreeSpace = userOptions.immutableMinFree;
-    // For the mutable area it is 90% of the segment size.
-    userOptions.mutableFreeSpace   = userOptions.mutableSegSize - userOptions.mutableSegSize/10;
-    if (userOptions.mutableFreeSpace < userOptions.mutableMinFree)
-        userOptions.mutableFreeSpace = userOptions.mutableMinFree;
    
     /* initialise the run-time system before opening the database */
     init_run_time_system();
     
-    CreateHeap();
+    CreateHeap(hsize, isize, msize);
     
     PolyObject *rootFunction = 0;
 

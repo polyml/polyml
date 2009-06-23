@@ -62,15 +62,19 @@
 #include "rts_module.h"
 #include "memmgr.h"
 
+// Settings moved from userOptions.
+static unsigned long    heapSize, immutableSegSize, mutableSegSize;
+static unsigned long    immutableFreeSpace, mutableFreeSpace;
+static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
+
+static POLYUNSIGNED GetPhysicalMemorySize(void);
+
 unsigned gc_phase = 0; // Tells the profiler whether we're in the gc 
 
 // If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
 // cleared by the signal handler thread.  There's no need for a lock since it
 // is only set during GC and only cleared when not GCing.
 bool convertedWeak = false;
-
-/* zero the memory - the "standard" way */
-#define wzero(start,word_count) do { memset(start, 0, (word_count)*sizeof(POLYUNSIGNED)); } while (0)
 
 /*
   How the garbage collector works.
@@ -1031,18 +1035,18 @@ static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
         }
     }
     
-    if (userOptions.immutableFreeSpace + wordsNeeded > currentSize) // need to get some more space
+    if (immutableFreeSpace + wordsNeeded > currentSize) // need to get some more space
     {
         // We want to ensure that we have immutableFreeSpace free after this
         // collection.  We allocate in units of immutableSegSize so as not to
         // have too many small segments.
-        POLYUNSIGNED requestedGrowth = userOptions.immutableFreeSpace + wordsNeeded - currentSize;
-        if (requestedGrowth < userOptions.immutableSegSize)
-            requestedGrowth = userOptions.immutableSegSize;
+        POLYUNSIGNED requestedGrowth = immutableFreeSpace + wordsNeeded - currentSize;
+        if (requestedGrowth < immutableSegSize)
+            requestedGrowth = immutableSegSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
         unsigned spaceFactor = nISpaces / 3;
-        while (spaceFactor > 0) { requestedGrowth += userOptions.immutableSegSize; spaceFactor--; }
+        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -1062,10 +1066,10 @@ static bool BufferIsReallyFull(bool mutableRegion, POLYUNSIGNED wordsNeeded, con
     // out of the mutable area so doesn't need to be contiguous.
     POLYUNSIGNED requiredFree;
     if (mutableRegion)
-        requiredFree = fullGC ? userOptions.mutableFreeSpace: userOptions.mutableMinFree;
+        requiredFree = fullGC ? mutableFreeSpace: mutableMinFree;
     else
     {
-        requiredFree = fullGC ? userOptions.immutableFreeSpace: userOptions.immutableMinFree;
+        requiredFree = fullGC ? immutableFreeSpace: immutableMinFree;
         requiredFree += wordsNeeded;
         wordsNeeded = 0;
     }
@@ -1111,7 +1115,7 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     }
     
     const POLYUNSIGNED requiredFree = wordsRequired +
-        (isMutableSpace ? userOptions.mutableFreeSpace : userOptions.immutableFreeSpace);
+        (isMutableSpace ? mutableFreeSpace : immutableFreeSpace);
     
     /* Basic sanity checks. */
     ASSERT(0 <= wordsRequired);
@@ -1124,7 +1128,7 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     {    // expand the heap.
         POLYUNSIGNED requestedGrowth = requiredFree - currentlyFree;
         const POLYUNSIGNED segSize =
-            isMutableSpace ? userOptions.mutableSegSize : userOptions.immutableSegSize;
+            isMutableSpace ? mutableSegSize : immutableSegSize;
         if (requestedGrowth < segSize)
             requestedGrowth = segSize;
         // Make the segments larger if we have already allocated several.
@@ -1186,20 +1190,6 @@ static int RecollectThisGeneration(unsigned thisGeneration)
     if (total == 0)
         return false;
     return updated * 2 < total; // Less than 50% updated
-}
-  
-// Called when Poly/ML starts up.
-void CreateHeap(void)
-{
-    // Immutable space
-    POLYUNSIGNED immutSize = ROUNDDOWN(userOptions.immutableSegSize, BITSPERWORD);
-    if (gMem.NewLocalSpace(immutSize, false) == 0)
-        Exit("Unable to allocate immutable area");
-
-    // Mutable space
-    POLYUNSIGNED mutSize = ROUNDDOWN(userOptions.mutableSegSize, BITSPERWORD);
-    if (gMem.NewLocalSpace(mutSize, true) == 0)
-        Exit("Unable to allocate mutable area");
 }
 
 static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
@@ -1714,7 +1704,7 @@ typedef BOOL (WINAPI *GLOBALMEMSEX)(MyMemStatusEx *);
 #endif
 
 
-POLYUNSIGNED GetPhysicalMemorySize(void)
+static POLYUNSIGNED GetPhysicalMemorySize(void)
 {
     POLYUNSIGNED maxMem = 0-1; // Maximum unsigned value.  
 #if defined(HAVE_WINDOWS_H)
@@ -1811,6 +1801,81 @@ POLYUNSIGNED GetPhysicalMemorySize(void)
 #endif
 #endif
     return 0; // Unable to determine
+}
+
+/* This macro must make a whole number of chunks */
+#define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
+
+// Create the initial heap.  hsize, isize and msize are the requested heap sizes
+// from the user arguments in units of kbytes.
+// Fills in the defaults and attempts to allocate the heap.  If the heap size
+// is too large it allocates as much as it can.  The default heap size is half the
+// physical memory.
+void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
+{
+    // If no -H option was given set the default initial size to half the memory.
+    if (hsize == 0) {
+        POLYUNSIGNED memsize = GetPhysicalMemorySize();
+        if (memsize == 0) // Unable to determine memory size so default to 64M.
+            memsize = 64 * 1024 * 1024;
+        hsize = memsize / 2 / 1024;
+    }
+    
+    if (hsize < isize) hsize = isize;
+    if (hsize < msize) hsize = msize;
+    
+    if (msize == 0) msize = 4 * 1024 + hsize / 5;  /* set default mutable buffer size */
+    if (isize == 0) isize = hsize - msize;  /* set default immutable buffer size */
+    
+    // Set the heap size and segment sizes.  We allocate in units of this size,
+    heapSize           = K_to_words(hsize);
+    immutableSegSize   = K_to_words(isize);
+    mutableSegSize     = K_to_words(msize);
+
+    // Try allocating the space.  If it fails try something smaller.
+    LocalMemSpace *iSpace = 0, *mSpace = 0;
+
+    while (iSpace == 0 || mSpace == 0) {
+        if (iSpace != 0) { gMem.DeleteLocalSpace(iSpace); iSpace = 0; }
+        if (mSpace != 0) { gMem.DeleteLocalSpace(mSpace); mSpace = 0; }
+
+        // Immutable space
+        POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
+        iSpace = gMem.NewLocalSpace(immutSize, false);
+        // Mutable space
+        POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
+        mSpace = gMem.NewLocalSpace(mutSize, true);
+
+        if (iSpace == 0 || mSpace == 0)
+        {
+            if (immutableSegSize < 1024 || mutableSegSize < 512) {
+                // Too small to be able to run.
+                Exit("Insufficient memory to allocate the heap");
+            }
+            // Make both spaces smaller.  It may be that there's space for one but not both.
+            immutableSegSize = immutableSegSize/2;
+            mutableSegSize = mutableSegSize/2;
+        }
+    }
+    // Heap allocation has succeeded.
+
+    // The space we need to have free at the end of a partial collection.  If we have less
+    // than this we do a full GC.
+    // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
+    // mutable segment size since we allocate new objects in the mutable area and this
+    // determines how soon we will need to do another GC.
+    immutableMinFree = 0;
+    mutableMinFree = mutableSegSize - mutableSegSize / 5;
+
+    // This is the space we try to have free at the end of a major collection.  If
+    // we have less than this we allocate another segment.
+    immutableFreeSpace = immutableSegSize/2; // 50% full
+    if (immutableFreeSpace < immutableMinFree)
+        immutableFreeSpace = immutableMinFree;
+    // For the mutable area it is 90% of the segment size.
+    mutableFreeSpace   = mutableSegSize - mutableSegSize/10;
+    if (mutableFreeSpace < mutableMinFree)
+        mutableFreeSpace = mutableMinFree;
 }
 
 class FullGCRequest: public MainThreadRequest

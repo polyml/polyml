@@ -34,8 +34,7 @@ extern void CopyStackFrame(StackObject *old_stack, StackObject *new_stack);
 extern void FullGC(TaskData *taskData);
 // Make a request for a partial garbage collection.
 extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
-extern void CreateHeap(void);
-extern POLYUNSIGNED GetPhysicalMemorySize(void);
+extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize);
 
 extern unsigned gc_phase;
 extern bool convertedWeak;
