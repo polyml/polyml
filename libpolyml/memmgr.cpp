@@ -321,8 +321,10 @@ bool MemMgr::DemoteImportSpaces()
         {
             // Turn this into a local space.
             LocalMemSpace *space = new LocalMemSpace;
-            space->top = space->gen_top = space->gen_bottom = pSpace->top;
-            space->bottom = space->pointer = pSpace->bottom;
+            space->top = pSpace->top;
+            // Space is allocated in local areas from the top down.  This area is full and
+            // all data is in the old generation.  The area can be recovered by a full GC.
+            space->bottom = space->pointer = space->gen_top = space->gen_bottom = pSpace->bottom;
             space->isMutable = pSpace->isMutable;
             space->isOwnSpace = true;
             if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
