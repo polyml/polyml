@@ -34,8 +34,8 @@ functor INTGCODE (
 (*****************************************************************************)
 structure CODECONS :
 sig
-  type machineWord;
-  type address;
+  type machineWord = Address.machineWord;
+  type address = Address.address;
   type code;
   type opcode;
   eqtype addrs; (*hacky! *)
@@ -142,56 +142,7 @@ sig
   exception InternalError of string;
 end;
 
-(* DCJM 26/9/00.  Previously Address was a global but we aren't allowed
-   to have sharing constraints with globals in ML97.  We could use a
-   "where type" constraint but then we couldn't bootstrap from ML90. *)
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type machineWord;  (* NB *not* an eqtype *)
-  type short = Word.word;
-  type address;
-  
-  val wordEq:  'a * 'a -> bool;
-  val isShort: 'a -> bool;
-  
-  val unsafeCast : 'a -> 'b;
-
-  val toMachineWord:   'a  -> machineWord;
-  val toShort:  'a -> short;
-  val toAddress: machineWord -> address;
-
-  val loadByte:  (address * short) -> Word8.word;
-  val loadWord:  address * short -> machineWord
-  val flags:     address -> Word8.word;
-  val length:    address -> short;
-  val wordSize: int  
-  val F_words:   Word8.word;
-  val F_bytes :  Word8.word;
-  val F_mutable: Word8.word;
- 
-  val alloc:     short * Word8.word * machineWord -> address
-  
-  val isCode :   address -> bool
-
-  val call: address * machineWord -> machineWord
-end
-
 structure BASECODETREE: BaseCodeTreeSig
-
-(*****************************************************************************)
-(*                  GCODE sharing constraints                                *)
-(*****************************************************************************)
-sharing type
-  ADDRESS.machineWord
-= CODECONS.machineWord
-= BASECODETREE.machineWord
-
-sharing type
-  ADDRESS.address
-= CODECONS.address
 
 ) :  
 
@@ -226,7 +177,7 @@ in
 struct
 
   open CODECONS;
-  open ADDRESS;
+  open Address;
   open BASECODETREE;
   open MISC;
 
@@ -235,7 +186,7 @@ struct
   
   val F_mutable_words = Word8.orb (F_mutable, F_words);
   
-  val objLength = ADDRESS.length;
+  val objLength = Address.length;
 
   (* gets a value from the run-time system; 
     usually this is a closure, but sometimes it's an int.  *)

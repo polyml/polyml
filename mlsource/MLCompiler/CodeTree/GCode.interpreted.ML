@@ -23,7 +23,7 @@ structure CodeCons =
     structure CODESEG = CodeSeg
     structure DEBUG   = Debug
     structure MISC    = Boot.Misc
-    structure ADDRESS = Address
+    structure PRETTY  = Pretty
   );
 in
 structure GCode = 
@@ -31,7 +31,6 @@ structure GCode =
     structure CODECONS     = CodeCons
     structure BASECODETREE = BaseCodeTree
     structure MISC         = Boot.Misc
-    structure ADDRESS      = Address
   )
  end;
  

@@ -37,11 +37,14 @@ functor INTCODECONS (
 structure DEBUG :
 sig
     val assemblyCodeTag : bool Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
+(*****************************************************************************)
+(*                  PRETTY for compilerOutTag                                *)
+(*****************************************************************************)
+structure PRETTY: PRETTYSIG
 
 
 (*****************************************************************************)
@@ -767,6 +770,7 @@ struct
   fun codeCreate (noClosure : bool, name : string, parameters) : code = 
   let
     val words : int = codesize div wordLength();
+    val printStream = PRETTY.getSimplePrinter parameters;
   in
     Code
       { 
@@ -784,7 +788,7 @@ struct
          noClosure        = noClosure,
          constLoads       = ref [],
          printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-         printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
+         printStream    = printStream
       }
   end;
 
