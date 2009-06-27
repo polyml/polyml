@@ -226,7 +226,7 @@ IntDir=.\Release
 InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+	$(IntDir)\PolyImport.exe -H 32 $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
 
 # End Custom Build
 
@@ -237,7 +237,7 @@ IntDir=.\Debug
 InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+	$(IntDir)\PolyImport.exe -H 32 $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
 
 # End Custom Build
 
@@ -248,7 +248,7 @@ IntDir=.\IntDebug
 InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+	$(IntDir)\PolyImport.exe -H 32 $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
 
 # End Custom Build
 
@@ -259,7 +259,7 @@ IntDir=.\IntRelease
 InputPath=.\polytemp.txt
 
 "$(IntDir)\polyexport.obj" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	$(IntDir)\PolyImport.exe $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
+	$(IntDir)\PolyImport.exe -H 32 $(InputPath) -o $(IntDir)\polyexport.obj < exportPoly.sml
 
 # End Custom Build
 
