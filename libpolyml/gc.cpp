@@ -77,6 +77,53 @@ unsigned gc_phase = 0; // Tells the profiler whether we're in the gc
 bool convertedWeak = false;
 
 /*
+    How the garbage collector works.
+    The GC is generational.  There are two modes: minor and full.  Most of the
+    code is the same for both.  There are two types of local heap: mutable and
+    immutable.  ML and RTS code always allocate new objects in a mutable heap.
+    Note allocation is from the top of the area down.
+    Originally, there were just two areas but now there may be multiple
+    heap segments of each type.  The GC has three phases:
+
+    1.  Mark phase.
+    Working from the roots; which are the the permanent mutable segments, the RTS
+    roots (e.g. thread stacks) and, if this is a minor collection, mutable objects
+    collected in previous collections ("gen_top" to "top"), mark all reachable cells.
+    Marking involves setting bits in the bitmap for reachable words.  If this is a
+    minor collection we only follow cells that are in the current generation
+    ("gen_bottom" to "gen_top").
+
+    2. Compact phase.
+    Marked objects are copied to try to compact, upwards, the heap segments.  When
+    an object is moved the length word of the object in the old location is set as
+    a tombstone that points to its new location.  In particular this means that we
+    cannot reuse the space where an object previously was during the compaction phase.
+    Immutable objects are moved into immutable segments.  When an object is moved
+    to a new location the bits are set in the bitmap as though the object had been
+    marked at that location.
+
+    3. Update phase.
+    The roots and objects marked during the first two phases are scanned and any
+    addresses for moved objects are updated.  The lowest address used in the area
+    then becomes the base of the area for future allocations.
+
+    Typically, a minor GC moves immutable data into the immutable area and leaves
+    mutable data behind.  The immutable data moved is considered "old" and not
+    scanned until a major collection.  However, if a collection finds that there
+    are significant holes in the heap (these holes must be in the mutable area)
+    it is better to try to recollect the current generation.  In this case the
+    immutable data moved during this collection are considered as "new" in the
+    next minor collection.  Even though we're only concerned there with compacting
+    the mutable area we have to process immutable objects that may contain their
+    addresses.
+    DCJM 27/6/09
+*/
+
+/*
+  The comments below may still be relevant.  I've left them in because they
+  contain notes about optimisations that were tried in the past and no longer
+  apply.
+
   How the garbage collector works.
   
   Phase 1: Starting from the roots in the old mutable area, and
@@ -1189,6 +1236,17 @@ static int RecollectThisGeneration(unsigned thisGeneration)
     }
     if (total == 0)
         return false;
+    /* I think the idea here is that if we have a significant number of
+       objects in the current generation which have not actually been
+       visited to have their addresses updated we should not merge
+       this generation with the old data and treat them as "old" but
+       instead treat them as "new".
+       If we have allocated a large object in the mutable area we
+       may not have a gap big enough to move it to.  We may though
+       have created enough space in this minor GC to move it next time.
+       That's because if we have moved an object we can't use the space
+       until after the update phase has finished with the tombstone.
+       DCJM 27/6/09. */
     return updated * 2 < total; // Less than 50% updated
 }
 
@@ -1589,9 +1647,13 @@ GC_AGAIN:
         }
     }
     
-    
+
     if (RecollectThisGeneration(this_generation))
     {
+        /* Generally we treat all the objects we have left after this GC as "old" for
+           the purposes of subsequent minor GCs.  If, though, a collection has left us
+           with significant gaps we don't do that merge and instead on the next GC we
+           recollect everything since the last collection. */
         /* If this was a full GC, make sure the next one is too, as we may
            need to reconfigure the mutable buffer size. If we only did a
            partial next, we would still have to mark all the immutables again
