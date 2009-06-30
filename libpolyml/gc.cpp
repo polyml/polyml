@@ -778,14 +778,15 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
         // or an immutable space if it's immutable.
         LocalMemSpace *dst = 0;   /* New object allocation area */
         // Find a mutable space for the mutable objects and an immutable space for
-        // the immutables.  We are copying objects starting from the first space
-        // and working upwards so to avoid copying the same object multiple times
-        // we must allocate from the last space first.  We may copy an object within
-        // its own space but we don't copy an object into an earlier space of the
-        // same type.
-        for (unsigned i = gMem.nlSpaces; i > 0; i--)
+        // the immutables.  We copy objects into earlier spaces or within its own
+        // space but we don't copy an object to a later space.  This avoids the
+        // risk of copying an object multiple times.  Previously this copied objects
+        // into later spaces but that doesn't work well if we have converted old
+        // saved state segments into local areas.  It's much better to delete them
+        // if possible.
+        for (unsigned i = 0; i < gMem.nlSpaces; i++)
         {
-            dst = gMem.lSpaces[i-1];
+            dst = gMem.lSpaces[i];
             if (OBJ_IS_MUTABLE_OBJECT(L))
             {
                 // Mutable object
@@ -1141,9 +1142,8 @@ static bool BufferIsReallyFull(bool mutableRegion, POLYUNSIGNED wordsNeeded, con
 }
 
 // AFTER a full GC, make sure we have a full buffer's worth of free space available.
-static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
+static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
 {
-    bool sizeChanged = false;
     POLYUNSIGNED currentSize = 0, currentlyFree = 0;
     unsigned nSpaces = 0;
     POLYUNSIGNED largestFree = 0;
@@ -1187,8 +1187,7 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
 
-        if (TryMoreHeap(words, isMutableSpace)) // If this fails just carry on with what we have.
-            sizeChanged = true;
+        (void)TryMoreHeap(words, isMutableSpace); // If this fails just carry on with what we have.
     }
     else // currentlyFree >= requiredFree
     {
@@ -1197,6 +1196,11 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         // we have finished building a large data structure and now want to
         // export it.  The export code requires buffer space and may need the
         // space we're using.
+        // Another reason is to get rid of old saved state areas that have been
+        // converted into local areas.  These are likely to be small compared with the
+        // heap and result in fragmentation of the address space.
+        // TODO: We should perhaps deallocate small areas even if that would bring
+        // us under the limit because it would be better to reallocate a larger area.
         POLYUNSIGNED requestedShrink = currentlyFree - requiredFree;
         // Delete the most recent space first.
         for (unsigned k = gMem.nlSpaces; k > 0; k--)
@@ -1209,11 +1213,9 @@ static bool AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
                 // We can free this space without going under our limit
                 requestedShrink -= space->top - space->bottom;
                 gMem.DeleteLocalSpace(space);
-                sizeChanged = true;
             }
         }
     }
-    return sizeChanged;
 }
 
 
@@ -1392,6 +1394,8 @@ GC_AGAIN:
     // First, process the mutable areas, copying immutable data into the immutable areas
     // and compacting mutable objects within the area.
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
+    // I think immutable overflow was a problem in the old version of the GC with only
+    // a single segment.  It ought to be possible to change this so it doesn't happen now.
     {
         POLYUNSIGNED immutableFree = 0, immutableNeeded = 0;
         for(j = 0; j < gMem.nlSpaces; j++)
@@ -1424,9 +1428,9 @@ GC_AGAIN:
         }
 
         /* Invariant: there are no objects below A.M.gen_bottom. */
-        for(j = 0; j < gMem.nlSpaces; j++)
+        for(j = gMem.nlSpaces; j > 0; j--)
         {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            LocalMemSpace *lSpace = gMem.lSpaces[j-1];
             if (lSpace->isMutable)
                 CopyObjectsInArea(lSpace, compressImmutables);
         }
@@ -1509,9 +1513,9 @@ GC_AGAIN:
     POLYUNSIGNED immutable_free = immutable_space - immutable_used;
     bool compressImmutables = immutable_needed / 4 < immutable_free ; /* Needs tuning!!! */
 
-    for(j = 0; j < gMem.nlSpaces; j++)
+    for(j = gMem.nlSpaces; j > 0; j--)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
+        LocalMemSpace *lSpace = gMem.lSpaces[j-1];
         if (! lSpace->isMutable)
         {
             if (lSpace->gen_bottom <= lSpace->pointer)
