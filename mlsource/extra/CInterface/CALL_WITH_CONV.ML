@@ -62,8 +62,8 @@ with
 infix @
 infix @@
 
-fun (x @ Conversion(_,to,_))            = In (to x)
-fun (Conversion(from,_,choice) @@ pap)  =
+fun x @ (Conversion(_,to,_))            = In (to x)
+fun (Conversion(from,_,choice)) @@ pap  =
     case (pap choice) of
         (union,[]) => from union
       | _ => never "@@"
