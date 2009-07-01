@@ -919,7 +919,8 @@ struct
                              in
                                 mkTupleTree (first :: tuples(), locSpan(startLocn, location lex))
                             end
-                            else first (* just one *)
+                            else (* just one *)
+                                mkParenthesised(first, locSpan(startLocn, location lex))
                         end
                         else unit(locSpan(startLocn, location lex));
                     val locs = locSpan(startLocn, location lex)
@@ -1141,7 +1142,12 @@ struct
                                 in
                                     (mkExpseq (expressions, locs), locs)
                                 end
-                            else (* Only one *) (firstExp, locSpan(startLocn, location lex));
+                            else (* Only one *)
+                                let
+                                    val locs = locSpan(startLocn, location lex)
+                                in
+                                    (mkParenthesised(firstExp, locs), locs)
+                                end;
 
                         val () = getsym (SYMBOLS.rightParen, lex);
                     in
@@ -1492,11 +1498,32 @@ struct
                 (* Processes a fun binding. *)
                 (* We check for qualified names in the second pass *)
                 let
-                    fun bindings() =
+                    fun bindings soFar =
                     let
                         (* Pattern - This isn't really a pattern but we can parse it as
-                           that and sort it out later. *)
+                           that initially.  That results in accepting some invalid syntax
+                           so we need to check the parsed code.  *)
                         val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv;
+                        (* Get the name and number of args. *)
+                        val (funPattern, funName, argCount) = mkFunPattern(vars, lex)
+                        val () =
+                            case soFar of
+                                SOME(prevName, prevCount) =>
+                                (
+                                    if prevName = funName
+                                    then ()
+                                    else errorMessage (lex, location lex,
+                                            "This clause defines function ``" ^ funName ^
+                                            "'' but previous clause(s) defined ``" ^
+                                            prevName ^ "''");
+                                    if prevCount = argCount
+                                    then ()
+                                    else errorMessage (lex, location lex,
+                                            "This clause has " ^ Int.toString argCount ^
+                                            " arguments but previous clause(s) had " ^
+                                            Int.toString prevCount)
+                                )
+                            |   NONE => () (* This was first. *)
                         (* = *)
                         (* We expect an equals sign here but a common problem is
                            to confuse fun declarations with matches and use a =>
@@ -1510,17 +1537,17 @@ struct
                             );
                             (* expression *)
                         val (exp, expLoc)  = expression (fsys ++ verticalBar) newEnv;
-                        val bind = mkClause (vars, exp, locSpan(varLoc, expLoc));
+                        val bind = mkClause (funPattern, exp, locSpan(varLoc, expLoc));
                         (* Followed by a vertical bar and another binding ? *)
                         val (rest, endLoc) = 
                             if testfor (SYMBOLS.verticalBar, empty, lex)
-                            then bindings ()
+                            then bindings(SOME(funName, argCount))
                             else ([], expLoc)
                     in
                         (bind :: rest, locSpan(varLoc, endLoc))
                     end;
                     
-                    val (bindings, bindLocns) = bindings ()
+                    val (bindings, bindLocns) = bindings NONE
                 in
                     (mkClausal (bindings, bindLocns), bindLocns)
                 end (* funB *);

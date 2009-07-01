@@ -40,6 +40,7 @@ sig
     type environEntry;
     type structureIdentForm;
     type typeParsetree
+    type funpattern
   
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
@@ -102,7 +103,8 @@ sig
   val mkValBinding : parsetree * parsetree * location -> valbind; 
   val recValbind: valbind;
   val mkClausal : fvalclause list * location -> fvalbind;
-  val mkClause : parsetree * parsetree * location -> fvalclause;
+  val mkClause : funpattern * parsetree * location -> fvalclause;
+  val mkFunPattern: parsetree * lexan -> funpattern * string * int
   val mkList : parsetree list * location -> parsetree;
   val mkConstraint : parsetree * typeParsetree * location -> parsetree; 
   val mkLayered : parsetree * parsetree * location -> parsetree; 
@@ -133,6 +135,7 @@ sig
   val mkDirective : string list * fixStatus * location -> parsetree; 
   val mkExpseq : parsetree list * location -> parsetree;
   val mkExDeclaration  : exbind list * location -> parsetree;
+  val mkParenthesised: parsetree * location -> parsetree
   val unit      : location -> parsetree;
   val wildCard  : location -> parsetree;
   val emptyTree : parsetree;

@@ -237,6 +237,7 @@ struct
     |   EmptyTree
     |   WildCard            of location
     |   Unit                of location
+    |   Parenthesised       of parsetree * location
    
    and valbind = (* Value bindings are either a binding or a list
                        of recursive bindings.*)
@@ -266,7 +267,7 @@ struct
          }
 
     and fvalclause = (* Clause within a function binding. *)
-        FValClause of { dec: parsetree, exp: parsetree, line: location }
+        FValClause of { dec: funpattern, exp: parsetree, line: location }
         
     and typebind = (* Non-generative type binding *)
         TypeBind of
@@ -382,6 +383,10 @@ struct
         fullLocation: location,
         expType: types ref
     }
+    
+    and funpattern = (* The declaration part of a fun binding. *)
+        { ident: { name: string, expType: types ref, location: location },
+          isInfix: bool, args: parsetree list, constraint: typeParsetree option }
 
   (*****************************************************************************
               Pretty Printing
@@ -507,13 +512,106 @@ struct
            location   = location
          }; 
 
-    fun mkClause (dec, exp, line) : fvalclause = 
-      FValClause
+    (* A clause for a clausal function is initially parsed as a pattern because that is
+       the easiest way to handle it but that's actually more general than the syntax allows.
+       Process it at this point to check for some validity. *)
+    fun mkFunPattern (fPat, lex): funpattern * string * int =
+    let
+        fun makeId(name, loc) =
+            {name = name, expType = ref EmptyType, location = loc }
+
+        fun unpick (Applic{ f, arg, location, isInfix, ... }) =
+                (* "Application" of function to a parameter. *)
+            let
+                val () =
+                (* This could be an infixed application and since it has been parsed using the
+                   normal infix handler the arguments could be prefixed constructor applications
+                   or infixed constructor applications with a higher precedence.  These are not
+                   allowed because the arguments are supposed to just be "atpats".  Any
+                   applications should have been parenthesised. *)
+                    case (isInfix, arg) of
+                        (true, TupleTree([Applic _, _], location)) =>
+                            errorMessage(lex, location,
+                                "Constructor applications in fun bindings must be parenthesised.")
+                    |   (true, TupleTree([_, Applic _], location)) =>
+                            errorMessage(lex, location,
+                                "Constructor applications in fun bindings must be parenthesised.")
+                    |   _ => ();
+                val { ident, isInfix, args, ... } = unpick f
+            in
+                { ident=ident, isInfix=isInfix, args = args @ [arg], constraint = NONE }
+            end
+
+        |   unpick (Ident{ name, location, ...}) =
+            {
+                ident={ name = name, location = location, expType = ref EmptyType},
+                isInfix=false, args = [], constraint = NONE
+            }
+
+        |   unpick (Parenthesised(p as Applic{ f = Ident { name, location, ...}, isInfix=true, arg, ... }, _)) =
+            {
+                ident={ name = name, location = location, expType = ref EmptyType},
+                isInfix=true, args = [arg], constraint = NONE
+            }
+
+        |   unpick (Parenthesised(_, location)) =
+                (* Only the bottom (i.e. first) application may be parenthesised and then
+                   only if the application is infixed. *)
+                (
+                    errorMessage(lex, location,
+                        "Parentheses are only allowed for infixed applications in fun bindings.");
+                    { ident=makeId("", location), isInfix=false, args = [], constraint = NONE }
+                )
+
+        |   unpick _ =
+                (
+                    errorMessage(lex, location lex,
+                        "Syntax error: fun binding is not an identifier applied to one or more patterns.");
+                    { ident=makeId("", location lex), isInfix=false, args = [], constraint = NONE }
+                )
+
+        val unpicked as { ident = { name, ...}, args, ...} =
+            (* The "pattern" may have a single constraint giving the result
+               type of the function.  Otherwise it must be a set of one or more,
+               possibly infixed, applications. *)
+            case fPat of
+                Constraint { value = value as Applic _, given, ... } =>
+                let
+                    val { ident, isInfix, args, ... } = unpick value
+                in
+                    { ident = ident, isInfix = isInfix, args = args, constraint = SOME given }
+                end
+
+            |   Constraint { value = value as Parenthesised(Applic _, _), given, ... } =>
+                let
+                    val { ident, isInfix, args, ... } = unpick value
+                in
+                    { ident = ident, isInfix = isInfix, args = args, constraint = SOME given }
+                end
+
+            |   fPat as Parenthesised(Applic _, _) =>
+                    unpick fPat
+
+            |   fPat as Applic _ =>
+                    unpick fPat
+
+            |   _ =>
+                (
+                    errorMessage(lex, location lex,
+                        "Syntax error: fun binding is not an identifier applied to one or more patterns.");
+                    { ident=makeId("", location lex), isInfix=false, args = [], constraint = NONE }
+                )
+    in
+        (unpicked, name, List.length args)
+    end;
+
+    fun mkClause (dec, exp, line) : fvalclause =
+        FValClause
         {
           dec  = dec,
           exp  = exp,
           line = line
-        };
+        }
 
     fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref EmptyType }
     
@@ -699,6 +797,8 @@ struct
     val mkExpseq  : parsetree list * location -> parsetree = ExpSeq;
     
     val mkExDeclaration  : exbind list * location -> parsetree = ExDeclaration;  
+    
+    val mkParenthesised = Parenthesised
   
   (* This pretty printer is used to format the parsetree
      for error messages (Error near ...) and also for
@@ -778,21 +878,6 @@ struct
                         ]
                 )
             )
-
-        (* Draw parentheses round expressions if they are needed. *)
-        fun parenthesise(c as Ident _, depth) = ptDisplay (c, depth)
-        |   parenthesise(c as Literal _, depth) = ptDisplay (c, depth)
-        |   parenthesise(c as TupleTree _, depth) = ptDisplay (c, depth)
-        |   parenthesise(c, depth) =
-                PrettyBlock(0, false, [],
-                    [
-                        PrettyString "(",
-                        PrettyBreak (0, 0),
-                        ptDisplay (c, depth),
-                        PrettyBreak (0, 0),
-                        PrettyString ")"
-                    ]
-                )
         
     in
       if depth <= 0 (* elide further text. *)
@@ -818,20 +903,20 @@ struct
             (* Infixed application. *)
             PrettyBlock (0, false, [],
                 [
-                    parenthesise (left, depth - 1),
+                    ptDisplay (left, depth - 1),
                     PrettyBreak (1, 0),
                     ptDisplay (f, depth), (* Just an identifier. *)
                     PrettyBreak (1, 0),
-                    parenthesise (right, depth - 1)
+                    ptDisplay (right, depth - 1)
                 ]
             )
 
       | Applic {f, arg, ...} => (* Function application. *)
             PrettyBlock (0, false, [],
                 [
-                    parenthesise (f, depth - 1),
+                    ptDisplay (f, depth - 1),
                     PrettyBreak (1, 0),
-                    parenthesise (arg, depth - 1)
+                    ptDisplay (arg, depth - 1)
                 ]
             )
 
@@ -908,13 +993,56 @@ struct
             and printClause (FValClause{dec, exp, ...}, depth) =
                 PrettyBlock (3, true, [],
                     [
-                        ptDisplay (dec, depth - 1),
+                        printDec (dec, depth - 1),
                         PrettyBreak (1, 0),
                         PrettyString "=",
                         PrettyBreak (1, 0),
                         ptDisplay (exp, depth - 1)
                     ]
                 )
+            and printDec(
+                    { ident = { name, ... }, isInfix=true, args=[TupleTree([left, right], _)], constraint }, depth) =
+                (* Single infixed application. *)
+                PrettyBlock (0, false, [],
+                    [
+                        ptDisplay (left, depth - 1),
+                        PrettyBreak (1, 0),
+                        PrettyString name,
+                        PrettyBreak (1, 0),
+                        ptDisplay (right, depth - 1)
+                    ] @ printConstraint (constraint, depth-1)
+                )
+            |   printDec(
+                    { ident = { name, ... }, isInfix=true,
+                      args=TupleTree([left, right], _) :: args, constraint }, depth) =
+                (* Infixed application followed by other arguments. *)
+                PrettyBlock (0, false, [],
+                    [
+                        PrettyString "(",
+                        PrettyBreak (0, 0),
+                        ptDisplay (left, depth - 1),
+                        PrettyBreak (1, 0),
+                        PrettyString name,
+                        PrettyBreak (1, 0),
+                        ptDisplay (right, depth - 1),
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ] @ displayList (args, "", depth - 1) @ printConstraint(constraint, depth-2)
+                )
+            |   printDec({ ident = { name, ...}, args, constraint, ... }, depth) =
+                (* Prefixed application. *)
+                PrettyBlock (0, false, [],
+                    [ PrettyString name, PrettyBreak (1, 0) ] @
+                        displayList (args, "", depth - 1) @ printConstraint(constraint, depth-2)
+                )
+            and printConstraint(NONE, _) = []
+            |   printConstraint(SOME given, depth) =
+                [
+                    PrettyBreak (1, 0),
+                    PrettyString ":",
+                    PrettyBreak (1, 0),
+                    display (typeFromTypeParse given, depth, emptyTypeEnv)
+                ]
          in
             PrettyBlock (3, true, [],
                 PrettyString "fun" ::
@@ -1235,6 +1363,18 @@ struct
 
       | EmptyTree =>
          PrettyString "<Empty>"
+         
+      | Parenthesised(p, _) =>
+            PrettyBlock(0, false, [],
+                [
+                    PrettyString "(",
+                    PrettyBreak (0, 0),
+                    ptDisplay (p, depth),
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
+        
     end (* ptDisplay *)
 
     fun getExportTree(navigation, p: parsetree) =
@@ -1360,15 +1500,51 @@ struct
 
         |   FunDeclaration{location, dec, ...}  =>
             let
-                fun exportFB(navigation, fb as FValBind{clauses=[FValClause{ dec, exp, line}], location, ...}) =
+                (* It's easiest to put these all together into a single list. *)
+                datatype funEntry =
+                    FunIdent of { name: string, expType: types ref, location: location }
+                |   FunPtree of parsetree
+                |   FunConstraint of typeParsetree
+                |   FunInfixed of funEntry list * location
+
+                fun exportFunEntry(navigation, FunIdent{name, expType=ref expType, location}) =
+                        (location, PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation)
+                |   exportFunEntry(navigation, FunPtree pt) = getExportTree(navigation, pt)
+                |   exportFunEntry(navigation, FunConstraint typ) = typeExportTree(navigation, typ)
+
+                |   exportFunEntry(navigation, this as FunInfixed(inf, location)) =
+                    let
+                        fun asParent () = exportFunEntry(navigation, this)
+                        val expChild = exportList(exportFunEntry, SOME asParent) inf
+                    in
+                        (location, expChild @ exportNavigationProps navigation)
+                    end
+
+                fun exportAClause(
+                        FValClause{dec = {ident, isInfix, args, constraint}, exp, ...}, exportThis) =
+                let
+                    (* The effect of this is to have all the elements of the clause as
+                       a single level except that if we have an infixed application of
+                       the function (e.g. fun f o g = ...) then this is a subnode. *)
+                    val funAndArgs =
+                        case (isInfix, args) of
+                            (true, TupleTree([left, right], loc) :: otherArgs) => (* Infixed. *)
+                                FunInfixed([FunPtree left, FunIdent ident, FunPtree right], loc)
+                                    :: map FunPtree otherArgs
+                        |   (_, args) => (* Normal prefixed form. *)
+                                FunIdent ident :: map FunPtree args
+
+                    val constraint = case constraint of NONE => [] |SOME typ => [FunConstraint typ]
+                in
+                    exportList(exportFunEntry, SOME exportThis) (funAndArgs @ constraint @ [FunPtree exp])
+                end
+
+                fun exportFB(navigation, fb as FValBind{clauses=[clause], location, ...}) =
                     (* If there's just one clause go straight to it.  Otherwise we have an
                        unnecessary level of navigation. *)
                     let
                         val fbProps = exportNavigationProps navigation
-                        (* First child should give the pattern *)
-                        (* Second child should give the expression *)
-                        fun exportThis () = exportFB(navigation, fb)
-                        val asChild = exportList(getExportTree, SOME exportThis) [dec, exp]
+                        val asChild = exportAClause(clause, fn () => exportFB(navigation, fb))
                     in
                         (location, asChild @ fbProps)
                     end
@@ -1381,12 +1557,10 @@ struct
                         (* Second child should give the expression *)
                         fun exportThis () = exportFB(navigation, fb)
                         
-                        fun exportClause(navigation,
-                                         clause as FValClause{ dec, exp, line}) =
+                        fun exportClause(navigation, clause as FValClause{ line, ...}) =
                         let
                             val clProps = exportNavigationProps navigation
-                            fun exportThis () = exportClause(navigation, clause)
-                            val asChild = exportList(getExportTree, SOME exportThis) [dec, exp]
+                            val asChild = exportAClause(clause, fn () => exportClause(navigation, clause))
                         in
                             (line, asChild @ clProps)    
                         end
@@ -1589,6 +1763,8 @@ struct
         |   WildCard location              => (location, commonProps)
 
         |   Unit location                  => (location, PTtype unitType :: commonProps)
+
+        |   Parenthesised(p, _) => getExportTree(navigation, p)
     end
     
     fun getLocation c = #1 (getExportTree({parent=NONE, next=NONE, previous=NONE}, c))
@@ -1727,7 +1903,7 @@ struct
                     PrettyBreak(1, 0),
                     PrettyString ":",
                     PrettyBreak(1, 0),
-                    display(valType, errorDepth, typeEnv)
+                    display(valType, 10000 (* All of it *), typeEnv)
                 ])
         end
 
@@ -1767,6 +1943,19 @@ struct
                     resType (* The result is the type variable unified to the result. *)
                 end
 
+        (* These cases currently use the "apply" or "unify" and may need to be improved in
+           order to produce better messages.
+           apply:
+              Literals.  The conversion functions are applied to the string literal.  In effect this produces the set
+              of overloadings of the literal.  This should never produce an error message.
+              Constructors in patterns to their args.
+              "case": the patterns are "applied" to the value to be tested.
+
+           unify:
+              Layered patterns, to set the variable. Also checks the pattern against any explicit type.
+              Handlers: the handling patterns are unified against a function from exn -> the result type of the
+              expression being handled.
+         *)
 
     fun assignValues (level, letDepth, env, near, v)  =
     let
@@ -1999,7 +2188,7 @@ struct
                                     [
                                         PrettyString "Constraint:",
                                         PrettyBreak(1, 0),
-                                        display(theType, errorDepth lex, typeEnv)
+                                        display(theType, 10000 (* All of it *), typeEnv)
                                     ]),
                                 unifyErrorReport (lex, typeEnv) report,
                                 lex, location, foundNear aConstraint);
@@ -2022,11 +2211,12 @@ struct
                     varType
                 end
 
-            |   Unit _ =>
-                    unitType
+            |   Unit _ => unitType
 
-            |   WildCard _ =>
-                    mkTypeVar (generalisable, false, false, false)
+            |   WildCard _ => mkTypeVar (generalisable, false, false, false)
+
+            |   Parenthesised(p, _) =>
+                    processPattern(p, enterResult, level, notConst, isRec)
 
             |   _ => (* not a legal pattern *)
                     badType
@@ -2072,7 +2262,7 @@ struct
                                             PrettyBreak(1, 0),
                                             PrettyString ":",
                                             PrettyBreak(1, 0),
-                                            display(ty, errorDepth, typeEnv)
+                                            display(ty, 10000 (* All of it *), typeEnv)
                                         ])
                             in
                                 typeMismatch(errorMsg,
@@ -2221,10 +2411,10 @@ struct
               typeof (* Already made. *)
 
           | ValDeclaration {dec, explicit, implicit, variables, ...} =>
-              assValDeclaration dec explicit implicit variables
+                (assValDeclaration (dec, explicit, implicit, variables); badType (* Should never be used. *))
 
           | FunDeclaration {dec, explicit, implicit, ...} =>
-              assFunDeclaration dec explicit implicit
+                (assFunDeclaration(dec, explicit, implicit); badType (* Should never be used. *))
 
           | OpenDec{decs=ptl, variables, location, ...} =>
                 let
@@ -2435,7 +2625,7 @@ struct
                                 [
                                     PrettyString "Constraint:",
                                     PrettyBreak(1, 0),
-                                    display(theType, errorDepth lex, typeEnv)
+                                    display(theType, 10000 (* All of it *), typeEnv)
                                 ]),
                             unifyErrorReport (lex, typeEnv) report,
                             lex, location, foundNear v);
@@ -2759,209 +2949,212 @@ struct
 
           | EmptyTree => 
                   raise InternalError "assignTypes: emptytree found"
+
+          | Parenthesised(p, _) => assValues near p
+                
             (* end of assValues *)
 
-        and assValDeclaration (valdecs: valbind list) explicit implicit variables =
-    let
-      val newLevel = level + 1;
+        and assValDeclaration (valdecs: valbind list, explicit, implicit, variables) =
+        (* assignTypes for a val-declaration. *)
+        let
+            val newLevel = level + 1;
       
-      (* Set the scope of explicit type variables. *)
-      val U: unit =
-        #apply explicit(fn (_, tv) => setTvarLevel (tv, newLevel));
+            (* Set the scope of explicit type variables. *)
+            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, newLevel));
 
-      (* For each implicit type variable associated with this value declaration,
-         link it to any type variable with the same name in an outer
-         scope. *)
-      val () = 
-        #apply implicit
-          (fn (name, tv) =>
-              case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
-        (* If it isn't there set the level of the type variable. *)
+            (* For each implicit type variable associated with this value declaration,
+               link it to any type variable with the same name in an outer
+               scope. *)
+            val () = 
+                #apply implicit
+                    (fn (name, tv) =>
+                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, newLevel));
+            (* If it isn't there set the level of the type variable. *)
 
-      (* Construct a new environment for the variables. *)
-      val newEnv =
-         noDuplicates
-           (fn(name, _, Value{locations, ...}) =>
-                errorNear (lex, true, v, declaredAt locations,
-                    name ^ " has already been bound in this declaration"));
-
-      (* This environment is those identifiers declared by
-         recursive bindings *)
-      val recEnv = searchList ();
-
-      (* If this is a recursive declaration we will have to find all
-         the variables declared by the patterns in each binding before
-         we can look at the bodies of the bindings. For simplicity we
-         process the patterns first even if this is not recursive but
-         arrange for the variables to be added to the environment
-         after rather than before processing the bodies. The result of
-         processing the patterns is a list of their types. Each item
-         in the list must be unified with the type of the
-         corresponding body. *)
-
-      (* Process the patterns. *)
-      fun mapProcess [] isRec = []
-        | mapProcess (RecValBind :: tlist) isRec =
-          (* If we have  val x=1 and rec ... we will have an and-list
-          as the last element of the list. (It must be the last
-          because the inner and-list will swallow all the rest).
-          All those entries will be recursive. *)
-        mapProcess tlist true
-
-        | mapProcess ((ValBind {dec,line,...}) :: ptl) isRec =
-              let
-                (* To check that every binding actually declares
-                   something i.e. to catch val _ = 99, we enter the
-                   names through the following environment. *)
-                val nothingEntered = ref true;
-                fun enterVals (pair as (name, v)) =
-                   (nothingEntered := false;
-                    #enter newEnv pair;
-                    if isRec then #enter recEnv pair else ());
-                                   
-                val patType = processPattern(dec, enterVals, newLevel, false, isRec);
-              in
-                patType :: mapProcess ptl isRec
-              end;
-
-      val decs = mapProcess valdecs false;
-
-      (* Now the bodies. *)
-
-      (* Check that the types match by going down the list of value
-         bindings and the list of types produced from the patterns,
-         and matching corresponding types. *)
-      fun checkTypes [] [] isRec = ()
-        | checkTypes dl (RecValBind :: tlist) isRec =
-        checkTypes dl tlist true
-          
-        | checkTypes (d::dl) ((ValBind {dec, exp, line,...}) :: ptl) isRec =
-          let
+            (* Construct a new environment for the variables. *)
             val newEnv =
-             { (* If this is recursive we find the recursive names
-              and others in the surrounding scope. *)
-               lookupVal     = 
-                  if isRec
-                  then lookupDefault (#lookup recEnv) (#lookupVal env)
-                  else #lookupVal env,
-               lookupType    = #lookupType env,
-               lookupFix     = #lookupFix env,
-               lookupStruct  = #lookupStruct env,
-               lookupSig     = #lookupSig env,
-               lookupFunct   = #lookupFunct env,
-               (* Extend the environment of type variables. *)
-               lookupTvars   =
-                  lookupDefault (#lookup explicit)
-                    (lookupDefault (#lookup implicit) (#lookupTvars env)),
-               enterVal      = #enterVal env,
-               enterType     = #enterType env,
-               enterFix      = #enterFix env,
-               enterStruct   = #enterStruct env,
-               enterSig      = #enterSig env,
-               enterFunct    = #enterFunct env
-             }
+                noDuplicates
+                (fn(name, _, Value{locations, ...}) =>
+                    errorNear (lex, true, v, declaredAt locations,
+                        name ^ " has already been bound in this declaration"));
 
-            val typ = assignValues(newLevel, letDepth, newEnv, exp, exp);
+            (* This environment is those identifiers declared by recursive bindings *)
+            val recEnv = searchList ();
+
+            (* If this is a recursive declaration we will have to find all
+               the variables declared by the patterns in each binding before
+               we can look at the bodies of the bindings. For simplicity we
+               process the patterns first even if this is not recursive but
+               arrange for the variables to be added to the environment
+               after rather than before processing the bodies. The result of
+               processing the patterns is a list of their types. Each item
+               in the list must be unified with the type of the
+               corresponding body. *)
+
+            (* Process the patterns. *)
+            local
+                fun mapProcess ([], isRec) = []
+                |   mapProcess (RecValBind :: tlist, isRec) =
+                        (* If we have  val x=1 and rec ... we will have an and-list
+                           as the last element of the list. (It must be the last
+                           because the inner and-list will swallow all the rest).
+                           All those entries will be recursive. *)
+                        mapProcess(tlist, true)
+
+                |   mapProcess ((ValBind {dec,line,...}) :: ptl, isRec) =
+                    let
+                        fun enterVals (pair as (name, v)) =
+                        (
+                            #enter newEnv pair;
+                            if isRec then #enter recEnv pair else ()
+                        );
+                                   
+                        val patType = processPattern(dec, enterVals, newLevel, false, isRec);
+                    in
+                        patType :: mapProcess(ptl, isRec)
+                    end;
+            in
+                val decs = mapProcess(valdecs, false)
+            end
+
+            (* Now the bodies. *)
+            local
+                (* Check that the types match by going down the list of value
+                   bindings and the list of types produced from the patterns,
+                   and matching corresponding types. *)
+                fun checkTypes (patTypes, RecValBind :: valList, isRec) =
+                    checkTypes (patTypes, valList, true)
+          
+                |   checkTypes (patType :: patTypes, (ValBind {dec, exp, line,...}) :: valList, isRec) =
+                    let
+                        val newEnv =
+                        { (* If this is recursive we find the recursive names
+                             and others in the surrounding scope. *)
+                            lookupVal     = 
+                                if isRec
+                                then lookupDefault (#lookup recEnv) (#lookupVal env)
+                                else #lookupVal env,
+                            lookupType    = #lookupType env,
+                            lookupFix     = #lookupFix env,
+                            lookupStruct  = #lookupStruct env,
+                            lookupSig     = #lookupSig env,
+                            lookupFunct   = #lookupFunct env,
+                            (* Extend the environment of type variables. *)
+                            lookupTvars   =
+                                lookupDefault (#lookup explicit)
+                                    (lookupDefault (#lookup implicit) (#lookupTvars env)),
+                            enterVal      = #enterVal env,
+                            enterType     = #enterType env,
+                            enterFix      = #enterFix env,
+                            enterStruct   = #enterStruct env,
+                            enterSig      = #enterSig env,
+                            enterFunct    = #enterFunct env
+                        }
+
+                        val expType = assignValues(newLevel, letDepth, newEnv, exp, exp);
             
-            val U : unit = unify (d, typ, lex, line, foundNear v, typeEnv);
+                        val () =
+                            case unifyTypes(patType, expType) of
+                                NONE => () (* OK*)
+                            |   SOME report =>
+                                    typeMismatch("Pattern and expression have incompatible types.",
+                                        valTypeMessage (lex, typeEnv) ("Pattern:", dec, patType),
+                                        valTypeMessage (lex, typeEnv) ("Expression:", exp, expType),
+                                        unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v)
         
-            (* true if the expression is a possibly-constrained fn-expression *)
-            fun isConstrainedFn (exp : parsetree) : bool =
-            case exp of
-              Constraint {value, ...} => isConstrainedFn value
-            | Fn _  => true
-            | _     => false;
-          in
-            (* Must check that the expression is of the form FN match. *)
-            (* N.B. the code generator assumes this is true. *)
-            if isRec andalso not (isConstrainedFn exp)
-            then errorNear (lex, true, v, line, 
-              "Recursive declaration is not of the form `fn match'")
-            else ();
+                        (* true if the expression is a possibly-constrained fn-expression *)
+                        fun isConstrainedFn (Constraint {value, ...}) = isConstrainedFn value
+                        |   isConstrainedFn (Fn _)  = true
+                        |   isConstrainedFn _       = false;
+                    in
+                        (* Must check that the expression is of the form FN match. *)
+                        (* N.B. the code generator assumes this is true. *)
+                        if isRec andalso not (isConstrainedFn exp)
+                        then errorNear (lex, true, v, line, 
+                            "Recursive declaration is not of the form `fn match'")
+                        else ();
         
-            checkTypes dl ptl isRec
-          end
+                        checkTypes(patTypes, valList, isRec)
+                    end
           
-        | checkTypes decs _ isRec =
-        raise InternalError "checkTypes: badly-formed parse-tree";
+                    |   checkTypes _ = ()
+            in
+                val () = checkTypes(decs, valdecs, false)
+            end;
 
-
-       (* Variables, constructors and fn are non-expansive.
-          [] is a derived form of "nil" so must be included.
-          Integer and string constants are also constructors but
-          cannot involve imperative type variables. Constrained
-          versions are also non-expansive.
-          This has been extended and made more explicit in ML 97. *)
-       fun nonExpansive (Fn _)   = true
-         | nonExpansive (Ident _) = true
-         | nonExpansive (List{elements = [], ...}) = true
-         | nonExpansive (List{elements, ...}) =
-                List.foldl (fn (v, a) => a andalso nonExpansive v) true elements
-         | nonExpansive (Constraint {value, ...}) = nonExpansive value
-         | nonExpansive (Literal _) = true
-         | nonExpansive (Unit _) = true
-         | nonExpansive (TupleTree(elems, _)) = 
-                List.foldl (fn (v, a) => a andalso nonExpansive v)
+            (* Variables, constructors and fn are non-expansive.
+               [] is a derived form of "nil" so must be included.
+               Integer and string constants are also constructors but
+               cannot involve imperative type variables. Constrained
+               versions are also non-expansive.
+               This has been extended and made more explicit in ML 97. *)
+            fun nonExpansive (Fn _)   = true
+            |   nonExpansive (Ident _) = true
+            |   nonExpansive (List{elements = [], ...}) = true
+            |   nonExpansive (List{elements, ...}) =
+                    List.foldl (fn (v, a) => a andalso nonExpansive v) true elements
+            |   nonExpansive (Constraint {value, ...}) = nonExpansive value
+            |   nonExpansive (Literal _) = true
+            |   nonExpansive (Unit _) = true
+            |   nonExpansive (TupleTree(elems, _)) = 
+                    List.foldl (fn (v, a) => a andalso nonExpansive v)
                             true elems
-         | nonExpansive (Labelled{recList, ...}) =
-                List.foldl (fn ({valOrPat, ...}, a) => a andalso nonExpansive valOrPat)
+            |   nonExpansive (Labelled{recList, ...}) =
+                    List.foldl (fn ({valOrPat, ...}, a) => a andalso nonExpansive valOrPat)
                             true recList (* Every element must be non-expansive *)
-         | nonExpansive (Applic{f, arg, ...}) =
-                isNonRefConstructor f andalso nonExpansive arg
-         | nonExpansive (Selector _) = true (* derived from fn {..} => ...*)
-         | nonExpansive _       = false
+            |   nonExpansive (Applic{f, arg, ...}) =
+                    isNonRefConstructor f andalso nonExpansive arg
+            |   nonExpansive (Selector _) = true (* derived from fn {..} => ...*)
+            |   nonExpansive (Parenthesised(p, _)) = nonExpansive p
+            |   nonExpansive _       = false
 
-        (* An application is non-expansive only if it is a, possibly
-           constrained, constructor which is not ref. *)
-      and isNonRefConstructor (Ident {value=ref v, name, ...}) =
-              (* Rather than looking at the name it might be better to look
-               at the operation.  This is probably ok since we're not allowed
-               to rebind "ref". *)
-              isConstructor v andalso name <> "ref"
-        | isNonRefConstructor (Constraint {value, ...}) =
-                isNonRefConstructor value
-        | isNonRefConstructor _ = false
+            (* An application is non-expansive only if it is a, possibly
+               constrained, constructor which is not ref. *)
+            and isNonRefConstructor (Ident {value=ref v, name, ...}) =
+                (* Rather than looking at the name it might be better to look
+                   at the operation.  This is probably ok since we're not allowed
+                   to rebind "ref". *)
+                    isConstructor v andalso name <> "ref"
+            | isNonRefConstructor (Constraint {value, ...}) =
+                    isNonRefConstructor value
+            | isNonRefConstructor (Parenthesised(p, _)) =
+                    isNonRefConstructor p
+            | isNonRefConstructor _ = false
 
-      (* Now allow generalisation on the variables being declared.
-         For imperative type variables we have to know whether the
-         expression is expansive. *)
-      fun allowGen decs [] = ()
-        | allowGen decs (RecValBind :: tlist) = allowGen decs tlist
-          
-        | allowGen (d::dl) ((ValBind {exp, line,...}) :: ptl) =
-          let
-            val U : unit =
-              allowGeneralisation 
-                (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
-            (* Check the type to make sure that a local datatype is
-               not escaping.  Checking here is really only needed in the
-               recursive case (where a recursive call inside the body
-               sets the type of the function) because the result will be
-               checked elsewhere. *)
-            val U: unit =
-                checkForLocalDatatypes(d, letDepth, giveError (v, lex, line))
-          in
-            allowGen dl ptl
-          end (* allowGen *)
+            (* Now allow generalisation on the variables being declared.
+               For imperative type variables we have to know whether the
+               expression is expansive. *)
+            fun allowGen (decs, []) = ()
+            |   allowGen (decs, RecValBind :: tlist) = allowGen(decs, tlist)
+            |   allowGen (d::dl, (ValBind {exp, line,...}) :: ptl) =
+                (
+                    allowGeneralisation 
+                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
+                    (* Check the type to make sure that a local datatype is
+                       not escaping.  Checking here is really only needed in the
+                       recursive case (where a recursive call inside the body
+                       sets the type of the function) because the result will be
+                       checked elsewhere. *)
+                    checkForLocalDatatypes(d, letDepth, giveError (v, lex, line));
+                    allowGen(dl, ptl)
+                ) (* allowGen *)
         
-        | allowGen _ _ =
-        raise InternalError "allowGen: badly-formed parse-tree";
+            | allowGen _ =
+                raise InternalError "allowGen: badly-formed parse-tree";
         
-      val U : unit = checkTypes decs valdecs false;
-      val U : unit = allowGen decs valdecs;
-      (* And declare the new names into the surrounding environment. *)
-      val U : unit = #apply newEnv
-          (fn nv as (_, var) => (#enterVal env nv; variables := var :: !variables));
-    in
-      badType (* Type should not be used *)
-    end (* assValDeclaration *)
+        in
+            allowGen(decs, valdecs);
+            (* And declare the new names into the surrounding environment. *)
+            #apply newEnv (fn nv as (_, var) => (#enterVal env nv; variables := var :: !variables))
+        end (* assValDeclaration *)
 
-        and assFunDeclaration (tlist: fvalbind list) explicit implicit =
+        and assFunDeclaration (tlist: fvalbind list, explicit, implicit) =
+        (* Assigntypes for a fun-declaration. *)
         let
             val funLevel = level + 1; (* Level for function names. *)
       
             (* Set the scope of explicit type variables. *)
-            val U: unit =
+            val () =
                 #apply explicit(fn (name, tv) => setTvarLevel (tv, funLevel));
 
             (* For each implicit type variable associated with this value declaration,
@@ -2981,228 +3174,204 @@ struct
             val newEnv = noDuplicates msgFn;
            
             (* Since this is a recursive declaration we must get the function
-             names first. Because of the way they are parsed they are hidden
-             as applications of the function to one or more patterns. There
-             may be more than one clause in a function binding but each
-             should declare the same function and have the same number of
-             patterns. We need to know the number of patterns and the
-             function name in the third pass so we save them in the
-             function binding. *)
-         
-            fun findNameAndPatts (FValBind {clauses = (FValClause {dec, exp, line}::_), numOfPatts, functVar, ...}) =
-            let
-                (* findNameAndPatts. Find the name and number of patterns in the
-                   first of the clauses. The other clauses should be the same.
-                   We check that later.  The declaration location is the first occurrence
-                   of the function name. *)
-                fun getData(pat, a) =
-                case pat of
-                    Constraint {value, ...} => getData(value, a)
-                |   Applic {f, ...}         => getData(f, a+1)
-                |   Ident {name, location, ...}       => { name = name, location = location, arity = a }
-                |   _  =>  { name = "", location = line, arity = a }; (* error - report it later. *)
-                (* Just look at the first clause for the moment. *)
-                val {name, arity, location }  = getData(dec, 0);
-        
-                (* Declare a new identifier with this name. *)
-                val funVar =
-                    mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location]);
-           
-                val U : unit = numOfPatts := arity;
+               names first. Because of the way they are parsed they are hidden
+               as applications of the function to one or more patterns. There
+               may be more than one clause in a function binding but each
+               should declare the same function and have the same number of
+               patterns. We need to know the number of patterns and the
+               function name in the third pass so we save them in the
+               function binding. *)
 
-                val U : unit =
-                    (* Put the results onto the function binding. *)
-                    if arity = 0
-                    then errorNear (lex, true, v, line,
-                            "Clausal function does not have any parameters.")
-                    else ();
-            in
-                if name <> ""
-                then
+            local
+                fun findNameAndPatts (FValBind {clauses = (FValClause {dec, exp, line}::_), numOfPatts, functVar, ...}) =
                 let
-                    (* Must not be qualified *)
-                    val U : unit = checkForDots (name, lex, line);
-                    (* Must not be "true", "false" etc. but may be "it" *)
-                    val U : unit = checkForBuiltIn (name, v, lex, line, false) : unit;
-        
-                    val U : unit = functVar := funVar;
+                    (* Just look at the first clause for the moment. *)
+                    val { ident = { name, location, ... }, args, ... } = dec;
+                    (* Declare a new identifier with this name. *)
+                    val funVar =
+                        mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location])
+
+                    val arity = case dec of { args, ...} => List.length args
+                    val () = numOfPatts := arity;
+                    val () =
+                        (* Put the results onto the function binding. *)
+                        if arity = 0
+                        then errorNear (lex, true, v, line,
+                                "Clausal function does not have any parameters.")
+                        else ()
                 in
+                    (* Must not be qualified *)
+                    checkForDots (name, lex, line);
+                    (* Must not be "true", "false" etc. but may be "it" *)
+                    checkForBuiltIn (name, v, lex, line, false);
+                    functVar := funVar; (* Save the variable. *)
                     (* Enter it in the environment. *)
                     #enter newEnv (name, funVar)
                 end
-                else ()
-            end
-            | findNameAndPatts _ = raise InternalError "findNameAndPatts: badly-formed parse-tree";
+                |   findNameAndPatts _ = raise InternalError "findNameAndPatts: badly-formed parse-tree";
 
-            val () = List.app findNameAndPatts tlist;
-      
-            (* Can now process the clausal functions in the environment 
-               of the function names and using the information about
-               function name and number of patterns we have saved. *)
-            fun processFun (FValBind {clauses, numOfPatts, functVar, argType, resultType, ...})=
-            let
-                val functVar  = !functVar;
+            in
+                val () = List.app findNameAndPatts tlist
+            end;
 
-                (* Each fun binding in the declaration may consist of several
-                   clauses. Each must have the same function name, the same
-                   number of patterns and a unifiable type. *)
-                fun processClause (FValClause {dec, exp, line}) =
-                let 
-                    (* Each clause is a val binding with the function 
-                       and patterns as the `pattern' and the function body
-                       as the `expression' *)
-          
-                    (* Construct a new environment for the variables
-                       in the patts. *)
-                    fun messFn (name, _, Value{locations, ...}) =
-                        errorNear (lex, true, dec, declaredAt locations,
-                            name ^ " has already been bound in this clause.");
-          
-                    val varEnv = noDuplicates messFn;
-          
-                    val varLevel = funLevel + 1; (* Level for variables. *)
+            local
+                (* Can now process the clausal functions in the environment 
+                   of the function names and using the information about
+                   function name and number of patterns we have saved. *)
+                fun processBinding
+                    (fvalBind as FValBind {clauses, numOfPatts, functVar=ref functVar, argType, resultType, location, ...}) =
+                let
+                    (* Each fun binding in the declaration may consist of several
+                       clauses. Each must have the same function name, the same
+                       number of patterns and a unifiable type. *)
+                    (* The type information is built up from the bottom so that if there are
+                       errors we can report them in the most appropriate place.
+                       Build a type to be used for the function.  This will later be unified
+                       with the type that we've already created for the function variable. *)
+                    val funType = mkTypeVar(generalisable, false, false, false)
 
-                    (* Processes a single alternative. Similar to processPattern. 
-                       A variable for the function being declared is passed as a
-                       parameter so that its type can be used for the result. *)
-                    fun doPatterns pat numOfPats : types * types list =
-                    case pat of
-                        Constraint {value, given, location} => 
-                        let (* Check the constraint against the returned type. *) 
-                            val (patType, argTypes)  = doPatterns value numOfPats;
-                            val theType = typeFromTypeParse given
-                            val U : unit = ptAssignTypes theType pat;
-            
-                            (* These must be unifiable. *)
-                            val U : unit =
-                                unify (patType, theType, lex, location, foundNear dec, typeEnv);
-                        in
-                            (patType, argTypes)
-                        end
+                    fun processClause (clause as FValClause {dec, exp, line}) =
+                    let
+                        val { ident = ident, args, constraint, ... } = dec
+                        val clauseAsTree: parsetree =
+                            (* This clause as a parsetree object for error messages. *)
+                            mkFunDeclaration([mkClausal([clause], line)], explicit, implicit, line)
+                        
+                        val () = (* Set the type.  Only in case we look at the export tree. *)
+                            #expType ident := valTypeOf functVar
 
-                    |   Applic {f, arg, location, ...} =>
-                        let 
-                            (* Apply the function to this pattern. Return the result
-                               type. This will have the effect of making the
-                               function we are declaring into a function from the
-                               type of the pattern to some other type yet to be
-                               determined. This type will be found when we unify
-                               with the body of the function. *)
-                            val (funType, argTypes) = doPatterns f (numOfPats - 1);
-                            val argType = 
-                                processPattern(arg, #enter varEnv, varLevel, false, false);
-                        in
-                            (apply (funType, argType, lex, location, foundNear dec, typeEnv), argType :: argTypes)
-                        end
+                        fun messFn (name, _, Value{locations, ...}) =
+                            errorNear (lex, true, clauseAsTree, declaredAt locations,
+                                name ^ " has already been bound in this clause.");
+                        (* Construct a new environment for the variables in the patts. *)
+                        val varEnv = noDuplicates messFn;
+                        val varLevel = funLevel + 1; (* Level for variables. *)
 
-                    |   Ident {name, value, expType, ...} =>
-                        let 
-                            (* We have presumably reached the function name. *)
-                            val functName = valName functVar; 
-                        in
-                            (* Must check this is the same name. *)
-                            if name = functName then ()
-                            else errorNear (lex, true, dec, line,
-                                    "In clausal function one clause defines "^
-                                    name ^ " and another defines " ^ functName);
-            
-                            (* And it has the same number of patterns. *)
-                            if numOfPats = 0 then ()
-                            else errorNear
-                                    (lex, true, dec, line,
-                                        "Clausal function contains clauses with " ^
-                                        "different numbers of patterns");
-            
-                            value := functVar;
-                            (* Set the type.  Only in case we look at the export tree. *)
-                            expType := valTypeOf functVar;
-                            (valTypeOf functVar, []) (* Return function type. *)
-                        end
-        
-                    | EmptyTree => (badType, [])
-          
-                    | _ =>
-                        let (* error *)
-                            val U : unit = 
-                                errorNear (lex, true, pat, line,
-                                    "Start of clausal function is not a variable")
-                        in
-                            (badType, [])
-                        end
-                    (* end doPatterns *);
+                        (* Process the patterns. *)
+                        val argTypeList =
+                            List.map (fn arg => processPattern(arg, #enter varEnv, varLevel, false, false))
+                                args
+                        (* This list is used for the type of the helper function. *)
+                        val () = argType :=
+                            (case argTypeList of
+                                [] => badType (* error *)
+                            |   [single] => single
+                            |   multiple => mkProductType(List.rev multiple))
 
-                    val (pattType, argTypeList) = doPatterns dec (!numOfPatts);
-                    val () = argType :=
-                        (case argTypeList of
-                            [] => badType (* error *)
-                        |   [single] => single
-                        |   multiple => mkProductType(List.rev multiple))
-
-                    (* The identifiers declared in the pattern are available in the
-                       body of the function. Since it is recursive the function
-                       names are also available. *)
-                    val bodyEnv =
-                    { 
-                        lookupVal     = 
-                            lookupDefault (#lookup varEnv)
-                                (lookupDefault (#lookup newEnv) (#lookupVal env)),
-                        lookupType    = #lookupType env,
-                        lookupFix     = #lookupFix env,
-                        lookupStruct  = #lookupStruct env,
-                        lookupSig     = #lookupSig env,
-                        lookupFunct   = #lookupFunct env,
-                        (* Extend the environment of type variables. *)
-                        lookupTvars   =
-                            lookupDefault (#lookup explicit)
-                                (lookupDefault (#lookup implicit) (#lookupTvars env)),
-                        enterVal      = #enterVal env,
-                        enterType     = #enterType env,
-                        enterFix      = #enterFix env,
-                        enterStruct   = #enterStruct env,
-                        enterSig      = #enterSig env,
-                        enterFunct    = #enterFunct env
-                    };
+                        (* The identifiers declared in the pattern are available in the
+                           body of the function. Since it is recursive the function
+                           names are also available. *)
+                        val bodyEnv =
+                        { 
+                            lookupVal     = 
+                                lookupDefault (#lookup varEnv)
+                                    (lookupDefault (#lookup newEnv) (#lookupVal env)),
+                            lookupType    = #lookupType env,
+                            lookupFix     = #lookupFix env,
+                            lookupStruct  = #lookupStruct env,
+                            lookupSig     = #lookupSig env,
+                            lookupFunct   = #lookupFunct env,
+                            (* Extend the environment of type variables. *)
+                            lookupTvars   =
+                                lookupDefault (#lookup explicit)
+                                    (lookupDefault (#lookup implicit) (#lookupTvars env)),
+                            enterVal      = #enterVal env,
+                            enterType     = #enterType env,
+                            enterFix      = #enterFix env,
+                            enterStruct   = #enterStruct env,
+                            enterSig      = #enterSig env,
+                            enterFunct    = #enterFunct env
+                        };
            
-                    (* Now the body. *)
-                    (* The type from `doPatterns' is the effect of applying
-                       the function to the patterns. This must be unified with
-                       the type of the expression which will set the result type
-                       of the function. *)
-                    val expTyp = assignValues(varLevel, letDepth, bodyEnv, exp, exp);
+                        (* Now the body. *)
+                        val expTyp = assignValues(varLevel, letDepth, bodyEnv, exp, exp);
+                        (* Remember the result type for the debugger. Actually this
+                           assigns the result type for each clause in the fun but
+                           they'll all be the same. *)
+                        val () = resultType := expTyp;
+                        (* Check the expression type against any explicit type constraint. *)
+                        val () =
+                            case constraint of
+                                NONE => ()
+                            |   SOME given =>
+                                let
+                                    val theType = typeFromTypeParse given
+                                    val ()  = ptAssignTypes theType v
+                                in
+                                    case unifyTypes(expTyp, theType) of
+                                        NONE => () (* OK. *)
+                                    |   SOME report =>
+                                            typeMismatch("Body of fun binding does not match type constraint.",
+                                                valTypeMessage (lex, typeEnv) ("Expression:", exp, expTyp),
+                                                PrettyBlock(0, false, [],
+                                                    [
+                                                        PrettyString "Constraint:",
+                                                        PrettyBreak(1, 0),
+                                                        display(theType, 10000 (* All *), typeEnv)
+                                                    ]),
+                                                unifyErrorReport (lex, typeEnv) report,
+                                                lex, line, foundNear clauseAsTree)
+                                end
+                        (* The type of this clause is a function type. *)
+                        val clauseType = List.foldr mkFunctionType expTyp argTypeList
+                        (* Unify this with the type we're using for the other clauses. *)
+                        val () =
+                            case unifyTypes(clauseType, funType) of
+                                NONE => () (* OK. *)
+                            |   SOME report =>
+                                    typeMismatch("Type of clause does not match the type of previous clauses.",
+                                        valTypeMessage (lex, typeEnv) ("Clause:", clauseAsTree, clauseType),
+                                        PrettyBlock(0, false, [],
+                                            [
+                                                PrettyString "Other clauses:",
+                                                PrettyBreak(1, 0),
+                                                display(funType, 10000 (* All *), typeEnv)
+                                            ]),
+                                        unifyErrorReport (lex, typeEnv) report,
+                                        lex, line, foundNear clauseAsTree)
 
-                in (* body of processClause *)
-                    (* Remember the result type for the debugger. Actually this
-                       assigns the result type for each clause in the fun but
-                       they will all be the same type because we've used the same
-                       variable for the function in each pattern. *)
-                    resultType := expTyp;
-                    (* Unify the pattern and the clause body. *)
-                    unify (pattType, expTyp, lex, line, foundNear dec, typeEnv)
+                    in (* body of processClause *)
+                        ()
+                    end
+                in (* body of processFun *)
+                    List.app processClause clauses;
+                    (* Finally unify the function type with the type of the function variable.  If the
+                       variable has not yet been used that will simply set its type but if it has been
+                       used recursively it may have been given an incompatible type. *)
+                    case unifyTypes(funType, valTypeOf functVar) of
+                        NONE => () (* OK. *)
+                    |   SOME report =>
+                        let
+                            val fvalAsTree = mkFunDeclaration([fvalBind], explicit, implicit, location)
+                        in
+                            typeMismatch("Type of function does not match type of recursive application.",
+                                valTypeMessage (lex, typeEnv) ("Function:", fvalAsTree, funType),
+                                valTypeMessage (lex, typeEnv)
+                                    ("Variable:", mkIdent(valName functVar, location), valTypeOf functVar),
+                                unifyErrorReport (lex, typeEnv) report,
+                                lex, location, foundNear fvalAsTree)
+                        end
                 end
-            in (* body of processFun *)
-                List.app processClause clauses
-            end
-          
-            val () = List.app processFun tlist;
+            in
+                val () = List.app processBinding tlist
+            end;
       
+        in
             (* Now declare the new names into the surrounding environment,
                releasing the copy flags on the type variables. All fun
                bindings are non-expansive. *)
-            val U : unit = 
-                #apply newEnv 
-                    (fn (pair as (name, Value{typeOf, locations, ...})) =>
-                    let
-                        val () =
-                            allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
-                        (* Check the type to make sure that a local datatype is
-                           not escaping as a result of a recursive application of
-                           the function to a local datatype. *)
-                        val () = checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations))
-                    in
-                        #enterVal env pair
-                    end);
-        in
-            badType (* Type should not be used *)
+            #apply newEnv 
+                (fn (pair as (name, Value{typeOf, locations, ...})) =>
+                let
+                    val () =
+                        allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
+                    (* Check the type to make sure that a local datatype is
+                       not escaping as a result of a recursive application of
+                       the function to a local datatype. *)
+                    val () = checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations))
+                in
+                    #enterVal env pair
+                end)
         end (* assFunDeclaration *)
 
         and assAbsData isAbs (typeList : datatypebind list) withtypes declist =
@@ -3532,6 +3701,8 @@ struct
                 List.foldl(fn(v, 1) => getWidth v | (_, s) => s)
                           1 match
             end
+
+      |  tupleWidth(Parenthesised(p, _)) = tupleWidth p
 
       |  tupleWidth _ = 1
     in
@@ -4185,6 +4356,8 @@ struct
               in
                 addVar (buildAot pattern tree patNo location) (getVar var)
               end
+
+            | Parenthesised(p, location) => buildAot p tree patNo location
     
             | _ =>
                tree (* error cases *)
@@ -4234,6 +4407,9 @@ struct
                  (* There may be a constraint on the variable
                     so it is easiest to recurse. *)
                 findVars pattern (findVars var varl)
+
+            | Parenthesised(p, _) =>
+                findVars p varl
                
             | _ =>
                 varl (* constants and error cases. *);
@@ -5142,7 +5318,9 @@ struct
               (* Equivalent to  if first then true else second *)
                 mkCor (codegen (first,  debugEnv, decName),
                        codegen (second, debugEnv, decName)) : codetree
-  
+    
+            | Parenthesised(p, _) => codegen (p, debugEnv, decName)
+ 
             | _ => (* empty and any others *)
                CodeNil : codetree
   
@@ -5290,15 +5468,6 @@ struct
                         |    _ => raise InternalError "lvAddr"
                      val addr      = !address;
                      val procName  = decName ^ valName var;
-  
-                     (* Make a list of the patterns in the clause such that the lowest
-                        pattern in the structure is the first on the list. *)
-                     fun getPatts (Constraint {value, ...}) f acc =
-                             getPatts value f acc
-                       | getPatts (Applic{f=applF, arg=applA, ...}) f acc =
-                               getPatts applF f (f applA :: acc)
-                       | getPatts vars f acc = acc
-
                     (* Produce a list of the size of any tuples or labelled records
                        in the first clause. Tuples in the first clause are passed as
                        separate arguments. We could look at the other clauses and only
@@ -5315,7 +5484,7 @@ struct
                      *)
                      val tupleSeq : int list =
                          case clauses of
-                             (FValClause{dec, ...} :: _) => getPatts dec tupleWidth []
+                             (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
                          | _ => raise InternalError "badly formed parse tree";
 
                      fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
@@ -5351,15 +5520,9 @@ struct
                      
                     (* Turn the list of clauses into a match. *)
                      val matches = 
-                       map (fn FValClause {dec=vbDec, exp=vbExp, line, ...} =>
-                            let
-                              val patList = getPatts vbDec (fn x => x) [];
-                            in
-                              mkMatchTree 
-                                (if numOfPats = 1 then hd patList else TupleTree(patList, line),
-                                 vbExp,
-                                 line)
-                            end)
+                       map (fn FValClause {dec={ args, ...}, exp, line, ...} =>
+                            mkMatchTree(if numOfPats = 1 then hd args else TupleTree(args, line), exp, line)
+                            )
                         clauses;
                      
                      (* We arrange for the inner function to be called with
@@ -5529,7 +5692,8 @@ struct
                    fun getVars (Constraint{value, ...}) = getVars value
                     |  getVars (Layered{var, pattern, ...}) =
                           getVars var @ getVars pattern
-                     |  getVars (pat as (Ident _)) = [pat]
+                    |  getVars (pat as (Ident _)) = [pat]
+                    |  getVars (Parenthesised(p, _)) = getVars p
                     |  getVars _ = (* wild-card *) [];
                  in
                    val vars = getVars vbDec;
@@ -5608,6 +5772,7 @@ struct
                  (* added to improve name generation SPF 18/10/94 *)    
                  fun getName (Ident {name, ...}) = name
                    | getName (Constraint {value, ...}) = getName value
+                   | getName (Parenthesised(p, _)) = getName p
                    | getName (Layered {var=vbl, pattern, ...}) =
                      (
                          case vbl of
