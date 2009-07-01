@@ -961,7 +961,7 @@ struct
                               args = argTypes, locations = [DeclaredAt location]}
     in
         ParseTypeConstruction{
-            typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = nameLoc }
+            typeof = construction, nameLoc = nameLoc, args = args, argLoc = argLoc, location = location }
     end
 
     fun makeParseTypeProduct(fieldList, location) =
