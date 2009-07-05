@@ -1556,33 +1556,56 @@ struct
 
   |  codeVal (Value{access = Overloaded Print, ...}, level, instance, lex, _) =
         let 
-         (* "instance" should be 'a -> 'a. We need to get the 'a. *)
-         val argType = case getFnArgType instance of NONE => badType | SOME t => t;
-         open DEBUG
-         (* The parameter is the reference used to control the print depth
-            when the value is actually printed. *)
-         val printDepthFun = getParameter printDepthFunTag (LEX.debugParams lex)
-         and prettyOut = getPrintOutput (LEX.debugParams lex)
-
-         fun printProc value =
-         (
-            prettyOut(printValueForType (value, argType, printDepthFun()));
-            value
-         );
-           (* Coerce the procedure so that it can be put into the code. *)
-       in
-            mkConst (toMachineWord printProc)
-       end 
+            (* "instance" should be 'a -> 'a. We need to get the 'a. *)
+            val argType = case getFnArgType instance of NONE => badType | SOME t => t;
+            open DEBUG
+            (* The parameter is the reference used to control the print depth
+               when the value is actually printed. *)
+            val printDepthFun = getParameter printDepthFunTag (LEX.debugParams lex)
+            and prettyOut = getPrintOutput (LEX.debugParams lex)
+        in
+            (* Construct a function that gets the print code, prints it out and returns
+               its argument. *)
+            mkProc(
+                CODETREE.mkEnv
+                [
+                    mkEval(
+                        mkConst(toMachineWord prettyOut),
+                        [
+                            mkEval(
+                                printerForType(argType, level+1),
+                                [
+                                    mkTuple[arg1,
+                                        mkEval(mkConst(toMachineWord printDepthFun), [CodeZero], false)]
+                                ],
+                                false)
+                        ],
+                        false),
+                    arg1 (* Returns its argument. *)
+                ],
+                level, 1, "print()")
+        end 
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, lex, _) =
-       let 
-         (* "instance" should be 'a -> string. We need to get the 'a. *)
-         val argType = case getFnArgType instance of NONE => badType | SOME t => t;
-         fun makeString value =
-            uglyPrint (printValueForType (value, argType, 10000));
-       in
-         mkConst (toMachineWord makeString)
-       end
+        let 
+            (* "instance" should be 'a -> string. We need to get the 'a. *)
+            val argType = case getFnArgType instance of NONE => badType | SOME t => t;
+        in
+            (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
+            mkProc(
+                mkEval(
+                    mkConst(toMachineWord uglyPrint),
+                    [
+                        mkEval(
+                            printerForType(argType, level+1),
+                            [
+                                mkTuple[arg1, mkConst(toMachineWord 10000)]
+                            ],
+                            false)
+                    ],
+                    false),
+                level, 1, "makestring()")
+        end
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, level, instance, lex, _) =
        let (* Get the pretty code for the specified argument. *)
