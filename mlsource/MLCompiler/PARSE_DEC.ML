@@ -359,9 +359,6 @@ struct
  fun isEqtype name =
      size name > 1 andalso String.str(String.sub(name, 1)) = "'";
 
- (* All explicit type variables are weak in ML97. *)
- fun isWeak (name, lex) = true
-
  (* Global declarations *)
    
  fun parseDec (fsys, lex, {enterFix,lookupFix}) : program =
@@ -380,7 +377,7 @@ struct
         fun getTypeVar (): typeVarForm * location =
         (* Read a type variable and return it. *)
         if (sy lex) neq SYMBOLS.typeIdent
-        then (badsyms (SYMBOLS.typeIdent, lex); (makeTv (emptyType, generalisable, true, true, false), location lex))
+        then (badsyms (SYMBOLS.typeIdent, lex); (makeTv (emptyType, generalisable, true, true), location lex))
         else
         let
             val iden = id lex;
@@ -395,15 +392,14 @@ struct
                         nm ^ " has already been used.")
                     else ()
                 );
-            (* Construct a type variable and enter it.  Equality and weakness
-               are only set if this is a datatype (or abstype). The type variable
+            (* Construct a type variable and enter it.  Equality is
+               only set if this is a datatype (or abstype). The type variable
                should be non-unifiable to get value-constructor signature
                checking right.*)
             (* DCJM 11/2/00.  isDatatype is now true for tyvarseqs in fun and val.
                I don't think it matters what it is set to in datatypes. *)
             val isEqtype = isDatatype andalso isEqtype iden;
-            val isWeak = isDatatype andalso isWeak (iden, lex);
-            val tyVar = makeTv (emptyType, generalisable, isEqtype, true, isWeak)
+            val tyVar = makeTv (emptyType, generalisable, isEqtype, true)
         in
             enter (iden, tyVar);
             insymbol lex;
@@ -496,7 +492,7 @@ struct
                  (
                    errorMessage (lex, location lex, 
                         name ^  " has not been declared in type declaration");
-                   makeTv (emptyType, generalisable, false, true, true)
+                   makeTv (emptyType, generalisable, false, true)
                  )
              )
    } (* genTypeVarEnv *);
@@ -671,7 +667,7 @@ struct
        let
          (* These type variables are not unifiable until they are generalised. *)
          val newTypeVar =
-           makeTv (emptyType, generalisable, isEqtype name, true, isWeak(name, lex));
+           makeTv (emptyType, generalisable, isEqtype name, true);
            
          val () = enter (name, newTypeVar);
        in
@@ -2309,7 +2305,7 @@ struct
           val () =
             errorMessage (lex, location lex, "Free type variables not allowed");
         in
-          makeTv (emptyType, generalisable, false, true, true)
+          makeTv (emptyType, generalisable, false, true)
         end}
 
     (* May be structure/functor dec, signature dec or top-level dec. Treat

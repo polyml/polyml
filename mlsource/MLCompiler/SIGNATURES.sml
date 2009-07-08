@@ -183,7 +183,7 @@ struct
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
     val undefinedSignature =
        makeSignature("UNDEFINED", makeSignatureTable(),
-                0, 0, noLocation, fn _ => raise Subscript);
+                0, 0, noLocation, fn _ => raise Subscript, []);
 
     fun displayList ([], separator, depth) dodisplay = []
     
@@ -800,12 +800,20 @@ struct
             val structEnv = makeEnv newTable;
 
             (* ML 97 does not allow multiple declarations in a signature. *)
-            fun checkAndEnter enter lookup kind (s: string, v) =
-                case lookup s of
-                   SOME _ => (* Already there. *)
-                     errorNear (lex, true, fn n => displaySigs(str, n), lno, 
-                         kind ^ " (" ^ s ^ ") is already present in this signature.")
-                |  NONE => enter(s, v)
+            fun checkAndEnter (enter, lookup, kind, locs) (s: string, v) =
+            case lookup s of
+                SOME _ => (* Already there. *)
+                let
+                    fun getDecLoc(DeclaredAt loc :: _) = loc
+                    |   getDecLoc [] = lno
+                    |   getDecLoc(_::rest) = getDecLoc rest
+                    (* TODO: This shows the location of the identifier that is the duplicate.
+                       It would be nice if it could also show the original location. *)
+                in
+                    errorNear (lex, true, fn n => displaySigs(str, n), getDecLoc(locs v), 
+                        kind ^ " (" ^ s ^ ") is already present in this signature.")
+                end
+            |   NONE => enter(s, v)
 
             val checkedStructEnv = 
              {
@@ -816,24 +824,22 @@ struct
               lookupSig     = #lookupSig    structEnv,
               lookupFunct   = #lookupFunct  structEnv,
               enterVal      =
-                  checkAndEnter (#enterVal structEnv) (#lookupVal structEnv) "Value",
+                  checkAndEnter (#enterVal structEnv, #lookupVal structEnv, "Value",
+                    fn (Value{ locations, ...}) => locations),
               enterType     =
-                  checkAndEnter (#enterType structEnv) (#lookupType structEnv) "Type",
+                  checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations),
               enterStruct   =
-                  checkAndEnter (#enterStruct structEnv) (#lookupStruct structEnv) "Structure",
+                  checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", structLocations),
               (* These next three can't occur. *)
-              enterFix      =
-                  checkAndEnter (#enterFix structEnv) (#lookupFix structEnv) "Fixity",
-              enterSig      =
-                  checkAndEnter (#enterSig structEnv) (#lookupSig structEnv) "Signature",
-              enterFunct    =
-                  checkAndEnter (#enterFunct structEnv) (#lookupFunct structEnv) "Functor"
+              enterFix      = fn _ => raise InternalError "Entering fixity in signature",
+              enterSig      = fn _ => raise InternalError "Entering signature in signature",
+              enterFunct    = fn _ => raise InternalError "Entering functor in signature"
              }
             (* Create the signature and return the next entry to use in the result vector. *)
             val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, 0, structPath);
             (* Make a copy to freeze it as immutable.*)
             (* TODO: Check these.  Aren't these always zero? *)
-            val resultSig = makeSignature(sigName, newTable, 0, 0, lno, fn _ => raise Subscript)
+            val resultSig = makeSignature(sigName, newTable, 0, 0, lno, fn _ => raise Subscript, [])
         in
             (resultSig, nextOffset)
         end
@@ -1360,17 +1366,18 @@ struct
                         if n < initTypeId
                         then outerTypeIdEnv n
                         else Vector.sub(resVector, n-initTypeId)
+                    val mappedIds = mappedIds and distinctIds = distinctIds
                 end
                 (* Copy the signature containing the full range of unshared IDs to replace
                    them with the shared IDs. *)
                 val resSig =
                     copySig (makeSignature(sigName resultSig, sigTab resultSig, initTypeId,
-                                          ! idCount, sigDeclaredAt resultSig, mapFunction),
+                                          ! idCount, sigDeclaredAt resultSig, mapFunction, mappedIds),
                              fn n => n >= initTypeId, mapFunction)
             in
                 (* Set the size of the type table for the signature we return. *)
                 makeSignature (sigName resSig, sigTab resSig, initTypeId, !typeCounter,
-                               sigDeclaredAt resSig, typeIDMap)
+                               sigDeclaredAt resSig, typeIDMap, distinctIds)
             end (* not (isSignatureIdent str) *)
     end (* sigVal *);
 

@@ -199,10 +199,9 @@ struct
             open TYPETREE;
         in
             (* Make some type variables *)
-            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false);
-            fun makeTV    () = mkTypeVar (generalisable, false, false, false);
-            fun makeImpTV () = mkTypeVar (generalisable, false, false, true);
-            fun makeTypeVariable() = makeTv (emptyType, generalisable, false, false, false)
+            fun makeEqTV  () = mkTypeVar (generalisable, true,  false);
+            fun makeTV    () = mkTypeVar (generalisable, false, false);
+            fun makeTypeVariable() = makeTv (emptyType, generalisable, false, false)
             
             (* Make some functions *)
             infixr 5 ->>
@@ -347,7 +346,7 @@ struct
         local
             val refCons =
                 let
-                    val a : types = makeImpTV ();
+                    val a : types = makeTV ();
                 in
                     mkGconstr ("ref", a ->> Ref a,
                         createUnaryConstructor(RefForm, "ref"), false, 1, declInBasis)
@@ -1191,7 +1190,7 @@ struct
                     It's currently used only in the debugger to get the exception
                     packet out of a global exception value. *)
                  ("getValue",               toMachineWord getValue,
-                    valueVal ->> mkTypeVar (generalisable, false,  false, false))]
+                    valueVal ->> mkTypeVar (generalisable, false,  false))]
         end;
 
     in

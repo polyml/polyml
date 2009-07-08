@@ -846,7 +846,7 @@ struct
     in
         val listType =
             buildBasisDatatype("list",
-                [makeTv (EmptyType, generalisable, false, false, false)], true, makeConsAndNil)
+                [makeTv (EmptyType, generalisable, false, false)], true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
             case tcConstructors listType of
                 [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}] => (nilC, consC)
@@ -872,7 +872,7 @@ struct
     in
         val optionType =
             buildBasisDatatype("option",
-                [makeTv (EmptyType, generalisable, false, false, false)], true, makeNoneAndSome)
+                [makeTv (EmptyType, generalisable, false, false)], true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
             case tcConstructors optionType of
                 [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}] => (noneC, someC)
@@ -988,7 +988,7 @@ struct
                             end
                             val copiedSig = 
                                 makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source,
-                                              sigDeclaredAt source, newMap)
+                                              sigDeclaredAt source, newMap, sigBoundIds source)
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case structAccess structFound of
@@ -1633,9 +1633,9 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val argPrints  = mkTypeVar (generalisable, false, false, false);
-            val installType   = mkTypeVar (generalisable, false, false, false);
-            val pretty = mkTypeVar (generalisable, false, false, false);
+            val argPrints  = mkTypeVar (generalisable, false, false);
+            val installType   = mkTypeVar (generalisable, false, false);
+            val pretty = mkTypeVar (generalisable, false, false);
             (* Build a pattern type and unify it to get the type variables.
                Unification should not fail here because type checking has already
                been done by the time we get here. *)
@@ -1679,11 +1679,11 @@ struct
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.intType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true))
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so we can have anything here. *)
-                                    mkTypeVar (generalisable, false, false, false)
+                                    mkTypeVar (generalisable, false, false)
                             |   [arg] => mkFn arg (* Just a single function. *)
                             |   args => mkProductType(List.map mkFn args)
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))
@@ -1736,8 +1736,8 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val argPrints  = mkTypeVar (generalisable, false, false, false);
-            val installType   = mkTypeVar (generalisable, false, false, false);
+            val argPrints  = mkTypeVar (generalisable, false, false);
+            val installType   = mkTypeVar (generalisable, false, false);
             (* Build a pattern type and unify it to get the type variables.
                Unification should not fail here because type checking has already
                been done by the time we get here. *)
@@ -1745,7 +1745,7 @@ struct
                we pass in and isn't needed for type info. *)
             val installPPType =
                 mkFunctionType(
-                    mkFunctionType(mkTypeVar (generalisable, false, false, false),
+                    mkFunctionType(mkTypeVar (generalisable, false, false),
                         mkFunctionType (TYPESTRUCT.intType,
                             mkFunctionType(argPrints,
                                 mkFunctionType(installType, TYPESTRUCT.unitType)))),
@@ -1785,11 +1785,11 @@ struct
                         (* Each entry should be a function of type 'a * int -> unit *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.intType], TYPESTRUCT.unitType)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true))
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so we can have anything here. *)
-                                    mkTypeVar (generalisable, false, false, false)
+                                    mkTypeVar (generalisable, false, false)
                             |   [arg] => mkFn arg (* Just a single function. *)
                             |   args => mkProductType(List.map mkFn args)
                         val installPPType =

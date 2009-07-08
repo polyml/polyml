@@ -169,8 +169,8 @@ struct
 
 (*************)
 
-    fun mkTypeVar (level, equality, nonunifiable, weak) = 
-        TypeVar (makeTv (emptyType, level, equality, nonunifiable, weak));
+    fun mkTypeVar (level, equality, nonunifiable) = 
+        TypeVar (makeTv (emptyType, level, equality, nonunifiable));
 
     fun mkTypeConstruction (name, typc, args, locations) =
         TypeConstruction {name = name, value = FrozenRef typc,
@@ -198,7 +198,7 @@ struct
   	let
 		(* Make a type variable and point this at the overload set
 		   so we can narrow down the overloading. *)
-		val var = mkTypeVar (generalisable, false, false, false);
+		val var = mkTypeVar (generalisable, false, false);
 		val set = OverloadSet {typeset=constrs};
 	in
 		tvSetValue (typesTypeVar var, set);
@@ -212,7 +212,7 @@ struct
     if frozen
     then lab
     else let (* Use a type variable so that the record can be expanded. *)
-      val var = mkTypeVar (generalisable, false, false, false);
+      val var = mkTypeVar (generalisable, false, false);
       val U : unit =
         if isTypeVar var
         then tvSetValue (typesTypeVar var, lab)
@@ -314,10 +314,8 @@ struct
 				"createNewField:",
 				"Generic - equality=", Bool.toString(tvEquality gtv),
 				" level=", Int.toString(tvLevel gtv),
-				" weakness=", Bool.toString(tvWeak gtv),
 				" Instance - equality=", Bool.toString(tvEquality tv),
 				" level=", Int.toString(tvLevel tv),
-				" weakness=", Bool.toString(tvWeak tv),
 				"\n"
 			]);*)
 			{ name = name,
@@ -326,8 +324,7 @@ struct
 				 unified with this instance.
 				 The level is inherited from the instance since the generic
 				 will always have level = generalisable.  Nonunifiable must be false. *)
-			  typeof = mkTypeVar (tvLevel tv, tvEquality tv orelse tvEquality gtv,  
-		                       false, false)
+			  typeof = mkTypeVar (tvLevel tv, tvEquality tv orelse tvEquality gtv, false)
 			}
 			)
 		|	createNewField _ =  raise InternalError "createNewField: New field is not a type var"
@@ -1251,7 +1248,7 @@ struct
           (* Make a unifiable type variable even if the original
              is nonunifiable. *)
           val n : types = 
-            mkTypeVar (generalisable, tvEquality tyVar,   false, false); 
+            mkTypeVar (generalisable, tvEquality tyVar, false); 
         in
 		  (* Set the new variable to have the same value as the
 		     existing.  That is only really needed if we have an
@@ -1637,15 +1634,14 @@ struct
 					"newEntry:",
 					"equality=", Bool.toString(tvEquality generic),
 					" level=", Int.toString(tvLevel generic),
-					" weakness=", Bool.toString(tvWeak generic),
 					"\n"
 				]);*)
 				{ name = field,
-				  (* The entry must at least inherit the equality attribute (and weakness?).
+				  (* The entry must at least inherit the equality attribute.
 				     We should have tvLevel generic = generalisable and tvNonUnifiable generic
 					 = false. *)
 				  typeof = mkTypeVar(tvLevel generic, tvEquality generic,
-				  				tvNonUnifiable generic, false)}
+				  				tvNonUnifiable generic)}
 				)
 			fun addEntry [] = [newEntry]
 			 |  addEntry ((ge as {name, typeof = _}) :: geRest) =
@@ -1803,8 +1799,7 @@ struct
                     case we have to save the record and put it on the new
                     type variable. foldType will apply checkForLoops to the
                     record. *)
-                 val newTv = 
-                   mkTypeVar (minLev, tvEquality tvar, false, false);
+                 val newTv = mkTypeVar (minLev, tvEquality tvar, false);
                in
                  tvSetValue (typesTypeVar newTv, tvValue tvar);
                  tvSetValue (tvar, newTv)
@@ -1887,8 +1882,7 @@ struct
 				  fields in the flexible record admit equality and ALSO that any
 				  additional fields we may add by unification with other records
 				  also admit equality. *)
-		    val newTv = 
-		      mkTypeVar (tvLevel tvar, true, false, false);
+		    val newTv = mkTypeVar (tvLevel tvar, true, false);
 			val oldValue = tvValue tvar
 		  in
 		    tvSetValue (tvar, newTv);
@@ -2488,7 +2482,7 @@ struct
 						OverloadSet _ => true
 					|	_ => false
 
-	            (* Make a new generisable type variable, except that weak type
+	            (* Make a new generisable type variable, except that type
 	               variables in an expansive context cannot be generalised.
 				   We also don't generalise if this is an overload set.
 				   The reason for that is that it allows us to get overloading
@@ -2517,8 +2511,7 @@ struct
 	            val newVal =
 	                 mkTypeVar 
 	                   (newLevel, tvEquality tvar,
-	                    if nonCopiable then (tvNonUnifiable tvar) else false,
-	                    false)
+	                    if nonCopiable then (tvNonUnifiable tvar) else false)
 			in
 	            (* If an explicit type variable is going out of scope we can
 	               generalise it, except if it is nonunifiable. *)
@@ -2668,7 +2661,7 @@ struct
   let
     val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
   in
-    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, false))
+    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true))
   end;
        
   (* Find a value constructor in the list of constructors for the datatype.

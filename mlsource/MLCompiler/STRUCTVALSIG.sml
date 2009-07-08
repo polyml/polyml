@@ -29,9 +29,8 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     val inBasis: location
 
-    (* Structures *)
-    type signatures;
     type codetree;
+    type univTable
 
     (* Types *)
   
@@ -104,6 +103,18 @@ sig
             signat: signatures,
             access: valAccess,
             locations: locationProp list
+        }
+
+    and signatures =
+        Signatures of
+        { 
+            name:       string,
+            tab:        univTable,
+            typeIdMap:  int -> typeId,
+            minTypes:   int,
+            maxTypes:   int,
+            boundIds:   typeId list,
+            declaredAt: location
         }
 
     (* Values. *)
@@ -192,7 +203,7 @@ sig
 
     val sameTv: typeVarForm * typeVarForm -> bool;
 
-    val makeTv: types * int * bool * bool * bool -> typeVarForm;
+    val makeTv: types * int * bool * bool -> typeVarForm;
 
     val generalisable: int;
 
@@ -257,17 +268,17 @@ sig
       val makeFunctor: string * structVals * signatures * valAccess * location -> functors;
 
       (* Signatures *)
-  
-      type univTable;
-      val sigName:       signatures -> string;
-      val sigTab:        signatures -> univTable;
-      val sigMinTypes:   signatures -> int;
-      val sigMaxTypes:   signatures -> int;
-      val sigDeclaredAt: signatures -> location;
-      val sigTypeIdMap:  signatures -> (int -> typeId);
 
-      val makeSignatureTable: unit -> univTable;
-      val makeSignature: string * univTable * int * int * location * (int -> typeId) -> signatures;
+    val sigName:       signatures -> string;
+    val sigTab:        signatures -> univTable;
+    val sigMinTypes:   signatures -> int;
+    val sigMaxTypes:   signatures -> int;
+    val sigDeclaredAt: signatures -> location;
+    val sigTypeIdMap:  signatures -> (int -> typeId);
+    val sigBoundIds:   signatures -> typeId list
+
+    val makeSignatureTable: unit -> univTable;
+    val makeSignature: string * univTable * int * int * location * (int -> typeId) * typeId list -> signatures;
 
       (* Values. *)
       val valName: values -> string

@@ -401,7 +401,7 @@ struct
     val emptyTree = EmptyTree;
 
     (* A general type variable for an expression.  This is used to record the type. *)
-    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false, false)
+    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false)
   
     fun mkIdent (name, loc) : parsetree = 
       Ident
@@ -1934,7 +1934,7 @@ struct
                 )
             |   ef => (* Type variables etc. - Use general case. *)
                 let  (* Make arg->'a, and unify with the function. *)
-                    val resType  = mkTypeVar (generalisable, false, false, false);
+                    val resType  = mkTypeVar (generalisable, false, false);
                     val fType    = mkFunctionType (arg, resType);
       
                     (* This may involve more than just assigning the type to "ef". *)
@@ -2054,7 +2054,7 @@ struct
                         else
                         let
                             val var = 
-                                mkVar (name, mkTypeVar (level, false, false, false), [DeclaredAt location]);
+                                mkVar (name, mkTypeVar (level, false, false), [DeclaredAt location]);
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -2213,7 +2213,7 @@ struct
 
             |   Unit _ => unitType
 
-            |   WildCard _ => mkTypeVar (generalisable, false, false, false)
+            |   WildCard _ => mkTypeVar (generalisable, false, false)
 
             |   Parenthesised(p, _) =>
                     processPattern(p, enterResult, level, notConst, isRec)
@@ -2228,7 +2228,7 @@ struct
            types. Returns a type variable if the list is empty.
            This is used for lists, function values (fn .. => ...),
            handlers and case expressions. *)
-        and assignList _ _ [] = mkTypeVar (generalisable, false, false, false)
+        and assignList _ _ [] = mkTypeVar (generalisable, false, false)
         |   assignList processValue _ [single] = processValue single
 
         |   assignList processValue (errorMsg, itemName, separator, location, near) (tlist as hd :: tl) =
@@ -2320,8 +2320,8 @@ struct
                         FunctionType {arg, result} => SOME(arg, result)
                     |   ef => (* May be a simple type variable. *)
                         let
-                            val funResType = mkTypeVar (generalisable, false, false, false);
-                            val funArgType = mkTypeVar (generalisable, false, false, false);
+                            val funResType = mkTypeVar (generalisable, false, false);
+                            val funArgType = mkTypeVar (generalisable, false, false);
                             val fType    = mkFunctionType (funArgType, funResType);
                         in
                             case unifyTypes (fType, funType) of
@@ -2852,7 +2852,7 @@ struct
                             valTypeMessage (lex, typeEnv) ("Raise:", pt, exType),
                             unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v);
                 (* Matches anything *)
-                mkTypeVar (generalisable, false, false, false)
+                mkTypeVar (generalisable, false, false)
             end
   
         | (aHandler as HandleTree {exp, hrules, location}) =>
@@ -3189,7 +3189,7 @@ struct
                     val { ident = { name, location, ... }, args, ... } = dec;
                     (* Declare a new identifier with this name. *)
                     val funVar =
-                        mkVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location])
+                        mkVar (name, mkTypeVar (funLevel, false, false), [DeclaredAt location])
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -3228,7 +3228,7 @@ struct
                        errors we can report them in the most appropriate place.
                        Build a type to be used for the function.  This will later be unified
                        with the type that we've already created for the function variable. *)
-                    val funType = mkTypeVar(generalisable, false, false, false)
+                    val funType = mkTypeVar(generalisable, false, false)
 
                     fun processClause (clause as FValClause {dec, exp, line}) =
                     let

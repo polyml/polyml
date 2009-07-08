@@ -161,6 +161,7 @@ struct
             typeIdMap:  int -> typeId,
             minTypes:   int,
             maxTypes:   int,
+            boundIds:   typeId list,
             declaredAt: location
         }
 
@@ -310,16 +311,18 @@ struct
     fun sigMaxTypes   (Signatures {maxTypes,...})   = maxTypes;
     fun sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt;
     fun sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap;
+    fun sigBoundIds   (Signatures {boundIds, ...})  = boundIds;
 
     val makeSignatureTable = makeUnivTable
 
     (* Make a signature, freezing the table. *)
-    fun makeSignature (name, table, minTypes, maxTypes, location, typeIdMap) =
+    fun makeSignature (name, table, minTypes, maxTypes, location, typeIdMap, boundIds) =
     	Signatures { name = name,
 			   tab        = univFreeze table,
                typeIdMap  = typeIdMap,
 			   minTypes   = minTypes, 
 			   maxTypes   = maxTypes,
+               boundIds   = boundIds,
                declaredAt = location  };
     
   (* Types. *)
@@ -373,22 +376,17 @@ struct
   fun sameTv (a : typeVarForm, b : typeVarForm) : bool = 
     #value a = #value b; (* If the same ref it must be the same *)
         
-  (* To save space "equality", "nonunifiable" and "weak"
-     are encoded together with the level.
-  *)
-
     local
         open Word
         infix 8 >> <<
         infix 7 andb
         infix 6 orb
     in
-        fun makeTv (t : types, lev, equality, nonunifiable, weak) : typeVarForm =
+        fun makeTv (t : types, lev, equality, nonunifiable) : typeVarForm =
             { value    = ref t, (* REF HOTSPOT - 400 *)
               encoding = (fromInt lev << 0w3)
                            orb (if equality     then 0w4 else 0w0)
-                           orb (if nonunifiable then 0w2 else 0w0)
-                           orb (if weak         then 0w1 else 0w0) };
+                           orb (if nonunifiable then 0w2 else 0w0) };
         
         fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t;
         fun tvValue ({value = ref v, ...} : typeVarForm) : types = v;
@@ -516,17 +514,17 @@ struct
            even if the 'a is not an eqType. *)
         val refType =
             makeDatatypeConstr 
-                ("ref", [makeTv (EmptyType, generalisable, false, false, false)],
+                ("ref", [makeTv (EmptyType, generalisable, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "ref"),
                 0, [DeclaredAt inBasis]);
         val arrayType =
             makeFrozenTypeConstrs 
-                ("array", [makeTv (EmptyType, generalisable, false, false, false)],
+                ("array", [makeTv (EmptyType, generalisable, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array.array"),
                 0, [DeclaredAt inBasis]);
         val array2Type =
             makeFrozenTypeConstrs 
-                ("array", [makeTv (EmptyType, generalisable, false, false, false)],
+                ("array", [makeTv (EmptyType, generalisable, false, false)],
                 makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array2.array"),
                 0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
@@ -617,14 +615,12 @@ struct
 
     (* Return the signature. *)
     fun structSignat NoStruct =
-            makeSignature("", makeSignatureTable(), 0, 0, inBasis, fn _ => raise Subscript) (* only if an error *)
+            makeSignature("", makeSignatureTable(), 0, 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
     |   structSignat (Struct {signat,...}) = signat;
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, location) =
-		makeStruct (name,
-            makeSignature("", sigTab signat, sigMinTypes signat, sigMaxTypes signat, location, sigTypeIdMap signat),
-            makeGlobal code, [DeclaredAt location]);
+		makeStruct (name, signat, makeGlobal code, [DeclaredAt location]);
  
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
@@ -634,6 +630,7 @@ struct
                    typeIdMap  = fn _ => raise Subscript,
     			   minTypes   = 0, 
     			   maxTypes   = 0,
+                   boundIds   = [],
                    declaredAt = inBasis  },
             makeGlobal CodeZero, [DeclaredAt inBasis]);
      
