@@ -360,7 +360,7 @@ struct
             (* TODO: What, if anything is the typeID map for the result. *)
             val newSig =
                 makeSignature(sigName oldSig, tab, sigMinTypes oldSig,
-                            sigMaxTypes oldSig, sigDeclaredAt oldSig, sigTypeIdMap oldSig)
+                            sigMaxTypes oldSig, sigDeclaredAt oldSig, sigTypeIdMap oldSig, [])
            val newStruct =
                 Struct { name = structName oldStruct, signat = newSig,
                          access = structAccess oldStruct, locations = structLocations oldStruct}
@@ -446,7 +446,7 @@ struct
         (* Copy everything into the new signature. *)
         val () = fullCopySig (source, tsvEnv, copyId, "");
     in
-        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId)
+        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
     end (* copySig *)
 
     (* Copy the result signature of a structure and renumber values and structures.  The type IDs
@@ -491,7 +491,7 @@ struct
         (* Copy everything into the new signature. *)
         val () = fullCopySig (source, tsvEnv, copyId, "");
     in
-        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId)
+        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
     end (* copySig *)
 
     structure Sharing =
