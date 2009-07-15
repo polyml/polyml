@@ -458,7 +458,7 @@ struct
       then List.nth(recs, offset)
       else (* This can arise if we're processing a branch of a case discriminating on
               a datatype which won't actually match at run-time. *)
-          mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero])
+          mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero, CodeZero])
 
   |  findEntryInBlock (Constnt b) offset =
     ( 
@@ -471,7 +471,7 @@ struct
       if isShort b
       orelse not (Address.isWords (toAddress b)) (* DCJM's bugfix SPF 25/1/95 *)
       orelse Address.length (toAddress b) <= Word.fromInt offset
-      then mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero])
+      then mkRaise (mkTuple [mkConst (toMachineWord EXC_Bind), mkStr "Bind", CodeZero, CodeZero])
       else mkConst (loadWord (toAddress b, toShort offset))
     )
     
