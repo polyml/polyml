@@ -28,7 +28,7 @@ sig
     type tsvEnv = { enterType:   string * typeConstrs -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
-    val copySig: signatures * (int -> bool) * (int -> typeId) -> signatures
+    val copySig: signatures * (int -> bool) * (int -> typeId) * string -> signatures
     val copySigAndRenumber: signatures * (int -> bool) * (int -> typeId) * int -> signatures
     val fullCopySig: signatures * tsvEnv * (typeId -> typeId option) * string -> unit    
     val fullCopyDatatype: typeConstrs * (typeId -> typeId option) * string -> typeConstrs

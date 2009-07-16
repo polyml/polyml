@@ -913,24 +913,9 @@ struct
 (*****************************************************************************)
   (* Look-up functions. *)
 
-    (* Turn a typeId from Formal into Selected.  All typeIds are held in
-       the parent structure so we don't have to worry about whether they
-       are relative to the parent or to a sub-structure. *)
-    fun idFromStructure str : typeId -> typeId option =
-    let
-        fun updateDescription{ location, name, description } =
-            { location = location, description = description, name = structName str ^ "." ^ name }
-    in
-        fn (id as Free{ uid, allowUpdate, access=Formal addr, description }) =>
-                SOME(Free { uid=uid, allowUpdate=allowUpdate,
-                            access=makeSelected(addr, str), description = updateDescription description})
-        |   (id as Bound { offset = offset, eqType = eqType, access = Formal addr, description }) =>
-                SOME(Bound { offset = offset, eqType = eqType,
-                             access = makeSelected(addr, str), description = updateDescription description })
-        |   id => NONE
-    end
-    
-  
+    (* I've left this for the moment. *)
+    fun idFromStructure str : typeId -> typeId option = fn _ => NONE
+
     (* Look up a structure. *)
     (* TODO: This copies the signature of the structure to ensure that type IDs within
        the structure become Selected entries. lookupStructure is also used when we are

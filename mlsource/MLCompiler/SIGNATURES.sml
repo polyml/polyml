@@ -1373,7 +1373,7 @@ struct
                 val resSig =
                     copySig (makeSignature(sigName resultSig, sigTab resultSig, initTypeId,
                                           ! idCount, sigDeclaredAt resultSig, mapFunction, mappedIds),
-                             fn n => n >= initTypeId, mapFunction)
+                             fn n => n >= initTypeId, mapFunction, "")
             in
                 (* Set the size of the type table for the signature we return. *)
                 makeSignature (sigName resSig, sigTab resSig, initTypeId, !typeCounter,

@@ -425,11 +425,7 @@ struct
     end
 
     (* Copy the result signature of a structure. *)
-    fun copySig 
-        (source       : signatures,
-         wantCopy     : int -> bool,
-         mapTypeId    : int -> typeId)
-        : signatures = 
+    fun copySig(source: signatures, wantCopy: int -> bool, mapTypeId: int -> typeId, strName: string): signatures = 
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
@@ -444,7 +440,7 @@ struct
             enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
         }
         (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, copyId, "");
+        val () = fullCopySig (source, tsvEnv, copyId, strName);
     in
         makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
     end (* copySig *)
