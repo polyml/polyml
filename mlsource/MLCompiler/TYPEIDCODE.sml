@@ -65,8 +65,6 @@ struct
     infix 7 orb;
     val mutableFlags = F_words orb F_mutable;
 
-    fun notFormal _ = raise InternalError "Not Formal"
-
     (* Pretty printer code.  These produce code to apply the pretty printer functions. *)
     fun codePrettyString(s: string) = mkConst(toMachineWord(PrettyString s))
     and codePrettyStringVar(s: codetree) =
@@ -125,39 +123,37 @@ struct
     fun codeStruct (str, level) =
         if isUndefinedStruct str
         then CodeNil
-        else codeAccess (structAccess str, notFormal, level)
+        else codeAccess (structAccess str, level)
 
-    and codeAccess (Global code, _, _) = code
+    and codeAccess (Global code, _) = code
       
-    |   codeAccess (Local{addr=ref locAddr, level=ref locLevel}, _, level) =
+    |   codeAccess (Local{addr=ref locAddr, level=ref locLevel}, level) =
             mkLoad (locAddr, level - locLevel) (* No need for the recursive case. *)
      
-    |   codeAccess (Selected{addr, base}, _, level) =
+    |   codeAccess (Selected{addr, base}, level) =
             mkInd (addr, codeStruct (base, level))
-
-    |   codeAccess (Formal addr, getFormal, level) = getFormal(addr, level)
      
     |   codeAccess _ = raise InternalError "No access"
 
     (* Load an identifier. *)
-    fun codeIdWithFormal(Free{access, ...}, getFormal, level) = codeAccess(access, getFormal, level)
-    |   codeIdWithFormal(Bound{access, ...}, getFormal, level) = codeAccess(access, getFormal, level)
-    |   codeIdWithFormal _ = raise InternalError "codeId: Unknown form"
+    fun codeId(Free{access, ...}, level) = codeAccess(access, level)
+    |   codeId(Bound{access, ...}, level) = codeAccess(access, level)
+    |   codeId _ = raise InternalError "codeId: Unknown form"
 
     (* Create a printer for a type function.  This is used to create the general
        print function for any type. *)
-    and printerForTypeFunction(argTypes, resType, getFormal, level) =
+    and printerForTypeFunction(argTypes, resType, level) =
         (* Wrap this in the functions for the depth and the type arguments. *)
         mkProc(
             mkProc(
                 mkProc(
                     printCodeForType(
-                        resType, mkLoad(~1, 0), 0, mkLoad(~1, 2), level+3, argTypes, getFormal),
+                        resType, mkLoad(~1, 0), 0, mkLoad(~1, 2), level+3, argTypes),
                     level+2, 1, "print-helper"),
                 level+1, 1, "print-helper()"),
             level, 1, "print-helper()()")
 
-    and printCodeForType(ty, valToPrint, depth, depthCode, baseLevel, argTypes, getFormal) =
+    and printCodeForType(ty, valToPrint, depth, depthCode, baseLevel, argTypes) =
     let
         fun printCode(TypeVar tyVar, valToPrint, depth, depthCode, level) =
             if not (isEmpty(tvValue tyVar))
@@ -196,7 +192,7 @@ struct
                                valToPrint, depth, depthCode, level)
                 else
                 let
-                    val codedId = codeIdWithFormal(tcIdentifier typConstr, getFormal, level)
+                    val codedId = codeId(tcIdentifier typConstr, level)
                         handle exn =>
                         (
                             print(concat["codedId: ", tcName typConstr, "\n"]);
@@ -408,9 +404,9 @@ struct
     |  TwoArgs _ => raise InternalError "applyEq: wrong result"    
 
     (* Create an equality function for a type function. *)
-    and equalityForTypeFunction(argTypes, resType, getFormal, level) =
+    and equalityForTypeFunction(argTypes, resType, level) =
     let
-        fun getEqFnForID(typeId, _, l) = (mkInd(0, codeIdWithFormal(typeId, getFormal, l)), NONE)
+        fun getEqFnForID(typeId, _, l) = (mkInd(0, codeId(typeId, l)), NONE)
         val nTypeVars = List.length argTypes
         fun typeVarFun tv =
         let
@@ -435,20 +431,10 @@ struct
     in
         mkInlproc(innerFnCode, level, nTypeVars, "equality()")
     end
-    
-(*    and equalityForTypeFunction(argTypes, resType, getFormal, level) =
-    let
-    in
-        mkProc(
-            mkProc(
-                mkEval(mkConst(toMachineWord structureEq),
-                    [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper"),
-            0, 0, "eq-helper()")
-    end*)
 
-    and equalityForType(ty: types, getFormal, level: int): codetree =
+    and equalityForType(ty: types, level: int): codetree =
     let
-        fun getEqFnForID(typeId, _, l) = (mkInd(0, codeIdWithFormal(typeId, getFormal, l)), NONE)
+        fun getEqFnForID(typeId, _, l) = (mkInd(0, codeId(typeId, l)), NONE)
         fun unmatchedTypeVar _ = PairArg(fn _ => mkConst (toMachineWord structureEq))
         val resultCode = makeEq(ty, MakeFun, getEqFnForID, unmatchedTypeVar)
     in
@@ -469,12 +455,12 @@ struct
        function to an empty set of type arguments.
        fn (v, depth) => ptf depth () v
        *)
-    and printerForType (ty: types, getFormal, level): codetree =
+    and printerForType (ty: types, level): codetree =
         mkProc(
             mkEval(
                 mkEval(
                     mkEval(
-                        printerForTypeFunction([], ty, getFormal, level+1),
+                        printerForTypeFunction([], ty, level+1),
                         [mkInd(1, mkLoad(~1, 0))], (* Depth *)
                         false
                     ),
@@ -487,11 +473,11 @@ struct
             level, 1, "print-helper")
 
     (* Exported version. *)
-    val printerForType = fn (ty, level) => printerForType(ty, notFormal, level)
+    val printerForType = fn (ty, level) => printerForType(ty, level)
 
     (* Exported function.  Returns a function from an ML pair of values to bool.
        N.B. This differs from the functions in the typeID which take a Poly pair. *)
-    val equalityForType = fn (ty, level) => equalityForType(ty, notFormal, level)
+    val equalityForType = fn (ty, level) => equalityForType(ty, level)
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
     fun equalityForDatatypes(typelist, eqAddresses, baseLevel): codetree list =
@@ -513,7 +499,7 @@ struct
                     else
                     case List.find(fn(tc, addr) => sameTypeId(tcIdentifier tc, typeId)) typesAndAddresses of
                         SOME(_, addr) => mkLoad(addr, l-baseLevel) (* Mutually recursive. *)
-                    |   NONE => mkInd(0, codeIdWithFormal(typeId, notFormal, l))
+                    |   NONE => mkInd(0, codeId(typeId, l))
                 (* If this is a recursive call and the type arguments that are being passed (if any) are
                    the same as the original arguments we can call the inner function directly.
                    e.g. if we have datatype 'a list = nil | :: of ('a * 'a list) the recursive
@@ -568,7 +554,7 @@ struct
                 else
                 let
                     val newLevel = baseLevel+2 (* We have two enclosing functions. *)
-                    val base = codeAccess(access, notFormal, newLevel)
+                    val base = codeAccess(access, newLevel)
                     fun matches arg =
                         mkEval(mkInd(0, base) (* Test function. *), [arg], true)
                 in
@@ -586,7 +572,7 @@ struct
 
                             (* Code to extract the value. *)
                             fun destruct argNo l =
-                                mkEval(mkInd(2, codeAccess(access, notFormal, l)) (* projection function. *),
+                                mkEval(mkInd(2, codeAccess(access, l)) (* projection function. *),
                                     [mkLoad(argNo, l-newLevel)], true)
 
                             (* Test whether the values match. *)
@@ -655,7 +641,7 @@ struct
                 (* The "value" for a value constructor is a tuple containing
                    the test code, the injection and the projection functions. *)
                 val constructorCode =
-                    codeAccess(access, notFormal, innerLevel)
+                    codeAccess(access, innerLevel)
                 
                 val printCode =
                     if nullary
@@ -676,7 +662,7 @@ struct
                                     (* Print the argument and parenthesise it if necessary. *)
                                     mkEval(mkConst(toMachineWord parenthesise),
                                         [printCodeForType(typeOfArg, getValue, depth, depthCode,
-                                                     innerLevel, argTypes, notFormal)],
+                                                     innerLevel, argTypes)],
                                         false)
                                 ], CodeZero))
                     end
@@ -713,12 +699,12 @@ struct
        does not affect the old type. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(sourceId as TypeFunction(argTypes, resType), getFormal, isEq, level) =
+    fun codeGenerativeId(sourceId as TypeFunction(argTypes, resType), isEq, level) =
         let
-            val printCode = printerForTypeFunction(argTypes, resType, getFormal, level)
+            val printCode = printerForTypeFunction(argTypes, resType, level)
             and eqCode =
                 if isEq
-                then equalityForTypeFunction(argTypes, resType, getFormal, level)
+                then equalityForTypeFunction(argTypes, resType, level)
                 else CodeZero
         in
             mkTuple[
@@ -731,10 +717,10 @@ struct
             ]
         end
 
-    |   codeGenerativeId(sourceId, getFormal, isEq, level) =
+    |   codeGenerativeId(sourceId, isEq, level) =
         let
             (* TODO: Use multipleUses here. *)
-            val sourceCode = codeIdWithFormal(sourceId, getFormal, level)
+            val sourceCode = codeId(sourceId, level)
         in
             mkTuple
             [
@@ -748,8 +734,6 @@ struct
                 false)  
             ]
         end
-    
-    fun codeId(source, level) = codeIdWithFormal(source, notFormal, level)
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(typelist, mkAddr, level) =

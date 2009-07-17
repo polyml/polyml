@@ -24,7 +24,7 @@ sig
     type typeConstrs
     type typeVarForm
     val codeId: typeId * int -> codetree
-    val codeGenerativeId: typeId * (int*int->codetree) * bool * int -> codetree
+    val codeGenerativeId: typeId * bool * int -> codetree
     
     val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
     

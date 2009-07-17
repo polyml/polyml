@@ -1231,12 +1231,11 @@ struct
                     matchSigs (actualArgSig, formalArgSig, fn n => displayStruct(str, n), fullLoc, lex, typeEnv);
                 (* Create a list of the type IDs that the argument must supply. *)
                 local
-                    val args = ref nil
-                    fun makeList n =
-                        args := { source = matchResults n, dest = sigTypeIdMap formalArgSig n } :: ! args
+                    val maxT = sigMaxTypes formalArgSig and minT = sigMinTypes formalArgSig
+                    val results = List.tabulate(maxT-minT, fn n => matchResults(n+minT))
+                    val args = ListPair.mapEq(fn(s, d) => { source = s, dest = d })(results, sigBoundIds formalArgSig)
                 in
-                    val () = tabulate(sigMinTypes formalArgSig, sigMaxTypes formalArgSig, makeList)
-                    val () = argIds := List.rev(! args); (* Save for code-generation. *)
+                    val () = argIds := args; (* Save for code-generation. *)
                 end
                 
                 val startResultIDs = currentTypeCount()
@@ -1245,9 +1244,8 @@ struct
                    the result signature.  Any type IDs inherited from the argument will have type ID
                    values less than sigMinTypes functorResSig. *)
                 local
-                    fun makeNewTypeId n =
+                    fun makeNewTypeId oldId =
                     let
-                        val oldId = sigTypeIdMap functorResSig(n+sigMinTypes functorResSig)
                         val oldName =
                             case oldId of
                                 Bound { description = { name, ...}, ...} => name
@@ -1255,16 +1253,16 @@ struct
                         val description =
                             { location = fullLoc, name = oldName, description = "Created from applying functor " ^ name }
                         val newId = newTypeId(false, isEquality oldId, description)
-                        (* The resIds list tells the code-generator where to find the source of each
-                           ID in the result structure and where to save the generative ID. *)
-                        val () = resIds := { source = oldId, dest = newId } :: ! resIds
                     in
-                        newId
+                        { source = oldId, dest = newId }
                     end
+                    (* The resIds list tells the code-generator where to find the source of each
+                       ID in the result structure and where to save the generative ID. *)
+                    val sdList = List.map makeNewTypeId (sigBoundIds functorResSig)
+                    val _ = resIds := sdList (* Save for code-generation. *)
                 in
                     (* This vector contains the resulting type IDs.  They all have Local access. *)
-                    val resVector =
-                        Vector.tabulate(sigMaxTypes functorResSig - sigMinTypes functorResSig, makeNewTypeId)
+                    val resVector = Vector.fromList(List.map(fn { dest, ...} => dest) sdList)
                 end
                 
                 (* Construct a result signature using copySigAndRenumber.  This will contain all the
@@ -1277,12 +1275,6 @@ struct
                    the argument will ensure that type IDs created in the argument are declared
                    as Locals and if we pass localIDs to matchStructure we will load IDs from
                    both the argument and generative IDs created by loadOpaqueIds. *)
-
-                (* What we want here is the #dest from localIDs because those are the Formals. *)
-                val (sourceIdList, destIdList) =
-                    ListPair.unzip(List.map (fn { source, dest } => (source, dest)) [])
-                val destIdVec = Vector.fromList destIdList
-
                 fun getCombinedTypeId n =
                     if n >= sigMinTypes functorResSig
                     then Vector.sub(resVector, n - sigMinTypes functorResSig)
@@ -1467,35 +1459,31 @@ struct
                     if opaque
                     then
                     let
-                        val opaques = ref nil
                         val startResIds = currentTypeCount()
                         (* Construct new IDs for the generic IDs.  For each ID in the signature
                            we need to make a new Local ID. *)
-                        fun makeNewId n =
+                        fun makeNewId oldId =
                         let
-                            val oldId = sigTypeIdMap explicitSig (n+minExplicitSig)
                             val name =
                                 case oldId of
                                     Bound { description = { name, ...}, ...} => name
                                 |   _ => "" (* Or error? *)
                             val description =
                                 { location = sigLoc, name = name, description = "Created from opaque signature" }
-                            val newId = newTypeId(false, isEquality oldId, description)
-                            val oldAccess = idAccess oldId
-                            (* Construct a list of the newIds and their source. *)
-                            val () = opaques := { dest = newId, source = matchResults(n+minExplicitSig) } :: ! opaques
                         in
-                            newId
+                            newTypeId(false, isEquality oldId, description)
                         end
-;
-                        (* Create new IDs for all the bound IDs in the signature. *)
-                        val v = Vector.tabulate (maxExplicitSig-minExplicitSig, makeNewId) 
-                        fun resTypeMap id = Vector.sub (v, id - minExplicitSig)
 
+                        val sources = List.tabulate(maxExplicitSig-minExplicitSig, fn n => matchResults(n+minExplicitSig))
+                        val dests = List.map makeNewId (sigBoundIds explicitSig)
                         (* Add the matching IDs to a list.  When we create the code for
                            the structure we need to create new run-time ID values using
                            the original equality code and a new ref to hold the printer. *)
-                        val () = opaqueIds := List.rev (!opaques)
+                        val () = opaqueIds := ListPair.mapEq (fn (s, d) => { source=s, dest=d }) (sources, dests)
+                        (* Create new IDs for all the bound IDs in the signature. *)
+                        val v = Vector.fromList dests
+
+                        fun resTypeMap id = Vector.sub (v, id - minExplicitSig)
                         (* And copy it to put in the names from the structure. *)
                         val copiedSig = copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap, "")
                         val newIdEnv = newTypeIdEnv ()
@@ -1963,7 +1951,7 @@ struct
                             newId
                         end
 
-                        (* Type IDs from the argument need to Selected entries. *)
+                        (* Type IDs from the argument need to be Selected entries. *)
                         fun resArgEnv n =
                             case sigTypeIdMap signat n of
                                 id as Bound { offset = offset, eqType = eqType, access = Formal addr, description } =>
@@ -2298,32 +2286,19 @@ struct
                     (* Process the type IDs in the signature.  We're only interested in typeIDs that are
                        marked as Formal because those are the only ones that need to be extracted from
                        the structure. *)
-                    fun doTypeID n =
-                    let
-                        val typeId = sigTypeIdMap dest n
-                    in
-                        if isFreeId typeId orelse isBoundId typeId
-                        then 
-                        case idAccess typeId of
-                            Formal addr =>
-                            let
-                                (* Get the corresponding source ID. *)
-                                val codedId =
-                                    case sourceIds(n-sigMinTypes dest, isEquality typeId) of
-                                        Formal svAddr =>
-                                        (
-                                            if svAddr <> addr then useOriginal := false else ();
-                                            mkInd (svAddr, load)
-                                        )
-                                    |   access => (useOriginal := false; codeAccess(access, !level))
-                            in
-                                addToList codedId addr
-                            end
-                        |   _ => ()
-                        else ()
-                    end
+                    fun doTypeID (typeId as Bound{ access = Formal addr, ...}, n) =
+                        let
+                            (* Get the corresponding source ID. *)
+                            val codedId = codeAccess(sourceIds(n, isEquality typeId), !level)
+                        in
+                            useOriginal := false;
+                            addToList codedId addr;
+                            n+1
+                        end
+                    |   doTypeID _ = raise InternalError "doTypeID: Not Bound or not Formal"
                 in
-                    tabulate (sigMinTypes dest, sigMaxTypes dest, doTypeID)
+                    List.foldl doTypeID 0 (sigBoundIds dest);
+                    ()
                 end;
              
             (* If we have copied the original we can use it unchanged. *)
@@ -2344,14 +2319,14 @@ struct
 
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
-    fun loadOpaqueIds(getFormal, opaqueIds) =
+    fun loadOpaqueIds opaqueIds =
     let
         fun decId { dest, source } =
         let
             val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
             val addr = mkAddr();
             val () = idAddr := addr and () = idLevel := ! level;
-            val idCode = codeGenerativeId(source, getFormal, isEquality dest, !level)
+            val idCode = codeGenerativeId(source, isEquality dest, !level)
         in
             mkDec(addr, idCode)
         end
@@ -2374,15 +2349,30 @@ struct
             in
                 case id of
                     TypeFunction _ => (* Have to generate a function here. *)
-                        Global(codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                        Global(codeGenerativeId(id, isEq, !level))
                 |   _ => idAccess id
             end
             val argCode =
                 matchStructure(argLoadSource, sigTab argCodeSig, getMatchedId, structSignat (functorArg functs))
-            (* Similarly we need to retain the result in order to produce the generative type IDs. *)
+
+            (* To produce the generative type IDs we need to save the result vector returned by the
+               functor application and then generate the new type IDs from the IDs in it.  To make valid
+               source IDs we have to turn the Formal entries in the signature into Selected entries. *)
             val resAddr = mkAddr()
-            val loadIds = loadOpaqueIds(fn(n, l) => mkInd(n, mkLoad(resAddr, l - !level)), List.rev resIds)
-            val offset = sigMinTypes resultSig - sigMinTypes(functorResult functs)
+            local 
+                val dummyResStruct = makeLocalStruct("", resultSig, []) (* Dummy structure. *)
+                val resl = vaLocal (structAccess dummyResStruct);
+                val () = #addr  resl := resAddr; 
+                val () = #level resl := !level
+                fun mkSelected{source = Bound{offset = offset, eqType = eqType, access = Formal addr, description}, dest} =
+                    { source = Bound { offset = offset, eqType = eqType,
+                                       access = makeSelected(addr, dummyResStruct), description = description },
+                      dest = dest }
+                |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
+                val resultIds = List.map mkSelected resIds
+            in
+                val loadIds = loadOpaqueIds resultIds
+            end
         in
             (* Evaluate the functor. *)
             {
@@ -2434,7 +2424,7 @@ struct
         let
 		    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (str, strName, debugEnv)
             val tempDecs = multipleUses (strLoad, mkAddr, !level);
-            val ids = loadOpaqueIds(fn(n, l) => mkInd(n, #load tempDecs l), opaqueIds)
+            val ids = loadOpaqueIds opaqueIds
         in
             {
                 code = strCode @ #dec tempDecs @ ids,
@@ -2556,8 +2546,7 @@ struct
                     in
                         case id of
                             TypeFunction _ => (* Have to generate a function here. *)
-                                Global(
-                                    codeGenerativeId(id, fn _ => raise InternalError "Not Formal", isEq, !level))
+                                Global(codeGenerativeId(id, isEq, !level))
                         |   _ => idAccess id
                     end
                     val matchedCode = matchStructure (strLoad, sigTab strSig, getIds, functorResult func)
