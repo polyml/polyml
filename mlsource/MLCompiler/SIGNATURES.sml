@@ -518,264 +518,182 @@ struct
         )
         |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
 
-        (* Process a sharing constraint. *)
-        fun applySharingConstraint 
-              ({shares = tlist, isType, line}: shareConstraint,
-               Env tEnv    : env,
-               near        : sigs)
-              : unit =
-        let
-            fun shareTypes(typeA, typeB, lno) =
+        local (* Sharing *)
+            fun shareTypes(typeA, aPath, typeB, bPath, lno, nearStruct) =
             let
                 fun cantShare reason =
                 let
-                    fun showTypeCons t =
+                    fun showTypeCons(t, p) =
                     let
                         val context =
                             case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations t) of
                                 SOME(DeclaredAt loc) => [ContextLocation loc]
                             |   _ => []
                     in
-                        PrettyBlock(0, false, context, [PrettyString(tcName t)])
+                        PrettyBlock(0, false, context, [PrettyString(p ^ tcName t)])
                     end
                 in
-                    errorMsgNear (lex, true, fn n => displaySigs(near, n), lno,
-                        PrettyBlock(0, false, [],
+                    errorMsgNear (lex, true, fn n => displaySigs(nearStruct, n), lno,
+                        PrettyBlock(3, false, [],
                             [
                                 PrettyString "Cannot share type",
                                 PrettyBreak(1, 2),
-                                showTypeCons typeA,
+                                showTypeCons(typeA, aPath),
                                 PrettyBreak(1, 0),
                                 PrettyString "with type",
                                 PrettyBreak(1, 0),
-                                showTypeCons typeB,
+                                showTypeCons(typeB, bPath),
                                 PrettyBreak(0, 0),
                                 PrettyString ".",
                                 PrettyBreak(1, 0),
-                                PrettyString reason
+                                reason
+                            ]))
+                end
+ 
+                fun alreadyBound(path, typeAB) =
+                let
+                    fun printId(_, Free{description, ...}) = printDesc description
+                    |   printId(_, Bound{description, ...}) = printDesc description
+                    |   printId(tc, TypeFunction(args, _)) =
+                            display(makeEquivalent(tc, List.map TypeVar args), 10000, emptyTypeEnv)
+
+                    and printDesc{ location: location, name: string, description = "" } =
+                            PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
+                    |   printDesc{ location: location, name: string, description: string } =
+                            PrettyBlock(0, false, [ContextLocation location],
+                                [PrettyString name, PrettyBreak(1, 0), PrettyString ("(*" ^ description ^ "*)")])
+                in
+                    cantShare (
+                        PrettyBlock(3, false, [],
+                            [
+                                PrettyString(path ^ tcName typeAB),
+                                PrettyBreak(1, 0),
+                                PrettyString "is already defined as",
+                                PrettyBreak(1, 0),
+                                printId(typeAB, tcIdentifier typeAB)
                             ]))
                 end
             in
                 if isUndefinedTypeConstr typeA orelse isUndefinedTypeConstr typeB
                 then ()
                 else if tcArity typeA <> tcArity typeB (* Check arity. *)
-                then cantShare "The type constructors take different numbers of arguments."
+                then cantShare(PrettyString "The type constructors take different numbers of arguments.")
                 
                 (* The type constructors are only looked up in the signature but they
                    already may be set to another type through a "where type" or they may
                    have been created with Free IDs through type t=s declarations.  This
                    could be a free identifier or a type function.  *)
                 else if not (isVariableId (tcIdentifier typeA))
-                then cantShare (tcName typeA ^ " is already defined as another type.")
-
+                then alreadyBound(aPath, typeA)
                 else if not (isVariableId (tcIdentifier typeB))
-                then cantShare (tcName typeB ^ " is already defined as another type.")
+                then alreadyBound(bPath, typeB)
                 else linkFlexibleTypeIds(tcIdentifier typeA, tcIdentifier typeB)
             end (* shareTypes *);
 
+            (* Find all the structures and type constructors in one structure. *)
+            fun structsAndTypes((structVal, path), start) =
+            let
+                fun get(name, dVal, (ts, ss)) =
+                    if tagIs structVar dVal
+                    then (ts, (name, (tagProject structVar dVal, path ^ name ^ ".")) :: ss)
+                    else if tagIs typeConstrVar dVal
+                    then ((name, (tagProject typeConstrVar dVal, path)) :: ts, ss)
+                    else (ts, ss)
+            in
+                univFold (sigTab(structSignat structVal), get, start)
+            end
 
-(********************* Start of SPF's rewrite (incomplete!) **********************)
+            (* Get all the structures and type constructors in a list of structures. *)
+            fun allStructsAndTypes structs = List.foldl structsAndTypes ([], []) structs
 
-        (* The purpose of the following code was to fix some bugs in my
-           original structure sharing code for ML90 and also to simplify it.  In
-           particular it detected cyclic sharing constraints more accurately.
-           These were cases of "sharing A = A.B" which were illegal in ML90
-           but are legal in ML97 (it's a short-hand for sharing type A.t = A.B.t).
-           Much of it is no longer relevant since we are only interested in
-           sharing types in ML97. I've simplified it somewhat but it
-           might be worth simplifying it further. DCJM 27/7/00. *)
+            (* Turn a list of names and structures/types into a list of lists. Each entry in
+               the result list is all those structures/types with the same name. *)
+            fun getMatchedEntries entries =
+            let
+                (* Sort the items so that items with the same name are brought together.
+                   A signature is not allowed to have items of the same kind with the
+                   same name so this means that we are bringing together items from
+                   different structures.  Then filter the result to produce sets of items
+                   with the same name.  Discard singletons in the result. *)
+                val sortedEntries = quickSort (fn (s1, _) => fn (s2, _) => s1 <= s2) entries
+                (* *)
+                fun getEquals([], _, [], res) = res (* End of empty list. *)
+                |   getEquals([], _, [_], res) = res (* Last item was singleton: discard *)
+                |   getEquals([], _, acc, res) = acc :: res (* Return last item. *)
 
-        (* useful stuff *)
-        (* sets as unordered lists *)
-        fun member (eq : 'a * 'a -> bool) x []       = false
-          | member (eq : 'a * 'a -> bool) x (h :: t) =
-              eq (x, h) orelse member eq x t;
-        
-        fun addToSet (eq : 'a * 'a -> bool) x l =
-          if member eq x l then l else x :: l;
-        
-        fun union (eq : 'a * 'a -> bool) []       l = l
-          | union (eq : 'a * 'a -> bool) (h :: t) l =
-              if member eq h l then union eq t l else h :: union eq t l;
-              
-        fun unionMap (eq : 'b * 'b -> bool) (f : 'a -> 'b list) ([] : 'a list) : 'b list = []
-          | unionMap (eq : 'b * 'b -> bool) (f : 'a -> 'b list) (h :: t) =
-              union eq (f h) (unionMap eq f t)
-      
-        type virtStruct = signatures list;
-        
-        (* Find all the substructure names occurring in a single structure *)
-        fun subStructureNames (sigVal : signatures) : string list = 
-           univFold
-            (sigTab sigVal,
-             fn (structName, dVal, names) =>
-               if tagIs structVar dVal then structName :: names else names,
-             []);
-  
-        (* Find all the type constructor names occurring in a single structure *)
-        fun typeConstrNames (sigVal : signatures) : string list = 
-           univFold
-            (sigTab sigVal,
-             fn (typeName, dVal, names) =>
-               if tagIs typeConstrVar dVal then typeName :: names else names,
-             []);
-      
-        (* Find all the substructure names occurring in a virtual structure. *)
-        fun virtSubStructureNames sigs : string list =
-          unionMap (op =) subStructureNames sigs;
-         
-        (* Find all the type constructor names occurring in a virtual structure. *)
-        fun virtTypeConstrNames sigs : string list =
-          unionMap (op =) typeConstrNames sigs;
-         
-        (* Find the named virtual substructure of a virtual structure. *)
-        fun getVirtSubStructure sigs (strName : string) : virtStruct =
-        let
-           (* 
-              Look up the name of the substructure. It may not
-              be there because not every substructure occurs
-              in every structure of the virtual structure.
-           *)
-          val substrList : signatures list =
-            List.foldr
-              (fn (sigVal : signatures, res : signatures list) =>
-                  case univLookup (sigTab sigVal, structVar, strName) of
-                     SOME str => structSignat str :: res
-                  |  NONE => res)
-             []
-             sigs;
-        in
-          substrList
-        end;
-        
-        (* Find the named typed constructors of a virtual structure. *)
-        fun getVirtTypeConstrs sigs (typeName : string) : typeConstrs list =
-        let
-           fun funForFold (sigVal : signatures, res : typeConstrs list) : typeConstrs list =
-                case univLookup (sigTab sigVal, typeConstrVar, typeName) of
-                 SOME r => r :: res
-              |  NONE => res
-        in
-          List.foldr funForFold [] sigs
-        end;
-                
-        (* Find all the substructure names occurring in a list of virtual structures *)
-        fun listVirtSubStructureNames (virts : virtStruct list) : string list = 
-           unionMap (op =) virtSubStructureNames virts;
-        
-        (* Find all the type constructor names occurring in a list of virtual structures *)
-        fun listVirtTypeConstrNames (virts : virtStruct list) : string list = 
-           unionMap (op =) virtTypeConstrNames virts;
-      
-        (* Find all the named virtual substructures occurring in a list of virtual structures *)
-        fun listVirtSubStructures (virts : virtStruct list) (strName : string) : virtStruct list = 
-        let
-          fun funForFold (vs : virtStruct, res : virtStruct list) : virtStruct list = 
-            getVirtSubStructure vs strName :: res
-        in
-          List.foldr funForFold [] virts 
-        end;
-        
-        (* Find all the named virtual type constructors occurring in a list of virtual structures *)
-        fun listVirtTypeConstrs (virts : virtStruct list) (strName : string) : typeConstrs list = 
-        let
-          fun funForFold (vs : virtStruct, res : typeConstrs list) : typeConstrs list = 
-            (getVirtTypeConstrs vs strName) @ res
-        in
-          List.foldr funForFold [] virts 
-        end;
-        
-        fun shareVirtStructs ([], _)      = raise InternalError "Empty sharing list"
-          | shareVirtStructs (virts,  _)  = 
-         let
-           (* Share the types *)
-           val typeConstrNames : string list = listVirtTypeConstrNames virts;
-           
-           fun shareVirtTypeConstr (typeName : string) : unit = 
-           let
-             (* Find all the type constructors with this name *)
-             val tcs : typeConstrs list = listVirtTypeConstrs virts typeName;
-             
-             fun shareWith (tc : typeConstrs) ([] : typeConstrs list) = ()
-               | shareWith tc (h :: t) = 
-             let
-               val U : unit = shareTypes (tc, h, lno);
-             in
-               shareWith tc t
-             end;
-             
-             fun shareAll ([] : typeConstrs list) = ()
-               | shareAll (h :: t) =
-             let 
-               val U : unit = shareWith h t
-             in
-               shareAll t
-             end;
-           in  
-             (* Share them all pair-wise (inefficient!) *)
-             shareAll tcs
-           end;
-           
-           val U : unit list = map shareVirtTypeConstr typeConstrNames;
-           
-           (* Share the substructures *)
-           val subStrNames : string list = listVirtSubStructureNames virts;
-           
-           fun shareVirtSubstruct (strName : string) : unit =
-             shareVirtStructs (listVirtSubStructures virts strName, lno);
-           
-         in
-            map shareVirtSubstruct subStrNames;
-            ()
-         end;
-         
-        
-         fun shareStructures (shareList : signatures list, lno : LEX.location) : unit =
-           shareVirtStructs (map (fn strVal => [strVal]) shareList, lno);
+                |   getEquals((s, t) :: r, a: string, acc, res) =
+                        if a = s then getEquals(r, a, t :: acc, res) (* Same name as last item. *)
+                        else case acc of (* Different from last item: *)
+                            [] => getEquals(r, s, [t], res) (* No previous item. *)
+                       |    [_] => getEquals(r, s, [t], res) (* Last was singleton: discard. *)
+                       |    acc => getEquals(r, s, [t], acc :: res)
+            in
+                getEquals(sortedEntries, "", [], [])
+            end
 
-        (* When looking up the structure and type names we look only
-           in the signature in ML97.  We add this to make it clear that
-           we are only looking up in the signature otherwise we get
-           confusing messages such as "type (int) has not been declared". *)
-         fun lookupFailure msg =
-             giveError (str, line, lex) (msg ^ " in signature.")
-
-        in
-              if isType
-              then let (* Type sharing. *)
-                fun lookupSharing (name: string) = 
-                  lookupTyp
-                   ({ 
-                      lookupType   = #lookupType   tEnv,
-                      lookupStruct = #lookupStruct tEnv
-                    },
-                    name,
-                    lookupFailure)
-                      
-                val first  = lookupSharing (hd tlist);
-              in
-                if not (isUndefinedTypeConstr first)
-                then
-                  List.app
-                    (fn typ => shareTypes (lookupSharing typ, first, line))
-                    (tl tlist)
-                 else ()
-              end
-
-              else let (* structure sharing. *)
-                fun getStructSignat (name: string) : signatures =
+            (* Recursively apply the sharing constraints to corresponding types in a list of
+               structures. *)
+            fun structureSharing(structs, line, near) =
+            let
+                fun shareStructs structs =
                 let
-                  val subStr : structVals =
-                    lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure);
+                    val (allTypes, allSubstructs) = allStructsAndTypes structs
+                    (* Get the lists of structures and types to share. *)
+                    val matchedTypes = getMatchedEntries allTypes
+                    val matchedStructs = getMatchedEntries allSubstructs
                 in
-                      structSignat subStr
+                    List.app(fn types => (* Share types. *)
+                        case types of
+                            [] => raise List.Empty
+                        |   (hd, hdName) :: tl => (* Share the rest of the list with the first item. *)
+                                List.app(fn (t, tName) => shareTypes(hd, hdName, t, tName, line, near)) tl) matchedTypes;
+                    List.app shareStructs matchedStructs (* Recursively share sub-structures. *)
                 end
-              in  (* Now share all these signatures. *)
-                shareStructures (map getStructSignat tlist, line)
-              end
-        end (* applySharingConstraint *);
+            in
+                shareStructs(List.map(fn s => (s, structName s ^ ".")) structs)
+            end
+        in
 
-(**************************** End of SPF's rewrite *************************)
+            (* Process a sharing constraint. *)
+            fun applySharingConstraint({shares = tlist, isType, line}, Env tEnv, near) : unit =
+            let
+                (* When looking up the structure and type names we look only
+                   in the signature in ML97.  We add this to make it clear that
+                   we are only looking up in the signature otherwise we get
+                   confusing messages such as "type (int) has not been declared". *)
+                fun lookupFailure msg =
+                     giveError (str, line, lex) (msg ^ " in signature.")
+            in
+                if isType
+                then
+                let (* Type sharing. *)
+                    fun lookupSharing (name: string) = 
+                    lookupTyp
+                       ({ 
+                          lookupType   = #lookupType   tEnv,
+                          lookupStruct = #lookupStruct tEnv
+                        },
+                        name, lookupFailure)
+                in
+                    case tlist of
+                        nil => raise Empty
+                    |   hd :: tl =>
+                        let
+                            val first  = lookupSharing hd
+                        in
+                            if isUndefinedTypeConstr first
+                            then ()
+                            else List.app (fn typ => shareTypes (lookupSharing typ, "", first, "", line, near)) tl
+                        end
+                end
+                else
+                let (* structure sharing. *)
+                    fun getStruct name = lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure)
+                in  (* Now share all these signatures. *)
+                    structureSharing(map getStruct tlist, line, near)
+                end
+            end (* applySharingConstraint *)
+        end (* Sharing *)
 
         (* Look up a signature.  Signatures can only be in the global environment. *)
         fun lookSig (name : string, lno : LEX.location) : signatures =
