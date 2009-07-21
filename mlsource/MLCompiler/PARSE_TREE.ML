@@ -2472,8 +2472,6 @@ struct
                               enterVal    =
                                 fn (name, value) =>
                                     let
-                                        (* If this is a datatype we could use findValueConstructor here
-                                           to save constructing a new object.  It's probably not worth it. *)
                                         val selectedVar = 
                                             mkSelectedVar (value, str, openLocs);
                                     in

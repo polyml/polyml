@@ -2663,28 +2663,6 @@ struct
   in
     tvSetValue (tv, mkTypeVar (level, tvEquality tv, true))
   end;
-       
-  (* Find a value constructor in the list of constructors for the datatype.
-     This is used in structures.copySig to reduce the amount of space used *)
-  fun findValueConstructor copied =
-  let
-    val t    = valTypeOf copied;
-    val name = valName copied;
-    (* The value constructor's type may be a value of the datatype or
-       a function returning a value. *)
-    val construction =
-      if isFunctionType t then #result(typesFunctionType t) else t;
-    val constructor  = pling (#value (typesTypeConstruction construction));
-    (* If the value constructor is in the list return it otherwise return
-       the copied version. In fact the only case when it will not be in
-       the list is if the list is empty. We have to check the types are
-       the same because we also use this when copying datatypes. *)
-  in
-      case List.find (fn v => valName v = name)
-          (tcConstructors constructor) of
-          SOME v => if equalTypes (valTypeOf v) t then v else copied
-      |   NONE => copied
-  end;
 
     structure Sharing =
     struct

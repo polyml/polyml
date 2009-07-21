@@ -125,8 +125,6 @@ sig
 
     val constructorResult: types * types list -> types;
 
-    val findValueConstructor: values -> values;
-
     val identical:       types * types -> bool;
     val identicalConstr: typeConstrs * typeConstrs -> bool;
     val identicalList:   types list * types list -> bool;
