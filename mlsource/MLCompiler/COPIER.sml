@@ -153,8 +153,11 @@ struct
        This is used to two cases only: when we have a named signature with possible sharing or
        "where types" or when including a signature.  Really these cases should renumber the
        value entries. *)
-    fun localFullCopySig(sourceTab, resEnv, copyId, strName, cacheTail): unit =
+    fun localCopySig(sourceTab, resEnv, wantCopy, mapTypeId, singleLevel, strName, cacheTail): unit =
     let
+        fun copyId(id as Bound{ offset, ...}) =
+            if wantCopy offset then SOME(mapTypeId offset) else NONE
+        |   copyId id = NONE
 
         fun buildTypeCache(sourceTab, strName, buildDatatypes, initialCache, cacheTail) =
         let
@@ -233,27 +236,33 @@ struct
             (sourceTab,
             fn (dName: string, dVal: universal, num) =>
             if tagIs structVar dVal
-            then
+            then 
             let
                 val oldStruct = tagProject structVar dVal;
-                val oldSig     = structSignat oldStruct;
-           
-                (* Make a new sub-structure. *)
-                val tab = makeSignatureTable ();
-                (* Copy everything into the new signature. *)
-                val () =
-                    localFullCopySig 
-                        (sigTab oldSig,
-                        {
-                            enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
-                            enterStruct = fn (s,v) => univEnter (tab, structVar,     s, v),
-                            enterVal    = fn (s,v) => univEnter (tab, valueVar,      s, v)
-                        },
-                        copyId, strName ^ dName ^ ".", typeCache);
-                (* TODO: What, if anything is the typeID map for the result. *)
+                val Signatures { name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ...} = structSignat oldStruct;
+
                 val newSig =
-                    makeSignature(sigName oldSig, tab, sigMinTypes oldSig,
-                            sigMaxTypes oldSig, sigDeclaredAt oldSig, sigTypeIdMap oldSig, [])
+                    if singleLevel
+                    then (* Just compose the maps. *)
+                        makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, mapTypeId), [])
+                    else (* Recursive copy. *)
+                    let
+                        (* Make a new sub-structure. *)
+                        val newTab = makeSignatureTable ();
+                        (* Copy everything into the new signature. *)
+                        val () =
+                            localCopySig 
+                                (tab,
+                                {
+                                    enterType   = fn (s,v) => univEnter (newTab, typeConstrVar, s, v),
+                                    enterStruct = fn (s,v) => univEnter (newTab, structVar,     s, v),
+                                    enterVal    = fn (s,v) => univEnter (newTab, valueVar,      s, v)
+                                },
+                                wantCopy, mapTypeId, false, strName ^ dName ^ ".", typeCache)
+                    in
+                        (* If we're copying it all set the resulting map to the new map. *)
+                        makeSignature(name, newTab, minTypes, maxTypes, declaredAt, mapTypeId, [])
+                    end
                 val newStruct =
                     Struct { name = structName oldStruct, signat = newSig,
                              access = structAccess oldStruct, locations = structLocations oldStruct}
@@ -310,10 +319,14 @@ struct
     end (* fullCopySig *)
 
     (* Exported versions of these. *)
-    fun fullCopySig(source, resEnv, copyId, strName) =
-        localFullCopySig(sigTab source, resEnv, copyId, strName, [])
+    fun fullCopySig(source, resEnv, wantCopy, mapTypeId, strName) =
+        localCopySig(sigTab source, resEnv, wantCopy, mapTypeId, false, strName, [])
 
-    and fullCopyDatatype(oldConstr, copyId, strName) =
+    (* Open a structure or include a signature. *)
+    and openSignature(tab, typeIdMap, resEnv, strName) =
+        localCopySig(tab, resEnv, fn _ => true, typeIdMap, true (* One level. *), strName, [])
+
+    and fullCopyDatatype(oldConstr, wantCopy, mapTypeId, strName) =
     let
         val sigSpace = makeSignatureTable()
         val Env { enterType, ...} = makeEnv sigSpace
@@ -325,7 +338,7 @@ struct
                 enterStruct = fn (s, _) => raise Misc.InternalError ("enterStruct "^s),
                 enterVal = fn (s, _) => raise Misc.InternalError ("enterVal "^s)
             }
-        val () = localFullCopySig(sigSpace, resEnv, copyId, strName, [])
+        val () = localCopySig(sigSpace, resEnv, wantCopy, mapTypeId, true, strName, [])
     in
         valOf(! resType)
     end
@@ -335,9 +348,6 @@ struct
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
-        fun copyId(id as Bound{ offset, ...}) =
-            if wantCopy offset then SOME(mapTypeId offset) else NONE
-        |   copyId id = NONE
 
         val tsvEnv =
         {
@@ -346,55 +356,28 @@ struct
             enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
         }
         (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, copyId, strName);
+        val () = fullCopySig (source, tsvEnv, wantCopy, mapTypeId, strName);
     in
         makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
     end (* copySig *)
 
-    (* Copy the result signature of a structure and renumber values and structures.  The type IDs
-       will have numbers in range below startValues. *)
-    fun copySigAndRenumber
-        (source       : signatures,
-         wantCopy     : int -> bool,
-         mapTypeId    : int -> typeId,
-         startValues  : int)
-        : signatures = 
+    (* Find the maximum run-time offset used for a value or structure in a signature.
+       This excludes type IDs. *)
+    fun getNextRuntimeOffset(Signatures{tab, ...}): int =
     let
-        (* Make a new signature. *)
-        val tab = makeSignatureTable ();
-        fun copyId(id as Bound{ offset, ...}) =
-            if wantCopy offset then SOME(mapTypeId offset) else NONE
-        |   copyId id = NONE
-        
-        val address = ref startValues
-
-        (* Adjust the addresses of values and structures if necessary.
-           The only time we do this is when producing the result signature of
-           a functor and then we include space for the type IDs explicitly. *)
-        fun newAccess(Formal _) =
-            let val addr = !address in address := addr+1; Formal addr end
-        |   newAccess access = access (* Global? *)
-
-        val tsvEnv =
-        {
-            enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
-            enterStruct =
-                fn (name, str) =>
-                    univEnter (tab, structVar, name,
-                        Struct{ name = structName str, signat = structSignat str,
-                                access = newAccess(structAccess str),
-                                locations = structLocations str}),
-            enterVal =
-                fn (dName, Value { name, typeOf, access, class, locations }) =>
-                    univEnter (tab, valueVar, dName,
-                        Value{name=name, typeOf = typeOf, access=newAccess access,
-                              class=class, locations=locations})
-        }
-        (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, copyId, "");
+        fun getOffset(_, dVal, m) =
+        if tagIs valueVar dVal
+        then case tagProject valueVar dVal of
+            Value { access = Formal addr, ...} => Int.max(addr+1, m)
+        |   _ => m
+        else if tagIs structVar dVal
+        then case structAccess(tagProject structVar dVal) of
+            Formal addr => Int.max(addr+1, m)
+        |   _ => m
+        else m
     in
-        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
-    end (* copySig *)
+        univFold(tab, getOffset, 0)
+    end
 
     structure Sharing =
     struct
@@ -405,6 +388,7 @@ struct
         type typeId         = typeId
         type valAccess      = valAccess
         type types          = types
+        type univTable      = univTable
     end
 
 end;

@@ -30,6 +30,7 @@ sig
     type signatures
     type lexan
     type typeId
+    type specs
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     type exportTree = location * ptProperties list
@@ -38,22 +39,20 @@ sig
          next: (unit -> exportTree) option,
          previous: (unit -> exportTree) option}
 
-    val mkStructureSig:     structSigBind list * location -> sigs
+    val mkStructureSig:     structSigBind list * location -> specs
     val mkStructureSigBinding: (string * location) * (sigs * bool * location) * location -> structSigBind
-    val mkValSig:           (string * location) * typeParsetree * location -> sigs
-    val mkExSig:            (string * location) * typeParsetree option * location -> sigs
-    val mkCoreType:         parsetree * location -> sigs
-    val mkSharing:          bool * string list * location -> sigs
+    val mkValSig:           (string * location) * typeParsetree * location -> specs
+    val mkExSig:            (string * location) * typeParsetree option * location -> specs
+    val mkCoreType:         parsetree * location -> specs
+    val mkSharing:          bool * string list * location -> specs
     val mkWhereType:        sigs * typeVarForm list * string * types * location -> sigs
-    val mkInclude:          sigs list * location -> sigs
+    val mkInclude:          sigs list * location -> specs
     val mkSigIdent:         string * location -> sigs;
-    val mkSig:              sigs list * location -> sigs;
-    val emptySig:           sigs
+    val mkSig:              specs list * location -> sigs;
 
     val displaySigs: sigs * int -> pretty
     val sigExportTree: navigation * sigs -> exportTree 
     val sigVal: sigs * int * (int->typeId) * env * lexan * location -> signatures
-    val functorArgSigval: sigs * int * (int->typeId) * env * lexan * location -> signatures
     val undefinedSignature: signatures
 
     structure Sharing:
@@ -70,5 +69,6 @@ sig
         type env            = env
         type lexan          = lexan
         type typeId         = typeId
+        type specs          = specs
     end
 end;

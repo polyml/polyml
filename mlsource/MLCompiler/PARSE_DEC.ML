@@ -1778,7 +1778,7 @@ struct
             end
 
             else (* Only if parse error which will have been reported in skipon. *)
-                (emptySig, location lex);
+                (mkSigIdent("error", location lex), location lex);
 
         fun getWhereTypes(sigexp, sigLoc) =
         let
@@ -1822,11 +1822,11 @@ struct
 
 
  (* Sequence of "specs" *)
- and signatureSpec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : sigs list =
+ and signatureSpec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : specs list =
  let
    val signatureTvars = makeTypeVarEnv();
 
-   fun parseSigEntries () : sigs list =
+   fun parseSigEntries () : specs list =
    let
        val () = skipon (fsys ++ semicolonStartSigSys, fsys, "Signature", lex)
        val sym = sy lex and startLocn = location lex

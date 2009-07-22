@@ -132,8 +132,6 @@ sig
     val createNullaryConstructor: representations * string -> codetree
     val createUnaryConstructor: representations * string -> codetree
 
-    val idFromStructure: structVals -> typeId -> typeId option
-
     val codeLocation: location -> codetree
 
     (* Types that can be shared. *)

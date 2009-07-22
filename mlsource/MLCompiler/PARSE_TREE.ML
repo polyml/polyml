@@ -2479,7 +2479,7 @@ struct
                                         #enterVal env (name, selectedVar)
                                     end
                             },
-                            idFromStructure str,
+                            fn _ => false, fn _ => raise Subscript,
                             (* Add the structure we're opening here to the types of
                                the values.  The name will be removed in messages if the type
                                constructor is in scope but if it has been redefined we can

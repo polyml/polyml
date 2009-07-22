@@ -1338,14 +1338,7 @@ struct
                into Formal entries and we have to turn them back into the original Local entries.  Leaving
                them as Formals would indicate the offset in the run-time vector for THIS structure whereas the
                offset they had must be relative to the local structure's run-time vector. *)
-            local
-                val localIdEnv = newTypeIdEnv()
-            in
-                fun resMapFun n = localIdEnv n
-
-                fun copyId(Bound { offset, ...}) = SOME(resMapFun offset)
-                |   copyId _ = NONE
-            end
+            val resMapFun = newTypeIdEnv()
 
             val _ =
                 COPIER.fullCopySig 
@@ -1384,7 +1377,7 @@ struct
                             addrs := a + 1
                         end
                 },
-                copyId, "");
+                fn _ => true, resMapFun, "");
             val resSig =
                 makeSignature("", finalTable, currentTypeCount(),
                               currentTypeCount(), location, resMapFun, [])
@@ -1854,8 +1847,7 @@ struct
                        contain the arguments. *)
                     val argEnv = makeEnv (makeSignatureTable());
              
-                    (* If it is a "spec" it must be wrapped up in sig...end. *)
-                    val signat = functorArgSigval (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
+                    val signat = sigVal (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
               
                     val resArg = makeLocalStruct (argName, signat, [DeclaredAt line]);
 
@@ -1888,11 +1880,7 @@ struct
                             end
                             else
                             let (* Open the dummy argument. Similar to "open" in treestruct. *)
-                                (* We have to convert typeIds from Formal into Selected.  This is simpler
-                                   than open in treestruct because all the IDs are Bound. *)
-                                fun copyId(id as Bound { offset, ... }) =
-                                    if offset < startArgIds then NONE else SOME(Vector.sub(copiedIds, offset-startArgIds))
-                                |   copyId id = NONE
+                                (* We have to convert typeIds from Formal into Selected. *)
                                 val _ =
                                     COPIER.fullCopySig 
                                     (signat,
@@ -1906,7 +1894,9 @@ struct
                                         fn (name, value) =>
                                             #enterVal argEnv (name, mkSelectedVar (value, resArg, []))
                                     },
-                                    copyId, "");
+                                    fn n => n >= startArgIds,
+                                    fn n => Vector.sub(copiedIds, n-startArgIds),
+                                    "");
                             in
                                 ()
                             end
@@ -1984,9 +1974,10 @@ struct
                                could have types that are mentioned indirectly e.g. we have type t = s * s
                                with "s" being local to the functor and only "t" mentioned in the signature.
                                We need to ensure that "t" is generative. *)
+                            val startRunTimeOffsets = getNextRuntimeOffset resSig
                             fun convertId(n, id as Bound { offset, description, ...}) =
                                     (* Either inherited from the argument or a new type ID. *)
-                                    makeBoundId (Formal n, offset, isEquality id, description)
+                                    makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, description)
                             |   convertId (_, id) = id (* Free or TypeFunction. *)
                             val localVector = Vector.fromList(List.rev(!localStamps))
                             val bodyVec = Vector.mapi convertId localVector
@@ -1996,9 +1987,7 @@ struct
                                functor we can distinguish generative IDs from those that are inherited from the argument.
                                Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
                                argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
-                            val resSig =
-                                copySigAndRenumber (resSig, fn s => s >= minSig, resTypeMap,
-                                    !typeStamps-startTypes (* Start the run-time offsets after the type IDs *))
+                            val resSig = copySig(resSig, fn s => s >= minSig, resTypeMap, "")
                             (* Record the ID map for code-generation. *)
                             fun makeId n =
                                 resultIds :=
@@ -2614,9 +2603,6 @@ struct
                     (* We need to replace type IDs with their Global versions. *)
                     val tab = makeSignatureTable ();
 
-                    fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
-                    |   copyId id = NONE
-
                     val tsvEnv =
                     {
                         enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
@@ -2624,7 +2610,7 @@ struct
                         enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
                     }
                     (* Copy everything into the new signature. *)
-                    val () = COPIER.fullCopySig (source, tsvEnv, copyId, name ^ ".");
+                    val () = COPIER.fullCopySig (source, tsvEnv, fn _ => true, mapTypeIds, name ^ ".");
                     (* After the copy we have no Bound IDs and so minType and maxTypes are both zero. *)
                     val resultSig =
                         makeSignature(sigName source, tab, 0, 0, sigDeclaredAt source, fn _ => raise Subscript, [])
@@ -2691,9 +2677,7 @@ struct
 
 		    |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
-                    fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
-                    |   copyId id = NONE
-                    val copiedTC = fullCopyDatatype(tc, copyId, "")
+                    val copiedTC = fullCopyDatatype(tc, fn _ => true, mapTypeIds, "")
                     val newName = #second(splitString(tcName tc))
                 in
                     (addr, { fixes=fixes, values=values, structures=structures,

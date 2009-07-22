@@ -81,9 +81,12 @@ struct
     datatype sigs =
         SignatureIdent of string * location * location option ref  (* A signature name *)
 
-    |   StructureSig   of structSigBind list * location
+    |   SigDec         of specs list * location (* sig ... end *)
 
-    |   SigDec         of sigs list * location (* sig ... end *)
+    |   WhereType      of whereTypeStruct    (* type realisation. *)
+
+    and specs =
+        StructureSig   of structSigBind list * location
 
     |   ValSig         of (* Signature of a value. *)
             { name: string * location, typeof: typeParsetree, line: location }
@@ -98,9 +101,8 @@ struct
         }
 
     |   Sharing        of shareConstraint    (* Sharing constraints. *)
-    |   WhereType       of whereTypeStruct    (* type realisation. *)
+
     |   IncludeSig     of sigs list * location       (* Include. *)
-    |   EmptySig    (* Error cases. *)
 
   withtype shareConstraint =
       {
@@ -175,8 +177,6 @@ struct
             line      = fullLoc
         }
 
-    val emptySig = EmptySig
-
     (* Make a signature for initialisating variables and for
        undeclared signature variables. *)
     val noLocation =
@@ -218,6 +218,41 @@ struct
 
         else
         case str of
+           SignatureIdent (name : string, _, _) =>
+            PrettyString name
+
+        |   SigDec (structList : specs list, _) =>
+            PrettyBlock (1, true, [],
+                PrettyString "sig" ::
+                PrettyBreak (1, 0) ::
+                displayList (structList, "", depth) displaySpecs @
+                [ PrettyBreak (1, 0), PrettyString "end"]
+            )
+
+        |   WhereType { sigExp, typeVars, typeName, realisation, ... } =>
+            PrettyBlock (3, false, [],
+                displaySigs (sigExp, depth) ::
+                PrettyBreak (1, 0) ::
+                PrettyString "where" ::
+                PrettyBreak (1, 0) ::
+                PrettyString "type" ::
+                PrettyBreak (1, 0) ::
+                displayTypeVariables (typeVars, depth) @
+                [
+                    PrettyString typeName,
+                    PrettyBreak (1, 0),
+                    PrettyString "=",
+                    PrettyBreak (1, 0),
+                    displayType (realisation, depth - 1, emptyTypeEnv)
+                ]
+            )
+
+    and displaySpecs (specs, depth) =
+        if depth <= 0 (* elide further text. *)
+        then PrettyString "..."
+
+        else
+        case specs of
             StructureSig (structList : structSigBind list, _) =>
             let
                     fun displaySigsBind (
@@ -237,17 +272,6 @@ struct
                     displayList (structList, "and", depth) displaySigsBind
                 )
             end
-
-        |   SignatureIdent (name : string, _, _) =>
-            PrettyString name
-
-        |   SigDec (structList : sigs list, _) =>
-            PrettyBlock (1, true, [],
-                PrettyString "sig" ::
-                PrettyBreak (1, 0) ::
-                displayList (structList, "", depth) displaySigs @
-                [ PrettyBreak (1, 0), PrettyString "end"]
-            )
 
         |   ValSig {name = (name, _), typeof, ...} =>
             PrettyBlock (0, false, [],
@@ -292,24 +316,6 @@ struct
                     (fn (name, depth) => PrettyString name)
             )
 
-        |   WhereType { sigExp, typeVars, typeName, realisation, ... } =>
-            PrettyBlock (3, false, [],
-                displaySigs (sigExp, depth) ::
-                PrettyBreak (1, 0) ::
-                PrettyString "where" ::
-                PrettyBreak (1, 0) ::
-                PrettyString "type" ::
-                PrettyBreak (1, 0) ::
-                displayTypeVariables (typeVars, depth) @
-                [
-                    PrettyString typeName,
-                    PrettyBreak (1, 0),
-                    PrettyString "=",
-                    PrettyBreak (1, 0),
-                    displayType (realisation, depth - 1, emptyTypeEnv)
-                ]
-            )
-
         |   IncludeSig (structList : sigs list, _) =>
             PrettyBlock (3, true, [],
                 PrettyString "include" ::
@@ -319,9 +325,6 @@ struct
 
         |   CoreType {dec, ...} =>
                 ptDisplay (dec, depth - 1)
-
-        | EmptySig =>
-            PrettyString "<bad>"
       (* End displaySigs *)
 
     fun sigExportTree(navigation, s: sigs) =
@@ -332,6 +335,26 @@ struct
             exportNavigationProps navigation
 
         fun asParent () = sigExportTree(navigation, s)
+    in
+        case s of
+            SignatureIdent(_, loc, ref decLoc) =>
+                (loc,
+                    (case decLoc of NONE => [] | SOME decl => [PTdeclaredAt decl]) @ commonProps)
+
+        |   SigDec(structList, location) =>
+                (location, exportList(specExportTree, SOME asParent) structList @ commonProps)
+
+        |   WhereType _ => (nullLocation, commonProps)
+    end
+ 
+    and specExportTree(navigation, s: specs) =
+    let
+         (* Common properties for navigation and printing. *)
+        val commonProps =
+            PTprint(fn d => displaySpecs(s, d)) ::
+            exportNavigationProps navigation
+
+        fun asParent () = specExportTree(navigation, s)
     in
         case s of
             StructureSig(sbl, location) =>
@@ -352,13 +375,6 @@ struct
             in
                 (location, expChild @ commonProps)
             end
-
-        |   SignatureIdent(_, loc, ref decLoc) =>
-                (loc,
-                    (case decLoc of NONE => [] | SOME decl => [PTdeclaredAt decl]) @ commonProps)
-
-        |   SigDec(structList, location) =>
-                (location, exportList(sigExportTree, SOME asParent) structList @ commonProps)
 
         |   ValSig{name=(name, nameLoc), typeof, line, ...} =>
             let
@@ -398,13 +414,8 @@ struct
 
         |   Sharing _ => (nullLocation, commonProps)
 
-        |   WhereType _ => (nullLocation, commonProps)
-
         |   IncludeSig (sigs, loc) =>
                 (loc, exportList(sigExportTree, SOME asParent) sigs @ commonProps)
-
-        |   EmptySig => (nullLocation, commonProps)
- 
     end
 
     (* Puts out an error message and then prints the piece of tree. *)
@@ -425,7 +436,10 @@ struct
             PrettyBlock (0, false, [], [PrettyString message]))
 
     fun giveError (sVal : sigs, lno : LEX.location, lex : lexan) : string -> unit =
-        fn (message : string) => errorNear (lex, true, fn n => displaySigs(sVal, n), lno, message);
+        fn (message : string) => errorNear (lex, true, fn n => displaySigs(sVal, n), lno, message)
+
+    and giveSpecError(sVal : specs, lno : LEX.location, lex : lexan) : string -> unit =
+        fn (message : string) => errorNear (lex, true, fn n => displaySpecs(sVal, n), lno, message);
 
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
@@ -707,12 +721,145 @@ struct
 
         (* Construct a signature.  All the type IDs within the signature are variables. *)
         fun sigValue (str : sigs, Env env : env, lno : LEX.location, structPath) =
+            case str of
+                SignatureIdent(name, loc, declLoc) =>
+                    signatureIdentValue(name, loc, declLoc, Env env, structPath)
+
+            |   WhereType {sigExp, typeVars, typeName, realisation, line, ...} =>
+                    signatureWhereType(sigExp, typeVars, typeName, realisation, line, Env env, structPath)
+
+            |   SigDec(sigList, lno) =>
+                    makeSigInto(sigList, Env env, lno, 0, structPath)
+
+        and signatureIdentValue(name, loc, declLoc, Env structEnv, structPath) =
+        let
+            (* Look up the signature and copy it to turn bound IDs into variables.
+               This is needed because we may have sharing. *)
+            val sourceSig = lookSig(name, loc);
+            (* Remember the declaration location for possible browsing. *)
+            val () = declLoc := SOME(sigDeclaredAt sourceSig)
+
+            (* Create a new variable ID for each bound ID.  We must only create
+               one for each and must return the same variable ID for each bound ID. *)
+            fun makeNewId n =
+            let
+                val oldId = sigTypeIdMap sourceSig n
+                val desc =
+                    case oldId of
+                        Bound { description, ...} => description
+                    |   _ => raise InternalError "Map does not return Bound Id"
+            in
+                makeVariableId(isEquality oldId, desc, structPath)
+            end;
+            
+            val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
+
+            val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
+
+            (* Copy the signature into the result. *)
+            val resSig = copySig(sourceSig, fn n => n >= minOffset, fn n => Vector.sub (v, n - minOffset), "")
+        in
+            makeSignature(name, sigTab resSig, ! idCount, ! idCount, lno, fn _ => raise Subscript, [])
+        end
+
+        and signatureWhereType(sigExp, typeVars, typeName, realisation, line, Env globalEnv, structPath) =
+        let
+            (* We construct the signature into the result signature.  When we apply the
+               "where" we need to look up the types (and structures) only within the
+               signature constrained by the "where" and not in the surrounding signature.
+               e.g. If we have sig type t include S where type t = ... end
+               we need to generate an error if S does not include t.  Of course
+               if it does that's also an error since t would be rebound!
+               Equally, we must look up the right hand side of a where type
+               in the surrounding scope, which will consist of the global environment
+               and the signature excluding the entries we're adding here. *)
+
+            val resSig = sigValue(sigExp, Env globalEnv, lno, structPath)
+            val sigEnv = makeEnv(sigTab resSig)
+
+            fun lookupFailure msg =
+                giveError (str, line, lex) (msg ^ " in signature.")
+
+            (* Look up the type constructor in the signature. *)
+            val typeConstr =
+                lookupTyp
+                  ({
+                    lookupType   = #lookupType sigEnv,
+                    lookupStruct = #lookupStruct sigEnv
+                   },
+                 typeName,
+                 lookupFailure);
+            (* The type, though, is looked up in the surrounding environment. *)
+            fun lookupGlobal(s, locn) =
+                lookupTyp
+                  ({
+                    lookupType   = #lookupType globalEnv,
+                    lookupStruct = #lookupStruct globalEnv
+                   },
+                 s,
+                 giveError (str, locn, lex))
+
+            (* Process the type, looking up any type constructors. *)
+            val () = assignTypes (realisation, lookupGlobal, lex);
+            val cantSet = giveError (str, line, lex)
+        in
+            (* Now try to set the target type to the type function. *)
+            if isUndefinedTypeConstr typeConstr
+            then () (* Probably because looking up the type constructor name failed. *)
+            else if not (isVariableId(tcIdentifier typeConstr))
+            then (* May have been declared as type t=int or bound by a where type already.
+                    TODO: Display the type it's bound to. *)
+                cantSet("Cannot apply type realisation: (" ^
+                            tcName typeConstr ^ ") has already been set.")
+            else
+            case tcIdentifier typeConstr of
+                Bound { offset, ... } =>
+                (
+                    case realId(offset-initTypeId) of
+                        VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
+                        (
+                           (* The rule for "where type" says that we must check that an eqtype
+                              is only set to a type that permits equality and that the result
+                              is "well-formed".  This seems to mean that if the type we're
+                              setting is a datatype (has constructors) it can only be set to
+                              a type that is a type name and not a general type function. *)
+                            if pling eqType andalso not(typePermitsEquality realisation)
+                            then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
+                                  ") is an eqtype but the type does not permit equality.")
+                            else case typeNameRebinding (typeVars, realisation) of
+                                SOME typeId =>
+                                    (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
+                                       "s" may be free or it may be within the signature and equivalent to
+                                       a sharing constraint.
+                                       e.g. sig type t structure S: sig type s end where type s = t end. *)
+                                    if isVariableId typeId
+                                    then linkFlexibleTypeIds(typeId, varId)
+                                    else StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
+                            |   NONE =>
+                                    if isDatatype
+                                        (* The type we're trying to set is a datatype but the type
+                                           we're setting it to isn't. *)
+                                    then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
+                                        ") is a datatype but the type is not a simple type.")
+                                    else
+                                        StretchArray.update(mapArray, offset-initTypeId,
+                                            FreeSlot(TypeFunction(typeVars, realisation)))
+                        )
+                    |   _ => (* Already checked. *) raise InternalError "setWhereType"
+                )
+            |   _ => (* Already checked. *) raise InternalError "setWhereType";
+            resSig
+        end (* signatureWhereType *)
+
+        (* Constructs a signature and inserts it into an environment at a given offset.
+           Generally offset will be zero except if we are including a signature.
+           All the type IDs corresponding to local types are variables.  There may be free
+           IDs (and bound IDs?) as a result of "where type" constraints. *)
+        and makeSigInto(sigsList: specs list,
+                        Env globalEnv, (* The surrounding environment excluding this sig. *)
+                        lno: LEX.location, offset: int, structPath): signatures =
         let
             (* Make a new signature. *)
-            val (sigName, loc) =
-                case str of
-                    SignatureIdent(name, loc, _) => (name, loc)
-                |    _ => ("", lno)
             val newTable = makeSignatureTable();
             (* Copy everything into the new signature. *)
             val structEnv = makeEnv newTable;
@@ -753,89 +900,10 @@ struct
               enterSig      = fn _ => raise InternalError "Entering signature in signature",
               enterFunct    = fn _ => raise InternalError "Entering functor in signature"
              }
-            (* Create the signature and return the next entry to use in the result vector. *)
-            val nextOffset = makeSigInto(str, Env checkedStructEnv, Env env, lno, 0, structPath);
-            (* Make a copy to freeze it as immutable.*)
-            (* TODO: Check these.  Aren't these always zero? *)
-            val resultSig = makeSignature(sigName, newTable, 0, 0, lno, fn _ => raise Subscript, [])
-        in
-            (resultSig, nextOffset)
-        end
 
-        (* Constructs a signature and inserts it into an environment at a given offset.
-           Generally offset will be zero except if we are including a signature.
-           All the type IDs corresponding to local types are variables.  There may be free
-           IDs (and bound IDs?) as a result of "where type" constraints. *)
-        and makeSigInto(str: sigs,
-                        Env structEnv, (* The immediately enclosing sig. *)
-                        Env globalEnv, (* The surrounding environment excluding this sig. *)
-                        lno: LEX.location,
-                        offset: int,
-                        structPath): int =
-          (* Either a named signature or sig ... end or one of
-             these with possibly multiple where type realisations. *)
-          case str of
-            SignatureIdent(name, loc, declLoc) =>
-            let
-                (* Look up the signature and copy it to turn bound IDs into variables.
-                   This is needed because we may have sharing. *)
-                val sourceSig = lookSig(name, loc);
-                (* Remember the declaration location for possible browsing. *)
-                val () = declLoc := SOME(sigDeclaredAt sourceSig)
-
-                (* Create a new variable ID for each bound ID.  We must only create
-                   one for each and must return the same variable ID for each bound ID. *)
-                fun makeNewId n =
-                let
-                    val oldId = sigTypeIdMap sourceSig n
-                    val desc =
-                        case oldId of
-                            Bound { description, ...} => description
-                        |   _ => raise InternalError "Map does not return Bound Id"
-                in
-                    makeVariableId(isEquality oldId, desc, structPath)
-                end;
-                
-                val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
-  
-                val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
-                fun copyId(id as Bound{ offset, ...}) =
-                        if offset < minOffset then NONE else SOME(Vector.sub (v, offset - minOffset))
-                |   copyId id = NONE
-
-                (* Renumber the values and structures.  We don't need to do the types
-                   because they will be renumbered at the end. *)
-                val address = ref offset
-                fun newAccess(Formal _) =
-                    let val addr = !address in address := addr+1; Formal addr end
-                |   newAccess _ = raise InternalError "newAccess: Not Formal"
-  
-                val tsvEnv =
-                {
-                    enterType   = #enterType structEnv,
-                    enterStruct =
-                        fn (name, str) =>
-                            #enterStruct structEnv
-                                (name, Struct{ name = structName str, signat = structSignat str,
-                                        access = newAccess(structAccess str),
-                                        locations = structLocations str}),
-                    enterVal =
-                        fn (dName, Value { name, typeOf, access, class, locations }) =>
-                            #enterVal structEnv (dName,
-                                Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations})
-                }
-                (* Copy the signature into the result. *)
-                val () = fullCopySig(sourceSig, tsvEnv, copyId, "")
-            in
-                ! address
-            end
-  
-          | SigDec (sigsList : sigs list, _) =>  (* sig .... end *)
-          let
             (* Process the entries in the signature and allocate an address
                to each. *)
-            fun processSig (signat, offset : int, lno : LEX.location) : int =
+            fun processSig (signat: specs, offset : int, lno : LEX.location) : int =
               case signat of
                 StructureSig (structList : structSigBind list, _) =>
                 let
@@ -864,7 +932,7 @@ struct
                           enterSig      = #enterSig structEnv,
                           enterFunct    = #enterFunct structEnv
                          };
-                      val (resSig, _) = sigValue (sigStruct, Env newEnv, line, structPath ^ name ^ ".");
+                      val resSig = sigValue (sigStruct, Env newEnv, line, structPath ^ name ^ ".");
                       (* Process the rest of the list before declaring
                          the structure. *)
                       val result = pStruct t (offset + 1);
@@ -881,7 +949,7 @@ struct
               | ValSig {name=(name, nameLoc), typeof, line, ...} =>
                 let
                     val typeof = typeFromTypeParse typeof
-                  val errorFn = giveError (signat, line, lex);
+                  val errorFn = giveSpecError (signat, line, lex);
                 
                   fun lookup(s, locn) =
                     lookupTyp
@@ -892,7 +960,7 @@ struct
                             lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
                        },
                      s,
-                     giveError (signat, locn, lex));
+                     giveSpecError (signat, locn, lex));
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins.  "it" is allowed here. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
@@ -911,7 +979,7 @@ struct
                
               | ExSig {name=(name, nameLoc), typeof, line, ...} =>
                 let
-                  val errorFn = giveError (signat, line, lex);
+                  val errorFn = giveSpecError (signat, line, lex);
                 
                   fun lookup(s,locn) =
                     lookupTyp
@@ -945,16 +1013,78 @@ struct
                 end
                
               | IncludeSig (structList : sigs list, _) =>
-              let
-                (* include sigid ... sigid or include sigexp.  For
-                   simplicity we handle the slightly more general case
-                   of a list of signature expressions.
-                  The contents of the signature are added to the environment. *)
-                fun includeSigExp (str: sigs, offset) =
-                    makeSigInto(str, Env structEnv, Env globalEnv, lno, offset, structPath)
-              in
-                List.foldl includeSigExp offset structList
-              end
+                let
+                    (* include sigid ... sigid or include sigexp.  For
+                       simplicity we handle the slightly more general case
+                       of a list of signature expressions.
+                       The contents of the signature are added to the environment. *)
+                    fun includeSigExp (str: sigs, offset) =
+                    let
+                        val address = ref offset
+                        (* The environment for the signature being included must at least include local types.  *)
+                        val includeEnv =
+                        {
+                            lookupVal     = #lookupVal structEnv,
+                            lookupType    =
+                                lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                            lookupFix     = #lookupFix structEnv,
+                            lookupStruct  =
+                                lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
+                            lookupSig     = #lookupSig    structEnv,
+                            lookupFunct   = #lookupFunct  structEnv,
+                            enterVal      = #enterVal structEnv,
+                            enterType     = #enterType structEnv,
+                            enterStruct   = #enterStruct structEnv,
+                            enterFix      = #enterFix structEnv,
+                            enterSig      = #enterSig structEnv,
+                            enterFunct    = #enterFunct structEnv
+                        }
+
+                        val resultSig = sigValue(str, Env includeEnv, lno, structPath)
+
+                        fun newAccess(Formal _) =
+                            let val addr = !address in address := addr+1; Formal addr end
+                        |   newAccess _ = raise InternalError "newAccess: Not Formal"
+
+                        val tsvEnv =
+                        {
+                            enterType   = #enterType structEnv,
+                            enterStruct =
+                                fn (name, str) =>
+                                    #enterStruct structEnv
+                                        (name, Struct{ name = structName str, signat = structSignat str,
+                                                access = newAccess(structAccess str),
+                                                locations = structLocations str}),
+                            enterVal =
+                                fn (dName, Value { name, typeOf, access, class, locations }) =>
+                                    #enterVal structEnv (dName,
+                                        Value{name=name, typeOf = typeOf, access=newAccess access,
+                                              class=class, locations=locations})
+                        }
+                        (* Create a new variable ID for each bound ID.  We must only create
+                           one for each and must return the same variable ID for each bound ID. *)
+                        fun makeNewId n =
+                        let
+                            val oldId = sigTypeIdMap resultSig n
+                            val desc =
+                                case oldId of
+                                    Bound { description, ...} => description
+                                |   _ => raise InternalError "Map does not return Bound Id"
+                        in
+                            makeVariableId(isEquality oldId, desc, structPath)
+                        end;
+            
+                        val minOffset = sigMinTypes resultSig and maxOffset = sigMaxTypes resultSig
+
+                        val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
+                        (* Copy the signature into the result. *)
+                        val () = fullCopySig(resultSig, tsvEnv, fn n => n >= minOffset, fn n => Vector.sub (v, n - minOffset), "")
+                    in
+                        ! address
+                    end
+                in
+                    List.foldl includeSigExp offset structList
+                end
 
               | Sharing (share : shareConstraint) =>
               (* Sharing constraint. *)
@@ -1042,132 +1172,15 @@ struct
               in
                 ! addrs
               end
-              
-              | _ =>
-                 raise InternalError "processSig: not a signature"
             (* end processSig *);
-          in
-              List.foldl
-                (fn (signat, offset) => 
-                   processSig (signat, offset, lno))
-                offset sigsList
-          end
+            
+            val _ =
+                List.foldl (fn (signat, offset) => processSig (signat, offset, lno))
+                    offset sigsList
+        in
+            makeSignature("", newTable, ! idCount, ! idCount, lno, fn _ => raise Subscript, [])
+        end
 
-          | WhereType { sigExp, typeVars, typeName, realisation, line } =>
-            let
-                (* We construct the signature into the result signature.  When we apply the
-                   "where" we need to look up the types (and structures) only within the
-                   signature constrained by the "where" and not in the surrounding signature.
-                   e.g. If we have sig type t include S where type t = ... end
-                   we need to generate an error if S does not include t.  Of course
-                   if it does that's also an error since t would be rebound!
-                   Equally, we must look up the right hand side of a where type
-                   in the surrounding scope, which will consist of the global environment
-                   and the signature excluding the entries we're adding here. *)
-                val findTypes = searchList() and findStructs = searchList()
-                val newEnv =
-                {
-                    lookupVal     = #lookupVal    structEnv,
-                    lookupType    =
-                        lookupDefault (#lookup findTypes)
-                            (lookupDefault (#lookupType structEnv) (#lookupType globalEnv)),
-                    lookupFix     = #lookupFix    structEnv,
-                    lookupStruct  =
-                        lookupDefault (#lookup findStructs)
-                            (lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)),
-                    lookupSig     = #lookupSig    structEnv,
-                    lookupFunct   = #lookupFunct  structEnv,
-                    enterVal      = #enterVal structEnv,
-                    enterType     = #enter findTypes,
-                    enterFix      = #enterFix structEnv,
-                    enterStruct   = #enter findStructs,
-                    enterSig      = #enterSig structEnv,
-                    enterFunct    = #enterFunct structEnv
-                }
-
-               val resAddr = makeSigInto(sigExp, Env newEnv, Env globalEnv, lno, offset, structPath)
-
-              fun lookupFailure msg =
-                 giveError (str, line, lex) (msg ^ " in signature.")
-
-              (* Look up the type constructor in the signature. *)
-              val typeConstr =
-                    lookupTyp
-                      ({
-                        lookupType   = #lookup findTypes,
-                        lookupStruct = #lookup findStructs
-                       },
-                     typeName,
-                     lookupFailure);
-              (* The type, though, is looked up in the surrounding environment. *)
-              fun lookupGlobal(s, locn) =
-                    lookupTyp
-                      ({
-                        lookupType   =
-                            lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
-                        lookupStruct =
-                            lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv)
-                       },
-                     s,
-                     giveError (str, locn, lex))
-
-                (* Process the type, looking up any type constructors. *)
-                val () = assignTypes (realisation, lookupGlobal, lex);
-                val cantSet = giveError (str, line, lex)
-         in
-                (* Now try to set the target type to the type function. *)
-                if isUndefinedTypeConstr typeConstr
-                then () (* Probably because looking up the type constructor name failed. *)
-                else if not (isVariableId(tcIdentifier typeConstr))
-                then (* May have been declared as type t=int or bound by a where type already.
-                        TODO: Display the type it's bound to. *)
-                    cantSet("Cannot apply type realisation: (" ^
-                                tcName typeConstr ^ ") has already been set.")
-                else
-                case tcIdentifier typeConstr of
-                    Bound { offset, ... } =>
-                    (
-                        case realId(offset-initTypeId) of
-                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
-                            (
-                               (* The rule for "where type" says that we must check that an eqtype
-                                  is only set to a type that permits equality and that the result
-                                  is "well-formed".  This seems to mean that if the type we're
-                                  setting is a datatype (has constructors) it can only be set to
-                                  a type that is a type name and not a general type function. *)
-                                if pling eqType andalso not(typePermitsEquality realisation)
-                                then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
-                                      ") is an eqtype but the type does not permit equality.")
-                                else case typeNameRebinding (typeVars, realisation) of
-                                    SOME typeId =>
-                                        (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
-                                           "s" may be free or it may be within the signature and equivalent to
-                                           a sharing constraint.
-                                           e.g. sig type t structure S: sig type s end where type s = t end. *)
-                                        if isVariableId typeId
-                                        then linkFlexibleTypeIds(typeId, varId)
-                                        else StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
-                                |   NONE =>
-                                        if isDatatype
-                                            (* The type we're trying to set is a datatype but the type
-                                               we're setting it to isn't. *)
-                                        then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
-                                            ") is a datatype but the type is not a simple type.")
-                                        else
-                                            StretchArray.update(mapArray, offset-initTypeId,
-                                                FreeSlot(TypeFunction(typeVars, realisation)))
-                            )
-                        |   _ => (* Already checked. *) raise InternalError "setWhereType"
-                    )
-                |   _ => (* Already checked. *) raise InternalError "setWhereType";
-              (* Finally we can safely add the new declarations to the surrounding scope. *)
-              #apply findTypes (#enterType structEnv);
-              #apply findStructs (#enterStruct structEnv);
-              resAddr
-          end
-
-          | _ =>
-            raise InternalError "makeSigInto: not a SigIdent nor a SigDec"; (* end makeSigInto *)
       in
         case str of 
             SignatureIdent(name, loc, declLoc) =>
@@ -1186,17 +1199,17 @@ struct
             let
                 (* Anything else has to be copied.  We first build the signature with variable
                    type IDs so that any local types can be shared. *)
-                val (resultSig, nextAddress) = sigValue (str, Env globalEnv, lno, "");
+                val resultSig = sigValue (str, Env globalEnv, lno, "");
         
                 (* After the signature has been built and any sharing or "where type"
                    constraints have been applied we replace the remaining variable stamps
                    by bound stamps. We may not start at zero
                    if this is the result signature of a functor because there
                    may be sharing between the argument and the result. *) 
+                val nextAddress = getNextRuntimeOffset resultSig
                 val typeCounter = ref initTypeId;
                 val addrCounter = ref nextAddress
-    
- 
+
                 (* Construct final bound IDs for each distinct type ID in the array. *)
                 local
                     fun mapIds n =
@@ -1299,20 +1312,6 @@ struct
             end (* not (isSignatureIdent str) *)
     end (* sigVal *);
 
-    fun functorArgSigval(argSig, initTypeId, outerTypeIdEnv, globalEnv, lex, line) =
-    (* If it is a "spec" it must be wrapped up in sig...end. *)
-    let
-	  	val spec =
-			case argSig of
-				SignatureIdent _ => argSig
-			|	SigDec _ => argSig
-			|	WhereType _ => argSig
-			|	_ => mkSig([argSig], line)
-    in
-        sigVal (spec, initTypeId, outerTypeIdEnv, globalEnv, lex, line)
-    end
-
-
     structure Sharing =
     struct
         type sigs           = sigs
@@ -1327,6 +1326,7 @@ struct
         type signatures     = signatures
         type lexan          = lexan
         type typeId         = typeId
+        type specs          = specs
     end
 
 end;

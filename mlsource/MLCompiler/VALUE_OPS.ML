@@ -821,10 +821,8 @@ struct
         val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
         val newId = makeFreeId(Global globalCode, isEqType, description)
         (* Finally copy the datatype to put in the code. *)
-        fun copyId(Bound{offset=0(* IdNumber*), ...}) = SOME newId
-        |   copyId id = NONE
     in
-        fullCopyDatatype(dtype, copyId, "")
+        fullCopyDatatype(dtype, fn 0 => true | _ => false, fn 0 => newId | _ => raise Subscript, "")
     end
 
     (* Nil and :: are used in parsetree for lists constructed
@@ -913,9 +911,6 @@ struct
 (*****************************************************************************)
   (* Look-up functions. *)
 
-    (* I've left this for the moment. *)
-    fun idFromStructure str : typeId -> typeId option = fn _ => NONE
-
     (* Look up a structure. *)
     (* TODO: This copies the signature of the structure to ensure that type IDs within
        the structure become Selected entries. lookupStructure is also used when we are
@@ -949,22 +944,19 @@ struct
                     case lookupStruct suffix of
                         SOME structFound =>
                         let
-                            (* We need to copy this structure so that any type IDs are converted
-                               from Formal to Selected. *)
-                            val tab = makeSignatureTable ();
+(*                            val tab = makeSignatureTable ();
                             (* Copy everything into the new signature. *)
                             val source = structSignat structFound
                             val Env sigEnv = makeEnv tab
-                            val copyId = idFromStructure str
                             val lastAddr =
-                                fullCopySig 
+                                openSignature 
                                     (source,
                                     {
                                       enterType   = fn (s,v) => #enterType sigEnv (s, v),
                                       enterStruct = fn (s,v) => #enterStruct sigEnv (s, v),
                                       enterVal    = fn (s,v) => #enterVal sigEnv (s, v)
                                     },
-                                    copyId, prefix^".");
+                                    prefix^".");
                             fun newMap n =
                             let
                                 val m = sigTypeIdMap source n
@@ -973,7 +965,8 @@ struct
                             end
                             val copiedSig = 
                                 makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source,
-                                              sigDeclaredAt source, newMap, sigBoundIds source)
+                                              sigDeclaredAt source, newMap, sigBoundIds source) *)
+                            val copiedSig = structSignat structFound
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case structAccess structFound of
@@ -1059,7 +1052,7 @@ struct
                         val copiedType =
                             copyType (typeOf, fn x => x,
                                 fn tcon =>
-                                    copyTypeConstr (tcon, idFromStructure baseStruct, fn x => x, fn s => prefix^"."^s))                            
+                                    copyTypeConstr (tcon, fn _ => NONE, fn x => x, fn s => prefix^"."^s))                            
                     in
                         SOME(mkSelectedVar (
                                 Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations },
@@ -1095,7 +1088,7 @@ struct
             then SOME undefType
             else
                 case #lookupType (mkEnv(sigTab (structSignat str))) suffix of
-                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, idFromStructure str, prefix^"."))
+                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, fn _ => false, fn _ => raise Subscript, prefix^"."))
                 |   NONE => NONE
         end
     in
