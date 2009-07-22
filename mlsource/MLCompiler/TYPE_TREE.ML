@@ -2122,17 +2122,19 @@ struct
         		 'a t = 'a list (particularly common in signature/structure
         		 matching.)
         	     d) Finally we try to unify the stamps and the arguments. *)
-		        if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
+                if isUndefined tACons orelse isUndefined tBCons
+                then () (* If we've had an undefined type constructor don't try to check further. *)
+		        else if tcIsAbbreviation tACons
 	            (* Candidate is an alias - expand it. *)
 		        then match (makeEquivalent (tACons, tAargs), tB)
-		        else if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
+		        else if tcIsAbbreviation tBCons
 		        then match (tA, makeEquivalent (tBCons, tBargs))
 		        else
                 let
                     val typeBCons = pling valueB
                 in
     			    (* If the typeB is an alias it must be expanded. *)
-    				if not(isUndefined typeBCons) andalso tcIsAbbreviation typeBCons
+    				if tcIsAbbreviation typeBCons
     				then match (tA, makeEquivalent (typeBCons, tBargs))
     				else if sameTypeId (tcIdentifier tACons, tcIdentifier typeBCons)
     				then

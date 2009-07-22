@@ -554,7 +554,7 @@ struct
         fun makeType name =
         let
             fun defaultPrinter depth _ value = PrettyString "?"
-             val code =
+            val code =
                 mkTuple[
                     CodeZero (* No equality. *),
                     mkConst (toMachineWord (ref defaultPrinter))
@@ -567,9 +567,27 @@ struct
     in
         val realType   = makeType "real"; (* Not an eqtype in ML97. *)
         val exnType    = makeType "exn";
-        (* "undefType" is used as a place-holder during parsing for the actual type constructor. *)
-        val undefType  = makeType "undefined"
     end
+
+    local
+        open Address PRETTY;
+
+        fun defaultPrinter depth _ value = PrettyString "?"
+        val code =
+            mkTuple[
+                CodeZero (* No equality. *),
+                mkConst (toMachineWord (ref defaultPrinter))
+            ]
+    in
+        (* "undefType" is used as a place-holder during parsing for the actual type constructor.
+           If the type constructor is not found this may appear in an error message. *)
+        val undefType  =
+            makeFrozenTypeConstrs (
+                "undefined", [], makeFreeId(Global (genCode(code, []) ()), false,
+                { location = inBasis, description = "Undefined", name = "undefined" }),
+                0, [DeclaredAt inBasis])
+    end
+
 
     (* The unit type is equivalent to the empty record. *)
     val unitType   =
