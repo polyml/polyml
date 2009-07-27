@@ -155,8 +155,8 @@ sig
         val conditionVar: unit -> conditionVar
         (* wait: Release the mutex and block until the condition variable is
            signalled.  When wait returns the mutex has been re-acquired.
-           If thread is deferring interrupts a call to "wait" may cause an Interrupt
-           exception to be delivered.
+           If thread is handling interrupts synchronously a call to "wait" may cause
+           an Interrupt exception to be delivered.
            (The implementation must ensure that if an Interrupt is delivered as well
            as signal waking up a single thread that the interrupted thread does not
            consume the "signal".)
@@ -622,3 +622,15 @@ struct
         end
     end
 end;
+
+local
+    fun prettyMutex _ _ (m: Thread.Mutex.mutex) = PolyML.PrettyString "?"
+    and prettyThread _ _ (m: Thread.Thread.thread) = PolyML.PrettyString "?"
+    and prettyCondVar _ _ (m: Thread.ConditionVar.conditionVar) = PolyML.PrettyString "?"
+in
+    val () = PolyML.addPrettyPrinter prettyMutex
+    and () = PolyML.addPrettyPrinter prettyThread
+    and () = PolyML.addPrettyPrinter prettyCondVar
+end;
+
+
