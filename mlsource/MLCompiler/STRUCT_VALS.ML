@@ -301,13 +301,6 @@ struct
     |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true (* For datatypes *)
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
 
-    (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
-       just return the result of the first. *)
-    fun composeMaps(m1, m2) n =
-        case m1 n of
-            Bound{ offset, ...} => m2 n
-        |   id => id
-
     (* Signatures: Used for both signatures of local structures and for global structures 
        (name spaces). Strictly signatures do not contain fix-status functors
        or signatures but as we use these structures for top-level name-spaces

@@ -276,8 +276,6 @@ sig
     val sigDeclaredAt: signatures -> location;
     val sigTypeIdMap:  signatures -> (int -> typeId);
     val sigBoundIds:   signatures -> typeId list
-    
-    val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
 
     val makeSignatureTable: unit -> univTable;
     val makeSignature: string * univTable * int * int * location * (int -> typeId) * typeId list -> signatures;

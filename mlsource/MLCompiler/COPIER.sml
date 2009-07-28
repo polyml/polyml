@@ -146,6 +146,29 @@ struct
     fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
         localCopyTypeConstr(tcon, typeMap, copyTypeVar, mungeName, [])
 
+    (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
+       just return the result of the first. *)
+    fun composeMaps(m1, m2) n =
+    let
+        fun map2 (Bound{ offset, ...}) = m2 offset
+        |   map2 (TypeFunction(args, equiv)) =
+            let
+                fun copyId(id as Free _) = NONE
+                |   copyId id = SOME(map2 id)
+                (* If it's a type function e.g. this was a "where type" we have to apply the
+                   map to any type identifiers in the type. *)
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+		                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
+            in
+                TypeFunction(args, copiedEquiv)
+            end
+
+        |   map2(id as Free _) = id
+    in
+        map2(m1 n)
+    end
+
     (* Generate new entries for all the elements of the signature.
        As well as copying the signature it also keeps track of addresses used in
        the signature for values.  This is needed because when we're constructing a signature
@@ -153,13 +176,10 @@ struct
        This is used to two cases only: when we have a named signature with possible sharing or
        "where types" or when including a signature.  Really these cases should renumber the
        value entries. *)
-    fun localCopySig(sourceTab, resEnv, wantCopy, mapTypeId, singleLevel, strName, cacheTail): unit =
+    fun localCopySig(sourceTab, resEnv, mapTypeId, singleLevel, strName, newMap, cacheTail): unit =
     let
-        fun copyId(id as Bound{ offset, ...}) =
-            if wantCopy offset then SOME(mapTypeId offset) else NONE
-        |   copyId id = NONE
 
-        fun buildTypeCache(sourceTab, strName, buildDatatypes, initialCache, cacheTail) =
+        fun buildTypeCache(sourceTab, strName, mapTypeId, buildDatatypes, initialCache, cacheTail) =
         let
             (* Process sub-directories first.  That way they will be further down the list. *)
             fun foldSubStructs(dName, dVal, rest) =
@@ -167,10 +187,10 @@ struct
             then
             let
                 val oldStruct = tagProject structVar dVal
-                val oldSig    = structSignat oldStruct
+                val Signatures { tab, typeIdMap, ...} = structSignat oldStruct
             in
-                buildTypeCache(sigTab oldSig, strName ^ dName ^ "." (* Add structure names. *),
-                        buildDatatypes, initialCache, rest)
+                buildTypeCache(tab, strName ^ dName ^ "." (* Add structure names. *),
+                    composeMaps(typeIdMap, mapTypeId), buildDatatypes, initialCache, rest)
             end
             else rest
 
@@ -181,6 +201,8 @@ struct
             let
                 val tcon = tagProject typeConstrVar dVal
                 fun makeName s = strName ^ (#second(splitString s))
+                fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeId offset)
+                |   copyId id = NONE
             in
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
@@ -219,14 +241,19 @@ struct
            the last entry in the list being the most local and that's the one we want
            to use for type abbreviations and values. *)
         val datatypeCache =
-            buildTypeCache(sourceTab, strName, true, (* Datatypes *) [], cacheTail)
+            buildTypeCache(sourceTab, strName, mapTypeId, true, (* Datatypes *) [], cacheTail)
         (* Now add any type abbreviations.  These can refer to datatypes we added in the
            previous pass but don't reuse type abbreviations we add elsewhere. *)
         val typeCache =
-            buildTypeCache(sourceTab, strName, false, (* Type abbreviations. *)datatypeCache, datatypeCache)
+            buildTypeCache(sourceTab, strName, mapTypeId, false, (* Type abbreviations. *)datatypeCache, datatypeCache)
 
         fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
+        let
+            fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeId offset)
+            |   copyId id = NONE
+        in
             localCopyTypeConstr (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
+        end
 
         fun copyTyp (t : types) : types =
             copyType (t, fn x => x, (* Don't bother with type variables. *) copyTypeCons)
@@ -258,10 +285,10 @@ struct
                                     enterStruct = fn (s,v) => univEnter (newTab, structVar,     s, v),
                                     enterVal    = fn (s,v) => univEnter (newTab, valueVar,      s, v)
                                 },
-                                wantCopy, mapTypeId, false, strName ^ dName ^ ".", typeCache)
+                                composeMaps(typeIdMap, mapTypeId), false, strName ^ dName ^ ".", newMap, typeCache)
                     in
                         (* If we're copying it all set the resulting map to the new map. *)
-                        makeSignature(name, newTab, minTypes, maxTypes, declaredAt, mapTypeId, [])
+                        makeSignature(name, newTab, minTypes, maxTypes, declaredAt, newMap, [])
                     end
                 val newStruct =
                     Struct { name = structName oldStruct, signat = newSig,
@@ -319,14 +346,12 @@ struct
     end (* fullCopySig *)
 
     (* Exported versions of these. *)
-    fun fullCopySig(source, resEnv, wantCopy, mapTypeId, strName) =
-        localCopySig(sigTab source, resEnv, wantCopy, mapTypeId, false, strName, [])
 
     (* Open a structure or include a signature. *)
-    and openSignature(tab, typeIdMap, resEnv, strName) =
-        localCopySig(tab, resEnv, fn _ => true, typeIdMap, true (* One level. *), strName, [])
+    fun openSignature(Signatures{ tab, typeIdMap, ...}, resEnv, strName) =
+        localCopySig(tab, resEnv, typeIdMap, true (* One level. *), strName, typeIdMap, [])
 
-    and fullCopyDatatype(oldConstr, wantCopy, mapTypeId, strName) =
+    and fullCopyDatatype(oldConstr, mapTypeId, strName) =
     let
         val sigSpace = makeSignatureTable()
         val Env { enterType, ...} = makeEnv sigSpace
@@ -338,13 +363,12 @@ struct
                 enterStruct = fn (s, _) => raise Misc.InternalError ("enterStruct "^s),
                 enterVal = fn (s, _) => raise Misc.InternalError ("enterVal "^s)
             }
-        val () = localCopySig(sigSpace, resEnv, wantCopy, mapTypeId, true, strName, [])
+        val () = localCopySig(sigSpace, resEnv, mapTypeId, true, strName, fn _ => raise Subscript, [])
     in
         valOf(! resType)
     end
 
-    (* Copy the result signature of a structure. *)
-    fun copySig(source: signatures, wantCopy: int -> bool, mapTypeId: int -> typeId, strName: string): signatures = 
+    fun replaceMap(source: signatures, mapTypeId: int -> typeId, min, boundIds, newMap): signatures =
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
@@ -356,10 +380,10 @@ struct
             enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
         }
         (* Copy everything into the new signature. *)
-        val () = fullCopySig (source, tsvEnv, wantCopy, mapTypeId, strName);
+        val () = localCopySig(sigTab source, tsvEnv, mapTypeId, false, "", newMap, [])
     in
-        makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source, sigDeclaredAt source, mapTypeId, [])
-    end (* copySig *)
+        makeSignature(sigName source, tab, min, min + List.length boundIds, sigDeclaredAt source, newMap, boundIds)
+    end (* replaceMap *)
 
     (* Find the maximum run-time offset used for a value or structure in a signature.
        This excludes type IDs. *)

@@ -822,7 +822,7 @@ struct
         val newId = makeFreeId(Global globalCode, isEqType, description)
         (* Finally copy the datatype to put in the code. *)
     in
-        fullCopyDatatype(dtype, fn 0 => true | _ => false, fn 0 => newId | _ => raise Subscript, "")
+        fullCopyDatatype(dtype, fn 0 => newId | _ => raise Subscript, "")
     end
 
     (* Nil and :: are used in parsetree for lists constructed
@@ -933,8 +933,8 @@ struct
                 then SOME undefinedStruct (* Error somewhere else? *)
                 else 
                 let
-                    val parentSig = structSignat str
-                    val Env{lookupStruct, ...} = makeEnv(sigTab parentSig)
+                    val parentSig as Signatures { tab, typeIdMap, minTypes, maxTypes, ... } = structSignat str
+                    val Env{lookupStruct, ...} = makeEnv tab
                     (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                     val baseLoc =
                     case List.find (fn DeclaredAt _ => true | _ => false) (structLocations str) of
@@ -944,29 +944,10 @@ struct
                     case lookupStruct suffix of
                         SOME structFound =>
                         let
-(*                            val tab = makeSignatureTable ();
-                            (* Copy everything into the new signature. *)
-                            val source = structSignat structFound
-                            val Env sigEnv = makeEnv tab
-                            val lastAddr =
-                                openSignature 
-                                    (source,
-                                    {
-                                      enterType   = fn (s,v) => #enterType sigEnv (s, v),
-                                      enterStruct = fn (s,v) => #enterStruct sigEnv (s, v),
-                                      enterVal    = fn (s,v) => #enterVal sigEnv (s, v)
-                                    },
-                                    prefix^".");
-                            fun newMap n =
-                            let
-                                val m = sigTypeIdMap source n
-                            in
-                                case copyId m of NONE => m | SOME l => l
-                            end
-                            val copiedSig = 
-                                makeSignature(sigName source, tab, sigMinTypes source, sigMaxTypes source,
-                                              sigDeclaredAt source, newMap, sigBoundIds source) *)
-                            val copiedSig = structSignat structFound
+                            val Signatures { name, tab, typeIdMap = childMap, declaredAt, ... } = structSignat structFound
+                            (* We need to apply the map from the parent structure to the child. *)
+                            val copiedSig =
+                                makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(childMap, typeIdMap), [])
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case structAccess structFound of
@@ -992,34 +973,13 @@ struct
                 undefinedStruct)
     end;
 
-  fun mkEnv x = let val Env e = makeEnv x in e end
+    fun mkEnv x = let val Env e = makeEnv x in e end
 
     (* Look up a structure but ignore the access. This is used in sharing constraints
        where we're only interested in the signature. *)
+    (* It's simpler to use the common code for this. *)
     fun lookupStructureAsSignature (lookupStruct, name, errorMessage) =
-    let
-        val {first = prefix, second = suffix} = splitString name;
-        val found =
-            if prefix = "" then lookupStruct suffix
-            else
-            let (* Look up the first part in the structure environment. *)
-                val str =
-                    lookupStructureAsSignature(lookupStruct, prefix, errorMessage);
-            in
-                if isUndefinedStruct str
-                then SOME undefinedStruct (* Error detected earlier. *)
-                else #lookupStruct (mkEnv(sigTab(structSignat str))) suffix
-            end
-    in
-        case found of
-            SOME v => v
-        |   NONE => (* Not declared? *)
-            (
-                errorMessage ("Structure" ^ " (" ^ suffix ^ ") has not been declared" ^
-                (if prefix = "" then "" else " in structure " ^ prefix));
-                undefinedStruct
-            )
-    end (* lookupStructureAsSignature *) 
+        lookupStructure("Structure", { lookupStruct = lookupStruct}, name, errorMessage)
 
     (* Look up a value, possibly in a structure. If it is in
        a structure we may have to apply a selection. *)
@@ -1039,20 +999,22 @@ struct
             then SOME undefinedValue
             else
             let
-                val parentSig = structSignat baseStruct
+                val Signatures { tab, typeIdMap, ...} = structSignat baseStruct
                 (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                 val baseLoc =
                     case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
                         SOME (DeclaredAt loc) => [StructureAt loc]
                     |   _ => []
             in
-                case #lookupVal (mkEnv(sigTab parentSig)) suffix of
+                case #lookupVal (mkEnv tab) suffix of
                     SOME (Value{ name, typeOf, access, class, locations }) =>
                     let
+                        fun copyId(Bound{ offset, ...}) = SOME(typeIdMap offset)
+                        |   copyId _ = NONE
                         val copiedType =
                             copyType (typeOf, fn x => x,
                                 fn tcon =>
-                                    copyTypeConstr (tcon, fn _ => NONE, fn x => x, fn s => prefix^"."^s))                            
+                                    copyTypeConstr (tcon, copyId, fn x => x, fn s => prefix^"."^s))                            
                     in
                         SOME(mkSelectedVar (
                                 Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations },
@@ -1087,9 +1049,13 @@ struct
             if isUndefinedStruct str
             then SOME undefType
             else
-                case #lookupType (mkEnv(sigTab (structSignat str))) suffix of
-                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, fn _ => false, fn _ => raise Subscript, prefix^"."))
+            let
+                val Signatures { tab, typeIdMap, ...} = structSignat str
+            in
+                case #lookupType (mkEnv tab) suffix of
+                    SOME typeConstr => SOME(fullCopyDatatype(typeConstr, typeIdMap, prefix^"."))
                 |   NONE => NONE
+            end
         end
     in
         case found of

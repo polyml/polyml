@@ -1275,20 +1275,17 @@ struct
                    the argument will ensure that type IDs created in the argument are declared
                    as Locals and if we pass localIDs to matchStructure we will load IDs from
                    both the argument and generative IDs created by loadOpaqueIds. *)
+                val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
+                val idEnv = newTypeIdEnv()
                 fun getCombinedTypeId n =
-                    if n >= sigMinTypes functorResSig
+                    if n < minCopy then idEnv n
+                    else if n >= sigMinTypes functorResSig
                     then Vector.sub(resVector, n - sigMinTypes functorResSig)
                     else if n >= sigMinTypes formalArgSig
                     then matchResults n
                     else sigTypeIdMap formalArgSig n
 
-                val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
-                val copiedSig =
-                    copySig(functorResSig, fn s => s >= minCopy, getCombinedTypeId, "")
-                val resSig = 
-                    makeSignature(sigName copiedSig, sigTab copiedSig,
-                                    currentTypeCount(), currentTypeCount(),
-                                    sigDeclaredAt copiedSig, newTypeIdEnv(), [])
+                val resSig = replaceMap(functorResSig, getCombinedTypeId, currentTypeCount(), [], idEnv)
               in
                 resultSig := resSig;
                 resSig
@@ -1303,7 +1300,6 @@ struct
                is generated during the first pass. Get the environment from
                the structure. *)
             val structEnv = makeEnv structTable
-            val addrs = ref 0; (* Entries in the run-time vector. *)
 
             val makeLocalTypeId = newTypeId
             val makeLocalTypeIdEnv = newTypeIdEnv
@@ -1331,56 +1327,52 @@ struct
             val () =
                 pass2Struct (alist, makeLocalTypeId, currentTypeCount, makeLocalTypeIdEnv, Env newEnv, lex, lno, structPath);
 
+            (* We need to make a signature for the result in the form that can be used if there is no
+               explicit signature, for example if this is used as the result of a functor.  That means
+               creating Formal values for all the values and structures.  These Formal entries define
+               the position in the run-time vector where each of the values and sub-structures are
+               located.  We don't include typeIDs in this.  Any typeIDs that need to be included in
+               the run-time vector are added by the functor declaration code. *)
             val finalTable = makeSignatureTable();
             val finalEnv = makeEnv finalTable
-
-            (* We look type IDs up in the surrounding scope.  Type IDs in local structures will have been turned
-               into Formal entries and we have to turn them back into the original Local entries.  Leaving
-               them as Formals would indicate the offset in the run-time vector for THIS structure whereas the
-               offset they had must be relative to the local structure's run-time vector. *)
-            val resMapFun = newTypeIdEnv()
-
-            val _ =
-                COPIER.fullCopySig 
-                (makeSignature("", structTable, currentTypeCount(), currentTypeCount(), location,
-                                fn n => raise Subscript, []),
-                {
-                    enterType   = fn (s,v) => #enterType finalEnv (s, v),
-                    enterStruct =
-                        fn (name, strVal) =>
-                        let
-                            val strSig = structSignat strVal;
-                            val locations = structLocations strVal
-                            val a = !addrs;
-                            (* Set the id range to empty as the bound IDs have now been lifted.
-                               This maintains the rule that all bound IDs are included in the top
-                               level of the signature and substructures have no bound IDs of their own. *)
-                            val resSig =
-                                makeSignature (sigName strSig, sigTab strSig,
-                                               sigMaxTypes strSig (* Min set to max. *), sigMaxTypes strSig,
-                                               sigDeclaredAt strSig, fn _ => raise Subscript, [])
-                        in
-                            #enterStruct finalEnv (name, makeFormalStruct (name, resSig, a, locations));
-                            addrs := a + 1
-                        end,
-                    enterVal =
-                            (* If this is a type-dependent function such as PolyML.print we must put in the
-                               original type-dependent version not the version which will have frozen
-                               its type as 'a. *)
-                        fn (name, value as Value{access = Overloaded _, typeOf, locations, ...}) =>
-                            #enterVal finalEnv (name, value)
-                        |  (name, Value{class, typeOf, locations, ...}) =>
-                        let
-                            val a = ! addrs
-                        in
-                            #enterVal finalEnv (name, mkFormal (name, class, typeOf, a, locations));
-                            addrs := a + 1
-                        end
-                },
-                fn _ => true, resMapFun, "");
+            
+            fun enterItem(dName, dVal, addrs) =
+                if tagIs typeConstrVar dVal
+                then (#enterType finalEnv (dName, tagProject typeConstrVar dVal); addrs)
+                else if tagIs structVar dVal
+                then 
+                let
+                    val strVal = tagProject structVar dVal
+                    val locations = structLocations strVal
+                in
+                    #enterStruct finalEnv (dName, makeFormalStruct (dName, structSignat strVal, addrs, locations));
+                    addrs + 1
+                end
+                else if tagIs valueVar dVal
+                then
+                let
+                    val valVal = tagProject valueVar dVal
+                in
+                    (* If this is a type-dependent function such as PolyML.print we must put in the
+                       original type-dependent version not the version which will have frozen
+                       its type as 'a. *)
+                    case valVal of
+                        value as Value{access = Overloaded _, typeOf, locations, ...} =>
+                        (
+                            #enterVal finalEnv (dName, value);
+                            addrs
+                        )
+                    |   Value{class, typeOf, locations, ...} =>
+                        (
+                            #enterVal finalEnv (dName, mkFormal (dName, class, typeOf, addrs, locations));
+                            addrs + 1
+                        )
+                end
+                else addrs
+            
+            val _ = univFold(structTable, enterItem, 0)
             val resSig =
-                makeSignature("", finalTable, currentTypeCount(),
-                              currentTypeCount(), location, resMapFun, [])
+                makeSignature("", finalTable, currentTypeCount(), currentTypeCount(), location, newTypeIdEnv(), [])
           in
             resultSig := resSig;
             resSig
@@ -1442,8 +1434,16 @@ struct
                 val resSig =
                     structValue(str, sconstraintMakeTypeId, currentTypeCount, sconstraintTypeIdEnv, Env env, lex, lno, structPath);
                 (* Get the explicit signature. *)
-                val explicitSig  : signatures = 
-                    sigVal(csig, startTypes, startTypeEnv, Env env, lex, sigLoc);
+                val explicitSig =
+                let
+                    val sign as Signatures { typeIdMap, minTypes, boundIds, ... }
+                        = sigVal(csig, startTypes, startTypeEnv, Env env, lex, sigLoc)
+                    fun newMap n =
+                    if n < minTypes then startTypeEnv n
+                    else List.nth(boundIds, n-minTypes)
+                in
+                    replaceMap(sign, typeIdMap, minTypes, boundIds, newMap)
+                end;
                 val minExplicitSig = sigMinTypes explicitSig and maxExplicitSig = sigMaxTypes explicitSig                 
 
                 (* Match the signature.  This instantiates entries in typeMap. *)
@@ -1476,31 +1476,31 @@ struct
                         (* Create new IDs for all the bound IDs in the signature. *)
                         val v = Vector.fromList dests
 
-                        fun resTypeMap id = Vector.sub (v, id - minExplicitSig)
                         (* And copy it to put in the names from the structure. *)
-                        val copiedSig = copySig (explicitSig, fn s => s >= minExplicitSig, resTypeMap, "")
+                        val currentEnv = newTypeIdEnv()
+                        fun oldMap n =
+                            if n < minExplicitSig
+                            then currentEnv n
+                            else Vector.sub (v, n - minExplicitSig)
+
                         val newIdEnv = newTypeIdEnv ()
                         fun getNewId n =
                             if n < startResIds
                             then newIdEnv n
                             else Vector.sub(v, n-startResIds)
                     in
-                        makeSignature(sigName explicitSig, sigTab copiedSig,
-                                        currentTypeCount(), currentTypeCount(), sigDeclaredAt explicitSig,
-                                        getNewId, [])
+                        replaceMap(explicitSig, oldMap, currentTypeCount(), [], getNewId)
                     end
                     else (* Transparent: Use the IDs from the structure. *)
                     let
                         val bodyVec = Vector.fromList(List.rev(!bodyIds))
-                        val resSig =
-                            copySig (explicitSig, fn s => s >= sigMinTypes explicitSig, matchResults, "")
                         val newIdEnv = newTypeIdEnv ()
+                        fun matchedIds n = if n < sigMinTypes explicitSig then newIdEnv n else matchResults n
                         fun transResId n = if n < startTypes then newIdEnv n else Vector.sub(bodyVec, n-startTypes)
                     in
                         (* The result signature.  This needs to be able to enumerate the type IDs
                            including those we've added. *)
-                        makeSignature(sigName resSig, sigTab resSig,
-                                        currentTypeCount(), currentTypeCount(), sigDeclaredAt resSig, transResId, [])
+                        replaceMap(explicitSig, matchedIds, currentTypeCount(), [], transResId)
                     end
             in
                 resultSig := rSig;
@@ -1846,8 +1846,22 @@ struct
                        the same signature are different. Make an environment to
                        contain the arguments. *)
                     val argEnv = makeEnv (makeSignatureTable());
-             
-                    val signat = sigVal (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
+
+                    (* TODO: There's a problem with this code if we have a structure before the signature
+                       so that startTopLevelIDs is non-zero.  The argEnv we use has used the original
+                       signature before the renumbering.  We need argEnv to make the selected Bound IDs
+                       in mkId but the signature we want for argEnv should be the signature AFTER the
+                       renumbering. *)
+                    val signat =
+                    let
+                        val sign as Signatures { typeIdMap, minTypes, boundIds, ... }
+                            = sigVal (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
+                        fun newMap n =
+                        if n < minTypes then topLevelEnv n
+                        else List.nth(boundIds, n-minTypes)
+                    in
+                        replaceMap(sign, typeIdMap, minTypes, boundIds, newMap)
+                    end;
               
                     val resArg = makeLocalStruct (argName, signat, [DeclaredAt line]);
 
@@ -1862,6 +1876,18 @@ struct
                         |   mkId _ = raise InternalError "mkId: Not Bound or not Formal"
 
                         val copiedIds = Vector.fromList(List.map mkId (sigBoundIds signat))
+                        (* The bound IDs in the vector are turned into new IDs. *)
+                        local
+                            val Signatures { minTypes, typeIdMap, ...} = signat
+                            fun mapId n =
+                                if n < minTypes then topLevelEnv n else Vector.sub(copiedIds, n-minTypes)
+                            (* The resulting map starts at the first new ID. *)
+                            fun mappedId n =
+                                if n < startArgIds then topLevelEnv n else Vector.sub(copiedIds, n-startArgIds)
+                        in
+                            val mappedSignature =
+                                replaceMap(signat, composeMaps(typeIdMap, mapId), ! typeStamps, [], mappedId)
+                        end
                     in
                         (* We may either have a single named structure in which case that is the argument or
                            effectively a sig...end block in which case we have to open a dummy structure. *)
@@ -1869,37 +1895,26 @@ struct
                             if argName <> ""
                             then (* Named structure. *)
                             let
-                                val copiedSig =
-                                    copySig(signat, fn n => n >= startArgIds,
-                                            fn n => Vector.sub(copiedIds, n-startArgIds), argName^".")
                                 val copiedStruct =
-                                    Struct { name = argName, signat = copiedSig, access = structAccess resArg,
+                                    Struct { name = argName, signat = mappedSignature, access = structAccess resArg,
                                              locations = structLocations resArg }
                             in
                                 #enterStruct argEnv (argName, copiedStruct)
                             end
-                            else
-                            let (* Open the dummy argument. Similar to "open" in treestruct. *)
-                                (* We have to convert typeIds from Formal into Selected. *)
-                                val _ =
-                                    COPIER.fullCopySig 
-                                    (signat,
-                                    {
-                                      enterType   =
-                                        fn (s,v) => #enterType argEnv (s, v),
-                                      enterStruct =
-                                        fn (name, strVal) =>
-                                            #enterStruct argEnv (name, makeSelectedStruct (strVal, resArg, [])),
-                                      enterVal    =
-                                        fn (name, value) =>
-                                            #enterVal argEnv (name, mkSelectedVar (value, resArg, []))
-                                    },
-                                    fn n => n >= startArgIds,
-                                    fn n => Vector.sub(copiedIds, n-startArgIds),
-                                    "");
-                            in
-                                ()
-                            end
+                            else (* Open the dummy argument. Similar to "open" in treestruct. *)
+                                COPIER.openSignature 
+                                (mappedSignature,
+                                {
+                                  enterType   =
+                                    fn (s,v) => #enterType argEnv (s, v),
+                                  enterStruct =
+                                    fn (name, strVal) =>
+                                        #enterStruct argEnv (name, makeSelectedStruct (strVal, resArg, [])),
+                                  enterVal    =
+                                    fn (name, value) =>
+                                        #enterVal argEnv (name, mkSelectedVar (value, resArg, []))
+                                },
+                                "")
                     end
              
                     val () = argVal := resArg;
@@ -1981,20 +1996,23 @@ struct
                             |   convertId (_, id) = id (* Free or TypeFunction. *)
                             val localVector = Vector.fromList(List.rev(!localStamps))
                             val bodyVec = Vector.mapi convertId localVector
-                            fun resTypeMap n = convertId(n-startTypes, sigTypeIdMap resSig n)
+                            val argTypeMap = sigTypeIdMap signat
+                            fun resTypeMap n =
+                            if n < startTypes
+                            then argTypeMap n
+                            else convertId(n-startTypes, sigTypeIdMap resSig n)
                             (* Now copy bound IDs that don't share with IDs in the argument and replace them either by entries
                                from the functor body or newly created IDs.  This also ensures that when we apply the
                                functor we can distinguish generative IDs from those that are inherited from the argument.
                                Any bound ID with an offset < sigMinTypes resSig is assumed to be inherited from the
                                argument while new IDs are created for any with offset >= sigMinTypes resSig. *)
-                            val resSig = copySig(resSig, fn s => s >= minSig, resTypeMap, "")
                             (* Record the ID map for code-generation. *)
                             fun makeId n =
                                 resultIds :=
                                     { dest = Vector.sub(bodyVec, n), source = Vector.sub(localVector, n) } :: !resultIds
                             val () = tabulate(0, !typeStamps-startTypes, makeId)
                             fun finalTypeMap n =
-                                if n < startTypes then sigTypeIdMap signat n
+                                if n < startTypes then argTypeMap n
                                 else Vector.sub(bodyVec, n-startTypes)
                         in
                             (* The resulting signature includes both the type IDs from the arguments and generative type
@@ -2002,8 +2020,7 @@ struct
                                The primary purpose for doing all this is so that we put the type IDs in a specific
                                offset within the run-time vector when we create it in the functor and then when we
                                call the functor we know where to get the results. *)
-                            makeSignature(sigName resSig, sigTab resSig, startTypes, !typeStamps,
-                                            sigDeclaredAt resSig, finalTypeMap, Vector.foldr (op ::) [] bodyVec)
+                            replaceMap(resSig, resTypeMap, startTypes, Vector.foldr (op ::) [] bodyVec, finalTypeMap)
                         end
 
                      (* Now make a local functor variable and put it in the
@@ -2043,13 +2060,28 @@ struct
 
                 fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
                 let (* Each element in the list is a signature binding. *)
+                    val sign as Signatures { typeIdMap, minTypes, boundIds, ... } =
+                        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
                     val Signatures { tab, typeIdMap, minTypes, maxTypes, boundIds, ...} =
-				        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line);
+                       sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
+(*                     let
+                        fun newMap n =
+                        if n < minTypes then topLevelEnv n
+                        else List.nth(boundIds, n-minTypes)
+                    in
+                        replaceMap(sign, typeIdMap, minTypes, boundIds, newMap)
+				    end;*)
                     (* Generate a signature with the new name and put it in the table *)
 			        val copiedSig =
                         makeSignature(name, tab, minTypes, maxTypes, line, typeIdMap, boundIds)
+                    (* TODO:
+                        There seems to be a problem with the local reference to a signature.  We seem
+                        to need to copy it before we put it into the environment.
+                        There isn't the same problem with the entry which will be put into global scope.
+                        Presumably this is something to do with having sigMinTypes and then mapping the result.
+                    *)
                 in
-		            sigRef := copiedSig; (* Remember the signature for pass4. *)
+		            sigRef := makeSignature(name, sigTab sign, sigMinTypes sign, sigMaxTypes sign, line, sigTypeIdMap sign, sigBoundIds sign); (* Remember the signature for pass4. *)
                     #enter sEnv (name, copiedSig)
                 end
             in
@@ -2601,19 +2633,8 @@ struct
                     val source = structSignat (!valRef);
 			        val structCode = mkInd (addr, results);
                     (* We need to replace type IDs with their Global versions. *)
-                    val tab = makeSignatureTable ();
-
-                    val tsvEnv =
-                    {
-                        enterType   = fn (s,v) => univEnter (tab, typeConstrVar, s, v),
-                        enterStruct = fn (s,v) => univEnter (tab, structVar, s, v),
-                        enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
-                    }
-                    (* Copy everything into the new signature. *)
-                    val () = COPIER.fullCopySig (source, tsvEnv, fn _ => true, mapTypeIds, name ^ ".");
-                    (* After the copy we have no Bound IDs and so minType and maxTypes are both zero. *)
                     val resultSig =
-                        makeSignature(sigName source, tab, 0, 0, sigDeclaredAt source, fn _ => raise Subscript, [])
+                        replaceMap(source, composeMaps(sigTypeIdMap source, mapTypeIds), 0, [], fn _ => raise Subscript)
                 in
                     (* Make a global structure. *)
                     (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, line)) :: structures)
@@ -2677,7 +2698,7 @@ struct
 
 		    |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
-                    val copiedTC = fullCopyDatatype(tc, fn _ => true, mapTypeIds, "")
+                    val copiedTC = fullCopyDatatype(tc, mapTypeIds, "")
                     val newName = #second(splitString(tcName tc))
                 in
                     (addr, { fixes=fixes, values=values, structures=structures,
@@ -2726,13 +2747,15 @@ struct
                 (* The result signature shares with the argument so we only copy IDs less than
                    the min for the argument signature. *)
                 fun copyFunctorSig fnSig =
-                    if sigMinTypes fnArgSig = 0 then fnSig (* Nothing to do. *)
-                    else copySig(fnSig, fn n => n < sigMinTypes fnArgSig,
-                            fn n =>
-                                if n < sigMinTypes fnArgSig
-                                then mapPrevTypIds n
-                                else sigTypeIdMap fnSig n,
-                            "");
+                let
+                    val Signatures { typeIdMap, boundIds, minTypes, ... } = fnSig
+                    fun newMap n =
+                    if n < sigMinTypes fnArgSig
+                    then mapPrevTypIds n
+                    else typeIdMap n
+                in
+                    replaceMap(fnSig, newMap, minTypes, boundIds, newMap)
+                end
                 val copiedArg =
                     Struct{name=structName fnArg, signat=copyFunctorSig fnArgSig,
                            access=structAccess fnArg, locations=structLocations fnArg}
@@ -2753,12 +2776,28 @@ struct
 
      | SignatureDec (structList : sigBind list, _) =>
 		let
-            (* We need to convert any references to typeIDs created in strdecs in the
-               same "program". *)
+            (* We need to convert any references to typeIDs created in strdecs in the same "program". *)
             fun copySignature fnSig =
-                if sigMinTypes fnSig = 0 then fnSig (* Nothing to do. *)
-                else copySig(fnSig, fn n => n < sigMinTypes fnSig,
-                        fn n => if n < sigMinTypes fnSig then mapPrevTypIds n else sigTypeIdMap fnSig n, "");
+            let
+                val Signatures { name, tab, typeIdMap, minTypes, maxTypes, boundIds, declaredAt, ... } = fnSig
+                (* Renumber the Bound IDs starting at zero and attach any IDs that are now free.
+                   Unless there was a structure before the signature without a semicolon before
+                   this is actually unnecessary. *)
+                val typeStamps = ref 0
+                fun mapId(Bound{ eqType, description, access, ...}) =
+                    Bound { offset = ! typeStamps before (typeStamps := ! typeStamps+1),
+                            eqType = eqType, description = description, access = access }
+                |   mapId _ = raise InternalError "mapId: Not Bound or not Formal"
+                val newBoundIds = List.map mapId boundIds
+                val boundIdVec = Vector.fromList newBoundIds
+                fun mapIDs n =
+                    if n < minTypes
+                    then mapPrevTypIds n
+                    else Vector.sub(boundIdVec, n-minTypes)
+            in   
+                (*replaceMap(fnSig, composeMaps(typeIdMap, mapIDs), 0, newBoundIds, fn n => Vector.sub(boundIdVec, n))*)
+                makeSignature(name, tab, 0, Vector.length boundIdVec, declaredAt, composeMaps(typeIdMap, mapIDs), newBoundIds)
+            end
             val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, copySignature s)) structList
 		in
            (addr, { fixes=fixes, values=values, structures=structures,

@@ -465,8 +465,8 @@ struct
         |   Unset
 
         val idCount = ref initTypeId
-        val mapArray =
-            StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
+        val mapArray = StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
+        val sourceArray = StretchArray.stretchArray(10 (* Guess initial size. *), NONE)
 
         fun makeVariableId(isEq, description: typeIdDescription, structPath) =
         let
@@ -478,6 +478,7 @@ struct
             val arrayEntry =
                 VariableSlot{ isDatatype=false, boundId=newId, descriptions = [structPath ^ #name description] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
+            val () = StretchArray.update(sourceArray, newIdNumber-initTypeId, SOME newId)
         in
             newId
         end
@@ -502,6 +503,18 @@ struct
                 |   _ => raise InternalError "isVar"
             )
         |   isVariableId _ (* Free or TypeFunction *) = false
+
+        (* The internal type ID map after mapping to the internal Bound IDs but before the application of
+           any "where types" or sharing. *)
+        fun typeIdEnv () =
+        let
+            val v = Vector.tabulate(!idCount-initTypeId, fn n => valOf(StretchArray.sub(sourceArray, n)))
+        in
+            fn n =>
+                if n < initTypeId
+                then outerTypeIdEnv n
+                else Vector.sub(v, n-initTypeId)
+        end
         
         fun linkFlexibleTypeIds(typeId1, typeId2) =
         (* Link together and share two IDs.  The result is an equality type if either
@@ -509,7 +522,7 @@ struct
         case (typeId1, typeId2) of
             (Bound{offset=offset1, ...}, Bound{offset=offset2, ...}) =>
         (
-            case (realId offset1, realId offset2) of
+            case (realId(offset1-initTypeId), realId(offset2-initTypeId)) of
                 (VariableSlot{isDatatype=isDatatype1, descriptions = desc1,
                               boundId=Bound{eqType=eqType1, offset=off1, description, ...}},
                  VariableSlot{isDatatype=isDatatype2, descriptions = desc2,
@@ -533,7 +546,7 @@ struct
         |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
 
         local (* Sharing *)
-            fun shareTypes(typeA, aPath, typeB, bPath, lno, nearStruct) =
+            fun shareTypes(typeA, aPath, aMap, typeB, bPath, bMap, lno, nearStruct) =
             let
                 fun cantShare reason =
                 let
@@ -564,12 +577,12 @@ struct
                             ]))
                 end
  
-                fun alreadyBound(path, typeAB) =
+                fun alreadyBound(path, typeName, tcId) =
                 let
-                    fun printId(_, Free{description, ...}) = printDesc description
-                    |   printId(_, Bound{description, ...}) = printDesc description
-                    |   printId(tc, TypeFunction(args, _)) =
-                            display(makeEquivalent(tc, List.map TypeVar args), 10000, emptyTypeEnv)
+                    fun printId(Free{description, ...}) = printDesc description
+                    |   printId(Bound{description, ...}) = printDesc description
+                    |   printId(TypeFunction(_, typeResult)) =
+                            display(typeResult, 10000, emptyTypeEnv)
 
                     and printDesc{ location: location, name: string, description = "" } =
                             PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
@@ -580,11 +593,11 @@ struct
                     cantShare (
                         PrettyBlock(3, false, [],
                             [
-                                PrettyString(path ^ tcName typeAB),
+                                PrettyString(path ^ typeName),
                                 PrettyBreak(1, 0),
                                 PrettyString "is already defined as",
                                 PrettyBreak(1, 0),
-                                printId(typeAB, tcIdentifier typeAB)
+                                printId tcId
                             ]))
                 end
             in
@@ -592,29 +605,38 @@ struct
                 then ()
                 else if tcArity typeA <> tcArity typeB (* Check arity. *)
                 then cantShare(PrettyString "The type constructors take different numbers of arguments.")
-                
-                (* The type constructors are only looked up in the signature but they
-                   already may be set to another type through a "where type" or they may
-                   have been created with Free IDs through type t=s declarations.  This
-                   could be a free identifier or a type function.  *)
-                else if not (isVariableId (tcIdentifier typeA))
-                then alreadyBound(aPath, typeA)
-                else if not (isVariableId (tcIdentifier typeB))
-                then alreadyBound(bPath, typeB)
-                else linkFlexibleTypeIds(tcIdentifier typeA, tcIdentifier typeB)
+                else
+                let
+                    fun mapId (map, Bound{offset, ...}) = map offset
+                    |   mapId (_, id) = id
+                    val aId = mapId(aMap, tcIdentifier typeA)
+                    and bId = mapId(bMap, tcIdentifier typeB)
+                in
+                    (* The type constructors are only looked up in the signature but they
+                       already may be set to another type through a "where type" or they may
+                       have been created with Free IDs through type t=s declarations.  This
+                       could be a free identifier or a type function.  *)
+                    if not (isVariableId aId)
+                    then alreadyBound(aPath, tcName typeA, aId)
+                    else if not (isVariableId bId)
+                    then alreadyBound(bPath, tcName typeB, bId)
+                    else linkFlexibleTypeIds(aId, bId)
+                end
             end (* shareTypes *);
 
             (* Find all the structures and type constructors in one structure. *)
-            fun structsAndTypes((structVal, path), start) =
+            fun structsAndTypes((structVal, path, oldMap), start) =
             let
+                val Signatures { tab, typeIdMap, ... } = structSignat structVal
+                val newMap = composeMaps(typeIdMap, oldMap)
                 fun get(name, dVal, (ts, ss)) =
                     if tagIs structVar dVal
-                    then (ts, (name, (tagProject structVar dVal, path ^ name ^ ".")) :: ss)
+                    then (ts, (name, (tagProject structVar dVal, path ^ name ^ ".", newMap)) :: ss)
                     else if tagIs typeConstrVar dVal
-                    then ((name, (tagProject typeConstrVar dVal, path)) :: ts, ss)
+                    then ((name, (tagProject typeConstrVar dVal, path, newMap)) :: ts, ss)
                     else (ts, ss)
             in
-                univFold (sigTab(structSignat structVal), get, start)
+                univFold (tab, get, start)
             end
 
             (* Get all the structures and type constructors in a list of structures. *)
@@ -659,12 +681,13 @@ struct
                     List.app(fn types => (* Share types. *)
                         case types of
                             [] => raise List.Empty
-                        |   (hd, hdName) :: tl => (* Share the rest of the list with the first item. *)
-                                List.app(fn (t, tName) => shareTypes(hd, hdName, t, tName, line, near)) tl) matchedTypes;
+                        |   (hd, hdName, hdMap) :: tl => (* Share the rest of the list with the first item. *)
+                                List.app(fn (t, tName, tMap) =>
+                                    shareTypes(hd, hdName, hdMap, t, tName, tMap, line, near)) tl) matchedTypes;
                     List.app shareStructs matchedStructs (* Recursively share sub-structures. *)
                 end
             in
-                shareStructs(List.map(fn s => (s, structName s ^ ".")) structs)
+                shareStructs(List.map(fn s => (s, structName s ^ ".", typeIdEnv())) structs)
             end
         in
 
@@ -697,7 +720,8 @@ struct
                         in
                             if isUndefinedTypeConstr first
                             then ()
-                            else List.app (fn typ => shareTypes (lookupSharing typ, "", first, "", line, near)) tl
+                            else List.app (fn typ =>
+                                    shareTypes (lookupSharing typ, "", typeIdEnv(), first, "", typeIdEnv(), line, near)) tl
                         end
                 end
                 else
@@ -735,15 +759,14 @@ struct
         let
             (* Look up the signature and copy it to turn bound IDs into variables.
                This is needed because we may have sharing. *)
-            val sourceSig = lookSig(name, loc);
+            val oldSig as Signatures { name, tab, typeIdMap, minTypes, boundIds, declaredAt, ...} = lookSig(name, loc);
             (* Remember the declaration location for possible browsing. *)
-            val () = declLoc := SOME(sigDeclaredAt sourceSig)
+            val () = declLoc := SOME declaredAt
+            val startNewIds = ! idCount
 
-            (* Create a new variable ID for each bound ID.  We must only create
-               one for each and must return the same variable ID for each bound ID. *)
-            fun makeNewId n =
+            (* Create a new variable ID for each bound ID. *)
+            fun makeNewId oldId =
             let
-                val oldId = sigTypeIdMap sourceSig n
                 val desc =
                     case oldId of
                         Bound { description, ...} => description
@@ -752,14 +775,15 @@ struct
                 makeVariableId(isEquality oldId, desc, structPath)
             end;
             
-            val minOffset = sigMinTypes sourceSig and maxOffset = sigMaxTypes sourceSig
-
-            val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
-
-            (* Copy the signature into the result. *)
-            val resSig = copySig(sourceSig, fn n => n >= minOffset, fn n => Vector.sub (v, n - minOffset), "")
+            val v = Vector.fromList(List.map makeNewId boundIds)
+            (* Map bound IDs only. *)
+            val mapIds =
+                (*if minTypes = startNewIds orelse null boundIds
+                then typeIdMap (* Optimisation to reduce space: don't add map if it's not needed. *)
+                else *)composeMaps(typeIdMap,
+                            fn n => if n < minTypes then outerTypeIdEnv n else Vector.sub (v, n - minTypes))
         in
-            makeSignature(name, sigTab resSig, ! idCount, ! idCount, lno, fn _ => raise Subscript, [])
+            makeSignature(name, tab, !idCount, !idCount, declaredAt, mapIds, [])
         end
 
         and signatureWhereType(sigExp, typeVars, typeName, realisation, line, Env globalEnv, structPath) =
@@ -774,14 +798,14 @@ struct
                in the surrounding scope, which will consist of the global environment
                and the signature excluding the entries we're adding here. *)
 
-            val resSig = sigValue(sigExp, Env globalEnv, lno, structPath)
+            val resSig as Signatures { typeIdMap = idMap, ... } = sigValue(sigExp, Env globalEnv, lno, structPath)
             val sigEnv = makeEnv(sigTab resSig)
 
             fun lookupFailure msg =
                 giveError (str, line, lex) (msg ^ " in signature.")
 
             (* Look up the type constructor in the signature. *)
-            val typeConstr =
+            val sigTypeConstr =
                 lookupTyp
                   ({
                     lookupType   = #lookupType sigEnv,
@@ -789,6 +813,7 @@ struct
                    },
                  typeName,
                  lookupFailure);
+
             (* The type, though, is looked up in the surrounding environment. *)
             fun lookupGlobal(s, locn) =
                 lookupTyp
@@ -804,50 +829,58 @@ struct
             val cantSet = giveError (str, line, lex)
         in
             (* Now try to set the target type to the type function. *)
-            if isUndefinedTypeConstr typeConstr
+            if isUndefinedTypeConstr sigTypeConstr
             then () (* Probably because looking up the type constructor name failed. *)
-            else if not (isVariableId(tcIdentifier typeConstr))
-            then (* May have been declared as type t=int or bound by a where type already.
-                    TODO: Display the type it's bound to. *)
-                cantSet("Cannot apply type realisation: (" ^
-                            tcName typeConstr ^ ") has already been set.")
             else
-            case tcIdentifier typeConstr of
-                Bound { offset, ... } =>
-                (
-                    case realId(offset-initTypeId) of
-                        VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
-                        (
-                           (* The rule for "where type" says that we must check that an eqtype
-                              is only set to a type that permits equality and that the result
-                              is "well-formed".  This seems to mean that if the type we're
-                              setting is a datatype (has constructors) it can only be set to
-                              a type that is a type name and not a general type function. *)
-                            if pling eqType andalso not(typePermitsEquality realisation)
-                            then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
-                                  ") is an eqtype but the type does not permit equality.")
-                            else case typeNameRebinding (typeVars, realisation) of
-                                SOME typeId =>
-                                    (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
-                                       "s" may be free or it may be within the signature and equivalent to
-                                       a sharing constraint.
-                                       e.g. sig type t structure S: sig type s end where type s = t end. *)
-                                    if isVariableId typeId
-                                    then linkFlexibleTypeIds(typeId, varId)
-                                    else StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
-                            |   NONE =>
-                                    if isDatatype
-                                        (* The type we're trying to set is a datatype but the type
-                                           we're setting it to isn't. *)
-                                    then cantSet ("Cannot apply type realisation: (" ^ tcName typeConstr ^
-                                        ") is a datatype but the type is not a simple type.")
-                                    else
-                                        StretchArray.update(mapArray, offset-initTypeId,
-                                            FreeSlot(TypeFunction(typeVars, realisation)))
-                        )
-                    |   _ => (* Already checked. *) raise InternalError "setWhereType"
-                )
-            |   _ => (* Already checked. *) raise InternalError "setWhereType";
+            let
+                (* Map the type identifier to be set. *)
+                val typeId =
+                    case tcIdentifier sigTypeConstr of
+                        Bound{offset, ...} => idMap offset
+                    |   id => id
+            in
+                if not (isVariableId typeId)
+                then (* May have been declared as type t=int or bound by a where type already.
+                        TODO: Display the type it's bound to. *)
+                    cantSet("Cannot apply type realisation: (" ^ typeName ^ ") has already been set.")
+                else
+                case typeId of
+                    Bound { offset, ... } =>
+                    (
+                        case realId(offset-initTypeId) of
+                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
+                            (
+                               (* The rule for "where type" says that we must check that an eqtype
+                                  is only set to a type that permits equality and that the result
+                                  is "well-formed".  This seems to mean that if the type we're
+                                  setting is a datatype (has constructors) it can only be set to
+                                  a type that is a type name and not a general type function. *)
+                                if pling eqType andalso not(typePermitsEquality realisation)
+                                then cantSet ("Cannot apply type realisation: (" ^ typeName ^
+                                      ") is an eqtype but the type does not permit equality.")
+                                else case typeNameRebinding (typeVars, realisation) of
+                                    SOME typeId =>
+                                        (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
+                                           "s" may be free or it may be within the signature and equivalent to
+                                           a sharing constraint.
+                                           e.g. sig type t structure S: sig type s end where type s = t end. *)
+                                        if isVariableId typeId
+                                        then linkFlexibleTypeIds(typeId, varId)
+                                        else StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
+                                |   NONE =>
+                                        if isDatatype
+                                            (* The type we're trying to set is a datatype but the type
+                                               we're setting it to isn't. *)
+                                        then cantSet ("Cannot apply type realisation: (" ^ typeName ^
+                                            ") is a datatype but the type is not a simple type.")
+                                        else
+                                            StretchArray.update(mapArray, offset-initTypeId,
+                                                FreeSlot(TypeFunction(typeVars, realisation)))
+                            )
+                        |   _ => (* Already checked. *) raise InternalError "setWhereType"
+                    )
+                |   _ => (* Already checked. *) raise InternalError "setWhereType"
+            end;
             resSig
         end (* signatureWhereType *)
 
@@ -1042,6 +1075,8 @@ struct
 
                         val resultSig = sigValue(str, Env includeEnv, lno, structPath)
 
+                        (* Renumber the run-time offsets for Values and Structures as we enter them
+                           into the surrounding signature. *)
                         fun newAccess(Formal _) =
                             let val addr = !address in address := addr+1; Formal addr end
                         |   newAccess _ = raise InternalError "newAccess: Not Formal"
@@ -1061,24 +1096,7 @@ struct
                                         Value{name=name, typeOf = typeOf, access=newAccess access,
                                               class=class, locations=locations})
                         }
-                        (* Create a new variable ID for each bound ID.  We must only create
-                           one for each and must return the same variable ID for each bound ID. *)
-                        fun makeNewId n =
-                        let
-                            val oldId = sigTypeIdMap resultSig n
-                            val desc =
-                                case oldId of
-                                    Bound { description, ...} => description
-                                |   _ => raise InternalError "Map does not return Bound Id"
-                        in
-                            makeVariableId(isEquality oldId, desc, structPath)
-                        end;
-            
-                        val minOffset = sigMinTypes resultSig and maxOffset = sigMaxTypes resultSig
-
-                        val v = Vector.tabulate (maxOffset-minOffset, fn n => makeNewId(n+minOffset))
-                        (* Copy the signature into the result. *)
-                        val () = fullCopySig(resultSig, tsvEnv, fn n => n >= minOffset, fn n => Vector.sub (v, n - minOffset), "")
+                        val () = openSignature(resultSig, tsvEnv, "")
                     in
                         ! address
                     end
@@ -1087,16 +1105,16 @@ struct
                 end
 
               | Sharing (share : shareConstraint) =>
-              (* Sharing constraint. *)
-              let
-                 (* In ML90 it was possible to share with any identifier
-                    in scope.  In ML97 sharing is restricted to identifiers
-                    in the "spec". *)
-                   val envForSharing = Env structEnv
-              in
-                 applySharingConstraint (share, envForSharing, str);
-                 offset (* No entry *)
-              end
+                  (* Sharing constraint. *)
+                  let
+                     (* In ML90 it was possible to share with any identifier
+                        in scope.  In ML97 sharing is restricted to identifiers
+                        in the "spec". *)
+                       val envForSharing = Env structEnv
+                  in
+                     applySharingConstraint (share, envForSharing, str);
+                     offset (* No entry *)
+                  end
                 
               | CoreType {dec, ...} =>
               let (* datatype or type binding(s) *)
@@ -1120,9 +1138,7 @@ struct
                 val datatypeList = ref []
                 fun enterType(name, tyCons) =
                 (
-                    if null (tcConstructors tyCons)
-                    then ()
-                    else datatypeList := tyCons :: !datatypeList;
+                    datatypeList := tyCons :: !datatypeList;
                     #enterType structEnv (name, tyCons)
                 )
 
@@ -1152,6 +1168,9 @@ struct
                 fun findConstr(v: values): values =
                     getOpt((#lookupVal structEnv)(valName v), v)
                 fun updateConstrList tyCons =
+                if null (tcConstructors tyCons)
+                then ()
+                else
                 (
                     (* Update the entry in the array to indicate that this is a datatype.  Should
                        only be called immediately after the datatype has been created.
@@ -1166,6 +1185,9 @@ struct
                     |   _ => ();
                     (* We need to record that this is a datatype for well-formedness checking.
                        i.e. we can't share it with a type-function. *)
+                    (* TODO: This only deals with the case where the datatype is within a sig..end.
+                       It's also possible to add datatypes with "include" or as structures with
+                       signatures that contain datatypes. *)
                     tcSetConstructors(tyCons, List.map findConstr (tcConstructors tyCons))
                 )
                 val _ = List.app updateConstrList (!datatypeList)
@@ -1178,12 +1200,12 @@ struct
                 List.foldl (fn (signat, offset) => processSig (signat, offset, lno))
                     offset sigsList
         in
-            makeSignature("", newTable, ! idCount, ! idCount, lno, fn _ => raise Subscript, [])
+            makeSignature("", newTable, ! idCount, ! idCount, lno, typeIdEnv (), [])
         end
 
       in
         case str of 
-            SignatureIdent(name, loc, declLoc) =>
+(*            SignatureIdent(name, loc, declLoc) =>
             let
                 val foundSig = lookSig (name, loc)
                 (* We can speed things up because the stamps are already bound. Also in this
@@ -1195,7 +1217,7 @@ struct
                 foundSig
             end
         
-        | _ =>
+        |*) _ =>
             let
                 (* Anything else has to be copied.  We first build the signature with variable
                    type IDs so that any local types can be shared. *)
@@ -1290,25 +1312,26 @@ struct
                     )
                     val (distinctIds, mappedIds) = mapIds 0
                     val mapVector = Vector.fromList mappedIds
-                    and resVector = Vector.fromList distinctIds
-                in
-                    fun mapFunction n = Vector.sub(mapVector, n-initTypeId)
+                    val resVector = Vector.fromList distinctIds
+               in
+                    fun mapFunction n =
+                        if n < initTypeId
+                        then outerTypeIdEnv n
+                        else Vector.sub(mapVector, n-initTypeId)
                     fun typeIDMap n =
                         if n < initTypeId
                         then outerTypeIdEnv n
                         else Vector.sub(resVector, n-initTypeId)
-                    val mappedIds = mappedIds and distinctIds = distinctIds
+                    val distinctIds = distinctIds
                 end
                 (* Copy the signature containing the full range of unshared IDs to replace
                    them with the shared IDs. *)
-                val resSig =
-                    copySig (makeSignature(sigName resultSig, sigTab resultSig, initTypeId,
-                                          ! idCount, sigDeclaredAt resultSig, mapFunction, mappedIds),
-                             fn n => n >= initTypeId, mapFunction, "")
+                val Signatures { tab, name, declaredAt, ... } = resultSig
             in
-                (* Set the size of the type table for the signature we return. *)
-                makeSignature (sigName resSig, sigTab resSig, initTypeId, !typeCounter,
-                               sigDeclaredAt resSig, typeIDMap, distinctIds)
+                makeSignature(name, tab, initTypeId, initTypeId + List.length distinctIds, declaredAt,
+                    composeMaps(sigTypeIdMap resultSig, mapFunction), distinctIds)
+                (*replaceMap(resultSig, composeMaps(sigTypeIdMap resultSig, mapFunction), 
+                    initTypeId, distinctIds, typeIDMap)*)
             end (* not (isSignatureIdent str) *)
     end (* sigVal *);
 

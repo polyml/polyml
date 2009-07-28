@@ -2450,13 +2450,9 @@ struct
                             |   _ => [OpenedAt location]
 
                         val sigTbl = structSignat str; (* Get the tables. *)
-                        
-                        (* We have to convert typeIds from Formal into Selected.  We need to do
-                           this for all IDs in the structure we're opening and also any within
-                           substructures if they use IDs in the parent, which is usually the case.
-                           We may, though, have IDs that are local to substructures so we need to check. *)                        
+                        (* Open the structure.  Formal entries are turned into Selected entries. *)
                         val _ =
-                            COPIER.fullCopySig 
+                            COPIER.openSignature 
                             (sigTbl,
                             {
                               enterType   =
@@ -2479,7 +2475,6 @@ struct
                                         #enterVal env (name, selectedVar)
                                     end
                             },
-                            fn _ => false, fn _ => raise Subscript,
                             (* Add the structure we're opening here to the types of
                                the values.  The name will be removed in messages if the type
                                constructor is in scope but if it has been redefined we can
