@@ -1342,7 +1342,6 @@ struct
     else
     let
         val structureName = structName str;
-        val signatureName = sigName (structSignat str);
     in
         PrettyBlock (0, false, [],
         [
@@ -1359,11 +1358,15 @@ struct
                 ]
             ),
             PrettyBreak(1, 2),
-            if signatureName <> ""
-            then PrettyString signatureName
-            else displaySig (sigTab(structSignat str), depth - 1, 1, nameSpace)
+            displayNamedSig(structSignat str, depth - 1, 1, nameSpace)
         ])
     end
+
+    (* Internal function for printing structures and functors.  If a signature has a
+       name print the name rather than the contents. *)
+    and displayNamedSig(Signatures{name = "", tab, ...}, depth, space, nameSpace) =
+            displaySig (tab, depth, space, nameSpace)
+    |   displayNamedSig(Signatures{name, ...}, _, _, _) = PrettyString name
 
     fun displayFunctors (funct, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
@@ -1386,10 +1389,10 @@ struct
             then [ PrettyString((structName (functorArg funct)) ^ " :"), PrettyBreak(1, 3) ]
             else []) @
             [
-                displaySig (sigTab(structSignat (functorArg funct)), depth - 1, 0, nameSpace),
+                displayNamedSig (structSignat (functorArg funct), depth - 1, 0, nameSpace),
                 PrettyString ") :",
                 PrettyBreak(1, 3),
-                displaySig (sigTab(functorResult funct), depth - 1, 1, nameSpace)
+                displayNamedSig (functorResult funct, depth - 1, 1, nameSpace)
             ]
             )
         )
