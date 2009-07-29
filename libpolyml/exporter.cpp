@@ -97,11 +97,12 @@ CopyScan::CopyScan(bool isExport/*=true*/, unsigned h/*=0*/): hierarchy(h)
     defaultImmSize = defaultMutSize = 0;
     defaultNoOverSize = 4096; // This can be small.
     unsigned i;
-    if (isExport)
-    { // When exporting we may copy some of the previous space.
-        for (i = 0; i < gMem.npSpaces; i++)
-        {
-            MemSpace *space = gMem.pSpaces[i];
+    for (i = 0; i < gMem.npSpaces; i++)
+    {
+        PermanentMemSpace *space = gMem.pSpaces[i];
+        if (space->hierarchy >= h) {
+            // Include this if we're exporting (h=0) or if we're saving a state
+            // and will include this in the new state.
             POLYUNSIGNED size = (space->top-space->bottom)/4;
             if (space->isMutable)
                 defaultMutSize += size;
