@@ -246,8 +246,12 @@ struct
   val exnType    = mkTypeConstruction ("exn",     exnType,    [], []);
   val wordType   = mkTypeConstruction ("word",    wordType,   [], []);
           
-  fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefType);
-  val isUndefinedTypeConstr = isUndefined
+    fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefType);
+    val isUndefinedTypeConstr = isUndefined
+
+    (* Test if a type is the undefined constructor. *)
+    fun isUndefinedType(TypeConstruction{value, ...}) = isUndefined(pling value)
+    |   isUndefinedType _ = false
 
     (* Similar to alphabetic ordering except that shorter labels come before longer ones.
        This has the advantage that numerical labels are compared by their numerical order
@@ -1950,7 +1954,11 @@ struct
     val tA = eventual Atype;
     val tB = eventual Btype;
 
-  in (* start of "match" *)
+    in (* start of "match" *)
+    if isUndefinedType tA orelse isUndefinedType tB
+    then () (* If either of these was an undefined type constructor don't try to match. 
+               TODO: There are further tests below for this which are now redundant. *)
+    else
   	case (tA, tB) of
 		(BadType, _) => () (* If either is an error don't try to match *)
 	  | (_, BadType) => ()
