@@ -468,12 +468,13 @@ struct
         val mapArray = StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
         val sourceArray = StretchArray.stretchArray(10 (* Guess initial size. *), NONE)
 
-        fun makeVariableId(isEq, description: typeIdDescription, structPath) =
+        fun makeVariableId(isEq, requireUpdate, description: typeIdDescription, structPath) =
         let
             (* Make a new bound ID after any existing ones. *)
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
-                makeBoundIdWithEqUpdate(Formal 0 (* Not used. *), newIdNumber, isEq, description)
+                (if requireUpdate then makeBoundIdWithEqUpdate else makeBoundId)
+                    (Formal 0 (* Not used. *), newIdNumber, isEq, description)
             (* Enter a variable entry in the array. *)
             val arrayEntry =
                 VariableSlot{ isDatatype=false, boundId=newId, descriptions = [structPath ^ #name description] }
@@ -772,16 +773,22 @@ struct
                         Bound { description, ...} => description
                     |   _ => raise InternalError "Map does not return Bound Id"
             in
-                makeVariableId(isEquality oldId, desc, structPath)
+                makeVariableId(isEquality oldId, false, desc, structPath)
             end;
-            
+
             val v = Vector.fromList(List.map makeNewId boundIds)
             (* Map bound IDs only. *)
             val mapIds =
-                (*if minTypes = startNewIds orelse null boundIds
+                if minTypes = startNewIds orelse null boundIds
                 then typeIdMap (* Optimisation to reduce space: don't add map if it's not needed. *)
-                else *)composeMaps(typeIdMap,
-                            fn n => if n < minTypes then outerTypeIdEnv n else Vector.sub (v, n - minTypes))
+                else
+                let
+                    fun mapId n =
+                        if n < minTypes then outerTypeIdEnv n
+                        else Vector.sub (v, n - minTypes)
+                in
+                    composeMaps(typeIdMap, mapId)
+                end
         in
             makeSignature(name, tab, !idCount, !idCount, declaredAt, mapIds, [])
         end
@@ -1160,7 +1167,7 @@ struct
                   enterFunct    = #enterFunct structEnv
                  };
 
-                fun makeId (eq, loc) = makeVariableId(eq, loc, structPath)
+                fun makeId (eq, loc) = makeVariableId(eq, true, loc, structPath)
                 val t : types = pass2 (dec, makeId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
@@ -1203,136 +1210,120 @@ struct
             makeSignature("", newTable, ! idCount, ! idCount, lno, typeIdEnv (), [])
         end
 
-      in
-        case str of 
-(*            SignatureIdent(name, loc, declLoc) =>
-            let
-                val foundSig = lookSig (name, loc)
-                (* We can speed things up because the stamps are already bound. Also in this
-                   case if this is being used as the result signature of a functor we can't
-                   have sharing with the arguments so we don't have to renumber any bound IDs. *)
-            in
-                (* Remember declaration location for possible browsing. *)
-                declLoc := SOME(sigDeclaredAt foundSig);
-                foundSig
-            end
-        
-        |*) _ =>
-            let
-                (* Anything else has to be copied.  We first build the signature with variable
-                   type IDs so that any local types can be shared. *)
-                val resultSig = sigValue (str, Env globalEnv, lno, "");
-        
-                (* After the signature has been built and any sharing or "where type"
-                   constraints have been applied we replace the remaining variable stamps
-                   by bound stamps. We may not start at zero
-                   if this is the result signature of a functor because there
-                   may be sharing between the argument and the result. *) 
-                val nextAddress = getNextRuntimeOffset resultSig
-                val typeCounter = ref initTypeId;
-                val addrCounter = ref nextAddress
+        (* Process the contents of the signature. *)
+        val resultSig = sigValue (str, Env globalEnv, lno, "")
 
-                (* Construct final bound IDs for each distinct type ID in the array. *)
-                local
-                    fun mapIds n =
-                    if n = !idCount-initTypeId
-                    then ([], [])
-                    else
-                    (
-                        (* Process lowest numbered IDs first since they represent
-                           the result of any sharing. *)
-                        case realId n of
-                            VariableSlot {
-                                boundId = Bound{eqType, description = { name, location, description}, ... },
-                                descriptions, ...} =>
-                            let (* Need to make a new ID. *)
-                                (* If we have sharing we want to produce a description that expresses that. *)
-                                val descript =
-                                    case descriptions of
-                                        descs as _ :: _ :: _ => "sharing " ^ String.concatWith "," descs
-                                    |   _ => description (* Original description. *)
-                                val newId =
+        (* After the signature has been built and any sharing or "where type"
+           constraints have been applied we replace the remaining variable stamps
+           by bound stamps. *) 
+        val nextAddress = getNextRuntimeOffset resultSig
+        val typeCounter = ref initTypeId;
+        val addrCounter = ref nextAddress
+
+        (* Construct final bound IDs for each distinct type ID in the array. *)
+        local
+            fun mapIds n =
+            if n = !idCount-initTypeId
+            then ([], [])
+            else
+            (
+                (* Process lowest numbered IDs first since they represent
+                   the result of any sharing. *)
+                case realId n of
+                    VariableSlot {
+                        boundId = Bound{eqType, description = { name, location, description}, ... },
+                        descriptions, ...} =>
+                    let (* Need to make a new ID. *)
+                        (* If we have sharing we want to produce a description that expresses that. *)
+                        val descript =
+                            case descriptions of
+                                descs as _ :: _ :: _ => "sharing " ^ String.concatWith "," descs
+                            |   _ => description (* Original description. *)
+                        val newId =
+                        let
+                            (* For each ID we need a new entry in the ID vector.  We also
+                               need an entry in the run-time vector for the structure so that
+                               we can pass the equality/print value at run-time. *)
+                            val n = !typeCounter
+                            val () = typeCounter := n + 1
+                            val addr = ! addrCounter
+                            val () = addrCounter := addr + 1
+                            val description =
+                                { name = name, location = location, description = descript }
+                        in
+                            makeBoundId(Formal addr, n, pling eqType, description)
+                        end
+                        (* Update the entry for any sharing. *)
+                        val () = StretchArray.update(mapArray, n, FreeSlot newId)
+                        val (distinctIds, mappedIds) = mapIds (n+1)
+                    in
+                        (newId :: distinctIds, newId :: mappedIds)
+                    end
+
+                |   FreeSlot (id as TypeFunction(args, equiv)) =>
+                    let
+                        val (distinctIds, mappedIds) = mapIds (n+1)
+                        (* Generally, IDs in a FreeSlot will be either Bound or Free but
+                           they could be TypeFunctions as a result of a "where type" and
+                           the function could involve type IDs within the signature.  We
+                           have to copy the ID now after all the new IDs have been created. *)
+                        fun copyTypeConstr tcon =
+                            case tcIdentifier tcon of
+                                Bound { offset, ...} =>
+                                if offset < initTypeId then tcon
+                                else
                                 let
-                                    (* For each ID we need a new entry in the ID vector.  We also
-                                       need an entry in the run-time vector for the structure so that
-                                       we can pass the equality/print value at run-time. *)
-                                    val n = !typeCounter
-                                    val () = typeCounter := n + 1
-                                    val addr = ! addrCounter
-                                    val () = addrCounter := addr + 1
-                                    val description =
-                                        { name = name, location = location, description = descript }
+                                    (* At this stage we've overwritten all entries with FreeSlots. *)
+                                    val newId =
+                                        case realId(offset-initTypeId) of
+                                            FreeSlot id => id
+                                        |   _ => raise InternalError "mapIds:copyTypeConstr"
                                 in
-                                    makeBoundId(Formal addr, n, pling eqType, description)
+                                    makeFrozenTypeConstrs(
+                                        tcName tcon, tcTypeVars tcon, newId, 0, tcLocations tcon)
                                 end
-                                (* Update the entry for any sharing. *)
-                                val () = StretchArray.update(mapArray, n, FreeSlot newId)
-                                val (distinctIds, mappedIds) = mapIds (n+1)
-                            in
-                                (newId :: distinctIds, newId :: mappedIds)
-                            end
+                            |   _ => tcon
+                        val copiedEquiv = copyType(equiv, fn x => x, copyTypeConstr)
+                        val copiedId = TypeFunction(args, copiedEquiv)
+                    in
+                        (distinctIds, copiedId :: mappedIds)
+                    end
 
-                        |   FreeSlot (id as TypeFunction(args, equiv)) =>
-                            let
-                                val (distinctIds, mappedIds) = mapIds (n+1)
-                                (* Generally, IDs in a FreeSlot will be either Bound or Free but
-                                   they could be TypeFunctions as a result of a "where type" and
-                                   the function could involve type IDs within the signature.  We
-                                   have to copy the ID now after all the new IDs have been created. *)
-                                fun copyTypeConstr tcon =
-                                    case tcIdentifier tcon of
-                                        Bound { offset, ...} =>
-                                        if offset < initTypeId then tcon
-                                        else
-                                        let
-                                            (* At this stage we've overwritten all entries with FreeSlots. *)
-                                            val newId =
-                                                case realId(offset-initTypeId) of
-                                                    FreeSlot id => id
-                                                |   _ => raise InternalError "mapIds:copyTypeConstr"
-                                        in
-                                            makeFrozenTypeConstrs(
-                                                tcName tcon, tcTypeVars tcon, newId, 0, tcLocations tcon)
-                                        end
-                                    |   _ => tcon
-                                val copiedEquiv = copyType(equiv, fn x => x, copyTypeConstr)
-                                val copiedId = TypeFunction(args, copiedEquiv)
-                            in
-                                (distinctIds, copiedId :: mappedIds)
-                            end
+                |   FreeSlot id => (* Free or shares with existing type ID. *)
+                    let
+                        val (distinctIds, mappedIds) = mapIds (n+1)
+                    in
+                        (distinctIds, id :: mappedIds)
+                    end
 
-                        |   FreeSlot id => (* Free or shares with existing type ID. *)
-                            let
-                                val (distinctIds, mappedIds) = mapIds (n+1)
-                            in
-                                (distinctIds, id :: mappedIds)
-                            end
-
-                        |   _ => raise InternalError "mapIds"
-                    )
-                    val (distinctIds, mappedIds) = mapIds 0
-                    val mapVector = Vector.fromList mappedIds
-                    val resVector = Vector.fromList distinctIds
-               in
-                    fun mapFunction n =
-                        if n < initTypeId
-                        then outerTypeIdEnv n
-                        else Vector.sub(mapVector, n-initTypeId)
-                    fun typeIDMap n =
-                        if n < initTypeId
-                        then outerTypeIdEnv n
-                        else Vector.sub(resVector, n-initTypeId)
-                    val distinctIds = distinctIds
-                end
-                (* Copy the signature containing the full range of unshared IDs to replace
-                   them with the shared IDs. *)
-                val Signatures { tab, name, declaredAt, ... } = resultSig
-            in
-                makeSignature(name, tab, initTypeId, initTypeId + List.length distinctIds, declaredAt,
-                    composeMaps(sigTypeIdMap resultSig, mapFunction), distinctIds)
-                (*replaceMap(resultSig, composeMaps(sigTypeIdMap resultSig, mapFunction), 
-                    initTypeId, distinctIds, typeIDMap)*)
-            end (* not (isSignatureIdent str) *)
+                |   _ => raise InternalError "mapIds"
+            )
+            val (distinctIds, mappedIds) = mapIds 0
+            val mapVector = Vector.fromList mappedIds
+            val resVector = Vector.fromList distinctIds
+        in
+            fun mapFunction n =
+                if n < initTypeId
+                then outerTypeIdEnv n
+                else Vector.sub(mapVector, n-initTypeId)
+            val distinctIds = distinctIds
+            val allMapped = Vector.length mapVector = Vector.length resVector
+        end
+    in
+        let
+            val Signatures { tab, name, declaredAt, typeIdMap, ... } = resultSig
+            (* We have allocated Bound Ids starting at initTypeId.  If there has not been any sharing or
+               where type constraints these Ids will correspond exactly to the bound Ids of the signature
+               and we can use the result without any further mapping.  This is particularly the case if
+               we have simply used a named signature here.  If there have been some sharing or where type
+               we have to produce a new map so that the boundId list consists of contiguously numbered
+               items.   This is an optimisation to reduce the space of the final signature. *)
+            val finalMap =
+                if allMapped then typeIdMap else composeMaps(typeIdMap, mapFunction)
+        in
+            makeSignature(name, tab, initTypeId, initTypeId + List.length distinctIds, declaredAt,
+                finalMap, distinctIds)
+        end
     end (* sigVal *);
 
     structure Sharing =
