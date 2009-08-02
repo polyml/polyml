@@ -73,6 +73,8 @@ sig
 	val load_lib     : string -> dylib
 	val load_sym     : dylib -> string -> sym
 	val get_sym	 : string -> string -> sym
+    
+    val setFinal     : vol * sym -> unit
 
 	val set_libPath  : dylib -> string -> unit
 	val get_libPath  : dylib -> string

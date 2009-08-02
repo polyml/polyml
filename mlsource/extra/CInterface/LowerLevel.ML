@@ -161,6 +161,10 @@ struct
          ******)
         withSym sym (fn symVol =>
         Volatile.call_sym_and_convert symVol args retType);
+
+    (* Set a finalizer for a vol. *)
+    fun setFinal (vol, sym) =
+        withSym sym (fn symVol => Volatile.setFinal(vol, symVol))
     
     
     fun volOfSym sym =

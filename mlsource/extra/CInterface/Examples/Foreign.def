@@ -10,3 +10,5 @@ EXPORTS
 	MakeCallback
 	MakeCallback2
 	MakeCallback3
+	AllocateIt
+	FreeIt

@@ -1,7 +1,7 @@
 /* Example code for a C-library accessible from ML
    using the CInterface structure.
 
-   Copyright David C.J. Matthews 1999
+   Copyright David C.J. Matthews 1999, 2009
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -24,6 +24,7 @@ Mac OS X : cc -dynamiclib -o Foreign.dylib ForeignTest.c
 */
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 /* Return a string duplicated n Times. */
 char *DupNString(int n, char *str)
@@ -81,5 +82,21 @@ double MakeCallback2(DBL_CALLBACK p)
 void MakeCallback3(void(*mlcall)(int), int i)
 {
     mlcall(i+1);
+}
+
+/* Test for finalisation. */
+void *AllocateIt()
+{
+    void *p = malloc(1);
+    printf("Allocated object at %p\n", p);
+    fflush(stdout);
+    return p;
+}
+
+void FreeIt(void *p)
+{
+    printf("Freed object at %p\n", p);
+    fflush(stdout);
+    free(p);
 }
 

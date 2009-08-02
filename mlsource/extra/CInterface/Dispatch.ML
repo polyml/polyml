@@ -337,5 +337,7 @@ struct
     
     val toCfunction		    = next(three);(* Added DCJM 7/4/04 *)
     val toPascalfunction	= next(three);(* Added DCJM 7/4/04 *)
+    
+    val setFinal            = next(one);  (* Added DCJM 2/8/09. *)
 
 end (* struct *)

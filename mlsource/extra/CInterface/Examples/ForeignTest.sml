@@ -1,7 +1,7 @@
 (* Example code for a C-library accessible from ML
    using the CInterface structure.
 
-   Copyright David C.J. Matthews 1999-2006
+   Copyright David C.J. Matthews 1999-2009
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
@@ -124,4 +124,18 @@ fromCdouble returnR3;
 
 val doit = call2(load_sym mylib "MakeCallback3") (FUNCTION1 INT VOID, INT) VOID;
 doit(fn i => print(Int.toString i), 2);
+
+(* Test for finalisation. *)
+val allocateIt = call0 (load_sym mylib "AllocateIt") () POINTER;
+val v1 = allocateIt();
+val v2 = allocateIt ();
+val final = load_sym mylib "FreeIt";
+setFinal(v1, final);
+setFinal(v2, final);
+
+(* Activating the finalisers requires a full GC. *)
+val v1 = 0; (* The v1 object is no longer reachable. *)
+PolyML.fullGC();
+val v2 = 0; (* The v2 object is no longer reachable. *)
+PolyML.fullGC();
 

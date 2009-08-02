@@ -232,6 +232,7 @@ typedef struct {
     PolyVolData* ML_pointer;     /* Pointer to ML token object. */
     void* C_pointer;      /* Pointer to C storage. */
     Bool Own_C_space;     /* Size if this is the owner of storage. */
+    void (*C_finaliser)(void*);    // Pointer to finalisation function.
 } Volatile;
 
 
@@ -301,6 +302,7 @@ public:
 #define ML_POINTER(v)           (vols[V_INDEX(v)].ML_pointer)
 #define C_POINTER(v)            (vols[V_INDEX(v)].C_pointer)
 #define OWN_C_SPACE(v)          (vols[V_INDEX(v)].Own_C_space)
+#define FINALISER(v)            (vols[V_INDEX(v)].C_finaliser)
 
 #define UNVOLHANDLE(_x)          ((PolyVolData*)DEREFHANDLE(_x))
 
@@ -327,6 +329,7 @@ static Handle vol_alloc (TaskData *taskData)
     ML_POINTER(v) = v;
     C_POINTER(v) = NULL;
     OWN_C_SPACE(v) = /*False*/0;
+    FINALISER(v) = 0; /* None installed yet. */
     
     return result;
 }
@@ -621,6 +624,11 @@ void Foreign::GarbageCollect(ScanAddress *process)
             vols[from].ML_pointer = (PolyVolData*)p;
             
             if (vols[from].ML_pointer == NULL) { /* It's no longer reachable. */
+                if (vols[from].C_finaliser) {
+                    trace(("Calling finaliser on <%lu>\n",from));
+                    vols[from].C_finaliser(*(void**)vols[from].C_pointer);
+                }
+
                 if (vols[from].Own_C_space) {
                     
                     mes(("Trashing malloc space of <%lu>\n",from));
@@ -1821,6 +1829,21 @@ void *CCallbackFunction(unsigned cbNo, void **args)
     return DEREFVOL(taskData, resultWord);
 }
 
+typedef void   (*finalType)(void*);
+
+// Set a finalisation function: A C function that is called when the Vol is freed by
+// the GC.
+static Handle set_finalise (TaskData *taskData, Handle pair)
+{
+    Handle volH       = TUPLE_GET1(pair);
+    Handle symH       = TUPLE_GET2(pair);
+    PolyVolData *vol  = (PolyVolData*)(UNHANDLE(volH));
+    finalType f       = *(finalType*)DEREFVOL(taskData, symH->Word());
+    FINALISER(vol)    = f;
+    return SAVE(TAGGED(0));
+}
+
+
 /**********************************************************************
  *
  *  Foreign Dispatch
@@ -1875,7 +1898,9 @@ static type_hh_fun handlers[] =
   fromCbytes,
 
   toCfunction,      /* Added DCJM 7/4/04. */
-  toPascalfunction /* Added DCJM 7/4/04. */
+  toPascalfunction, /* Added DCJM 7/4/04. */
+
+  set_finalise /* Added DCJM 2/8/09. */
 };
     
 #define NUM_HANDLERS ((int)(sizeof(handlers)/sizeof(type_hh_fun)))
