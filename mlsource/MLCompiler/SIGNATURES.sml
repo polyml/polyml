@@ -468,16 +468,18 @@ struct
         val mapArray = StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
         val sourceArray = StretchArray.stretchArray(10 (* Guess initial size. *), NONE)
 
-        fun makeVariableId(isEq, requireUpdate, description: typeIdDescription, structPath) =
+        fun makeVariableId(isEq, requireUpdate, { location, name, description }, structPath) =
         let
+            val fullName = structPath^name
+            val descr = { location=location, name=fullName, description=description}
             (* Make a new bound ID after any existing ones. *)
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
                 (if requireUpdate then makeBoundIdWithEqUpdate else makeBoundId)
-                    (Formal 0 (* Not used. *), newIdNumber, isEq, description)
+                    (Formal 0 (* Not used. *), newIdNumber, isEq, descr)
             (* Enter a variable entry in the array. *)
             val arrayEntry =
-                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [structPath ^ #name description] }
+                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [fullName] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
             val () = StretchArray.update(sourceArray, newIdNumber-initTypeId, SOME newId)
         in

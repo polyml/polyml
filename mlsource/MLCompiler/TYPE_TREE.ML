@@ -498,7 +498,8 @@ struct
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
   
     (* prints a block of items *)
-    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string, env: printTypeEnv) : pretty =
+    fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string, env: printTypeEnv,
+               sigMap: (int->typeId)option) : pretty =
     let
         (* prints a block of items *)
         fun dispP (t : types, depth : int) : pretty =
@@ -567,47 +568,93 @@ struct
                     val typeConstructor = pling value
 		 	        val constrName = (* Use the type constructor name unless we're had an error. *)
                         if isUndefined typeConstructor then name else tcName typeConstructor
+                    
+                    val mappedTypeId =(*tcIdentifier typeConstructor*)
+                        case (sigMap, tcIdentifier typeConstructor) of
+                            (SOME map, Bound{offset, ...}) => map offset
+                        |   (_, id) => id
 
                     (* If we're printing a value that refers to a type constructor we
                        want to print the correct amount of any structure prefix for the
                        current context. *)
-                    fun findType (_, []) = false
-                    |   findType ({ lookupType, ... }, [typeName]) =
+                    fun findType (_, [], _) = false
+                    |   findType ({ lookupType, ... }, [typeName], map) =
                         (
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME t =>
                                     (* TODO: If these are type-functions they won't match. *)
-                                    sameTypeId(tcIdentifier t, tcIdentifier typeConstructor)
+                                let
+                                    val typeId = tcIdentifier t
+                                    val mId =
+                                        case (map, typeId) of
+                                            (SOME map, Bound { offset, ... }) => map offset
+                                        |   (_, id) => id
+                                in
+                                    sameTypeId(mId, mappedTypeId)
+                                        (* sameTypeId always returns false for TypeFunction. *)
+                                end
                             |   NONE => false
                         )
-                    |   findType (env as { lookupStruct, ... }, structName :: tail) =
+                    |   findType (env as { lookupStruct, ... }, structName :: tail, map) =
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
                             case lookupStruct structName of
                                 SOME str =>
                                     let
-                                        val Env { lookupType, lookupStruct, ...} = makeEnv(sigTab(structSignat str))
+                                        val Signatures { tab, typeIdMap, ...} = structSignat str
+                                        val Env { lookupType, lookupStruct, ...} = makeEnv tab
+                                        val newMap =
+                                            case map of
+                                                SOME map =>
+                                                (
+                                                    (* This is a reduced version of COPIER.composeMaps that
+                                                       doesn't handle TypeFunctions.  That's not a problem
+                                                       since sameTypeId doesn't work for TypeFunction. *)
+                                                    fn n =>
+                                                        case typeIdMap n of
+                                                            Bound { offset, ...} => map offset
+                                                        |   id => id
+                                                )
+                                            |   NONE => typeIdMap
                                     in
-                                        findType({lookupType=lookupType, lookupStruct=lookupStruct}, tail)
+                                        findType({lookupType=lookupType, lookupStruct=lookupStruct}, tail,
+                                            SOME newMap)
                                     end
                             |   NONE => false
                         )
 
                     (* See if we have this type in the current environment or in some structure in
                        the current environment.  The name we have may be a full structure path. *)
-                    fun nameToList ("", l) = l
+                    fun nameToList ("", l) = (l, false) (* Not there. *)
                     |   nameToList (s, l) = 
                         let
                             val { first, second } = splitString s
                             val currentList = second :: l
                         in
-                            if findType(env, currentList)
-                            then currentList
+                            if findType(env, currentList, sigMap)
+                            then (currentList, true)
                             else nameToList(first, currentList)
                         end
                     (* TODO: If this is a type function it won't have matched. *)
-                    val names = nameToList(constrName, [])
+                    val names =
+                        case nameToList(constrName, []) of
+                            (names, true) => names (* Found the type constructor name. *)
+                        |   (names, false) =>
+                            let
+                                (* Try the type identifier name. *)
+                                val idName =
+                                    case mappedTypeId of
+                                        Free { description = { name, ...}, ...} => name
+                                    |   Bound { description = { name, ...}, ...} => name
+                                    |   TypeFunction _ => ""
+                            in
+                                if idName = "" then names
+                                else
+                                case nameToList(idName, []) of
+                                    (idNames, true) => idNames
+                                |   (idNames, _) => names (*@ ["(*N*)"]*) (* Temporary marker *)(* Use the type constructor name anyway. *)
+                            end
                     val newName = String.concatWith "." names
                     (* TODO: If we don't find the type we want we should:
                        1.  If it's a type equivalence apply that.
@@ -744,7 +791,6 @@ struct
         dispP (t, depth)
     end (* tDisp *);
 
-
   (* Generate unique type-variable names. *)
 
   fun varNameSequence () : typeVarForm -> string = 
@@ -777,8 +823,10 @@ struct
   
 
   (* Print a type (as a block of items) *)
-  fun display (t : types, depth : int, env) =
-      tDisp (t, depth, varNameSequence (), env)
+  fun displayWithMap (t : types, depth : int, env, sigMap) =
+      tDisp (t, depth, varNameSequence (), env, sigMap)
+  and display (t : types, depth : int, env) =
+      tDisp (t, depth, varNameSequence (), env, NONE)
 
   (* Print out one or more type variables (unblocked) *)
   fun printTypeVars
@@ -793,7 +841,7 @@ struct
     if numOfVars = 1 
     then 
     [
-      tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv), 
+      tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv, NONE), 
       PrettyBreak (1, 0)
     ]
     else if numOfVars > 1 
@@ -810,7 +858,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv),
+                            tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv, NONE),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -835,7 +883,7 @@ struct
   (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
      or datatype 'a joe = bill of 'a list | mary of 'a * int or
      simply type 'a abs if the type is abstract. *)
-  fun displayTypeConstrs (tCons : typeConstrs, depth : int, typeEnv) : pretty =
+  fun displayTypeConstrsWithMap (tCons : typeConstrs, depth : int, typeEnv, sigMap) : pretty =
   let
     val typeV : typeVarForm -> string = varNameSequence ();
   in
@@ -867,7 +915,7 @@ struct
                     [
                         PrettyBreak (1, 4),
                         (* print the type as a single block of output *)
-        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV, typeEnv)
+        		        tDisp (#arg (typesFunctionType typeOf), depth - 1, typeV, typeEnv, sigMap)
                     ]
                     else [])
                  )
@@ -917,7 +965,7 @@ struct
                 PrettyBreak(1, 0),
                 PrettyString "=",
                 PrettyBreak(1, 0),
-                tDisp(tcEquivalent tCons, depth-1, typeV, typeEnv)
+                tDisp(tcEquivalent tCons, depth-1, typeV, typeEnv, sigMap)
             ]
             )
     end
@@ -929,7 +977,10 @@ struct
             printTypeVars (tcTypeVars tCons, depth, typeV) @
             [PrettyString (#second(splitString(tcName tCons)))]
             )
-  end   (* displayTypeConstrs *);
+  end   (* displayTypeConstrsWithMap *);
+
+    fun displayTypeConstrs (tCons : typeConstrs, depth : int, typeEnv) : pretty =
+        displayTypeConstrsWithMap(tCons, depth, typeEnv, NONE)
 
     (* Parse tree for types.  This is used to represent types in the source. *)
     datatype typeParsetree =
@@ -2473,7 +2524,7 @@ struct
                         [
                             PrettyString s1,
                             PrettyBreak (1, 0),
-                            tDisp (t, errorDepth, vars, typeEnv),
+                            tDisp (t, errorDepth, vars, typeEnv, NONE),
                             PrettyBreak (1, 0),
                             PrettyString s2
                         ]

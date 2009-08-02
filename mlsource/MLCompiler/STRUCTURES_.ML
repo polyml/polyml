@@ -1860,8 +1860,15 @@ struct
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
                        need to enter these bound IDs into the local environment but as Selected entries. *)
                     local
-                        fun mkId(Bound{ eqType, description, access = Formal addr, offset, ...}) =
-                            Bound { offset = offset, eqType = eqType, description = description,
+                        fun mkId(Bound{ eqType, description={ location, name, description }, access = Formal addr, offset, ...}) =
+                            Bound { offset = offset, eqType = eqType,
+                                    description =
+                                    {
+                                        location=location,
+                                        (* Add the structure name to the argument type IDs. *)
+                                        name=if argName = "" then name else argName^"."^name,
+                                        description=description
+                                    },
                                     access = makeSelected(addr, resArg) }
                         |   mkId _ = raise InternalError "mkId: Not Bound or not Formal"                            
                     in
@@ -2723,6 +2730,7 @@ struct
                 local
                     val fnArg = functorArg func
                     val fnArgSig = structSignat fnArg
+                    val fnArgName = structName fnArg
                     val Signatures { name, tab, typeIdMap, boundIds, minTypes, maxTypes, declaredAt, ... } = fnArgSig
                     fun newMap n =
                     if n < minTypes
@@ -2732,17 +2740,29 @@ struct
                     val functorArgSig =
                         makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
                     val copiedArg =
-                        Struct{name=structName fnArg, signat=functorArgSig,
+                        Struct{name=fnArgName, signat=functorArgSig,
                                access=structAccess fnArg, locations=structLocations fnArg}
                 end
                 local
-                    val Signatures { tab, typeIdMap, boundIds, minTypes, maxTypes, declaredAt, ... } = functorResult func
+                    val Signatures { name, tab, typeIdMap, boundIds, minTypes, maxTypes, declaredAt, ... } =
+                            functorResult func
                     val Signatures { boundIds=argBoundIds, minTypes=argMinTypes, ...} = functorArgSig
+                    val fnArgName = structName(functorArg func)
                     fun newMap n =
                     if n >= minTypes
                     then List.nth(boundIds, n-minTypes)
                     else if n >= argMinTypes
-                    then List.nth(argBoundIds, n-argMinTypes)
+                    then case List.nth(argBoundIds, n-argMinTypes) of
+                        (* Add the argument structure name onto the name of type IDs in the argument. *)
+                        Bound { access, offset, eqType, description={location, name, description} } =>
+                            Bound { access=access, offset=offset, eqType=eqType,
+                                    description=
+                                        {
+                                            location=location, description=description,
+                                            name=if fnArgName = "" then name else fnArgName^"."^name
+                                        }
+                                   }
+                    |   _ => raise InternalError "Not bound"
                     else mapPrevTypIds n
                 in
                     val functorSigResult =

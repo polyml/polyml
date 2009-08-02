@@ -81,9 +81,11 @@ sig
 
     (* Print it out prettily *)
     val display: types * int * printTypeEnv -> pretty;
+    val displayWithMap: types * int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* Print out a type constructor. *)
     val displayTypeConstrs: typeConstrs * int * printTypeEnv -> pretty;
+    val displayTypeConstrsWithMap: typeConstrs * int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* A list of type variables. *)
     val displayTypeVariables: typeVarForm list * int -> pretty list;
@@ -126,8 +128,6 @@ sig
     val constructorResult: types * types list -> types;
 
     val identical:       types * types -> bool;
-    val identicalConstr: typeConstrs * typeConstrs -> bool;
-    val identicalList:   types list * types list -> bool;
 
     val boolType:   types;
     val intType:    types;

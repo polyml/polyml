@@ -912,10 +912,6 @@ struct
   (* Look-up functions. *)
 
     (* Look up a structure. *)
-    (* TODO: This copies the signature of the structure to ensure that type IDs within
-       the structure become Selected entries. lookupStructure is also used when we are
-       looking up a value, type or substructure so this will result in unnecessary
-       copying when we have A.B.x . *)
     fun lookupStructure (kind, {lookupStruct:string -> structVals option},
                name, errorMessage) =
     let
@@ -1151,7 +1147,7 @@ struct
 
 
     (* displays value as a block, with no external formatting *)
-    fun displayValues (Value{name, typeOf, class, access, locations}, depth, nameSpace): pretty =
+    fun displayValues (Value{name, typeOf, class, access, locations}, depth, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart equOrColon =
@@ -1181,13 +1177,13 @@ struct
                     printValueForType (evalue code, typeOf, depth),
                     PrettyBreak (1, 0),
                     PrettyBlock (3, false, [],
-                        [ PrettyString ":", PrettyBreak (1, 3), display (typeOf, depth, typeEnv) ])
+                        [ PrettyString ":", PrettyBreak (1, 3), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
                  ])
 
         |    (SimpleValue, _) => (* Values in structures and overloaded values (from PolyML). *)
                 (* We can't get a value to print in this case. *)
              PrettyBlock (3, false, [],
-                [ valPart ":", PrettyBreak (1, 0), display (typeOf, depth, typeEnv) ])
+                [ valPart ":", PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
 
         |    (Exception, _) => (* exceptions *)
              PrettyBlock (0, false, [],
@@ -1203,7 +1199,7 @@ struct
                     case getFnArgType typeOf of
                        NONE => []
                     |  SOME excType =>
-                        [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), display (excType, depth, typeEnv) ]
+                        [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), displayWithMap (excType, depth, typeEnv, sigMap) ]
                 )
             )
       
@@ -1217,36 +1213,26 @@ struct
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
-    fun displaySig (str, depth : int, space : int,
-                    nameSpace as { lookupType, lookupStruct, ...}) : pretty =
+    fun displaySig (Signatures{tab, typeIdMap, ...}, depth : int, space : int,
+                    nameSpace as { lookupType, lookupStruct, ...}, sigMap) : pretty =
     let
         (* Construct an environment for the types. *)
 
-        val Env { lookupType = strType, lookupStruct = strStr, ...} = makeEnv str
+        val Env { lookupType = strType, lookupStruct = strStr, ...} = makeEnv tab
         val compositeEnv =
         {
             lookupType   = fn s => case strType s of NONE => lookupType s | sm => sm,
-            lookupStruct = fn s => case strStr s of NONE => lookupStruct s | sm => sm,
-            lookupVal    = #lookupVal nameSpace,
-            lookupFix    = #lookupFix nameSpace,
-            lookupSig    = #lookupSig nameSpace,
-            lookupFunct  = #lookupFunct nameSpace,
-            enterVal     = #enterVal nameSpace,
-            enterType    = #enterType nameSpace,
-            enterFix     = #enterFix nameSpace,
-            enterStruct  = #enterStruct nameSpace,
-            enterSig     = #enterSig nameSpace,
-            enterFunct   = #enterFunct nameSpace,
-            allVal       = #allVal nameSpace,
-            allType      = #allType nameSpace,
-            allFix       = #allFix nameSpace,
-            allStruct    = #allStruct nameSpace,
-            allSig       = #allSig nameSpace,
-            allFunct     = #allFunct nameSpace
+            lookupStruct = fn s => case strStr s of NONE => lookupStruct s | sm => sm
         }
         
         val typeEnv: printTypeEnv =
             { lookupType = #lookupType compositeEnv, lookupStruct = #lookupStruct compositeEnv }
+
+        (* Construct a map for types. *)
+        val innerMap =
+            case sigMap of
+                NONE => SOME typeIdMap
+            |   SOME outerMap => SOME(composeMaps(typeIdMap, outerMap))
 
         fun displaySpec (name, value) : pretty list =
         if (tagIs signatureVar value)
@@ -1255,11 +1241,11 @@ struct
            
         else if (tagIs structVar value)
         then
-            [ PrettyBreak(1,2), displayStructures (tagProject structVar value, depth - 1, compositeEnv)]
+            [ PrettyBreak(1,2), displayStructures (tagProject structVar value, depth - 1, compositeEnv, innerMap)]
                
         else if (tagIs typeConstrVar value)
         then 
-            [ PrettyBreak(1,2), displayTypeConstrs (tagProject typeConstrVar value, depth, typeEnv) ]
+            [ PrettyBreak(1,2), displayTypeConstrsWithMap (tagProject typeConstrVar value, depth, typeEnv, innerMap) ]
       
         else if (tagIs valueVar value)
         then
@@ -1274,7 +1260,7 @@ struct
               (* We lookup the infix status and any exception in the global environment
                  only.  Infix status isn't a property of a structure and it's too
                  much trouble to look up exceptions in the structure. *)
-                displayValues (value, depth, compositeEnv)
+                displayValues (value, depth, compositeEnv, innerMap)
               ]
         end
       
@@ -1301,7 +1287,7 @@ struct
                         fun order (s1: string, _) (s2: string, _) = s1 <= s2
                     in
                         (* Put all the entries into a list. *)
-                        for (univOver str) addToList;
+                        for (univOver tab) addToList;
                         (* Sort the list and print it. *)
                         List.foldl
                             (fn (a, l) => displaySpec a @ l)
@@ -1332,11 +1318,11 @@ struct
                     ]
                 ),
             PrettyBreak (1, 2),
-            displaySig (sigTab str, depth, 1, nameSpace)
+            displaySig (str, depth, 1, nameSpace, NONE)
             ])
 
   (* print structure in a block (no external spacing) *)
-    and displayStructures (str, depth, nameSpace): pretty =
+    and displayStructures (str, depth, nameSpace, sigMap): pretty =
     if depth <= 0 then PrettyString "..."
     else if isUndefinedStruct str then PrettyString "<bad>"
     else
@@ -1358,15 +1344,15 @@ struct
                 ]
             ),
             PrettyBreak(1, 2),
-            displayNamedSig(structSignat str, depth - 1, 1, nameSpace)
+            displayNamedSig(structSignat str, depth - 1, 1, nameSpace, sigMap)
         ])
     end
 
     (* Internal function for printing structures and functors.  If a signature has a
        name print the name rather than the contents. *)
-    and displayNamedSig(Signatures{name = "", tab, ...}, depth, space, nameSpace) =
-            displaySig (tab, depth, space, nameSpace)
-    |   displayNamedSig(Signatures{name, ...}, _, _, _) = PrettyString name
+    and displayNamedSig(sign as Signatures{name = "", ...}, depth, space, nameSpace, sigMap) =
+            displaySig (sign, depth, space, nameSpace, sigMap)
+    |   displayNamedSig(Signatures{name, ...}, _, _, _, _) = PrettyString name
 
     fun displayFunctors (funct, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
@@ -1383,19 +1369,38 @@ struct
                     PrettyBreak(1, 0),
                     PrettyString "("
                 ]) ::
-            PrettyBreak(0, 0) ::
-            (
-            (if structName (functorArg funct) <> ""
-            then [ PrettyString((structName (functorArg funct)) ^ " :"), PrettyBreak(1, 3) ]
-            else []) @
-            [
-                displayNamedSig (structSignat (functorArg funct), depth - 1, 0, nameSpace),
-                PrettyString ") :",
-                PrettyBreak(1, 3),
-                displayNamedSig (functorResult funct, depth - 1, 1, nameSpace)
-            ]
-            )
+            PrettyBreak(0, 2) ::
+            let
+                val arg = functorArg funct
+                val argName = structName arg
+            in
+                (if argName <> ""
+                then [ PrettyString(argName ^ " :"), PrettyBreak(1, 2) ]
+                else []) @
+                [
+                    displayNamedSig (structSignat arg, depth - 1, 0, nameSpace, NONE),
+                    PrettyString ") :",
+                    PrettyBreak(1, 2),
+                    let
+                        (* Include the argument structure name in the type environment. *)
+                        val argEnv =
+                            if argName = "" then nameSpace
+                            else
+                            {
+                                lookupType   = #lookupType nameSpace,
+                                lookupStruct =
+                                    fn s => if s = argName then SOME arg else #lookupStruct nameSpace s
+                            }
+                    in
+                        displayNamedSig (functorResult funct, depth - 1, 1, argEnv, NONE)
+                    end
+                ]
+            end
         )
+
+    (* Exported version. *)
+    val displayValues = fn (value, depth, nameSpace) => displayValues (value, depth, nameSpace, NONE)
+    and displayStructures = fn (str, depth, nameSpace) => displayStructures (str, depth, nameSpace, NONE)
    
   (* Code-generation. *)
 

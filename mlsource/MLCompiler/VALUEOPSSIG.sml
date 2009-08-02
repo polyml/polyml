@@ -89,14 +89,17 @@ sig
         allFunct:     unit -> (string*functors) list
     };
 
+    type printTypeEnv =
+        { lookupType: string -> typeConstrs option,
+          lookupStruct: string -> structVals option}
 
     (* Print values. *)
     val displayFixStatus:  fixStatus -> pretty
-    val displaySignatures: signatures * int * nameSpace -> pretty
-    val displayStructures: structVals * int * nameSpace -> pretty
-    val displayFunctors:   functors   * int * nameSpace -> pretty
-    val displayValues: values * int * nameSpace -> pretty
-    val printValues: values * int * nameSpace -> pretty
+    val displaySignatures: signatures * int * printTypeEnv -> pretty
+    val displayStructures: structVals * int * printTypeEnv -> pretty
+    val displayFunctors:   functors   * int * printTypeEnv -> pretty
+    val displayValues: values * int * printTypeEnv -> pretty
+    val printValues: values * int * printTypeEnv -> pretty
 
     val nullEnvironment : nameSpace
 

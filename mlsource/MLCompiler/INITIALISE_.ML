@@ -1153,12 +1153,27 @@ struct
             
             fun getValue (Value{access = Global code, class = SimpleValue, ...}) = evalue code
             |   getValue _ = raise Fail "Not a global value"
-            
+
+            (* The exported versions expect full name spaces as arguments.  Because we convert
+               the exported versions to machineWord and give them types as data structures the
+               compiler can't actually check that the type we give matched the internal type. *)
             fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
                 TYPETREE.displayTypeConstrs(tyCons, depth,
                     { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
             and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
                 TYPETREE.display(ty, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+            and exportedDisplaySigs(sign, depth, nameSpace: nameSpace) =
+                    displaySignatures(sign, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+            and exportedDisplayFunctors(funct, depth, nameSpace: nameSpace) =
+                    displayFunctors(funct, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+            and exportedDisplayValues(valu, depth, nameSpace: nameSpace) =
+                    displayValues(valu, depth,
+                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+            and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
+                    displayStructures(str, depth,
                     { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
         in
             (* Add these to the PolyML.NameSpace structure. *)
@@ -1166,13 +1181,13 @@ struct
                                 #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
                 ("displayFix",             toMachineWord displayFix, String ** fixityVal ->> PrettyType),
-                ("displaySig",             toMachineWord displaySignatures,
+                ("displaySig",             toMachineWord exportedDisplaySigs,
                     mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayStruct",             toMachineWord displayStructures,
+                ("displayStruct",             toMachineWord exportedDisplayStructs,
                     mkProductType[structureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayFunct",             toMachineWord displayFunctors,
+                ("displayFunct",             toMachineWord exportedDisplayFunctors,
                     mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayVal",             toMachineWord displayValues,
+                ("displayVal",             toMachineWord exportedDisplayValues,
                     mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
                 ("displayType",             toMachineWord exportedDisplayTypeConstr,
                     mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
