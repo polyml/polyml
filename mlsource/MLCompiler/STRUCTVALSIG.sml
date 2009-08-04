@@ -50,7 +50,7 @@ sig
         Free of
             { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
     |   Bound of
-            { access: valAccess, offset: int, eqType: bool possRef, description: typeIdDescription }
+            { access: valAccess, offset: int, eqType: bool  possRef, isDatatype: bool, description: typeIdDescription }
     |   TypeFunction    of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
@@ -165,8 +165,8 @@ sig
     val basisDescription: string -> typeIdDescription
     val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
     val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId;
-    val makeBoundId:    valAccess * int * bool * typeIdDescription -> typeId;
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * typeIdDescription -> typeId;
+    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId;
+    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId;
     
     (* Types *)
     val badType:   types;

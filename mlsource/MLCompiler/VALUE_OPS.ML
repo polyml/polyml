@@ -800,12 +800,13 @@ struct
 (*****************************************************************************)
 
     (* Build a datatype within the basis. *)
-    fun buildBasisDatatype(tcName, tyVars, isEqType,
+    fun buildBasisDatatype(tcName, tyVars, isEqType: bool,
             mkValConstrs: typeConstrs -> values list) =
     let
         (* Create a temporary datatype. *)
         val description = basisDescription tcName
-        val id = makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType, description)
+        val id =
+            makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType, true, description)
         val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val valConstrs = mkValConstrs dtype

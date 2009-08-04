@@ -1171,15 +1171,16 @@ struct
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
     (* Turn a locally created ID into a Formal which can be returned in a structure. *)
-    fun convertIdToFormal(n, Bound { offset, eqType, description, ...}) =
-            Bound { access = Formal n, offset = offset, eqType = eqType, description = description }
+    fun convertIdToFormal(n, Bound { offset, eqType, description, isDatatype, ...}) =
+            Bound { access = Formal n, offset = offset, eqType = eqType,
+                    isDatatype = isDatatype, description = description }
     |   convertIdToFormal _ = raise InternalError "Not Bound"
 
   (* Second pass - identify names with values and type-check *)
  
       (* Process structure-returning expressions i.e. structure names,
          struct..end values and functor applications. *)
-    fun structValue(str, newTypeId: (bool*bool*typeIdDescription)->typeId, currentTypeCount,
+    fun structValue(str, newTypeId: (bool*bool*bool*typeIdDescription)->typeId, currentTypeCount,
                     newTypeIdEnv: unit -> int->typeId, Env env, lex, lno, structPath) =
     let
         val typeEnv = { lookupType = #lookupType env, lookupStruct = #lookupStruct env }
@@ -1261,18 +1262,16 @@ struct
                        the result signature.  Any type IDs inherited from the argument will have type ID
                        values less than sigMinTypes functorResSig. *)
                     local
-                        fun makeNewTypeId oldId =
+                        fun makeNewTypeId(
+                            oldId as Bound{description = { name=oldName, ...}, isDatatype, ...}) =
                         let
-                            val oldName =
-                                case oldId of
-                                    Bound { description = { name, ...}, ...} => name
-                                |   _ => "" (* Or error? *)
                             val description =
                                 { location = fullLoc, name = oldName, description = "Created from applying functor " ^ name }
-                            val newId = newTypeId(false, isEquality oldId, description)
+                            val newId = newTypeId(false, isEquality oldId, isDatatype, description)
                         in
                             { source = oldId, dest = newId }
                         end
+                        |   makeNewTypeId _ = raise InternalError "Not Bound"
                         (* The resIds list tells the code-generator where to find the source of each
                            ID in the result structure and where to save the generative ID. *)
                         val sdList = List.map makeNewTypeId (sigBoundIds functorResSig)
@@ -1442,9 +1441,9 @@ struct
                 val bodyIds = ref []
                 val startTypes = currentTypeCount()
                 val startTypeEnv = newTypeIdEnv()
-                fun sconstraintMakeTypeId (isVar, eq, desc) =
+                fun sconstraintMakeTypeId (isVar, eq, isdt, desc) =
                 let
-                    val newId = newTypeId(isVar, eq, desc)
+                    val newId = newTypeId(isVar, eq, isdt, desc)
                 in
                     bodyIds := newId :: ! bodyIds;
                     newId
@@ -1470,17 +1469,14 @@ struct
                         val startResIds = currentTypeCount()
                         (* Construct new IDs for the generic IDs.  For each ID in the signature
                            we need to make a new Local ID. *)
-                        fun makeNewId oldId =
+                        fun makeNewId(oldId as Bound { description = { name, ...}, isDatatype, ...}) =
                         let
-                            val name =
-                                case oldId of
-                                    Bound { description = { name, ...}, ...} => name
-                                |   _ => "" (* Or error? *)
                             val description =
                                 { location = sigLoc, name = name, description = "Created from opaque signature" }
                         in
-                            newTypeId(false, isEquality oldId, description)
+                            newTypeId(false, isEquality oldId, isDatatype, description)
                         end
+                        |   makeNewId _ = raise InternalError "Not Bound"
 
                         val sources = List.tabulate(maxExplicitSig-minExplicitSig, fn n => matchResults(n+minExplicitSig))
                         val dests = List.map makeNewId (sigBoundIds explicitSig)
@@ -1523,7 +1519,7 @@ struct
 
     and pass2Struct 
         (strs     : structs list,
-         makeLocalTypeId : (bool * bool * typeIdDescription) -> typeId,
+         makeLocalTypeId : (bool * bool * bool * typeIdDescription) -> typeId,
          makeCurrentTypeCount: unit -> int,
          makeTypeIdEnv: unit -> int -> typeId,
          Env env  : env,
@@ -1682,8 +1678,8 @@ struct
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
                name. *)
-            fun makeId (eq, { location, name, description }) =
-                makeLocalTypeId(true, eq,
+            fun makeId (eq, isdt, { location, name, description }) =
+                makeLocalTypeId(true, eq, isdt,
                     { location = location, name = structPath ^ name, description = description })
             (* Process the body and discard the type. *)
             val _ : types = pass2 (dec, makeId, Env newEnv, lex);
@@ -1770,12 +1766,12 @@ struct
         local
             val typeIds = ref []
         in
-            fun topLevelId(isVar, eq, description) =
+            fun topLevelId(isVar, eq, isdt, description) =
             let
                 val idNumber = topLevelIdNumber()
                 val newId =
                     (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                        (Local{addr = ref 0, level = ref 0}, idNumber, eq, description)
+                        (Local{addr = ref 0, level = ref 0}, idNumber, eq, isdt, description)
             in
                 typeIds := newId :: ! typeIds;
                 newId
@@ -1797,9 +1793,9 @@ struct
         fun pass2TopDec (StrDec(str, typeIds)) =
             let
                 (* Remember the top-level Ids created in this strdec. *)
-                fun makeId(isVar, eq, desc) =
+                fun makeId(isVar, eq, isdt, desc) =
                 let
-                    val newId = topLevelId(isVar, eq, desc)
+                    val newId = topLevelId(isVar, eq, isdt, desc)
                 in
                     typeIds := newId :: ! typeIds;
                     newId
@@ -1860,8 +1856,9 @@ struct
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
                        need to enter these bound IDs into the local environment but as Selected entries. *)
                     local
-                        fun mkId(Bound{ eqType, description={ location, name, description }, access = Formal addr, offset, ...}) =
-                            Bound { offset = offset, eqType = eqType,
+                        fun mkId(Bound{ eqType, isDatatype, access = Formal addr, offset,
+                                        description={ location, name, description }, ...}) =
+                            Bound { offset = offset, eqType = eqType, isDatatype = isDatatype,
                                     description =
                                     {
                                         location=location,
@@ -1952,13 +1949,13 @@ struct
                     local
                         (* Create local IDs for any datatypes declared in the body or any generative
                            functor applications. *)
-                        fun newTypeId(isVar, eq, desc) =
+                        fun newTypeId(isVar, eq, isdt, desc) =
                         let
                             val n = !typeStamps
                             val () = typeStamps := n + 1;
                             val newId =
                                 (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                                    (Local{addr = ref 0, level = ref 0}, n, eq, desc)
+                                    (Local{addr = ref 0, level = ref 0}, n, eq, isdt, desc)
                         in
                             localStamps := newId :: !localStamps;
                             newId
@@ -1987,9 +1984,9 @@ struct
                     local
                         val startRunTimeOffsets = getNextRuntimeOffset resSig
 
-                        fun convertId(n, id as Bound { offset, description, ...}) =
+                        fun convertId(n, id as Bound { offset, description, isDatatype, ...}) =
                                 (* Either inherited from the argument or a new type ID. *)
-                                makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, description)
+                                makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, isDatatype, description)
                         |   convertId (_, id) = id (* Free or TypeFunction. *)
 
                         val localVector = Vector.fromList(List.rev(!localStamps))
@@ -2363,8 +2360,10 @@ struct
                 val resl = vaLocal (structAccess dummyResStruct);
                 val () = #addr  resl := resAddr; 
                 val () = #level resl := !level
-                fun mkSelected{source = Bound{offset = offset, eqType = eqType, access = Formal addr, description}, dest} =
-                    { source = Bound { offset = offset, eqType = eqType,
+                fun mkSelected {
+                        source = Bound{offset = offset, eqType = eqType, access = Formal addr, description, isDatatype},
+                        dest } =
+                    { source = Bound { offset = offset, eqType = eqType, isDatatype = isDatatype,
                                        access = makeSelected(addr, dummyResStruct), description = description },
                       dest = dest }
                 |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
@@ -2754,8 +2753,8 @@ struct
                     else if n >= argMinTypes
                     then case List.nth(argBoundIds, n-argMinTypes) of
                         (* Add the argument structure name onto the name of type IDs in the argument. *)
-                        Bound { access, offset, eqType, description={location, name, description} } =>
-                            Bound { access=access, offset=offset, eqType=eqType,
+                        Bound { access, offset, eqType, description={location, name, description}, isDatatype } =>
+                            Bound { access=access, offset=offset, eqType=eqType, isDatatype = isDatatype,
                                     description=
                                         {
                                             location=location, description=description,

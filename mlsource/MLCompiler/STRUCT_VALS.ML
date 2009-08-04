@@ -108,7 +108,7 @@ struct
         Free of
             { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
     |   Bound of
-            { access: valAccess, offset: int, eqType: bool possRef, description: typeIdDescription }
+            { access: valAccess, offset: int, eqType: bool  possRef, isDatatype: bool, description: typeIdDescription }
     |   TypeFunction    of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
@@ -265,13 +265,13 @@ struct
     fun makeFreeIdEqUpdate(access, eq, desc) =
         Free {access=access, uid = ref eq, allowUpdate=true, description = desc};
 
-    fun makeBoundId (access, n, eq, desc) =
-        Bound{access=access, offset=n, eqType=FrozenRef eq, description = desc};
+    fun makeBoundId (access, n, eq, isdt, desc) =
+        Bound{access=access, offset=n, eqType=FrozenRef eq, isDatatype = isdt, description = desc};
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq, desc) =
-        Bound{access=access, offset=n, eqType=VariableRef(ref eq), description = desc}
+    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc) =
+        Bound{access=access, offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, description = desc}
 		    
     (* Unset variable. *)
     fun isFreeId     (Free _ ) = true | isFreeId _ = false;
@@ -297,8 +297,8 @@ struct
             raise InternalError "isEquality: TypeFunction" (* Requires analysis of the type function. *)
 
     (* Set the equality property. *)
-    fun setEquality(Free{uid, allowUpdate=true, ...}) = uid := true (* For datatypes *)
-    |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true (* For datatypes *)
+    fun setEquality(Free{uid, allowUpdate=true, ...}) = uid := true
+    |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
 
     (* Signatures: Used for both signatures of local structures and for global structures 

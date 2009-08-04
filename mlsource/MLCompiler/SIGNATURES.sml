@@ -443,6 +443,17 @@ struct
 
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
 
+    fun printId(Free{description, ...}) = printDesc description
+    |   printId(Bound{description, ...}) = printDesc description
+    |   printId(TypeFunction(_, typeResult)) =
+            display(typeResult, 10000, emptyTypeEnv)
+
+    and printDesc{ location: location, name: string, description = "" } =
+            PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
+    |   printDesc{ location: location, name: string, description: string } =
+            PrettyBlock(0, false, [ContextLocation location],
+                [PrettyString name, PrettyBreak(1, 0), PrettyString ("(*" ^ description ^ "*)")])
+
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
   	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
@@ -460,7 +471,7 @@ struct
     let
         datatype varId =
             SharedWith of int (* Index of shared ID, always less than current index. *)
-        |   VariableSlot of { isDatatype: bool, boundId: typeId, descriptions: string list }
+        |   VariableSlot of { boundId: typeId, descriptions: string list }
         |   FreeSlot of typeId (* Bound to a Free type ID. *)
         |   Unset
 
@@ -468,7 +479,7 @@ struct
         val mapArray = StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
         val sourceArray = StretchArray.stretchArray(10 (* Guess initial size. *), NONE)
 
-        fun makeVariableId(isEq, requireUpdate, { location, name, description }, structPath) =
+        fun makeVariableId(isEq, isDt, requireUpdate, { location, name, description }, structPath) =
         let
             val fullName = structPath^name
             val descr = { location=location, name=fullName, description=description}
@@ -476,10 +487,9 @@ struct
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
                 (if requireUpdate then makeBoundIdWithEqUpdate else makeBoundId)
-                    (Formal 0 (* Not used. *), newIdNumber, isEq, descr)
+                    (Formal 0 (* Not used. *), newIdNumber, isEq, isDt, descr)
             (* Enter a variable entry in the array. *)
-            val arrayEntry =
-                VariableSlot{ isDatatype=false, boundId=newId, descriptions = [fullName] }
+            val arrayEntry = VariableSlot{ boundId=newId, descriptions = [fullName] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
             val () = StretchArray.update(sourceArray, newIdNumber-initTypeId, SOME newId)
         in
@@ -526,20 +536,21 @@ struct
             (Bound{offset=offset1, ...}, Bound{offset=offset2, ...}) =>
         (
             case (realId(offset1-initTypeId), realId(offset2-initTypeId)) of
-                (VariableSlot{isDatatype=isDatatype1, descriptions = desc1,
-                              boundId=Bound{eqType=eqType1, offset=off1, description, ...}},
-                 VariableSlot{isDatatype=isDatatype2, descriptions = desc2,
-                              boundId=Bound{eqType=eqType2, offset=off2, ...}}) =>
+                (VariableSlot{descriptions = desc1,
+                              boundId=Bound{eqType=eqType1, offset=off1, isDatatype=isDatatype1, description, ...}},
+                 VariableSlot{descriptions = desc2,
+                              boundId=Bound{eqType=eqType2, offset=off2, isDatatype=isDatatype2, ...}}) =>
             if off1 = off2
             then () (* They may already share. *)
             else
             let
                 val resOffset = Int.min(off1, off2)
                 val setOffset = Int.max(off1, off2)
+                val isDatatype = isDatatype1 orelse isDatatype2
                 val newId =
-                    makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2, description (* Not used *))
+                    makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2, isDatatype, description (* Not used *))
                 val newEntry =
-                    VariableSlot{ isDatatype=isDatatype1 orelse isDatatype2, boundId=newId, descriptions = desc1 @ desc2 }
+                    VariableSlot{ boundId=newId, descriptions = desc1 @ desc2 }
             in
                 StretchArray.update(mapArray, resOffset-initTypeId, newEntry);
                 StretchArray.update(mapArray, setOffset-initTypeId, SharedWith(resOffset-initTypeId))
@@ -581,18 +592,6 @@ struct
                 end
  
                 fun alreadyBound(path, typeName, tcId) =
-                let
-                    fun printId(Free{description, ...}) = printDesc description
-                    |   printId(Bound{description, ...}) = printDesc description
-                    |   printId(TypeFunction(_, typeResult)) =
-                            display(typeResult, 10000, emptyTypeEnv)
-
-                    and printDesc{ location: location, name: string, description = "" } =
-                            PrettyBlock(0, false, [ContextLocation location], [PrettyString name])
-                    |   printDesc{ location: location, name: string, description: string } =
-                            PrettyBlock(0, false, [ContextLocation location],
-                                [PrettyString name, PrettyBreak(1, 0), PrettyString ("(*" ^ description ^ "*)")])
-                in
                     cantShare (
                         PrettyBlock(3, false, [],
                             [
@@ -602,7 +601,6 @@ struct
                                 PrettyBreak(1, 0),
                                 printId tcId
                             ]))
-                end
             in
                 if isUndefinedTypeConstr typeA orelse isUndefinedTypeConstr typeB
                 then ()
@@ -768,15 +766,9 @@ struct
             val startNewIds = ! idCount
 
             (* Create a new variable ID for each bound ID. *)
-            fun makeNewId oldId =
-            let
-                val desc =
-                    case oldId of
-                        Bound { description, ...} => description
-                    |   _ => raise InternalError "Map does not return Bound Id"
-            in
-                makeVariableId(isEquality oldId, false, desc, structPath)
-            end;
+            fun makeNewId(oldId as Bound { description, isDatatype, ...}) =
+                    makeVariableId(isEquality oldId, isDatatype, false, description, structPath)
+            |   makeNewId _ = raise InternalError "Map does not return Bound Id"
 
             val v = Vector.fromList(List.map makeNewId boundIds)
             (* Map bound IDs only. *)
@@ -835,8 +827,22 @@ struct
 
             (* Process the type, looking up any type constructors. *)
             val () = assignTypes (realisation, lookupGlobal, lex);
-            val cantSet = giveError (str, line, lex)
-        in
+
+            fun cantSet(reason1, reason2) =
+                errorMsgNear (lex, true, fn n => displaySigs(sigExp, n), lno,
+                    PrettyBlock(3, false, [],
+                        [
+                            PrettyString "Cannot apply type realisation.",
+                            PrettyBreak(1, 2),
+                            PrettyString("``" ^ typeName ^ "''"),
+                            PrettyBreak(1, 0),
+                            PrettyString reason1,
+                            PrettyBreak(1, 0),
+                            display(realisation, 1000, { lookupType = #lookupType globalEnv, lookupStruct = #lookupStruct globalEnv}),
+                            PrettyBreak(0, 0),
+                            PrettyString reason2
+                        ]))
+         in
             (* Now try to set the target type to the type function. *)
             if isUndefinedTypeConstr sigTypeConstr
             then () (* Probably because looking up the type constructor name failed. *)
@@ -849,15 +855,24 @@ struct
                     |   id => id
             in
                 if not (isVariableId typeId)
-                then (* May have been declared as type t=int or bound by a where type already.
-                        TODO: Display the type it's bound to. *)
-                    cantSet("Cannot apply type realisation: (" ^ typeName ^ ") has already been set.")
+                then (* May have been declared as type t=int or bound by a where type already. *)
+                    errorMsgNear (lex, true, fn n => displaySigs(sigExp, n), lno,
+                        PrettyBlock(3, false, [],
+                            [
+                                PrettyString "Cannot apply type realisation.",
+                                PrettyBreak(1, 2),
+                                PrettyString("``" ^ typeName ^ "''"),
+                                PrettyBreak(1, 0),
+                                PrettyString " has already been set to",
+                                PrettyBreak(1, 0),
+                                printId typeId
+                            ]))
                 else
                 case typeId of
                     Bound { offset, ... } =>
                     (
                         case realId(offset-initTypeId) of
-                            VariableSlot { isDatatype, boundId=varId as Bound{eqType, offset, ...}, ... } =>
+                            VariableSlot {boundId=varId as Bound{eqType, offset, isDatatype, ...}, ... } =>
                             (
                                (* The rule for "where type" says that we must check that an eqtype
                                   is only set to a type that permits equality and that the result
@@ -865,8 +880,7 @@ struct
                                   setting is a datatype (has constructors) it can only be set to
                                   a type that is a type name and not a general type function. *)
                                 if pling eqType andalso not(typePermitsEquality realisation)
-                                then cantSet ("Cannot apply type realisation: (" ^ typeName ^
-                                      ") is an eqtype but the type does not permit equality.")
+                                then cantSet ("is an eqtype but", "does not permit equality.")
                                 else case typeNameRebinding (typeVars, realisation) of
                                     SOME typeId =>
                                         (* Renaming an existing constructor e.g. type t = s.  Propagate the id.
@@ -880,8 +894,7 @@ struct
                                         if isDatatype
                                             (* The type we're trying to set is a datatype but the type
                                                we're setting it to isn't. *)
-                                        then cantSet ("Cannot apply type realisation: (" ^ typeName ^
-                                            ") is a datatype but the type is not a simple type.")
+                                        then cantSet ("is a datatype but", "is not a simple type.")
                                         else
                                             StretchArray.update(mapArray, offset-initTypeId,
                                                 FreeSlot(TypeFunction(typeVars, realisation)))
@@ -1169,7 +1182,7 @@ struct
                   enterFunct    = #enterFunct structEnv
                  };
 
-                fun makeId (eq, loc) = makeVariableId(eq, true, loc, structPath)
+                fun makeId (eq, isdt, loc) = makeVariableId(eq, isdt, true, loc, structPath)
                 val t : types = pass2 (dec, makeId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
@@ -1177,28 +1190,9 @@ struct
                 fun findConstr(v: values): values =
                     getOpt((#lookupVal structEnv)(valName v), v)
                 fun updateConstrList tyCons =
-                if null (tcConstructors tyCons)
-                then ()
-                else
-                (
-                    (* Update the entry in the array to indicate that this is a datatype.  Should
-                       only be called immediately after the datatype has been created.
-                       If we are replicating a datatype the ID will be the same as the original
-                       datatype so we mustn't do this in that case. *)
-                    case tcIdentifier tyCons of
-                        id as Bound{ offset, description, ... } =>
-                            if offset >= initTypeId
-                            then StretchArray.update(mapArray, offset-initTypeId,
-                                    VariableSlot{isDatatype=true, boundId = id, descriptions = [#name description]})
-                            else ()
-                    |   _ => ();
-                    (* We need to record that this is a datatype for well-formedness checking.
-                       i.e. we can't share it with a type-function. *)
-                    (* TODO: This only deals with the case where the datatype is within a sig..end.
-                       It's also possible to add datatypes with "include" or as structures with
-                       signatures that contain datatypes. *)
-                    tcSetConstructors(tyCons, List.map findConstr (tcConstructors tyCons))
-                )
+                    if null (tcConstructors tyCons)
+                    then ()
+                    else tcSetConstructors(tyCons, List.map findConstr (tcConstructors tyCons))
                 val _ = List.app updateConstrList (!datatypeList)
               in
                 ! addrs
@@ -1233,7 +1227,7 @@ struct
                    the result of any sharing. *)
                 case realId n of
                     VariableSlot {
-                        boundId = Bound{eqType, description = { name, location, description}, ... },
+                        boundId = Bound{eqType, description = { name, location, description}, isDatatype, ... },
                         descriptions, ...} =>
                     let (* Need to make a new ID. *)
                         (* If we have sharing we want to produce a description that expresses that. *)
@@ -1253,7 +1247,7 @@ struct
                             val description =
                                 { name = name, location = location, description = descript }
                         in
-                            makeBoundId(Formal addr, n, pling eqType, description)
+                            makeBoundId(Formal addr, n, pling eqType, isDatatype, description)
                         end
                         (* Update the entry for any sharing. *)
                         val () = StretchArray.update(mapArray, n, FreeSlot newId)

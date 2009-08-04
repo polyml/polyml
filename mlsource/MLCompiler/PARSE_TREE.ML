@@ -2526,7 +2526,7 @@ struct
                             val description = { location = nameLoc, name = name, description = "" }
                         in
                             makeFrozenTypeConstrs (name, typeVars,
-                                makeTypeId(isEqtype, description), 0, [DeclaredAt nameLoc])
+                                makeTypeId(isEqtype, false, description), 0, [DeclaredAt nameLoc])
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
@@ -3396,7 +3396,7 @@ struct
             
             val newId =
                 if letDepth = 0
-                then makeTypeId(false, description)
+                then makeTypeId(false, true, description)
                 else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
             val tc =
                 makeDatatypeConstr(name, typeVars, newId,
