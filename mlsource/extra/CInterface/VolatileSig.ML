@@ -67,5 +67,5 @@ sig
 	val toCfunction	 : Ctype.Ctype list -> Ctype.Ctype -> (vol list -> vol) -> vol
 	val toPascalfunction : Ctype.Ctype list -> Ctype.Ctype -> (vol list -> vol) -> vol
     
-    val setFinal     : vol * vol -> unit
+    val setFinal     : vol -> vol -> unit
 end;

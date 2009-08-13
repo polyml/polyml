@@ -296,6 +296,6 @@ fun toPascalfunction argType resType (f: vol list -> vol) =
 	end
 
 
-fun setFinal (v, f) = Underlying.setFinal(thevol v, thevol f)
+fun setFinal f v = Underlying.setFinal (thevol f) (thevol v)
 
 end (* struct *)

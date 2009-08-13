@@ -223,15 +223,12 @@ static const char *stringOfCtype(Ctype c)
 
 #define INITIAL_NUM_VOLS 200
 
-/*typedef enum {False,True} Bool;*/
-typedef int Bool; /* record size for malloc/free wrappers */
-
 class PolyVolData;
 
 typedef struct {
     PolyVolData* ML_pointer;     /* Pointer to ML token object. */
     void* C_pointer;      /* Pointer to C storage. */
-    Bool Own_C_space;     /* Size if this is the owner of storage. */
+    POLYUNSIGNED Own_C_space;     /* Size if this is the owner of storage. */
     void (*C_finaliser)(void*);    // Pointer to finalisation function.
 } Volatile;
 
@@ -328,7 +325,7 @@ static Handle vol_alloc (TaskData *taskData)
     MakeVolMagic(v);
     ML_POINTER(v) = v;
     C_POINTER(v) = NULL;
-    OWN_C_SPACE(v) = /*False*/0;
+    OWN_C_SPACE(v) = 0; /* Does not own it. */
     FINALISER(v) = 0; /* None installed yet. */
     
     return result;
@@ -341,7 +338,7 @@ static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
     Handle res = vol_alloc(taskData);
     trace(("size= %lu\n",size));
     Vmalloc( C_POINTER(UNVOLHANDLE(res)), size );
-    OWN_C_SPACE(UNVOLHANDLE(res)) = /*True*/size;
+    OWN_C_SPACE(UNVOLHANDLE(res)) = size; /* Size of owned space. */
     return res;
 }
 
@@ -474,7 +471,7 @@ static Handle assign (TaskData *taskData, Handle h)
     void *dest = C_POINTER(left);
     memcpy(dest, source, size);
 
-    return h; /* to be ignored */
+    return SAVE(TAGGED(0));
 }}
 
 
@@ -632,9 +629,7 @@ void Foreign::GarbageCollect(ScanAddress *process)
                 if (vols[from].Own_C_space) {
                     
                     mes(("Trashing malloc space of <%lu>\n",from));
-                    {int i; for (i=0; i<vols[from].Own_C_space; i++) {
-                        ((char*)vols[from].C_pointer)[i] = 0;
-                    }}
+                    memset(vols[from].C_pointer, 0, vols[from].Own_C_space);
                     
                     trace(("Freeing malloc space of <%lu>\n",from));
                     Vfree(vols[from].C_pointer);
@@ -1314,7 +1309,7 @@ static Handle fillCstring (TaskData *taskData, Handle h)
     Poly_string_to_C(str, (char*)DEREFVOL(taskData, cArg), size);
     PLocker plocker(&volLock);
     mes(("<%s>\n", (char*)C_POINTER(cArg)));
-    return h; /* to be ignored */
+    return SAVE(TAGGED(0));
 }}
 
 
@@ -1833,10 +1828,10 @@ typedef void   (*finalType)(void*);
 
 // Set a finalisation function: A C function that is called when the Vol is freed by
 // the GC.
-static Handle set_finalise (TaskData *taskData, Handle pair)
+static Handle set_final (TaskData *taskData, Handle pair)
 {
-    Handle volH       = TUPLE_GET1(pair);
-    Handle symH       = TUPLE_GET2(pair);
+    Handle symH       = TUPLE_GET1(pair);
+    Handle volH       = TUPLE_GET2(pair);
     PolyVolData *vol  = (PolyVolData*)(UNHANDLE(volH));
     finalType f       = *(finalType*)DEREFVOL(taskData, symH->Word());
     FINALISER(vol)    = f;
@@ -1900,7 +1895,7 @@ static type_hh_fun handlers[] =
   toCfunction,      /* Added DCJM 7/4/04. */
   toPascalfunction, /* Added DCJM 7/4/04. */
 
-  set_finalise /* Added DCJM 2/8/09. */
+  set_final /* Added DCJM 2/8/09. */
 };
     
 #define NUM_HANDLERS ((int)(sizeof(handlers)/sizeof(type_hh_fun)))

@@ -130,8 +130,8 @@ val allocateIt = call0 (load_sym mylib "AllocateIt") () POINTER;
 val v1 = allocateIt();
 val v2 = allocateIt ();
 val final = load_sym mylib "FreeIt";
-setFinal(v1, final);
-setFinal(v2, final);
+setFinal final v1;
+setFinal final v2;
 
 (* Activating the finalisers requires a full GC. *)
 val v1 = 0; (* The v1 object is no longer reachable. *)

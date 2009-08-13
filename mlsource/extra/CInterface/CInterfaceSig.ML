@@ -96,7 +96,7 @@ signature CInterfaceSig = sig
     val load_sym     : dylib -> string -> sym
     val get_sym	     : string -> string -> sym
     
-    val setFinal     : vol * sym -> unit
+    val setFinal     : sym -> vol -> unit
 
     val set_libPath  : dylib -> string -> unit
     val get_libPath  : dylib -> string
