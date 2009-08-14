@@ -45,7 +45,9 @@ Bootstrap.use "basis/Int.sml";
 Bootstrap.use "basis/Array.sml";
 Bootstrap.use "basis/LargeWord.sml";
 Bootstrap.use "basis/Word8.sml";
-Bootstrap.use "basis/Word32.sml";
+if PolyML.architecture() = "X86_64"
+then Bootstrap.use "basis/Word32.x86_64.sml"
+else Bootstrap.use "basis/Word32.sml";
 Bootstrap.use "basis/INTEGER.sml";
 Bootstrap.use "basis/IntInf.sml";
 Bootstrap.use "basis/Int32.sml";

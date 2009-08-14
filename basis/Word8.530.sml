@@ -134,6 +134,8 @@ struct
 	fun op + (a, b) = fromWord(Word.+(a, b))
 	and op - (a, b) = fromWord(Word.-(a, b))
 	and op * (a, b) = fromWord(Word.*(a, b))
+	
+    fun ~ x = 0w0 - x
 
 end;
 
@@ -160,6 +162,7 @@ in
 end;
 
 (* Add the overloaded operators. *)
+RunCall.addOverload Word8.~ "~";
 RunCall.addOverload Word8.+ "+";
 RunCall.addOverload Word8.- "-";
 RunCall.addOverload Word8.* "*";
