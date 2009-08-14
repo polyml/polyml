@@ -1581,7 +1581,7 @@ match
 #ifdef KR_headers
 	(sp, t) char **sp, *t;
 #else
-	(CONST char **sp, char *t)
+	(CONST char **sp, CONST char *t)
 #endif
 {
 	int c, d;
@@ -3500,7 +3500,7 @@ rv_alloc(int i)
 #ifdef KR_headers
 nrv_alloc(s, rve, n) char *s, **rve; int n;
 #else
-nrv_alloc(char *s, char **rve, int n)
+nrv_alloc(CONST char *s, char **rve, int n)
 #endif
 {
 	char *rv, *t;
