@@ -387,6 +387,16 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
 // Called by the root thread to actually save the state and write the file.
 void SaveRequest::Perform()
 {
+    // Check that we aren't overwriting our own parent.
+    for (unsigned q = 0; q < newHierarchy-1; q++) {
+        if (sameFile(hierarchyTable[q]->fileName, fileName))
+        {
+            errorMessage = "File being saved is used as a parent of this file";
+            errCode = 0;
+            return;
+        }
+    }
+
     SaveStateExport exports;
     // Open the file.  This could quite reasonably fail if the path is wrong.
     exports.exportFile = fopen(fileName, "wb");
@@ -395,16 +405,6 @@ void SaveRequest::Perform()
         errorMessage = "Cannot open save file";
         errCode = errno;
         return;
-    }
-
-    // Check that we aren't overwriting out own parent.
-    for (unsigned q = 0; q < newHierarchy-1; q++) {
-        if (sameFile(hierarchyTable[q]->fileName, fileName))
-        {
-            errorMessage = "File being saved is used as a parent of this file";
-            errCode = 0;
-            return;
-        }
     }
 
     // Scan over the permanent mutable area copying all reachable data that is
