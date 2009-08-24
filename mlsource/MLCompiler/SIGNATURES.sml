@@ -107,7 +107,7 @@ struct
   withtype shareConstraint =
       {
         isType: bool,
-        shares: string list,
+        shares: (string * location) list,
         line:   location
       }
 
@@ -312,8 +312,7 @@ struct
                     if not isType then []
                     else [ PrettyString "type", PrettyBreak (1, 0) ]
                 ) @
-                displayList (shares, "=", depth)
-                    (fn (name, depth) => PrettyString name)
+                displayList (shares, "=", depth) (fn ((name, _), _) => PrettyString name)
             )
 
         |   IncludeSig (structList : sigs list, _) =>
@@ -693,27 +692,27 @@ struct
         in
 
             (* Process a sharing constraint. *)
-            fun applySharingConstraint({shares = tlist, isType, line}, Env tEnv, near) : unit =
+            fun applySharingConstraint({shares, isType, line}, Env tEnv, near) : unit =
             let
                 (* When looking up the structure and type names we look only
                    in the signature in ML97.  We add this to make it clear that
                    we are only looking up in the signature otherwise we get
                    confusing messages such as "type (int) has not been declared". *)
-                fun lookupFailure msg =
-                     giveError (str, line, lex) (msg ^ " in signature.")
+                fun lookupFailure locn msg =
+                     giveError (str, locn, lex) (msg ^ " in signature.")
             in
                 if isType
                 then
                 let (* Type sharing. *)
-                    fun lookupSharing (name: string) = 
+                    fun lookupSharing (name, locn) = 
                     lookupTyp
                        ({ 
                           lookupType   = #lookupType   tEnv,
                           lookupStruct = #lookupStruct tEnv
                         },
-                        name, lookupFailure)
+                        name, lookupFailure locn)
                 in
-                    case tlist of
+                    case shares of
                         nil => raise Empty
                     |   hd :: tl =>
                         let
@@ -727,9 +726,9 @@ struct
                 end
                 else
                 let (* structure sharing. *)
-                    fun getStruct name = lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure)
+                    fun getStruct(name, locn) = lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure locn)
                 in  (* Now share all these signatures. *)
-                    structureSharing(map getStruct tlist, line, near)
+                    structureSharing(map getStruct shares, line, near)
                 end
             end (* applySharingConstraint *)
         end (* Sharing *)

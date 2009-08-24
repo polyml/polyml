@@ -307,7 +307,7 @@ struct
  val rightParenCommaSy            = rightParen ++ comma;
  val rightParenSemicolonSy        = rightParen ++ semicolon;
  val rightParenSemicolonCommaSy   = rightParenSemicolonSy ++ comma;
- val rightParenEqualsSignAndSy    = rightParen ++ equalsSign ++ andSy;
+ val rightParenEqualsSignSy       = rightParen ++ equalsSign;
  val colonAsSy                    = colon ++ asSy;
  val colonEqualsSignSy            = colon ++ colonGt ++ equalsSign;
  val thenStartExpressionSy        = thenSy ++ startExpressionSys;
@@ -1977,34 +1977,26 @@ struct
             end
 
          else if sym eq SYMBOLS.sharingSy
-         then let (* sharing *)
-             val UUU = insymbol lex
-             (* TODO: sharing ... and ... was previously allowed in ML90 but
-                not in ML97.  Since this has now changed we should simplify this. *)
-             (* Now the types or structures. *)
-             fun doSharing () =
-               let
-                 val lno    = location lex
-                 val isType = testfor (SYMBOLS.typeSy, empty, lex)
-                 fun getShare () =
-                    getLongId (declarableVarSys, fsys ++ rightParenEqualsSignAndSy, lex);
-                 val (shares, _) = getShare ()
-                 val () = getsym (SYMBOLS.equalsSign, lex)
-                 val share =
-                     mkSharing
-                       (isType,
-                       shares :: #1 (getList (SYMBOLS.equalsSign, ident, lex, getShare)),
-                       lno)
-               in
-                  if (sy lex) eq SYMBOLS.andSy
-                  then errorMessage (lex, location lex,
-                                 "sharing ... and ... is not allowed")
-                  else ();
-                  (share, lno)
-               end (* doSharing *)
-           in
-              #1 (getList (SYMBOLS.andSy, declarableVarSys, lex, doSharing))
-           end
+         then
+            let (* sharing *)
+                val startLocn = location lex
+                val () = insymbol lex
+                val isType = testfor (SYMBOLS.typeSy, empty, lex)
+                fun getShare () =
+                let
+                    val (id, loc) =  getLongId (declarableVarSys, fsys ++ rightParenEqualsSignSy, lex)
+                in
+                    (* We want to include the location in the list as well as in the result here. *)
+                    ((id, loc), loc)
+                end
+                val (shares, _) = getShare ()
+                val () = getsym (SYMBOLS.equalsSign, lex)
+                val (shareRest, shareLocn) = getList (SYMBOLS.equalsSign, ident, lex, getShare)
+                val fullLoc = locSpan(startLocn, shareLocn)
+                val share = mkSharing (isType, shares :: shareRest, fullLoc)
+            in
+                [share]
+            end
 
         else [] (* Empty. *)
            (* end of parse of thisSig *)
