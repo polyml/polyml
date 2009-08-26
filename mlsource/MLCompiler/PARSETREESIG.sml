@@ -61,7 +61,7 @@ sig
      say, after all the unification has been done. *)
           
   type parsetree and valbind and fvalbind and fvalclause and typebind
-  and datatypebind and exbind and labelRecEntry; 
+  and datatypebind and exbind and labelRecEntry and matchtree; 
    
   val isIdent : parsetree -> bool;
 
@@ -108,8 +108,8 @@ sig
   val mkList : parsetree list * location -> parsetree;
   val mkConstraint : parsetree * typeParsetree * location -> parsetree; 
   val mkLayered : parsetree * parsetree * location -> parsetree; 
-  val mkFn : parsetree list * location -> parsetree;
-  val mkMatchTree : parsetree * parsetree * location -> parsetree; 
+  val mkFn : matchtree list * location -> parsetree;
+  val mkMatchTree : parsetree * parsetree * location -> matchtree; 
   val mkLocalDeclaration : parsetree list * parsetree list * location * bool -> parsetree;
   val mkTypeDeclaration : typebind list * location -> parsetree;
   val mkDatatypeDeclaration : datatypebind list * typebind list * location -> parsetree;
@@ -127,9 +127,9 @@ sig
   val mkLabelRecEntry: string * location * parsetree * location -> labelRecEntry
   val mkSelector : string * location -> parsetree;
   val mkRaise : parsetree * location -> parsetree;
-  val mkHandleTree : parsetree * parsetree list * location -> parsetree; 
+  val mkHandleTree : parsetree * matchtree list * location * location -> parsetree; 
   val mkWhile : parsetree * parsetree * location -> parsetree;
-  val mkCase : parsetree * parsetree list * location -> parsetree;
+  val mkCase : parsetree * matchtree list * location * location -> parsetree;
   val mkAndalso : parsetree * parsetree * location -> parsetree;
   val mkOrelse : parsetree * parsetree * location -> parsetree;
   val mkDirective : string list * fixStatus * location -> parsetree; 
@@ -178,5 +178,6 @@ sig
         and  exbind     = exbind
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
+        and  matchtree   = matchtree
     end
 end (* PARSETREE export signature *);

@@ -190,8 +190,9 @@ struct
              variable is given the name of the object which is to be matched. *)
             { var: parsetree, pattern: parsetree, location: location }
 
-    |   Fn                  of parsetree list * location
-    |   MatchTree           of matchForm
+    |   Fn                  of
+            { matches: matchtree list, location: location, expType: types ref }
+
     |   Localdec            of localdecForm
     |   TypeDeclaration     of typebind list * location
     |   AbstypeDeclaration  of abstypeDeclarationForm
@@ -210,7 +211,7 @@ struct
 
     |   HandleTree          of
             (* Execute an expression and catch any exceptions. *)
-            { exp: parsetree, hrules: parsetree list, location: location }
+            { exp: parsetree, hrules: matchtree list, location: location, listLocation: location }
 
     |   While               of
             (* Ordinary while-loop *)
@@ -218,7 +219,7 @@ struct
 
     |   Case                of
             (* Case-statement *)
-            { test: parsetree, match: parsetree list, location: location }
+            { test: parsetree, match: matchtree list, location: location, listLocation: location, expType: types ref }
 
     |   Andalso             of { first: parsetree, second: parsetree, location: location } 
 
@@ -304,6 +305,17 @@ struct
            fullLoc:      location
          } 
 
+    and matchtree =
+    (* A match is a pattern and an expression. If the pattern matches then
+       the expression is evaluated in the environment of the pattern. *)
+    MatchTree of {
+       vars: parsetree,
+       exp: parsetree,
+       location: location,
+       argType: types ref,
+       resType: types ref
+     } 
+
        (* Val and fun declarations. *)
    withtype valDecForm = 
      {
@@ -332,17 +344,6 @@ struct
        name:   string,
        value:  structVals ref,
        location: location
-     } 
-
-   (* A match is a pattern and an expression. If the pattern matches then
-     the expression is evaluated in the environment of the pattern. *)
-   and matchForm = 
-     {
-       vars: parsetree,
-       exp: parsetree,
-       location: location,
-       argType: types ref,
-       resType: types ref
      } 
 
     (* Used for local dec in dec and let dec in exp. *)
@@ -631,9 +632,10 @@ struct
           location = location
         };
     
-    val mkFn : parsetree list * location -> parsetree = Fn;
+    fun mkFn(matches, location) =
+        Fn { matches = matches, location = location, expType = ref EmptyType }
     
-    fun mkMatchTree (vars, exp, location) : parsetree = 
+    fun mkMatchTree (vars, exp, location) : matchtree = 
       MatchTree 
         {
           vars = vars,
@@ -746,12 +748,13 @@ struct
     
     val mkRaise : parsetree * location -> parsetree = Raise;
     
-    fun mkHandleTree (exp, hrules, location) : parsetree = 
+    fun mkHandleTree (exp, hrules, location, listLocation) : parsetree = 
        HandleTree
          { 
            exp    = exp,
            hrules = hrules,
-           location = location
+           location = location,
+           listLocation = listLocation
          };
        
     fun mkWhile (test, body, location) : parsetree =
@@ -762,12 +765,14 @@ struct
             location = location
         };
       
-    fun mkCase (test, match, location) : parsetree =
+    fun mkCase (test, match, location, listLocation) : parsetree =
       Case
         {
             test  = test,
             match = match,
-            location = location
+            location = location,
+            listLocation = listLocation,
+            expType = ref EmptyType
         };
       
     fun mkAndalso (first, second, location) : parsetree =
@@ -1094,22 +1099,11 @@ struct
                 ]
             )
 
-      | MatchTree {vars, exp, ...} =>
-            PrettyBlock (0, false, [],
-                [
-                    ptDisplay (vars, depth - 1),
-                    PrettyBreak (1, 0),
-                    PrettyString "=>",
-                    PrettyBreak (1, 0),
-                    ptDisplay (exp, depth - 1)
-                ]
-            )
-
-      | Fn (ptl, _) =>
+      | Fn {matches, ...} =>
             PrettyBlock (3, true, [],
                 PrettyString "fn" ::
                 PrettyBreak (1, 0) ::
-                displayList (ptl, "|", depth - 1)
+                printList displayMatch (matches, "|", depth - 1)
             )
 
       | Unit _ =>
@@ -1260,7 +1254,7 @@ struct
                     PrettyBlock (3, true, [],
                         PrettyString "handle" ::
                         PrettyBreak (1, 0) ::
-                        displayList (hrules, "|", depth - 1)
+                        printList displayMatch (hrules, "|", depth - 1)
                     )
                 ]
             )
@@ -1290,7 +1284,7 @@ struct
                     ]
                 ) ::
                 PrettyBreak (1, 0) ::
-                displayList (match, "|", depth - 1)
+                printList displayMatch (match, "|", depth - 1)
             )
 
       | Andalso {first, second, ...} =>
@@ -1374,8 +1368,19 @@ struct
                     PrettyString ")"
                 ]
             )
-        
+    
     end (* ptDisplay *)
+
+    and displayMatch(MatchTree {vars, exp, ...}, depth) =
+        PrettyBlock (0, false, [],
+            [
+                ptDisplay (vars, depth - 1),
+                PrettyBreak (1, 0),
+                PrettyString "=>",
+                PrettyBreak (1, 0),
+                ptDisplay (exp, depth - 1)
+            ]
+        )
 
     fun getExportTree(navigation, p: parsetree) =
     let
@@ -1437,6 +1442,18 @@ struct
 
         |   exportTypeBinding(navigation, Decl dec) =
                 (* Value declarations in an abstype. *) getExportTree(navigation, dec)
+        
+        fun exportMatch(navigation,
+                p as MatchTree{location, vars, exp, resType = ref rtype, argType = ref atype,...}) =
+        let
+            fun asParent () = exportMatch(navigation, p)
+        in
+            (location,
+                [PTprint(fn d => displayMatch(p, d)), PTtype (mkFunctionType (atype, rtype))] @ 
+                exportList(getExportTree, SOME asParent) [vars, exp] @
+                exportNavigationProps navigation
+                )
+        end
     in
         case p of
             Ident{location, expType=ref expType, value, ...} =>
@@ -1609,11 +1626,8 @@ struct
         |   Layered{location, var, pattern, ...} =>
                 (location, exportList(getExportTree, SOME asParent) [var, pattern] @ commonProps)
 
-        |   Fn(ptl,location) =>
-                (location, exportList(getExportTree, SOME asParent) ptl @ commonProps)
-
-        |   MatchTree{location, vars, exp, ...} =>
-                (location, exportList(getExportTree, SOME asParent) [vars, exp] @ commonProps)
+        |   Fn {matches, location, expType = ref expType, ...} =>
+                (location, PTtype expType :: exportList(exportMatch, SOME asParent) matches @ commonProps)
 
         |   Localdec{location, decs, body, ...} =>
                 (location, exportList(getExportTree, SOME asParent) (decs @ body) @ commonProps)
@@ -1696,21 +1710,32 @@ struct
                (location, [PTfirstChild getExp] @ commonProps)
             end
 
-        |   HandleTree{location, exp, hrules, ...} =>
-                (* For the moment just treat the expression and each of the handlers as
-                   siblings.  It might be better to treat the expression and the
-                   set of handlers as siblings and go down a level to process the
-                   individual handlers.  That really requires the parser to
-                   give a separate location for the handler set. *)
-                (location, exportList(getExportTree, SOME asParent) (exp :: hrules) @ commonProps)
+        |   HandleTree{location, exp, hrules, listLocation, ...} =>
+            let
+                (* The first position is the expression, the second the matches *)
+                fun getExpr () = getExportTree({parent=SOME asParent, previous=NONE, next=SOME getMatches}, exp)
+                and getMatches () =
+                    (listLocation,
+                        exportList(exportMatch, SOME getMatches) hrules @
+                            exportNavigationProps{parent=SOME asParent, previous=SOME getExpr, next=NONE})
+            in
+                (location, [PTfirstChild getExpr] @ commonProps)
+            end
 
         |   While{location, test, body, ...}           =>
                 (location, exportList(getExportTree, SOME asParent) [test, body] @ commonProps)
 
-        |   Case{location, test, match, ...}            =>
-                (* As with HandleTree it may be better to treat the expression being tested
-                   and the branches of the case at separate levels. *)
-                (location, exportList(getExportTree, SOME asParent) (test :: match) @ commonProps)
+        |   Case{location, test, match, listLocation, expType=ref expType, ...}            =>
+            let
+                (* The first position is the expression, the second the matches *)
+                fun getExpr () = getExportTree({parent=SOME asParent, previous=NONE, next=SOME getMatches}, test)
+                and getMatches () =
+                    (listLocation,
+                        exportList(exportMatch, SOME getMatches) match @
+                            exportNavigationProps{parent=SOME asParent, previous=SOME getExpr, next=NONE})
+            in
+                (location, [PTfirstChild getExpr, PTtype expType] @ commonProps)
+            end
 
         |   Andalso {location, first, second, ...} =>
                 (location, exportList(getExportTree, SOME asParent) [first, second] @ commonProps)
@@ -1907,6 +1932,22 @@ struct
                 ])
         end
 
+        fun matchTypeMessage (lex, typeEnv) (title, match, valType) =
+        let
+            val errorDepth = errorDepth lex
+        in
+            PrettyBlock(3, false, [],
+                [
+                    PrettyString title,
+                    PrettyBreak(1, 0),
+                    displayMatch (match, errorDepth),
+                    PrettyBreak(1, 0),
+                    PrettyString ":",
+                    PrettyBreak(1, 0),
+                    display(valType, 10000 (* All of it *), typeEnv)
+                ])
+        end
+
         (* Old error message and unification functions.  These will eventually be
            removed.  *)
         fun matchError 
@@ -1970,6 +2011,61 @@ struct
         in
           applyList badType l
         end;
+
+        (* Applies "assignValues" or "processPattern" to every element of a list and unifies the
+           types. Returns a type variable if the list is empty.
+           This is used for lists, function values (fn .. => ...),
+           handlers and case expressions. *)
+        fun assignList _ _ [] = mkTypeVar (generalisable, false, false)
+        |   assignList (processValue: 'a->types, _, _) _ [single] = processValue single
+
+        |   assignList (processValue: 'a->types, displayValue, typeMsg)
+                            (errorMsg, itemName, separator, location, near) (tlist as hd :: tl) =
+            let
+                val firstType = processValue hd
+
+                fun applyList(ty, _, []) = ty
+                |   applyList(ty, n, h::t) =
+                    let
+                        val typ = processValue h
+                    in
+                        case unifyTypes (ty, typ) of
+                            NONE => applyList(ty, n+1, t)
+                        |   SOME report =>
+                            let
+                                (* We have a type error but we don't know which is correct.
+                                   The previous items must have produced a consistent type
+                                   otherwise we'd already have reported an error but we
+                                   can't identify exactly where the error occurred. *)
+                                val errorDepth = errorDepth lex
+                                val previousValsAndType =
+                                    PrettyBlock(3, false, [],
+                                        [
+                                            PrettyString (
+                                                if n = 1 then itemName ^ " 1:"
+                                                else itemName ^ "s 1-" ^ Int.toString n ^ ":"),
+                                            PrettyBreak(1, 0),
+                                            PrettyBlock(0, false, [],
+                                                printList (*ptDisplay*)displayValue (List.take(tlist, n),
+                                                separator, errorDepth)),
+                                            PrettyBreak(1, 0),
+                                            PrettyString ":",
+                                            PrettyBreak(1, 0),
+                                            display(ty, 10000 (* All of it *), typeEnv)
+                                        ])
+                            in
+                                typeMismatch(errorMsg,
+                                    previousValsAndType,
+                                    (*valTypeMessage*)typeMsg(lex, typeEnv) (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
+                                    unifyErrorReport(lex, typeEnv) report, lex, location, foundNear near);
+                                (* Continue with "bad" which suppresses further error messages
+                                   and return "bad" as the result. *)
+                                applyList(badType, n+1, t)
+                            end
+                    end
+            in
+                applyList(firstType, 1, tl)
+            end
 
         fun ptAssignTypes t near =
             assignTypes
@@ -2161,7 +2257,7 @@ struct
                     fun processElement elem =
                         processPattern(elem, enterResult, level, notConst, isRec)
                     val elementType =
-                        assignList processElement
+                        assignList (processElement, ptDisplay, valTypeMessage)
                             ("Elements in a list have different types.", "Item", ",", location, aList) elements
                     val resType =
                         if isBadType elementType
@@ -2222,61 +2318,6 @@ struct
                     badType
 
         end (* processPattern *)
-
-        
-        (* Applies "assignValues" or "processPattern" to every element of a list and unifies the
-           types. Returns a type variable if the list is empty.
-           This is used for lists, function values (fn .. => ...),
-           handlers and case expressions. *)
-        and assignList _ _ [] = mkTypeVar (generalisable, false, false)
-        |   assignList processValue _ [single] = processValue single
-
-        |   assignList processValue (errorMsg, itemName, separator, location, near) (tlist as hd :: tl) =
-            let
-                val firstType = processValue hd
-
-                fun applyList(ty, _, []) = ty
-                |   applyList(ty, n, h::t) =
-                    let
-                        val typ = processValue h
-                    in
-                        case unifyTypes (ty, typ) of
-                            NONE => applyList(ty, n+1, t)
-                        |   SOME report =>
-                            let
-                                (* We have a type error but we don't know which is correct.
-                                   The previous items must have produced a consistent type
-                                   otherwise we'd already have reported an error but we
-                                   can't identify exactly where the error occurred. *)
-                                val errorDepth = errorDepth lex
-                                val previousValsAndType =
-                                    PrettyBlock(3, false, [],
-                                        [
-                                            PrettyString (
-                                                if n = 1 then itemName ^ " 1:"
-                                                else itemName ^ "s 1-" ^ Int.toString n ^ ":"),
-                                            PrettyBreak(1, 0),
-                                            PrettyBlock(0, false, [],
-                                                printList ptDisplay (List.take(tlist, n),
-                                                separator, errorDepth)),
-                                            PrettyBreak(1, 0),
-                                            PrettyString ":",
-                                            PrettyBreak(1, 0),
-                                            display(ty, 10000 (* All of it *), typeEnv)
-                                        ])
-                            in
-                                typeMismatch(errorMsg,
-                                    previousValsAndType,
-                                    valTypeMessage(lex, typeEnv) (concat[itemName, " ", Int.toString(n+1), ":"], h, typ),
-                                    unifyErrorReport(lex, typeEnv) report, lex, location, foundNear near);
-                                (* Continue with "bad" which suppresses further error messages
-                                   and return "bad" as the result. *)
-                                applyList(badType, n+1, t)
-                            end
-                    end
-            in
-                applyList(firstType, 1, tl)
-            end
 
         (* val assValues = assignValues level line env; *)
         and assValues near v =
@@ -2592,7 +2633,8 @@ struct
           | (aList as List{elements, location, expType, ...}) =>
             let
                 val elementType =
-                    assignList(assValues v)("Elements in a list have different types.", "Item", ",", location, aList) elements
+                    assignList(assValues v, ptDisplay, valTypeMessage)
+                        ("Elements in a list have different types.", "Item", ",", location, aList) elements
                 val resType =
                     if isBadType elementType
                     then badType
@@ -2625,57 +2667,15 @@ struct
                 theType
             end
 
-          | (aFun as Fn (ptl, location)) =>  (* Must unify the types of each of the alternatives.*)
-              assignList(assValues aFun)("Clauses in fn expression have different types.", "Clause", "|", location, aFun) ptl
-
-          | MatchTree {vars, exp, location, resType, argType} =>
-            let 
-              (* A match is a function from the pattern to the expression *)
-              
-              (* Process the pattern looking for variables. *)
-        
-               (* Construct a new environment for the variables. *)
-              fun messFn(name, old, Value{locations, ...}) =  
-                    errorNear (lex, true, v, declaredAt locations,
-                        name ^ " has already been bound in this match");
-              
-              val newEnv   = noDuplicates messFn;
-              val newLevel = level + 1;
-              val decs     = processPattern(vars, #enter newEnv, newLevel, false, false)
-        
-              (* The identifiers declared in the pattern are available in the
-                 body of the function. *)
-              val bodyEnv =
-                {
-                  lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal env),
-                  lookupType    = #lookupType env,
-                  lookupFix     = #lookupFix env,
-                  lookupStruct  = #lookupStruct env,
-                  lookupSig     = #lookupSig env,
-                  lookupFunct   = #lookupFunct env,
-                  lookupTvars   = #lookupTvars env,
-                  enterVal      = #enterVal env,
-                  enterType     = #enterType env,
-                  enterFix      = #enterFix env,
-                  enterStruct   = #enterStruct env,
-                  enterSig      = #enterSig env,
-                  enterFunct    = #enterFunct env
-                };
-        
-              (* Now the body. *)
-              val expType = assignValues(newLevel, letDepth, bodyEnv, v, exp);
+          | (aFun as Fn {matches, location, expType, ...}) =>  (* Must unify the types of each of the alternatives.*)
+            let
+                val resType =
+                    assignList(assMatchTree aFun, displayMatch, matchTypeMessage)
+                        ("Clauses in fn expression have different types.", "Clause", "|", location, aFun) matches
             in
-              resType := expType;
-              argType := decs;
-              (* Check the type of parameters to the function to make
-                 sure they have not been unified with local datatypes.
-                 We don't need to check the result type because the check
-                 in "Localdec" will do that. *)
-              checkForLocalDatatypes(decs, letDepth, giveError (v, lex, location));
-              (* Result is a function from the type of the pattern to the type
-                 of the body. This previously generalised the resulting type. Why? *)
-              mkFunctionType (decs, expType)
-            end (* MatchTree *)
+                expType := resType;
+                resType
+            end
 
           | Unit _ =>
               unitType
@@ -2848,14 +2848,14 @@ struct
                 mkTypeVar (generalisable, false, false)
             end
   
-        | (aHandler as HandleTree {exp, hrules, location}) =>
+        | (aHandler as HandleTree {exp, hrules, location, ...}) =>
             let
                 (* If the expression returns type E
                  the handler must be exn -> E *)
                 val expType = assValues aHandler exp;
                 (* Unify the handler with a function from exn -> expType *)
                 val clauses =
-                    assignList(assValues aHandler)
+                    assignList(assMatchTree aHandler, displayMatch, matchTypeMessage)
                         ("Clauses in handler have different types.", "Clause", "|", location, aHandler) hrules
                 (* The result type of the handlers must match the result type of the expression being
                    handled and the arguments must all have type exn. *)
@@ -2880,16 +2880,19 @@ struct
                 unitType
             end
 
-          | aCase as Case {test, match, location} =>
+          | aCase as Case {test, match, location, expType, ...} =>
             let
                 val funType =
-                    assignList(assValues aCase)("Clauses in case have different types.", "Clause", "|", location, aCase) match;
+                    assignList(assMatchTree aCase, displayMatch, matchTypeMessage)
+                        ("Clauses in case have different types.", "Clause", "|", location, aCase) match;
                 val argType = assValues aCase test;
+                (* The matches constitute a function from the test type to
+                   the result of the case statement, so we apply the match type
+                   to the test. *)
+                val resType = apply (funType, argType, lex, location, foundNear aCase, typeEnv)
             in
-              (* The matches constitute a function from the test type to
-                 the result of the case statement, so we apply the match type
-                 to the test. *)
-              apply (funType, argType, lex, location, foundNear aCase, typeEnv)
+                expType := resType;
+                resType
             end
 
           | anAndAlso as Andalso {first, second, location} =>
@@ -2946,6 +2949,55 @@ struct
           | Parenthesised(p, _) => assValues near p
                 
             (* end of assValues *)
+
+          and assMatchTree near (MatchTree {vars, exp, location, resType, argType}) =
+            let 
+              (* A match is a function from the pattern to the expression *)
+              
+              (* Process the pattern looking for variables. *)
+        
+               (* Construct a new environment for the variables. *)
+              fun messFn(name, old, Value{locations, ...}) =  
+                    errorNear (lex, true, v, declaredAt locations,
+                        name ^ " has already been bound in this match");
+              
+              val newEnv   = noDuplicates messFn;
+              val newLevel = level + 1;
+              val decs     = processPattern(vars, #enter newEnv, newLevel, false, false)
+        
+              (* The identifiers declared in the pattern are available in the
+                 body of the function. *)
+              val bodyEnv =
+                {
+                  lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal env),
+                  lookupType    = #lookupType env,
+                  lookupFix     = #lookupFix env,
+                  lookupStruct  = #lookupStruct env,
+                  lookupSig     = #lookupSig env,
+                  lookupFunct   = #lookupFunct env,
+                  lookupTvars   = #lookupTvars env,
+                  enterVal      = #enterVal env,
+                  enterType     = #enterType env,
+                  enterFix      = #enterFix env,
+                  enterStruct   = #enterStruct env,
+                  enterSig      = #enterSig env,
+                  enterFunct    = #enterFunct env
+                };
+        
+              (* Now the body. *)
+              val expType = assignValues(newLevel, letDepth, bodyEnv, v, exp);
+            in
+              resType := expType;
+              argType := decs;
+              (* Check the type of parameters to the function to make
+                 sure they have not been unified with local datatypes.
+                 We don't need to check the result type because the check
+                 in "Localdec" will do that. *)
+              checkForLocalDatatypes(decs, letDepth, giveError (v, lex, location));
+              (* Result is a function from the type of the pattern to the type
+                 of the body. This previously generalised the resulting type. Why? *)
+              mkFunctionType (decs, expType)
+            end (* MatchTree *)
 
         and assValDeclaration (valdecs: valbind list, explicit, implicit, variables) =
         (* assignTypes for a val-declaration. *)
@@ -3687,9 +3739,8 @@ struct
               tupleWidth(List.last body)
 
       |  tupleWidth(Case{match, ...}) =
-              let
+            let
                 fun getWidth(MatchTree{exp, ...}) = tupleWidth exp
-                |    getWidth _ = raise InternalError "getWidth"
             in
                 List.foldl(fn(v, 1) => getWidth v | (_, s) => s)
                           1 match
@@ -4356,13 +4407,11 @@ struct
                tree (* error cases *)
           end; (* buildAot *)
   
-          fun buildTree (patts: parsetree list) =
+          fun buildTree (patts: matchtree list) =
           let   (* Merge together all the patterns into a single tree. *)
             fun maket []     patNo tree = tree
               | maket ((MatchTree{vars, location, ...})::t) patNo tree =
                      maket t (patNo + 1) (buildAot vars tree patNo location)
-              | maket _ _ _ =
-                  raise InternalError "maket - badly formed parsetree"
           in
             maket patts 1 aotEmpty 
           end;
@@ -4408,8 +4457,7 @@ struct
                 varl (* constants and error cases. *);
   
           val findAllVars =
-              map (fn (MatchTree{vars, ...}) => findVars vars []
-                      | _ => raise InternalError "findAllVars - badly formed parsetree");
+              map (fn (MatchTree{vars, ...}) => findVars vars []);
   
           (* Put the arg into a local declaration and set the address of any
              variables to it. We declare all the variables that can be
@@ -4870,7 +4918,7 @@ struct
     
             fun codeMatch 
                (near : parsetree,
-                alt : parsetree list,
+                alt : matchtree list,
                 arg : codetree,
                 lex : lexan,
                 decName : string,
@@ -5038,7 +5086,7 @@ struct
              Used only for functions. *)
           fun codeAlt 
              (near: parsetree,
-              alt : parsetree list,
+              alt : matchtree list,
               arg : codetree,
               decName : string,
               debugEnv : debugenv)
@@ -5217,7 +5265,7 @@ struct
                 (* code gen. the value *)
                 codegen (value, debugEnv, decName) : codetree
   
-            | Fn(_, location) =>
+            | Fn { location, ... } =>
                 (* Function *)
                 mkblock (codeProc(c, decName, false, ref 0, location)) : codetree
    
@@ -5293,7 +5341,7 @@ struct
                   (codegen (test, debugEnv, decName),
                    codegen (body, debugEnv, decName)) : codetree
   
-            | Case {test, match, location} =>
+            | Case {test, match, location, ...} =>
               (* The matches are made into a series of tests and
                  applied to the test expression. *)
               let
@@ -5323,10 +5371,10 @@ struct
                or as a declaration. *)
           and codeProc(c, decName, isRecursive, varAddr, location) =
           let
-            fun getFnBody (exp : parsetree) : parsetree list = 
+            fun getFnBody (exp : parsetree) : matchtree list = 
               case exp of
                 Constraint {value, ...} => getFnBody value
-                  | Fn(e, _)  => e
+                  | Fn{matches, ...}  => matches
                   | _     => raise InternalError "getFnBody: not a constrained fn-expression";
           
             val f        = getFnBody c;
@@ -5927,6 +5975,7 @@ struct
         and  exbind     = exbind
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
+        and  matchtree   = matchtree
     end
 
 end (* PARSETREE *);

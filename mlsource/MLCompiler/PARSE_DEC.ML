@@ -1048,7 +1048,7 @@ struct
                the locations. *)
                 #1 (getList (separator, empty, lex, fn () => expression fsys env));
 
-            fun match fsys: parsetree list * location =
+            fun match fsys: matchtree list * location =
             (* vs1.exp1 | .. | vsn.expn *)
             let
                 val () = skipon (startMatchSys, fsys, "Match", lex);
@@ -1303,7 +1303,7 @@ struct
                     val (m, matchLoc) = match (fsys ++ semicolon)
                     val locs = locSpan(startLocn, matchLoc)
                 in
-                    (mkCase (exp, m, locs), locs)
+                    (mkCase (exp, m, locs, matchLoc), locs)
                 end
         
                 (* raise exception *)
@@ -1325,7 +1325,7 @@ struct
                     val (m, matchLoc) = match (fsys ++ semicolon)
                     val locs = locSpan(startLocn, matchLoc)
                 in
-                    (mkFn (m, matchLoc), locs)
+                    (mkFn (m, locs), locs)
                 end
 
                 (* type constraint, or similar *)
@@ -1388,7 +1388,7 @@ struct
                     val (m, mLoc) = match fsys
                     val locs = locSpan(expLoc, mLoc)
                 in
-                    (mkHandleTree (exp, m, locs), locs)
+                    (mkHandleTree (exp, m, locs, mLoc), locs)
                 end
                 else (exp, expLoc)
             end
