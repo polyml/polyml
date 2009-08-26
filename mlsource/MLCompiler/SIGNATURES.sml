@@ -916,44 +916,47 @@ struct
             (* Make a new signature. *)
             val newTable = makeSignatureTable();
             (* Copy everything into the new signature. *)
-            val structEnv = makeEnv newTable;
 
-            (* ML 97 does not allow multiple declarations in a signature. *)
-            fun checkAndEnter (enter, lookup, kind, locs) (s: string, v) =
-            case lookup s of
-                SOME _ => (* Already there. *)
-                let
-                    fun getDecLoc(DeclaredAt loc :: _) = loc
-                    |   getDecLoc [] = lno
-                    |   getDecLoc(_::rest) = getDecLoc rest
-                    (* TODO: This shows the location of the identifier that is the duplicate.
-                       It would be nice if it could also show the original location. *)
-                in
-                    errorNear (lex, true, fn n => displaySigs(str, n), getDecLoc(locs v), 
-                        kind ^ " (" ^ s ^ ") is already present in this signature.")
-                end
-            |   NONE => enter(s, v)
+            local
+                (* ML 97 does not allow multiple declarations in a signature. *)
+                fun checkAndEnter (enter, lookup, kind, locs) (s: string, v) =
+                case lookup s of
+                    SOME _ => (* Already there. *)
+                    let
+                        fun getDecLoc(DeclaredAt loc :: _) = loc
+                        |   getDecLoc [] = lno
+                        |   getDecLoc(_::rest) = getDecLoc rest
+                        (* TODO: This shows the location of the identifier that is the duplicate.
+                           It would be nice if it could also show the original location. *)
+                    in
+                        errorNear (lex, true, fn n => displaySigs(str, n), getDecLoc(locs v), 
+                            kind ^ " (" ^ s ^ ") is already present in this signature.")
+                    end
+                |   NONE => enter(s, v)
 
-            val checkedStructEnv = 
-             {
-              lookupVal     = #lookupVal    structEnv,
-              lookupType    = #lookupType   structEnv,
-              lookupFix     = #lookupFix    structEnv,
-              lookupStruct  = #lookupStruct structEnv,
-              lookupSig     = #lookupSig    structEnv,
-              lookupFunct   = #lookupFunct  structEnv,
-              enterVal      =
-                  checkAndEnter (#enterVal structEnv, #lookupVal structEnv, "Value",
-                    fn (Value{ locations, ...}) => locations),
-              enterType     =
-                  checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations),
-              enterStruct   =
-                  checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", structLocations),
-              (* These next three can't occur. *)
-              enterFix      = fn _ => raise InternalError "Entering fixity in signature",
-              enterSig      = fn _ => raise InternalError "Entering signature in signature",
-              enterFunct    = fn _ => raise InternalError "Entering functor in signature"
-             }
+                val structEnv = makeEnv newTable;
+            in
+                val structEnv = 
+                {
+                    lookupVal     = #lookupVal    structEnv,
+                    lookupType    = #lookupType   structEnv,
+                    lookupFix     = #lookupFix    structEnv,
+                    lookupStruct  = #lookupStruct structEnv,
+                    lookupSig     = #lookupSig    structEnv,
+                    lookupFunct   = #lookupFunct  structEnv,
+                    enterVal      =
+                      checkAndEnter (#enterVal structEnv, #lookupVal structEnv, "Value",
+                        fn (Value{ locations, ...}) => locations),
+                    enterType     =
+                      checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations),
+                    enterStruct   =
+                      checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", structLocations),
+                    (* These next three can't occur. *)
+                    enterFix      = fn _ => raise InternalError "Entering fixity in signature",
+                    enterSig      = fn _ => raise InternalError "Entering signature in signature",
+                    enterFunct    = fn _ => raise InternalError "Entering functor in signature"
+                }
+            end
 
             (* Process the entries in the signature and allocate an address
                to each. *)
