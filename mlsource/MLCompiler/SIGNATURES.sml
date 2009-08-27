@@ -455,7 +455,7 @@ struct
 
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
-  	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
+  	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations, references = NONE}
 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
@@ -1115,10 +1115,10 @@ struct
                                                 access = newAccess(structAccess str),
                                                 locations = structLocations str}),
                             enterVal =
-                                fn (dName, Value { name, typeOf, access, class, locations }) =>
+                                fn (dName, Value { name, typeOf, access, class, locations, ... }) =>
                                     #enterVal structEnv (dName,
                                         Value{name=name, typeOf = typeOf, access=newAccess access,
-                                              class=class, locations=locations})
+                                              class=class, locations=locations, references=NONE})
                         }
                         val () = openSignature(resultSig, tsvEnv, "")
                     in
@@ -1155,7 +1155,8 @@ struct
                         val _ = addrs := addr+1
                     in
                         (#enterVal structEnv)(name,
-                            Value{class=class, typeOf=typeOf, access=Formal addr, name=name, locations=locations})
+                            Value{class=class, typeOf=typeOf, access=Formal addr, name=name,
+                                  locations=locations, references=NONE})
                     end
 
                 (* Record all the datatypes we declare. *)

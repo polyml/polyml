@@ -195,6 +195,7 @@ local
     and codetreeAfterOpt = ref false
     and pstackTrace = ref false
     and parsetree = ref false
+    and reportUnreferencedIds = ref false
     
     val debug = ref false
     val inlineFunctors = ref true
@@ -609,7 +610,8 @@ local
                     tagInject debugTag debugging,
                     tagInject debuggerTag debugFunction,
                     tagInject printOutputTag prettyOut,
-                    tagInject rootTreeTag parentTree
+                    tagInject rootTreeTag parentTree,
+                    tagInject reportUnreferencedIdsTag (! reportUnreferencedIds)
                     ])
         in
 		    compilerResultFun treeAndCode
@@ -1399,7 +1401,7 @@ in
             
             val assemblyCode = assemblyCode and codetree = codetree
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
-            and parsetree = parsetree
+            and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             
             val debug = debug
             val inlineFunctors = inlineFunctors

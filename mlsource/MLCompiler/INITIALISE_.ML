@@ -117,6 +117,7 @@ sig
   val inlineFunctorsTag      : bool Universal.tag;
   val maxInlineSizeTag       : int Universal.tag;
   val debugTag				  : bool Universal.tag;
+  val reportUnreferencedIdsTag: bool Universal.tag;
 end;
 
 structure MISC :
@@ -557,7 +558,8 @@ struct
                 val exc =
                     Value{ name = name, typeOf = TYPETREE.exnType,
                            access = Global(mkConst(toMachineWord id)),
-                           class = Exception, locations = declInBasis }
+                           class = Exception, locations = declInBasis,
+                           references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end
@@ -567,7 +569,8 @@ struct
                 val exc =
                     Value{ name = name, typeOf = exType ->> TYPETREE.exnType,
                            access = Global(mkConst(toMachineWord id)),
-                           class = Exception, locations = declInBasis }
+                           class = Exception, locations = declInBasis,
+                           references = NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end
@@ -1133,7 +1136,8 @@ struct
                 ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
                 ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType),
-                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag navigationType)
+                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag navigationType),
+                ("reportUnreferencedIdsTag", toMachineWord reportUnreferencedIdsTag, Tag Bool)
                 ]
         end;
  

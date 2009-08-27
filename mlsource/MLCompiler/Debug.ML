@@ -74,6 +74,8 @@ struct
         val pstackTraceTag: bool tag                 = tag()
         (* Print assembly code in code-generator? default false *)
         val assemblyCodeTag: bool tag                = tag()
+        (* Report unreferenced identifiers as warnings *)
+        val reportUnreferencedIdsTag: bool tag       = tag()
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
@@ -104,7 +106,8 @@ struct
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
             tagInject traceCompilerTag false,
-            tagInject debugTag false
+            tagInject debugTag false,
+            tagInject reportUnreferencedIdsTag false
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

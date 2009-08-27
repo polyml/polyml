@@ -45,6 +45,8 @@ sig
     type uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
+    type references = { exportedRef: bool ref, localRef: location list ref } option
+    val makeRef: unit -> references
 
     datatype typeId =
         Free of
@@ -137,7 +139,8 @@ sig
 		    typeOf: types,
 		    access: valAccess,
 		    class: valueClass,
-            locations: locationProp list
+            locations: locationProp list,
+            references: references
         }
 
     (* Classes of values. *)

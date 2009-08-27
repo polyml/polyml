@@ -240,27 +240,28 @@ struct
 
     (* Value in a local structure or a functor argument.  May be simple value, exception
         or constructor. *)
-    fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, locations}, base, openLocs) =
+    fun mkSelectedVar (Value { access = Formal addr, name, typeOf, class, locations, ...}, base, openLocs) =
         (* If the argument is "formal" set the base to the base structure. *)
         Value{name=name, typeOf=typeOf, class=class,
-            access=Selected{addr=addr, base=base}, locations=openLocs @ locations}
+            access=Selected{addr=addr, base=base}, locations=openLocs @ locations, references = NONE}
 
-    |   mkSelectedVar (Value { access = Global code, name, typeOf, class, locations}, _, openLocs) =
+    |   mkSelectedVar (Value { access = Global code, name, typeOf, class, locations, ...}, _, openLocs) =
         (* Global: We need to add the location information. *)
-        Value{name=name, typeOf=typeOf, class=class, access=Global code, locations=openLocs @ locations}
+        Value{name=name, typeOf=typeOf, class=class, access=Global code,
+              locations=openLocs @ locations, references = NONE}
 
     |   mkSelectedVar(selected, _, _) = selected (* Overloaded? *);
 
     (* Construct a global exception. *)
     fun mkGex (name, typeof, code, locations) =
         Value{ name = name, typeOf = typeof, access = Global code,
-           class = Exception, locations = locations }
+           class = Exception, locations = locations, references = NONE }
  
     (* Construct a local exception. *)
     fun mkEx (name, typeof, locations) = 
         Value{ name = name, typeOf = typeof,
            access = Local{addr = ref 0, level = ref 0},
-           class = Exception, locations=locations }
+           class = Exception, locations=locations, references = NONE }
 
  (* Copy a datatype (if necessary), converting the constructors to selections on
     a base structure.  This is used both when opening a structure and also for
@@ -299,7 +300,8 @@ struct
                     |    (Formal _, NONE) => access
                     |    _ => access; (* Probably already a global. *)
             in
-                Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations}
+                Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations,
+                      references = NONE}
             end
     
         val newValConstrs = map copyAConstructor (tcConstructors tcons)
@@ -1004,7 +1006,7 @@ struct
                     |   _ => []
             in
                 case #lookupVal (mkEnv tab) suffix of
-                    SOME (Value{ name, typeOf, access, class, locations }) =>
+                    SOME (Value{ name, typeOf, access, class, locations, ... }) =>
                     let
                         fun copyId(Bound{ offset, ...}) = SOME(typeIdMap offset)
                         |   copyId _ = NONE
@@ -1014,7 +1016,8 @@ struct
                                     copyTypeConstr (tcon, copyId, fn x => x, fn s => prefix^"."^s))                            
                     in
                         SOME(mkSelectedVar (
-                                Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations },
+                                Value{ name=name, typeOf=copiedType, access=access, class=class, locations=locations,
+                                       references = NONE },
                                 baseStruct, baseLoc))
                     end
                 |   NONE => NONE
@@ -1148,7 +1151,7 @@ struct
 
 
     (* displays value as a block, with no external formatting *)
-    fun displayValues (Value{name, typeOf, class, access, locations}, depth, nameSpace, sigMap): pretty =
+    fun displayValues (Value{name, typeOf, class, access, locations, ...}, depth, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
         fun valPart equOrColon =

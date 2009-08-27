@@ -89,6 +89,13 @@ struct
     datatype 'a possRef = FrozenRef of 'a | VariableRef of 'a ref
     fun pling(FrozenRef x) = x | pling(VariableRef(ref x)) = x
     fun updatePR(VariableRef r, x) = r := x | updatePR(FrozenRef _, _) = raise Fail "Assignment to frozen ref"
+
+    (* References to identifiers.  exportedRef is set to true if the identifier is exported to
+       the global environment or to a structure.  localRef contains the list of local uses.
+       This is an option type because this is used only within local identifiers. *)
+    type references = { exportedRef: bool ref, localRef: location list ref } option
+    
+    fun makeRef(): references = SOME { exportedRef = ref false, localRef = ref nil }
    
   (* typeIds are used to distinguish between concrete types.  Two
      types that share will have the same identifier.  If the identifiers are
@@ -188,7 +195,8 @@ struct
 		    typeOf: types,
 		    access: valAccess,
 		    class: valueClass,
-            locations: locationProp list (* Location of declaration *)
+            locations: locationProp list, (* Location of declaration *)
+            references: references
         }
 
     (* Classes of values. *)
@@ -346,7 +354,8 @@ struct
       typeOf  = typeOf,
 	  access  = access,
       class   = Constructor { nullary = nullary, ofConstrs = constrs },
-      locations = locations
+      locations = locations,
+      references = NONE
     };
 
   
@@ -675,28 +684,28 @@ struct
   (* Values. *)
   
   fun makeGlobalV (name, typeOf, code, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Global code, class = SimpleValue, locations = locations };
+    Value{ name = name, typeOf = typeOf, access = Global code, class = SimpleValue,
+           locations = locations, references = NONE };
   
   fun makeLocalV (name, typeOf, addr, level, locations) : values =
     Value{ name = name, typeOf = typeOf, access = Local {addr = addr, level = level},
-			class = SimpleValue, locations = locations };
+			class = SimpleValue, locations = locations, references = makeRef() };
   
   fun makeFormalV (name, typeOf, addr, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue, locations = locations };
+    Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue, locations = locations, references = NONE };
 
   fun makeFormalEx (name, typeOf, addr, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = Exception, locations = locations };
+    Value{ name = name, typeOf = typeOf, access = Formal addr, class = Exception, locations = locations, references = NONE };
   
   fun makeOverloaded (name, typeOf, operation) : values =
     Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = SimpleValue,
-           locations = [DeclaredAt inBasis]};
+           locations = [DeclaredAt inBasis], references = NONE};
 
   val undefinedValue    = makeGlobalV("<undefined>", BadType, CodeZero, [DeclaredAt inBasis]);
 
   fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 
   fun valName (Value{name, ...}) = name
-  
   fun valTypeOf (Value{typeOf, ...}) = typeOf
 
   fun isConstructor (Value{class=Constructor _, ...}) = true

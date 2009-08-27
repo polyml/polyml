@@ -77,6 +77,7 @@ sig
     val debugTag: bool Universal.tag
     val errorDepthTag : int Universal.tag
     val fileNameTag: string Universal.tag
+    val reportUnreferencedIdsTag: bool Universal.tag
     val getParameter :
            'a Universal.tag -> Universal.universal list -> 'a 
 end;
@@ -2332,6 +2333,11 @@ struct
                 (* Set the value and type found. *)
                 val instanceType = instanceType expValue;
             in
+                (* Include this reference in the list of local references. *)
+                case expValue of
+                    Value { references=SOME{localRef, ...}, ...} =>
+                        localRef := location :: ! localRef
+                |   _ => ();
                 expType := instanceType;
                 value  := expValue;
                 instanceType (* Result is the instance type. *)
@@ -2693,7 +2699,7 @@ struct
                    lookupType    = lookupDefault (#lookup newTypeEnv) (#lookupType env),
                    lookupFix     = #lookupFix env,
                    (* This environment is needed if we open a 
-                  structure which has sub-structures. *)
+                      structure which has sub-structures. *)
                    lookupStruct  = lookupDefault (#lookup newStrEnv) (#lookupStruct env),
                    lookupSig     = #lookupSig env,
                    lookupFunct   = #lookupFunct env,
@@ -2714,8 +2720,8 @@ struct
               val U : types = assignSeq localEnv newLetDepth decs;
         
               (* This is the environment used for the body of the declaration.
-             Declarations are added both to the local environment and to
-             the surrounding scope. *)
+                 Declarations are added both to the local environment and to
+                 the surrounding scope. *)
               val bodyEnv =
                 { 
                   (* Look-ups come from the local environment *)
@@ -3374,7 +3380,6 @@ struct
                                             ]),
                                         unifyErrorReport (lex, typeEnv) report,
                                         lex, line, foundNear clauseAsTree)
-
                     in (* body of processClause *)
                         ()
                     end
@@ -3775,6 +3780,24 @@ struct
         val level = ref level;  (* Incremented by one for each nested proc. *)
         val lastLine = ref 0 (* The last line for which we produced debug info. *)
 
+        (* Report unreferenced identifiers. *)
+        val reportUnref = getParameter reportUnreferencedIdsTag (debugParams lex)
+
+        fun reportUnreferencedValue
+                (Value{name, references=SOME{exportedRef=ref false, localRef=ref nil}, locations, ...}) =
+            let
+                fun getDeclLoc (DeclaredAt loc :: _) = loc
+                |   getDeclLoc (_ :: locs) = getDeclLoc locs
+                |   getDeclLoc [] = nullLocation (* Shouldn't happen. *)
+            in
+                if reportUnref
+                then warningMessage(lex, getDeclLoc locations,
+                    "Value identifier ("^name^") has not been referenced.")
+                else ()
+            end
+        |   reportUnreferencedValue _ = ()
+
+ 
         (* Debugging control and debug function. *)
         val debugging = getParameter debugTag (debugParams lex)
         
@@ -4483,6 +4506,8 @@ struct
             | setAddr _ = raise InternalError "setAddr"
 
             val (envDec, newEnv) = List.foldl setAddr ([], env) (aVars tree)
+            (* And use this opportunity to check that the values have been referenced. *)
+            val _ = List.app reportUnreferencedValue (aVars tree)
 
           in 
             {decs = dec :: envDec, load = load, env = newEnv}
@@ -4899,6 +4924,8 @@ struct
                   | setAddr _ = raise InternalError "setAddr"
                   
                 val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
+                (* And use this opportunity to check that the values have been referenced. *)
+                val _ = List.app reportUnreferencedValue vl
                 
                 val functionBody =
                     mkEnv(envDec @ [cgExpression (exp, newEnv, decName)]);
@@ -5710,6 +5737,8 @@ struct
                 functions but it will be in the rest of the scope. *)
              val vars = map (fn(FValBind{functVar, ...}) => !functVar) tlist
              val (decEnv, newDebugEnv) = makeDebugEntries(vars, debugEnv)
+             (* Check whether any of the functions were unreferenced. *)
+             val _ = List.app reportUnreferencedValue vars
            in
              case loaded of
                  [singleton] => (singleton :: decEnv, newDebugEnv)
@@ -5748,15 +5777,18 @@ struct
                       address, since they all refer to the same function.
                       There will normally be precisely one variable. *)
                    fun setAddress (
-                           Ident{value = ref(Value{access=Local{addr=lvAddr, level=lvLevel}, ...}),...}) =
+                           Ident{value = ref(var as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}),...}) =
                        (
                          lvAddr  := addr;
-                         lvLevel := !level
+                         lvLevel := !level;
+                         (* Non-recursive declarations are checked as part of the pattern
+                            checking. *)
+                         reportUnreferencedValue var
                        )
                        | setAddress _ =
                         raise InternalError "setAddress  - badly formed parsetree"
                  in
-                   val () = List.app setAddress vars;
+                   val () = List.app setAddress vars
                  end;
                  
                  val rest = codeRecursive ds

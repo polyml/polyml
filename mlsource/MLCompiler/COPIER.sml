@@ -304,14 +304,14 @@ struct
                 val newConstr = copyTypeCons oldConstr;
                 (* Copy the value constructors for a datatype. *)
        
-                fun copyValueConstr(v as Value{name, typeOf, class, access, locations}) =
+                fun copyValueConstr(v as Value{name, typeOf, class, access, locations, references, ...}) =
                 let
                     (* Copy its type and make a new constructor if the type has changed. *)
                     val newType = copyTyp typeOf;
                 in
                     if not (identical (newType, typeOf))
                     then Value{name=name, typeOf=newType, class=class,
-                               access=access, locations = locations}
+                               access=access, locations = locations, references = references}
                     else v
                 end;
 
@@ -328,14 +328,15 @@ struct
             else if tagIs valueVar dVal
             then
             let
-                val v as Value {typeOf, class, name, access, locations, ...} = tagProject valueVar dVal;
+                val v as Value {typeOf, class, name, access, locations, references, ...} =
+                    tagProject valueVar dVal;
                 val newType = copyTyp typeOf;
                 (* Can save creating a new object if the address and type
                    are the same as they were. *)
                 val res =
                     if not (identical (newType, typeOf))
                     then Value {typeOf=newType, class=class, name=name,
-                                    access=access,locations=locations}
+                                    access=access,locations=locations, references = references}
                     else v
             in
                 #enterVal resEnv (name, res)

@@ -755,10 +755,6 @@ struct
     in
         exportTree trees
     end
-   
-    (* Formal paramater to a functor - either value or exception. *)
-    fun mkFormal (name : string, class, typ, addr, locations) =
-  	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations}
 
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorMsgNear (lex, hard, near, lno, message) : unit =
@@ -1153,7 +1149,12 @@ struct
                                         |   SOME error =>
                                                 sigStructMatchMsg(lex, near, lno, structPath)
                                                     displayValue (candid, v,
-                                                        matchErrorReport(lex, typeEnv, typeEnv) error) 
+                                                        matchErrorReport(lex, typeEnv, typeEnv) error);
+                                    (* If it matches an entry in the signature it counts being exported. *)
+                                    case candid of
+                                        Value { references=SOME{exportedRef, ...}, ...} =>
+                                           exportedRef := true
+                                    |   _ => () 
                                 end
                         end
                         else ()
@@ -1175,6 +1176,23 @@ struct
             Bound { access = Formal n, offset = offset, eqType = eqType,
                     isDatatype = isDatatype, description = description }
     |   convertIdToFormal _ = raise InternalError "Not Bound"
+
+    (* Any values in the signature are counted as exported. *)
+    fun markValsAsExported resSig =
+    let
+        fun refVals(_, dVal, ()) =
+        if tagIs valueVar dVal
+        then
+        (
+            case tagProject valueVar dVal of
+                Value {references=SOME{exportedRef, ...}, ...} =>
+                    exportedRef := true
+            |   _ => ()
+        )
+        else ()
+    in
+        univFold(sigTab resSig, refVals, ())
+    end
 
   (* Second pass - identify names with values and type-check *)
  
@@ -1384,9 +1402,11 @@ struct
                             #enterVal finalEnv (dName, value);
                             addrs
                         )
-                    |   Value{class, typeOf, locations, ...} =>
+                    |   Value{class, typeOf, locations, references, ...} =>
                         (
-                            #enterVal finalEnv (dName, mkFormal (dName, class, typeOf, addrs, locations));
+                            #enterVal finalEnv (dName,
+                                Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
+                                      locations=locations, references=references});
                             addrs + 1
                         )
                 end
@@ -1546,6 +1566,8 @@ struct
                 val resSig =
     				structValue(value, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv,
                                 Env env, lex, line, structPath ^ name ^ ".");
+                (* Any values in the signature are counted as exported. *)
+                val () = markValsAsExported resSig;
                 (* Now make a local structure variable using this signature. *)
                 val var = makeLocalStruct (name, resSig, [DeclaredAt line])
             in
@@ -1810,7 +1832,8 @@ struct
                 if errorOccurred lex then ()
     		  	else
                 (
-            		#apply newValEnv (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
+            		#apply newValEnv
+                        (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
             		#apply newStrEnv (
             			fn (n: string, s: structVals) =>
             				checkStructSigForFreeTypeVariables(n^".", structSignat s))
@@ -1979,6 +2002,8 @@ struct
                         val () =
                             if errorOccurred lex then ()
 		  	                else checkStructSigForFreeTypeVariables(name^"().", resSig)
+                        (* This counts as a reference. *)
+                        val () = markValsAsExported resSig
                     end;
 
                     local
@@ -2065,7 +2090,21 @@ struct
                 #apply sEnv (#enterSig env)		
             end
     in 
-        List.app pass2TopDec strs
+        List.app pass2TopDec strs;
+        (* Mark any exported values as referenced. *)
+		#apply newValEnv
+            (fn (s: string, v: values) =>
+                (
+                    (* If we have exported the value we need to mark it as a
+                       reference.  But if the identifier has been rebound we
+                       only want to mark the last reference.  Looking the
+                       identifier up will return only the last reference. *)
+                    case #lookup newValEnv s of
+                        SOME(Value { references=SOME{exportedRef, ...}, ...}) =>
+                            exportedRef := true
+                    |   _ => ()
+                )
+            )
     end (*pass2Structs *);
     
     
@@ -2654,7 +2693,8 @@ struct
                         |   _ => Global(mkInd (addr, results))
                     (* Replace the typeIDs. *)
                     val newVal =
-                        Value{class=class, name=name, typeOf=replaceTypes typeOf, access=newAccess, locations=locations}
+                        Value{class=class, name=name, typeOf=replaceTypes typeOf, access=newAccess,
+                              locations=locations, references = NONE}
                 in
                     (addr+1, { fixes=fixes, values=(name, newVal) :: values, structures=structures,
                                signatures=signatures, functors=functors, types=types } )
