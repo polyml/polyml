@@ -4506,8 +4506,6 @@ struct
             | setAddr _ = raise InternalError "setAddr"
 
             val (envDec, newEnv) = List.foldl setAddr ([], env) (aVars tree)
-            (* And use this opportunity to check that the values have been referenced. *)
-            val _ = List.app reportUnreferencedValue (aVars tree)
 
           in 
             {decs = dec :: envDec, load = load, env = newEnv}
@@ -4924,8 +4922,6 @@ struct
                   | setAddr _ = raise InternalError "setAddr"
                   
                 val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
-                (* And use this opportunity to check that the values have been referenced. *)
-                val _ = List.app reportUnreferencedValue vl
                 
                 val functionBody =
                     mkEnv(envDec @ [cgExpression (exp, newEnv, decName)]);
@@ -4957,6 +4953,9 @@ struct
               val noOfPats  = length alt;
               val andortree = buildTree alt;
               val allVars   = findAllVars alt;
+              (* Check for unreferenced variables. *)
+              val () = List.app (fn l => List.app reportUnreferencedValue l) allVars
+              
               val lineNo =
                   case alt of
                     MatchTree {location, ... } :: _ => location
@@ -5065,6 +5064,9 @@ struct
             let
               (* Build a single pattern tree. *)
               val andortree = buildAot decl aotEmpty 1 line;
+
+              (* Check for unreferenced variables. *)
+              val () = List.app reportUnreferencedValue(findVars decl [])
               
               (* Save the argument in a variable. *)
               val decCode   = multipleUses (exp, mkAddr, !level);
