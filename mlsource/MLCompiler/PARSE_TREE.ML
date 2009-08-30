@@ -5922,15 +5922,17 @@ struct
                end (* ExDeclaration *)
   
             |   AbstypeDeclaration {typelist, declist, ...} =>
-                let (* Code-generate the declarations. *)
+                let (* Code-generate the eq and print functions for the abstype first
+                       then the declarations, which may use these. *)
                     (* The debugging environment for the declarations should include
                        the constructors but the result shouldn't.  For the moment
                        ignore the constructors. *)
-                    val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                     val typeIds =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+                    val typeFunctions = createDatatypeFunctions(typeIds, mkAddr, !level)
+                    val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                 in
-                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ code, newDebug)
+                    (typeFunctions @ code, newDebug)
                 end
   
             |   DatatypeDeclaration {typelist, ...} =>
