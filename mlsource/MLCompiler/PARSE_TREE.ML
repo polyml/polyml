@@ -131,8 +131,6 @@ struct
   open EXPORTTREE
   open TYPEIDCODE
   open RuntimeCalls; (* for POLY_SYS numbers *)
-  
-  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
           
   infix 9 sub;
   
@@ -522,7 +520,7 @@ struct
         fun makeId(name, loc) =
             {name = name, expType = ref EmptyType, location = loc }
 
-        fun unpick (Applic{ f, arg, location, isInfix, ... }) =
+        fun unpick (Applic{ f, arg, isInfix, ... }) =
                 (* "Application" of function to a parameter. *)
             let
                 val () =
@@ -550,7 +548,7 @@ struct
                 isInfix=false, args = [], constraint = NONE
             }
 
-        |   unpick (Parenthesised(p as Applic{ f = Ident { name, location, ...}, isInfix=true, arg, ... }, _)) =
+        |   unpick (Parenthesised(Applic{ f = Ident { name, location, ...}, isInfix=true, arg, ... }, _)) =
             {
                 ident={ name = name, location = location, expType = ref EmptyType},
                 isInfix=true, args = [arg], constraint = NONE
@@ -952,7 +950,7 @@ struct
                 ) @ [PrettyBreak (0, 0), PrettyString ")"]
             )
 
-      | ValDeclaration {dec, explicit, ...} =>
+      | ValDeclaration {dec, ...} =>
         let
             (* We can't use printList here because we don't want an
                "and" after a "rec". *)
@@ -992,7 +990,7 @@ struct
             )
         end
 
-      | FunDeclaration {dec, explicit={apply, ...}, ...} =>
+      | FunDeclaration {dec, ...} =>
           let
             fun printfvalbind (FValBind{clauses, ...}, depth) =
                 PrettyBlock(3, true, [], printList printClause (clauses, "|", depth - 1))
@@ -1403,7 +1401,7 @@ struct
                     getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getConstrs}, name, nameLoc, [])
                 and getConstrs () =
                     let
-                        fun exportConstrs(navigation, {constrName, idLocn, constrArg, ... }) =
+                        fun exportConstrs(navigation, {constrName, idLocn, ... }) =
                             (* TODO: the constructor type. *)
                             getStringAsTree(navigation, constrName, idLocn, [])
                     in
@@ -1500,7 +1498,7 @@ struct
                     in
                         (line, asChild @ vbProps)
                     end
-                |   exportVB(navigation, RecValBind) = (nullLocation, [])
+                |   exportVB(_, RecValBind) = (nullLocation, [])
 
                 val expChild = exportList(exportVB, SOME asParent) dec
             in
@@ -1525,7 +1523,7 @@ struct
                 |   FunConstraint of typeParsetree
                 |   FunInfixed of funEntry list * location
 
-                fun exportFunEntry(navigation, FunIdent{name, expType=ref expType, location}) =
+                fun exportFunEntry(navigation, FunIdent{expType=ref expType, location, ...}) =
                         (location, PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation)
                 |   exportFunEntry(navigation, FunPtree pt) = getExportTree(navigation, pt)
                 |   exportFunEntry(navigation, FunConstraint typ) = typeExportTree(navigation, typ)
@@ -1595,7 +1593,7 @@ struct
 
         |   OpenDec{location, decs, ...} =>
             let
-                fun exportStructIdent(navigation, { name, value=ref value, location} ) =
+                fun exportStructIdent(navigation, { value=ref value, location, ...} ) =
                     let
                         (* Include the declaration properties if it has been set. *)
                         val siProps = exportNavigationProps navigation @
@@ -1668,7 +1666,7 @@ struct
         |   ExDeclaration(exbinds, location) =>
             let
                 (* There are three possibilities here.  exception exc; exception exc of ty; exception exc = exc' *)
-                fun exportExdec(navigation, eb as ExBind{name, previous=EmptyTree, ofType=NONE, nameLoc, ...}) =
+                fun exportExdec(navigation, ExBind{name, previous=EmptyTree, ofType=NONE, nameLoc, ...}) =
                         (* Simple, generative exception with no type. *)
                         getStringAsTree(navigation, name, nameLoc, [PTtype exnType])
 
@@ -1871,7 +1869,6 @@ struct
         (* Error message for incompatible types.  Displays both expressions and their types. *)
         fun typeMismatch (title, left, right, detail, lex : lexan, location, moreInfo) =
         let
-            val errorDepth = errorDepth lex
             val message =
                 PrettyBlock(3, true, [],
                     [
@@ -1896,7 +1893,6 @@ struct
            by a "bool". *)
         fun typeWrong (title, value, detail, lex : lexan, location, moreInfo) =
         let
-            val errorDepth = errorDepth lex
             val message =
                 PrettyBlock(3, true, [],
                     [
@@ -2007,7 +2003,7 @@ struct
         fun assignSeq env depth (l: parsetree list) =
         let
           fun applyList last []       = last
-            | applyList last (h :: t) = 
+            | applyList _ (h :: t) = 
               applyList (assignValues(level, depth, env, v, h)) t
         in
           applyList badType l
@@ -2231,11 +2227,11 @@ struct
                    onto each element of the tuple. *)
                 mkProductType (mapProcessPattern ptl)
 
-            |   Labelled {recList, frozen, expType, location, ...} =>
+            |   Labelled {recList, frozen, expType, ...} =>
                 let (* Process each item in the list. *)
 
                     fun mapLabels [] = []
-                    |   mapLabels ({name, valOrPat, expType, fullLocation, ...}::T) =
+                    |   mapLabels ({name, valOrPat, expType, ...}::T) =
                         (* Type is a label entry with the label name
                            and the type of the pattern. *)
                         let
@@ -2365,7 +2361,7 @@ struct
                 val fType =
                     case eventual funType of
                         FunctionType {arg, result} => SOME(arg, result)
-                    |   ef => (* May be a simple type variable. *)
+                    |   _ => (* May be a simple type variable. *)
                         let
                             val funResType = mkTypeVar (generalisable, false, false);
                             val funArgType = mkTypeVar (generalisable, false, false);
@@ -2373,7 +2369,7 @@ struct
                         in
                             case unifyTypes (fType, funType) of
                                 NONE => SOME(funArgType, funResType)
-                            |   SOME report =>
+                            |   SOME _ =>
                                 (
                                     (* It's not a function. *)
                                     typeMismatch("Type error in function application.",
@@ -2435,7 +2431,7 @@ struct
                each element of the tuple. *)
               mkProductType (map (assValues near) ptl) (* SPF 22/10/94 *)
           
-          | Labelled {recList, frozen, expType, location, ...} =>
+          | Labelled {recList, frozen, expType, ...} =>
             let
                 (* Process each item in the list. *)              
                 fun labEntryToLabType {name, valOrPat, expType, ...} =
@@ -2541,7 +2537,7 @@ struct
           | TypeDeclaration(tlist, _) =>
             let (* This is either a type abbreviation in the core language, in a structure
                    or in a signature or it is a type specification in a signaure. *)
-                fun messFn(name, old, new) = 
+                fun messFn(name, _, new) = 
                     errorNear (lex, true, v, declaredAt(tcLocations new),
                         name ^ " has already been bound in this declaration");
                
@@ -2717,7 +2713,7 @@ struct
                 };
         
               (* Process the local declarations and discard the result. *)
-              val U : types = assignSeq localEnv newLetDepth decs;
+              val _ : types = assignSeq localEnv newLetDepth decs;
         
               (* This is the environment used for the body of the declaration.
                  Declarations are added both to the local environment and to
@@ -2733,17 +2729,17 @@ struct
                   lookupFunct   = #lookupFunct localEnv,
                   lookupTvars   = #lookupTvars localEnv,
                   enterVal      =
-                    fn (pair as (name, v)) =>
+                    fn (pair as (_, v)) =>
                       (varsInBody := v :: ! varsInBody;
                        #enter newValEnv pair;
                        #enterVal env      pair),
                   enterType     =
-                    fn (pair as (name, v)) =>
+                    fn pair =>
                       (#enter newTypeEnv pair;
                        #enterType env      pair),
                   enterFix      = #enterFix env,
                   enterStruct   =
-                    fn (pair as (name, v)) =>
+                    fn pair =>
                       (#enter newStrEnv pair;
                        #enterStruct env   pair),
                   enterSig      = #enterSig env,
@@ -2956,14 +2952,14 @@ struct
                 
             (* end of assValues *)
 
-          and assMatchTree near (MatchTree {vars, exp, location, resType, argType}) =
+          and assMatchTree _ (MatchTree {vars, exp, location, resType, argType}) =
             let 
               (* A match is a function from the pattern to the expression *)
               
               (* Process the pattern looking for variables. *)
         
                (* Construct a new environment for the variables. *)
-              fun messFn(name, old, Value{locations, ...}) =  
+              fun messFn(name, _, Value{locations, ...}) =  
                     errorNear (lex, true, v, declaredAt locations,
                         name ^ " has already been bound in this match");
               
@@ -3044,17 +3040,17 @@ struct
 
             (* Process the patterns. *)
             local
-                fun mapProcess ([], isRec) = []
-                |   mapProcess (RecValBind :: tlist, isRec) =
+                fun mapProcess ([], _) = []
+                |   mapProcess (RecValBind :: tlist, _) =
                         (* If we have  val x=1 and rec ... we will have an and-list
                            as the last element of the list. (It must be the last
                            because the inner and-list will swallow all the rest).
                            All those entries will be recursive. *)
                         mapProcess(tlist, true)
 
-                |   mapProcess ((ValBind {dec,line,...}) :: ptl, isRec) =
+                |   mapProcess ((ValBind {dec, ...}) :: ptl, isRec) =
                     let
-                        fun enterVals (pair as (name, v)) =
+                        fun enterVals pair =
                         (
                             #enter newEnv pair;
                             if isRec then #enter recEnv pair else ()
@@ -3073,7 +3069,7 @@ struct
                 (* Check that the types match by going down the list of value
                    bindings and the list of types produced from the patterns,
                    and matching corresponding types. *)
-                fun checkTypes (patTypes, RecValBind :: valList, isRec) =
+                fun checkTypes (patTypes, RecValBind :: valList, _) =
                     checkTypes (patTypes, valList, true)
           
                 |   checkTypes (patType :: patTypes, (ValBind {dec, exp, line,...}) :: valList, isRec) =
@@ -3175,7 +3171,7 @@ struct
             (* Now allow generalisation on the variables being declared.
                For imperative type variables we have to know whether the
                expression is expansive. *)
-            fun allowGen (decs, []) = ()
+            fun allowGen (_, []) = ()
             |   allowGen (decs, RecValBind :: tlist) = allowGen(decs, tlist)
             |   allowGen (d::dl, (ValBind {exp, line,...}) :: ptl) =
                 (
@@ -3206,7 +3202,7 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (name, tv) => setTvarLevel (tv, funLevel));
+                #apply explicit(fn (_, tv) => setTvarLevel (tv, funLevel));
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
@@ -3234,10 +3230,10 @@ struct
                function binding. *)
 
             local
-                fun findNameAndPatts (FValBind {clauses = (FValClause {dec, exp, line}::_), numOfPatts, functVar, ...}) =
+                fun findNameAndPatts (FValBind {clauses = (FValClause {dec, line, ...}::_), numOfPatts, functVar, ...}) =
                 let
                     (* Just look at the first clause for the moment. *)
-                    val { ident = { name, location, ... }, args, ... } = dec;
+                    val { ident = { name, location, ... }, ... } = dec;
                     (* Declare a new identifier with this name. *)
                     val funVar =
                         mkVar (name, mkTypeVar (funLevel, false, false), [DeclaredAt location])
@@ -3270,7 +3266,7 @@ struct
                    of the function names and using the information about
                    function name and number of patterns we have saved. *)
                 fun processBinding
-                    (fvalBind as FValBind {clauses, numOfPatts, functVar=ref functVar, argType, resultType, location, ...}) =
+                    (fvalBind as FValBind {clauses, functVar=ref functVar, argType, resultType, location, ...}) =
                 let
                     (* Each fun binding in the declaration may consist of several
                        clauses. Each must have the same function name, the same
@@ -3411,7 +3407,7 @@ struct
                releasing the copy flags on the type variables. All fun
                bindings are non-expansive. *)
             #apply newEnv 
-                (fn (pair as (name, Value{typeOf, locations, ...})) =>
+                (fn (pair as (_, Value{typeOf, locations, ...})) =>
                 let
                     val () =
                         allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
@@ -3532,12 +3528,12 @@ struct
                         repn, false, numOfConstrs, [DeclaredAt idLocn]);
         
           (* Name must not be qualified *)
-          val U : unit = checkForDots (name, lex, idLocn);
+          val () = checkForDots (name, lex, idLocn);
           (* Must not be "true", "false" etc. *)
-          val U : unit = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
+          val () = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
           
           (* Put into the environment. *)
-          val U : unit = #enter consEnv (name, cons);
+          val () = #enter consEnv (name, cons);
         in    
           cons
         end (* processConstr *)
@@ -3564,7 +3560,7 @@ struct
         tcSetConstructors (typ, decCons sortedConstrs) : unit
       end (* genValueConstrs *)
       
-      val U : unit = ListPair.app genValueConstrs (typeList, listOfTypes);
+      val () = ListPair.app genValueConstrs (typeList, listOfTypes);
 
 
       (* Third pass - Check to see if equality testing is allowed for
@@ -3576,7 +3572,7 @@ struct
          declaration) we evaluate the declarations in an environment
          containing the value constructors, but the value constructors
          themselves do not appear in the surrounding scope. *)
-      val U : unit =
+      val () =
         if not isAbs
         then #apply consEnv (#enterVal env)
         else let   (* Abstract type *)
@@ -3592,7 +3588,7 @@ struct
           val decEnv =
         let
           val localEnv = searchList ();
-          fun enterValFn (pair as (name, v)) = 
+          fun enterValFn pair = 
             (#enter localEnv pair;
              #enterVal env     pair);
           val lookupValFn = 
@@ -3638,7 +3634,7 @@ struct
             lookupStruct  = #lookupStruct gEnv,
             lookupSig     = #lookupSig gEnv,
             lookupFunct   = #lookupFunct gEnv,
-            lookupTvars   = fn name => NONE,
+            lookupTvars   = fn _ => NONE,
             enterVal      = #enterVal gEnv,
             enterType     = #enterType gEnv,
             enterFix      = #enterFix gEnv,
@@ -3978,11 +3974,6 @@ struct
           
           (* Set from i to j inclusive. *)
           fun from i j = if i > j then empty else i ::: from (i + 1) j;
-    
-          fun stringOfSet p = 
-            "[" ^ 
-            List.foldl (fn (i, s) => s ^ " " ^ Int.toString i) "" (list p) ^ 
-            "]";
 
           infix 3 plus;
           infix 4 inside;
@@ -4036,8 +4027,6 @@ struct
             else if isEmpty b
               then false
             else first a = first b andalso next a eq next b;
-          
-          fun a neq b = not (a eq b);
         
         end (* patSet *);
 
@@ -4174,7 +4163,7 @@ struct
             end (* addConstr *);
   
                 (* Add a special constructor to the tree.  Very similar to preceding. *)
-            fun addSconstr eqFun cval (Aot {patts, defaults, width, vars}) patNo =
+            fun addSconstr eqFun cval (Aot {patts, defaults, vars, ...}) patNo =
               case patts of
                  Wild =>  (* Expand out the wildCard into a constructor node. *)
                    makeAot
@@ -4207,9 +4196,8 @@ struct
   
             (* Add an exception constructor to the tree.  Similar to the above
                except that exception constructors must be kept in order. *)
-            fun addExconstr cons arg (Aot {patts, defaults, width, vars}) patNo =
+            fun addExconstr cons arg (Aot {patts, defaults, vars, ...}) patNo =
             let
-              val consName = valName cons;
             in
               case patts of
                 Wild => (* Expand out the wildCard into a constructor node. *)
@@ -4291,7 +4279,7 @@ struct
           | _ => 
              raise InternalError "pattern is not a tuple in a-o-t")
   
-            | Labelled {recList, frozen, expType=ref expType, location, ...} =>
+            | Labelled {recList, expType=ref expType, location, ...} =>
               let
                 (* Treat as a tuple, but in the order of the record entries.
                    Missing entries are replaced by wild-cards. The order of
@@ -4305,7 +4293,7 @@ struct
                    expressions - those could be detected in
                    checkForFreeTypeVariables).  Retain it for the moment.
                    DCJM 15/8/2000. *)
-                val U =
+                val () =
                   if recordNotFrozen expType
                   then errorNear (lex, true, vars, location,
                           "Can't find a fixed record type.")
@@ -4321,7 +4309,7 @@ struct
                 (* Now REPLACE entries from the actual pattern, leaving
                    the defaulting ones behind. *)
                 (* Take a pattern and add it into the list. *)
-                fun mergen (h :: t) 0 pat = pat :: t
+                fun mergen (_ :: t) 0 pat = pat :: t
                   | mergen (h :: t) n pat = h :: mergen t (n - 1) pat
                   | mergen []       _ _   = raise InternalError "mergen";
         
@@ -4366,16 +4354,14 @@ struct
                             fn a => buildAot (wildCard nullLocation) a patNo location, tree, patNo)
                     | processList (h :: t) tree = (* Cons node. *)
                         let
-                            fun mkConsPat (Aot {patts = TupleField [hPat, tPat],
-                                      defaults,  width, vars}) =  
+                            fun mkConsPat (Aot {patts = TupleField [hPat, tPat], defaults, vars, ...}) =  
                                 let   (* The argument is a pair consisting of the
                                          list element and the rest of the list. *)
                                     val tlist = [buildAot h hPat patNo location, processList t tPat];
                                 in
                                     makeAot (TupleField tlist) defaults 0 vars
                                 end
-                           | mkConsPat (tree  as Aot {patts = Wild, defaults,
-                                                      width, vars}) =  
+                           | mkConsPat (tree  as Aot {patts = Wild, defaults, vars, ...}) =  
                                 let
                                     val hPat  = wild tree;
                                     val tPat  = wild tree;
@@ -4432,7 +4418,7 @@ struct
   
           fun buildTree (patts: matchtree list) =
           let   (* Merge together all the patterns into a single tree. *)
-            fun maket []     patNo tree = tree
+            fun maket []     _ tree = tree
               | maket ((MatchTree{vars, location, ...})::t) patNo tree =
                      maket t (patNo + 1) (buildAot vars tree patNo location)
           in
@@ -4459,7 +4445,7 @@ struct
               
              (* Application of a constructor: only the argument
                 can contain vars. *)
-            | Applic {f, arg, ...} =>
+            | Applic {arg, ...} =>
                 findVars arg varl
               
             | List{elements, ...} =>
@@ -4560,7 +4546,7 @@ struct
              the fact that the constructor matches X does not imply that it
              cannot also match Y.  *)
           fun codePatt 
-               (tree as Aot {patts, defaults, width, vars})
+               (tree as Aot {patts, defaults, width, ...})
                (arg : codetree)
                (active : patSet)
                (othermatches : (patSet * (unit->patcode) * debugenv) -> patcode)
@@ -4585,7 +4571,7 @@ struct
             (* Code-generate a list of constructors. "constrsLeft" is the
                number of constructors left to deal with. If this gets to 1
                we have dealt with all the rest. *)
-            fun genConstrs ([]:consrec list) constrsLeft = 
+            fun genConstrs ([]:consrec list) _ = 
                  (* Come to the end without exhausting the datatype. *)
                   othermatches(activeDefaults, default, #env decl)
                   
@@ -4882,15 +4868,15 @@ struct
           end; (* codePatt *)
   
           (* Make an argument list from the variables bound in the pattern. *)
-          fun makeArglist []        argno = []
+          fun makeArglist []        _ = []
             | makeArglist (Value{access=Local{addr=ref lvAddr, ...}, ...} :: vs) argno =
                 mkLoad (lvAddr, 0) :: makeArglist vs (argno - 1) 
-            | makeArglist _ argno = raise InternalError "makeArgList"
+            | makeArglist _ _ = raise InternalError "makeArgList"
   
   
           (* Generate variable-bindings (declarations) for each of the
               expressions as functions. *)
-          fun cgExps []  varl    base patNo uses decName debugEnv cgExpression lex near = []
+          fun cgExps []  _    _ _ _ _ _ _ _ _ = []
             | cgExps (MatchTree {exp, location, ...} ::al) (vl::vll)
                     base patNo uses decName debugEnv cgExpression lex near =
               let
@@ -4899,13 +4885,13 @@ struct
                 open Array
                 val pattUses = uses sub patNoIndex;
                 
-                val U : unit =
+                val () =
                    if pattUses = 0
                    then errorNear (lex, false, near, location,
                           "Pattern " ^ Int.toString patNo ^ " is redundant.")
                    else ();
                 
-                val U = level := !level + 1; (* For the function. *)
+                val () = level := !level + 1; (* For the function. *)
 
                 (* Set the addresses to be suitable for arguments.  At the
                    same time create a debugging environment if required. *)
@@ -4926,7 +4912,7 @@ struct
                 val functionBody =
                     mkEnv(envDec @ [cgExpression (exp, newEnv, decName)]);
 
-                val U = level := !level - 1; (* Back to the surroundings. *)
+                val () = level := !level - 1; (* Back to the surroundings. *)
                 
                 (* Make it an inline function if it only used once. *)
                 val theCode = 
@@ -4936,7 +4922,7 @@ struct
                 mkDec (base + patNoIndex, theCode) ::
                   cgExps al vll base (patNo + 1) uses decName debugEnv cgExpression lex near
               end
-            | cgExps _ _ base patNo uses decName debugEnv cgExpression lex near = 
+            | cgExps _ _ _ _ _ _ _ _ _ _ = 
                 raise InternalError "cgExps";
     
             fun codeMatch 
@@ -4969,7 +4955,7 @@ struct
              
              (* Generate a range of addresses for the expressions. *)  
              val baseAddr  = !addresses;  
-             val U         = addresses := baseAddr + noOfPats;
+             val ()         = addresses := baseAddr + noOfPats;
               
              (* Make an array to count the number of references to a pattern.
                 This is used to decide whether to use a function for certain
@@ -5036,7 +5022,7 @@ struct
                    false
                    debugEnv;
               (* Report inexhaustiveness if necessary. *)
-              val U : unit = 
+              val () = 
                 if not (!exhaustive)
                 then errorNear (lex, false, near, lineNo,
                                 "Matches are not exhaustive.")
@@ -5091,7 +5077,7 @@ struct
                    true
                    debugEnv;
               (* Report inexhaustiveness if necessary. *)
-              val U : unit =
+              val () =
                 if not (!exhaustive) andalso (!level) > 0
                 then errorNear (lex, false, near, line, "Pattern is not exhaustive.")
                 else ();
@@ -5138,7 +5124,7 @@ struct
           (* Code-generates a piece of tree. *)
         and codegen (c: parsetree, debugEnv: debugenv, decName: string) : codetree =
         let
-            fun codeList debugEnv [] = []
+            fun codeList _ [] = []
              |  codeList debugEnv (x::tl) =
                  (* Generate any line change code first, then this entry, then the rest. *)
                 let
@@ -5197,7 +5183,7 @@ struct
                   mkEval (codegen (f, debugEnv, decName), [argument], false) (* not early *)
               end
   
-            | Cond {test, thenpt, elsept, location} =>
+            | Cond {test, thenpt, elsept, ...} =>
                 mkIf (codegen (test,   debugEnv, decName),
                       codegen (thenpt, debugEnv, decName),
                       codegen (elsept, debugEnv, decName))
@@ -5215,7 +5201,7 @@ struct
             | Labelled {recList = [{valOrPat, ...}], ...} =>
                 codegen (valOrPat, debugEnv, decName) (* optimise unary tuples *)
   
-            | Labelled {recList, expType=ref expType, location, ...} =>
+            | Labelled {recList, expType=ref expType, ...} =>
               let
                 (* We must evaluate the expressions in the order they are
                    written. This is not necessarily the order they appear
@@ -5249,13 +5235,13 @@ struct
                   end (* declist *)
                   in
                  (* Create the record and package it up as a block. *)
-                mkEnv (declist recList (fn i => raise InternalError "missing in record"))  : codetree
+                mkEnv (declist recList (fn _ => raise InternalError "missing in record"))  : codetree
               end
   
             | Selector {name, labType, location, ...} =>
               let
                 (* Check that the type is frozen. *)
-                val U =
+                val () =
                    if recordNotFrozen labType
                    then errorNear (lex, true, c, location, "Can't find a fixed record type.")
                    else ();
@@ -5370,7 +5356,7 @@ struct
                   (codegen (test, debugEnv, decName),
                    codegen (body, debugEnv, decName)) : codetree
   
-            | Case {test, match, location, ...} =>
+            | Case {test, match, ...} =>
               (* The matches are made into a series of tests and
                  applied to the test expression. *)
               let
@@ -5407,9 +5393,9 @@ struct
                   | _     => raise InternalError "getFnBody: not a constrained fn-expression";
           
             val f        = getFnBody c;
-            val U        = level := !level + 1; (* This function comprises a new declaration level*)
+            val ()        = level := !level + 1; (* This function comprises a new declaration level*)
             val oldAddr  = !addresses;
-            val U        = addresses := 1;
+            val ()        = addresses := 1;
             val (firstPat, resType, argType) = 
               case f of 
                 MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
@@ -5437,8 +5423,8 @@ struct
                     !level, tupleSize, newDecName);
                      
               (* Reset level and addresses *)
-              val U = level := !level - 1;
-              val U = addresses := oldAddr;
+              val () = level := !level - 1;
+              val () = addresses := oldAddr;
               
               (* Now make a block containing the procedure which expects
                  multiple arguments and an inline procedure which expects
@@ -5466,7 +5452,7 @@ struct
              let (* Ordinary function. *)
               (* Must set the address to zero to get recursive references right. *)
               val addr = !varAddr;
-              val U    = varAddr := 0; 
+              val ()    = varAddr := 0; 
               val newDecName : string  = decName ^ "(1)";
               val newDebug = newDebugLevel debugEnv
               val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug);
@@ -5513,7 +5499,7 @@ struct
                                    functVar = ref (Value{access=Local{addr=lvAddr, level=lvLevel}, ...}), ...}) = 
                    let (* Set the addresses of the variables. *)
                      val addr  = mkAddr ();
-                     val addr1 = mkAddr ();
+                     val _ = mkAddr (); (* We need this second address. *)
                    in
                      lvAddr  := addr;
                      lvLevel := !level
@@ -5581,12 +5567,12 @@ struct
                    
                      (* If there is only one pattern and it is not a tuple we
                          generate only one function so we recurse directly. *)
-                     val U : unit = if noInlineFunction then address := 0  else (); (* Marks a recursive call. *)
+                     val () = if noInlineFunction then address := 0  else (); (* Marks a recursive call. *)
                      
                      (* This function comprises a new declaration level *)
-                     val U : unit = level := !level + 1;
+                     val () = level := !level + 1;
                      val oldAddr  = !addresses;
-                     val U : unit = addresses := 1;
+                     val () = addresses := 1;
                      
                     (* Turn the list of clauses into a match. *)
                      val matches = 
@@ -5663,8 +5649,8 @@ struct
                          wrapFunctionInDebug(bodyCode, procName, argList,
                                              aType, resType, location, newDebugLevel debugEnv)
                      (* Reset level and addresses *)
-                     val U = level := !level - 1;
-                     val U = addresses := oldAddr;
+                     val () = level := !level - 1;
+                     val () = addresses := oldAddr;
         
                      val innerFun : codetree = mkProc (wrapped, !level + 1, totalArgs, innerProcName);
                           
@@ -5676,7 +5662,7 @@ struct
                          optimised away. *)
   
                      (* Make into curried functions *)
-                     fun makeFuns depth decName parms [] argCount =
+                     fun makeFuns _ _ parms [] _ =
                       (* Got to the bottom. - put in a call to the procedure. *)
                         if resultTuple = 1
                         then mkEval (mkLoad (addr + 1, numOfPats), parms, false)
@@ -5697,9 +5683,9 @@ struct
                        | makeFuns depth decName parms (t::ts) argCount =
                        let (* Make a function. *)
                          (* This function comprises a new declaration level *)
-                         val U       = level := !level + 1;
+                         val ()       = level := !level + 1;
                          val oldAddr = !addresses;
-                         val U       = addresses := 1;
+                         val ()       = addresses := 1;
                          
                          val newDecName : string = decName ^ "(1)";
                          
@@ -5719,7 +5705,7 @@ struct
                        end (* end makeFuns *);
 
                      (* Reset the address of the variable. *)
-                     val U : unit = address := addr;
+                     val () = address := addr;
                    in
                      if noInlineFunction
                        then mkDec (addr, innerFun) :: loadFunDecs otherDecs
@@ -5878,7 +5864,7 @@ struct
                let
                 (* Simply process the declarations in sequence. *)
                 val (decCode, decEnv) = codeSequence (decs, debugEnv, decName)
-                val (bodyCode, bodyEnv) = codeSequence (body, decEnv, decName)
+                val (bodyCode, _) = codeSequence (body, decEnv, decName)
                 (* We can't simply pass through the environment because it
                    would include the declarations in the local part.  Instead
                    we create a new environment here containing only the variables

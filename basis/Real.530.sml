@@ -201,7 +201,7 @@ struct
     
     (* We only implement this sort of real. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
-    fun fromLarge (round : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
+    fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
     
     val isFinite : real -> bool = callRealToBool 15
     val isNan : real -> bool = callRealToBool 16
@@ -557,7 +557,7 @@ struct
         fun read_number sign src =
             case getc src of
                 NONE => NONE
-              | SOME(ch, src') =>
+              | SOME(ch, _) =>
                     if not (ch >= #"0" andalso ch <= #"9" orelse ch = #".")
                     then NONE (* Bad *)
                     else (* Digits or decimal. *)

@@ -86,7 +86,7 @@ struct
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
        function copies that as well. Does not copy value constructors. *)
-    fun localCopyTypeConstr (tcon, typeMap, copyTypeVar, mungeName, cache) =
+    fun localCopyTypeConstr (tcon, typeMap, _, mungeName, cache) =
         case tcIdentifier tcon of
             TypeFunction(args, equiv) =>
             let
@@ -132,7 +132,6 @@ struct
                                We will return SOME newId but we don't have a
                                cache so return NONE for List.find. *)
                             let
-                                val oldName = tcName tcon
                                 val newName = mungeName(tcName tcon)
                             in
                                 (*print(concat[tcName tcon, " not cached\n"]);*)
@@ -153,7 +152,7 @@ struct
         fun map2 (Bound{ offset, ...}) = m2 offset
         |   map2 (TypeFunction(args, equiv)) =
             let
-                fun copyId(id as Free _) = NONE
+                fun copyId(Free _) = NONE
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
@@ -195,14 +194,14 @@ struct
             else rest
 
             (* Then the types within this structure. *)
-            fun foldTypes(dName, dVal, rest) =
+            fun foldTypes(_, dVal, rest) =
             if tagIs typeConstrVar dVal
             then
             let
                 val tcon = tagProject typeConstrVar dVal
                 fun makeName s = strName ^ (#second(splitString s))
-                fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeId offset)
-                |   copyId id = NONE
+                fun copyId(Bound{ offset, ...}) = SOME(mapTypeId offset)
+                |   copyId _ = NONE
             in
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
@@ -249,8 +248,8 @@ struct
 
         fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
         let
-            fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeId offset)
-            |   copyId id = NONE
+            fun copyId(Bound{ offset, ...}) = SOME(mapTypeId offset)
+            |   copyId _ = NONE
         in
             localCopyTypeConstr (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
         end
@@ -261,7 +260,7 @@ struct
     in
         univFold
             (sourceTab,
-            fn (dName: string, dVal: universal, num) =>
+            fn (dName: string, dVal: universal, _) =>
             if tagIs structVar dVal
             then 
             let

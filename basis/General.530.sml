@@ -71,8 +71,8 @@ in
 	
     datatype order = LESS | EQUAL | GREATER
 	
-	fun op before (a, b) = a
-	fun ignore a = ()
+	fun op before (a, _) = a
+	fun ignore _ = ()
 	
 	structure General (*: GENERAL *) (* Don't use a signature here. *) =
 		struct

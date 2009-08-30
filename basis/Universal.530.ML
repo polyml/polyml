@@ -54,7 +54,7 @@ struct
       { 
         inject  = fn x => E x,
         project = fn E x => x    | _ => raise RunCall.Match,
-        is      = fn E x => true | _ => false
+        is      = fn E _ => true | _ => false
       }
     end ;
 

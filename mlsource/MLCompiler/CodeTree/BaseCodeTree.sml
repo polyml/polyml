@@ -190,8 +190,8 @@ struct
   
     fun pretty (pt : codetree) : pretty =
     let
-        fun pList ([]: 'b list) (sep: string) (disp: 'b->pretty) = []
-        | pList [h]    sep disp = [disp h]
+        fun pList ([]: 'b list) (_: string) (_: 'b->pretty) = []
+        | pList [h]    _ disp = [disp h]
         | pList (h::t) sep disp =
             PrettyBlock (0, false, [],
                 [
@@ -351,7 +351,7 @@ struct
         
         | Raise c => printMonad "RAISE" c
         
-        | Handle {exp, taglist, handler} =>
+        | Handle {exp, handler, ...} =>
             PrettyBlock (3, false, [],
                 [
                     PrettyString "HANDLE(",
@@ -492,7 +492,7 @@ struct
             | Ldexc                           => 1
             | Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
             | Recconstr cl                    => sizeList cl + 2 (* optimistic *)
-            | Container size                  => 1 (* optimistic *)
+            | Container _                     => 1 (* optimistic *)
             | SetContainer{container, tuple = Recconstr cl, ...} =>
             				(* We can optimise this. *) sizeList cl + size container
             | SetContainer{container, tuple, size=len} => size container + size tuple + len

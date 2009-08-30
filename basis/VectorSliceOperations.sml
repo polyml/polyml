@@ -60,7 +60,6 @@ functor VectorSliceOperations(
 	end =
 struct
 		val wordAsInt: word -> int = RunCall.unsafeCast
-		val intAsWord: int -> word = RunCall.unsafeCast
 
 		type elem = elem
 		type vector = vector

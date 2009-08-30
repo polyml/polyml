@@ -141,92 +141,14 @@ struct
   open TYPEIDCODE
   open COPIER
   
-  val lengthW  = ADDRESS.length;
   val length   = List.length;
   
   (* gets a value from the run-time system; 
     usually this is a closure, but sometimes it's an int.  *)
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
-  val andb = Word8.andb and orb = Word8.orb
-  infix 6 andb;
+  val orb = Word8.orb
   infix 7 orb;
-
-(************* "types" constructors copied here to reduce garbage *********)
-  fun isTypeVar          (TypeVar          _) = true
-    | isTypeVar          _ = false;
-     
-  fun isTypeConstruction (TypeConstruction _) = true
-    | isTypeConstruction _ = false;
-     
-  fun isFunctionType     (FunctionType     _) = true
-    | isFunctionType     _ = false;
-    
-  fun isLabelled         (LabelledType         _) = true
-    | isLabelled         _ = false;
-    
-  fun isEmpty             EmptyType           = true
-    | isEmpty            _ = false;
-    
-  val emptyType            = EmptyType;
-  
-  val badType              = BadType;
-
-  type typeConstructionForm = 
-      {
-        name:  string,
-        value: typeConstrs ref,
-        args:  types list
-      }
-         
-
-  (* A function type takes two types, the argument and the result. *)
-      
-  and functionTypeForm = 
-    { 
-      arg: types,
-      result: types
-    }
-      
-  (* An entry in a labelled record type. *)
-      
-  and labelledRecEntry = 
-    { 
-      name: string,
-      typeOf: types
-    }
-      
-  (* A fixed labelled record. *)
-      
-  and labelledRecForm = 
-    { 
-      recList: { name: string, typeof: types } list,
-      frozen: bool
-    };
-
-  fun typesTypeVar          (TypeVar          x) = x 
-    | typesTypeVar          _ = raise Match;
-    
-  fun typesTypeConstruction (TypeConstruction x) = x 
-    | typesTypeConstruction _ = raise Match;
-    
-  fun typesFunctionType     (FunctionType     x) = x
-     | typesFunctionType     _ = raise Match;
-     
-  fun typesLabelled         (LabelledType         x) = x
-    | typesLabelled         _ = raise Match;
-  
-  fun lreName   ({name,...}   : labelledRecEntry) = name;
-  fun lreTypeOf ({typeOf,...} : labelledRecEntry) = typeOf;
-
-  fun lrfFrozen  ({frozen,...} : labelledRecForm)  = frozen;
-  fun lrfRecList ({recList,...} : labelledRecForm) = recList;
-  
-  fun tcfArgs  ({args,...}  : typeConstructionForm)  = args;
-  fun tcfName  ({name,...}  : typeConstructionForm)  = name;
-  fun tcfValue ({value,...} : typeConstructionForm) = !value;
-(*************)
-
      (* Functions to construct the values. *)
 
     fun mkGconstr (name, typeof, code, nullary, constrs, location) =
@@ -358,7 +280,6 @@ struct
    or not I don't know. DCJM Sept 2000. *)
 
   val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
-  val arg2     = mkLoad (~2, 0);
 
     val mutableFlags = F_words orb F_mutable;
 
@@ -385,33 +306,6 @@ struct
     (* get the tag from a TaggedBox or ConstForm *)
     fun loadTag (u: machineWord) : machineWord = 
       loadWord (toAddress u, 0w0); (* tag is first field *)
-
-    (* get the data from a TaggedBox *)
-    fun loadTaggedBoxedValue (u: machineWord) : machineWord = 
-      loadWord (toAddress u, 0w1); (* contents is second field *)
-
-    (* get the data from a BoxedForm or a RefForm *)
-    fun loadBoxedValue (u: machineWord) : machineWord = loadWord (toAddress u, 0w0);
-    
-    fun loadTaggedTupleValue (n: int) (u : machineWord) : machineWord =
-    let
-      val vec = alloc (toShort n, mutableFlags, toMachineWord 0);
-      
-      fun copyField i =
-      let
-        val w : machineWord = loadWord (toAddress u, toShort (i + 1));
-      in
-        assignWord (toAddress vec, toShort i, w) 
-      end;
-      
-      fun copyFields i =
-        if i < n then (copyField i; copyFields (i + 1)) else ();
-    
-      val U : unit = copyFields 0;
-      val U : unit = lock vec;
-    in
-      toMachineWord vec
-    end;
 
     fun identityApplyCode v = v;  (* no-op *)
     fun boxApplyCode v    = mkTuple [v];
@@ -511,7 +405,7 @@ struct
     | TaggedTuple (tag, n) => tagTupleApplyCode tag n
     | OnlyOne              => identityApplyCode
     | _                    => 
-        (fn arg => raise InternalError "constant can't be applied")
+        (fn _ => raise InternalError "constant can't be applied")
 
   (* The run-time test whether a value matches a constructor. *)
   fun constrMatch (test: representations) (value:codetree) : codetree =
@@ -521,7 +415,7 @@ struct
     | RefForm              => CodeTrue
     | EnumForm tag         => testTag tag value 
     | TaggedBox tag        => testBoxedTag tag value
-    | TaggedTuple (tag, n) => testBoxedTag tag value
+    | TaggedTuple (tag, _) => testBoxedTag tag value
     | ConstForm c          => testBoxedTag (Word.toIntX (* May be signed. *) (toShort (loadTag c))) value
     | OnlyOne              => CodeTrue
     | UnitForm             => CodeTrue
@@ -549,11 +443,11 @@ struct
       UnboxedForm          => identityApplyCode value
     | BoxedForm            => boxedDestructCode value
     | RefForm              => refDestructCode value
-    | TaggedBox tag        => taggedBoxDestructCode value
-    | TaggedTuple (tag, n) => taggedTupleDestructCode n value
+    | TaggedBox _        => taggedBoxDestructCode value
+    | TaggedTuple (_, n) => taggedTupleDestructCode n value
     | OnlyOne              => identityApplyCode value
-    | EnumForm tag         => CodeZero (* To keep optimiser happy. *)
-    | ConstForm c          => CodeZero (* (rather than raising an exception) *)
+    | EnumForm _         => CodeZero (* To keep optimiser happy. *)
+    | ConstForm _          => CodeZero (* (rather than raising an exception) *)
     | UnitForm             => CodeZero
     ;
 
@@ -676,7 +570,7 @@ struct
     (* In the new datatype format, I've moved the tag word, so
        we only need a one-word object. SPF 26/5/95 *)
     val vec : address = alloc (0w1, F_words, toMachineWord n);
-    val U : unit      = lock vec;
+    val () = lock vec;
   in
     ConstForm (toMachineWord vec)
   end;
@@ -696,7 +590,7 @@ struct
   (* Note that "UnaryTupled 0" (which would arise as a result of a declaration of the
      form  datatype t = A of () | ... ) can't be represented as "UnboxedForm"
      because "{}" is represented as a short (unboxed) integer. *)
-  fun chooseOptimisedRepr1 n [] = []
+  fun chooseOptimisedRepr1 _ [] = []
     | chooseOptimisedRepr1 n (h :: t) = 
        case h of
          (Nullary,       name) =>
@@ -714,7 +608,7 @@ struct
   (* With this representation constructors of small tuples make tuples of
      size n+1 whose first word is the tag.  Nullary constructors are represented
      by single word objects containing the tag. *)
-  fun chooseOptimisedRepr2 n [] = []
+  fun chooseOptimisedRepr2 _ [] = []
     | chooseOptimisedRepr2 n (h :: t) = 
   let
     val repr = 
@@ -741,7 +635,7 @@ struct
       | FunctionType _ => 
           UnaryFunction
     
-      | TypeConstruction {name, value, args, ...} =>
+      | TypeConstruction {value, args, ...} =>
           let
             val cons = pling value
         in
@@ -932,7 +826,7 @@ struct
                 then SOME undefinedStruct (* Error somewhere else? *)
                 else 
                 let
-                    val parentSig as Signatures { tab, typeIdMap, minTypes, maxTypes, ... } = structSignat str
+                    val Signatures { tab, typeIdMap, minTypes, maxTypes, ... } = structSignat str
                     val Env{lookupStruct, ...} = makeEnv tab
                     (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                     val baseLoc =
@@ -1100,12 +994,12 @@ struct
 
   val nullEnvironment : nameSpace =
      {
-        lookupVal = fn (s: string) => NONE,
-        lookupType = fn (s: string) => NONE,
-        lookupFix = fn (s: string) => NONE,
-        lookupStruct = fn (s: string) => NONE,
-        lookupSig = fn (s: string) => NONE,
-        lookupFunct = fn (s: string) => NONE,
+        lookupVal = fn _ => NONE,
+        lookupType = fn _ => NONE,
+        lookupFix = fn _ => NONE,
+        lookupStruct = fn _ => NONE,
+        lookupSig = fn _ => NONE,
+        lookupFunct = fn _ => NONE,
         enterVal = fn _ => (),
         enterType = fn _ => (),
         enterFix = fn _ => (),
@@ -1211,14 +1105,14 @@ struct
     end;
 
   (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-  fun printValues (Value{name, typeOf, class, access, ...}, depth, _) =
+  fun printValues (Value{typeOf, class, access, ...}, depth, _) =
         case (class, access) of
             (SimpleValue, Global code) => printValueForType (evalue code, typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
-    fun displaySig (Signatures{tab, typeIdMap, ...}, depth : int, space : int,
-                    nameSpace as { lookupType, lookupStruct, ...}, sigMap) : pretty =
+    fun displaySig (Signatures{tab, typeIdMap, ...}, depth : int, _ : int,
+                    { lookupType, lookupStruct, ...}, sigMap) : pretty =
     let
         (* Construct an environment for the types. *)
 
@@ -1238,7 +1132,7 @@ struct
                 NONE => SOME typeIdMap
             |   SOME outerMap => SOME(composeMaps(typeIdMap, outerMap))
 
-        fun displaySpec (name, value) : pretty list =
+        fun displaySpec (_, value) : pretty list =
         if (tagIs signatureVar value)
         then (* Not legal ML97 *)
             [ PrettyBreak(1,2), displaySignatures (tagProject signatureVar value, depth - 1, compositeEnv)]
@@ -1430,7 +1324,7 @@ struct
  | codeAccess (Selected{addr, base}, level) = (* Select from a structure. *)
        mkInd (addr, codeStruct (base, level))
      
- | codeAccess (acc, level) = raise InternalError "No access"
+ | codeAccess _ = raise InternalError "No access"
      (* codeAccess *);
 
 (*****************************************************************************)
@@ -1507,7 +1401,7 @@ struct
        (* Select from a structure. *)
        mkInd (addr, codeStruct (base, level))
 
-  |  codeVal (Value{access = Formal _, ...}, level, _, _, _) =
+  |  codeVal (Value{access = Formal _, ...}, _, _, _, _) =
           raise InternalError "codeVal - Formal"
 
   |  codeVal (Value{access = Overloaded Print, ...}, level, instance, lex, _) =
@@ -1542,7 +1436,7 @@ struct
                 level, 1, "print()")
         end 
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, lex, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _) =
         let 
             (* "instance" should be 'a -> string. We need to get the 'a. *)
             val argType = case getFnArgType instance of NONE => badType | SOME t => t;
@@ -1563,7 +1457,7 @@ struct
                 level, 1, "makestring()")
         end
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, instance, lex, _) =
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, instance, _, _) =
        let (* Get the pretty code for the specified argument. *)
          (* "instance" should be 'a * int -> pretty. We need to get the 'a.  *)
          val argType =
@@ -1673,7 +1567,7 @@ struct
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
         end
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, instance, lex, loc) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, instance, lex, loc) =
         let
          (* This is the old function to install a pretty printer.  It has
             been retained for backwards compatibility.
@@ -1786,7 +1680,7 @@ struct
                             |   PrettyBlock(i, b, c, l) :: tail  =>
                                     (* Add to current block. *)
                                     resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
-                            |   t => (* Something there but not a Begin. *)
+                            |   _ => (* Something there but not a Begin. *)
                                     raise Fail "Missing Begin"
                         fun addString s =
                             addEntry(PrettyString s)
@@ -1848,7 +1742,7 @@ struct
             mkConst (toMachineWord installPp)
         end
 
-  |  codeVal (value as Value{access = Overloaded GetLocation, ...}, level, instance, lex, lineno) =
+  |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _) =
         (* This can't be used a value: It must be called immediately. *)
         let
             fun getLoc() =
@@ -2066,11 +1960,11 @@ struct
         mkEval(mkInd(2, codeVal (value, level, emptyType, nullLex, location nullLex)),
             [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
 
-    |  makeInverse(value as Value{class=Constructor{nullary=true, ...}, ...}, arg, level): codetree =
+    |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _): codetree =
         (* makeInverse is called even on nullary constructors.  Return zero to keep the
            optimiser happy. *) CodeZero
 
-    |   makeInverse (value as Value{class=Exception, ...}, arg, level) =
+    |   makeInverse (Value{class=Exception, ...}, arg, _) =
       (* Exceptions. - Get the parameter from third word *) mkInd (2,arg)
 
     |   makeInverse _ = raise InternalError "makeInverse"
@@ -2086,7 +1980,7 @@ struct
         generaliseOverload(typeOf, getTypes(getOverloads name), isConv)
     end
 
- |  overloadType(Value{typeOf, ...}, isConv) =  generalise typeOf
+ |  overloadType(Value{typeOf, ...}, _) =  generalise typeOf
 
   (* True if the arguments are definitely the same exception.  Used in the
      match compiler to see if we can merge adjacent exception patterns.

@@ -38,8 +38,8 @@ sig
   type 'a hash
   type 'a iter
   
-  val hashMake: int -> '_a hash
-  val hashSet: '_a hash * string * '_a -> unit
+  val hashMake: int -> 'a hash
+  val hashSet: 'a hash * string * 'a -> unit
   val hashSub: 'a hash * string -> 'a option
   
   (* An iterator over the non-empty entries in the table. *)
@@ -140,15 +140,15 @@ in
         find (hashN name)
     end
 
-    fun hashSet (Frozen _, name : string, value :  '_a) : unit =
+    fun hashSet (Frozen _, name : string, _ :  'a) : unit =
        raise Fail ("Attempt to set a value with name (" ^ name ^ ") in a frozen hash table")
 	   
-    |  hashSet (Hash {entries, used, hash}, name : string, value :  '_a) =
+    |  hashSet (Hash {entries, used, hash}, name : string, value :  'a) =
     let
 	    open Array
         (* Enters the value at the first free entry at or after the
            one pointed to by the hash value. *)
-        fun enterTab (A : '_a namedOption array, i : int, None : '_a namedOption) = ()
+        fun enterTab (_ : 'a namedOption array, _ : int, None : 'a namedOption) = ()
           | enterTab (A, i, entry as Some (name,_)) =
         let
           fun enter (i : int) : unit =
@@ -164,19 +164,19 @@ in
           enter i
         end 
         
-        val A : '_a namedOption array = !entries;
+        val A : 'a namedOption array = !entries;
         val N : int                   = length A;
         val hashN : string -> int     = !hash
         
-        val U : unit = enterTab (A, hashN name, Some (name, value));
-        val U : unit = used := !used + 1;
+        val () = enterTab (A, hashN name, Some (name, value));
+        val () = used := !used + 1;
     in
         (* Do we need to rehash ? *)
         if !used * 5 > N * 4 (* More than 80% full so rehash *)
         then
 		let
             val newN  : int                   = N * 2; (* Double the size *)
-            val newA  : '_a namedOption array = array (newN, None);
+            val newA  : 'a namedOption array = array (newN, None);
             val hashNewN : string -> int      = hashValue newN;
           
             fun copyOver (index : int) : unit =
@@ -191,8 +191,8 @@ in
                   copyOver (index - 1)
                 );
             
-            val U : unit = entries := newA;
-            val U : unit = hash := hashNewN;
+            val () = entries := newA;
+            val () = hash := hashNewN;
         in
             copyOver (length A - 1)
         end

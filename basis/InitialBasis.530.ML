@@ -257,22 +257,20 @@ end;
    compiling it. *)
 local
 	open RuntimeCalls PolyML
-    val ord0 = ord #"0";
-	val chr = RunCall.unsafeCast
 
-	fun print_bool depth _ (b: bool) =
+	fun print_bool _ _ (b: bool) =
 		PrettyString(if b then "true" else "false")
 
-	fun print_string depth _ (s: string) = PrettyString s (* Not escaped at the moment. *)
+	fun print_string _ _ (s: string) = PrettyString s (* Not escaped at the moment. *)
 
-	fun print_char depth _ (c: char) =
+	fun print_char _ _ (c: char) =
 		PrettyBlock (0, false, [], [PrettyString "#", PrettyString(RunCall.unsafeCast c)])
 
 	fun print_list depth printEl (l: 'a list) =
 		let
 		(* Print the list as [<elem>, <elem>, etc ]. Replace the
 		   rest of the list by ... once the depth reaches zero. *)
-	      fun plist [] depth = []
+	      fun plist [] _ = []
 	       |  plist _ 0 = [PrettyString "..."]
 		   |  plist [h]    depth = [printEl (h, depth)]
 		   |  plist (h::t) depth =

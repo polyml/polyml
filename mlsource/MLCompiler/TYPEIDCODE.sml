@@ -60,15 +60,12 @@ struct
 
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
-    val andb = Word8.andb and orb = Word8.orb
-    infix 6 andb;
+    val orb = Word8.orb
     infix 7 orb;
     val mutableFlags = F_words orb F_mutable;
 
     (* Pretty printer code.  These produce code to apply the pretty printer functions. *)
     fun codePrettyString(s: string) = mkConst(toMachineWord(PrettyString s))
-    and codePrettyStringVar(s: codetree) =
-        mkEval(mkConst(toMachineWord(PrettyString)), [s], false)
     and codePrettyBreak(n, m) = mkConst(toMachineWord(PrettyBreak(n, m)))
 
     and codePrettyBlock(n: int, t: bool, c: context list, args: codetree) =
@@ -234,7 +231,7 @@ struct
             let
                 (* See if this has fields numbered 1=, 2= etc. *)
                 fun isRec([], _) = true
-                |   isRec({name, typeof} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
+                |   isRec({name, ...} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
                 val isTuple = frozen andalso isRec(recList, 1)
 
                 fun asRecord([], _, _) = raise Empty (* Shouldn't happen. *)
@@ -288,7 +285,7 @@ struct
                getEqFnForID: typeId * types list * int -> codetree * codetree option,
                findTyVars: typeVarForm -> resfun): resfun =
     let
-        fun equalityForConstruction(constr, args, vConstrs): resfun =
+        fun equalityForConstruction(constr, args): resfun =
         (* Generate an equality function for a datatype construction. *)
         let
             (* Get the equality functions for the argument types.
@@ -347,11 +344,10 @@ struct
         |   TypeConstruction{value, args, ...} =>
             let
                 val constr = pling value
-                val id = tcIdentifier constr
             in
                 if tcIsAbbreviation constr  (* May be an alias *)
                 then makeEq (makeEquivalent (constr, args), resKind, getEqFnForID, findTyVars)
-                else returnFun(equalityForConstruction(constr, args, tcConstructors constr), resKind)
+                else returnFun(equalityForConstruction(constr, args), resKind)
             end
 
         |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
@@ -364,7 +360,7 @@ struct
             let
                 fun eqTuple(arg1, arg2, lA) =
                 let
-                    fun combineEntries ([], n) = CodeTrue
+                    fun combineEntries ([], _) = CodeTrue
                     |    combineEntries ({typeof, name=_}::t, n) =
                             mkCand
                             (applyEq(typeof, fn l => mkInd(n, arg1 l),
@@ -410,7 +406,7 @@ struct
         val nTypeVars = List.length argTypes
         fun typeVarFun tv =
         let
-            fun findTv [] n = (* All type variables should be bound. *)
+            fun findTv [] _ = (* All type variables should be bound. *)
                     raise InternalError "Free type variable"
              |  findTv (tv' :: tvs) n =
                     if sameTv(tv, tv')
@@ -497,7 +493,7 @@ struct
                     if sameTypeId(typeId, tcIdentifier tyConstr)
                     then mkLoad(0, l-baseLevel-1) (* Directly recursive. *)
                     else
-                    case List.find(fn(tc, addr) => sameTypeId(tcIdentifier tc, typeId)) typesAndAddresses of
+                    case List.find(fn(tc, _) => sameTypeId(tcIdentifier tc, typeId)) typesAndAddresses of
                         SOME(_, addr) => mkLoad(addr, l-baseLevel) (* Mutually recursive. *)
                     |   NONE => mkInd(0, codeId(typeId, l))
                 (* If this is a recursive call and the type arguments that are being passed (if any) are
@@ -519,7 +515,7 @@ struct
             val nTypeVars = List.length argTypes
             fun typeVarFun tv =
             let
-                fun findTv [] n = (* All type variables should be bound. *)
+                fun findTv [] _ = (* All type variables should be bound. *)
                         raise InternalError "Free type variable"
                  |  findTv (tv' :: tvs) n =
                         if sameTv(tv, tv')
@@ -549,7 +545,7 @@ struct
             fun processConstrs [] =
                 (* The last of the alternatives is false *) CodeZero
 
-            |  processConstrs ((vConstr as Value{class, access, typeOf, name=tempConstrName, ...}) ::rest) =
+            |  processConstrs ((vConstr as Value{class, access, typeOf, ...}) ::rest) =
                 if isEnum vConstr then processConstrs rest
                 else
                 let
@@ -699,7 +695,7 @@ struct
        does not affect the old type. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(sourceId as TypeFunction(argTypes, resType), isEq, level) =
+    fun codeGenerativeId(TypeFunction(argTypes, resType), isEq, level) =
         let
             val printCode = printerForTypeFunction(argTypes, resType, level)
             and eqCode =
@@ -717,7 +713,7 @@ struct
             ]
         end
 
-    |   codeGenerativeId(sourceId, isEq, level) =
+    |   codeGenerativeId(sourceId, _, level) =
         let
             (* TODO: Use multipleUses here. *)
             val sourceCode = codeId(sourceId, level)

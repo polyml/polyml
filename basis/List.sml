@@ -120,29 +120,29 @@ structure List: LIST =
 	fun concat [] = []
 	 |  concat (a::b) = a @ concat b
 	 
-	fun app f [] = ()
+	fun app _ [] = ()
 	 |  app f (h::t) = (f h; app f t)
 
-	fun map f [] = []
+	fun map _ [] = []
 	  | map f (a::b) = f a :: map f b;
 
-	fun mapPartial f [] = []
+	fun mapPartial _ [] = []
 	  | mapPartial f (a::b) = 
 	  	  case f a of
 		      SOME r => r :: mapPartial f b
 		    | NONE => mapPartial f b
 
-	fun find f [] = NONE
+	fun find _ [] = NONE
 	  | find f (a::b) = if f a then SOME a else find f b
 	  
-	fun filter f [] = []
+	fun filter _ [] = []
 	  | filter f (a::b) = if f a then a :: filter f b else filter f b
 	
 	(* This is defined to evaluate f from left to right.  *)
 	(* TODO: This involves returning a pair and creating new pairs
 	   which allocates storage in Poly/ML.  Is there a more efficient
 	   implementation?  e.g. recurse down the list and then reverse it. *)
-	fun partition f [] = ([], [])
+	fun partition _ [] = ([], [])
 	  | partition f (a::b) =
 	  		let
 			val test = f a
@@ -151,16 +151,16 @@ structure List: LIST =
 			if test then (a::x, y) else (x, a::y)
 			end
 			
-	fun foldl f b [] = b
+	fun foldl _ b [] = b
 	  | foldl f b (x::y) = foldl f (f(x, b)) y
 
-	fun foldr f b [] = b
+	fun foldr _ b [] = b
 	  | foldr f b (x::y) = f(x, foldr f b y)
 
-	fun exists f [] = false
+	fun exists _ [] = false
 	  | exists f (a::b) = if f a then true else exists f b
 	  
-	fun all f [] = true
+	fun all _ [] = true
 	  | all f (a::b) = if f a then all f b else false
 
 	(* tabulate a function. Rewritten again this time using an array. *)
@@ -172,9 +172,9 @@ structure List: LIST =
 		end
 
 	(* Lexicographic comparison.  *)
-	fun collate cmp ([], []) = General.EQUAL
-	 |  collate cmp ([], _) = General.LESS
-	 |  collate cmp (_, []) = General.GREATER
+	fun collate _   ([], []) = General.EQUAL
+	 |  collate _   ([], _) = General.LESS
+	 |  collate _   (_, []) = General.GREATER
 	 |  collate cmp (a::b, c::d) =
 	 		(case cmp (a, c) of General.EQUAL => collate cmp (b, d) | notEqual => notEqual)
 	end;

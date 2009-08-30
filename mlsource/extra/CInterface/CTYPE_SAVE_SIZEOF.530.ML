@@ -60,7 +60,7 @@ struct
 				     
 
     local
-        fun prettyCtype _ _ (m: Ctype) = PolyML.PrettyString "?"
+        fun prettyCtype _ _ (_: Ctype) = PolyML.PrettyString "?"
     in
         val () = PolyML.addPrettyPrinter prettyCtype
     end

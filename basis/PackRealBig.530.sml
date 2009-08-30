@@ -48,7 +48,6 @@ local
 				RunCall.run_call3 POLY_SYS_assign_byte;
 		val System_move_bytes: address*word*address*word*word->unit =
 				RunCall.run_call5 POLY_SYS_move_bytes
-		val wordSize : word = LibrarySupport.wordSize;
 
 		(* Move bytes, reversing the order. *)
 		fun swapOrder(src: address, srcOff: word,

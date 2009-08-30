@@ -94,8 +94,8 @@ struct
       end;
       
       local
-        fun fst (a,b) = a;
-        fun snd (a,b) = b;
+        fun fst (a,_) = a;
+        fun snd (_,b) = b;
       in  
         fun univOver (Table tab) = (* Iterator over all the entries. *)
         let
@@ -123,9 +123,9 @@ struct
             
           (* Return the next FULL entry. *)
           
-          fun next (ti,[]) =     
+          fun next (_ ,[]) =     
                 raise InternalError "UniversalTable.univOver.next"
-            | next (ti,[x])  = makeIter (nextList ti)
+            | next (ti,[_])  = makeIter (nextList ti)
                            (* Finished one list - get the next. *)
             | next (ti,_::T) = makeIter (ti,T)
           

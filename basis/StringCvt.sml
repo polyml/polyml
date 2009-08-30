@@ -55,8 +55,6 @@ structure StringCvt : STRING_CVT =
 	and stringToCh: string->char = RunCall.unsafeCast
 
 	val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-	val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-	val System_loadb: string*word->char = RunCall.run_call2 POLY_SYS_load_byte;
 	val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
 	val mem_move: string*word*string*word*word -> unit = 
 				RunCall.run_call5 POLY_SYS_move_bytes
@@ -114,7 +112,6 @@ structure StringCvt : STRING_CVT =
 		then chToString c (* return single character string. *)
 		else 
 		let
-			val extra = iW - len
 			val str = allocString iW
 			fun setCh n =
 				if n = iW then ()
@@ -192,7 +189,7 @@ structure StringCvt : STRING_CVT =
 		in
 		case cvt rdr (Index 0w0) of
 			NONE => NONE
-		  | SOME(res, strm') => SOME res
+		  | SOME(res, _) => SOME res
 		end
 
 	end;

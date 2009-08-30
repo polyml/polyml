@@ -44,7 +44,7 @@ structure Bool : BOOL =
 		(* Skip leading white space. *)
 		val strm = StringCvt.skipWS getc str
 		(* Test for a match between a reader and a list of lower case chars. *)
-		fun matchNC getc strm [] = (strm, true )(* Reached end of list - succeeded *)
+		fun matchNC _    strm [] = (strm, true )(* Reached end of list - succeeded *)
 		  | matchNC getc strm (ch::rest) =
 		  		case getc strm of
 					NONE => (strm, false) (* Couldn't read it - fail. *)

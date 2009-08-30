@@ -123,9 +123,6 @@ in
 
     local
         val onLoadList = ref []
-
-        fun loadSavedState (f: string): unit =
-    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
     in
         (* Add a function to be called when a saved state is loaded.  This is really
 		   here to ensure that we can preserve the contents of the buffer for stdIn. *)

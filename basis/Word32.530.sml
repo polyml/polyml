@@ -53,10 +53,7 @@ struct
     fun fromLargeWord (w: LargeWord.word) =   andb(w, maxWordAsWord)
     val fromLarge = fromLargeWord
 
-    (* Internal function to convert from Word.word. *)
-    fun fromWord (w: Word.word) = fromLargeWord(Word.toLarge(w))
-
-    and fromInt (i: int): word = fromLargeWord(LargeWord.fromInt i)
+    fun fromInt (i: int): word = fromLargeWord(LargeWord.fromInt i)
 
             (* Arithmetic shift - sign extends. *) 
     (* Shift the "sign" bit into the real sign bit position then

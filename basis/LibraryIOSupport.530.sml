@@ -49,26 +49,6 @@ struct
 	(* Called after any exception in the lower level reader or
 	   writer to map any exception other than Io into Io. *)
 
-	(* We have to declare doIo separately depending on the
-	   types of the arguments. It's possible to get round this
-	   but that would result in an extra call to run_call3 for
-	   each io call. *)
-	local
-		val doIo: int*int*string -> fileDescr
-			 = RunCall.run_call3 POLY_SYS_io_dispatch
-	in
-		val stdInDesc: fileDescr = doIo(0, 0, "")
-		and stdOutDesc: fileDescr = doIo(1, 0, "")
-		and stdErrDesc: fileDescr = doIo(2, 0, "")
-
-		fun sys_open_in_text name = doIo(3, 0, name)
-		and sys_open_in_bin name = doIo(4, 0, name)
-		and sys_open_out_text name = doIo(5, 0, name)
-		and sys_open_out_bin name = doIo(6, 0, name)
-		and sys_open_append_text name = doIo(13, 0, name)
-		and sys_open_append_bin name = doIo(14, 0, name)
-	end
-
 	local
 		val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
 	in

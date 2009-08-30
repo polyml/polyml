@@ -254,7 +254,7 @@ struct
     fun exp2 0 = 1
       | exp2 n = 2 * exp2 (n - 1);
   in
-    val UUU = 
+    val _ = 
       (
         exp2_3  = exp2 3  andalso
         exp2_6  = exp2 6  andalso
@@ -674,9 +674,6 @@ struct
 
     fun a regEq  b = getReg a  = getReg b;
     fun a regNeq b = getReg a <> getReg b;
-    fun a regLeq b = getReg a <= getReg b;
-    fun a regGeq b = getReg a >= getReg b;
-    fun (Reg a) regMinus (Reg b) = a - b;
   
     (* The number of the register. *)
     fun nReg r =
@@ -878,7 +875,7 @@ SS-relative addressing modes:
          the referring procedure is finished and its address is known the
          address will be plugged in to every procedure which needs it. *)
       let
-        fun onList x []      = false
+        fun onList _ []      = false
           | onList x (c::cs) = (x is c) orelse onList x cs ;
           
         val codeList = ! otherCodes;
@@ -892,7 +889,7 @@ SS-relative addressing modes:
    fun removeLabel (lab:addrs, Code{longestBranch, labelList, ... }) : unit = 
    let
      fun removeEntry ([]: labList) : labList = []
-       | removeEntry ((entry as ref (Jump32From addr)) :: t) =
+       | removeEntry ((ref (Jump32From _)) :: t) =
            removeEntry t (* we discard long jumps *)
          
        | removeEntry ((entry as ref (Jump8From addr)) :: t) =
@@ -913,7 +910,7 @@ SS-relative addressing modes:
    end;
  
   (* Fix up the list of labels. *)
-  fun reallyFixBranches ([] : labels) cvec = ()
+  fun reallyFixBranches ([] : labels) _ = ()
     | reallyFixBranches (h::t)        (cvec as Code{codeVec=cseg, ic, branchCheck, ...}) =
    ((case !h of
        Jump8From addr =>
@@ -967,7 +964,7 @@ SS-relative addressing modes:
    reallyFixBranches t cvec
   )
  
-  fun fixRecursiveBranches (cvec, target, []) = ()
+  fun fixRecursiveBranches (_, _, []) = ()
     | fixRecursiveBranches (cvec as Code{codeVec=cseg, ...}, target, addrH :: addrT) = 
    ((case !addrH of
        Jump8From addr =>
@@ -1002,7 +999,7 @@ SS-relative addressing modes:
   );
 
   (* The address is the offset of the offset, not the instruction itself. *)
-  fun fixRecursiveCalls (cvec, target, []) = ()
+  fun fixRecursiveCalls (_, _, []) = ()
     | fixRecursiveCalls (cvec as Code{codeVec=cseg, ...}, target, addrH :: addrT) = 
     let
       val instr  : int = get8u  (getAddr addrH - 1, cseg);
@@ -1021,7 +1018,7 @@ SS-relative addressing modes:
     end;
 
   (* Deal with a pending fix-up. *)
-  fun reallyFixup (cvec as Code{justComeFrom=ref [], ... }) = ()
+  fun reallyFixup (Code{justComeFrom=ref [], ... }) = ()
    |  reallyFixup (cvec as Code{justComeFrom=jcf as ref labs, exited, ... }) = 
        (exited := false; reallyFixBranches labs cvec; jcf := []);
 
@@ -1074,7 +1071,7 @@ SS-relative addressing modes:
   end;
 
   (* Apparently fix up jumps - actually just record where we have come from *)
-  fun fixup (labs:labels, cvec as Code{justComeFrom, exited, ic, branchCheck, procName, ...}) =
+  fun fixup (labs:labels, cvec as Code{justComeFrom, exited, ic, branchCheck, ...}) =
   let
     (* If the jump we are fixing up is immediately preceding, 
        we can remove it.  It is particularly important to remove
@@ -1179,7 +1176,7 @@ SS-relative addressing modes:
        in
          (* Now do this entry. *)
          case !lab of
-           Jump32From addr => (* shouldn't happen? *)
+           Jump32From _ => (* shouldn't happen? *)
              convertRest
            
          | Jump8From addr =>
@@ -1286,7 +1283,7 @@ SS-relative addressing modes:
   let
     (* If we have just jumped here we may be able to avoid generating a
         jump instruction. *)
-    val U : unit = flushQueue cvec; (* Do any pending instructions. *)
+    val () = flushQueue cvec; (* Do any pending instructions. *)
 	val labs = ! justComeFrom;
   in
     justComeFrom := [];
@@ -1334,7 +1331,7 @@ SS-relative addressing modes:
   fun genSelfBranch (cvec as Code{justComeFrom, exited, ic, ... }) : labels =
   let
     (* Do any pending instructions. *)
-    val U : unit = flushQueue cvec;
+    val () = flushQueue cvec;
     
     (* Can we get into the prelude with an 8-bit jump? *)
     (* Conservative estimation needs to allow for:
@@ -1358,7 +1355,7 @@ SS-relative addressing modes:
       | tidy (ref (Jump32From _) :: t) = tidy t
       | tidy (ref (Jump8From a)  :: t) = (removeLabel (a, cvec); tidy t);
       
-    val U : unit = tidy longJumps;
+    val () = tidy longJumps;
 	
     (* do we actually need to insert a jump into the codestream? *)
     val needsJump =
@@ -1369,8 +1366,8 @@ SS-relative addressing modes:
     if needsJump
     then let
       (* fix up pending short jumps to here *)
-      val U : unit = justComeFrom := shortJumps;
-      val U : unit = doPending (cvec, 5);
+      val () = justComeFrom := shortJumps;
+      val () = doPending (cvec, 5);
     
       (* Now decide whether we can use an 8-bit jump here. *)
       (* N.B. we use gen8u here, not genop, because the latter
@@ -1932,7 +1929,7 @@ Calling conventions:
      case callKind of 
          Recursive =>
          let
-           val U : unit = mustCheckStack := true;
+           val () = mustCheckStack := true;
            val lab = genSelfBranch cvec;
          in
            selfJumps := lab @ ! selfJumps
@@ -2327,7 +2324,7 @@ Calling conventions:
      implement arbitrary-precision operations. *)
   fun genJO8 (addr, cvec as Code{ic, ...}) = 
   let
-    val U : unit = doPending (cvec, 12);
+    val () = doPending (cvec, 12);
     val here     = !ic;
     (* jump address calculations are relative to the value
         of the program counter *after* the instruction *)
@@ -2339,7 +2336,7 @@ Calling conventions:
   
 
   (* All these can be handled. *)
-  fun isCompRR tc = true;
+  fun isCompRR _ = true;
 
   (* Is this argument acceptable as an immediate or should it be loaded into a register? *) 
   fun isCompRI (tc, cnstnt) =
@@ -3033,7 +3030,7 @@ Calling conventions:
   	| instrModW =>
         let
 		  val c = toInt (toShort constnt)
-		  val ASSERT = log2 c (* Check it's a power of 2. *)
+		  val _ = log2 c (* Check it's a power of 2. *)
           val tagged = tag (c-1)
         in
           genMove  (rd, rs, cvec);
@@ -3146,11 +3143,11 @@ Calling conventions:
   *)
   type jumpTableAddrs = addrs;
   
-  fun constrCases (p as (i,a)) = p;
+  fun constrCases (p as (_,_)) = p;
   
   type caseList = cases list;
 
-  fun useIndexedCase (min:int, max:int, numberOfCases:int, exhaustive:bool) =
+  fun useIndexedCase (min:int, max:int, numberOfCases:int, _:bool) =
     isShort min andalso
     isShort max andalso
     numberOfCases > 7 andalso
@@ -3175,11 +3172,11 @@ Calling conventions:
 		  val l1 = putConditional (JE, cvec);
 		
 		  (* Compare with the minimum. *)
-		  val UUU = genImmed(CMP, r1, taggedMin, cvec);
+		  val () = genImmed(CMP, r1, taggedMin, cvec);
 		  val l2 = putConditional (JL, cvec);
 		  
 		  (* Compare with the maximum. *)
-		  val UUU = genImmed(CMP, r1, taggedMax, cvec);
+		  val () = genImmed(CMP, r1, taggedMax, cvec);
 		  val l3 = putConditional (JG, cvec);
 		in
 		  [l1, l2, l3]
@@ -3279,7 +3276,7 @@ Calling conventions:
     fun print32 () =
     let
       val valu = get32s (!ptr, seg); 
-      val U : unit = (ptr +:= 4);
+      val () = (ptr +:= 4);
     in
 	  if valu = tag 0 andalso !numOfConsts <> 0
 	  then
@@ -3313,7 +3310,7 @@ Calling conventions:
     fun print16 () =
     let
       val valu = get16s (!ptr, seg); 
-      val U : unit = (ptr +:= 2);
+      val () = (ptr +:= 2);
     in
       printHex valu
     end;
@@ -3321,7 +3318,7 @@ Calling conventions:
     fun print8 () =
     let
       val valu = get8s (!ptr, seg); 
-      val U : unit = ptr +:= 1;
+      val () = ptr +:= 1;
     in
       printHex valu
     end;
@@ -3329,7 +3326,7 @@ Calling conventions:
     fun printJmp () =
     let
       val valu = get8s (!ptr, seg); 
-      val U : unit = ptr +:= 1;
+      val () = ptr +:= 1;
     in
        printHex (valu + !ptr)
     end;
@@ -3338,7 +3335,7 @@ Calling conventions:
     fun printEA  () =
     let
       val modrm = Word8.toInt (csegGet (seg, !ptr));
-      val U : unit = (ptr +:= 1);
+      val () = (ptr +:= 1);
       val md = modrm div 64;
       val rm = modrm mod 8;
     in
@@ -3348,7 +3345,7 @@ Calling conventions:
       else if rm = 4
       then let (* s-i-b present. *)
         val sib = Word8.toInt (csegGet (seg, !ptr));
-        val U : unit = (ptr +:= 1);
+        val () = (ptr +:= 1);
         val ss    = sib div 64;
         val index = (sib div 8) mod 8;
         val base   = sib mod 8;
@@ -3411,11 +3408,11 @@ Calling conventions:
  
     while !ptr < endcode do
     let
-      val U : unit = printHex (!ptr); (* The address. *)
-      val U : unit = print "\t";
+      val () = printHex (!ptr); (* The address. *)
+      val () = print "\t";
 
       val opByte : int = get8u (!ptr, seg);
-      val U : unit = ptr +:= 1;
+      val () = ptr +:= 1;
     in
       if opByte = opToInt Group1_8_A orelse 
          opByte = opToInt Group1_32_A
@@ -3471,7 +3468,7 @@ Calling conventions:
       else if opByte = opToInt JMP_32
       then let
         val valu     = get32s (!ptr, seg);
-        val U : unit = (ptr +:= 4);
+        val () = (ptr +:= 4);
       in
         print "jmp\t";
         printHex (!ptr + valu)
@@ -3480,7 +3477,7 @@ Calling conventions:
       else if opByte = opToInt CALL_32
       then let
         val valu     = get32s (!ptr, seg);
-        val U : unit = (ptr +:= 4);
+        val () = (ptr +:= 4);
       in
         print "call\t";
         printHex (!ptr + valu)
@@ -3696,7 +3693,7 @@ Calling conventions:
        then let
 	 (* Opcode is in next byte. *)
 	 val opByte2  = Word8.toInt (csegGet (seg, !ptr));
-	 val U : unit = (ptr +:= 1);
+	 val () = (ptr +:= 1);
        in
 	if opByte2 = 11 * 16 + 6 (* 0xb6 *)
 	then let
@@ -3713,7 +3710,7 @@ Calling conventions:
 	        opByte2 <= 8 * 16 + 15 (* 0x8f *)
 	then let
 	  val valu = get32s (!ptr, seg);
-	  val U : unit = (ptr +:= 4);
+	  val () = (ptr +:= 4);
         in
 	  print
 	    (if opByte2 = 8 * 16 (* 0x80 *)
@@ -3842,9 +3839,9 @@ Calling conventions:
   let
     
     (* This aligns ic onto a fullword boundary. *)
-    val U : unit   = align (0, cvec);
+    val ()   = align (0, cvec);
     val endic      = !ic; (* Remember end *)
-    val U : unit   = gen32u (0, cvec); (* Marker - 0 (changes !ic) *)
+    val ()   = gen32u (0, cvec); (* Marker - 0 (changes !ic) *)
 
     (* Prelude consists of 
        1) nops to make it a whole number of words
@@ -3853,7 +3850,7 @@ Calling conventions:
     *)
     local
       (* little-endian *)
-      fun getBytes (0, x) = []
+      fun getBytes (0, _) = []
         | getBytes (n, x) = (x mod exp2_8) :: getBytes (n - 1, x div exp2_8);
 		
 	  fun testRegAndTrap (reg, entryPt) =
@@ -3943,10 +3940,10 @@ itself.
     end; (* local *)
 
     (* fix-up all the self-calls *)
-    val U : unit = 
+    val () = 
       fixRecursiveCalls    (cvec, L2Addr, selfCalls);
        
-    val U : unit =
+    val () =
       fixRecursiveBranches (cvec, L2Addr, selfJumps);
 
     (* Now make the byte segment that we'll turn into the code segment *)
@@ -3974,7 +3971,7 @@ itself.
       fun putPreludeList []      = ()
         | putPreludeList (w::ws) = (putPrelude w; putPreludeList ws);
     in
-      val U : unit = putPreludeList preludeCode
+      val () = putPreludeList preludeCode
     end;
     
     local
@@ -3985,7 +3982,7 @@ itself.
         val byteEndofcode = endOfCode * 4;
         val addr = mkAddr byteEndofcode;
       in
-        val U : unit = set32u (byteEndofcode, addr, seg) 
+        val () = set32u (byteEndofcode, addr, seg) 
       end;
       
       (* Put in the number of constants. This must go in before we actually put
@@ -3994,21 +3991,21 @@ itself.
       local
         val addr = mkAddr ((endOfCode + 3 + 1) * 4);
       in
-        val U : unit = set32u (2, addr, seg) 
+        val () = set32u (2, addr, seg) 
       end;
       
       (* Next the profile count. *)
       local
         val addr = mkAddr ((endOfCode + 1) * 4);
       in
-        val U : unit = set32u (0, addr, seg) 
+        val () = set32u (0, addr, seg) 
       end;
       
       (* Now we've filled in all the C integers; now we need to convert the segment
          into a proper code segment before it's safe to put in any ML values.
          SPF 13/2/97
       *)
-      val U : unit = csegConvertToCode seg;
+      val () = csegConvertToCode seg;
 
       local
         (* why do we treat the empty string as a special case? SPF 15/7/94 *)
@@ -4031,7 +4028,7 @@ itself.
 		end
 		val regSet = List.foldl encodeReg 0w0 registerSet
       in
-        val U : unit = csegPutWord (seg, endOfCode + 3, toMachineWord regSet);
+        val () = csegPutWord (seg, endOfCode + 3, toMachineWord regSet);
       end;
     end;  (* scope of endOfCode *)
   in 
@@ -4081,7 +4078,7 @@ itself.
              way and I'm not completely sure that everything that needs a mutable
              allocation actually asks for it yet. SPF 19/2/97
           *)
-          val U : unit = lock addr;
+          val () = lock addr;
         in
           addr
         end
@@ -4089,9 +4086,9 @@ itself.
       (* Now we know the address of this object we can fix up
          any forward references outstanding. This is put in here
          because there may be directly recursive references. *)
-      val U : unit = fixOtherRefs (cvec, toMachineWord addr);
+      val () = fixOtherRefs (cvec, toMachineWord addr);
   
-      val U : unit = 
+      val () = 
 		if printAssemblyCode
 		then (* print out the code *)
 		  (

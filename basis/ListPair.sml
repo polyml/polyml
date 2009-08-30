@@ -61,45 +61,45 @@ structure ListPair : LIST_PAIR =
 	 | unzip [] = ([], [])
 	 
 	fun map f (h::t, h'::t') = f(h, h') :: map f (t, t')
-	  | map f _ = []
+	  | map _ _ = []
 
 	fun mapEq f (h::t, h'::t') = f(h, h') :: mapEq f (t, t')
-	  | mapEq f ([], []) = []
-	  | mapEq f _ = raise UnequalLengths
+	  | mapEq _ ([], []) = []
+	  | mapEq _ _ = raise UnequalLengths
 
 	fun app f (h::t, h'::t') = (f(h, h'); app f (t, t'))
-	  | app f _ = ()
+	  | app _ _ = ()
 
 	fun appEq f (h::t, h'::t') = (f(h, h'); appEq f (t, t'))
-	  | appEq f ([], []) = ()
-	  | appEq f _ = raise UnequalLengths
+	  | appEq _ ([], []) = ()
+	  | appEq _ _ = raise UnequalLengths
 
 	fun foldl f b (h::t, h'::t') = foldl f (f(h, h', b)) (t, t')
-	  | foldl f b _ = b
+	  | foldl _ b _ = b
 
 	fun foldr f b (h::t, h'::t') = f(h, h', foldr f b (t, t'))
-	  | foldr f b _ = b
+	  | foldr _ b _ = b
 
 	fun foldlEq f b (h::t, h'::t') = foldlEq f (f(h, h', b)) (t, t')
-	  | foldlEq f b ([], []) = b
-	  | foldlEq f _ _ = raise UnequalLengths
+	  | foldlEq _ b ([], []) = b
+	  | foldlEq _ _ _ = raise UnequalLengths
 
 	fun foldrEq f b (h::t, h'::t') = f(h, h', foldrEq f b (t, t'))
-	  | foldrEq f b ([], []) = b
-	  | foldrEq f _ _ = raise UnequalLengths
+	  | foldrEq _ b ([], []) = b
+	  | foldrEq _ _ _ = raise UnequalLengths
 
 	fun exists f (h::t, h'::t') = if f(h, h') then true else exists f (t, t')
-	  | exists f _ = false
+	  | exists _ _ = false
 
 	(* all and allEq differ in the way they handle lists of different lengths.
 	   all returns true if the predicate holds up to the shorter of the lists whereas
 	   allEq returns false if the lists have different lengths. *)
 	fun all f (h::t, h'::t') = if f(h, h') then all f (t, t') else false
-	  | all f _ = true
+	  | all _ _ = true
 
 	(* Is it better to check the lengths first? *)
 	fun allEq f (h::t, h'::t') = if f(h, h') then allEq f (t, t') else false
-	  | allEq f ([], []) = true
-	  | allEq f _ = false
+	  | allEq _ ([], []) = true
+	  | allEq _ _ = false
 
 	end;

@@ -58,7 +58,6 @@ struct
         let
             (* we promise to be very careful! *)
             val toAddress : 'a -> address = unsafeCast;
-            val toShort   : 'a -> short   = unsafeCast;
             
             (* Both addresses *)
             val aa  : address = toAddress a;

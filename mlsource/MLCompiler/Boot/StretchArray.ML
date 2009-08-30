@@ -114,7 +114,7 @@ struct
 	|   vector {contents = ref (AVector v), ...} = v
 
     (* Turn an array into a vector and turn the ref into an immutable. *)
-	fun freeze {contents = ref (AVector v), ...} = ()
+	fun freeze {contents = ref (AVector _), ...} = ()
 	 |  freeze {contents = contents as ref (AnArray a), ...} =
 	    (
 	    contents := AVector(Array.vector a);

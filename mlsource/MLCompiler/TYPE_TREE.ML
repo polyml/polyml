@@ -129,15 +129,9 @@ struct
   fun isTypeVar          (TypeVar          _) = true
     | isTypeVar          _ = false;
      
-  fun isTypeConstruction (TypeConstruction _) = true
-    | isTypeConstruction _ = false;
-     
   fun isFunctionType     (FunctionType     _) = true
     | isFunctionType     _ = false;
-    
-  fun isLabelled         (LabelledType     _) = true
-    | isLabelled         _ = false;
-    
+
   fun isEmpty             EmptyType           = true
     | isEmpty            _ = false;
     
@@ -154,10 +148,6 @@ struct
     
   fun typesFunctionType     (FunctionType     x) = x
      | typesFunctionType     _ = raise Match;
-     
-  fun typesLabelled         (LabelledType     x) = x
-    | typesLabelled         _ = raise Match;
-    
 
   (* A type construction is the application of a type constructor to
      a sequence of types to yield a type. A construction may have a nil
@@ -213,7 +203,7 @@ struct
     then lab
     else let (* Use a type variable so that the record can be expanded. *)
       val var = mkTypeVar (generalisable, false, false);
-      val U : unit =
+      val () =
         if isTypeVar var
         then tvSetValue (typesTypeVar var, lab)
         else ();
@@ -266,8 +256,8 @@ struct
     fun sortLabels [] = []
     |   sortLabels (s::rest) =
     let
-        fun enter s name [] = [s]
-          | enter s name (l as ( (h as {name=hname, typeof}) :: t)) =
+        fun enter s _    [] = [s]
+          | enter s name (l as ( (h as {name=hname, ...}) :: t)) =
         let
             val comp = compareLabels (name, hname);
         in
@@ -394,7 +384,7 @@ struct
            foldT arg (foldT result res)
     
       | LabelledType {recList,...} =>
-           List.foldr (fn ({ name, typeof }, v) => foldT typeof v) res recList
+           List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
 
       | BadType =>
           res
@@ -461,8 +451,8 @@ struct
 	 considered as tuples. *)
   fun isProductType(LabelledType{recList=recList as _::_::_, frozen=true, ...}) =
   	let
-		fun isRec [] n = true
-		 |  isRec ({name, typeof} :: l) n =
+		fun isRec [] _ = true
+		 |  isRec ({name, ...} :: l) n =
 		 		name = Int.toString n andalso isRec l (n+1)
 	in
 		isRec recList 1
@@ -473,7 +463,7 @@ struct
     (* Test to see is a type constructor is in an overload set. *)
     fun isInSet(tcons: typeConstrs, (H::T): typeConstrs list) =
 			sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
-    |   isInSet(tcons: typeConstrs, []: typeConstrs list) = false
+    |   isInSet(_, []: typeConstrs list) = false
 
     (* Returns the preferred overload if there is one. *)
     fun preferredOverload typeset =
@@ -519,7 +509,7 @@ struct
                     ]);
     
             (* prints a sequence of items *)
-            fun prettyList [] depth separator: pretty list = []
+            fun prettyList [] _ _: pretty list = []
 
             |   prettyList [H] depth separator =
                 let
@@ -596,7 +586,7 @@ struct
                                 end
                             |   NONE => false
                         )
-                    |   findType (env as { lookupStruct, ... }, structName :: tail, map) =
+                    |   findType ({ lookupStruct, ... }, structName :: tail, map) =
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
                             case lookupStruct structName of
@@ -653,7 +643,7 @@ struct
                                 else
                                 case nameToList(idName, []) of
                                     (idNames, true) => idNames
-                                |   (idNames, _) => names (*@ ["(*N*)"]*) (* Temporary marker *)(* Use the type constructor name anyway. *)
+                                |   (_, _) => names (*@ ["(*N*)"]*) (* Temporary marker *)(* Use the type constructor name anyway. *)
                             end
                     val newName = String.concatWith "." names
                     (* TODO: If we don't find the type we want we should:
@@ -723,12 +713,12 @@ struct
 		        else if isProductType typ
         		then (* Print as a product *)
                     PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
-                        prettyList (map (fn {name, typeof} => typeof) recList) depth "*")
+                        prettyList (map (fn {typeof, ...} => typeof) recList) depth "*")
         		else (* Print as a record *)
                 PrettyBlock (2, false, [],
                     PrettyString "{" ::
             	 	(let
-            			fun pRec [] depth = []
+            			fun pRec [] _ = []
             			  | pRec ({name, typeof} :: T) depth =
             			  	if depth <= 0 then [PrettyString "..."]
             				else
@@ -922,14 +912,14 @@ struct
              ]; (* pValConstr *)
            
          (* Print a sequence of constructors (unblocked) *)
-         fun pValConstrRest ([],     depth): pretty list = []
+         fun pValConstrRest ([],     _    ): pretty list = []
            | pValConstrRest (H :: T, depth): pretty list =
                if depth < 0 then []           
                else 
                    pValConstr (false, valName H, valTypeOf H, depth) @
                      pValConstrRest (T, depth - 1)
            
-         fun pValConstrList ([],     depth) = PrettyString "" (* shouldn't occur *)    
+         fun pValConstrList ([],     _    ) = PrettyString "" (* shouldn't occur *)    
            | pValConstrList (H :: T, depth) =
                PrettyBlock (2, true, [],
         		   pValConstr (true, valName H, valTypeOf H, depth) @
@@ -1180,9 +1170,6 @@ struct
 	       #name x = #name y andalso 
 	       equalTypes(#typeof x) (#typeof y) andalso equalRecordLists xs ys
     | equalRecordLists _        _      = false;
-    
-
-  fun trivMap (t : types) : types = t; 
 
   (* See if the types are the same. This is a bit of a fudge, but saves carrying
      around a flag saying whether the structures were copied. This is only an
@@ -1230,7 +1217,7 @@ struct
       TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
         copyTypeVar atyp
     
-    | TypeConstruction {name, value, args, locations} => 
+    | TypeConstruction {value, args, locations, ...} => 
       let
 		val copiedArgs   = copyList args;
 		val copiedConstr = copyTypeConstr (pling value);
@@ -1239,7 +1226,6 @@ struct
 		   using copyType to generate copies of the value constructors of
 		   replicated datatypes. *)
 		val copiedName = tcName copiedConstr
-        val oldName = tcName(pling value)
       in
 		if identicalList   (copiedArgs, args) andalso
 		   identicalConstr (copiedConstr, pling value)
@@ -1509,9 +1495,9 @@ struct
          
    | LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
    		(* TODO: Avoid copying the list? *)
-       eqForList (map (fn{name,typeof}=>typeof) recList, Yes)
+       eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
 
-   | OverloadSet {typeset} =>
+   | OverloadSet _ =>
 		(* This should not happen because all overload sets should be pointed
 		   to by type variables and so should be handled in the TypeVar case. *)
    		raise InternalError "equality - Overloadset found"
@@ -1538,7 +1524,6 @@ struct
            at it. *)
 
         fun isProcessed (Processed _) = true | isProcessed _ = false;
-        fun isNotSeen   (NotSeen   _) = true | isNotSeen   _ = false;
     
         fun stateProcessed (Processed x) = x | stateProcessed _ = raise Match;
         fun stateNotSeen   (NotSeen   x) = x | stateNotSeen   _ = raise Match;
@@ -1547,7 +1532,7 @@ struct
 
         (* Look at each of the constructors in the list. Equality testing is
            only allowed if it is allowed for each of the alternatives. *)
-        fun constrEq constructor []       soFar = soFar (* end of list - all o.k. *)
+        fun constrEq _           []       soFar = soFar (* end of list - all o.k. *)
         |   constrEq constructor (h :: t) soFar =
             (* The constructor may be a constant e.g.
         	   datatype 'a list = nil | ... or  a function e.g.
@@ -1563,7 +1548,7 @@ struct
                    then equality is allowed for this datatype.  *)
     	        val eq = 
     	            equality (#arg (typesFunctionType (valTypeOf h)),
-                        genEquality, fn tyVar => Yes);
+                        genEquality, fn _ => Yes);
             in
     	        if eq = No
     	        then (* Not allowed. *) No
@@ -1674,8 +1659,8 @@ struct
   
     fun match (Atype : types, Btype : types) : unit =
     let (* Check two records/tuples and return the combined type. *)
-      fun unifyRecords (recA as {frozen=typAFrozen, recList=typAlist, genericInstance = gA},
-	  					recB as {frozen=typBFrozen, recList=typBlist, genericInstance = gB},
+      fun unifyRecords ({frozen=typAFrozen, recList=typAlist, genericInstance = gA},
+	  					{frozen=typBFrozen, recList=typBlist, genericInstance = gB},
 	  					typA : types, typB : types) : types =
       let
 		(* If we add a field to the instance we have to add a corresponding type variable to
@@ -1724,7 +1709,7 @@ struct
 						   I don't really understand this and I don't know whether it's
 						   actually possible to have a missing field at this point. *)
 						fun checkEntries [] = ()
-						|	checkEntries ((ge as {name, typeof = _}) :: geRest) =
+						|	checkEntries (({name, typeof = _}) :: geRest) =
 							let
 								val order = compareLabels (name, field)
 							in
@@ -1756,7 +1741,7 @@ struct
             if typAFrozen
 			then cantMatch (typA, typB, "(Field " ^ bName ^ " missing)")
 			else (* Add all the extra fields in bList to all the generics for A. *)
-				List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gA) bList;
+				List.app(fn {name, ...} => List.app (addFieldToGeneric name) gA) bList;
             bList (* return the remainder of the list *)
            )
 
@@ -1764,7 +1749,7 @@ struct
             ( 
              if typBFrozen
 			 then cantMatch (typA, typB, "(Field " ^ aName ^ " missing)")
-			 else List.app(fn {name, typeof} => List.app (addFieldToGeneric name) gB) aList;
+			 else List.app(fn {name, ...} => List.app (addFieldToGeneric name) gB) aList;
              aList (* the rest of aList *)
             )
         
@@ -1835,7 +1820,7 @@ struct
          N.B. It does not propagate equality status. The reason is that
          if we are unifying ''a with '_b ref, the '_b does NOT become
          an equality type var. In all other cases it would. *)
-      fun checkForLoops t false = false
+      fun checkForLoops _ false = false
        |  checkForLoops (TypeVar tvar) true =
            let
              (* The level is the minimum of the two, and if we are unifying with
@@ -2055,7 +2040,7 @@ struct
 					 	let
 							(* The lists aren't ordered so we just have to go
 							   through by hand. *)
-							fun intersect(a, []) = []
+							fun intersect(_, []) = []
 							  | intersect(a, H::T) =
 							  		if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
 							val newSet = intersect(setA, setB)
@@ -2338,7 +2323,7 @@ struct
 
     (* Turn a result from matchTypes into a pretty structure so that it
        can be included in a message. *)
-    fun unifyTypesErrorReport (lex, alphaTypeEnv, betaTypeEnv, what) =
+    fun unifyTypesErrorReport (_, alphaTypeEnv, betaTypeEnv, what) =
     let
         fun reportError(SimpleError(alpha: types, beta: types, reason)) =
             (* This previously used a single type variable sequence for
@@ -2448,7 +2433,7 @@ struct
 	   it returns the "best".  This is called in the third pass so it
        should never be called if there is not at least one type that
        is possible. *)
-    fun typeConstrFromOverload(f, isConverter) =
+    fun typeConstrFromOverload(f, _) =
     let
   	fun prefType(TypeVar tvar) =
 			( (* If we still have an overload set that's because it has
@@ -2673,7 +2658,7 @@ struct
      
   fun entryNumber (label, LabelledType{recList, ...}) =
     let (* Count up the list. *)
-      fun entry ({name, typeof}::l) n =
+      fun entry ({name, ...}::l) n =
         if name = label then n else entry l (n + 1)
 	   |  entry [] _ = raise Match
     in
@@ -2686,7 +2671,7 @@ struct
    | entryNumber (label, TypeConstruction{value, ...}) = (* Type alias *)
 		entryNumber (label, tcEquivalent(pling value))
       
-   | entryNumber (label, _) =
+   | entryNumber _ =
    		raise InternalError "entryNumber - not a record"
 
   (* Size of a labelled record. *)

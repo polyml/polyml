@@ -161,7 +161,7 @@ struct
     val tyseqSyntax = SYMSET.comma ++ SYMSET.rightParen;
     val lrSyntax    = SYMSET.comma ++ SYMSET.rightCurly;
    
-    fun parseType (fsys, lex, env as {lookupTvar}) =
+    fun parseType (fsys, lex, env) =
     let
         fun tupleType fsys =
         let
@@ -214,7 +214,7 @@ struct
 	                    else
                         let
                             (* The same label name should not be used more than once. *)
-                            fun reportDup (name, newLoc, oldLoc) =
+                            fun reportDup (name, newLoc, _) =
                                 errorMessage (lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
                             val dupCheck = noDuplicates reportDup
                             (* All the labels should be the same sort. *)
@@ -222,7 +222,7 @@ struct
 	                            getList (SYMBOLS.comma, empty, lex,
 		                            fn () =>
 		                            let
-		                                val nameAndLoc as (name, nameLoc) =
+		                                val nameAndLoc as (_, nameLoc) =
                                             getLabel (fsys ++ SYMSET.colon, lex);
                                         val () = #enter dupCheck nameAndLoc;
 		                                val () = getsym (SYMBOLS.colon, lex);
@@ -251,7 +251,7 @@ struct
 	                (* Constructor such as `int' *)
 	                then
                     let
-                        val idLocn as (id, locn) = getid (SYMSET.ident, fsys, lex)
+                        val idLocn as (_, locn) = getid (SYMSET.ident, fsys, lex)
                     in
                         ([makeParseTypeConstruction (idLocn, ([], locn), locn)], locn)
                     end

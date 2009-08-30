@@ -215,7 +215,6 @@ local
         let
             val a_length = sizeAsWord a
             and b_length = sizeAsWord b
-            val chars = a_length + b_length
         in
             (* Handle the special cases where one of the strings is
                empty.  As well as saving on duplicating storage it
@@ -298,7 +297,7 @@ local
            look-up for longer ones.  *)
         fun contains s =
             let
-            fun match 0w0 c = false
+            fun match 0w0 _ = false
               | match i c = unsafeSub(s, i-0w1) = c orelse match (i-0w1) c
             in
             match (sizeAsWord s)
@@ -310,7 +309,7 @@ local
         (* Convert the first i digits as a hex number.  Check the result is
            in the range before returning it. *)
         local
-        fun readHex' getc str 0 res =
+        fun readHex' _    str 0 res =
                 if res > maxOrd then NONE else SOME(chr res, str)
           | readHex' getc str i res = 
                 case getc str of
@@ -334,7 +333,7 @@ local
         end
     
         (* Convert the first i digits as a decimal. There must be exactly i digits. *)  
-        fun readDec getc str 0 res =
+        fun readDec _    str 0 res =
                 if res > maxOrd then NONE else SOME(chr res, str)
           | readDec getc str i res = 
                 case getc str of
@@ -347,7 +346,7 @@ local
                         else (* Not enough valid digits. *) NONE
 
         (* Convert up to i digits as an octal number.  There may be fewer than i digits. *)
-        fun readOct getc str 0 res =
+        fun readOct _    str 0 res =
                 if res > maxOrd then NONE else SOME(chr res, str)
           | readOct getc str i res = 
                 case getc str of
@@ -471,7 +470,7 @@ local
                            the library definition. *)
                           | SOME(#"x", str'') => (* Hex encoding. *)
                                      readHex getc str''
-                          | SOME(ch', str'') =>
+                          | SOME(ch', _) =>
                                 if #"0" <= ch' andalso ch' <= #"7"
                                 then (* Octal encoding *) readOct getc str' 3 0
                                 else (* Unknown escape *) NONE
@@ -564,11 +563,11 @@ local
                             else res
                 end
 
-            fun print_char depth _ (c: char) =
+            fun print_char _ _ (c: char) =
                 PolyML.PrettyString("#\"" ^ toString c ^ "\"")
         in
-            val unused: unit = RunCall.addOverload convChar "convChar";
-            val unused: unit = PolyML.addPrettyPrinter print_char
+            val () = RunCall.addOverload convChar "convChar";
+            val () = PolyML.addPrettyPrinter print_char
         end
     
         (* Define the type-specific inequalities. *)
@@ -624,7 +623,7 @@ local
                     (* Find the character by first removing any empty strings. *)
                     fun getChar []        = raise Fail ""  (* Should never occur *)
                       | getChar ("" :: T) = getChar T
-                      | getChar (H :: T) = H (* Should be a single character *)
+                      | getChar (H :: _) = H (* Should be a single character *)
                 in
                     getChar L
                 end
@@ -633,7 +632,7 @@ local
                     val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
                     val vec = alloc chs
                   
-                    fun copy (i, []:string list) = ()
+                    fun copy (_, []:string list) = ()
                      | copy (i, H :: T) =
                         let
                         val src_len = sizeAsWord H
@@ -651,8 +650,8 @@ local
                 end
             end (* concat *)
 
-        fun concatWith s [] = ""
-         |  concatWith s [one] = one
+        fun concatWith _ [] = ""
+         |  concatWith _ [one] = one
          |  concatWith s (hd :: tl) =
             let
                 fun mk [] = []
@@ -881,8 +880,8 @@ local
             fun print_string _ _ (s: string) =
                 PolyML.PrettyString(concat["\"", toString s, "\""])
         in
-            val unused: unit = RunCall.addOverload convString "convString";
-            val unused: unit = PolyML.addPrettyPrinter print_string
+            val () = RunCall.addOverload convString "convString";
+            val () = PolyML.addPrettyPrinter print_string
         end
         
         (* True if s1 is a prefix of s2 *)
@@ -930,7 +929,7 @@ local
         
         
         (* Functions specific to CharVector, apart from map which is common. *)
-        fun tabulate (0, f) : vector = "" (* Must not try to lock it. *)
+        fun tabulate (0, _) : vector = "" (* Must not try to lock it. *)
          |  tabulate (1, f) : vector = charAsVec(f 0)
          |  tabulate (length: int , f : int->elem): vector =
         let
@@ -954,7 +953,7 @@ local
                     val length = sizeAsWord
                     fun unsafeSub(s, i) =
                         if System_isShort s then vecAsChar s else System_loadb(s, i + wordSize);
-                    fun unsafeSet(s, i, v) = raise Fail "Should not be called"
+                    fun unsafeSet(_, _, _) = raise Fail "Should not be called"
                 end);
     
         open VectorOps;
@@ -1163,7 +1162,7 @@ in
            have to take care of that.  We don't actually check that the source
            and destination are the same but simply use either incrementing or
            decrementing copy operations depending on the index values. *)
-        fun copy {src as Array (len, s), dst as Array (dlen, d), di: int} =
+        fun copy {src=Array (len, s), dst=Array (dlen, d), di: int} =
             let
                 val diW = unsignedShortOrRaiseSubscript di
             in
@@ -1175,7 +1174,7 @@ in
         (* Copy avector into an array. *)
         (* Since the source is actually a string we have to start the
            copy from si+wordSize. *)
-        fun copyVec {src, dst as Array (dlen, d), di: int} =
+        fun copyVec {src, dst=Array (dlen, d), di: int} =
             let
                 val len = LibrarySupport.sizeAsWord src
                 val diW = unsignedShortOrRaiseSubscript di
@@ -1208,7 +1207,7 @@ in
             fun pretty _ _ x =
                 PolyML.PrettyString(String.concat["\"", String.toString(vector x), "\""])
         in
-            val unused = PolyML.addPrettyPrinter pretty
+            val () = PolyML.addPrettyPrinter pretty
         end
     end;
 
@@ -1465,23 +1464,13 @@ in
            I can't remember my reasoning about this at the moment.  *)
         val equal_ptr: string*string->bool = RunCall.run_call2 POLY_SYS_word_eq
         
-        fun span (Slice{vector=s, start=i, length=n}, Slice{vector=s', start=i', length=n'}) =
+        fun span (Slice{vector=s, start=i, length=_}, Slice{vector=s', start=i', length=n'}) =
             (* First check with pointer equality and only if that fails do we use the
                string equality function. *)
             if (equal_ptr(s, s') orelse s = s') andalso i'+n' >= i
             then Slice{vector=s, start=i, length=i'+n'-i}
             else raise General.Span 
-            
-            
-            local
-            (* map and translate are defined to apply f from left to right. *)
-            fun list_map f [] = []
-              | list_map f (a::b) = f a :: list_map f b
-            in
-            (* TODO: Could be defined more efficiently. *)
-            fun translate f s = String.concat(list_map f (explode s))
-            end
-            
+           
         (* tokens and fields are very similar except that tokens does not return
            empty strings for adjacent delimiters whereas fields does.
            This definition is almost the same as String.tokens and String.fields. *)
@@ -1527,6 +1516,7 @@ in
             end
     
         (* TODO: Could be defined more efficiently. *)
+        (* map and translate are defined to apply f from left to right. *)
         fun translate f s = String.concat(List.map f (explode s))
         
         fun position s (Slice{vector=s', start=i, length=n}) =
@@ -1550,7 +1540,7 @@ in
           | getc(Slice{vector=s, start=i, length=l}) = SOME(unsafeSub(s, i), Slice{vector=s, start=i+0w1, length=l-0w1})
     
         fun first(Slice{length=0w0, ...}) = NONE
-          | first(Slice{vector=s, start=i, length=l}) = SOME(unsafeSub(s, i))
+          | first(Slice{vector=s, start=i, length=_}) = SOME(unsafeSub(s, i))
         
     end;
 
@@ -1615,7 +1605,7 @@ in
             end
 
         (* Copy a slice into an array. *)
-        fun copy {src, dst as Array (dlen, d), di: int} =
+        fun copy {src, dst as Array (_, d), di: int} =
         let
             val (Array(_, s), start, length) = base src
         in
@@ -1625,7 +1615,7 @@ in
         end
     
         (* Copy a vector slice into an array. *)
-        fun copyVec {src: CharVectorSlice.slice, dst as Array (dlen, d), di: int} =
+        fun copyVec {src: CharVectorSlice.slice, dst=Array (dlen, d), di: int} =
             let
                 val (source, i, l) = CharVectorSlice.base src
                 val len = intAsWord l and offset = intAsWord i

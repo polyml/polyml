@@ -201,7 +201,6 @@ local
     val inlineFunctors = ref true
     val maxInlineSize = ref 40
     val printInAlphabeticalOrder = ref true
-    val printTypesWithStructureName = ref true
     val traceCompiler = ref false
     
     fun prettyPrintWithIDEMarkup(stream : string -> unit, lineWidth : int): PolyML.pretty -> unit =
@@ -214,7 +213,7 @@ local
         
         fun beginMarkup context =
             case List.find (fn ContextLocation _ => true | _ => false) context of
-                SOME (ContextLocation{file,startLine,startPosition,endLine,endPosition}) =>
+                SOME (ContextLocation{file,startLine,startPosition,endPosition, ...}) =>
                 let
                     (* In the unlikely event there's an escape character in the
                        file name convert it to ESC-ESC. *)
@@ -483,8 +482,8 @@ local
                     if s1 = s2 then kindToInt k1 <= kindToInt k2
                     else s1 <= s2
 
-            fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
-            |   quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
+            fun quickSort _                      ([]:'a list)      = []
+            |   quickSort _                      ([h]:'a list)     = [h]
             |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
             let
                 val (after, befor) = List.partition (leq h) t
@@ -545,7 +544,7 @@ local
         fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
         let
             (* Find the first item that matches or return the default. *)
-            fun find f def [] = def
+            fun find _ def [] = def
               | find f def (hd::tl) =
                   case f hd of
                       SOME s => s
@@ -638,7 +637,7 @@ local
                significant characters are typed. *)
             fun readin () : char option =
             let
-                val setPrompt : unit =
+                val () =
                     if !lastWasEol (* Start of line *)
                     then if !realDataRead
                     then printOut (if isDebug then "debug " ^ !prompt2 else !prompt2)
@@ -748,7 +747,7 @@ local
                 val () = breakNext := false;
                 val () =
                     case !stack of
-                        {lineNo, fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
+                        {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
                     |   [] => () (* Shouldn't happen. *)
 
                 val compositeNameSpace = (* Compose any debugEnv with the global environment *)
@@ -836,7 +835,7 @@ local
 
             |   3 => (* Function raised an exception. *)
                 let
-                     val (args, stackTail) =
+                     val (args, _) =
                         case !stack of
                             [] => (value, []) (* Use the passed in value for the arg. *)
                         |   {arguments, ...} ::tl => (arguments, tl)
@@ -987,7 +986,7 @@ local
             present
         end
     
-    fun findFileTuple (directory, object) [] = NONE
+    fun findFileTuple _                   [] = NONE
     |   findFileTuple (directory, object) (suffix :: suffixes) =
     let
         val fileName  = object ^ suffix
@@ -1023,9 +1022,6 @@ local
     val newTimeStamp : unit -> timeStamp = Time.now
     (* Get the date of a file. *)
     val fileTimeStamp : string -> timeStamp = OS.FileSys.modTime
-    (* String representation - includes trailing "\n"! *)
-    fun stringOfTimeStamp (t : timeStamp) : string =
-        Date.toString(Date.fromTimeLocal t) ^ "\n"
     
     local
         open Universal

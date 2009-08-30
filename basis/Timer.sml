@@ -63,7 +63,7 @@ struct
 		and totalCPUTimer () =
 			{ userTime=Time.zeroTime, sysTime=Time.zeroTime, gcUTime=Time.zeroTime, gcSTime=Time.zeroTime }
 
-        fun checkCPUTimes (timer as { userTime, sysTime, gcUTime, gcSTime }) =
+        fun checkCPUTimes (timer as { gcUTime, gcSTime, ... }) =
             let
                 val { usr, sys } = checkCPUTimer timer
                 val gc_usr = getGCUTime() - gcUTime and gc_sys = getGCSTime() - gcSTime 

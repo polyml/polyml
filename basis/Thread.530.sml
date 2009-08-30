@@ -185,7 +185,6 @@ struct
         (* Create non-overwritable mutables for mutexes and condition variables.
            A non-overwritable mutable in the executable or a saved state is not
            overwritten when a saved state further down the hierarchy is loaded. *)
-		val F_non_overwrite_mutable : word = 0wx48;
 		val System_alloc: word*word*word->word  =
 			RunCall.run_call3 POLY_SYS_alloc_store
     in
@@ -624,9 +623,9 @@ struct
 end;
 
 local
-    fun prettyMutex _ _ (m: Thread.Mutex.mutex) = PolyML.PrettyString "?"
-    and prettyThread _ _ (m: Thread.Thread.thread) = PolyML.PrettyString "?"
-    and prettyCondVar _ _ (m: Thread.ConditionVar.conditionVar) = PolyML.PrettyString "?"
+    fun prettyMutex _ _ (_: Thread.Mutex.mutex) = PolyML.PrettyString "?"
+    and prettyThread _ _ (_: Thread.Thread.thread) = PolyML.PrettyString "?"
+    and prettyCondVar _ _ (_: Thread.ConditionVar.conditionVar) = PolyML.PrettyString "?"
 in
     val () = PolyML.addPrettyPrinter prettyMutex
     and () = PolyML.addPrettyPrinter prettyThread

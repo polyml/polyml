@@ -300,7 +300,7 @@ fun setFinal f v = Underlying.setFinal (thevol f) (thevol v)
 
 
     local
-        fun prettyVol _ _ (m: vol) = PolyML.PrettyString "?"
+        fun prettyVol _ _ (_: vol) = PolyML.PrettyString "?"
     in
         val () = PolyML.addPrettyPrinter prettyVol
     end

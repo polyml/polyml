@@ -60,10 +60,10 @@ structure Option : OPTION =
 	  | app _ NONE = ()
 
  	fun map f (SOME v) = SOME (f v)
-	  | map f NONE = NONE
+	  | map _ NONE = NONE
 
  	fun mapPartial f (SOME v) = f v
-	  | mapPartial f NONE = NONE
+	  | mapPartial _ NONE = NONE
 
 
 	fun compose (f, g) a =

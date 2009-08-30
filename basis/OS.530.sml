@@ -597,7 +597,7 @@ struct
 		
 					(* Add as many parent arcs as there are arcs in the path. *)
 					fun addParents [] p = p
-					 |  addParents (a::b) p = parentArc :: addParents b p
+					 |  addParents (_::b) p = parentArc :: addParents b p
 
 					fun matchPaths [] [] = [currentArc] (* Both equal *)
 					 |  matchPaths p  [] = (* Absolute path is finished - return p *) p
@@ -624,7 +624,7 @@ struct
 		   must match the whole string. *)
 	    fun isRoot s =
 		let
-			val (volLen, vol, isAbs) = matchVolumePrefix  s
+			val (volLen, _, isAbs) = matchVolumePrefix  s
 		in
 			isAbs andalso volLen = String.size s andalso isCanonical s
 		end
@@ -639,9 +639,6 @@ struct
 		let
 			(* We may have occurrences of "/" in the arcs if that is not
 			   a separator on this OS.  Replace them by this machine's separator. *)
-			val convArc =
-				String.translate (
-					fn ch => if ch = #"/" then separator else String.str ch)
 			fun mapArc a =
 				if a = currentArc then "."
 				else if a = parentArc then ".."
@@ -1007,7 +1004,6 @@ struct
 				Vector.fromList(List.map(fn(_, i) => i) l)
 			val bitVector: word Vector.vector =
 				Vector.fromList(List.map(fn(b, _) => b) l)
-			val nDescs = Vector.length ioVector
 			(* Do the actual polling.  Returns a vector with bits
 			   set for the results. *)
 			val resV: word Vector.vector =

@@ -93,7 +93,7 @@ struct
 		  		if List.length l <> i
 				then raise Size
 				else SOME i
-		val checkLengths = List.foldl checkLen NONE l
+        val _ = List.foldl checkLen NONE l
 	in
 		(* Build the arrays. *)
 		toArray(Vector.fromList(List.map (fn ll => Array.fromList ll) l))

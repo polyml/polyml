@@ -104,7 +104,7 @@ in
                 struct
                     type vector = vector and elem = elem
                     val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
-                    fun unsafeSub (v as Vector s, i) =
+                    fun unsafeSub (Vector s, i) =
                         if System_isShort s then RunCall.unsafeCast s else System_loads(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
@@ -137,7 +137,7 @@ in
                    )
     			end
         in
-            val unused = PolyML.addPrettyPrinter pretty
+            val () = PolyML.addPrettyPrinter pretty
         end
     
     end (* Vector *);
@@ -226,7 +226,7 @@ in
         (* Copy an array into another.  It's possible for the arrays to be the
            same but in that case di must be zero (since len = dlen) and the copy is
            a no-op. *)
-        fun copy {src as Array (len, s), dst as Array (dlen, d), di: int} =
+        fun copy {src=Array (len, s), dst=Array (dlen, d), di: int} =
             let
                 val diW = unsignedShortOrRaiseSubscript di
             in
@@ -236,7 +236,7 @@ in
             end
     
         (* Copy a vector into an array. *)
-        fun copyVec {src as Vector s, dst as Array (dlen, d), di: int} =
+        fun copyVec {src as Vector s, dst=Array (dlen, d), di: int} =
             let
                 val len = intAsWord(vecLength src)
                 val diW = unsignedShortOrRaiseSubscript di
@@ -287,7 +287,7 @@ in
                    )
     			end
         in
-            val unused = PolyML.addPrettyPrinter pretty
+            val () = PolyML.addPrettyPrinter pretty
         end
     end (* Word8Array *);
     
@@ -302,7 +302,7 @@ in
                 struct
                     type vector = vector and elem = Word8.word
                     val vecLength = wVecLength
-                    fun unsafeVecSub(v as Vector s, i: word) =
+                    fun unsafeVecSub(Vector s, i: word) =
                         if System_isShort s then RunCall.unsafeCast s
                         else System_loads(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
@@ -395,7 +395,7 @@ in
             end
 
         (* Copy a slice into an array. *)
-        fun copy {src, dst as Array (dlen, d), di: int} =
+        fun copy {src, dst as Array (_, d), di: int} =
         let
             val (Array(_, s), start, length) = base src
         in
@@ -405,7 +405,7 @@ in
         end
     
         (* Copy a vector slice into an array. *)
-        fun copyVec {src: Word8VectorSlice.slice, dst as Array (dlen, d), di: int} =
+        fun copyVec {src: Word8VectorSlice.slice, dst=Array (dlen, d), di: int} =
             let
                 val (Vector source, i, l) = Word8VectorSlice.base src
                 val len = intAsWord l and offset = intAsWord i

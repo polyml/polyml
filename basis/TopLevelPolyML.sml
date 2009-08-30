@@ -278,7 +278,7 @@ local
                                     then () (* Found the end. *)
                                     else (* Some internal escape code. *) skipToTerminator()
                         )
-                    |   SOME ch => skipToTerminator ()
+                    |   SOME _ => skipToTerminator ()
                     |   NONE => protocolError "End of file"
                 in
                     skipToTerminator ();
@@ -463,7 +463,7 @@ local
                     val next =
                         case tl of
                             [] => []
-                        |   n => [PTnextSibling(
+                        |   _ => [PTnextSibling(
                                     fn () => makelist(tl, [PTpreviousSibling this]))]
                 in
                     (locn, previous @ next @ props)
@@ -492,8 +492,8 @@ local
             fun moveToNth n =
             let
                 fun move (tree, 0) = tree
-                |   move (tree as (loc, opts), n) =
-                    case List.find(fn PTnextSibling f => true | _ => false) opts of
+                |   move ((loc, opts), n) =
+                    case List.find(fn PTnextSibling _ => true | _ => false) opts of
                         NONE =>
                         let
                             (* We have to put a dummy item in at the end since when we
@@ -519,7 +519,7 @@ local
             val previous =
                 case currentList of
                     [] => NONE (* This is the first. *)
-                |   list => SOME(fn () => moveToNth(itemCount-1))
+                |   _ => SOME(fn () => moveToNth(itemCount-1))
             fun next () = moveToNth(itemCount+1)
         in
             { parent = SOME parent, next = SOME next, previous = previous }
@@ -529,7 +529,7 @@ local
         fun navigateTo(searchLocation as {startOffset, endOffset}, lastParsetree) =
         case lastParsetree of
             NONE => NONE
-        |   SOME(location as { startPosition, endPosition, ... }, tree) =>
+        |   SOME({ startPosition, endPosition, ... }, tree) =>
             let
                 open PolyML
                 datatype direction = Up | Down | Left | Right
@@ -604,7 +604,7 @@ local
                 PropertyRequest { requestId: string, parseTreeId: string, location } =>
                 let (* Properties of selected node. *)
                     (* Get the current parse tree and check the ID matches *)
-                    val (parseTree, lastParsetree, currentParseID) = getCurrentParse()
+                    val (_, lastParsetree, currentParseID) = getCurrentParse()
                     val (commands, location) =
                         if parseTreeId = currentParseID
                         then
@@ -645,7 +645,7 @@ local
 
             |   MoveRequest { requestId, parseTreeId, location, direction } =>
                 let  (* Get location after a move relative to a selected node. *)
-                    val (parseTree, lastParsetree, currentParseID) = getCurrentParse()
+                    val (_, lastParsetree, currentParseID) = getCurrentParse()
                     val newLocation =
                         if parseTreeId = currentParseID
                         then
@@ -683,7 +683,7 @@ local
 
             |   TypeRequest { requestId, parseTreeId, location } =>
                 let (* Type of value at selected node. *)
-                    val (parseTree, lastParsetree, currentParseID) = getCurrentParse()
+                    val (_, lastParsetree, currentParseID) = getCurrentParse()
                     val (typeRes, location) =
                         if parseTreeId = currentParseID
                         then
@@ -701,7 +701,7 @@ local
                                         (* TODO: This uses the global name space to find types and structures.
                                            It really should use the local name space but that requires adding
                                            an environment to the parse tree. *)
-                                        case List.find (fn (PolyML.PTtype p) => true | _ => false) tree of
+                                        case List.find (fn (PolyML.PTtype _) => true | _ => false) tree of
                                             SOME(PolyML.PTtype t) =>
                                                 SOME(prettyAsString(
                                                     PolyML.NameSpace.displayTypeExpression(t, 100, PolyML.globalNameSpace)))
@@ -722,7 +722,7 @@ local
 
             |   DecRequest { requestId, parseTreeId, location, decType } =>
                 let (* Information about declaration location of identifier at selected node. *)
-                    val (parseTree, lastParsetree, currentParseID) = getCurrentParse()
+                    val (_, lastParsetree, currentParseID) = getCurrentParse()
                     val (decLocation, location) =
                         if parseTreeId = currentParseID
                         then
@@ -990,7 +990,7 @@ local
                     (* First see if the last compilation has terminated. *)
                     case currentCompilation of
                         NONE => ()
-                    |   SOME (lastCompileId, lastCompileThread) =>
+                    |   SOME (_, lastCompileThread) =>
                             if isActive lastCompileThread
                             then protocolError "Multiple Compilations"
                             else ();
@@ -1037,7 +1037,6 @@ in
         let
             val argList = CommandLine.arguments();
             fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
-            fun rtsCopyright() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (11, ())
             fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
         in
             if List.exists(fn s => s = "-v") argList

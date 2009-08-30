@@ -20,6 +20,7 @@
    compiler and suitable for use with an IDE project file.
    It was constructed from the Poly/ML make files. *)
 PolyML.print_depth 1;
+PolyML.Compiler.reportUnreferencedIds := true;
 use "mlsource/MLCompiler/Boot/Address.ML";
 use "mlsource/MLCompiler/Boot/Misc.530.ML";
 use "mlsource/MLCompiler/Boot/HashTable.ML";

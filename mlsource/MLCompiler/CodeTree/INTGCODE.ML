@@ -183,10 +183,6 @@ struct
 
 
   open RuntimeCalls; (* for POLY_SYS numbers *)
-  
-  val F_mutable_words = Word8.orb (F_mutable, F_words);
-  
-  val objLength = Address.length;
 
   (* gets a value from the run-time system; 
     usually this is a closure, but sometimes it's an int.  *)
@@ -194,23 +190,11 @@ struct
 
   (* minor HACKS *)
   fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-  fun apply f [] = () | apply f (h::t) = (f h; apply f t);
-  
-  val short0 : short = toShort 0;
-  val short1 : short = toShort 1;
-  val short2 : short = toShort 2;
+  fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
       
   val word0 = toMachineWord 0;
-  val word1 = toMachineWord 1;
   
   val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
-  val UnitValue : machineWord = word0; (* unit *)
-  val False : machineWord = word0;     (* false *)
-  val True  : machineWord = word1;     (* true *)
-  val Zero  : machineWord = word0;     (* 0 *)
-  
-  val constntTrue  = Constnt True;
-  val constntFalse = Constnt False;
 
 (* copied from CTREE.ML for efficiency (local calls can be inlined) *)  
 
@@ -255,7 +239,6 @@ struct
     fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
     val initTrans = 5; (* Initial size of tables. *)
-    val initStack = 10;
     
     datatype decEntry =
       StackAddr of int
@@ -281,7 +264,7 @@ struct
     (* Pushes a local or non-local stack value. *)
     fun pushStackValue (addr : int, level : int) : unit =
     let
-      val U : unit =
+      val () =
         if level > 0
         then (* Non-local *)
           genNonLocal(!realstackptr, level, addr, cvec)
@@ -313,7 +296,7 @@ struct
 	case loadStaticLink (locn, 1) of
 	  Recursive code =>
 	  let
-	    val U : unit = genRecRef (code, cvec)
+	    val () = genRecRef (code, cvec)
 	  in
 	    incsp ()
 	  end
@@ -321,7 +304,7 @@ struct
        | Address (addr, level) =>
 	   pushStackValue (addr, level)
        
-       | StaticLink (code, level) =>
+       | StaticLink _ =>
 	   raise InternalError "locaddr: illegal use of static-link function"
    end; (* locaddr *)
 
@@ -331,7 +314,7 @@ struct
      (* Save the stack pointer value here. We may want to reset the stack. *)
      val oldsp = !realstackptr;
 
-     val U : unit =
+     val () =
        case pt of
          MatchFail =>
            (* Leave stack adjustments until later *)
@@ -345,7 +328,7 @@ struct
 	     (* Cut back the stack and branch *)
 	     val adjustment = !realstackptr - oldsp;
 	     
-	     val U : unit =
+	     val () =
                if adjustment < 0
                  then raise InternalError ("gencde (AltMatch): bad adjustment " ^ Int.toString adjustment)
                else if !exited orelse adjustment = 0
@@ -353,39 +336,39 @@ struct
                else
                  resetStack (adjustment, false, cvec);
                  
-             val U : unit = realstackptr := oldsp;
+             val () = realstackptr := oldsp;
 
 	     val thisFailure : labels = putBranchInstruction (jump, cvec);
-	     val U : unit = exited := true
+	     val () = exited := true
 	   in
              failLabs := thisFailure :: !failLabs
 	   end;
 	   
-	   val U : unit = 
+	   val () = 
 	      gencde (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
 	     
 	   (* Get rid of the result from the stack.
 	      If there is a result then exp2 will push it. *)
-	   val U : unit = case whereto of ToStack => decsp () | NoResult => ();
+	   val () = case whereto of ToStack => decsp () | NoResult => ();
 	   val exp1Exited : bool = !exited;
 
 	   (* If exp1 succeeded, we skip exp2 *)
 	   val suceedLab : labels = 
 	     if exp1Exited then noJump else putBranchInstruction (jump, cvec);
 	     
-	   val U : unit =
+	   val () =
 	     if !realstackptr = oldsp then ()
 	     else raise InternalError "gencde: bad stack value"
 	   
 	   (* If exp1 failed, we come here (with NO result). *)
-	   val U : unit = exited := false; (* Don't try to be too clever *)
-	   val U : unit = apply (fn (lab : labels) => fixup (lab, cvec)) (!failLabs);
+	   val () = exited := false; (* Don't try to be too clever *)
+	   val () = apply (fn (lab : labels) => fixup (lab, cvec)) (!failLabs);
 	   
 	   (* Compile exp2 using the OLD matchFailFn *)
-	   val U : unit = gencde (exp2, whereto, tailKind, matchFailFn, loopAddr);
+	   val () = gencde (exp2, whereto, tailKind, matchFailFn, loopAddr);
 
 	   (* If exp1 succeeded, we merge back in here. *)
-	   val U : unit = fixup (suceedLab, cvec);
+	   val () = fixup (suceedLab, cvec);
 	 in
 	   exited := (!exited andalso exp1Exited)
 	 end
@@ -400,7 +383,7 @@ struct
 	      Lambda (lam as {makeClosure = false, name, ...}) => 
 	      let
 		val newCode : code = codeCreate (true, name, parameters);
-		val U : unit =
+		val () =
 		  STRETCHARRAY.update (decVec, addr, ProcConst newCode);
 	      in
 		genSlProc (lam, newCode)
@@ -408,7 +391,7 @@ struct
 	      
 	    | _ => (* Other declaration - to the stack. *)
 	      let
-		val U : unit = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
+		val () = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
 	      in
 		STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
 	      end
@@ -426,7 +409,7 @@ struct
        
        | Indirect {base, offset} =>
          let
-           val U : unit = gencde (base, ToStack, NotEnd, matchFailFn, loopAddr);
+           val () = gencde (base, ToStack, NotEnd, matchFailFn, loopAddr);
          in
            genIndirect (offset, cvec)
          end
@@ -436,7 +419,7 @@ struct
            
        | Constnt w =>
          let
-           val U : unit = pushConst (w, cvec);
+           val () = pushConst (w, cvec);
          in
            incsp ()
          end
@@ -457,7 +440,7 @@ struct
             fun codeList [] = ()
               | codeList (valu :: valus) = 
             let
-              val U : unit =
+              val () =
                 case valu of
                   MutualDecs dl => genMutualDecs (dl, matchFailFn)
                 | Declar _ => gencde (valu, ToStack, NotEnd, matchFailFn, loopAddr)
@@ -508,10 +491,10 @@ struct
 				   an argument may depend on the current value of others.  Only when we've
 				   evaluated all of them can we overwrite the original argument positions. *)
 				fun loadArgs ([], []) = !realstackptr - startSp (* The offset of all the args. *)
-				  | loadArgs (arg:: argList, argOffset :: argIndexList) =
+				  | loadArgs (arg:: argList, _ :: argIndexList) =
 				  	let
 						(* Evaluate all the arguments. *)
-						val U: unit = gencde (arg, ToStack, NotEnd, matchFailFn, NONE);
+						val () = gencde (arg, ToStack, NotEnd, matchFailFn, NONE);
 						val argOffset = loadArgs(argList, argIndexList);
 					in
 						genSetStackVal(argOffset, cvec); (* Copy the arg over. *)
@@ -520,7 +503,7 @@ struct
 					end
 				  | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
 
-				val U: int = loadArgs(argList, argIndexList)
+				val _: int = loadArgs(argList, argIndexList)
 			in
 				if !realstackptr <> startSp
 				then resetStack (!realstackptr - startSp, false, cvec) (* Remove any local variables. *)
@@ -532,8 +515,8 @@ struct
   
        | Raise exp =>
          let
-           val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
-           val U : unit = genRaiseEx cvec;
+           val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
+           val () = genRaiseEx cvec;
          in
            exited := true
          end
@@ -543,17 +526,17 @@ struct
            type handler = labels;
            
            (* Save old handler *)
-           val U : unit = genPushHandler cvec;
-           val U : unit = incsp ();
+           val () = genPushHandler cvec;
+           val () = incsp ();
   
 	   fun genTag (tag : codetree) : handler =
 	   let
 	     (* Push address of new handler. *)
 	     val handlerLab : labels = putBranchInstruction (setHandler, cvec);
-             val U : unit = incsp ();
+             val () = incsp ();
  
 	     (* Push the exception to be caught. *)
-	     val U : unit = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
+	     val () = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
 	   in
 	     handlerLab
 	   end;
@@ -570,7 +553,7 @@ struct
 	  (* Code generate the body; "NotEnd" because we have to come back
 	     to remove the handler; "ToStack" because delHandler needs
 	     a result to carry down. *)
-	  val U : unit = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
+	  val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
 	  
           (* Now get out of the handler and restore the old one. *)
           val skipHandler : labels = putBranchInstruction (delHandler, cvec);
@@ -589,16 +572,16 @@ struct
 	     values off full-word boundaries (either return addresses or
 	     catch-phrases) point into code-segments.
           *)
-          val U : unit = realstackptr := oldsp;
-          val U : unit = exited := false;
-	  val U : unit = alignOffWord (cvec, 0);
-          val U : unit = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
+          val () = realstackptr := oldsp;
+          val () = exited := false;
+	  val () = alignOffWord (cvec, 0);
+          val () = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
 	  (* If we were executing machine code we must re-enter the interpreter. *)
-          val U : unit = genEnterIntCatch cvec;
-          val U : unit = gencde (handler, ToStack, NotEnd, matchFailFn, loopAddr);
+          val () = genEnterIntCatch cvec;
+          val () = gencde (handler, ToStack, NotEnd, matchFailFn, loopAddr);
           
           (* Finally fix-up the jump around the handler *)
-          val U : unit = fixup (skipHandler, cvec);
+          val () = fixup (skipHandler, cvec);
          in
            exited := false
          end
@@ -606,12 +589,12 @@ struct
        | Ldexc =>
          let
            (* Get the name of the exception. *)
-           val U : unit = genLdexc cvec
+           val () = genLdexc cvec
          in
            incsp ()
          end
   
-       | Case (cas as {cases, test, default, min, max}) =>
+       | Case (cas as {cases, min, max, ...}) =>
          let
            val numberOfCases = List.length cases;
          in
@@ -626,15 +609,15 @@ struct
            fun loadItems [] = ()
              | loadItems (v :: vs) =
              let
-               val U : unit = gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
+               val () = gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
              in
                loadItems vs
              end;
              
            val size : int = List.length recList;
   
-           val U : unit = loadItems recList;
-           val U : unit = genTuple (size, cvec);
+           val () = loadItems recList;
+           val () = genTuple (size, cvec);
          in
            realstackptr := !realstackptr - (size - 1)
          end
@@ -688,7 +671,7 @@ struct
 
 			)
 
-		| TupleFromContainer(container, size) =>
+		| TupleFromContainer(container, _) =>
 			(* Create a tuple from the contents of a container. *)
 			(
 			    (* TODO: This returns a MUTABLE record which is different from the
@@ -728,7 +711,7 @@ struct
           val newsp = oldsp + 1;
           val adjustment = !realstackptr - newsp;
 
-          val U : unit =
+          val () =
             if !exited orelse adjustment = 0
               then ()
             else if adjustment < ~1
@@ -746,7 +729,7 @@ struct
         let
           val adjustment = !realstackptr - oldsp;
 
-          val U : unit =
+          val () =
             if !exited orelse adjustment = 0
               then ()
             else if adjustment < 0
@@ -773,15 +756,15 @@ struct
         val newCode : code = codeCreate(false, #name lam, parameters);
         
         (* The only global references are recursive ones (?) *)
-        fun loadRecLink (addr : int, level : int) : slValue =
+        fun loadRecLink (_ : int, _ : int) : slValue =
           Recursive newCode;
         
         (* Code-gen procedure. No non-local references. *)
          val res : address =
            codegen (#body lam, newCode, loadRecLink, #numArgs lam, parameters);
 
-        val U : unit = pushConst(toMachineWord res, cvec);
-        val U : unit = incsp();
+        val () = pushConst(toMachineWord res, cvec);
+        val () = incsp();
       in
         if mutualDecs then doNext () else ()
       end
@@ -808,51 +791,51 @@ struct
       in
          if mutualDecs
          then let (* Have to make the closure now and fill it in later. *)
-           val U : unit = genGetStore (sizeOfClosure, cvec);
-           val U : unit = incsp ();
+           val () = genGetStore (sizeOfClosure, cvec);
+           val () = incsp ();
            
            (* Put code address into closure *)
-           val U : unit = pushConst(toMachineWord res, cvec); 
-           val U : unit = genMoveToVec(0, cvec);
+           val () = pushConst(toMachineWord res, cvec); 
+           val () = genMoveToVec(0, cvec);
            
            val entryAddr : int = !realstackptr;
 
-           val U : unit = doNext (); (* Any mutually recursive procedures. *)
+           val () = doNext (); (* Any mutually recursive procedures. *)
 
            (* Push the address of the vector - If we have processed other
               closures the vector will no longer be on the top of the stack. *)
-           val U : unit = pushStackValue (~ entryAddr, 0);
+           val () = pushStackValue (~ entryAddr, 0);
 
            (* Load items for the closure. *)
            fun loadItems ([], _) = ()
              | loadItems (v :: vs, addr : int) =
              let
                (* Generate an item and move it into the vector *)
-               val U : unit = gencde (v, ToStack, NotEnd, matchFailed, NONE);
-               val U : unit = genMoveToVec(addr, cvec);
-               val U : unit = decsp ();
+               val () = gencde (v, ToStack, NotEnd, matchFailed, NONE);
+               val () = genMoveToVec(addr, cvec);
+               val () = decsp ();
              in
                loadItems (vs, addr + 1)
              end;
              
-           val U : unit = loadItems (#closure lam, 1);
-           val U : unit = genLock cvec; (* Lock it. *)
+           val () = loadItems (#closure lam, 1);
+           val () = genLock cvec; (* Lock it. *)
            
            (* Remove the extra reference. *)
-           val U : unit = resetStack (1, false, cvec);
+           val () = resetStack (1, false, cvec);
          in
            realstackptr := !realstackptr - 1
          end
          
          else let
            (* Put it on the stack. *)
-           val U : unit = pushConst (toMachineWord res, cvec);
-           val U : unit = incsp ();
+           val () = pushConst (toMachineWord res, cvec);
+           val () = incsp ();
            
-           val U : unit =
+           val () =
              apply (fn (pt: codetree) => gencde (pt, ToStack, NotEnd, matchFailFn, NONE)) (#closure lam);
                 
-           val U : unit = genTuple (sizeOfClosure, cvec);
+           val () = genTuple (sizeOfClosure, cvec);
          in
            realstackptr := !realstackptr - (sizeOfClosure - 1)
          end
@@ -896,7 +879,7 @@ struct
        
      (* Now code-generate the procedure. We can throw away the result because
         it will be assigned into the value we have just returned. *)
-     val U : address =
+     val _ : address =
        codegen (#body lam, newCode, loadSl, #numArgs lam, parameters)
    in
      ()
@@ -910,9 +893,9 @@ struct
                 matchFailFn : unit -> unit,
 				loopAddr) : unit =
    let
-     val U : unit = gencde (first, ToStack, NotEnd, matchFailFn, loopAddr);
+     val () = gencde (first, ToStack, NotEnd, matchFailFn, loopAddr);
      val toElse : labels = putBranchInstruction(jumpFalse, cvec);
-     val U : unit = decsp();
+     val () = decsp();
    in
      case third of 
        CodeNil => (* No else-part *)
@@ -922,18 +905,18 @@ struct
            value to get the stack level right we generate it with ``noresult''
            and the stack resetting mechanism will ensure that a result is
            pushed if it is needed. *)
-         val U : unit = gencde (second, NoResult, tailKind, matchFailFn, loopAddr);
-         val U : unit = fixup (toElse, cvec) (* Skipped the then-part. *)
+         val () = gencde (second, NoResult, tailKind, matchFailFn, loopAddr);
+         val () = fixup (toElse, cvec) (* Skipped the then-part. *)
        in
          exited := false (* If the test failed we won't have exited. *)
        end
        
      | _ =>
        let
-	 val U : unit = gencde (second, whereto, tailKind, matchFailFn, loopAddr);
+	 val () = gencde (second, whereto, tailKind, matchFailFn, loopAddr);
 	 (* Get rid of the result from the stack. If there is a result then the
 	    ``else-part'' will push it. *)
-	 val U : unit = case whereto of ToStack => decsp () | NoResult => ();
+	 val () = case whereto of ToStack => decsp () | NoResult => ();
 	 
 	 val thenExited : bool = !exited;
  
@@ -942,13 +925,13 @@ struct
 	   else putBranchInstruction (jump, cvec);
     
 	 (* start of "else part" *)
-	 val U : unit = fixup (toElse, cvec);
-	 val U : unit = exited := false;
-	 val U : unit = gencde (third, whereto, tailKind, matchFailFn, loopAddr);
+	 val () = fixup (toElse, cvec);
+	 val () = exited := false;
+	 val () = gencde (third, whereto, tailKind, matchFailFn, loopAddr);
  
 	 val elseExited : bool= !exited;
 	 
-	 val U : unit = fixup (toExit, cvec);
+	 val () = fixup (toExit, cvec);
        in
 	 exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
        end
@@ -963,7 +946,7 @@ struct
      fun loadArgs [] = ()
        | loadArgs (v :: vs) =
        let (* Push each expression onto the stack. *)
-         val U : unit = gencde(v, ToStack, NotEnd, matchFailFn, NONE);
+         val () = gencde(v, ToStack, NotEnd, matchFailFn, NONE);
        in
          loadArgs vs
        end;
@@ -978,12 +961,12 @@ struct
        | EndOfProc => (* Tail recursive call. *)
          let
            (* Get the return address onto the top of the stack. *)
-           val U : unit = pushStackValue (0, 0);
+           val () = pushStackValue (0, 0);
            
            (* Slide the return address, closure and args over the
               old closure, return address and args, and reset the
               stack. Then jump to the closure. *)
-           val U : unit =
+           val () =
              genTailCall(argsToPass + 2, !realstackptr - 1 + (numOfArgs - argsToPass), cvec);
             (* It's "-1" not "-2", because we didn't bump the realstackptr
                when we pushed the return address. SPF 3/1/97 *)
@@ -991,7 +974,7 @@ struct
            exited := true
          end;
          
-      val U : unit =
+      val () =
 	case #function eval of
 	   (* The procedure is being loaded from the stack or closure so it
 	      may be a static-link procedure. *)
@@ -999,7 +982,7 @@ struct
 	  let
 	    (* Since the procedure is on the stack there can be no side-effects
 	       in loading it. Can therefore load the arguments now. *)
-	    val U : unit = loadArgs argList;
+	    val () = loadArgs argList;
   
 	    val staticLinkValue =
 	      if #fpRel ext
@@ -1020,7 +1003,7 @@ struct
 	    case staticLinkValue of
 	      Address (addr, level) =>
 	      let
-	        val U : unit = pushStackValue (addr, level);
+	        val () = pushStackValue (addr, level);
 	      in
 	        callClosure ()
 	      end
@@ -1028,8 +1011,8 @@ struct
 	      (* recursive reference to a procedure - not static link. *)
 	    | Recursive code =>
 	      let
-	        val U : unit = genRecRef (code, cvec);
-	        val U : unit = incsp();
+	        val () = genRecRef (code, cvec);
+	        val () = incsp();
 	      in
 	        callClosure ()
 	      end
@@ -1037,7 +1020,7 @@ struct
 	     (* Static link *)
 	    | StaticLink (code, level) =>
 	      let
-	        val U : unit = genCallSl(!realstackptr, level, code, cvec);
+	        val () = genCallSl(!realstackptr, level, code, cvec);
 	      in
 	        incsp ()
 	      end
@@ -1062,11 +1045,11 @@ struct
 		   safeToLeave base
 	      | _        => false
     
-	    val U : unit =
+	    val () =
 	      if (case argList of [] => true | _ => safeToLeave (#function eval))
 	      then let
 		(* Can load the args first. *)
-		val U : unit = loadArgs argList;
+		val () = loadArgs argList;
 	      in 
 		gencde (#function eval, ToStack, NotEnd, matchFailFn, NONE)
 	      end
@@ -1076,10 +1059,10 @@ struct
 		   risk leaving. It might have a side-effect and we must
 		   ensure that any side-effects it has are done before the
 		   arguments are loaded. *)
-		val U : unit = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
-		val U : unit = loadArgs(argList);
+		val () = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
+		val () = loadArgs(argList);
 		(* Load the procedure again. *)
-		val U : unit = genLocal(argsToPass, cvec);
+		val () = genLocal(argsToPass, cvec);
 	      in
 		incsp ()
 	      end
@@ -1089,7 +1072,7 @@ struct
 	 end; (* Not Extract *)
 
        (* Make sure we interpret when we return from the call *)
-       val U : unit = genEnterIntCall (cvec, argsToPass);
+       val () = genEnterIntCall (cvec, argsToPass);
 
      in (* body of genEval *)
        realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
@@ -1109,24 +1092,24 @@ struct
         generate them. *)
      val whereto = case #default pt of CodeNil => NoResult | _ => whereto;
      
-     val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
+     val () = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
 
      (* The exit jumps are chained together. *)
      val lastEndJump : labels ref = ref noJump;
      val limit : int = #max pt - #min pt;
 
-     val U : unit =
+     val () =
        if #min pt = 0 then ()
        else let (* Subtract lower limit. *)
-         val U : unit = pushConst(toMachineWord (#min pt), cvec);
-         val U : unit = pushConst(ioOp POLY_SYS_aminus, cvec);
-         val U : unit = genCallClosure cvec;
+         val () = pushConst(toMachineWord (#min pt), cvec);
+         val () = pushConst(ioOp POLY_SYS_aminus, cvec);
+         val () = genCallClosure cvec;
        in
          genEnterIntCall (cvec, 2) (* added SPF 28/6/95 *)
        end;
 
-     val U : unit = genCase (limit, cvec);
-     val U : unit = decsp ();
+     val () = genCase (limit, cvec);
+     val () = decsp ();
  
      (* Addresses are relative to the first entry in the vector. *)
      val startVec : addrs = ic cvec;
@@ -1135,16 +1118,16 @@ struct
          will be overwritten by the actual address later. *)
      val defaultAddr : int = (limit + 1) * 2;
      
-     val U : unit =
+     val () =
        forLoop (fn (_ : int) => genWord (defaultAddr, cvec)) 0 limit;
 
      (* The default case, if any, follows the case statement. *)
-     val U : unit =
+     val () =
        case #default pt of
          CodeNil => ()
        | c       => gencde (c, whereto, tailKind, matchFailFn, loopAddr);
 
-     val U : unit = exited := false;
+     val () = exited := false;
 
      (* Now generate the code for each of the cases. *)
      fun genEachCase ([] : (codetree * int list) list) : unit = ()
@@ -1152,7 +1135,7 @@ struct
        let
 	 (* First exit from the previous case or the default if
 	    this is the first. *)
-	 val U : unit = 
+	 val () = 
 	   lastEndJump :=
 	     linkLabels
 	       (!lastEndJump,
@@ -1160,7 +1143,7 @@ struct
 		cvec);
 		
 	 (* Remove the result - the last case will leave it. *)
-	 val U : unit = case whereto of ToStack => decsp () | NoResult => ();
+	 val () = case whereto of ToStack => decsp () | NoResult => ();
 	 
 	 (* Now put the address of this code into the table if
 	    an entry has not already been set. If it has the new
@@ -1175,19 +1158,19 @@ struct
 	   else ()
 	 end
 	    
-	 val U : unit = apply genEachMatch matches;
+	 val () = apply genEachMatch matches;
 
 	 (* Generate code for this case *)
-	 val U : unit = exited := false;
-	 val U : unit = gencde (body, whereto, tailKind, matchFailFn, loopAddr);
+	 val () = exited := false;
+	 val () = gencde (body, whereto, tailKind, matchFailFn, loopAddr);
        in
 	 genEachCase otherCases
        end; (* genEachCase *)
          
-     val U : unit = genEachCase (#cases pt);
+     val () = genEachCase (#cases pt);
      
      (* Finally go down the list of exit labels pointing them to here. *)
-     val U : unit = fixup (!lastEndJump, cvec);
+     val () = fixup (!lastEndJump, cvec);
    in
      exited := false
    end (* genDenseCase *)
@@ -1219,22 +1202,22 @@ struct
           val lastOne : bool = case cs of [] => true | _ => false;
           
           (* Is this really safe? What about multiple side-effects? SPF *)
-          val U : unit = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
+          val () = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
             
           (* Push the value to be compared. *)
-          val U : unit = pushConst(toMachineWord c, cvec);
+          val () = pushConst(toMachineWord c, cvec);
             
           (* Compare them. If this is the last one compare for equality and
              so skip to the next case if it is not equal, if there are more
              compare for inequality and skip the other tests if it matches. *)
-          val U : unit =
+          val () =
             pushConst (ioOp (if lastOne then POLY_SYS_int_eq else POLY_SYS_int_neq), cvec);
                
-          val U : unit = genCallClosure cvec;
-          val U : unit = genEnterIntCall(cvec, 2); (* added SPF 28/6/95 *)
+          val () = genCallClosure cvec;
+          val () = genEnterIntCall(cvec, 2); (* added SPF 28/6/95 *)
           
           val lab : labels = putBranchInstruction (jumpFalse, cvec);
-          val U : unit     = decsp (); (* Remove result of test. *)
+          val ()     = decsp (); (* Remove result of test. *)
         in (* body of putInCases *)
 	  if lastOne
 	  then lab (* last one - skip if value does not match. *)
@@ -1242,7 +1225,7 @@ struct
 	    (* More than one. If this one matches skip the other tests. *)
 	    (* Drop through to other tests if it does not match. *)
 	    val rLab : labels = putInCases cs;
-	    val U : unit = fixup (lab, cvec);
+	    val () = fixup (lab, cvec);
 	  in
 	    rLab
 	  end
@@ -1251,13 +1234,13 @@ struct
         val lab : labels = putInCases matches;
         
         (* Now the expression. *)
-        val U : unit = gencde(body, whereto, tailKind, matchFailFn, loopAddr);
+        val () = gencde(body, whereto, tailKind, matchFailFn, loopAddr);
         val thisHasExited : bool = !exited;
         
         (* Remove the result - the default case will leave it. *)
-        val U : unit = case whereto of ToStack => decsp () | NoResult => ();
+        val () = case whereto of ToStack => decsp () | NoResult => ();
         
-        val U : unit = 
+        val () = 
           lastEndJump :=
              linkLabels
                (!lastEndJump,
@@ -1265,8 +1248,8 @@ struct
                 cvec);
                 
         (* Now the next case. *)
-        val U : unit = fixup (lab, cvec);
-        val U : unit = exited := false;
+        val () = fixup (lab, cvec);
+        val () = exited := false;
       in
         caseCode (otherCases, othersExited andalso thisHasExited)
       end; (* caseCode *)
@@ -1274,14 +1257,14 @@ struct
       (* First the cases. *)
       val casesExited : bool = caseCode (#cases pt, true);
       
-      val U : unit = exited := false;
+      val () = exited := false;
       
-      val U : unit =
+      val () =
         case #default pt of
           CodeNil => ()
-        | c => (* put in the default *)
+        | _ => (* put in the default *)
 	    let
-	      val U : unit = gencde(#default pt, whereto, tailKind, matchFailFn, loopAddr);
+	      val () = gencde(#default pt, whereto, tailKind, matchFailFn, loopAddr);
 	    in
 	      exited := (!exited andalso casesExited)
 	    end;
@@ -1293,7 +1276,7 @@ struct
    (* Mutually recursive declarations. May be either procedures, constants
       or reccons (from type constructors). Recurse down the list pushing the
       addresses of the closure vectors, then unwind the recursion and fill them in. *)
-   and genMutualDecs ([], matchFailFn) : unit = ()
+   and genMutualDecs ([], _) : unit = ()
      | genMutualDecs (Declar decl :: otherDecs, matchFailFn) : unit =
      (
        case #value decl of
@@ -1303,9 +1286,9 @@ struct
 	     (* Create a code-segment and put it in the table in case of
 		 mutually recursive references. *)
 	     val newCode : code = codeCreate(true, #name lam, parameters);
-	     val U : unit = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
+	     val () = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
 	     (* Deal with any other possible references. *)
-	     val U : unit = genMutualDecs (otherDecs, matchFailFn);
+	     val () = genMutualDecs (otherDecs, matchFailFn);
 	   in
 	     (* Can now process this procedure since we have made an entry
 		in the table for everything it could refer to. *)
@@ -1315,7 +1298,7 @@ struct
 	   else let (* Closure. *)
 	     fun doRest () : unit  = 
 	     let
-	       val U : unit = STRETCHARRAY.update (decVec, #addr decl, StackAddr (! realstackptr));
+	       val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (! realstackptr));
 	     in
 	       (* Now time to do the other closures. *)
 	       genMutualDecs (otherDecs, matchFailFn)
@@ -1326,8 +1309,8 @@ struct
 	 
        | dec => (* constants or reccons.*)
 	 let
-	   val U : unit = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
-	   val U : unit = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
+	   val () = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
+	   val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
 	 in
 	   genMutualDecs (otherDecs, matchFailFn)
 	 end
@@ -1339,15 +1322,15 @@ struct
        break-point instruction in the machine-code instruction set to make sure
        that the code is interpreted. It is a no-op if we are already
        interpreting. *)
-    val U : unit = genEnterIntProc (cvec, numOfArgs); (* SPF 23/6/95 *)
+    val () = genEnterIntProc (cvec, numOfArgs); (* SPF 23/6/95 *)
 
    (* Generate the procedure. *)
    (* Assume we always want a result. There is otherwise a problem if the
       called routine returns a result of type void (i.e. no result) but the
       caller wants a result (e.g. the identity function). *)
-    val U : unit = gencde (pt, ToStack, EndOfProc, matchFailed, NONE);
+    val () = gencde (pt, ToStack, EndOfProc, matchFailed, NONE);
 
-    val U : unit = if !exited then () else genReturn (numOfArgs, cvec);
+    val () = if !exited then () else genReturn (numOfArgs, cvec);
   in (* body of codegen *)
    (* Having code-generated the body of the procedure, it is copied
       into a new data segment. *)
@@ -1366,7 +1349,7 @@ struct
         val newCode : code = codeCreate (false, #name lam, parameters);
 
         (* The only global references are recursive ones (?) *)
-        fun loadRecLink (level : int, addr : int) : slValue =
+        fun loadRecLink (_ : int, _ : int) : slValue =
           Recursive newCode;
 
         (* This procedure must have no non-local references. *)
@@ -1384,7 +1367,7 @@ struct
        val newCode : code = codeCreate(false, "<top level>", parameters);
 
         (* There ane *no*  global references at all *)
-        fun loadRecLink (level : int, addr : int) : slValue =
+        fun loadRecLink (_ : int, _ : int) : slValue =
           raise InternalError "top level reached";
 
        val closureAddr : address =

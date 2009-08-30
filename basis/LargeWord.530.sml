@@ -169,8 +169,6 @@ local
 		val wordSizeAsWord = wordFromInt wordSize
 	end
 
-	val wordeq: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;	
-
 	structure Words :>
 	sig
 		(* The result signatures are quite complicated because the general

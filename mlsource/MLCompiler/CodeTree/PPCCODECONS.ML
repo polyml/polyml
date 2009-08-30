@@ -422,10 +422,10 @@ struct
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
   
-  fun applyCountList (f, n, [])   = ()
+  fun applyCountList (_, _, [])   = ()
     | applyCountList (f, n, h::t) = 
     let
-      val U : unit = f (n, h);
+      val () = f (n, h);
     in
       applyCountList (f, n + 1, t)
     end;
@@ -471,7 +471,7 @@ struct
     fun exp2 0 = 1
       | exp2 n = 2 * exp2 (n - 1);
   in
-    val U : bool = 
+    val _ : bool = 
       (
         exp2_1  = exp2 1  andalso
         exp2_2  = exp2 2  andalso
@@ -541,7 +541,6 @@ struct
   
   val mask2Bits = short3;   (* least significant 2 bits *)
   val mask3Bits = short7;   (* least significant 3 bits *)
-  val mask5Bits = short31;  (* least significant 5 bits *)
   val mask6Bits = short63;  (* least significant 6 bits *)
   val mask7Bits = short127; (* least significant 7 bits *)
   val mask8Bits = short255; (* least significant 8 bits *)
@@ -618,11 +617,6 @@ struct
     val int16_0  = Imm16  0;
     val int16_1  = Imm16  1;
     val int16_2  = Imm16  2;
-    val int16_3  = Imm16  3;
-    val int16_4  = Imm16  4;
-    val int16_6  = Imm16  6;
-    val int16_8  = Imm16  8;
-    val int16_16 = Imm16 16;
   end; (* int16 *)
   
   
@@ -635,10 +629,7 @@ struct
      quantity when we actually generate the code.
   *)
   abstype int24 = Imm24 of int
-  with
-    fun isZero24 (Imm24 0) = true
-      | isZero24 (Imm24 _) = false;
-  
+  with  
     fun getInt24 (Imm24 i) = i;
     
     (* is24Bit is the test for signed 24-bit immediates *) 
@@ -674,10 +665,7 @@ struct
      quantity when we actually generate the code.
   *)
   abstype int14 = Imm14 of int
-  with
-    fun isZero14 (Imm14 0) = true
-      | isZero14 (Imm14 _) = false;
-  
+  with  
     fun getInt14 (Imm14 i) = i;
     
     (* is14Bit is the test for signed 14-bit immediates *) 
@@ -713,32 +701,8 @@ struct
      quantity when we actually generate the code.
   *)
   abstype int10 = Imm10 of int
-  with
-    fun isZero10 (Imm10 0) = true
-      | isZero10 (Imm10 _) = false;
-  
+  with  
     fun getInt10 (Imm10 i) = i;
-    
-    (* is10Bit is the test for signed 10-bit immediates *) 
-    fun is10Bit i = ~ exp2_9 <= i andalso i < exp2_9;
-    
-    fun int10 i =
-      if is10Bit i
-      then 
-        if i < 0 
-        then Imm10 (exp2_10 + i)
-        else Imm10 i
-      else let
-        val msg = 
-          concat
-           [
-             "int10: can't convert ",
-             Int.toString i,
-             " into a 10-bit signed immediate"
-           ]
-      in
-        raise InternalError msg
-      end;
       
     val int10_0   = Imm10   0;
     val int10_4   = Imm10   4;
@@ -757,7 +721,6 @@ struct
     val int10_444 = Imm10 444;
     val int10_459 = Imm10 459
     val int10_467 = Imm10 467;
-    val int10_512 = Imm10 512; (* *unsigned* 512 *)
     val int10_520 = Imm10 520; (* *unsigned* 520 *)
     val int10_528 = Imm10 528; (* *unsigned* 528 *)
     val int10_747 = Imm10 747; (* *unsigned* 747 *)
@@ -803,7 +766,6 @@ struct
     val int5_5  = Imm5  5;
     val int5_12 = Imm5 12;
     val int5_13 = Imm5 13;
-    val int5_31 = Imm5 31;
   end; (* int5 *)
   
 (*****************************************************************************)
@@ -821,7 +783,7 @@ struct
     val lo16  = pi mod exp2_16;
     val hi16  = pi div exp2_16;
     
-    val U : unit =
+    val () =
       if isUnsigned16Bit hi16
       then ()
       else let
@@ -853,7 +815,7 @@ struct
     val lo16  = i mod exp2_16;
     val hi16  = i div exp2_16;
     
-    val U : unit =
+    val () =
       if is16Bit hi16
       then ()
       else let
@@ -902,7 +864,7 @@ struct
     val regCode     = NONE; (* No special register required *)
     val regClosure  = Reg 24; (* address of closure (or static link) *)
     val regReturn   = Reg 25; (* return address *)
-    val regTemp3    = Reg 26; (* Unsaved temporary. *)
+    (*val regTemp3    = Reg 26;*) (* Unsaved temporary. *)
     val regStackPtr = Reg 27; (* current ML stack pointer *)
     (* r28 is no longer used *)
     val regHeapPtr  = Reg 29; (* current heap allocation pointer *)
@@ -936,9 +898,6 @@ struct
       
     fun a regEq  b = getReg a  = getReg b;
     fun a regNeq b = getReg a <> getReg b;
-    fun a regLeq b = getReg a <= getReg b;
-    fun a regGeq b = getReg a >= getReg b;
-    fun (Reg a) regMinus (Reg b) = a - b;
   
     (* The number of the register. *)
     fun nReg (Reg n) =
@@ -1213,7 +1172,7 @@ struct
       (bits21_25, bits16_20, bits11_15, bits1_10, bits0_0 = 1)
     end;
 
-    fun printUnknown (instr : int, printStream) : unit = 
+    fun printUnknown (_ : int, printStream) : unit = 
     let
     in
       printStream "??????\t"
@@ -1234,7 +1193,7 @@ struct
     
     fun printArithmeticXform (name : string, instr : int, printStream) : unit = 
     let
-      val (RT : int, RA : int, RB : int, op2: int, Rc : bool) = 
+      val (RT : int, RA : int, RB : int, _: int, Rc : bool) = 
         splitXform instr;
     in
       printStream name;
@@ -1262,7 +1221,7 @@ struct
     
     fun printLogicalXform (name : string, instr : int, printStream) : unit = 
     let
-      val (RS : int, RA : int, RB : int, op2: int, Rc : bool) = 
+      val (RS : int, RA : int, RB : int, _: int, Rc : bool) = 
         splitXform instr;
     in
       printStream name;
@@ -1290,7 +1249,7 @@ struct
     
     fun printStorageXform (name : string, instr : int, printStream) : unit = 
     let
-      val (RT : int, RA : int, RB : int, op2: int, Rc : bool) = 
+      val (RT : int, RA : int, RB : int, _: int, _ : bool) = 
         splitXform instr;
     in
       printStream name;
@@ -1332,7 +1291,7 @@ struct
     
     fun printExt31 (instr : int, printStream) : unit = 
     let
-      val (F1 : int, F2 : int, F3 : int, OP2 : int, F4 : bool) = 
+      val (F1 : int, F2 : int, F3 : int, OP2 : int, _ : bool) = 
         splitXform instr;
     in
       case OP2 of
@@ -1647,7 +1606,7 @@ struct
  val MemRegisterStackOverflow   = 32 (* Called when the stack limit is reached. *)
  val MemRegisterStackOverflowEx = 36 (* Called when the stack limit is reached. *)
  val MemRegisterRaiseException  = 40 (* Called to raise an exception with an exception packet. *)
- val MemRegisterIOEntry         = 44 (* Called to make an IO call.  Not currently used by the code-generator. *)
+ (*val MemRegisterIOEntry         = 44 *)(* Called to make an IO call.  Not currently used by the code-generator. *)
  val MemRegisterRaiseDiv        = 48 (* Called to raise a divide exception. *)
  val MemRegisterArbEmulation    = 52 (* Called to emulate an arbitrary precision instruction. *)
 
@@ -1840,15 +1799,6 @@ struct
     DformQuad (ADDIS, rt', ra', SI)
   end;
 
-  fun add (rt : reg, ra : reg, rb : reg) : quad =
-  let
-    val rt' : int5 = getReg5 rt;
-    val ra' : int5 = getReg5 ra;
-    val rb' : int5 = getReg5 rb;
-  in
-    XformQuad (EXT31, rt', ra', rb', op31ToInt10 ADD, false)
-  end;
-
   fun sub (rt : reg, ra : reg, rb : reg) : quad =
   let
     val rt' : int5 = getReg5 rt;
@@ -1929,15 +1879,6 @@ struct
     DformQuad (ANDIDOT, rs', ra', UI)
   end;
   
-  fun andisDot (ra : reg, rs : reg, UI : int16) : quad =
-  let
-    val ra' : int5 = getReg5 ra;
-    val rs' : int5 = getReg5 rs;
-  in
-    (* the RA and RS fields are "backwards" in logical operations *)
-    DformQuad (ANDISDOT, rs', ra', UI)
-  end;
-  
   (* "and" is an ML keyword, so we use "and_" *)
   fun and_ (ra : reg, rs : reg, rb : reg) : quad =
   let
@@ -2008,9 +1949,6 @@ struct
   
     fun mflr (rt : reg) : quad = 
       XformQuad (EXT31, getReg5 rt, LR, int5_0, op31ToInt10 MFSPR, false);
-  
-    fun mfctr (rt : reg) : quad = 
-      XformQuad (EXT31, getReg5 rt, CTR, int5_0, op31ToInt10 MFSPR, false);
   end;
   
 (*****************************************************************************)
@@ -2303,11 +2241,6 @@ struct
   fun mergeCacheStates (Unreachable,         state)               = state
     | mergeCacheStates (Reachable lr1, Reachable lr2) = Reachable (lr1 andalso lr2)
     | mergeCacheStates (state,               Unreachable)         = state
-
-  (* Use this when we modify (only) LR *)
-  fun LRmodified Unreachable            = Unreachable
-    | LRmodified (Reachable true)       = Reachable false
-    | LRmodified state                  = state;
     
   (* Does LR cache the return address? *)
   fun LRcacheActive Unreachable         = true (* sic *)
@@ -2325,9 +2258,6 @@ struct
   datatype jumpFrom =
     Jump14From of addrs * cacheState  (* branch instruction has 14-bit offset field *)
   | Jump24From of addrs * cacheState; (* branch instruction has 24-bit offset field *)
-  
-  fun isLongJump (Jump24From _ ) = true
-    | isLongJump (Jump14From _ ) = false
       
   (* We need a jumpFrom ref, because we may have to indirect short branches
      via long branches if the offset won't fit into 14 bits *)
@@ -2399,24 +2329,17 @@ struct
 
   fun codeVec        (Code {codeVec,...})          = codeVec;
   fun ic             (Code {ic,...})               = ic;
-  fun constVec       (Code {constVec,...})         = constVec;
-  fun numOfConsts    (Code {numOfConsts,...})      = numOfConsts;
   fun stackReset     (Code {stackReset ,...})      = stackReset;
   fun pcOffset       (Code {pcOffset,...})         = pcOffset;
   fun labelList      (Code {labelList,...})        = labelList;
   fun longestBranch  (Code {longestBranch,...})    = longestBranch;
   fun procName       (Code {procName,...})         = procName;
   fun otherCodes     (Code {otherCodes,...})       = otherCodes;
-  fun resultSeg      (Code {resultSeg,...})        = resultSeg;
   fun mustCheckStack (Code {mustCheckStack,...})   = mustCheckStack;
   fun justComeFrom   (Code {justComeFrom,...})     = justComeFrom;
-  fun selfCalls      (Code {selfCalls,...})        = selfCalls;
-  fun selfJumps      (Code {selfJumps,...})        = selfJumps;
-  fun noClosure      (Code {noClosure,...})        = noClosure;
   fun cacheState     (Code {cacheState,...})       = cacheState;
 
   fun scSet (Set x) = x | scSet _ = raise Match;
-  fun isSet (Set _) = true | isSet _ = false
 
   fun unreachable (Code {justComeFrom, cacheState, ...}) = 
     case (justComeFrom, cacheState) of
@@ -2427,11 +2350,6 @@ struct
      the pcOffset ref is the same. N.B. NOT its contents. *)
   infix is;
   fun a is b = (pcOffset a = pcOffset b);
-  
-  fun sameConst (WVal w1, WVal w2) = wordEq (w1, w2)
-    | sameConst (HVal h1, HVal h2) = h1 = h2
-    | sameConst (CVal c1, CVal c2) = c1 is c2
-    | sameConst (_,       _)       = false;
 
   val codesize = 32; (* bytes. Initial size of segment. *)
 
@@ -2563,7 +2481,7 @@ struct
   (* Make a reference to another procedure. Usually this will be a forward *)
   (* reference but it may have been compiled already, in which case we can *)
   (* put the code address in now. *)
-  fun codeConst (Code {resultSeg = ref(Set seg), ... }, into) =
+  fun codeConst (Code {resultSeg = ref(Set seg), ... }, _) =
     (* Already done. *) WVal (toMachineWord(csegAddr seg))
   |  codeConst (r, into)  = (* forward *)
       (* Add the referring procedure onto the list of the procedure
@@ -2571,7 +2489,7 @@ struct
          the referring procedure is finished and its address is known the
          address will be plugged in to every procedure which needs it. *)
       let
-        fun onList x []      = false
+        fun onList _ []      = false
           | onList x (c::cs) = (x is c) orelse onList x cs;
           
         val codeList = ! (otherCodes r);
@@ -2595,14 +2513,14 @@ struct
   fun removeLabel (lab : addrs, cvec) : unit = 
   let
     fun removeEntry ([]: labList) : labList = []
-      | removeEntry ((entry as ref (Jump24From _)) :: t) =
+      | removeEntry ((ref (Jump24From _)) :: t) =
           removeEntry t (* we discard all long jumps *)
         
       | removeEntry ((entry as ref (Jump14From (addr,_))) :: t) =
         if lab addrEq addr
         then removeEntry t
         else let
-          val U : unit =
+          val () =
             if addr addrLt !(longestBranch cvec)
             then longestBranch cvec := addr
             else ();
@@ -2680,7 +2598,7 @@ struct
        We're about to fix up the jump, so remove it from the
        list of pending short jumps.
      *)
-    val U : unit = removeLabel (addr, cvec);
+    val () = removeLabel (addr, cvec);
 
     val oldInstr : quad = getCodeQuad (addr, cvec);
     val newInstr : quad = fixupCondBranch (oldInstr, diff14);
@@ -2753,7 +2671,7 @@ struct
   fun genRawInstruction (instr : quad, cvec : code) : unit =
     if unreachable cvec then ()
     else let
-      val U : unit = reallyFixup cvec;
+      val () = reallyFixup cvec;
     in
       genCodeQuad (instr, cvec)
     end;
@@ -2771,7 +2689,7 @@ struct
   let
     val sr  = stackReset cvec;
     val adj = !sr * 4;
-    val U : unit = sr := 0;
+    val () = sr := 0;
   in
     genRawInstructionList (addImmed (regStackPtr, regStackPtr, adj), cvec)
   end;
@@ -2818,11 +2736,11 @@ struct
             if !icRef wordAddrMinus addr = 1
             then let
               (* simply skip back one instruction *)
-              val U : unit = icRef := addr;
+              val () = icRef := addr;
               (* remove the label from the "pending jumps" list *)
-              val U : unit = removeLabel (addr, cvec);
+              val () = removeLabel (addr, cvec);
               (* update the cached state, to reflect the dummy fixup *)
-              val U : unit = 
+              val () = 
                 cacheState cvec := 
                   mergeCacheStates (!(cacheState cvec), cachedState);
             in
@@ -2834,9 +2752,9 @@ struct
             if !icRef wordAddrMinus addr = 1
             then let
               (* simply skip back one instruction *)
-              val U : unit = icRef := addr;
+              val () = icRef := addr;
               (* update the cached state, to reflect the dummy fixup *)
-              val U : unit = 
+              val () = 
                 cacheState cvec := 
                   mergeCacheStates (!(cacheState cvec), cachedState);
             in
@@ -2857,7 +2775,7 @@ struct
        let
          (* Any pending stack reset must be done now.
             That may involve fixing up pending jumps. *)
-         val U : unit = genPendingStackAdjustment cvec;
+         val () = genPendingStackAdjustment cvec;
        in
         (* Add together the jumps to here, updating the cache state *)
         justComeFrom cvec := checkLabsCarefully lab @ !(justComeFrom cvec)
@@ -2878,7 +2796,7 @@ struct
     (* val maxDiff = 100; for testing purposes *)
     val maxDiff : int = (exp2_13 - 1000) - needed;
     
-    fun inList x []     = false
+    fun inList _ []     = false
       | inList x (h::t) = (x = h) orelse inList x t;
  
    (* Go down the list converting any long labels, and finding the
@@ -2908,24 +2826,24 @@ struct
              if here wordAddrMinus addr > maxDiff
              then let (* Getting close - convert it. *)
                (* fix up the short branch to here *)
-               val U : unit = branchInPoint cvec;
-               val U : unit = reallyFixupBranch (!lab, here, cvec);
+               val () = branchInPoint cvec;
+               val () = reallyFixupBranch (!lab, here, cvec);
                          
                (* recompute "here", in case we've generated some code *)
                val here : addrs = !(ic cvec);
                (* long jump to the final destination *)
-               val U : unit = genCodeQuad (branchAlwaysQuad, cvec);
+               val () = genCodeQuad (branchAlwaysQuad, cvec);
                (* alter the jump state on the old label (and discard the new one) *)
-               val U : unit = lab := Jump24From (here, cachedState);
+               val () = lab := Jump24From (here, cachedState);
                (* We don't fall through from here. *)
-               val U : unit = cancelFallThrough cvec;
+               val () = cancelFallThrough cvec;
              in
                convertRest
              end
              else let
                (* Not ready to remove this. Just find out if
                   this is an earlier branch and continue. *)
-               val U : unit =
+               val () =
                  if addr addrLt !(longestBranch cvec)
                  then longestBranch cvec := addr
                  else ();
@@ -2940,24 +2858,24 @@ struct
         (* Must save the stack-reset, otherwise "fixup" will try
            to reset it. *)
         val sr       = ! (stackReset cvec);
-        val U : unit = stackReset cvec := 0;
+        val () = stackReset cvec := 0;
          
         (* Must skip round the branches unless we have just
            taken an unconditional branch. *)
         val lab = 
           if unreachable cvec then []
           else let
-            val U : unit = genRawInstruction (branchAlwaysQuad, cvec);
+            val () = genRawInstruction (branchAlwaysQuad, cvec);
             val lab = [makeLongLabel cvec];
-            val U : unit = cancelFallThrough cvec;
+            val () = cancelFallThrough cvec;
           in
             lab
           end
           
         (* Find the new longest branch while converting the labels *)
-        val U : unit = longestBranch cvec := addrLast;
-        val U : unit = labelList cvec := convertLabels (! (labelList cvec));
-        val U : unit = fixup (lab, cvec); (* Continue with normal processing. *)
+        val () = longestBranch cvec := addrLast;
+        val () = labelList cvec := convertLabels (! (labelList cvec));
+        val () = fixup (lab, cvec); (* Continue with normal processing. *)
       in
         stackReset cvec := sr (* Restore old value. *)
       end
@@ -2974,7 +2892,7 @@ struct
   fun genInstruction (instr : quad, cvec : code) : unit =
   let
     (* fix up any pending-overflow jumps *)
-    val U : unit = checkBranchList (0, cvec);
+    val () = checkBranchList (0, cvec);
   in
     genRawInstruction (instr, cvec)
   end;
@@ -3005,7 +2923,7 @@ struct
       then 4 * !(stackReset cvec)
       else 0;
       
-    val U : unit = 
+    val () = 
       if rt regEq regStackPtr
         then stackReset cvec := 0
       else ();
@@ -3029,7 +2947,7 @@ struct
     if unreachable cvec then []
     else let
       (* generate stack adjustment (if necessary) *)
-      val U : unit = genPendingStackAdjustment cvec;
+      val () = genPendingStackAdjustment cvec;
  
        (*
           If we are branching and we have just arrived from somewhere
@@ -3052,7 +2970,7 @@ struct
          the jumps.
          SPF 1/12/95
       *)
-      val U : unit = justComeFrom cvec := [];
+      val () = justComeFrom cvec := [];
      
       (* 
          The following code is very delicate. If we've just made the
@@ -3067,7 +2985,7 @@ struct
     then oldLab
         else let
       (* generate the actual branch *)
-      val U : unit = genInstruction (branchAlwaysQuad, cvec);
+      val () = genInstruction (branchAlwaysQuad, cvec);
     in
       makeLongLabel cvec :: oldLab
     end;
@@ -3077,7 +2995,7 @@ struct
          the label would propagate the wrong cacheState forwards.
          SPF 1/12/95
       *)
-      val U : unit = cancelFallThrough cvec;
+      val () = cancelFallThrough cvec;
     in
       lab
     end;
@@ -3085,8 +3003,8 @@ struct
   fun putConditional (test : testCode, cvec : code) : labels =
     if unreachable cvec then [] (* SPF 5/6/95 *)
     else let
-      val U : unit = genPendingStackAdjustment cvec; (* may generate code *)
-      val U : unit = genInstruction (condBranch (test, int14_0), cvec);
+      val () = genPendingStackAdjustment cvec; (* may generate code *)
+      val () = genInstruction (condBranch (test, int14_0), cvec);
     in
       (* Make a label for this instruction. *)
       [makeShortLabel cvec]
@@ -3108,7 +3026,7 @@ struct
   fun genX31 (rt : reg, ra : reg, rb : reg, op2 : opCode31,
               rc : bool, cvec : code) : unit =
   let
-    val U : unit = 
+    val () = 
       if rt regEq regStackPtr orelse
          ra regEq regStackPtr orelse
          rb regEq regStackPtr
@@ -3162,9 +3080,6 @@ struct
   fun genMtlr  (rs : reg, cvec : code) : unit = 
     genInstruction (mtlr rs, cvec);
     
-  fun genMflr  (rt : reg, cvec : code) : unit =
-    genInstruction (mflr rt, cvec);
-    
   fun genMtctr (rs : reg, cvec : code) : unit =
     genInstruction (mtctr rs, cvec);
     
@@ -3189,7 +3104,7 @@ struct
     then raise InternalError ("genLoad: can't use " ^ regRepr regTemp1)
     else let
       (* Do we need to fix-up the stack pointer? *)
-      val U : unit = 
+      val () = 
     if rt regEq regStackPtr
       then genPendingStackAdjustment cvec
       else ();
@@ -3216,7 +3131,7 @@ struct
     then raise InternalError ("genStore: can't use " ^ regRepr regTemp1)
     else let
       (* Do we need to fix-up the stack pointer? *)
-      val U : unit = 
+      val () = 
         if rs regEq regStackPtr
         then genPendingStackAdjustment cvec
         else ();
@@ -3260,7 +3175,7 @@ struct
     then raise InternalError ("genStoreByte: can't use " ^ regRepr regTemp1)
     else let
       (* Do we need to fix-up the stack pointer? *)
-      val U : unit = 
+      val () = 
     if rs regEq regStackPtr
     then genPendingStackAdjustment cvec
     else ();
@@ -3303,9 +3218,9 @@ struct
  
   (* Exported - Can we store the value without going through a register?
      No. *)
-  fun isStoreI (cnstnt: machineWord, _, _) : bool = false;
+  fun isStoreI _ : bool = false;
 
-  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, width, index: reg, cvec: code) : unit =
+  fun genStoreI _ : unit =
     raise InternalError "Not implemented: genStoreI";
 
   (* Store a value on the stack.  This is used when the registers need to be
@@ -3315,7 +3230,7 @@ struct
     (* Just adjust stackReset to decrement the virtual stack pointer;
        genStore handles everything else. *)
     val sr = stackReset cvec;
-    val U : unit = sr := !sr - 1;
+    val () = sr := !sr - 1;
   in
     genStoreWord (r, 0, regStackPtr, regNone, cvec) (* corrupts regTemp1 *)
   end;
@@ -3565,11 +3480,11 @@ Calling conventions:
   (* Return and remove args from stack. *)
   fun returnFromFunction (returnReg, args, cvec) : unit =
   let  (* mtlr resReg; blr *)
-    val U : unit = resetStack (args, cvec); (* Add in the reset. *)
-    val U : unit =
+    val () = resetStack (args, cvec); (* Add in the reset. *)
+    val () =
       if returnAddrIsCached cvec then () else genMtlr (returnReg, cvec);
-    val U : unit = genPendingStackAdjustment cvec;
-    val U : unit = genInstruction (blrQuad, cvec);
+    val () = genPendingStackAdjustment cvec;
+    val () = genInstruction (blrQuad, cvec);
   in
     (* That's the end of this basic block *)
     cancelFallThrough cvec
@@ -3578,11 +3493,11 @@ Calling conventions:
   (* Only used for while-loops. *)
   fun jumpback (lab, stackCheck, cvec) : unit =
   let
-    val U : unit     = genPendingStackAdjustment cvec;
+    val ()     = genPendingStackAdjustment cvec;
     
     (* Put in a stack check. This is used to allow
        the code to be interrupted. *)
-    val U : unit =
+    val () =
       if stackCheck
       then
          let
@@ -3597,9 +3512,9 @@ Calling conventions:
             clearAllCaches cvec
          end
       else ();
-    val U : unit     = reallyFixup cvec;
+    val ()     = reallyFixup cvec;
     val wordOffset : int = lab wordAddrMinus (! (ic cvec));
-    val U : unit     = genInstruction (uncondBranch (int24 wordOffset), cvec)
+    val ()     = genInstruction (uncondBranch (int24 wordOffset), cvec)
   in
     cancelFallThrough cvec
   end;
@@ -3613,13 +3528,13 @@ Calling conventions:
     else let
         val bytes : int      = (length + 1) * 4;
         val lengthWord : int = length + (Word8.toInt flag * exp2_24);
-        val U : unit         = genPendingStackAdjustment cvec;
+        val ()         = genPendingStackAdjustment cvec;
         (* Load r12 with the length word first.  This simplifies recovering if we
            get a trap since we then know how much space we actually wanted. *)
-        val U : unit = genLoadImmed(regTemp2, lengthWord, cvec);
+        val () = genLoadImmed(regTemp2, lengthWord, cvec);
         (* addi rhp, rhp, -bytes ; cmpl rhp,rhl; bge+ L1 *)
-        val U : unit = genInstructionList (addImmed (regHeapPtr,  regHeapPtr, ~bytes), cvec)
-        val U : unit = genCmpl (regHeapPtr, regHeapLim, cvec);
+        val () = genInstructionList (addImmed (regHeapPtr,  regHeapPtr, ~bytes), cvec)
+        val () = genCmpl (regHeapPtr, regHeapLim, cvec);
         val skipTrap = putConditional (GeInv, cvec)
       in
         genLoad(MemRegisterHeapOverflow, regMemRegs, regZero, cvec);
@@ -3642,7 +3557,7 @@ Calling conventions:
   end
 
   (* Don't need to do anything on this machine. *)
-  val completeSegment = (fn code => ());
+  val completeSegment = (fn _ => ());
 
 (***************************************************************************  
   General operations
@@ -3745,17 +3660,17 @@ Calling conventions:
         lab1:
     *)
 
-    val U : unit    = genInstruction (slwiDot  (regZero, r, 31), cvec);
+    val ()    = genInstruction (slwiDot  (regZero, r, 31), cvec);
     (* Jump round the trap.  We invert the prediction flag here because the
        default for a forward jump is "not taken" and this normally will be. *)
     val skipTrap    = putConditional (NeInv, cvec)
-    val U : unit    = genTrapCacheFlush cvec;
+    val ()    = genTrapCacheFlush cvec;
     val lab : addrs = ! (ic cvec);
-    val U : unit = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
-    val U : unit = genMtlr(regZero, cvec);
-    val U : unit = genInstruction(blrlQuad, cvec);
-    val U : unit = fixup(skipTrap, cvec);
-    val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
+    val () = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
+    val () = genMtlr(regZero, cvec);
+    val () = genInstruction(blrlQuad, cvec);
+    val () = fixup(skipTrap, cvec);
+    val () = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
   in
     lab
   end;
@@ -3767,7 +3682,7 @@ Calling conventions:
     if rx regEq ry
     then genTagTest1 (rx, cvec)
     else let
-      val U : unit = genAnd (regTemp1, rx, ry, cvec);
+      val () = genAnd (regTemp1, rx, ry, cvec);
     in
       genTagTest1 (regTemp1, cvec)
     end;
@@ -3791,7 +3706,7 @@ Calling conventions:
 ***************************************************************************)  
 
   (* All are implemented. *)
-  fun isCompRR tc = true;
+  fun isCompRR _ = true;
 
 
   (* Is this argument acceptable as an immediate or should it be *)
@@ -3816,7 +3731,7 @@ Calling conventions:
     case tc of
       Wrd test =>
       let
-        val U : unit = genCmpl (r1, r2, cvec); (* Word comparisons are unsigned. *)
+        val () = genCmpl (r1, r2, cvec); (* Word comparisons are unsigned. *)
       in
         putConditional (test, cvec)
       end
@@ -3840,21 +3755,21 @@ Calling conventions:
           trap which causes the RTS to emulate the immediately following
           comparison.
        *)  
-        val U : unit =
+        val () =
           case test of
             Eq => genOr  (regTemp1, r1, r2, cvec)
           | Ne => genOr  (regTemp1, r1, r2, cvec)
           | _  => genAnd (regTemp1, r1, r2, cvec);
-        val U : unit = genInstruction (slwiDot (regTemp1, regTemp1, 31), cvec);
-        val U : unit = genTrapCacheFlush cvec;
+        val () = genInstruction (slwiDot (regTemp1, regTemp1, 31), cvec);
+        val () = genTrapCacheFlush cvec;
         val skipTrap = putConditional (NeInv, cvec)
-        val U : unit = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
-        val U : unit = genMtlr(regZero, cvec);
-        val U : unit = genInstruction(blrlQuad, cvec);
-        val U : unit = fixup(skipTrap, cvec);
+        val () = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
+        val () = genMtlr(regZero, cvec);
+        val () = genInstruction(blrlQuad, cvec);
+        val () = fixup(skipTrap, cvec);
 
-        val U : unit = genCmp (r1, r2, cvec);
-        val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
+        val () = genCmp (r1, r2, cvec);
+        val () = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
       in
         putConditional (test, cvec)
       end
@@ -3867,7 +3782,7 @@ Calling conventions:
     case tc of
       Short =>
       let
-        val U : unit = genInstruction (andiDot (regTemp1, r, int16_1), cvec);
+        val () = genInstruction (andiDot (regTemp1, r, int16_1), cvec);
       in
         (* jump if the result is non-zero *)
         putConditional (Ne, cvec)
@@ -3875,7 +3790,7 @@ Calling conventions:
         
     | Long =>
       let
-        val U : unit = genInstruction (andiDot (regTemp1, r, int16_1), cvec);
+        val () = genInstruction (andiDot (regTemp1, r, int16_1), cvec);
       in
         (* jump if the result is zero *)
         putConditional (Eq, cvec)
@@ -3885,7 +3800,7 @@ Calling conventions:
       let
         val c  : int   = toInt (toShort cnstnt);
         val ui : int16 = unsignedInt16 (tagged c);
-        val U  : unit  = genCmpli (r, ui, cvec); (* Word comparisons are unsigned. *)
+        val ()  = genCmpli (r, ui, cvec); (* Word comparisons are unsigned. *)
       in
         putConditional (test, cvec)
       end
@@ -3918,15 +3833,15 @@ Calling conventions:
               means we take the trap which causes the RTS to emulate the
               immediately following comparison.
            *)  
-            val U : unit = genInstruction (slwiDot (regTemp1, r, 31), cvec);
-            val U : unit = genTrapCacheFlush cvec;
+            val () = genInstruction (slwiDot (regTemp1, r, 31), cvec);
+            val () = genTrapCacheFlush cvec;
             val skipTrap = putConditional (NeInv, cvec)
-            val U : unit = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
-            val U : unit = genMtlr(regZero, cvec);
-            val U : unit = genInstruction(blrlQuad, cvec);
-            val U : unit = fixup(skipTrap, cvec);
-            val U : unit = genCmpi (r, si, cvec);
-            val U : unit = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
+            val () = genLoad(MemRegisterArbEmulation, regMemRegs, regZero, cvec);
+            val () = genMtlr(regZero, cvec);
+            val () = genInstruction(blrlQuad, cvec);
+            val () = fixup(skipTrap, cvec);
+            val () = genCmpi (r, si, cvec);
+            val () = clearAllCaches cvec; (* If we've taken the trap LR won't be valid. *)
           in
             putConditional (test, cvec)
           end
@@ -3974,7 +3889,7 @@ Calling conventions:
   (* General register/register operation. *)
   fun genRR (instr : instrs, r1 : reg, r2 : reg, rd : reg, cvec : code) : unit =
   let
-    val U : unit =
+    val () =
       (* 
          We shouldn't do arithmetic on the stack pointer,
          but we ought to check, just in case. 
@@ -3992,7 +3907,7 @@ Calling conventions:
     | InstrAddA =>
     let
       (* Untag one of the arguments. *)
-      val U: unit = genAddImmed (regTemp2, r2, ~1, cvec)
+      val () = genAddImmed (regTemp2, r2, ~1, cvec)
       val lab : addrs = genTagTest2 (r1, r2, cvec)
     in
       genAddoDot  (rd, r1, regTemp2, cvec);
@@ -4002,7 +3917,7 @@ Calling conventions:
     | InstrSubA =>
     let
       (* Untag one of the arguments. *)
-      val U: unit = genAddImmed (regTemp2, r2, ~1, cvec)
+      val () = genAddImmed (regTemp2, r2, ~1, cvec)
       val lab : addrs = genTagTest2 (r1, r2, cvec)
     in
       genSubfcoDot (rd, regTemp2, r1, cvec);
@@ -4011,7 +3926,7 @@ Calling conventions:
     
     | InstrRevSubA =>
     let
-      val U: unit = genAddImmed (regTemp2, r1, ~1, cvec)
+      val () = genAddImmed (regTemp2, r1, ~1, cvec)
       val lab : addrs = genTagTest2 (r1, r2, cvec);
     in
       genSubfcoDot (rd, regTemp2, r2, cvec);
@@ -4021,7 +3936,7 @@ Calling conventions:
     | InstrMulA =>
     let
       (* Remove the tag from one of the args. *)
-      val U: unit = genAddImmed (regTemp2, r2, ~1, cvec);
+      val () = genAddImmed (regTemp2, r2, ~1, cvec);
       (* Now test the tags. *)
       val lab : addrs = genTagTest2 (r1, r2, cvec)
     in
@@ -4073,7 +3988,7 @@ Calling conventions:
     | InstrDivW =>
       let
          (* Test for zero.  The addi instruction doesn't set the condition code. *)
-         val U: unit = genCmpi (r2, int16_1, cvec); 
+         val () = genCmpi (r2, int16_1, cvec); 
          val skipException = putConditional(NeInv, cvec)
       in
          (* Raise the divide exception: lwz r0,48(r13); mtlr r0; blrl; *)
@@ -4098,7 +4013,7 @@ Calling conventions:
           use division, multiplication and subtraction. *)
       let
          (* Test for zero.  The addi instruction doesn't set the condition code. *)
-         val U: unit = genCmpi (r2, int16_1, cvec); 
+         val () = genCmpi (r2, int16_1, cvec); 
          val skipException = putConditional(NeInv, cvec)
       in
          (* Raise the divide exception: lwz r0,48(r13); mtlr r0; blrl; *)
@@ -4126,7 +4041,7 @@ Calling conventions:
     
     | InstrXorW =>
       let
-        val U : unit = genXor (regTemp2, r1, r2, cvec)
+        val () = genXor (regTemp2, r1, r2, cvec)
       in
         (* restore tag bit *)
         genInstructionList (orImmed (rd, regTemp2, 1), cvec)
@@ -4232,7 +4147,7 @@ Calling conventions:
      we have to tag the immediate value. *)
   fun genRI (instr : instrs, rs : reg, constnt : machineWord, rd : reg, cvec) : unit =
   let
-    val U : unit =
+    val () =
       (* 
          We shouldn't do arithmetic on the stack pointer,
          but we ought to check, just in case. 
@@ -4253,7 +4168,7 @@ Calling conventions:
     | InstrAddA => (* Arbitrary precision addition. *)
       let
         val c = toInt (toShort constnt)
-        val U : unit    = genLoadImmed (regTemp2, tagged c - 1, cvec);
+        val ()    = genLoadImmed (regTemp2, tagged c - 1, cvec);
         val lab : addrs = genTagTest1 (rs, cvec);
       in
         genAddoDot (rd, rs, regTemp2, cvec);
@@ -4263,7 +4178,7 @@ Calling conventions:
     | InstrSubA => (* Arbitrary precision subtraction. *)
       let
         val c = toInt (toShort constnt)
-        val U : unit    = genLoadImmed (regTemp2, tagged c - 1, cvec);
+        val ()    = genLoadImmed (regTemp2, tagged c - 1, cvec);
         val lab : addrs = genTagTest1 (rs, cvec);
       in
         genSubfcoDot (rd, regTemp2, rs, cvec);
@@ -4273,7 +4188,7 @@ Calling conventions:
     | InstrRevSubA => (* Arbitrary precision reverse subtraction. *)
       let
         val c = toInt (toShort constnt)
-        val U : unit    = genLoadImmed (regTemp2, tagged c + 1, cvec);
+        val ()    = genLoadImmed (regTemp2, tagged c + 1, cvec);
         val lab : addrs = genTagTest1 (rs, cvec);
       in
         genSubfcoDot (rd, rs, regTemp2, cvec);
@@ -4478,30 +4393,19 @@ Calling conventions:
     while !ptr addrLt lastAddr do
     let 
       val thisAddr : addrs = !ptr;
-      val U : unit = ptr := thisAddr wordAddrPlus 1;
+      val () = ptr := thisAddr wordAddrPlus 1;
       
       val byteAddr : int = getByteAddr thisAddr;
       val instr : int = fromQuad (getQuad (thisAddr, seg));
-      val U : unit = printHex(byteAddr, printStream);    (* The address. *)
-      val U : unit = printStream "\t";
-      val U : unit = printHexN (8, instr, printStream);  (* The naked instruction. *)
-      val U : unit = printStream "\t";
-      val U : unit = printInstr (byteAddr, instr, printStream); (* The decoded instruction. *)
+      val () = printHex(byteAddr, printStream);    (* The address. *)
+      val () = printStream "\t";
+      val () = printHexN (8, instr, printStream);  (* The naked instruction. *)
+      val () = printStream "\t";
+      val () = printInstr (byteAddr, instr, printStream); (* The decoded instruction. *)
     in
       printStream "\n"
     end
   end; (* printCode *)
-  
-  fun loadUnsigned (a : address, offset : int) : int =
-  let (* Power PC is a big-endian machine *)
-    val byteOffset : int = 4 * offset;
-    val b0 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort byteOffset)));
-    val b1 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 1))));
-    val b2 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 2))));
-    val b3 = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 3))));
-  in
-    fromQuad (Quad (b0, b1, b2, b3))
-  end;
  
   (* constLabels - fill in a constant in the code. *)
   fun constLabels (Code{resultSeg=ref rseg, pcOffset=ref offset, ...},
@@ -4562,7 +4466,6 @@ Calling conventions:
                          noClosure,
                          selfCalls = ref selfCalls,
                          selfJumps = ref selfJumps,
-                         mustCheckStack = ref callsAProc,
                          numOfConsts,
                          ic,
                          constVec = ref constVec,
@@ -4577,7 +4480,7 @@ Calling conventions:
     val endIC      = !ic; (* Remember end *)
 
     (* Generate end-of-code marker *)
-    val UUU = genCodeQuad (toQuad 0, cvec);  (* changes !ic *)
+    val () = genCodeQuad (toQuad 0, cvec);  (* changes !ic *)
     
 (*****************************************************************************
 N.B.  The calling sequence has been simplified since it's no longer necessary
@@ -4698,9 +4601,6 @@ not be decremented.
              1) moving or(lr,2) to regReturn
              2) stack checking code
         *)
-
-       (* size of the segment in bytes *)
-       val byteSegSize : int = segSize * 4;
        
        val preludeCode = 
           (* L1, L2 here *)
@@ -4724,25 +4624,25 @@ not be decremented.
     end; (* local *)
     
     (* fix-up all the self-calls *)
-    val U : unit = fixupRecursiveCalls    (L3Addr, selfCalls, cvec);
-    val U : unit = fixupRecursiveBranches (L4Addr, selfJumps, cvec);
+    val () = fixupRecursiveCalls    (L3Addr, selfCalls, cvec);
+    val () = fixupRecursiveBranches (L4Addr, selfJumps, cvec);
     
     (* Now make the byte segment that we'll turn into the code segment *)
     val seg : cseg = csegMake segSize;
     val offset     = spaceForPrelude;
 
-    val U : unit = resultSeg := Set seg;
+    val () = resultSeg := Set seg;
     
     (* Copy the code into the new segment. *)
-    val U : unit = pcOffset := offset;
-    val U : unit = csegCopySeg (codeVec, seg, getByteAddr (! ic), offset);
+    val () = pcOffset := offset;
+    val () = csegCopySeg (codeVec, seg, getByteAddr (! ic), offset);
 
     (* insert prelude code into segment *)
     local
       fun putPreludeQuad (wordAddr : int, w : quad) =
         setQuad (w, mkWordAddr wordAddr, seg);
     in
-      val U : unit = applyCountList (putPreludeQuad, 0, preludeCode);
+      val () = applyCountList (putPreludeQuad, 0, preludeCode);
     end;
     
     local
@@ -4753,7 +4653,7 @@ not be decremented.
         val quad = toQuad (getByteAddr endOfCode);
         val addr = endOfCode;
       in
-        val U : unit = setQuad (quad, addr, seg)
+        val () = setQuad (quad, addr, seg)
       end;
       
       (* Put in the number of constants. This must go in before
@@ -4762,7 +4662,7 @@ not be decremented.
         val quad = toQuad 2; (* Just two constants now. *)
         val addr = endOfCode wordAddrPlus 4;
       in
-        val U : unit = setQuad (quad, addr, seg)
+        val () = setQuad (quad, addr, seg)
       end;
       
       (* Next the profile count. *)
@@ -4770,14 +4670,14 @@ not be decremented.
         val quad = toQuad 0;
         val addr = endOfCode wordAddrPlus 1;
       in
-        val U : unit = setQuad (quad, addr, seg)
+        val () = setQuad (quad, addr, seg)
       end;
       
       (* Now we've filled in all the C integers; now we need to convert the segment
          into a proper code segment before it's safe to put in any ML values.
          SPF 13/2/97
       *)
-      val U : unit = csegConvertToCode seg;
+      val () = csegConvertToCode seg;
 
       local
         (* why do we treat the empty string as a special case? SPF 15/7/94 *)
@@ -4787,7 +4687,7 @@ not be decremented.
         val nameWord : machineWord   = if name = "" then toMachineWord 0 else toMachineWord name;
         val addr     : addrs  = endOfCode wordAddrPlus 2;
       in
-        val U : unit = csegPutWord (seg, getWordAddr addr, nameWord)
+        val () = csegPutWord (seg, getWordAddr addr, nameWord)
       end
       local
         (* Encode the register mask.  This encoding must be the same
@@ -4802,7 +4702,7 @@ not be decremented.
         end
         val regSet = List.foldl encodeReg 0w0 registerSet
       in
-        val U : unit = csegPutWord (seg, 
+        val () = csegPutWord (seg, 
                 getWordAddr(endOfCode wordAddrPlus 3), toMachineWord regSet);
       end;
     end; (* scope of endofcode *)
@@ -4836,7 +4736,7 @@ not be decremented.
   
       (* Switch off "mutable" bit now if we have no
          forward or recursive references to fix-up *)
-      val U : unit = 
+      val () = 
         if ! numOfConsts = 0 then csegLock seg else ();
   
       (* Do we need to make a closure, or just return the code? *)
@@ -4851,7 +4751,7 @@ not be decremented.
              way and I'm not completely sure that everything that needs a mutable
              allocation actually asks for it yet. SPF 19/2/97
           *)
-          val U : unit = lock addr;
+          val () = lock addr;
         in
           addr
         end
@@ -4859,9 +4759,9 @@ not be decremented.
       (* Now we know the address of this object we can fix up
          any forward references outstanding. This is put in here
          because there may be directly recursive references. *)
-      val U : unit = fixOtherRefs (cvec, toMachineWord addr);
+      val () = fixOtherRefs (cvec, toMachineWord addr);
   
-      val U : unit = 
+      val () = 
         if printAssemblyCode
         then let (* print out the code *)
           (* endcode is the address of the end-of-code marker word. *)
@@ -4896,13 +4796,13 @@ not be decremented.
    
    fun constrCases (i, a) : cases = {tag = i, addr = a}
    
-   fun useIndexedCase (min, max, numberOfCases, exhaustive) : bool =
+   fun useIndexedCase _ : bool =
      false; (* Never use indexed case. *)
 
-   fun indexedCase (reg, reg2, min, max, exhaustive, cvec) : jumpTableAddrs =
+   fun indexedCase _ : jumpTableAddrs =
      raise InternalError "Not implemented: indexedCase";
 
-   fun makeJumpTable (startTab, cl, default, min, max, cvec) : unit =
+   fun makeJumpTable _ : unit =
      raise InternalError "Not implemented: makeJumpTable";
 
   fun codeAddress (cvec: code) : address option =

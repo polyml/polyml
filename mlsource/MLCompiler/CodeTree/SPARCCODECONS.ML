@@ -342,10 +342,10 @@ struct
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
   
-  fun applyCountList (f, n, [])   = ()
+  fun applyCountList (_, _, [])   = ()
     | applyCountList (f, n, h::t) = 
     let
-      val U : unit = f (n, h);
+      val () = f (n, h);
     in
       applyCountList (f, n + 1, t)
     end;
@@ -380,7 +380,7 @@ struct
     fun exp2 0 = 1
       | exp2 n = 2 * exp2 (n - 1);
   in
-    val U : bool = 
+    val _ : bool = 
       (
         exp2_2  = exp2 2  andalso
         exp2_3  = exp2 3  andalso
@@ -420,7 +420,6 @@ struct
   val TAGMASK    = 3;
   val DATATAG    = 1;
   val CODETAG    = 2;
-  val FLAGLENGTH = 8; (* There are 8 flag bits in the length word *)
 
   (* tag a short constant *)
   fun semiTagged c   = exp2_2 * c;
@@ -442,35 +441,35 @@ struct
     val g6 = Reg  6;  
     val g7 = Reg  7;
     val o0 = Reg  8;  
-    val o1 = Reg  9;  
+(*  val o1 = Reg  9;  
     val o2 = Reg 10;
     val o3 = Reg 11; 
-    val o4 = Reg 12; 
+    val o4 = Reg 12; *)
     val o5 = Reg 13; 
-    val o6 = Reg 14; 
+(*  val o6 = Reg 14; *)
     val o7 = Reg 15;
     val l0 = Reg 16; 
-    val l1 = Reg 17; 
+(*  val l1 = Reg 17; 
     val l2 = Reg 18;
     val l3 = Reg 19; 
     val l4 = Reg 20; 
     val l5 = Reg 21; 
-    val l6 = Reg 22; 
+    val l6 = Reg 22; *)
     val l7 = Reg 23;
     val i0 = Reg 24; 
-    val i1 = Reg 25; 
+(*  val i1 = Reg 25; *)
     val i2 = Reg 26;
     val i3 = Reg 27; 
     val i4 = Reg 28; 
     val i5 = Reg 29; 
-    val i6 = Reg 30; 
-    val i7 = Reg 31;
+(*  val i6 = Reg 30; 
+    val i7 = Reg 31;*)
 
     val psp      = g4;
     val phr      = g3;
     val regResult   = o0;
     val regClosure  = o5;
-    val regCode     = NONE;
+(*  val regCode     = NONE;*)
     val regStackPtr = g4;
     val regHandler  = g3;
     val regReturn   = o7;
@@ -649,7 +648,6 @@ struct
   fun selfJumps      (Code {selfJumps,...})      = selfJumps;
   fun accCache       (Code {accCache,...})       = accCache;
   fun noClosure      (Code {noClosure,...})      = noClosure;
-  fun constLoads     (Code {constLoads,...})     = constLoads;
 
   fun unreachable cvec = 
     case ! (justComeFrom cvec) of
@@ -669,11 +667,6 @@ struct
      the resultSeg ref is the same. N.B. NOT its contents. *)
   infix is;
   fun a is b = (resultSeg a = resultSeg b);
-  
-  fun sameConst (WVal w1, WVal w2) = wordEq (w1, w2)
-    | sameConst (HVal h1, HVal h2) = h1 = h2
-    | sameConst (CVal c1, CVal c2) = c1 is c2
-    | sameConst (_,       _)       = false;
 
   (* create and initialise a code segment *)
   fun codeCreate (noClosure, name, parameters) : code = 
@@ -769,7 +762,6 @@ struct
     setQuad (instr, addr, seg)
   end;
 
-  fun isSet (Set _) = true | isSet _ = false
   fun scSet (Set x) = x | scSet _ = raise Match;
 
   (* Test condition codes. *)
@@ -792,7 +784,6 @@ struct
     val gu     = Test 12; (* high *)
     val cc     = Test 13; (* carry clear *)
     val pos    = Test 14; (* plus *)
-    val vc     = Test 15; (* no overflow *)
     
     fun tstRepr tst =
            if tst = never  then "n"   
@@ -829,17 +820,11 @@ struct
        (* add "tag" bit *)
        v + exp2_13
      end;
-     
-     fun isRegister (Register r) = true
-       | isRegister (Imm13 i)    = false;
        
-     fun isImm13 (Register r) = false
-       | isImm13 (Imm13 i)    = true;
-       
-     fun getRegister (Register r) = r
-       | getRegister (Imm13 i)    = raise InternalError "getRegister";
+     fun isImm13 (Register _) = false
+       | isImm13 (Imm13 _)    = true;
   
-     fun getImm13 (Register r) = raise InternalError "getImm13"
+     fun getImm13 (Register _) = raise InternalError "getImm13"
        | getImm13 (Imm13 i)    = i;
   
     fun eqMode13 (Register x) (Register y) = (x regEq y) 
@@ -873,7 +858,6 @@ struct
       end;
   
     (* These are provided for convenience. *)
-    val o5M  = mReg o5;
     val i3M  = mReg i3;
     val i4M  = mReg i4;
     val i5M  = mReg i5;
@@ -905,8 +889,6 @@ struct
        result is (should be) >= exp2_29 i.e. it's not a 30-bit short.
        SPF 19/12/95
     *)
-    fun getMode30 (Imm30 i) =  (* remove sign *)
-      if i < 0 then exp2_30 + i else i;
 
     (* But we can work round this by returning a
        (signed) short. SPF 19/12/95
@@ -1375,12 +1357,12 @@ struct
      deferred the branch is assumed to have happened first. *)
 
   (* Fix up the list of labels. *)
-  fun reallyFixupBranches (cvec, target, []) = ()
+  fun reallyFixupBranches (_, _, []) = ()
     | reallyFixupBranches (cvec, target, addrH :: addrT) = 
     let
       val wordDiff : int = target wordAddrMinus addrH;
       val jumpInstr  = getCodeQuad (addrH, cvec);
-      val U : unit =
+      val () =
         if not (is22Bit wordDiff) (* 22 bit signed number *)
         then raise InternalError "reallyFixupBranches: jump too large"
         else (* Set this addr to point to the destination. *)
@@ -1389,7 +1371,7 @@ struct
       reallyFixupBranches (cvec, target, addrT)
     end;
 
-  fun fixupRecursiveBranches (cvec, targetInstr, target, []) = ()
+  fun fixupRecursiveBranches (_, _, _, []) = ()
     | fixupRecursiveBranches (cvec, targetInstr, target, addrH :: addrT) = 
     let
       val nextAddr  : addrs = addrH wordAddrPlus 1;
@@ -1411,7 +1393,7 @@ struct
 	if not (is22Bit wordDiff)
 	then raise InternalError "fixupRecursiveBranches: jump too large"
 	else let
-	 val U : unit =
+	 val () =
 	   setCodeQuad (fixupBranch (jumpInstr, immed22 wordDiff), addrH, cvec);
 	in
 	  setCodeQuad (targetInstr, nextAddr, cvec)
@@ -1421,7 +1403,7 @@ struct
       fixupRecursiveBranches (cvec, targetInstr, target, addrT)
     end;
 
-  fun fixupRecursiveCalls (cvec, targetInstr, target, []) = ()
+  fun fixupRecursiveCalls (_, _, _, []) = ()
     | fixupRecursiveCalls (cvec, targetInstr, target, addrH :: addrT) = 
     let
       val nextAddr  : addrs = addrH wordAddrPlus 1;
@@ -1445,7 +1427,7 @@ struct
           if not (is30Bit wordDiff)
           then raise InternalError "fixupRecursiveCalls: jump too large"
           else let
-            val U : unit =
+            val () =
              setCodeQuad (callQuad (immed30 wordDiff), addrH, cvec);
           in
             setCodeQuad (targetInstr, nextAddr, cvec)
@@ -1479,7 +1461,7 @@ struct
           if getCodeQuad (addr wordAddrPlus 1, cvec) = nopQuad
           then let
              (* Put the instruction in the delay slot *)
-            val U : unit = setCodeQuad (instr, addr wordAddrPlus 1, cvec);
+            val () = setCodeQuad (instr, addr wordAddrPlus 1, cvec);
           in   
             (* Keep this label in the list for the next instruction. *)
             addr :: fillDelays addrs
@@ -1487,13 +1469,13 @@ struct
           else let (* Fix this up here. *) (* genLoadConstant? SPF *)
             val wordDiff : int = ! (ic cvec) wordAddrMinus addr;
             val jumpInstr = getCodeQuad (addr, cvec);
-            val U : unit =
+            val () =
               if not (is22Bit wordDiff) (* 22 bit signed number *)
               then raise InternalError "genInstruction: jump too large"
               else (* Set this addr to point to the destination. *)
                 setCodeQuad (fixupBranch (jumpInstr, immed22 wordDiff), addr, cvec);
             (* Must generate the instruction. *)
-            val U : unit = exited cvec := false;
+            val () = exited cvec := false;
           in
             fillDelays addrs
           end;
@@ -1508,7 +1490,7 @@ struct
       if not (! (exited cvec)) then genCodeQuad (instr, cvec) else ()
     end (* genInstruction *);
 
-  fun genInstructionList (cvec, []) = ()
+  fun genInstructionList (_, []) = ()
     | genInstructionList (cvec, w::ws) = 
        (genInstruction (w, cvec); genInstructionList (cvec, ws));
 
@@ -1521,11 +1503,6 @@ struct
     case ! (accCache cvec) of
       Empty  => false
     | Copy r => r regEq reg
-
-  fun cacheEmpty cvec =
-    case !(accCache cvec) of
-      Empty => true
-    | _     => false;
 
   fun genUntagInstr (reg, cvec) = 
     genInstruction (format3_2 (SUB, reg, immed13_DATATAG, i4), cvec);
@@ -1627,7 +1604,7 @@ struct
   fun putPendingInDelay (cvec : code) : quad = (* returns instruction to put in delay slot *)
   let
     (* Must take a jump here if it is pending. Can't put a jump in a delay slot. *)
-    val U = reallyFixup cvec;
+    val () = reallyFixup cvec;
     (* justComeFrom cvec = [] *)
     
     val reset = ! (stackReset cvec) * wordSize;
@@ -1635,8 +1612,8 @@ struct
     if reset = 0 then nopQuad (* nothing useful to do *)
     else let
        val (cl,imm) = immedCodeOffset reset;
-       val U : unit = genInstructionList (cvec, cl);
-       val U : unit = stackReset cvec := 0;
+       val () = genInstructionList (cvec, cl);
+       val () = stackReset cvec := 0;
     in
       format3_2 (ADD, psp, imm, psp)
     end
@@ -1671,18 +1648,18 @@ struct
             val delayQuad = getCodeQuad (addr wordAddrPlus 1, cvec);
             
             (* skip back two instructions *)
-            val U : unit = ic cvec := addr;
+            val () = ic cvec := addr;
             
             (* put the delay slot back into the instruction flow,
                using genCodeQuad not genInstruction to avoid 
                prematurely fixing up any jumps. *)
-            val U : unit =
+            val () =
               if delayQuad <> nopQuad
               then genCodeQuad (delayQuad, cvec)
               else ();
               
             (* We're now falling-through (rather than jumping) *)
-            val U : unit = exited cvec := false;
+            val () = exited cvec := false;
           in
             addrs
           end
@@ -1755,7 +1732,7 @@ struct
   (* Generates an unconditional call. *)
   fun genCall (cvec : code)  =
     let
-      val U : unit  = clearCache cvec; (* end of basic block *)
+      val ()  = clearCache cvec; (* end of basic block *)
       val delayQuad = putPendingInDelay cvec; (* may generate code *)
     in
       genInstruction (call0, cvec);
@@ -1766,7 +1743,7 @@ struct
   fun putConditional (test : testCode, cvec : code) : labels =
     if unreachable cvec then [] (* SPF 5/6/95 *)
     else let
-      val U : unit  = clearCache cvec; (* end of basic block *)
+      val ()  = clearCache cvec; (* end of basic block *)
       val delayQuad = putPendingInDelay cvec; (* may generate code *)
       
       (* If we have a pending instruction we put it in the delay slot
@@ -1789,12 +1766,12 @@ struct
      of the operands? Let's check! SPF 16/5/95 *)
   fun type2 (c2 : op3_2) (r : reg, m : mode13, rd : reg, cvec : code) : unit =
   let
-    val U : unit =
+    val () =
       if cached (rd, cvec)
       then clearCache cvec
       else ();
   
-    val U : unit = 
+    val () = 
       if r  regEq psp orelse
          rd regEq psp orelse
          eqMode13 m pspM
@@ -1844,7 +1821,7 @@ struct
     in
       if is13Bit adj
       then let
-        val U : unit =
+        val () =
           if cached (dest, cvec) then clearCache cvec else ();
       in
         genInstruction (format3_2 (ADD, psp, immed13 adj, dest), cvec)
@@ -1906,7 +1883,7 @@ struct
 
   fun genLoadImmed (v : int, rd : reg, cvec : code) : unit =
   let
-    val U : unit = 
+    val () = 
       if cached (rd, cvec)
       then clearCache cvec
       else ();
@@ -1914,7 +1891,7 @@ struct
     (* We shouldn't load immediates into psp, but if we try to,
        we have to ensure that it won't be corrupted by a 
        subsequent stack adjustment. SPF 16/5/95 *)
-    val U : unit = 
+    val () = 
       if rd regEq psp
       then doPendingStackAdjustment cvec
       else ();
@@ -1947,7 +1924,7 @@ struct
   (* We should have 0 <= flags < exp2_8; 0 < wordCount < exp2_24 *)
   fun genLoadLengthWordImmed (flags:int, wordCount:int, rd : reg, cvec) : unit =
   let
-    val U : unit = 
+    val () = 
       if cached (rd, cvec)
       then clearCache cvec
       else ();
@@ -1955,7 +1932,7 @@ struct
     (* We shouldn't load immediates into psp, but if we try to,
        we have to ensure that it won't be corrupted by a 
        subsequent stack adjustment. SPF 16/5/95 *)
-    val U : unit = 
+    val () = 
       if rd regEq psp
       then doPendingStackAdjustment cvec
       else ();
@@ -1978,13 +1955,13 @@ struct
 
   fun genLoadInstr (iop : op3_3) (rb : reg, m : mode13, rd : reg, cvec : code) : unit =
   let
-    val U : unit = 
+    val () = 
       if cached (rd, cvec)
       then clearCache cvec
       else ();
 
     (* Do we need to fix-up the stack pointer? *)
-    val U : unit = 
+    val () = 
       if rd regEq psp orelse
 	 rb regEq psp orelse
 	 eqMode13 m pspM  
@@ -1996,13 +1973,13 @@ struct
 
   fun genLoad (offset : int, rb : reg, rd : reg, cvec : code) : unit =
   let
-    val U : unit = 
+    val () = 
       if cached (rd, cvec)
        then clearCache cvec
       else ();
 
     (* Do we need to fix-up the stack pointer? *)
-    val U : unit = 
+    val () = 
       if rd regEq psp
       then doPendingStackAdjustment cvec
       else ();
@@ -2023,7 +2000,7 @@ struct
   fun genStoreOp iop (rd : reg, offset : int, rb : reg, cvec : code) : unit =
   let
     (* Do we need to fix-up the stack pointer?  Yes, if that's the register we're storing. *)
-    val U : unit = 
+    val () = 
       if rd regEq psp
       then doPendingStackAdjustment cvec
       else ();
@@ -2088,9 +2065,9 @@ struct
      value and it will definitely be better to do this by loading the untagged
      value directly into the register.  This is very infrequent though, so for
      the moment we don't do it. *)
-  fun isStoreI (cnstnt: machineWord, _, _) : bool = false;
+  fun isStoreI _ : bool = false;
 
-  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, width, index: reg, cvec: code) : unit =
+  fun genStoreI _ : unit =
     raise InternalError "Not implemented: genStoreI";
 
   (* Store a value on the stack.  This is used when the registers need to be
@@ -2098,12 +2075,12 @@ struct
   fun genPush (r : reg, cvec : code) : unit =
   let
     (* If the adjusted byte-offset won't fit into 13 bits, flush the stack reset. *)
-    val U : unit =
+    val () =
       if is13Bit (4 * (!(stackReset cvec) - 1)) then ()
       else doPendingStackAdjustment cvec;
       
     (* generate the store *)
-    val U : unit = genStoreWord (r, ~4, psp, cvec)
+    val () = genStoreWord (r, ~4, psp, cvec)
   in
     (* Finally adjust the stack reset (rather than adjusting the stack pointer itself). *)
     stackReset cvec := !(stackReset cvec) - 1
@@ -2114,7 +2091,7 @@ struct
   (* Use i5 as a spare register. *)
   fun genLoadPush (offset : int, base : reg, cvec : code) : unit =
   let
-    val U : unit = genLoad (offset, base, i5, cvec);
+    val () = genLoad (offset, base, i5, cvec);
   in
     genPush (i5, cvec)
   end;
@@ -2125,7 +2102,7 @@ struct
 
   fun genJmpl (m : mode13, breg : reg, lreg : reg, cvec : code) : unit =
   let
-    val U : unit  = clearCache cvec;        (* end of basic block *)
+    val ()  = clearCache cvec;        (* end of basic block *)
     val delayQuad = putPendingInDelay cvec; (* may generate code *)
   in
     (* jmpl breg+m,lreg *)
@@ -2139,7 +2116,7 @@ struct
   (* Make a reference to another procedure. Usually this will be a forward *)
   (* reference but it may have been compiled already, in which case we can *)
   (* put the code address in now. *)
-  fun codeConst (Code {resultSeg = ref(Set(seg, _)), ... }, into) =
+  fun codeConst (Code {resultSeg = ref(Set(seg, _)), ... }, _) =
     (* Already done. *) WVal (toMachineWord(csegAddr seg))
   |  codeConst (r, into)  = (* forward *)
       (* Add the referring procedure onto the list of the procedure
@@ -2147,7 +2124,7 @@ struct
          the referring procedure is finished and its address is known the
          address will be plugged in to every procedure which needs it. *)
       let
-        fun onList x []      = false
+        fun onList _ []      = false
           | onList x (c::cs) = (x is c) orelse onList x cs;
           
         val codeList = ! (otherCodes r);
@@ -2307,7 +2284,7 @@ Calling conventions:
     (* Mustn't add to selfJumps list unless we're actually generating code! *)
     if unreachable cvec then ()
     else let
-      val U : unit =
+      val () =
       (* Put return address in the correct register. *)
       if returnReg regEq regReturn then ()
       else genMove (mReg returnReg, regReturn, cvec);
@@ -2315,7 +2292,7 @@ Calling conventions:
       case callKind of
          Recursive =>
          let
-           val U : unit = mustCheckStack cvec := true;
+           val () = mustCheckStack cvec := true;
            val lab = unconditionalBranch cvec;
          in
            selfJumps cvec := lab @ !(selfJumps cvec)
@@ -2465,7 +2442,7 @@ Calling conventions:
   end
 
   (* Don't need to do anything on the Sparc. *)
-  val completeSegment = (fn (cvec : code) => ());
+  val completeSegment = (fn (_ : code) => ());
 
   datatype instrs = 
     instrMove
@@ -2648,8 +2625,8 @@ Calling conventions:
     case tc of
       Short => false
     | Long  => false
-    | Wrd t => true 
-    | Arb t => true;
+    | Wrd _ => true 
+    | Arb _ => true;
   
   (* Is this argument acceptable as an immediate or should it be *)
   (* loaded into a register? *) 
@@ -3076,17 +3053,17 @@ Calling conventions:
       while !ptr addrLt lastAddr do
       let 
 	val thisAddr : addrs = !ptr;
-	val U : unit = ptr := thisAddr wordAddrPlus 1;
+	val () = ptr := thisAddr wordAddrPlus 1;
 	val instr    : int = fromQuad (getQuad (thisAddr, seg));
 
 	val byteAddr : int = getByteAddr thisAddr;
 	val topByte  : int = Word8.toInt (csegGet (seg, byteAddr));
 	val format   : int = topByte div exp2_6;
 		  
-        val U : unit = printHex byteAddr; (* The real address. *)
-        val U : unit = printStream "\t";
+        val () = printHex byteAddr; (* The real address. *)
+        val () = printStream "\t";
       
-        val U : unit =
+        val () =
           if format = 0
           then let
             val op2 = (instr div exp2_22) mod 8; (* op2 field *)
@@ -3160,7 +3137,7 @@ Calling conventions:
                   (JMPL,"jmpl")
                 ]
               
-                fun printFromTable x []         = printHex op3
+                fun printFromTable _ []         = printHex op3
                   | printFromTable x ((y,s)::t) = 
                      if x = op3_2ToInt y then printStream s else printFromTable op3 t
               
@@ -3227,29 +3204,6 @@ Calling conventions:
       end (* while *)
     end (* scope of ptr *)
   end (* printCode *);
-  
-  fun loadUnsigned (a : address, offset : int) : int =
-  let (* SPARC is a big-endian machine *)
-    val byteOffset : int = 4 * offset;
-    val b0 : short = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort byteOffset)));
-    val b1 : short = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 1))));
-    val b2 : short = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 2))));
-    val b3 : short = Word.fromLargeWord(Word8.toLargeWord(loadByte (a, toShort (byteOffset + 3))));
-  in
-    fromQuad (Quad (b0, b1, b2, b3))
-  end;
-  
-  (* Bootstrapping problems currently prevent us from using Address.nameOfCode *)
-  fun nameOfCode (a : address) : string =
-    let
-      val objLength  : int  = toInt (ADDRESS.length a);
-      val lastWord   : int  = objLength - 1;
-      val constCount : int  = loadUnsigned (a, lastWord);
-      val codeName   : machineWord = loadWord (a, toShort (lastWord - constCount));
-    in
-      unsafeCast codeName
-    end;
-
         
   (* set the num'th constant in cvec to be value *)
   fun constLabels (cvec : code, addr: addrs, value : machineWord) : unit =
@@ -3436,13 +3390,13 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val L4Addr = mkWordAddr (~ (List.length stackCheckCode));
       val L4Target = 
 	case stackCheckCode of
-	 (c::cs) => c (* never a jump *)
+	 (c::_) => c (* never a jump *)
 	| []     => nopQuad (* should never get used *)
       
       val L3Addr = mkWordAddr (~ (lengthO7Code + List.length stackCheckCode));
       val L3Target = 
 	case o7Code of
-	 (c::cs) => c (* never a jump *)
+	 (c::_) => c (* never a jump *)
 	| []     => L4Target; (* shouldn't occur *)
     end; (* local *)
     
@@ -3454,24 +3408,24 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
     val constStartAddr : addrs = lastAddr wordAddrPlus 3;
 
     (* fix-up all the self-calls *)
-    val U : unit = 
+    val () = 
       fixupRecursiveCalls (cvec, L3Target, L3Addr, !(selfCalls cvec));
        
-    val U : unit =
+    val () =
       fixupRecursiveBranches (cvec, L4Target, L4Addr, !(selfJumps cvec));
       
     (* Now make the byte segment that we'll turn into the code segment *)
     val seg : cseg = csegMake segSize;
     
     (* Copy the code into the new segment. *)
-    val U : unit = csegCopySeg (codeVec cvec, seg, getByteAddr endIC, spaceForPrelude);
+    val () = csegCopySeg (codeVec cvec, seg, getByteAddr endIC, spaceForPrelude);
 
     (* insert prelude code into segment *)
     local
       fun putPreludeQuad (wordAddr : int, w : quad) =
         setQuad (w, mkWordAddr wordAddr, seg);
     in
-      val U : unit = applyCountList (putPreludeQuad, 0, preludeCode);
+      val () = applyCountList (putPreludeQuad, 0, preludeCode);
     end;
     
     (* Zero end-of-code marker *)
@@ -3479,7 +3433,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val addr : addrs = lastAddr;
       val quad : quad  = toQuad 0;
     in
-      val U : unit = setQuad (quad, addr, seg)
+      val () = setQuad (quad, addr, seg)
     end;
  
     (* Byte offset of start of code. *)
@@ -3487,7 +3441,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val addr : addrs = lastAddr wordAddrPlus 1;
       val quad : quad  = toQuad (getByteAddr addr);
     in
-      val U : unit = setQuad (quad, addr, seg)
+      val () = setQuad (quad, addr, seg)
     end;
     
     (* Next the profile count. *)
@@ -3495,7 +3449,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val addr : addrs = lastAddr wordAddrPlus 2;
       val quad : quad  = toQuad 0;
     in
-      val U : unit = setQuad (quad, addr, seg)
+      val () = setQuad (quad, addr, seg)
     end;
     
     (* Put in the number of constants (including the name string). This
@@ -3504,15 +3458,15 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       val addr : addrs = constStartAddr wordAddrPlus 2;
       val quad : quad = toQuad 2;
     in
-      val U : unit = setQuad (quad, addr, seg)
+      val () = setQuad (quad, addr, seg)
     end;
     
     (* Now we've filled in all the C integers; now we need to convert the segment
        into a proper code segment before it's safe to put in any ML values.
        SPF 13/2/97
     *)
-    val U : unit = csegConvertToCode seg;
-    val U : unit = resultSeg cvec := Set (seg, spaceForPrelude);
+    val () = csegConvertToCode seg;
+    val () = resultSeg cvec := Set (seg, spaceForPrelude);
 
     local
 	    val procName = procName cvec
@@ -3560,14 +3514,14 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
       
       (* forward-reference - fix up later when we compile
 	 the referenced code *) 
-	|  putLocalConst (CVal _, addr) = ();
+	|  putLocalConst (CVal _, _) = ();
 
-    val U : unit = List.app putLocalConst (! (constVec cvec));
+    val () = List.app putLocalConst (! (constVec cvec));
 
 
     (* Switch off "mutable" bit now if we have no
        forward or recursive references to fix-up *)
-    val U : unit = 
+    val () = 
       if !(numOfConsts cvec) = 0
       then csegLock seg
       else ();
@@ -3584,7 +3538,7 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
 	   way and I'm not completely sure that everything that needs a mutable
 	   allocation actually asks for it yet. SPF 19/2/97
 	*)
-	val U : unit = lock addr;
+	val () = lock addr;
       in
 	addr
       end
@@ -3592,12 +3546,12 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
     (* Now we know the address of this object we can fix up
        any forward references outstanding. This is put in here
        because there may be directly recursive references. *)
-    val U : unit = fixOtherRefs (cvec, toMachineWord addr);
+    val () = fixOtherRefs (cvec, toMachineWord addr);
 
-    val U : unit = 
+    val () = 
       if printAssemblyCode
       then let (* print out the code *)
-	val U : unit = printCode (seg, procName cvec, lastAddr, printStream);
+	val () = printCode (seg, procName cvec, lastAddr, printStream);
      in
 	printStream "\n"
       end
@@ -3608,7 +3562,6 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
 
   (* We need these types although we don't generate indexed cases. *)
   type cases = int * addrs; (* should tag be a short??? *)
-  fun constrCases (p as (i,a)) = p;
 
 (* Dummy implementation ... 
   type jumpTableAddrs = unit;
@@ -3634,11 +3587,11 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
   *)
   type jumpTableAddrs = addrs;
   
-  fun constrCases (p as (i,a)) = p;
+  fun constrCases p = p;
   
   type caseList = cases list;
 
-  fun useIndexedCase (min:int, max:int, numberOfCases:int, exhaustive:bool) =
+  fun useIndexedCase (min:int, max:int, numberOfCases:int, _:bool) =
     isShort min andalso
     isShort max andalso
     numberOfCases > 7 andalso
@@ -3682,32 +3635,31 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
        CODETAG. No scaling is required - lucky!
     *)
     val adjust : mode13 = genImmedData (cvec, ~ (tagged min + CODETAG));
-    val U : unit = genAdd (valReg, adjust, i5, cvec);
+    val () = genAdd (valReg, adjust, i5, cvec);
     
     (* i5 now contains the index into the jumptable *)
     
-    val U : unit = genLoadInstr LD (workReg, i5M, i5, cvec);
+    val () = genLoadInstr LD (workReg, i5M, i5, cvec);
     
     (* i5 now contains the distance between the jumptable and our destination,
        (adjusted for the +2 offset).
     *)
-    val U : unit = genJmpl (i5M, workReg, g0, cvec);
+    val () = genJmpl (i5M, workReg, g0, cvec);
     
-    val U : unit = fixupHandler (tableBase, cvec);
+    val () = fixupHandler (tableBase, cvec);
      
     (* We generate the table itself here *)
     val tableBase : addrs = ! (ic cvec);
     val tableWords : int  = max - min + 1;
-    val tableBytes : int  = tableWords * wordSize;
-    val U : unit = ic cvec := tableBase wordAddrPlus tableWords;
+    val () = ic cvec := tableBase wordAddrPlus tableWords;
 
 (* ...
     (* We haven't really fallen through to here. *)
-    val U : unit = exited cvec := true;
+    val () = exited cvec := true;
 ... *)
     
     (* The default case comes in here. *)
-    val U : unit = fixup (rangeCheck, cvec);
+    val () = fixup (rangeCheck, cvec);
   in
     (* Return the address of the jumptable *)
     tableBase : jumpTableAddrs

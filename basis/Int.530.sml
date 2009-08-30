@@ -299,7 +299,7 @@ struct
 		   and will use this conversion function for literals of the
 		   form nnn... in preference to any other if unification does
 		   not give an explicit type. *)
-		val unused: unit = RunCall.addOverload convInt "convInt"
+		val () = RunCall.addOverload convInt "convInt"
 	end	
 end;
 

@@ -262,18 +262,18 @@ struct
 
   fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
 
-  fun applyList (f, [])   = ()
+  fun applyList (_, [])   = ()
     | applyList (f, h::t) =
     let
-      val U : unit = f h;
+      val () = f h;
     in
       applyList (f, t)
     end;
   
-  fun applyCountList (f, n, [])   = ()
+  fun applyCountList (_, _, [])   = ()
     | applyCountList (f, n, h::t) = 
     let
-      val U : unit = f (n, h);
+      val () = f (n, h);
     in
       applyCountList (f, n + 1, t)
     end;
@@ -429,7 +429,7 @@ struct
     val opcode_callSlC           = Opcode 89;
     val opcode_ioVec_5           = Opcode 90;
     val opcode_ioVec_6           = Opcode 91;
-    val opcode_integerAdd        = Opcode 92;
+(*  val opcode_integerAdd        = Opcode 92;
     val opcode_integerMinus      = Opcode 93;
     val opcode_integerEqual      = Opcode 94;
     val opcode_integerLeq        = Opcode 95;
@@ -437,7 +437,7 @@ struct
     val opcode_integerGreater    = Opcode 96;
     val opcode_booleanOr         = Opcode 97;
     val opcode_wordEqual         = Opcode 98;
-    val opcode_assignWord        = Opcode 99;
+    val opcode_assignWord        = Opcode 99;*)
     val opcode_resetR_1          = Opcode 100;
     val opcode_resetR_2          = Opcode 101;
     val opcode_resetR_3          = Opcode 102;
@@ -477,140 +477,140 @@ struct
       
       fun repUpdate (Opcode n, s) = Array.update (repArray, n, s);
 
-      val U : unit = repUpdate(opcode_enterInt,     "enterInt");
-      val U : unit = repUpdate(opcode_jump,         "jump");
-      val U : unit = repUpdate(opcode_jumpFalse,    "jumpFalse");
-      val U : unit = repUpdate(opcode_delHandler,   "delHandler");
-      val U : unit = repUpdate(opcode_jumpI,        "jumpI");
-      val U : unit = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
-      val U : unit = repUpdate(opcode_delHandlerI,  "delHandlerI");
-      val U : unit = repUpdate(opcode_caseSwitch,   "caseSwitch");
-      val U : unit = repUpdate(opcode_callSl,       "callSl");
-      val U : unit = repUpdate(opcode_callSlX,      "callSlX");
-      val U : unit = repUpdate(opcode_callClosure,  "callClosure");
-      val U : unit = repUpdate(opcode_returnW,      "returnW");
-      val U : unit = repUpdate(opcode_pad,          "pad");
+      val () = repUpdate(opcode_enterInt,     "enterInt");
+      val () = repUpdate(opcode_jump,         "jump");
+      val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
+      val () = repUpdate(opcode_delHandler,   "delHandler");
+      val () = repUpdate(opcode_jumpI,        "jumpI");
+      val () = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
+      val () = repUpdate(opcode_delHandlerI,  "delHandlerI");
+      val () = repUpdate(opcode_caseSwitch,   "caseSwitch");
+      val () = repUpdate(opcode_callSl,       "callSl");
+      val () = repUpdate(opcode_callSlX,      "callSlX");
+      val () = repUpdate(opcode_callClosure,  "callClosure");
+      val () = repUpdate(opcode_returnW,      "returnW");
+      val () = repUpdate(opcode_pad,          "pad");
 (* ...
-      val U : unit = repUpdate(opcode_projectW,     "projectW");
+      val () = repUpdate(opcode_projectW,     "projectW");
 ... *)
-      val U : unit = repUpdate(opcode_raiseEx,      "raiseEx");
-      val U : unit = repUpdate(opcode_getStoreW,    "getStoreW");
-      val U : unit = repUpdate(opcode_nonLocal,     "nonLocal");
-      val U : unit = repUpdate(opcode_localW,       "localW");
-      val U : unit = repUpdate(opcode_indirectW,    "indirectW");
-      val U : unit = repUpdate(opcode_moveToVecW,   "moveToVecW");
-      val U : unit = repUpdate(opcode_setStackValW, "setStackValW");
-      val U : unit = repUpdate(opcode_resetW,        "resetW");
-      val U : unit = repUpdate(opcode_resetR_w,      "resetR_w");
-      val U : unit = repUpdate(opcode_constAddr,     "constAddr");
-      val U : unit = repUpdate(opcode_constAddrX_b,  "constAddrX_b");
-      val U : unit = repUpdate(opcode_constAddrX_w,  "constAddrX_w");
-      val U : unit = repUpdate(opcode_constIntW,     "constIntW");
-      val U : unit = repUpdate(opcode_ioVecEntry,    "ioVecEntry");
-      val U : unit = repUpdate(opcode_constNil,      "constNil");
-      val U : unit = repUpdate(opcode_jumpBack,      "jumpBack");
-      val U : unit = repUpdate(opcode_returnB,       "returnB");
+      val () = repUpdate(opcode_raiseEx,      "raiseEx");
+      val () = repUpdate(opcode_getStoreW,    "getStoreW");
+      val () = repUpdate(opcode_nonLocal,     "nonLocal");
+      val () = repUpdate(opcode_localW,       "localW");
+      val () = repUpdate(opcode_indirectW,    "indirectW");
+      val () = repUpdate(opcode_moveToVecW,   "moveToVecW");
+      val () = repUpdate(opcode_setStackValW, "setStackValW");
+      val () = repUpdate(opcode_resetW,        "resetW");
+      val () = repUpdate(opcode_resetR_w,      "resetR_w");
+      val () = repUpdate(opcode_constAddr,     "constAddr");
+      val () = repUpdate(opcode_constAddrX_b,  "constAddrX_b");
+      val () = repUpdate(opcode_constAddrX_w,  "constAddrX_w");
+      val () = repUpdate(opcode_constIntW,     "constIntW");
+      val () = repUpdate(opcode_ioVecEntry,    "ioVecEntry");
+      val () = repUpdate(opcode_constNil,      "constNil");
+      val () = repUpdate(opcode_jumpBack,      "jumpBack");
+      val () = repUpdate(opcode_returnB,       "returnB");
 (* ...
-      val U : unit = repUpdate(opcode_projectB,      "projectB");
+      val () = repUpdate(opcode_projectB,      "projectB");
 ... *)
-      val U : unit = repUpdate(opcode_getStoreB,     "getStoreB");
-      val U : unit = repUpdate(opcode_localB,        "localB");
-      val U : unit = repUpdate(opcode_indirectB,     "indirectB");
-      val U : unit = repUpdate(opcode_moveToVecB,    "moveToVecB");
-      val U : unit = repUpdate(opcode_setStackValB,  "setStackValB");
-      val U : unit = repUpdate(opcode_resetB,        "resetB");
-      val U : unit = repUpdate(opcode_resetRB,       "resetRB");
-      val U : unit = repUpdate(opcode_constIntB,     "constIntB");
-      val U : unit = repUpdate(opcode_local_0,       "local_0");
-      val U : unit = repUpdate(opcode_local_1,       "local_1");
-      val U : unit = repUpdate(opcode_local_2,       "local_2");
-      val U : unit = repUpdate(opcode_local_3,       "local_3");
-      val U : unit = repUpdate(opcode_local_4,       "local_4");
-      val U : unit = repUpdate(opcode_local_5,       "local_5");
-      val U : unit = repUpdate(opcode_local_6,       "local_6");
-      val U : unit = repUpdate(opcode_local_7,       "local_7");
-      val U : unit = repUpdate(opcode_local_8,       "local_8");
-      val U : unit = repUpdate(opcode_local_9,       "local_9");
-      val U : unit = repUpdate(opcode_local_10,      "local_10");
-      val U : unit = repUpdate(opcode_local_11,      "local_11");
-      val U : unit = repUpdate(opcode_indirect_0,    "indirect_0");
-      val U : unit = repUpdate(opcode_indirect_1,    "indirect_1");
-      val U : unit = repUpdate(opcode_indirect_2,    "indirect_2");
-      val U : unit = repUpdate(opcode_indirect_3,    "indirect_3");
-      val U : unit = repUpdate(opcode_indirect_4,    "indirect_4");
-      val U : unit = repUpdate(opcode_indirect_5,    "indirect_5");
-      val U : unit = repUpdate(opcode_const_0,       "const_0");
-      val U : unit = repUpdate(opcode_const_1,       "const_1");
-      val U : unit = repUpdate(opcode_const_2,       "const_2");
-      val U : unit = repUpdate(opcode_const_3,       "const_3");
-      val U : unit = repUpdate(opcode_const_4,       "const_4");
-      val U : unit = repUpdate(opcode_const_10,      "const_10");
-      val U : unit = repUpdate(opcode_return_0,      "return_0");
-      val U : unit = repUpdate(opcode_return_1,      "return_1");
-      val U : unit = repUpdate(opcode_return_2,      "return_2");
-      val U : unit = repUpdate(opcode_return_3,      "return_3");
-      val U : unit = repUpdate(opcode_moveToVec_0,   "moveToVec_0");
-      val U : unit = repUpdate(opcode_moveToVec_1,   "moveToVec_1");
-      val U : unit = repUpdate(opcode_moveToVec_2,   "moveToVec_2");
-      val U : unit = repUpdate(opcode_moveToVec_3,   "moveToVec_3");
-      val U : unit = repUpdate(opcode_moveToVec_4,   "moveToVec_4");
-      val U : unit = repUpdate(opcode_moveToVec_5,   "moveToVec_5");
-      val U : unit = repUpdate(opcode_moveToVec_6,   "moveToVec_6");
-      val U : unit = repUpdate(opcode_moveToVec_7,   "moveToVec_7");
-      val U : unit = repUpdate(opcode_reset_1,       "reset_1");
-      val U : unit = repUpdate(opcode_reset_2,       "reset_2");
-      val U : unit = repUpdate(opcode_getStore_2,    "getStore_2");
-      val U : unit = repUpdate(opcode_getStore_3,    "getStore_3");
-      val U : unit = repUpdate(opcode_getStore_4,    "getStore_4");
-      val U : unit = repUpdate(opcode_nonLocalL_1,   "nonLocalL_1");
-      val U : unit = repUpdate(opcode_nonLocalL_2,   "nonLocalL_2");
-      val U : unit = repUpdate(opcode_nonLocalL_3,   "nonLocalL_3");
-      val U : unit = repUpdate(opcode_callSlC,       "callSlC");
-      val U : unit = repUpdate(opcode_callSlCX,      "callSlCX");
-      val U : unit = repUpdate(opcode_ioVec_5,       "ioVec_5");
-      val U : unit = repUpdate(opcode_ioVec_6,       "opcode_ioVec_6");
+      val () = repUpdate(opcode_getStoreB,     "getStoreB");
+      val () = repUpdate(opcode_localB,        "localB");
+      val () = repUpdate(opcode_indirectB,     "indirectB");
+      val () = repUpdate(opcode_moveToVecB,    "moveToVecB");
+      val () = repUpdate(opcode_setStackValB,  "setStackValB");
+      val () = repUpdate(opcode_resetB,        "resetB");
+      val () = repUpdate(opcode_resetRB,       "resetRB");
+      val () = repUpdate(opcode_constIntB,     "constIntB");
+      val () = repUpdate(opcode_local_0,       "local_0");
+      val () = repUpdate(opcode_local_1,       "local_1");
+      val () = repUpdate(opcode_local_2,       "local_2");
+      val () = repUpdate(opcode_local_3,       "local_3");
+      val () = repUpdate(opcode_local_4,       "local_4");
+      val () = repUpdate(opcode_local_5,       "local_5");
+      val () = repUpdate(opcode_local_6,       "local_6");
+      val () = repUpdate(opcode_local_7,       "local_7");
+      val () = repUpdate(opcode_local_8,       "local_8");
+      val () = repUpdate(opcode_local_9,       "local_9");
+      val () = repUpdate(opcode_local_10,      "local_10");
+      val () = repUpdate(opcode_local_11,      "local_11");
+      val () = repUpdate(opcode_indirect_0,    "indirect_0");
+      val () = repUpdate(opcode_indirect_1,    "indirect_1");
+      val () = repUpdate(opcode_indirect_2,    "indirect_2");
+      val () = repUpdate(opcode_indirect_3,    "indirect_3");
+      val () = repUpdate(opcode_indirect_4,    "indirect_4");
+      val () = repUpdate(opcode_indirect_5,    "indirect_5");
+      val () = repUpdate(opcode_const_0,       "const_0");
+      val () = repUpdate(opcode_const_1,       "const_1");
+      val () = repUpdate(opcode_const_2,       "const_2");
+      val () = repUpdate(opcode_const_3,       "const_3");
+      val () = repUpdate(opcode_const_4,       "const_4");
+      val () = repUpdate(opcode_const_10,      "const_10");
+      val () = repUpdate(opcode_return_0,      "return_0");
+      val () = repUpdate(opcode_return_1,      "return_1");
+      val () = repUpdate(opcode_return_2,      "return_2");
+      val () = repUpdate(opcode_return_3,      "return_3");
+      val () = repUpdate(opcode_moveToVec_0,   "moveToVec_0");
+      val () = repUpdate(opcode_moveToVec_1,   "moveToVec_1");
+      val () = repUpdate(opcode_moveToVec_2,   "moveToVec_2");
+      val () = repUpdate(opcode_moveToVec_3,   "moveToVec_3");
+      val () = repUpdate(opcode_moveToVec_4,   "moveToVec_4");
+      val () = repUpdate(opcode_moveToVec_5,   "moveToVec_5");
+      val () = repUpdate(opcode_moveToVec_6,   "moveToVec_6");
+      val () = repUpdate(opcode_moveToVec_7,   "moveToVec_7");
+      val () = repUpdate(opcode_reset_1,       "reset_1");
+      val () = repUpdate(opcode_reset_2,       "reset_2");
+      val () = repUpdate(opcode_getStore_2,    "getStore_2");
+      val () = repUpdate(opcode_getStore_3,    "getStore_3");
+      val () = repUpdate(opcode_getStore_4,    "getStore_4");
+      val () = repUpdate(opcode_nonLocalL_1,   "nonLocalL_1");
+      val () = repUpdate(opcode_nonLocalL_2,   "nonLocalL_2");
+      val () = repUpdate(opcode_nonLocalL_3,   "nonLocalL_3");
+      val () = repUpdate(opcode_callSlC,       "callSlC");
+      val () = repUpdate(opcode_callSlCX,      "callSlCX");
+      val () = repUpdate(opcode_ioVec_5,       "ioVec_5");
+      val () = repUpdate(opcode_ioVec_6,       "opcode_ioVec_6");
 
 (* ...
       (* added missing instructions (not used yet!) SPF 28/6/95 *)
       (* Removed them again, becuase I'd rather see UNKNOWN if they
          ever get generated. SPF 9/1/96 *)
-      val U : unit = repUpdate(opcode_integerAdd,    "integerAdd");
-      val U : unit = repUpdate(opcode_integerMinus,  "integerMinus");
-      val U : unit = repUpdate(opcode_integerEqual,  "integerEqual");
-      val U : unit = repUpdate(opcode_integerLeq,    "integerLeq");
-      val U : unit = repUpdate(opcode_integerGreater,"integerGreater");
-      val U : unit = repUpdate(opcode_booleanOr,     "booleanOr");
-      val U : unit = repUpdate(opcode_wordEqual,     "wordEqual");
-      val U : unit = repUpdate(opcode_assignWord,    "assignWord");
+      val () = repUpdate(opcode_integerAdd,    "integerAdd");
+      val () = repUpdate(opcode_integerMinus,  "integerMinus");
+      val () = repUpdate(opcode_integerEqual,  "integerEqual");
+      val () = repUpdate(opcode_integerLeq,    "integerLeq");
+      val () = repUpdate(opcode_integerGreater,"integerGreater");
+      val () = repUpdate(opcode_booleanOr,     "booleanOr");
+      val () = repUpdate(opcode_wordEqual,     "wordEqual");
+      val () = repUpdate(opcode_assignWord,    "assignWord");
 ... *)
 
-      val U : unit = repUpdate(opcode_resetR_1,      "resetR_1");
-      val U : unit = repUpdate(opcode_resetR_2,      "resetR_2");
-      val U : unit = repUpdate(opcode_resetR_3,      "resetR_3");
-      val U : unit = repUpdate(opcode_tupleW,        "tupleW");
-      val U : unit = repUpdate(opcode_tupleB,        "tupleB");
-      val U : unit = repUpdate(opcode_tuple_2,       "tuple_2");
-      val U : unit = repUpdate(opcode_tuple_3,       "tuple_3");
-      val U : unit = repUpdate(opcode_tuple_4,       "tuple_4");
-      val U : unit = repUpdate(opcode_lock,          "lock");
-      val U : unit = repUpdate(opcode_ldexc,         "ldexc");
-      val U : unit = repUpdate(opcode_ioVec_225,     "ioVec_225");
-      val U : unit = repUpdate(opcode_ioVec_226,     "ioVec_226");
-      val U : unit = repUpdate(opcode_ioVec_229,     "ioVec_229");
-      val U : unit = repUpdate(opcode_ioVec_233,     "ioVec_233");
-      val U : unit = repUpdate(opcode_ioVec_236,     "ioVec_236");
-      val U : unit = repUpdate(opcode_ioVec_251,     "ioVec_251");
-      val U : unit = repUpdate(opcode_ioVec_253,     "ioVec_253");
-      val U : unit = repUpdate(opcode_ioVec_255,     "ioVec_255");
-      val U : unit = repUpdate(opcode_setHandler,    "setHandler");
-      val U : unit = repUpdate(opcode_pushHandler,   "pushHandler");
-      val U : unit = repUpdate(opcode_setHandlerI,   "setHandlerI");
-      val U : unit = repUpdate(opcode_tailbb,        "tailbb");
-      val U : unit = repUpdate(opcode_tail,          "tail");
-      val U : unit = repUpdate(opcode_tail3b,        "tail3b");
-      val U : unit = repUpdate(opcode_tail4b,        "tail4b");
-      val U : unit = repUpdate(opcode_tail3_2,       "tail3_2");
-      val U : unit = repUpdate(opcode_tail3_3,       "tail3_3");
+      val () = repUpdate(opcode_resetR_1,      "resetR_1");
+      val () = repUpdate(opcode_resetR_2,      "resetR_2");
+      val () = repUpdate(opcode_resetR_3,      "resetR_3");
+      val () = repUpdate(opcode_tupleW,        "tupleW");
+      val () = repUpdate(opcode_tupleB,        "tupleB");
+      val () = repUpdate(opcode_tuple_2,       "tuple_2");
+      val () = repUpdate(opcode_tuple_3,       "tuple_3");
+      val () = repUpdate(opcode_tuple_4,       "tuple_4");
+      val () = repUpdate(opcode_lock,          "lock");
+      val () = repUpdate(opcode_ldexc,         "ldexc");
+      val () = repUpdate(opcode_ioVec_225,     "ioVec_225");
+      val () = repUpdate(opcode_ioVec_226,     "ioVec_226");
+      val () = repUpdate(opcode_ioVec_229,     "ioVec_229");
+      val () = repUpdate(opcode_ioVec_233,     "ioVec_233");
+      val () = repUpdate(opcode_ioVec_236,     "ioVec_236");
+      val () = repUpdate(opcode_ioVec_251,     "ioVec_251");
+      val () = repUpdate(opcode_ioVec_253,     "ioVec_253");
+      val () = repUpdate(opcode_ioVec_255,     "ioVec_255");
+      val () = repUpdate(opcode_setHandler,    "setHandler");
+      val () = repUpdate(opcode_pushHandler,   "pushHandler");
+      val () = repUpdate(opcode_setHandlerI,   "setHandlerI");
+      val () = repUpdate(opcode_tailbb,        "tailbb");
+      val () = repUpdate(opcode_tail,          "tail");
+      val () = repUpdate(opcode_tail3b,        "tail3b");
+      val () = repUpdate(opcode_tail4b,        "tail4b");
+      val () = repUpdate(opcode_tail3_2,       "tail3_2");
+      val () = repUpdate(opcode_tail3_3,       "tail3_3");
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;
@@ -618,61 +618,59 @@ struct
 
     local
       val sizeArray : int Array.array = Array.array (256, 1);
-      
-      fun sizeUpdate (Opcode n, s) = Array.update (sizeArray, n, s);
 
       fun sizeUpdate (Opcode n, s) = Array.update (sizeArray, n, s);
       
-      val U : unit = sizeUpdate(opcode_enterInt    , 2); (* Restored DCJM 22/9/00. *)
-(*      val U : unit = sizeUpdate(opcode_enterInt    , 4);  *)(* SPF 30/1/97 *)
-      val U : unit = sizeUpdate(opcode_jump        , 2);
-      val U : unit = sizeUpdate(opcode_jumpFalse   , 2);
-      val U : unit = sizeUpdate(opcode_delHandler  , 2);
-      val U : unit = sizeUpdate(opcode_jumpI       , 2);
-      val U : unit = sizeUpdate(opcode_jumpIFalse  , 2);
-      val U : unit = sizeUpdate(opcode_delHandlerI , 2);
-      val U : unit = sizeUpdate(opcode_caseSwitch  , 3);
-      val U : unit = sizeUpdate(opcode_callSl      , 7);
-      val U : unit = sizeUpdate(opcode_callSlX     , 9);
-      val U : unit = sizeUpdate(opcode_returnW     , 3);
-(*    val U : unit = sizeUpdate(opcode_projectW    , 3); *)
-      val U : unit = sizeUpdate(opcode_getStoreW   , 3);
-      val U : unit = sizeUpdate(opcode_nonLocal    , 7);
-      val U : unit = sizeUpdate(opcode_localW      , 3);
-      val U : unit = sizeUpdate(opcode_indirectW   , 3);
-      val U : unit = sizeUpdate(opcode_moveToVecW  , 3);
-      val U : unit = sizeUpdate(opcode_setStackValW, 3);
-      val U : unit = sizeUpdate(opcode_resetW      , 3);
-      val U : unit = sizeUpdate(opcode_resetR_w    , 3);
-      val U : unit = sizeUpdate(opcode_constAddr   , 3);
-      val U : unit = sizeUpdate(opcode_constAddrX_b , 4);
-      val U : unit = sizeUpdate(opcode_constAddrX_w , 5);
-      val U : unit = sizeUpdate(opcode_constIntW   , 3);
-      val U : unit = sizeUpdate(opcode_ioVecEntry  , 2);
-      val U : unit = sizeUpdate(opcode_jumpBack    , 2);
-      val U : unit = sizeUpdate(opcode_returnB     , 2);
-(*    val U : unit = sizeUpdate(opcode_projectB    , 2); *)
-      val U : unit = sizeUpdate(opcode_getStoreB   , 2);
-      val U : unit = sizeUpdate(opcode_localB      , 2);
-      val U : unit = sizeUpdate(opcode_indirectB   , 2);
-      val U : unit = sizeUpdate(opcode_moveToVecB  , 2);
-      val U : unit = sizeUpdate(opcode_setStackValB, 2);
-      val U : unit = sizeUpdate(opcode_resetB      , 2);
-      val U : unit = sizeUpdate(opcode_resetRB     , 2);
-      val U : unit = sizeUpdate(opcode_constIntB   , 2);
-      val U : unit = sizeUpdate(opcode_nonLocalL_1 , 2);
-      val U : unit = sizeUpdate(opcode_nonLocalL_2 , 2);
-      val U : unit = sizeUpdate(opcode_nonLocalL_3 , 2);
-      val U : unit = sizeUpdate(opcode_callSlC     , 4);
-      val U : unit = sizeUpdate(opcode_callSlCX    , 5);
-      val U : unit = sizeUpdate(opcode_tupleW      , 3);
-      val U : unit = sizeUpdate(opcode_tupleB      , 2);
-      val U : unit = sizeUpdate(opcode_setHandler  , 2);
-      val U : unit = sizeUpdate(opcode_setHandlerI , 2);
-      val U : unit = sizeUpdate(opcode_tailbb      , 3);
-      val U : unit = sizeUpdate(opcode_tail        , 5);
-      val U : unit = sizeUpdate(opcode_tail3b      , 2);
-      val U : unit = sizeUpdate(opcode_tail4b      , 2);
+      val () = sizeUpdate(opcode_enterInt    , 2); (* Restored DCJM 22/9/00. *)
+(*      val () = sizeUpdate(opcode_enterInt    , 4);  *)(* SPF 30/1/97 *)
+      val () = sizeUpdate(opcode_jump        , 2);
+      val () = sizeUpdate(opcode_jumpFalse   , 2);
+      val () = sizeUpdate(opcode_delHandler  , 2);
+      val () = sizeUpdate(opcode_jumpI       , 2);
+      val () = sizeUpdate(opcode_jumpIFalse  , 2);
+      val () = sizeUpdate(opcode_delHandlerI , 2);
+      val () = sizeUpdate(opcode_caseSwitch  , 3);
+      val () = sizeUpdate(opcode_callSl      , 7);
+      val () = sizeUpdate(opcode_callSlX     , 9);
+      val () = sizeUpdate(opcode_returnW     , 3);
+(*    val () = sizeUpdate(opcode_projectW    , 3); *)
+      val () = sizeUpdate(opcode_getStoreW   , 3);
+      val () = sizeUpdate(opcode_nonLocal    , 7);
+      val () = sizeUpdate(opcode_localW      , 3);
+      val () = sizeUpdate(opcode_indirectW   , 3);
+      val () = sizeUpdate(opcode_moveToVecW  , 3);
+      val () = sizeUpdate(opcode_setStackValW, 3);
+      val () = sizeUpdate(opcode_resetW      , 3);
+      val () = sizeUpdate(opcode_resetR_w    , 3);
+      val () = sizeUpdate(opcode_constAddr   , 3);
+      val () = sizeUpdate(opcode_constAddrX_b , 4);
+      val () = sizeUpdate(opcode_constAddrX_w , 5);
+      val () = sizeUpdate(opcode_constIntW   , 3);
+      val () = sizeUpdate(opcode_ioVecEntry  , 2);
+      val () = sizeUpdate(opcode_jumpBack    , 2);
+      val () = sizeUpdate(opcode_returnB     , 2);
+(*    val () = sizeUpdate(opcode_projectB    , 2); *)
+      val () = sizeUpdate(opcode_getStoreB   , 2);
+      val () = sizeUpdate(opcode_localB      , 2);
+      val () = sizeUpdate(opcode_indirectB   , 2);
+      val () = sizeUpdate(opcode_moveToVecB  , 2);
+      val () = sizeUpdate(opcode_setStackValB, 2);
+      val () = sizeUpdate(opcode_resetB      , 2);
+      val () = sizeUpdate(opcode_resetRB     , 2);
+      val () = sizeUpdate(opcode_constIntB   , 2);
+      val () = sizeUpdate(opcode_nonLocalL_1 , 2);
+      val () = sizeUpdate(opcode_nonLocalL_2 , 2);
+      val () = sizeUpdate(opcode_nonLocalL_3 , 2);
+      val () = sizeUpdate(opcode_callSlC     , 4);
+      val () = sizeUpdate(opcode_callSlCX    , 5);
+      val () = sizeUpdate(opcode_tupleW      , 3);
+      val () = sizeUpdate(opcode_tupleB      , 2);
+      val () = sizeUpdate(opcode_setHandler  , 2);
+      val () = sizeUpdate(opcode_setHandlerI , 2);
+      val () = sizeUpdate(opcode_tailbb      , 3);
+      val () = sizeUpdate(opcode_tail        , 5);
+      val () = sizeUpdate(opcode_tail3b      , 2);
+      val () = sizeUpdate(opcode_tail4b      , 2);
     in
       fun size (Opcode n) : int = Array.sub (sizeArray, n);
     end;
@@ -813,14 +811,14 @@ struct
   fun genByte (ival: int, cvec: code) : unit = 
   let
     val icVal : addrs = ! (ic cvec);
-    val U : unit = putByte (ival, icVal, cvec);
+    val () = putByte (ival, icVal, cvec);
   in
     ic cvec := icVal addrPlus 1
   end;
    
   fun genBytes (ival: int, length: int, cvec: code) : unit =
   let
-    val U : unit = genByte (ival mod 256, cvec);
+    val () = genByte (ival mod 256, cvec);
   in
     if length = 1 then ()
     else genBytes (ival div 256, length - 1, cvec)
@@ -832,7 +830,7 @@ struct
   (* puts "length" bytes of "val" into locations "addr", "addr"+1... *)
   fun putBytes (ival : int, length : int, addr : addrs, cvec : code) : unit =
   let
-    val U : unit = putByte (ival mod 256, addr, cvec);
+    val () = putByte (ival mod 256, addr, cvec);
   in
     if length = 1 then ()
     else putBytes (ival div 256, length - 1, addr addrPlus 1, cvec)
@@ -863,7 +861,7 @@ struct
   let 
     val offset = !(stackReset cvec);
 
-    val U : unit =
+    val () =
       if offset < 0
         then raise InternalError ("resetSp: bad reset value " ^ Int.toString offset)
       
@@ -873,7 +871,7 @@ struct
       else if 255 <= offset
         then let
           val opc = if !(carry cvec) then opcode_resetR_w else opcode_resetW;
-          val U : unit = genByte (opcode_down opc, cvec);
+          val () = genByte (opcode_down opc, cvec);
         in
           genWord (offset, cvec)
         end
@@ -881,7 +879,7 @@ struct
       else if !(carry cvec)
 	then if 3 < offset
 	  then let
-	    val U : unit = genByte (opcode_down opcode_resetRB, cvec);
+	    val () = genByte (opcode_down opcode_resetRB, cvec);
 	  in
 	    genByte (offset, cvec)
 	  end
@@ -893,7 +891,7 @@ struct
 	
       else if 2 < offset
 	then let
-	  val U : unit = genByte (opcode_down opcode_resetB, cvec);
+	  val () = genByte (opcode_down opcode_resetB, cvec);
 	in
 	  genByte (offset, cvec)
 	end
@@ -919,14 +917,14 @@ struct
   fun removeLabel (lab : addrs, cvec : code) : unit = 
   let
     fun removeEntry ([]: labList) : labList = []
-      | removeEntry ((entry as ref (Jump16From _)) :: t) =
+      | removeEntry ((ref (Jump16From _)) :: t) =
           removeEntry t (* we discard all long jumps *)
         
       | removeEntry ((entry as ref (Jump8From addr)) :: t) =
         if lab = addr
         then removeEntry t
         else let
-          val U : unit =
+          val () =
             if addr addrLt !(longestBranch cvec)
             then longestBranch cvec := addr
             else ();
@@ -944,13 +942,13 @@ struct
     (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
     val newOffset : int = target addrMinus (addr addrPlus 1);
     
-    val U : unit = 
+    val () = 
       if 0 <= newOffset andalso newOffset < 256 then ()
       else raise InternalError "fixupOffset: jump too far (8-bit offset)"
     
     val oldOffset : int = getByte (addr, cvec);
     
-    val U : unit = 
+    val () = 
       if oldOffset = 0 then ()
       else raise InternalError "fixupOffset: 8-bit branch already fixed up"
 
@@ -958,7 +956,7 @@ struct
        We're about to fix up the jump, so remove it from the
        list of pending short jumps.
      *)
-    val U : unit = removeLabel (addr, cvec);
+    val () = removeLabel (addr, cvec);
   in
     putByte (newOffset, addr, cvec)
   end
@@ -968,13 +966,13 @@ struct
     (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
     val newOffset     : int  = target addrMinus (addr addrPlus 2);
     
-    val U : unit = 
+    val () = 
       if ~32768 <= newOffset andalso newOffset < 32768 then ()
       else raise InternalError "fixupOffset: jump too far (16-bit offset)"
     
     val oldOffset : int = getBytes (2, addr, cvec);
 
-    val U : unit = 
+    val () = 
       if oldOffset = 0 then ()
       else raise InternalError "fixupOffset: 16-bit branch already fixed up"
   in
@@ -982,11 +980,11 @@ struct
   end;
 
 
-  fun fixup ([]  : labels, cvec: code) : unit = ()
+  fun fixup ([]  : labels, _: code) : unit = ()
     | fixup (lab : labels, cvec: code) : unit =
   let
     (* Deal with any pending resets. *)
-    val U : unit = resetSp cvec;
+    val () = resetSp cvec;
     val target : addrs = ! (ic cvec);
   in
     applyList (fn (ref jf) => fixupOffset (jf, target, cvec), lab)
@@ -998,13 +996,13 @@ struct
     (* All labels are created as short jumps *)
     val lab : jumpFrom ref = ref (Jump8From addr);
     
-    val U : unit =
+    val () =
       if addr addrLt !(longestBranch cvec)
       then longestBranch cvec := addr
       else ();
       
     (* Add to the list of pending fixups *)
-    val U : unit = labelList cvec := lab :: !(labelList cvec);
+    val () = labelList cvec := lab :: !(labelList cvec);
   in
     [lab]
   end;
@@ -1051,13 +1049,13 @@ struct
             (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
             val newOffset : int = here addrMinus (addr addrPlus 1);
 
-            val U : unit = 
+            val () = 
               if 0 <= newOffset andalso newOffset < 256 then ()
               else raise InternalError "checkBranchList: offset too large to convert"
 
             val oldOffset : int = getByte (addr, cvec);
     
-            val U : unit = 
+            val () = 
               if oldOffset = 0 then ()
               else raise InternalError "checkBranchList: 8-bit offset already fixed up";
               
@@ -1067,19 +1065,19 @@ struct
             val newInstrByte : int   = oldInstrByte + 4;
               
             (* Fix up the instruction and offset *)
-            val U : unit = putByte (newInstrByte, instrAddr, cvec);
-            val U : unit = putByte (newOffset, addr, cvec);
+            val () = putByte (newInstrByte, instrAddr, cvec);
+            val () = putByte (newOffset, addr, cvec);
 
 	    (* Generate the indirection itself, and alter the jump state *)
-	    val U : unit = genWord (0, cvec);
-	    val U : unit = lab := Jump16From here;
+	    val () = genWord (0, cvec);
+	    val () = lab := Jump16From here;
 	  in
 	    convertRest
 	  end
 	  else let
 	    (* Not ready to remove this. Just find out if
 	       this is an earlier branch and continue. *)
-	    val U : unit =
+	    val () =
 	      if addr addrLt !(longestBranch cvec)
 	      then longestBranch cvec := addr
 	      else ();
@@ -1094,23 +1092,23 @@ struct
       (* Must save the stack-reset, otherwise "fixup" will try
          to reset it. *)
       val sr       = ! (stackReset cvec);
-      val U : unit = stackReset cvec := 0;
+      val () = stackReset cvec := 0;
         
       (* Must skip round the branches unless we have just
 	 taken an unconditional branch. *)
       val lab : labels = 
 	if branched then noJump
 	else let
-	  val U : unit = genByte(opcode_down opcode_jump, cvec);
-	  val U : unit = genByte(0, cvec);
+	  val () = genByte(opcode_down opcode_jump, cvec);
+	  val () = genByte(0, cvec);
 	in
 	  makeLabel(cvec, !(ic cvec) addrPlus ~1)
 	end
 
       (* Find the new longest branch while converting the labels *)
-      val U : unit = longestBranch cvec := addrLast;
-      val U : unit = labelList cvec := convertLabels (! (labelList cvec));
-      val U : unit = fixup (lab, cvec); (* Continue with normal processing. *)
+      val () = longestBranch cvec := addrLast;
+      val () = labelList cvec := convertLabels (! (labelList cvec));
+      val () = fixup (lab, cvec); (* Continue with normal processing. *)
     in
       stackReset cvec := sr (* Restore old value. *)
     end
@@ -1118,7 +1116,7 @@ struct
 
   (* Dave had some complicated scheme here - with the new representation of
      labels, everything gets much simpler. *)
-  fun linkLabels (lab1 : labels, lab2 : labels, cvec : code) : labels =
+  fun linkLabels (lab1 : labels, lab2 : labels, _ : code) : labels =
     lab1 @ lab2;
 
   (* Put in the opcode for an instruction. *)
@@ -1127,14 +1125,14 @@ struct
     val opn : int = opcode_down opc;
   
 (* ...
-    val U : unit =
+    val () =
       if 0 <= opn andalso opn < 256 andalso opn <> opcode_down opcode_booleanOr
       then ()
       else raise InternalError ("genOpc: bad opcode: " ^ Int.toString opn);
 ... *)
   
-    val U : unit = checkBranchList (cvec, false, size);
-    val U : unit = resetSp cvec;
+    val () = checkBranchList (cvec, false, size);
+    val () = resetSp cvec;
   in
     genByte (opn, cvec)
   end; 
@@ -1163,13 +1161,13 @@ struct
 
     else if 0 <= arg1 andalso arg1 <= 254 (* why not 255? *)
     then let
-      val U : unit = genOpc(opB, 2, cvec);
+      val () = genOpc(opB, 2, cvec);
     in
       genByte(arg1, cvec)
     end
 
     else let
-      val U : unit = genOpc(opW, 3, cvec);
+      val () = genOpc(opW, 3, cvec);
     in
       genWord(arg1, cvec)
     end;
@@ -1214,7 +1212,7 @@ struct
   let
     (* The destination addresses immediately follow the case instruction
        so we must make sure there is enough room. *)
-    val U : unit = genOpc (opcode_caseSwitch, 3 + arg1 * 2, cvec);
+    val () = genOpc (opcode_caseSwitch, 3 + arg1 * 2, cvec);
   in
     genWord (arg1, cvec)
   end;
@@ -1226,7 +1224,7 @@ struct
 	  2, 4, arg1, cvec);
 
   (* Single byte argument. *)
-  fun genIoVecEntry (arg: int, cvec : code) : unit =
+(*  fun genIoVecEntry (arg: int, cvec : code) : unit =
     case arg of (* Some of these entries are very common. *)
 	5 => genOpc(opcode_ioVec_5,   1, cvec)
     |   6 => genOpc(opcode_ioVec_6,   1, cvec)
@@ -1240,10 +1238,10 @@ struct
     | 255 => genOpc(opcode_ioVec_255, 1, cvec)
     | _ =>
       let
-	val U : unit = genOpc(opcode_ioVecEntry, 2, cvec);
+	val () = genOpc(opcode_ioVecEntry, 2, cvec);
       in
 	genByte(arg, cvec)
-      end;
+      end;*)
 
   fun genNonLocal (arg1 : int, arg2 : int, arg3 : int, cvec: code) : unit =
     if arg1 <= 0 orelse arg2 <= 0
@@ -1252,30 +1250,30 @@ struct
     else if arg1 <= 16 andalso arg2 <= 3 andalso ~6 <= arg3 andalso arg3 <= 9
     then let (* use a coded representation *)
       val opc = opcode_up(opcode_down opcode_nonLocalL_1 + arg2 - 1);
-      val U : unit = genOpc (opc, 1, cvec);
+      val () = genOpc (opc, 1, cvec);
     in
       genByte((arg1 - 1) * 16 + arg3 + 6, cvec)
     end
 
     else let
-      val U : unit = genOpc (opcode_nonLocal, 5, cvec);
-      val U : unit = genWord (arg1, cvec);
-      val U : unit = genWord (arg2, cvec);
+      val () = genOpc (opcode_nonLocal, 5, cvec);
+      val () = genWord (arg1, cvec);
+      val () = genWord (arg2, cvec);
     in
       genWord (arg3, cvec)
     end;
 
   fun genEnterInt (cvec: code, args: int) : unit =
   let
-    val U : unit = genByte(opcode_down opcode_enterInt, cvec);
-    val U : unit = genByte(args + 1, cvec);
+    val () = genByte(opcode_down opcode_enterInt, cvec);
+    val () = genByte(args + 1, cvec);
   in
     ()
   end;
 
   fun genEnterIntCall (cvec: code, args: int) : unit =
   let
-    val U : unit =
+    val () =
       if args < MAXINTARGS then ()
       else raise InternalError "genEnterIntCall: too many arguments";
   in
@@ -1291,14 +1289,14 @@ struct
 
   fun genEnterIntProc (cvec: code, args: int) : unit =
   let
-    val U : unit =
+    val () =
       if args < MAXINTARGS then ()
       else raise InternalError "genEnterIntProc: too many arguments";
       
     val argCode : int = MAXINTARGS + args; 
   
     (* Primary entry point (address 0) *)
-    val U : unit = genEnterInt(cvec, argCode);
+    val () = genEnterInt(cvec, argCode);
   in
     ()
   end;
@@ -1308,22 +1306,22 @@ struct
     if opc = opcode_setHandler orelse
        opc = opcode_jumpFalse
     then let (* The next instruction may or will be executed. *)
-      val U : unit = genOpc (opc, 3, cvec); (* why not 2? *)
-      val U : unit = genByte (0, cvec);
+      val () = genOpc (opc, 3, cvec); (* why not 2? *)
+      val () = genByte (0, cvec);
     in
       makeLabel (cvec, !(ic cvec) addrPlus ~1)
     end
     
     else let (* Unconditional branches. *)
-      val U : unit = resetSp cvec;
-      val U : unit = genByte (opcode_down opc, cvec);
-      val U : unit = genByte (0, cvec);
+      val () = resetSp cvec;
+      val () = genByte (opcode_down opc, cvec);
+      val () = genByte (0, cvec);
       val lab : labels = makeLabel (cvec, !(ic cvec) addrPlus ~1);
       
       (* Having just generated an unconditional branch we can extend
 	 branches without the overhead of an extra branch. That's
 	 why we did a genByte, rather than a genOpc, just now. *)
-      val U : unit = checkBranchList (cvec, true, 0);
+      val () = checkBranchList (cvec, true, 0);
     in
       lab
     end;
@@ -1331,28 +1329,28 @@ struct
   (* Generate either a short or long jump. *)
   fun jumpback (lab: addrs, cvec: code) : unit =
   let
-    val U : unit = resetSp cvec;
+    val () = resetSp cvec;
   
     (* Don't use genOpc(opcode_jump) because we want to check the branch
        list afterwards, and also because it might generate some code if
        we try to use a short branch and take it over the limit. *)
     val newOffset : int = !(ic cvec) addrMinus lab;
     
-    val U : unit =
+    val () =
       if newOffset < 256
       then let (* short *)
         (* For opcode_jumpBack, exceptionally, the offset is relative
            to the START of the instruction. Also, the offset is
            backwards, as opposed to the usual forwards convention. *)
-	val U : unit = genByte (opcode_down opcode_jumpBack, cvec);
+	val () = genByte (opcode_down opcode_jumpBack, cvec);
       in
 	genByte (newOffset, cvec)
       end
       else let (* must use indirect jump *)
         (* For all other jumps, the offset is relative to the END of
            the instruction, which explains the "0" and the "+ 4". *)
-	val U : unit = genByte (opcode_down opcode_jumpI, cvec);
-	val U : unit = genByte (0, cvec); (* Indirect through next word. *)
+	val () = genByte (opcode_down opcode_jumpI, cvec);
+	val () = genByte (0, cvec); (* Indirect through next word. *)
       in
 	genWord (~ (newOffset + 4), cvec)
       end;
@@ -1368,7 +1366,7 @@ struct
       fn (fixupAddr : addrs, constNum : int) =>
       let
         val oldOffset : int = getBytes (2, fixupAddr, cvec);
-        val U : unit =
+        val () =
           if oldOffset = 0 then ()
           else raise InternalError "fixupConstantLoad: already fixed-up";
 
@@ -1380,7 +1378,7 @@ struct
         (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
         val newOffset : int = constAddr addrMinus (fixupAddr addrPlus 2);
         
-        val U : unit = 
+        val () = 
           if 0 <= newOffset andalso newOffset < 65536 then ()
           else raise InternalError "fixupConstantLoad: constant too distant (16-bit offset)"
       in
@@ -1416,7 +1414,7 @@ struct
   let
     (* Remember address of the indirection so we can fix it up later *)
     val fixupAddrs : addrs = !(ic cvec);
-    val U : unit = genWord (0, cvec);
+    val () = genWord (0, cvec);
   in
     constLoads cvec := (fixupAddrs, constNum) :: !(constLoads cvec)
   end;
@@ -1434,13 +1432,13 @@ struct
   
       else if iVal < 256
       then let
-        val U : unit = genOpc (opcode_constIntB, 2, cvec);
+        val () = genOpc (opcode_constIntB, 2, cvec);
       in
         genByte (iVal, cvec)
       end
       
       else let
-        val U : unit = genOpc (opcode_constIntW, 3, cvec);
+        val () = genOpc (opcode_constIntW, 3, cvec);
       in
         genWord (iVal, cvec)
       end
@@ -1448,7 +1446,7 @@ struct
 
     else let (* address or large short *)
       val constNum : int = addConstToVec (WVal value, cvec);
-      val U : unit =
+      val () =
 	  	if not usePortableConstantOffset
 		then genOpc (opcode_constAddr, 3, cvec)
 		else if constNum < 256
@@ -1477,8 +1475,8 @@ struct
        will (hopefully) fix the "jump too large" which appeared
        when I added the extra return-point. SPF 3/8/95 *) 
     val size : int = if mustReset then 23 else 20;
-    val U : unit = checkBranchList (cvec, false, size);
-    val U : unit = resetSp cvec;
+    val () = checkBranchList (cvec, false, size);
+    val () = resetSp cvec;
   in
     while (getAddr (! (ic cvec)) + length) mod 4 <> (* 0 *) 2 do
       genByte (opcode_down opcode_pad, cvec)
@@ -1486,7 +1484,7 @@ struct
 
   fun genCallClosure (cvec: code) : unit =
   let
-    val U : unit = alignOffWord(cvec, 1);
+    val () = alignOffWord(cvec, 1);
   in
     genOpc (opcode_callClosure, 1, cvec)
   end;
@@ -1497,30 +1495,30 @@ struct
       case (toslide, slideby) of
         (3, 2) => 
            let
-             val U : unit = alignOffWord (cvec, 1);
+             val () = alignOffWord (cvec, 1);
            in
              genOpc (opcode_tail3_2, 1, cvec)
            end
            
       | (3, 3) => 
            let
-             val U : unit = alignOffWord (cvec, 1);
+             val () = alignOffWord (cvec, 1);
            in
              genOpc (opcode_tail3_3, 1, cvec)
            end
            
       | (3, _) => 
            let
-             val U : unit = alignOffWord (cvec, 2);
-             val U : unit = genOpc (opcode_tail3b, 2, cvec);
+             val () = alignOffWord (cvec, 2);
+             val () = genOpc (opcode_tail3b, 2, cvec);
            in
              genByte (slideby, cvec)
            end
            
       | (4, _) => 
            let
-             val U : unit = alignOffWord (cvec, 2);
-             val U : unit = genOpc (opcode_tail4b, 2, cvec);
+             val () = alignOffWord (cvec, 2);
+             val () = genOpc (opcode_tail4b, 2, cvec);
            in
              genByte (slideby, cvec)
            end
@@ -1528,17 +1526,17 @@ struct
 
       | (_, _) => 
            let (* General byte case *)
-             val U : unit = alignOffWord (cvec, 3);
-             val U : unit = genOpc (opcode_tailbb, 3, cvec);
-             val U : unit = genByte (toslide, cvec);
+             val () = alignOffWord (cvec, 3);
+             val () = genOpc (opcode_tailbb, 3, cvec);
+             val () = genByte (toslide, cvec);
            in
              genByte (slideby, cvec)
            end
            
      else let (* General case. *)
-       val U : unit = alignOffWord (cvec, 5);
-       val U : unit = genOpc (opcode_tail, 5, cvec);
-       val U : unit = genWord (toslide, cvec);
+       val () = alignOffWord (cvec, 5);
+       val () = genOpc (opcode_tail, 5, cvec);
+       val () = genWord (toslide, cvec);
      in
        genWord(slideby, cvec)
      end; (* genTailCall *)
@@ -1563,12 +1561,12 @@ struct
          the referring procedure is finished and its address is known the
          address will be plugged in to every procedure which needs it. *)
       let
-        fun onList x []      = false
+        fun onList _ []      = false
           | onList x (c::cs) = (x is c) orelse onList x cs;
           
         val codeList = ! (otherCodes r);
 
-        val U : unit =
+        val () =
           if onList into codeList
           then ()
           else otherCodes r := into :: codeList;
@@ -1581,7 +1579,7 @@ struct
   fun genRecRef (target : code, into: code) : unit =
   let
     val constNum : int = codeConst (target, into);
-    val U : unit =
+    val () =
 	  	if not usePortableConstantOffset
 		then genOpc (opcode_constAddr, 3, into)
 		else if constNum < 256
@@ -1639,21 +1637,21 @@ struct
   (* Adds in the reset. *)
   fun resetStack (offset : int, carryValue : bool, cvec : code) : unit =
   let
-    val U : unit =
+    val () =
       if 0 < offset then ()
       else raise InternalError ("resetStack: bad offset " ^ Int.toString offset);
   
-    val U : unit = stackReset cvec := !(stackReset cvec) + offset;
+    val () = stackReset cvec := !(stackReset cvec) + offset;
   in
      carry cvec := carryValue
   end;
 
   fun printCode (seg: cseg, procName: string, endcode : int, printStream) : unit =
   let
-    val U : unit = printStream "\n";
-    val U : unit =
+    val () = printStream "\n";
+    val () =
      if procName = "" (* No name *) then printStream "?" else printStream procName;
-    val U : unit = printStream ":\n";
+    val () = printStream ":\n";
 
     (* prints a string representation of a number *)
     fun printHex (v : int) : unit = printStream(Int.fmt StringCvt.HEX v);
@@ -1682,9 +1680,9 @@ struct
     fun printDisp (len: int, spacer: string, addToList: bool) : unit =
     let
       val ad : int = getB(len, !ptr, seg) + !ptr + len;
-      val U : unit = if addToList then addInd ad else ();
-      val U : unit = printStream spacer;
-      val U : unit = printHex ad;
+      val () = if addToList then addInd ad else ();
+      val () = printStream spacer;
+      val () = printHex ad;
     in
       ptr := !ptr + len
     end;
@@ -1692,22 +1690,22 @@ struct
     (* Prints an operand of an instruction *)
     fun printOp (len: int, spacer : string) : unit =
     let
-      val U : unit = printStream spacer;
-      val U : unit = printHex (getB (len, !ptr, seg));
+      val () = printStream spacer;
+      val () = printHex (getB (len, !ptr, seg));
     in
       ptr := !ptr + len
     end;
 
-    val U : unit =     
+    val () =     
       while !ptr < endcode
       do let
         val addr : int = !ptr;
-        val U : unit = printHex addr; (* The address. *)
+        val () = printHex addr; (* The address. *)
   
-        val U : unit = 
+        val () = 
           if (case !indirections of v :: _ => v = addr | [] => false)
           then let (* It's an address. *)
-            val U : unit = printDisp (2, "\t", false);
+            val () = printDisp (2, "\t", false);
           in
             case !indirections of
               _ :: vs => indirections := vs
@@ -1715,10 +1713,10 @@ struct
           end
               
           else let (* It's an instruction. *)
-            val U : unit  = printStream "\t";
+            val ()  = printStream "\t";
             val opc : opcode = opcode_up (Word8.toInt (csegGet (seg, !ptr))); (* opcode *)
-            val U : unit  = ptr := !ptr + 1;
-            val U : unit  = printStream (repr opc);
+            val ()  = ptr := !ptr + 1;
+            val ()  = printStream (repr opc);
     
             val sz : int = size opc;
           in
@@ -1739,24 +1737,24 @@ struct
               
             else if opc = opcode_jumpBack (* Should be negative *)
               then let
-                val U : unit = printStream "\t";
-                val U : unit = printHex((!ptr - 1) - getB(1,!ptr,seg));
+                val () = printStream "\t";
+                val () = printHex((!ptr - 1) - getB(1,!ptr,seg));
               in
                 ptr := !ptr + 1
               end
               
             else if opc = opcode_nonLocal
               then let
-                val U : unit = printOp (2, "\t");
-                val U : unit = printOp (2, ",");
+                val () = printOp (2, "\t");
+                val () = printOp (2, ",");
               in          
                 printOp(2, ",")
               end
               
             else if opc = opcode_callSl
               then let
-                val U : unit = printDisp (2, "\t", false);
-                val U : unit = printOp (2, ",");
+                val () = printDisp (2, "\t", false);
+                val () = printOp (2, ",");
               in          
                 printOp (2, ",")
               end
@@ -1789,13 +1787,13 @@ struct
               then let
                 (* Have to find out how many items there are. *)
                 val limit : int = getB (2, !ptr, seg);
-                val U : unit = printOp (2, "\t");
+                val () = printOp (2, "\t");
                 val base : int = !ptr;
                 
-                fun printEntry (i : int) =
+                fun printEntry (_ : int) =
                 let
-                  val U : unit = printStream "\n\t";
-                  val U : unit = printHex(base + getB(2, !ptr, seg));
+                  val () = printStream "\n\t";
+                  val () = printHex(base + getB(2, !ptr, seg));
                 in
                   ptr := !ptr + 2
                 end;
@@ -1805,14 +1803,14 @@ struct
                  
             else if opc = opcode_tail
               then let
-                val U : unit = printOp (2, "\t");
+                val () = printOp (2, "\t");
               in
                 printOp (2, ",")
               end
                  
             else if opc = opcode_tailbb
               then let
-                val U : unit = printOp (1, "\t");
+                val () = printOp (1, "\t");
               in
                 printOp (1, ",")
               end
@@ -1895,7 +1893,7 @@ struct
     case c of
       CVal c =>
         let
-          val U : unit = printStream(if noClosure c then "code:\t" else "clos:\t");
+          val () = printStream(if noClosure c then "code:\t" else "clos:\t");
         in
            printStream(procName c)
         end
@@ -1904,10 +1902,10 @@ struct
 	if isShort w
 	then let
 	  val value : int = Word.toInt (toShort w);
-	  val U : unit = printStream "short:\t";
-	  val U : unit = printHex(value, printStream);
-	  val U : unit = printStream " (";
-	  val U : unit = printStream (Int.toString value);
+	  val () = printStream "short:\t";
+	  val () = printHex(value, printStream);
+	  val () = printStream " (";
+	  val () = printStream (Int.toString value);
 	in
 	  printStream ")"
 	end
@@ -1937,13 +1935,13 @@ struct
 	    else printWords(a, printStream) (* Not a proper tuple (shouldn't occur) *)
 	end;
            
-  fun printConstants (addr : int, [] : const list, printStream) : unit = ()
+  fun printConstants (_    : int, [] : const list, _) : unit = ()
     | printConstants (addr : int, h :: t, printStream) : unit =
   let
-    val U : unit = printHex(addr, printStream);
-    val U : unit = printStream "\t";
-    val U : unit = printConst(h, printStream);
-    val U : unit = printStream "\n";
+    val () = printHex(addr, printStream);
+    val () = printStream "\t";
+    val () = printConst(h, printStream);
+    val () = printStream "\n";
   in
     printConstants (addr + wordLength(), t, printStream)
   end;
@@ -1973,7 +1971,7 @@ struct
             if c is refTo
             then let (* A reference to this one. *)
               (* Fix up the forward reference. *)
-              val U : unit = constLabels (refFrom, num, value);
+              val () = constLabels (refFrom, num, value);
             in
               (* decrement the "pending references" count *)
               noc := !noc - 1
@@ -1982,7 +1980,7 @@ struct
         | _ => ();
         
       (* look down its list of forward references until we find ourselves. *)
-      val U : unit =
+      val () =
         applyCountList (putNonLocalConst, 1, !(constVec refFrom));
     in
      (* If there are no more references, we can lock it. *)
@@ -2006,13 +2004,13 @@ struct
 	(* Now round up to 8 byte boundary.  This makes porting to a 64 bit
 	   machine much simpler. DCJM 22/9/00. *)
 	val alignTo = if wordLength() < 8 then 8 else wordLength();
-    val U : unit = 
+    val () = 
        while (getAddr (! (ic cvec)) mod alignTo) <> 0 do
           genByte (opcode_down opcode_pad, cvec);
 
     (* This also aligns ic onto a fullword boundary. *)
     val endIC    = !(ic cvec); (* Remember end *)
-    val U : unit = genBytes (0, wordLength(), cvec); (* Marker *)
+    val () = genBytes (0, wordLength(), cvec); (* Marker *)
 
     (* +4 for code size, profile count, function name and constants count *)
     val numOfConst = !(numOfConsts cvec);
@@ -2020,21 +2018,21 @@ struct
     val segSize   : int = endOfCode + numOfConst + 4;
 
     (* fix-up all the constant loads (or indirections) *)
-    val U : unit = fixupConstantLoads (cvec, endIC, !(constLoads cvec));
+    val () = fixupConstantLoads (cvec, endIC, !(constLoads cvec));
 
     (* Now make the byte segment that we'll turn into the code segment *)
     val seg : cseg = csegMake segSize;
-    val U : unit   = resultSeg cvec := Set seg;
+    val ()   = resultSeg cvec := Set seg;
     
     (* Copy the code into the new segment. *)
-    val U : unit = csegCopySeg (codeVec cvec, seg, getAddr (!(ic cvec)), 0);
+    val () = csegCopySeg (codeVec cvec, seg, getAddr (!(ic cvec)), 0);
 
     (* Byte offset of start of code. *)
     local
       val byteEndOfCode = endOfCode * wordLength();
       val addr = mkAddr byteEndOfCode;
     in
-      val U : unit = setLong (byteEndOfCode, addr, seg); 
+      val () = setLong (byteEndOfCode, addr, seg); 
     end;
     
     (* Put in the number of constants. This must go in before
@@ -2042,21 +2040,21 @@ struct
     local
       val addr = mkAddr ((segSize - 1) * wordLength());
     in
-      val U : unit = setLong (numOfConst + 1, addr, seg) 
+      val () = setLong (numOfConst + 1, addr, seg) 
     end;
     
     (* Next the profile count. *)
     local
       val addr = mkAddr ((endOfCode + 1) * wordLength());
     in
-      val U : unit = setLong (0, addr, seg) 
+      val () = setLong (0, addr, seg) 
     end;
 
     (* Now we've filled in all the C integers; now we need to convert the segment
       into a proper code segment before it's safe to put in any ML values.
       SPF 13/2/97
     *)
-    val U : unit = csegConvertToCode seg;
+    val () = csegConvertToCode seg;
 
     local
       (* why do we treat the empty string as a special case? SPF 15/7/94 *)
@@ -2065,19 +2063,19 @@ struct
       val name     : string = procName cvec;
       val nameWord : machineWord = if name = "" then toMachineWord 0 else toMachineWord name;
     in
-      val U : unit = csegPutWord (seg, endOfCode + 2, nameWord)
+      val () = csegPutWord (seg, endOfCode + 2, nameWord)
     end;
 
 
     (* and then copy the objects from the constant list. *)
-    fun putLocalConsts []      num = ()
+    fun putLocalConsts []      _ = ()
       | putLocalConsts (c::cs) num =
       let
-        val U : unit =
+        val () =
           case c of
             WVal w => (* an ordinary (non-short) constant *)
             let
-              val U : unit = constLabels (cvec, num, w);
+              val () = constLabels (cvec, num, w);
             in
               numOfConsts cvec := ! (numOfConsts cvec) - 1
             end
@@ -2089,11 +2087,11 @@ struct
         putLocalConsts cs (num + 1)
       end;
     
-    val U : unit = putLocalConsts (! (constVec cvec)) 1;
+    val () = putLocalConsts (! (constVec cvec)) 1;
   
     (* Switch off "mutable" bit now if we have no
        forward or recursive references to fix-up *)
-    val U : unit = 
+    val () = 
       if !(numOfConsts cvec) = 0
       then csegLock seg
       else ();
@@ -2110,7 +2108,7 @@ struct
 	   way and I'm not completely sure that everything that needs a mutable
 	   allocation actually asks for it yet. SPF 19/2/97
 	*)
-	val U : unit = lock addr;
+	val () = lock addr;
       in
 	addr
       end
@@ -2118,19 +2116,19 @@ struct
     (* Now we know the address of this object we can fix up
        any forward references outstanding. This is put in here
        because there may be directly recursive references. *)
-    val U : unit = fixOtherRefs (cvec, toMachineWord addr);
+    val () = fixOtherRefs (cvec, toMachineWord addr);
 
-    val U : unit = 
+    val () = 
       if printAssemblyCode
       then let (* print out the code *)
-	val U : unit = printCode (seg, procName cvec, getAddr endIC, printStream);
+	val () = printCode (seg, procName cvec, getAddr endIC, printStream);
 	(* Skip: byte offset of start of code segment, 
 		 number of constants,
 		 profiling word,
 		 name of code segment
 	*)
 	val constants : const list = ! (constVec cvec);
-	val U : unit = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
+	val () = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
       in
          printStream"\n"
       end
@@ -2144,7 +2142,7 @@ struct
     fn (cvec : code) =>
     let
       (* Make sure any pending stack resets are done. *)
-      val U : unit = resetSp cvec
+      val () = resetSp cvec
     in
       ! (ic cvec)
     end;

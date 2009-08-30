@@ -165,13 +165,13 @@ struct
      
     (* Don't allow duplicate keys in the list! *)
     local    
-      fun member (x, [] : ('a * 'b) list) = false
-	| member (x, h::t) = same (#1 h, x) orelse member (x, t);
+      fun member (_, [] : ('a * 'b) list) = false
+      |   member (x, h::t) = same (#1 h, x) orelse member (x, t);
 	
-      fun delete (x, [] : ('a * 'b) list) = []
-	| delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t);
+      fun delete (_, [] : ('a * 'b) list) = []
+      |   delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t);
     in	
-      fun enter (entry as (a: 'a, b: 'b)) : unit =
+      fun enter (entry as (a: 'a, _: 'b)) : unit =
       let
 	val list    = !table;
 	val newList = if member (a, list) then delete (a, list) else list;

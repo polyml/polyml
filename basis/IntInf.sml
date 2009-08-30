@@ -104,7 +104,7 @@ struct
 
 	fun pow(i, j) =
 	let
-		fun power(acc, n, 0) = acc
+		fun power(acc, _, 0) = acc
 		 |  power(acc, n, i) =
 		 	power(if andb(i, 1) = 1 then acc*n else acc, n*n, Int.quot(i, 2))
 	in

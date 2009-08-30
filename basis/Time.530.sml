@@ -125,7 +125,7 @@ struct
 		fun read_number sign src =
 			case getc src of
 				NONE => NONE
-			  | SOME(ch, src') =>
+			  | SOME(ch, _) =>
 					if not (ch >= #"0" andalso ch <= #"9" orelse ch = #".")
 					then NONE (* Bad "*)
 					else (* Digits or decimal. *)
@@ -197,12 +197,12 @@ local
 	   done outside the structure because of the opaque matching. *)
 	fun pretty _ _ x = PolyML.PrettyString(Time.toString x)
 in
-	val it = PolyML.addPrettyPrinter pretty
+	val () = PolyML.addPrettyPrinter pretty
 	(* Add overloads for +, -, <= etc *)
-	val it = RunCall.addOverload Time.+ "+";
-	val it = RunCall.addOverload Time.- "-";
-	val it = RunCall.addOverload Time.< "<";
-	val it = RunCall.addOverload Time.> ">";
-	val it = RunCall.addOverload Time.<= "<=";
-	val it = RunCall.addOverload Time.>= ">=";
+	val () = RunCall.addOverload Time.+ "+";
+	val () = RunCall.addOverload Time.- "-";
+	val () = RunCall.addOverload Time.< "<";
+	val () = RunCall.addOverload Time.> ">";
+	val () = RunCall.addOverload Time.<= "<=";
+	val () = RunCall.addOverload Time.>= ">=";
 end

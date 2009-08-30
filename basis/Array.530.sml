@@ -98,8 +98,7 @@ local
 		else
 		let
 			(* Make a vector initialised to zero. *)
-			val new_vec =
-				System_alloc(length, 0, 0) handle Range => raise General.Size;
+			val new_vec = System_alloc(length, 0, 0)
 		in
 			System_move_words(RunCall.unsafeCast v, start+1, new_vec, 0, length);
 			System_lock new_vec;
@@ -192,7 +191,7 @@ struct
 	   zero-length object is different.  Locking the resultant object turns
 	   into an immutable object and changes the equality function from pointer
 	   equality to value equality. *)
-	fun vector (vec: 'a array as v): 'a vector = makeVector(vec, 0, length vec)
+	fun vector (vec: 'a array): 'a vector = makeVector(vec, 0, length vec)
 	
 	(* Copy one array into another.  It's possible for the arrays
 	   to be the same and for the source and destinations to overlap so we

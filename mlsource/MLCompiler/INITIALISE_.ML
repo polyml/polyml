@@ -170,7 +170,7 @@ struct
 (*****************************************************************************)
 (*                  Untility functions                                       *)
 (*****************************************************************************)
-    fun applyList f []       = ()
+    fun applyList _ []       = ()
     |   applyList f (h :: t) = (f h : unit; applyList f t);
 
 (*****************************************************************************)
@@ -185,8 +185,6 @@ struct
 (*****************************************************************************)
         (* shouldn't these be imported from somewhere? *)
         fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
-        val intZero    = mkConst (toMachineWord 0);
-        val realZero   = mkConst (toMachineWord 0.0);
         
         fun loadArg n  = mkLoad (~ n, 0);
         fun mkEntry n  = mkConst (ioOp n);
@@ -220,14 +218,13 @@ struct
             val Word   = wordType;
             
             val mkTypeConstruction = mkTypeConstruction;
-            val mkTypeVar = mkTypeVar;
         end;
 
         (* Function to make a type identifier with a pretty printer that just prints "?"
            and the structural equality function.  Most of the types we use this for
            don't admit equality but it's simpler  to have a single function here. *)
         local
-            fun defaultPrinter depth _ value = PRETTY.PrettyString "?"
+            fun defaultPrinter _ _ _ = PRETTY.PrettyString "?"
             val defaultEqCode =
                 mkInlproc(
                     mkInlproc(
@@ -767,12 +764,6 @@ struct
             val recordType =
                 makeTypeAbbreviation("nameSpace", [], mkLabelled(sortLabels fields, true), declInBasis);
             val () = #enterType nameSpaceEnv ("nameSpace", recordType);
-    
-            val debugFields =
-                List.map (fn (n,v) => mkLabelEntry("lookup" ^ n, String ->> Option v)) valTypes
-            val debugRecord = mkLabelled(sortLabels debugFields, true);
-            val debugType = (debugRecord ** (Unit ->> Bool)) ->> Unit
-            val setDbtype = debugType ->> Unit
             
             (* The result type of the compiler includes valueVal etc. *)
             val resultFields = List.map TYPETREE.mkLabelEntry

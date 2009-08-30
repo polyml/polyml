@@ -434,9 +434,9 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
-    |   tcSetEquality(tc, false) = raise InternalError "tcSetEquality: Removing equality"
+    |   tcSetEquality(_, false) = raise InternalError "tcSetEquality: Removing equality"
 	
-    fun tcSetConstructors (TypeConstrs {constrs, name, identifier, ...}, newConstrs) =
+    fun tcSetConstructors (TypeConstrs {constrs, name, ...}, newConstrs) =
 	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
 	
     fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
@@ -488,7 +488,7 @@ struct
     (* Eqtypes with built-in equality functions. *)
     local
         open Address PRETTY RuntimeCalls
-        fun defaultPrinter depth _ value = PrettyString "?"
+        fun defaultPrinter _ _ _ = PrettyString "?"
 
         fun eqAndPrintCode eqFun =
         let
@@ -555,7 +555,7 @@ struct
 
         fun makeType name =
         let
-            fun defaultPrinter depth _ value = PrettyString "?"
+            fun defaultPrinter _ _ _ = PrettyString "?"
             val code =
                 mkTuple[
                     CodeZero (* No equality. *),
@@ -574,7 +574,7 @@ struct
     local
         open Address PRETTY;
 
-        fun defaultPrinter depth _ value = PrettyString "?"
+        fun defaultPrinter _ _ _ = PrettyString "?"
         val code =
             mkTuple[
                 CodeZero (* No equality. *),

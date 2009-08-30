@@ -220,8 +220,8 @@ struct
 
 
     local
-        fun prettyDylib _ _ (m: dylib) = PolyML.PrettyString "?"
-        fun prettySym _ _ (m: sym) = PolyML.PrettyString "?"
+        fun prettyDylib _ _ (_: dylib) = PolyML.PrettyString "?"
+        fun prettySym _ _ (_: sym) = PolyML.PrettyString "?"
     in
         val () = PolyML.addPrettyPrinter prettyDylib
         and () = PolyML.addPrettyPrinter prettySym

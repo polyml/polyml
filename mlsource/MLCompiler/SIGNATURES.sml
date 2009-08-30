@@ -185,9 +185,9 @@ struct
        makeSignature("UNDEFINED", makeSignatureTable(),
                 0, 0, noLocation, fn _ => raise Subscript, []);
 
-    fun displayList ([], separator, depth) dodisplay = []
+    fun displayList ([], _, _) _ = []
     
-    |   displayList ([v], separator, depth) dodisplay =
+    |   displayList ([v], _, depth) dodisplay =
             if depth <= 0
             then [PrettyString "..."]
             else [dodisplay (v, depth)]
@@ -744,7 +744,7 @@ struct
                     )
 
         (* Construct a signature.  All the type IDs within the signature are variables. *)
-        fun sigValue (str : sigs, Env env : env, lno : LEX.location, structPath) =
+        fun sigValue (str : sigs, Env env : env, _ : LEX.location, structPath) =
             case str of
                 SignatureIdent(name, loc, declLoc) =>
                     signatureIdentValue(name, loc, declLoc, Env env, structPath)
@@ -755,11 +755,11 @@ struct
             |   SigDec(sigList, lno) =>
                     makeSigInto(sigList, Env env, lno, 0, structPath)
 
-        and signatureIdentValue(name, loc, declLoc, Env structEnv, structPath) =
+        and signatureIdentValue(name, loc, declLoc, _, structPath) =
         let
             (* Look up the signature and copy it to turn bound IDs into variables.
                This is needed because we may have sharing. *)
-            val oldSig as Signatures { name, tab, typeIdMap, minTypes, boundIds, declaredAt, ...} = lookSig(name, loc);
+            val Signatures { name, tab, typeIdMap, minTypes, boundIds, declaredAt, ...} = lookSig(name, loc);
             (* Remember the declaration location for possible browsing. *)
             val () = declLoc := SOME declaredAt
             val startNewIds = ! idCount
@@ -995,7 +995,7 @@ struct
                       val result = pStruct t (offset + 1);
                       (* Make a structure. *)
                       val resStruct = makeFormalStruct (name, resSig, offset, [DeclaredAt lno]);
-                      val U : unit = #enterStruct structEnv (name, resStruct);
+                      val () = #enterStruct structEnv (name, resStruct);
                     in
                       result (* One slot for each structure. *)
                     end
@@ -1038,7 +1038,7 @@ struct
                 let
                   val errorFn = giveSpecError (signat, line, lex);
                 
-                  fun lookup(s,locn) =
+                  fun lookup(s, _) =
                     lookupTyp
                       ({
                         lookupType   =
@@ -1186,7 +1186,7 @@ struct
                  };
 
                 fun makeId (eq, isdt, loc) = makeVariableId(eq, isdt, true, loc, structPath)
-                val t : types = pass2 (dec, makeId, Env newEnv, lex);
+                val _ : types = pass2 (dec, makeId, Env newEnv, lex);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
                    it possible that one might not be because of an error? *)
@@ -1259,7 +1259,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot (id as TypeFunction(args, equiv)) =>
+                |   FreeSlot (TypeFunction(args, equiv)) =>
                     let
                         val (distinctIds, mappedIds) = mapIds (n+1)
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but

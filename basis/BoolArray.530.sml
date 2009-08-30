@@ -32,8 +32,6 @@ local
 	val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 	val System_loadb: address*word->word = RunCall.run_call2 POLY_SYS_load_byte;
 	val System_setb: address * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
-	val System_move_bytes:
-		address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
 
 	val wordSize : word = LibrarySupport.wordSize;
 
@@ -143,17 +141,6 @@ local
 			byte andb mask <> 0w0
 		end
 
-	(* Internal function.  Checks a slice for validity and returns the
-	   effective length if it is valid otherwise raises Subscript. *)
-	fun vec_slice_length(Vector(len, vec): vector, i: int, NONE) =
-			if i >= 0 andalso i <= len
-			then len-i (* Length is rest of vector. *)
-			else raise General.Subscript
-	 |  vec_slice_length(Vector(len, vec): vector, i: int, SOME l) =
-			if i >= 0 andalso l >= 0 andalso i+l <= len
-			then l (* Length is as given. *)
-			else raise General.Subscript
-
 	(* Move a set of bits from one vector of bytes to another.  The bits
 	   may not be on the same byte alignment.  Does not examine the
 	   destination so if dest_off is not byte aligned any bits required in
@@ -215,7 +202,7 @@ in
 		
 		fun length(Vector(l, _)) = l
 		
-		fun op sub (vec as Vector(l, v), i: int): bool =
+		fun op sub (Vector(l, v), i: int): bool =
 			if i < 0 orelse i >= l then raise General.Subscript
 			else uncheckedSub(v, i)
 	
@@ -236,18 +223,7 @@ in
 		    System_lock vec;
 		    Vector(length, vec)
 		end
-		
-		fun extract(slice as (Vector(_, vec), i: int, _)) =
-		let
-			(* Check the slice for validity and get the length *)
-			val len = vec_slice_length slice
-		in
-			(* TODO: We may be able to handle special cases where the
-			   source and destination are aligned on the same bit offset.
-			   For the moment just take the simple approach. *)
-			tabulate(len, fn j => uncheckedSub(vec, j+i))
-		end
-	
+			
 (*		fun map f (Vector(len, vec)) =
 			let
 				val new_vec = alloc len (* Destination vector. *)
@@ -448,7 +424,7 @@ in
 			BoolVector.tabulate(len, fn j => uncheckedSub(vec, j))
 
 		(* Copy one array into another. The arrays could be the same but in that case di must be zero. *)
-		fun copy {src as Array (slen, s), dst as Array (dlen, d), di: int} =
+		fun copy {src=Array (slen, s), dst=Array (dlen, d), di: int} =
 			if di < 0 orelse di+slen > dlen
 			then raise General.Subscript
 			else (* TODO: Handle multiple bits where possible by using
@@ -494,7 +470,7 @@ in
 			end
 *)	
 		(* Copy a vector into an array. *)
-		fun copyVec {src as Vector(slen, s), dst as Array (dlen, d), di: int} =
+		fun copyVec {src=Vector(slen, s), dst=Array (dlen, d), di: int} =
 			let
 				fun copyBits n =
 					if n >= slen then ()

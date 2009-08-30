@@ -114,7 +114,7 @@ struct
 		fun getExponent src =
 			case getc src of
 				NONE => NONE
-			  | SOME(ch, src') =>
+			  | SOME(ch, _) =>
 			  	if Char.isSpace ch
 				then NONE
 			    else Int.scan StringCvt.DEC getc src

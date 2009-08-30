@@ -107,7 +107,7 @@ in
 	    open Array
         (* Enters the value at the first free entry at or after the
            one pointed to by the hash value. *)
-        fun enterTab (A : '_a namedOption array, i : int, None : '_a namedOption) = ()
+        fun enterTab (_ : '_a namedOption array, _ : int, None : '_a namedOption) = ()
           | enterTab (A, i, entry as Some (name,_)) =
         let
           fun enter (i : int) : unit =
@@ -127,8 +127,8 @@ in
         val N : int                   = length A;
         val hashN : string -> int     = !hash
         
-        val U : unit = enterTab (A, hashN name, Some (name, value));
-        val U : unit = used := !used + 1;
+        val () = enterTab (A, hashN name, Some (name, value));
+        val () = used := !used + 1;
     in
         (* Do we need to rehash ? *)
         if !used * 5 > N * 4 (* More than 80% full so rehash *)
@@ -150,8 +150,8 @@ in
                   copyOver (index - 1)
                 );
             
-            val U : unit = entries := newA;
-            val U : unit = hash := hashNewN;
+            val () = entries := newA;
+            val () = hash := hashNewN;
         in
             copyOver (length A - 1)
         end

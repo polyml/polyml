@@ -94,7 +94,7 @@ struct
 
 	local
 		val F_mutable_bytes : word = 0wx41;
-		val byteMask : word =  0w255;
+
 		val System_alloc: word*word*word->string  =
 			RunCall.run_call3 POLY_SYS_alloc_store
 
@@ -107,19 +107,11 @@ struct
 		val System_loadb: string*word->char =
 			RunCall.run_call2 POLY_SYS_load_byte;
 
-		val And: word * word -> word =
-		    RunCall.run_call2 POLY_SYS_and_word;
-
 		val SetLengthWord: string * word -> unit =
 		    RunCall.run_call2 POLY_SYS_set_string_length;
 		  
 		val MemMove: string*word*string*word*word -> unit = 
 			RunCall.run_call5 POLY_SYS_move_bytes
-
-		val >> : word * word -> word = 
-		    RunCall.run_call2 POLY_SYS_shift_right_word;
-
-		infix >> And;
 
 		val maxString = 
 			RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
@@ -184,8 +176,7 @@ struct
 				   WORD including any unused bytes at the end.
 				   It might be faster if we didn't want to initialise every
 				   byte to simply zero the last word of the segment. *)
-				val vec = 
-					System_alloc(words, F_mutable_bytes, 0w0) handle Range => raise General.Size
+				val vec = System_alloc(words, F_mutable_bytes, 0w0)
 			in
 				(* Set the length word.  Since this is untagged we can't simply
 				   use assign_word.*)
@@ -209,7 +200,7 @@ struct
 		    	else let
 					val dest = allocString chars;
 		  
-					fun copy (i, []:char list) = ()
+					fun copy (_, []:char list) = ()
 					  | copy (i, H :: T) =
 						(
 			            System_setb (dest, i, H);

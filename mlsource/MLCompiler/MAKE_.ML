@@ -134,6 +134,7 @@ sig
     val maxInlineSizeTag: int Universal.tag
     val traceCompilerTag: bool Universal.tag
     val fileNameTag: string Universal.tag
+    val reportUnreferencedIdsTag: bool Universal.tag
 end
 
 structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
@@ -260,8 +261,6 @@ struct
     type env = STRUCTVALS.env
 
     open COMPILERBODY
- 
-    val eofChar         = Char.chr 4; (* ctrl/D *)
 
     local
         open UNIVERSALTABLE
@@ -298,10 +297,6 @@ struct
         (* find a value in an environment *)
         fun dbEnvLookup (DbEnv(mutx, db)) (t : 'a tag) (s : string) : 'a option =
             protect mutx(fn () => univLookup (db, t, s))
-
-        (* delete an entry, but only from the top-level table *)
-        fun dbEnvForget (DbEnv(mutx, db)) (s : string, t : 'a tag) : unit =
-          protect mutx (fn () => univDelete (db, t, s))
 
         fun dbEnvAll (DbEnv(mutx, db)) (t : 'a tag) () : (string * 'a) list =
            protect mutx (fn () => iterList (univOverSpecific (db, t)))
@@ -415,9 +410,8 @@ struct
 	                             (* Set the debug level to 50 while compiling the basis.  This makes
 	                                sure that String.foldr can be expanded inline which reduces the
 	                                garbage in the hashValue function. *)
-	                             tagInject maxInlineSizeTag 50
-	                             (* Need printer environment so that when we compile General.exnMessage
-	                                it all works. *)
+	                             tagInject maxInlineSizeTag 50,
+                                 tagInject reportUnreferencedIdsTag true
 	                          ] ) of
 						(_, NONE) => raise Fail "Static Errors"
 					 |  (_, SOME c) => c
@@ -467,7 +461,7 @@ struct
                 ext = ext }
         val (inStream, fileName) =
             (TextIO.openIn versionName, versionName)
-                handle Io => (TextIO.openIn baseName, baseName)
+                handle IO.Io _ => (TextIO.openIn baseName, baseName)
     in
         compileIntoEnv globalEnv (fileName, inStream);
         TextIO.closeIn inStream

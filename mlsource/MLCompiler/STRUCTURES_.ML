@@ -99,8 +99,6 @@ struct
   open TYPEIDCODE
   open SIGNATURES
 
-  val displayType = TYPETREE.display;
-
   (* Union of the various kinds of core language declaration.  Structures are included
      because they can be declared by opening a structure with substructures. *)
   datatype coreDeclaration =
@@ -350,9 +348,9 @@ struct
 
   (* Pretty printing *)
 
-    fun displayList ([], separator, depth) dodisplay = []
+    fun displayList ([], _, _) _ = []
     
-    |   displayList ([v], separator, depth) dodisplay =
+    |   displayList ([v], _, depth) dodisplay =
             if depth <= 0
             then [PrettyString "..."]
             else [dodisplay (v, depth)]
@@ -714,7 +712,7 @@ struct
                         let
                             val previous = if isSome sigStruct then getSig else getArg
                         in
-                            structExportTree({parent=SOME exportThis, previous=SOME getSig, next=NONE}, body)
+                            structExportTree({parent=SOME exportThis, previous=SOME previous, next=NONE}, body)
                         end
                     in
                         (line, PTfirstChild getName :: fbProps)
@@ -847,17 +845,6 @@ struct
         getParameter errorDepthTag parameters
     end
 
-    (* Returns a function which can be passed to typetree.match to
-       print a bit of context information. *)
-    fun foundNear (sVal : structs, name : string, lex) (): pretty =
-        PrettyBlock(0, false, [],
-            [
-                PrettyString ("While checking (" ^ name ^ ") near"),
-                PrettyBreak (1, 2),
-                displayStruct(sVal, errorDepth lex)
-            ]
-        )
-
     (* Error message routine for lookupType and lookupStructure. *)
     fun giveError (sVal : structs, lno : LEX.location, lex : lexan) : string -> unit =
         fn (message : string) => errorNear (lex, true, fn n => displayStruct(sVal, n), lno, message);
@@ -872,8 +859,8 @@ struct
     (* Check that two types match. *)
     fun matchTypes (candidate, target, targMap: int -> typeId option) =
     let
-        fun copyId(id as Bound{ offset, ...}) = targMap offset
-        |   copyId id = NONE
+        fun copyId(Bound{ offset, ...}) = targMap offset
+        |   copyId _ = NONE
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
         fun copyTarget t = (* Don't bother with type variables. *)
             copyType (t, fn x => x, copyATypeConstr);
@@ -1047,7 +1034,7 @@ struct
         (* Map the identifiers first, returning the originals if they are
            not in the map. *)
         let
-            val checkTypesAndStructures : unit =
+            val () : unit =
             univFold 
                (sigTab target,
                 (fn (dName, dVal, ()) =>
@@ -1115,7 +1102,7 @@ struct
                 |   _ => dispVal("val", valTypeOf value)    
             end
 
-            val checkValuesAndExceptions : unit =
+            val () : unit =
             (* Finally the values and exceptions. *)
             univFold 
                 (sigTab target,
@@ -1170,12 +1157,6 @@ struct
     end (* matchSigs *);
 
     val makeEnv = fn x => let val Env e = makeEnv x in e end;
-
-    (* Turn a locally created ID into a Formal which can be returned in a structure. *)
-    fun convertIdToFormal(n, Bound { offset, eqType, description, isDatatype, ...}) =
-            Bound { access = Formal n, offset = offset, eqType = eqType,
-                    isDatatype = isDatatype, description = description }
-    |   convertIdToFormal _ = raise InternalError "Not Bound"
 
     (* Any values in the signature are counted as exported. *)
     fun markValsAsExported resSig =
@@ -1273,8 +1254,6 @@ struct
                     in
                         val () = argIds := args; (* Save for code-generation. *)
                     end
-                
-                    val startResultIDs = currentTypeCount()
 
                     (* Now create the generative typeIDs.  These are IDs that are in the bound ID range of
                        the result signature.  Any type IDs inherited from the argument will have type ID
@@ -1321,7 +1300,7 @@ struct
 
                     val resSig =
                         let
-                            val Signatures { name, tab, typeIdMap, declaredAt, ... } = functorResSig
+                            val Signatures { name, tab, declaredAt, ... } = functorResSig
                         in
                             makeSignature(name, tab, currentTypeCount(), currentTypeCount(), declaredAt,
                                 composeMaps(sigTypeIdMap functorResSig, getCombinedTypeId), [])
@@ -1397,7 +1376,7 @@ struct
                        original type-dependent version not the version which will have frozen
                        its type as 'a. *)
                     case valVal of
-                        value as Value{access = Overloaded _, typeOf, locations, ...} =>
+                        value as Value{access = Overloaded _, ...} =>
                         (
                             #enterVal finalEnv (dName, value);
                             addrs
@@ -1448,7 +1427,7 @@ struct
              };
              
             (* Process the local declarations. *)
-            val U : unit =
+            val () =
               pass2Struct (decs, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line, structPath);
                    
           in
@@ -1486,7 +1465,6 @@ struct
                     if opaque
                     then
                     let
-                        val startResIds = currentTypeCount()
                         (* Construct new IDs for the generic IDs.  For each ID in the signature
                            we need to make a new Local ID. *)
                         fun makeNewId(oldId as Bound { description = { name, ...}, isDatatype, ...}) =
@@ -1519,7 +1497,6 @@ struct
                     end
                     else (* Transparent: Use the IDs from the structure. *)
                     let
-                        val bodyVec = Vector.fromList(List.rev(!bodyIds))
                         val newIdEnv = newTypeIdEnv ()
                         fun matchedIds n = if n < sigMinTypes explicitSig then newIdEnv n else matchResults n
                     in
@@ -1622,26 +1599,26 @@ struct
            lookupSig     = #lookupSig    localEnv,
            lookupFunct   = #lookupFunct  localEnv,
            enterVal      =
-             fn (pair as (name, v)) =>
+             fn pair =>
                (
                 #enterVal newEnv pair;
                 #enterVal env    pair
                ),
            enterType     =
-             fn (pair as (name, v)) =>
+             fn pair =>
                (
                 #enterType newEnv pair;
                 #enterType env    pair
                ),
            enterFix      = #enterFix     localEnv,
            enterStruct   =
-             fn (pair as (name, v)) =>
+             fn pair =>
                (
                 #enterStruct newEnv pair;
                 #enterStruct env    pair
                ),
            enterSig      =
-             fn (pair as (name, v)) =>
+             fn pair =>
                (
                 #enterSig newEnv pair;
                 #enterSig env    pair
@@ -1669,19 +1646,19 @@ struct
                 with the same name is made. e.g.
                    local ... in val a=1; val a=2 end. *)
              enterVal      =
-               fn (pair as (name,v)) =>
+               fn (pair as (_,v)) =>
                  (
                    #enterVal env pair;
                    vars := !vars @ [CoreValue v]
                  ),
              enterType     =
-               fn (pair as (name,t)) =>
+               fn (pair as (_,t)) =>
                  (
                    #enterType env pair;
                    vars := !vars @ [CoreType t]
                  ),
              enterFix      =
-               fn (pair as (name,f)) =>
+               fn pair =>
                  (
                    #enterFix env pair;
                    vars := !vars @ [CoreFix pair]
@@ -1689,7 +1666,7 @@ struct
              (* This will only be used if we do `open A' where A
                 contains sub-structures. *)
              enterStruct   =
-               fn (pair as (name,v)) =>
+               fn (pair as (_,v)) =>
                  (
                    #enterStruct env pair;
                    vars := !vars @ [CoreStruct v]
@@ -1907,7 +1884,7 @@ struct
                            can't create it until we have its signature...which uses structArg. *)
                         val argSigWithSelected =
                         let
-                            val Signatures { tab, name, declaredAt, typeIdMap, minTypes, ...} = argumentSignature
+                            val Signatures { tab, name, declaredAt, typeIdMap, ...} = argumentSignature
                             fun mapToSelected n =
                                 if n < startTopLevelIDs then topLevelEnv n
                                 else Vector.sub(argIDVector, n-startTopLevelIDs)
@@ -2093,7 +2070,7 @@ struct
         List.app pass2TopDec strs;
         (* Mark any exported values as referenced. *)
 		#apply newValEnv
-            (fn (s: string, v: values) =>
+            (fn (s: string, _: values) =>
                 (
                     (* If we have exported the value we need to mark it as a
                        reference.  But if the identifier has been rebound we
@@ -2135,7 +2112,7 @@ struct
 	   This now threads the debugging environment through the functions so
 	   the name is no longer really appropriate.  DCJM 23/2/01. *)
     fun mapPair
-		(f: 'a * debugenv -> {code: codetree list, load: codetree list, debug: debugenv})
+		(_: 'a * debugenv -> {code: codetree list, load: codetree list, debug: debugenv})
 		[] debug =
           {
             code = [],
@@ -2372,7 +2349,7 @@ struct
     (* Code-generate a structure value. *)
     fun structureCode (str, strName, debugEnv): { code: codetree list, load: codetree, ressig: signatures } =
     case str of
-        FunctorAppl {name, arg, valRef = ref functs,
+        FunctorAppl {arg, valRef = ref functs,
                      argIds=ref argIds, resIds=ref resIds, resultSig=ref resultSig, ...} =>
         let
             val {code = argCodeSource, load = argLoadSource, ressig = argCodeSig} =
@@ -2484,7 +2461,7 @@ struct
                 fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
                 let
     			    val sName = strName ^ name ^ "."
-     			    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (value, sName, debug)
+     			    val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug)
                     val addr = mkAddr(); 
                     val var  = vaLocal (structAccess (!valRef));
                     val () = #addr var  := addr; 
@@ -2675,14 +2652,14 @@ struct
             (* Copy the types to replace the type IDs with the versions with Global access. *)
             fun replaceTypes t =
             let
-                fun copyId(id as Bound{ offset, ...}) = SOME(mapTypeIds offset)
-                |   copyId id = NONE
+                fun copyId(Bound{ offset, ...}) = SOME(mapTypeIds offset)
+                |   copyId _ = NONE
                 fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
             in
                 copyType(t, fn tv=>tv, replaceTypeConstrs)
             end
 
-		    fun makeDecs (CoreValue(dec as Value{class, name, typeOf, locations, access, ...}),
+		    fun makeDecs (CoreValue(Value{class, name, typeOf, locations, access, ...}),
                           (addr, { fixes, values, structures, signatures, functors, types } )) =
                 let
                     (* Extract the value from the result vector except if we have a type-dependent
@@ -2840,7 +2817,7 @@ struct
     
     val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
 
-    val (lastAddr, result, _, _) = List.foldl extractTopDec (0, empty, 0, fn _ => raise Subscript) strs;
+    val (_, result, _, _) = List.foldl extractTopDec (0, empty, 0, fn _ => raise Subscript) strs;
     (* The entries in "result" are in reverse order of declaration and may contain duplicates.
        We need to reverse and filter the lists so that we end up with the lists in order
        and with duplicates removed. *)

@@ -32,7 +32,7 @@ open LowerLevel
 open Ctype
     
 local
-fun offsets acc []          = []
+fun offsets _   []          = []
   | offsets acc (t::ts)     = let val pos = align acc t
 			      in pos :: offsets (pos + sizeof t) ts
 			      end

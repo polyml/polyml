@@ -107,7 +107,7 @@ fun makeRaw Cchar             = Dispatch.Cchar
   | makeRaw Cuint             = Dispatch.Cuint
   | makeRaw (Cpointer _)      = Dispatch.Cpointer
   | makeRaw (Cfunction _)     = Dispatch.Cpointer (*Always the same as a pointer?*)
-  | makeRaw (t as Cstruct ts) = Dispatch.Cstruct (sizeof t)
+  | makeRaw (t as Cstruct _)  = Dispatch.Cstruct (sizeof t)
   | makeRaw Cvoid             = Dispatch.Cint (*hack*)
 
     

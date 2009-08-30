@@ -242,7 +242,7 @@ end (* local *)
 
 
     local
-        fun prettyConv _ _ (m: 'a Conversion) = PolyML.PrettyString "?"
+        fun prettyConv _ _ (_: 'a Conversion) = PolyML.PrettyString "?"
     in
         val () = PolyML.addPrettyPrinter prettyConv
     end

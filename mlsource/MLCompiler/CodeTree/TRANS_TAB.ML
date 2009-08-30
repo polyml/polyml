@@ -400,9 +400,6 @@ struct
 				else SomeRegisters merged
 			 end
 	
-		  fun setToList AllRegisters = listOfAllRegisters
-		    | setToList (SomeRegisters r) = r
-	
 		  fun inverseSet AllRegisters = SomeRegisters []
 		   |  inverseSet (SomeRegisters []) = AllRegisters
 		   |  inverseSet (SomeRegisters r) =
@@ -417,7 +414,7 @@ struct
 					SomeRegisters(diff(listOfAllRegisters, r))
 				end
 	
-		  fun inSet(r, AllRegisters) = true
+		  fun inSet(_, AllRegisters) = true
 		   |  inSet(r, SomeRegisters l) =
 		   		let
 					fun inset [] = false
@@ -484,8 +481,6 @@ local
   | Direct    of {base: reg, offset: int}  (* Register/Offset *)
   | Stack     of int         (* On the real stack. *)
   | Container of stackIndex list (* A group of stack entries. *)
-                      
-  fun isRegister (Register _) = true | isRegister _ = false;
 
   datatype stackEntry =
      NoStackEntry
@@ -532,7 +527,6 @@ local
   type rset = {vec: int array, nextr: int ref, modSet: regSet ref, freeRegs: int ref};
 
   fun Vec   ({vec  ,...}:rset) = vec;
-  fun Nextr ({nextr,...}:rset) = nextr;
     
   val vecSize = regs;
 
@@ -857,7 +851,7 @@ local
           printStream "]"
         )
 
-  fun printEntry printStream NoStackEntry entry = ()
+  fun printEntry _ NoStackEntry _ = ()
     | printEntry printStream (StackEntry {ent, uses, cache, destStack}) entry =
     (
       printStream(Int.toString(getIndex entry));
@@ -932,7 +926,7 @@ local
               then regNone
             else if not keepIfCache orelse 
                  (case stacken of
-                    Register reg => true
+                    Register _ => true
                   | Stack i      => i < 0
                   | _            => false)
             
@@ -1052,14 +1046,14 @@ in (* local definitions *)
      reused. *)
    fun lockRegister (table as Ttab{pstackTrace, ...}, reg) = 
    let
-     val U : unit = addRegUse (table, reg);
+     val () = addRegUse (table, reg);
    in
      if pstackTrace then printStack table "lockRegister" "" else ()
    end;
 
    fun unlockRegister (table as Ttab{pstackTrace, ...}, reg) : unit =
    let
-     val U : unit = free (regset table) reg;
+     val () = free (regset table) reg;
    in
      if pstackTrace then printStack table "unlockRegister" "" else ()
    end;
@@ -1162,7 +1156,7 @@ in (* local definitions *)
     stretchSub (decToPstack table, locn);
 
   (* Called when a value has been newly created and so must be local. *)
-  fun containsLocal (table, reg) : unit = ();
+  fun containsLocal (_, _) : unit = ();
 
   (* Register to register move. *)
   fun moveRR rs rd cvec = genRR (instrMove, rs, regNone, rd, cvec);
@@ -1244,18 +1238,7 @@ in (* local definitions *)
                   stretchUpdate (pstack, getIndex entry,
                           makeStackEntry (Register destReg) regNone
 						  	uses destStack)
-                );
-              
-              fun discardDirect () =
-                ( 
-                  (free (regset table) base) : unit;
-                  
-                  if cacheReg regNeq regNone
-                  then (free (regset table) cacheReg)
-                  else ();
-
-                  stretchUpdate (pstack, getIndex entry, NoStackEntry)
-                );
+                )
             in
               if not (inSet(base, regSet))
                 then ()
@@ -1358,17 +1341,6 @@ in (* local definitions *)
                      makeStackEntry (Register destReg) regNone uses destStack)
 
               end;
-              
-              fun discardReg () =
-                ( 
-                  (free (regset table) reg) : unit;
-                  
-                  if cacheReg regNeq regNone
-                  then (free (regset table) cacheReg)
-                  else ();
-
-                  stretchUpdate (pstack, getIndex entry, NoStackEntry)
-                );
             in
               if not (inSet(reg, regSet))
                 then ()
@@ -1505,7 +1477,7 @@ in (* local definitions *)
   let
     val useTab = stretchArray (initStack, 0);
 
-	fun checkReg [] r = false
+	fun checkReg [] _ = false
 	  | checkReg (h::t) r = h regEq r orelse checkReg t r
   in
     but
@@ -1551,7 +1523,7 @@ in (* local definitions *)
   fun pushNonArguments (table as Ttab{pstack, ...}, cvec, args, pushTheseRegs) : reg list =
   let
 
-	fun checkAddress [] addr = false
+	fun checkAddress [] _ = false
 	  | checkAddress (h::t) addr = h indexEq addr orelse checkAddress t addr
 	val onList = checkAddress args
 
@@ -1615,7 +1587,7 @@ in (* local definitions *)
 
 
 (* bugfixed makeEntry added 30/3/95 *)
-  fun makeEntry (table as Ttab{pstackTrace, printStream, ...}, cvec : code, index, locn, use, isP) : unit =
+  fun makeEntry (table as Ttab{pstackTrace, printStream, ...}, _ : code, index, locn, use, isP) : unit =
   ( 
     stretchUpdate (isProc table, locn, isP);
     stretchUpdate (decToPstack table, locn, index);
@@ -1746,7 +1718,7 @@ in (* local definitions *)
 	let
 	  val rs = regset table;
 	  val r = getReg rs;
-	  val U : unit = 
+	  val () = 
 	    if r regNeq regNone
 	    then free rs r
 	    else ()
@@ -1754,15 +1726,15 @@ in (* local definitions *)
 	  r regEq regNone
 	end;
   
-	val U : unit = removeFromCache table allRegisters untilSomethingFree;
+	val () = removeFromCache table allRegisters untilSomethingFree;
 	val r = getReg (regset table);
       in
 	  if r regNeq regNone then r
 	  else let
-	    val U : unit = pushAll (table, cvec);
+	    val () = pushAll (table, cvec);
 	    
 	    (* Pushed values stay in the cache. *)
-	    val U : unit = 
+	    val () = 
 	      removeFromCache table allRegisters untilSomethingFree;
 	    val r = getReg (regset table);
 	  in (* If we still haven't found anything we are in big trouble. *)
@@ -1915,7 +1887,7 @@ in (* local definitions *)
      use-count for entry. Doesn't push anything new on the pstack. *)
   fun loadPstackEntry (table as Ttab{pstackTrace, ...}) locn (* Offset on the stack *) destReg cvec =
     let
-      val (realLoc, {cache = cacheReg, ent, ...}) = pstackRealEntry table locn
+      val (_, {cache = cacheReg, ent, ...}) = pstackRealEntry table locn
     in
       if cacheReg regNeq regNone
       then
@@ -1987,7 +1959,7 @@ in (* local definitions *)
           not matter, but if this is actually a reference to a parameter
           which could be loaded onto the stack again we have to be careful
           that the cache does not indicate a register which has been changed. *)
-	   val U: unit = 
+	   val () = 
 	       if willTrample
 	       then stretchUpdate (pstack, getIndex realLoc,
 	                  makeStackEntry stackEntry regNone uses destStack)
@@ -2032,12 +2004,12 @@ in (* local definitions *)
 	       | Stack index   => (0 <= index orelse not lastRef)
 	       | _             => false
             (* If we are going to cache it we musn't let it be removed. *)
-			val U: unit = 
+			val () = 
 	            if cacheIt
 	            then incrUseCount (table, entry, 1) 
 	            else ();
             
-            val U: unit = loadPstackEntry table entry resultReg cvec;
+            val () = loadPstackEntry table entry resultReg cvec;
             val newEntry = pushReg (table, resultReg);
       
          in
@@ -2198,7 +2170,7 @@ in (* local definitions *)
                   else let
                     val reg = getAnyRegister (table, cvec);
                     val off = (realstackVal table - 1) * wordSize;
-                    val U : unit = 
+                    val () = 
                        genLoad  (addr + off, regStackPtr, reg, cvec);
                   in
                     reg
@@ -2286,10 +2258,10 @@ in (* local definitions *)
        
         else if isStoreI(lit, STORE_WORD, false)
         then let (* Store immediate. *)
-          val U : unit = loadEntryBeforeOverwriting cvec table locn;
+          val () = loadEntryBeforeOverwriting cvec table locn;
              
           val locn = ((realstackVal table) - locn - 1) * wordSize
-          val U : unit = genStoreI (lit, locn, regStackPtr, STORE_WORD, regNone, cvec);
+          val () = genStoreI (lit, locn, regStackPtr, STORE_WORD, regNone, cvec);
         in
           (* Remove the entry for the literal. *)
           incrUseCount (table, entry, ~1)
@@ -2300,8 +2272,8 @@ in (* local definitions *)
     | Direct {base, offset} =>
         if preferLoadPush andalso isPush andalso cacheReg regEq regNone
         then let (* Push memory. *)
-          val U : unit = loadEntryBeforeOverwriting cvec table locn;
-          val U : unit = genLoadPush (offset, base, cvec);
+          val () = loadEntryBeforeOverwriting cvec table locn;
+          val () = genLoadPush (offset, base, cvec);
         in
           incrUseCount (table, entry, ~1);
           inc (realstackptr table)
@@ -2313,9 +2285,9 @@ in (* local definitions *)
     | Stack index =>
         if preferLoadPush andalso isPush andalso cacheReg regEq regNone
         then let (* Push stack entry. *)
-          val U : unit = loadEntryBeforeOverwriting cvec table locn;
+          val () = loadEntryBeforeOverwriting cvec table locn;
           val locn     = index + (realstackVal table - 1) * wordSize;
-          val U : unit = genLoadPush (locn, regStackPtr, cvec);
+          val () = genLoadPush (locn, regStackPtr, cvec);
         in
           incrUseCount (table, entry, ~1);
           inc (realstackptr table)
@@ -2337,9 +2309,9 @@ in (* local definitions *)
      procedures. *)
   fun pushValueToStack (cvec, table, entry, stackOffset) : stackIndex =
   let 
-    val U : unit = storeInStack (cvec, table, entry, stackOffset - 1)
+    val () = storeInStack (cvec, table, entry, stackOffset - 1)
   
-    val U : unit = 
+    val () = 
       (* Remove any entries above the stack offset we need. *)
       if realstackVal table > stackOffset
       then resetButReload (cvec, table, stackOffset)
@@ -2419,7 +2391,7 @@ in (* local definitions *)
 	  |	 _ =>
 	  let
 	    val (topReg, topEntry) = loadEntry (cvec, table, entry, false);
-	    val U = removeStackEntry(table, topEntry); (* Remove the entry for the register. *)
+	    val () = removeStackEntry(table, topEntry); (* Remove the entry for the register. *)
 	    (* and push the indirection *)
 	    (* Profiling shows that this search is where the compiler can spend most
 	       of its time. To speed it up we keep a lower limit pointer which saves
@@ -2508,13 +2480,13 @@ in (* local definitions *)
        last free register. We could flush the registers and reuse topReg
        for valReg. Increment the use count on the register just to be sure. *)
     let
-      val U : unit = incrUseCount (table, vecEntry, 1);
+      val () = incrUseCount (table, vecEntry, 1);
       val (topReg, topEntry)   = loadEntry (cvec, table, vecEntry, false);
       
      (* We have to be careful if we have just used the last free register to
         load the vector address. We could flush the registers and reuse topReg
         for valReg. Increment the use count on the register just to be sure. *)
-      val U : unit  = lockRegister (table, topReg);
+      val ()  = lockRegister (table, topReg);
       
       fun storeViaRegister () =
       let
@@ -2550,9 +2522,6 @@ in (* local definitions *)
      entries elsewhere on the stack, but because the argument area is not
      represented by entries on the pstack it won't work for them. *)
    fun loadIfArg (cvec, table, entry) : stackIndex =
-   let
-     val (_,valEntry) = pstackRealEntry table entry
-   in
      case (pstackRealEntry table entry) of
        (_,{ent = Stack index, ...}) =>
          if index > 0
@@ -2564,7 +2533,6 @@ in (* local definitions *)
          else entry
          
      | _ => entry  (* return the original. *)
-   end;
 
   fun getRegisterSet (addr: machineWord): regSet =
   	(* The set of register modified by a function. *)
@@ -2635,7 +2603,7 @@ in (* local definitions *)
   (* Set the state to the saved values. *) 
   fun setState (save : savedState, table as Ttab{pstack, pstackTrace, printStream, ...}, cvec, carry, mark, isMerge): mergeResult =
   let 
-    val U : unit = 
+    val () = 
       if pstackTrace then printState printStream save "setState" else ();
     
     (* This is logically unnecessary, but increases the likelihood
@@ -2643,7 +2611,7 @@ in (* local definitions *)
        into the *same* register in the different branches. That in
        turn decreases the work we have to do when we merge the
        branches back again. SPF 5/6/95 *)
-    val U : unit =
+    val () =
       setNextRegNo (regset table, #nextRegNo save);
     
     val topReg =
@@ -2708,7 +2676,7 @@ in (* local definitions *)
     
     let
       val oldPstackptr = pstackVal table;
-      val U = pstackptr table := pStackPtr save;
+      val () = pstackptr table := pStackPtr save;
 
       (* Go up the entries putting them onto the table from the saved
          state, then come back setting the use-counts where appropriate.
@@ -2798,7 +2766,7 @@ in (* local definitions *)
 			  else ()
             )
         end;
-      val U: unit = putOnEntries first;
+      val () = putOnEntries first;
 
 	  val result: mergeResult =
 	  	  case carry of
@@ -2813,68 +2781,10 @@ in (* local definitions *)
     end
   end;
 
- (* Loads all "direct" entries into registers. This is done when saving the
-    state before a branch to avoid a problem when the states are merged back.
-    When the states are merged we do it by loading entries into registers,
-    but we may not have enough registers to load all the direct entries, so
-    we do it now, and push entries to the stack as necessary. *)
-  (* I've removed the calls to this to help test the new code with
-     explicit stack destinations.  DCJM 28/6/2000. *)
-  fun loadDirectEntries (table as Ttab{pstack, ...}) cvec =
-  let
-    (* Load any values above "stackOffset". *)
-    fun loadEntries entry max =
-      if entry indexGeq max then ()
-      else
-        (
-          case (pstackEntry table entry) of 
-            StackEntry {ent = Direct {base, ...}, uses, cache, destStack} =>
-              if uses <= 0  
-              then ()
-              
-              else if cache regNeq regNone
-              then let
-                val newStackent = 
-                  makeStackEntry (Register cache) regNone uses destStack;
-                val U : unit =
-                  stretchUpdate (pstack, getIndex entry, newStackent)
-              in
-                freeRegister (table, base)
-              end
-              
-              else let
-                val reg = getAnyRegister (table, cvec);
-              in
-                (* Getting a register could cause this entry to
-                   be pushed onto the stack, so we have to check again. *)
-                case (pstackEntry table entry) of 
-                  StackEntry {ent = Direct {base, offset}, cache, uses, destStack} =>
-                    let
-                      val U : unit = genLoad (offset, base, reg, cvec)
-                      val newStackent = 
-                        makeStackEntry (Register reg) regNone uses destStack
-                      val U : unit = 
-                        stretchUpdate (pstack, getIndex entry, newStackent)
-                    in
-                      freeRegister (table, base)
-                    end
-                
-                 | _ => (* Direct stackentry has already been pushed. *)
-                    freeRegister (table, reg)
-              end (* not cached *)
-          | _ => () (* not direct *)
-          ;
-        
-          loadEntries (entry indexPlus 1) max
-      );  (* end loadEntries *)
-  in            
-    loadEntries (! (lowestDirect table)) (pstackVal table)
-  end;
 
   fun unconditionalBranch (result, table, cvec) : labels =
     if branchedVal table then noJump
     else let
-      (* val U : unit = loadDirectEntries table cvec *)
       val state = saveState (table, cvec);
     in
       branched table := true;
@@ -3090,7 +3000,7 @@ in (* local definitions *)
 			from the saved state. *)
 	     fun getMinStack s i =
 		 	case (pstackEntry table s, pStackEntry save s) of
-				(StackEntry {ent = Stack addr, ...}, _) => i
+				(StackEntry {ent = Stack _, ...}, _) => i
 			|	(StackEntry _, StackEntry{ent = Stack addr, ...}) =>
 					(* We have an entry which has been pushed in
 					   the saved state but not in the current state.
@@ -3256,8 +3166,7 @@ in (* local definitions *)
 		  	 case (pstackEntry table s, pStackEntry save s) of
 			 	(StackEntry {uses = tabUses, cache = tabCache, ent = tabEnt,
 			  			     destStack = tabDest},
-			     StackEntry {uses = saveUses, cache = saveCache, ent = saveEnt,
-				  			 destStack = saveDest}) =>
+			     StackEntry {cache = saveCache, ent = saveEnt, ...}) =>
 					let
 						fun flushCache () =
 							if tabCache regNeq regNone andalso tabCache regNeq saveCache
@@ -3289,13 +3198,13 @@ in (* local definitions *)
 										loaded in a reverse merge. *)
 									needOtherWay := true
 							)
-					|	Literal w =>
+					|	Literal _ =>
 							(
 							case saveEnt of
 								Literal _ => flushCache()
 							|	_ => raise InternalError "Literal mismatch"
 							)
-					|	CodeRef c =>
+					|	CodeRef _ =>
 							(
 							case saveEnt of
 								CodeRef _ => flushCache()
@@ -3505,7 +3414,7 @@ in (* local definitions *)
       
       (* Lock the register to make sure that
 		 we don't accidentally reuse it for the result. *)
-      val U : unit = lockRegister (table, initialReg2);
+      val () = lockRegister (table, initialReg2);
 
       (* Get a result register. It's a shame that if the value is
 		 already in the desired result register, then we have to
@@ -3538,27 +3447,27 @@ in (* local definitions *)
 		    if prefReg regEq initialReg2
 		    then if canShareRegs
 		      then let (* We WANT to reuse the argument register for the result *)
-		        val U : unit      = unlockRegister (table, initialReg2);
+		        val ()      = unlockRegister (table, initialReg2);
 		        val (arg2Reg, arg2RegLoc) = loadEntry (cvec, table, initialReg2Loc, true);
-	            val U : unit      = addRegUse (table, arg2Reg); (* For use as result reg. *)
-	            val U : unit      = lockRegister (table, arg2Reg);
+	            val ()      = addRegUse (table, arg2Reg); (* For use as result reg. *)
+	            val ()      = lockRegister (table, arg2Reg);
 		      in
 		        (arg2Reg, arg2RegLoc, arg2Reg)
 		      end
 		      else (initialReg2, initialReg2Loc, getAnyRegister (table, cvec))
 		    else let
-		      val U : unit = getRegister (table, cvec, prefReg);
+		      val () = getRegister (table, cvec, prefReg);
 		    in
 		      (initialReg2, initialReg2Loc, prefReg)
 		    end;
       
       (* Generate the code. Since we've reversed the operation *)
       (* we have to use the reverse instruction. *)
-      val U : unit   =  genRI (revinstr, arg2Reg, lit, resReg, cvec);
+      val ()   =  genRI (revinstr, arg2Reg, lit, resReg, cvec);
       
       (* Push the result onto the stack. *)
       val rreg       = pushReg (table, resReg); 
-      val U : unit   = unlockRegister (table, arg2Reg);
+      val ()   = unlockRegister (table, arg2Reg);
     in
       (* Remove the argument register. *)
       incrUseCount (table, arg2RegLoc, ~1);
@@ -3569,7 +3478,7 @@ in (* local definitions *)
     fun genBinaryRI lit =   
     let
       val (initialReg1, initialReg1Loc) = loadEntry (cvec, table, arg1, false);
-      val U : unit = lockRegister (table, initialReg1);
+      val () = lockRegister (table, initialReg1);
 
       val (arg1Reg, arg1RegLoc, resReg) : reg * stackIndex * reg = 
 		case hint of
@@ -3578,23 +3487,23 @@ in (* local definitions *)
 		    if prefReg regEq initialReg1
 		    then if canShareRegs
 		      then let (* We WANT to reuse the argument register for the result *)
-		        val U : unit      = unlockRegister (table, initialReg1);
+		        val ()      = unlockRegister (table, initialReg1);
 		        val (arg1Reg, arg1RegLoc) = loadEntry (cvec, table, initialReg1Loc, true);
-	                val U : unit      = addRegUse (table, arg1Reg); (* For use as result reg. *)
-	                val U : unit      = lockRegister (table, arg1Reg);
+	                val ()      = addRegUse (table, arg1Reg); (* For use as result reg. *)
+	                val ()      = lockRegister (table, arg1Reg);
 		      in
 		        (arg1Reg, arg1RegLoc, arg1Reg)
 		      end
 		      else (initialReg1, initialReg1Loc, getAnyRegister (table, cvec))
 		    else let
-		      val U : unit = getRegister (table, cvec, prefReg);
+		      val () = getRegister (table, cvec, prefReg);
 		    in
 		      (initialReg1, initialReg1Loc, prefReg)
 		    end;
       
-      val U : unit    = genRI (instr, arg1Reg, lit, resReg, cvec);
+      val ()    = genRI (instr, arg1Reg, lit, resReg, cvec);
       val rreg        = pushReg (table, resReg);
-      val U : unit    = unlockRegister (table, arg1Reg);
+      val ()    = unlockRegister (table, arg1Reg);
     in
       incrUseCount (table, arg1RegLoc, ~1);
       incrUseCount (table, arg2, ~1);
@@ -3604,10 +3513,10 @@ in (* local definitions *)
     fun genBinaryRR () = 
     let
       val (initialReg1, initialReg1Loc) = loadEntry (cvec, table, arg1, false);
-      val U : unit       = lockRegister (table, initialReg1);
+      val ()       = lockRegister (table, initialReg1);
       
       val (initialReg2, initialReg2Loc) = loadEntry (cvec, table, arg2, false);
-      val U : unit       = lockRegister (table, initialReg2);
+      val ()       = lockRegister (table, initialReg2);
       
       (* We could improve this by considering what happens if arg1Reg and arg2Reg both share with prefReg,
          but that's getting too obscure to be worthe considering, and would require the
@@ -3625,10 +3534,10 @@ in (* local definitions *)
 		    if prefReg regEq initialReg1
 		    then if canShareRegs
 		      then let (* We WANT to reuse the argument register for the result. *)
-		        val U : unit      = unlockRegister (table, initialReg1);
+		        val ()      = unlockRegister (table, initialReg1);
 		        val (arg1Reg, arg1RegLoc) = loadEntry (cvec, table, initialReg1Loc, true);
-	                val U : unit      = addRegUse (table, arg1Reg); (* For use as result reg. *)
-	                val U : unit      = lockRegister (table, arg1Reg);
+	                val ()      = addRegUse (table, arg1Reg); (* For use as result reg. *)
+	                val ()      = lockRegister (table, arg1Reg);
 		      in
 		        (arg1Reg, arg1RegLoc, initialReg2, initialReg2Loc, arg1Reg)
 		      end
@@ -3637,25 +3546,25 @@ in (* local definitions *)
 		    else if prefReg regEq initialReg2
 		    then if canShareRegs
 		      then let (* We WANT to reuse the argument register for the result *)
-		        val U : unit      = unlockRegister (table, initialReg2);
+		        val ()      = unlockRegister (table, initialReg2);
 		        val (arg2Reg, arg2RegLoc) = loadEntry (cvec, table, initialReg2Loc, true);
-	                val U : unit      = addRegUse (table, arg2Reg); (* For use as result reg. *)
-	                val U : unit      = lockRegister (table, arg2Reg);
+	                val ()      = addRegUse (table, arg2Reg); (* For use as result reg. *)
+	                val ()      = lockRegister (table, arg2Reg);
 		      in
 		        (initialReg1, initialReg1Loc, arg2Reg, arg2RegLoc, arg2Reg)
 		      end
 		      else (initialReg1, initialReg1Loc, initialReg2, initialReg2Loc, getAnyRegister (table, cvec))
 		    
 		    else let
-		      val U : unit = getRegister (table, cvec, prefReg);
+		      val () = getRegister (table, cvec, prefReg);
 		    in
 		      (initialReg1, initialReg1Loc, initialReg2, initialReg2Loc, prefReg)
 		    end;
 
-      val U          = genRR (instr, arg1Reg, arg2Reg, resReg, cvec);
-      val rreg       = pushReg (table, resReg);
-      val U : unit   = unlockRegister (table, arg1Reg);
-      val U : unit   = unlockRegister (table, arg2Reg);
+      val ()   = genRR (instr, arg1Reg, arg2Reg, resReg, cvec);
+      val rreg = pushReg (table, resReg);
+      val ()   = unlockRegister (table, arg1Reg);
+      val ()   = unlockRegister (table, arg2Reg);
     in
       incrUseCount (table, arg2RegLoc, ~1); (* Remove the register entries. *)
       incrUseCount (table, arg1RegLoc, ~1);
@@ -3687,7 +3596,7 @@ in (* local definitions *)
      | (_,_) =>
           genBinaryRR ();
 
-    val U : unit = if pstackTrace then printStack table "binaryOp" "" else ();
+    val () = if pstackTrace then printStack table "binaryOp" "" else ();
   in 
     result
   end;
@@ -3702,7 +3611,7 @@ in (* local definitions *)
     val (addrReg, addrEntry)   = loadEntry (cvec, table, addr, false)
 	(* This register must be locked so that we don't reuse it for the
 	   index or value. *)
-    val U : unit  = lockRegister (table, addrReg);
+    val ()  = lockRegister (table, addrReg);
 
 	(* The values are indexes but if we use a constant offset it must be in bytes. *)
 	val unitSize = case width of STORE_WORD => wordSize | STORE_BYTE => 1
@@ -3718,7 +3627,7 @@ in (* local definitions *)
 	fun storeIndexedViaRegister () =
 	  let
 	  	val (indexReg, indexRegEntry) = loadEntry (cvec, table, offset, false);
-		val U : unit  = lockRegister (table, indexReg);
+		val ()  = lockRegister (table, indexReg);
         val (valReg, regEntry) = loadEntry (cvec, table, value, false);
 	  in
         genStore (valReg, 0, addrReg, width, indexReg, cvec);
@@ -3784,7 +3693,6 @@ in (* local definitions *)
   (* Generate a binary compare and jump operation. *)
   fun compareAndBranch (arg1, arg2, t, revt, table as Ttab{pstackTrace, ...}, cvec) : labels =
   let
-    (* val U : unit                  = loadDirectEntries table cvec; *)
     val (_,{ent = firstEnt,...})  = pstackRealEntry table arg1;
     val (_,{ent = secondEnt,...}) = pstackRealEntry table arg2;
 
@@ -3811,9 +3719,9 @@ in (* local definitions *)
     fun genCompRR test =
     let
       val (arg1Reg, arg1RegLoc) = loadEntry (cvec, table, arg1, false);
-      val U : unit   = lockRegister (table, arg1Reg);
+      val ()   = lockRegister (table, arg1Reg);
       val (arg2Reg, arg2RegLoc) = loadEntry (cvec, table, arg2, false);
-      val U : unit   = unlockRegister (table, arg1Reg);
+      val ()   = unlockRegister (table, arg1Reg);
     in
       (* Remove the register entries. *)
       incrUseCount (table, arg1RegLoc, ~1);

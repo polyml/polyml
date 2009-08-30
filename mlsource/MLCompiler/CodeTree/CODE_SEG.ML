@@ -98,7 +98,7 @@ struct
 
   fun csegConvertToCode (r as ref (Bytes, addr)) : unit = 
   let
-    val U : unit = setFlags (addr, F_mutable_code);
+    val () = setFlags (addr, F_mutable_code);
   in
     r := (UnlockedCode, addr)
   end
@@ -107,7 +107,7 @@ struct
         
   fun csegLock (r as ref (UnlockedCode, addr)) : unit = 
   let
-    val U : unit = setFlags (addr, F_code);
+    val () = setFlags (addr, F_code);
   in
     r := (LockedCode, addr)
   end
@@ -198,7 +198,7 @@ struct
     raise InternalError "csegCopySeg: can only copy between byte segements"
   
   (* Returns a value from the vector. *)
-  fun csegGet (ref (status, addr), byteIndex : int) : Word8.word =
+  fun csegGet (ref (_, addr), byteIndex : int) : Word8.word =
   let
     val lengthWords = objLength addr;
     val lengthBytes = wordSize * lengthWords;
@@ -219,7 +219,7 @@ struct
     end
   end;
        
-  fun csegSet (ref (LockedCode, addr), byteIndex:int, value:Word8.word) : unit =
+  fun csegSet (ref (LockedCode, _), _, _) : unit =
     raise InternalError "csegSet: can't change locked code segement"
    
     | csegSet (r as (ref (status, addr)), byteIndex:int, value:Word8.word) : unit =

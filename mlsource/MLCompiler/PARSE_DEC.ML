@@ -325,7 +325,7 @@ struct
   
  val topdecStartSy                = functorSy ++ signatureSy ++ structureLocalStartDecSy;
 
-  fun mkLocalFixEnv {enterFix,lookupFix,lookupTvar} =
+  fun mkLocalFixEnv {lookupFix,lookupTvar, ...} =
   let
     val newFixEnv   = searchList ();
   in
@@ -338,7 +338,7 @@ struct
   
   fun mkLocalBodyFixEnv {enterFix,lookupFix,lookupTvar} outerEnterFix =
     {
-      enterFix      = fn (p as (n, v)) => (enterFix p; outerEnterFix p),
+      enterFix      = fn p => (enterFix p; outerEnterFix p),
       lookupFix     = lookupFix,
       lookupTvar    = lookupTvar
     }
@@ -366,7 +366,7 @@ struct
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
 
-   fun getTypeVars (isDatatype, {apply,enter,lookup}) =
+   fun getTypeVars (isDatatype, {apply,enter,...}) =
    let
         (* Optional type identifier or sequence of type identifiers.  Used
            in type and datatype declarations and also in val and fun
@@ -431,7 +431,7 @@ struct
       else [] (* None at all. *)
    end; (* getTypeVars *)
 
-   fun getShortNonInfix opThere sys fsys lex {enterFix,lookupFix,lookupTvar} =
+   fun getShortNonInfix opThere sys fsys lex {lookupFix, ...} =
    let
       (* op followed by a (short) constructor *)
       val idLoc as (id, location) = getShortId (sys, fsys, lex);
@@ -450,7 +450,7 @@ struct
       idLoc
    end;
    
-   fun getLongNonInfix opThere sys fsys lex {enterFix,lookupFix,lookupTvar} =
+   fun getLongNonInfix opThere sys fsys lex {lookupFix,...} =
    let
       (* op followed by a (long) variable *)
       val idLoc as (id, location) = getLongId (sys, fsys, lex);
@@ -480,7 +480,7 @@ struct
         else ([item], itemLocn)
     end
 
-   fun genTypeVarEnv {lookup,enter,apply} =
+   fun genTypeVarEnv {lookup,...} =
    {
       (* All type variables used on the right-hand side of the type
          binding must have been declared before the new type constructor *)
@@ -497,7 +497,7 @@ struct
              )
    } (* genTypeVarEnv *);
 
-    fun typeBinding (isSpec, isEqtype, {enterFix,lookupFix,lookupTvar}) fsys =
+    fun typeBinding (isSpec, isEqtype, _) fsys =
     let
         val newTVenv  = searchList ();
         val typeVars = getTypeVars (false, newTVenv);
@@ -535,7 +535,6 @@ struct
       either the second datatype or an identifier.
       This is used both for declarations and for specifications. *)
        let
-        val startLocn = location lex
         val () = insymbol lex;
         val newTVenv = searchList ();
         (* The type variables will be empty if this is a replication. *)
@@ -549,7 +548,7 @@ struct
         then (* Replication *)
             let
                 (* Check that the type var sequence was empty. *)
-                val U: unit =
+                val () =
                     case typeVars of
                         [] => ()
                      |  _ => errorMessage (lex, location lex,
@@ -681,7 +680,7 @@ struct
    end (* makeTypeVarEnv *);
 
 
-    fun dec (fsys, lex, decOnly, env as {enterFix,lookupFix,lookupTvar}): parsetree * location =
+    fun dec (fsys, lex, decOnly, env as {enterFix,...}): parsetree * location =
     let
         (* Sequence of declarations optionally separated by semicolons. *)
         fun decSequence(fsys, env) : parsetree list =
@@ -694,7 +693,7 @@ struct
         else (* May be empty *) [];
 
         (* Constraints *)
-        fun constraint (exp, expLoc) fsys (env as {enterFix,lookupFix,lookupTvar}) =
+        fun constraint (exp, expLoc) fsys (env as {lookupTvar, ...}) =
         if testfor (SYMBOLS.colon, empty, lex)
         then
         let
@@ -715,10 +714,7 @@ struct
             mkConst(data, loc)
         end;
 
-        fun parseInfix fsys opSys startSys atomic
-             {enterFix: string * fixStatus -> unit,
-              lookupFix: string -> fixStatus option,
-              lookupTvar: string -> typeVarForm } =
+        fun parseInfix fsys opSys startSys atomic{lookupFix: string -> fixStatus option, ... } =
         let
             (* Infix operators have a precedence value associated with them,
                the larger the value the more tightly they bind. *)
@@ -771,11 +767,11 @@ struct
                       | InfixR prec => (prec, true)
                       | Nonfix => (~1, false) (* Not infix *);
             in
-                {express=express,operator=(operator,loc),fix=fix,preclevl=preclevl,right=right}
+                {express=express,operator=(operator,loc),preclevl=preclevl,right=right}
             end;
 
 
-            fun nextLevel {express: parsetree*location,operator: string*location,fix,preclevl,right}
+            fun nextLevel {express: parsetree*location,operator: string*location,preclevl,right}
                            (returnLevel, lastRight, lastOp) =
             let
                 val next = readNextOps(); (* get the next operator and operand.*)
@@ -799,7 +795,6 @@ struct
                 val applied = 
                   { express  = (mkApplic (oper, mkTupleTree([#1 express, #1 (#express rightOp)], appLocn), appLocn, true), appLocn),
                     operator = #operator rightOp,
-                    fix      = #fix      rightOp,
                     preclevl = #preclevl rightOp,
                     right    = #right    rightOp };
                 (* If the right operator is stronger than the ``returnLimit''
@@ -831,7 +826,7 @@ struct
             else #express (nextLevel ops (~1, false, ""))
         end (* parseInfix *);
 
-        fun pattern fsys lex (env as {enterFix,lookupFix,lookupTvar}) =
+        fun pattern fsys lex env =
         (* Parse a pattern or a fun name apat ... apat sequence. *)
         let
             fun constraintOrLayered (pat, patLoc) fsys =
@@ -938,7 +933,7 @@ struct
                     else
                     let (* lab1 = pat1, __ , labn = patn <<, ... >>*)
                         (* The same label name should not be used more than once. *)
-                        fun reportDup (name, newLoc, oldLoc) =
+                        fun reportDup (name, newLoc, _) =
                             errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
                         val dupCheck = noDuplicates reportDup
 
@@ -1039,7 +1034,7 @@ struct
             patAndLoc
         end (* pattern *);
 
-        fun expression fsys (env as {enterFix,lookupFix,lookupTvar}): parsetree * location =
+        fun expression fsys env: parsetree * location =
         (* Parse an expression *)
         let
 
@@ -1117,7 +1112,7 @@ struct
                         let val locs = locSpan(startLocn, posEnd) in (unit locs, locs) end
                     else
                     let
-                        val (firstExp, firstLine) = expression (fsys ++ rightParenSemicolonCommaSy) env;
+                        val (firstExp, _) = expression (fsys ++ rightParenSemicolonCommaSy) env;
        
                         val (exps, fullLocn) = 
                             if testfor (SYMBOLS.comma, empty, lex)
@@ -1164,7 +1159,7 @@ struct
                     else
                     let (* lab1 = exp1, __ , labn = expn *)
                         (* The same label name should not be used more than once. *)
-                        fun reportDup (name, newLoc, oldLoc) =
+                        fun reportDup (name, newLoc, _) =
                             errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
                         val dupCheck = noDuplicates reportDup
 
@@ -1422,7 +1417,7 @@ struct
                                         SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                 (* Tyvarseq *)
-                val U = getTypeVars(true,
+                val _ = getTypeVars(true,
                             { enter = #enter explicitTvars,
                               lookup = #lookup explicitTvars,
                               apply = #apply explicitTvars});
@@ -1473,7 +1468,7 @@ struct
             else if sym eq SYMBOLS.funSy
             then
             let
-                val U = insymbol lex;
+                val () = insymbol lex;
                 (* Create two different scopes, for explicitly declared
                    type variables and those implicitly declared. *)
                 val implicitTvars = makeTypeVarEnv()
@@ -1485,7 +1480,7 @@ struct
                                       SOME t => t | NONE => #lookupTvar implicitTvars s};
                             
                 (* Tyvarseq *)
-                val U = getTypeVars(true,
+                val _ = getTypeVars(true,
                             { enter = #enter explicitTvars,
                               lookup = #lookup explicitTvars,
                               apply = #apply explicitTvars});
@@ -1595,7 +1590,7 @@ struct
             then
             let
                 (* Declares exception identifiers and their types. *)
-                val U = insymbol lex;
+                val () = insymbol lex;
 
                 (* Get an exception binding. Qualified names prohibited. *)
                 fun exceptionBinding fsys =
@@ -1653,7 +1648,7 @@ struct
                     sym eq SYMBOLS.nonfixSy
             then
             let
-                val U = insymbol lex;
+                val () = insymbol lex;
 
                 val fixForm =
                     if sym eq SYMBOLS.nonfixSy
@@ -1682,7 +1677,7 @@ struct
                     end;
 
                 (* Should now be at least one variable. *)
-                val U = skipon (variableSys, fsys, "Variable", lex);
+                val () = skipon (variableSys, fsys, "Variable", lex);
 
                 (* Read the variables and put them in the environ
                    with their fix status. Qualified names prohibited. *)
@@ -1751,7 +1746,7 @@ struct
     end (* dec *);
 
     (* Parses a signature. *)
-    fun parseSignature (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : sigs * location =
+    fun parseSignature (fsys : symset) (lex : lexan) env : sigs * location =
     let  (* May be either a signature name or a sig spec .. spec end seq
           followed by multiple  where type  expressions. *)
         val () = skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
@@ -1822,7 +1817,7 @@ struct
 
 
  (* Sequence of "specs" *)
- and signatureSpec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : specs list =
+ and signatureSpec (fsys : symset) (lex : lexan) (env as {lookupTvar, ...}) : specs list =
  let
    val signatureTvars = makeTypeVarEnv();
 
@@ -1868,7 +1863,6 @@ struct
          else if sym eq SYMBOLS.eqtypeSy
          then
             let
-                val lno = location lex
                 val sys = fsys ++ startSigEndSy
                 val () = insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, true, env))
@@ -1928,7 +1922,7 @@ struct
 
                 fun doStructure () =
                 let
-                    val idAndLoc as (id, idLoc)  = getShortId (variableSys, empty, lex)
+                    val idAndLoc as (_, idLoc)  = getShortId (variableSys, empty, lex)
                     val () = getsym (SYMBOLS.colon, lex)
                     val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
                     val locs = locSpan(idLoc, sgnLoc)
@@ -2002,7 +1996,7 @@ struct
            (* end of parse of thisSig *)
              
         (* continue until the `end' *)
-        val UUU = if (sy lex) eq SYMBOLS.semicolon then insymbol lex else ();
+        val () = if (sy lex) eq SYMBOLS.semicolon then insymbol lex else ();
     in 
         if (sy lex) inside semicolonStartSigSys
         then thisSig @ parseSigEntries ()
@@ -2013,7 +2007,7 @@ struct
   end (* signatureSpec *);
 
 
-    fun signatureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
+    fun signatureDec (fsys : symset) (lex : lexan) env : topdec =
     let
         val startLocn = location lex
         val () = insymbol lex
@@ -2033,12 +2027,12 @@ struct
     end
        
     
-  fun structVal (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs * location =
+  fun structVal (fsys : symset) (lex : lexan) env : structs * location =
   let
       (* Series of declarations inside struct...end or (...) in functor
          application. *)
 
-    val UUU = skipon (structSy ++ declarableVarLetSy,
+    val () = skipon (structSy ++ declarableVarLetSy,
                       fsys, "struct or functor application", lex);
     
     val fsysPcolon = fsys ++ colon ++ colonGt
@@ -2129,7 +2123,7 @@ struct
       doConstraints strExp
   end (* structVal *)
 
-    and structureDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs =
+    and structureDec (fsys : symset) (lex : lexan) (env as {enterFix, ...}) : structs =
     let
         val startLocn = location lex
     in
@@ -2139,7 +2133,7 @@ struct
             fun doStrDec () =
             let (* Read strId <<: sig>> = str *)
                 (* First the identifier *)
-                val idAndLoc as (strId, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
+                val idAndLoc as (_, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
                 (* Next the signature if there is one. *)
                 val isOpaque = (sy lex) eq SYMBOLS.colonGt;
                 val sgn =
@@ -2185,7 +2179,7 @@ struct
     end (* end of structureDec *)
 
     (* Functor declarations. *)
-    and functorDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : topdec =
+    and functorDec (fsys : symset) (lex : lexan) env : topdec =
     let
         val startLocn = location lex
         val () = insymbol lex; (* remove ``functor'' *)
@@ -2255,7 +2249,7 @@ struct
     end (* functorDec *)
 
 
-    and strDec (fsys : symset) (lex : lexan) (env as {enterFix,lookupFix,lookupTvar}) : structs list =
+    and strDec (fsys : symset) (lex : lexan) env : structs list =
     (* A sequence of declarations, optionally separated by semicolons. *)
     let
         fun getDecs () : structs list =
@@ -2273,12 +2267,7 @@ struct
             else if (sy lex) inside structureLocalSy
             then (structureDec tsys lex env) :: getDecs()
             else if (sy lex) inside startDecSys
-            then
-            let
-                val lno = location lex
-            in
-                (mkCoreLang (dec(tsys, lex, true, env))) :: getDecs()
-            end
+            then (mkCoreLang (dec(tsys, lex, true, env))) :: getDecs()
             else (* May be empty *) []
         end (* getDecs *)
     in
@@ -2292,7 +2281,7 @@ struct
     { enterFix   = enterFix,
       lookupFix  = lookupFix,
       lookupTvar =
-        fn (s : string) => 
+        fn _ => 
         let
           val () =
             errorMessage (lex, location lex, "Free type variables not allowed");
@@ -2304,17 +2293,8 @@ struct
      "local" as a structure dec even if it is actually declaring a value
      or type. *)
     val tsys = fsys ++ startTopSys;
-
-    fun doStrDecs () =
-    if (sy lex) eq SYMBOLS.structureSy orelse
-       (sy lex) eq SYMBOLS.localSy
-    (* Structure or local declarations.  Treat all local
-       declarations as strDecs since this includes the case of
-       local dec in dec. *)
-    then structureDec tsys lex globalEnv
-    else mkCoreLang (dec(tsys, lex, true, globalEnv))
          
-    fun parseTopDecs (okStartSet : symset) : topdec list * location =
+    fun parseTopDecs (_ : symset) : topdec list * location =
     let
         val startSym = sy lex and startLoc = location lex;
     in

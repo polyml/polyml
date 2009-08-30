@@ -279,7 +279,7 @@ struct
       val table: sys hash = hashMake (4 * down maxsym);
       
       (* Enter each reserved word in the hash table *)
-      val U : unit = 
+      val () = 
         forsucc succ (op leq) abstypeSy colonGt
                       (fn sym => hashSet (table, repr sym, sym));
     in

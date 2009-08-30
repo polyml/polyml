@@ -251,7 +251,7 @@ struct
 			(* TODO: We wouldn't normally expect to close a
 			   predefined key but it looks as though we might
 			   have to be able to close HKEY_PERFORMANCE_DATA. *)
-			fun closeKey(PREDEFINED i) = ()
+			fun closeKey(PREDEFINED _) = ()
 			|	closeKey(SUBKEY i) =
 					winCall(1011, i)
 		end
@@ -327,7 +327,7 @@ struct
 				 |  totalSize n (s::sl) = totalSize (n + String.size s + 1) sl
 				val len = totalSize 1 sl
 				val arr = Word8Array.array(len, 0w0)
-				fun pack n [] = ()
+				fun pack _ [] = ()
 				  | pack n (s::sl) =
 				  	(
 					Byte.packString(arr, n, Substring.full s);
@@ -444,13 +444,14 @@ struct
 		end
 	end (* DDE *)
 
-
+    (* No (longer?) in Basis library
 	local
 		val winCall = RunCall.run_call2 POLY_SYS_os_specific
 	in
 		fun fileTimeToLocalFileTime t = winCall(1030, t)
 		fun localFileTimeToFileTime t = winCall(1031, t)
 	end
+    *)
 
 	local
 		val winCall = RunCall.run_call2 POLY_SYS_os_specific

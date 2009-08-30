@@ -230,7 +230,7 @@ struct
 		fun yearDay({day, month, year, ...}:date) = dayInYear(day, month, year)
 
 		(* Convert the date into a UTC time value. *)
-		fun toTime (date as {year, month, day, hour, minute, second, offset}) =
+		fun toTime (date as {year, hour, minute, second, offset, ...}) =
 		let
 			(* Compute the seconds. *)
 			val secs =

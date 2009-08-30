@@ -145,7 +145,7 @@ struct
 	    wordAsVec vec
 	end
 		
-    fun tabulate (0, f) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+    fun tabulate (0, _) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
      |  tabulate (length: int , f : int->'a): 'a vector =
 	let
 		val vec =
@@ -281,7 +281,7 @@ struct
                )
 			end
 	in
-		val unused = PolyML.addPrettyPrinter pretty
+		val () = PolyML.addPrettyPrinter pretty
 	end
 
 end (* Vector *)

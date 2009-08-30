@@ -24,7 +24,7 @@ local
        to be processed specially because the IDs don't have printer functions. *)
     fun exnPrint depth _ exn =
     let
-        val (exnId, exnName, exnArg, exnLoc) = unsafeCast exn
+        val (exnId, exnName, exnArg, _) = unsafeCast exn
         fun nullaryException s = PrettyString s
         and parameterException(s, param) =
             PrettyBlock(1, false, [],
@@ -50,7 +50,7 @@ local
             |   OS.SysErr param =>
                     parameterException("SysErr",
                         if depth <= 1 then PrettyString "..." else PolyML.prettyRepresentation(param, depth-1))
-            |   exn => (* Anything else is nullary. *)
+            |   _ => (* Anything else is nullary. *)
                     nullaryException exnName
         else 
             (

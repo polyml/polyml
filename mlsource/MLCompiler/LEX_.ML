@@ -261,7 +261,7 @@ struct
        Single character strings are the same as single characters it doesn't
        cost anything to apply "str" but it allows us to conatenate with any
        prefix string in one go. *)
-    fun readChars (state as { stream, ch, ... }) (isOk: char -> bool) (s: string) : string = 
+    fun readChars (state as { ch, ... }) (isOk: char -> bool) (s: string) : string = 
     let
         fun loop (): string list =
         let

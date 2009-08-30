@@ -170,7 +170,6 @@ struct
 
     fun printTimes printOut (parseTime,pass2Time,treeTime,codeTime,endRunTime) : unit =
     let
-        fun printTime t = PrettyString(Time.fmt 1 t)
         val message =
             PrettyBlock(3, false, [],
                 [
@@ -250,7 +249,7 @@ struct
     val startTime = Timer.startCPUTimer();
     
     val startLocn = location lex
-    val U : unit =
+    val () =
       if SYMSET.inside (sy lex, SYMSET.semicolon)
       then insymbol lex
       else ();
@@ -290,7 +289,7 @@ struct
 		  else let (* let3 *)
 	      (* If no errors then do second pass to match identifiers
 	         and declarations and return type of expression. *)
-	      val UUU:unit = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
+	      val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
 	 
 	      val pass2Time = cpuTime startTime;
 		  

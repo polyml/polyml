@@ -534,7 +534,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
 
-    case 1030: // Convert UTC time values to local time.
+    case 1030: // Convert UTC time values to local time. -- No longer used??
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
@@ -547,7 +547,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                         ftLocal.dwLowDateTime);
         }
 
-    case 1031: // Convert local time values to UTC.
+    case 1031: // Convert local time values to UTC. -- No longer used??
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */

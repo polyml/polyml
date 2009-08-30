@@ -113,7 +113,7 @@ struct
      to get the value.
   *)
   
-    fun errorEnv (lf: loadForm, i1: int, i2: int) : optVal =
+    fun errorEnv (_: loadForm, _: int, _: int) : optVal =
       raise InternalError "error env";
   
     fun optGeneral (OptVal {general,...})       = general 
@@ -128,23 +128,20 @@ struct
       
     fun optDecs    (OptVal {decs,...})       = decs
       | optDecs    (ValWithDecs {decs, ...}) = decs
-      | optDecs    (JustTheVal pt)           = [];
+      | optDecs    (JustTheVal _)           = [];
   
     fun optRec     (OptVal {recCall,...})       = recCall
 	  | optRec	   _ = ref false; (* Generate a temporary. *)
   
     val simpleOptVal : codetree -> optVal = JustTheVal;
     
-    fun optVal (ov as {general, special, environ, decs, recCall}) : optVal =
+    fun optVal (ov as {general, special, decs, ...}) : optVal =
       if isCodeNil special
       then
 		case decs of 
 		  [] => JustTheVal general
 		| _  => ValWithDecs {general = general, decs = decs}
 	      else OptVal ov;
-          
-    fun sizeOptVal (ov : optVal, size: codetree -> int) =
-      size (optGeneral ov);
 
   (* minor HACKS *)
   type casePair = codetree * int list;
@@ -154,7 +151,7 @@ struct
   (* gets a value from the run-time system *)
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation; 
 
-  fun apply f [] = () | apply f (h::t) = (f h; apply f t);
+  fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
 
   val word0 = toMachineWord 0;
   val word1 = toMachineWord 1;
@@ -320,9 +317,6 @@ struct
   fun mkTestnull xp1       = mkTestptreq  (xp1, CodeZero);
   fun mkTestnotnull xp1    = mkTestptrneq (xp1, CodeZero);
 
-  val testnullFunction     =
-    mkInlproc (mkTestnull (mkLoad (~1, 0)), 0, 1, "");
-
   val mkIf = Cond ;
   fun mkWhile(b, e) =
   	(* Generated as   if b then (e; <loop>) else (). *)
@@ -357,10 +351,10 @@ struct
       exactly once and in the correct order, however if the code is just a
       constant or a load we can reduce the amount of code we generate by
       simply returning the original code. *)
-  fun multipleUses (code as Constnt _, nextAddress, level) = 
+  fun multipleUses (code as Constnt _, _, _) = 
       {load = (fn _ => code), dec = []}
 
-   |  multipleUses (code as Extract{addr, level=loadLevel, ...}, nextAddress, level) = 
+   |  multipleUses (code as Extract{addr, level=loadLevel, ...}, _, level) = 
     let (* May have to adjust the level. *)
       fun loadFn lev =
         if lev = level
@@ -381,8 +375,6 @@ struct
   fun identityFunction (name : string) : codetree = 
     mkInlproc (mkLoad (~1, 0), 0, 1, name) (* Returns its argument. *);
 
-  fun mkIndirect ct i = Indirect {base = ct, offset = i};
-
   (* Set the container to the fields of the record.  Try to push this
      down as far as possible. *)
   fun mkSetContainer(container, Cond(ifpt, thenpt, elsept), size) =
@@ -399,7 +391,7 @@ struct
 		Newenv(applyLast entries)
 	end
 
-  |  mkSetContainer(container, r as Raise _, size) =
+  |  mkSetContainer(_, r as Raise _, _) =
   		r (* We may well have the situation where one branch of an "if" raises an
 			 exception.  We can simply raise the exception on that branch. *)
 
@@ -421,7 +413,7 @@ struct
 		let
 		  val vec : address = alloc (toShort (List.length xp), F_mutable_words, word0);
 		  
-		  fun copyToVec []       locn = ()
+		  fun copyToVec []       _ = ()
 		    | copyToVec (h :: t) locn =
 		      (
 			assignWord (vec, toShort locn, makeVal h);
@@ -682,7 +674,7 @@ struct
   (* Evaluates expressions by code-generating and running them. *)
   (* "resultCode" is a copied code expression. The result is either *)
   (* a constant or an exception. *)
-  fun evaluate (resultCode as Constnt _) codegen =
+  fun evaluate (resultCode as Constnt _) _ =
       (* May already have been reduced to a constant. *)
       resultCode
 
@@ -730,7 +722,7 @@ struct
               handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
                    | _         => resultCode
 
-       fun loadArgs (argVec : address) ([]:codetree list) locn =
+       fun loadArgs (argVec : address) ([]:codetree list) _ =
           (
             lock argVec;
             callFunction (toMachineWord argVec)
@@ -916,7 +908,7 @@ DCJM 2000.
 		     to the union of the current set and the saved set. *)
 		  fun addFromSaved(UsageSet{locals=ref locals, args=ref args, clos}): unit =
 		  	let
-				fun addArray [] t = ()
+				fun addArray [] _ = ()
 				 |  addArray (head::tail) t =
 						(
 						StretchArray.update(t, head, true);
@@ -943,10 +935,10 @@ DCJM 2000.
 		  (* Differences of two sets, used as kill entries.
 		     The differences are returned as Extract codetree entries. *)
 		  fun computeKillSets(
-		  		thenUsage as UsageSet{locals=ref thenLoc, args=ref thenArgs, clos=thenClos},
-		  		elseUsage as UsageSet{locals=ref elseLoc, args=ref elseArgs, clos=elseClos}) =
+		  		(* then*) UsageSet{locals=ref thenLoc, args=ref thenArgs, clos=thenClos},
+		  		(* else *) UsageSet{locals=ref elseLoc, args=ref elseArgs, clos=elseClos}) =
 		  let
-		      fun killSets f [] [] inThenOnly inElseOnly = (inThenOnly, inElseOnly)
+		      fun killSets _ [] [] inThenOnly inElseOnly = (inThenOnly, inElseOnly)
 
 			    | killSets f [] (inElseH::inElseT) inThenOnly inElseOnly =
 					killSets f [] inElseT inThenOnly
@@ -1016,7 +1008,7 @@ DCJM 2000.
 	 (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
 	    Generally used to map "insert" over a list where we need to
 		ensure that last references to variables are detected correctly. *)
-	 fun revmap f [] = []
+	 fun revmap _ [] = []
 	   | revmap f (a::b) =
 	   		let
 				val rest = revmap f b
@@ -1046,7 +1038,7 @@ DCJM 2000.
             (* preCode.copyCode.insert.copyLambda.prev.makeClosureEntry *)
             fun makeClosureEntry [] _ wasRefed = (* not found - construct new entry *)
               let
-                val U =
+                val () =
                   newGrefs := mkGenLoad (addr, lev - 1, fpRel, false) ::  !newGrefs;
                 val newAddr = !newNorefs + 1;
               in
@@ -1061,7 +1053,7 @@ DCJM 2000.
 				then mkClosLoad newAddr (not wasRefed)
 				else makeClosureEntry t (newAddr - 1) wasRefed
 
-		    | makeClosureEntry (_ ::_) newAddr wasRefed =
+		    | makeClosureEntry (_ ::_) _ _ =
 				raise InternalError "makeClosureEntry: closure is not Extract";
 	
           in
@@ -1075,12 +1067,12 @@ DCJM 2000.
                procedure will need one. *)
             if lev = 0 (* Reference to the closure itself. *)
             then let
-              val U : unit =
+              val () =
                 if addr <> 0 orelse fpRel
                 then raise InternalError "prev: badly-formed load"
                 else ();
                 
-              val U : unit = 
+              val () = 
                 if closure then makeClosure := true else ();
 			  val wasRefed = ! refsToClosure
             in
@@ -1090,7 +1082,7 @@ DCJM 2000.
             
             else if lev = 1 andalso addr > 0
             then let (* local at this level *)
-		      val U : unit =
+		      val () =
 		       if not fpRel
 		       then raise InternalError "prev: badly-formed load"
 		       else ();
@@ -1099,7 +1091,7 @@ DCJM 2000.
                 SOME c => c (* propagate constant, rather than using closure *)
               | NONE  =>
                 let
-				  val U : unit =
+				  val () =
 				    if closure 
 				    then update (closuresForLocals, addr, true)
 				    else ();
@@ -1112,7 +1104,7 @@ DCJM 2000.
             
             else if lev = 1 andalso addr < 0
             then let (* parameter at this level *)
-		      val U : unit =
+		      val () =
 		        if not fpRel
 		        then raise InternalError "prev: badly-formed load"
 		        else ();
@@ -1242,7 +1234,7 @@ DCJM 2000.
                 makeClosure   = makeClosure
               }
            end
-        |  copyProcClosure pt makeClosure = pt (* may now be a constant *)
+        |  copyProcClosure pt _ = pt (* may now be a constant *)
         (* end copyProcClosure *);
 
       in  (* body of preCode.copyCode.insert *)
@@ -1341,10 +1333,10 @@ DCJM 2000.
               (* Set the table entries. *)
 			  (* DCJM 1/12/99.  I think the reason for this is in case we have
 			     reused the address in a different block. *)
-              val U = update (localUses, caddr, false); (* needed? *)
-              val U = update (closuresForLocals, caddr, false);
+              val () = update (localUses, caddr, false); (* needed? *)
+              val () = update (closuresForLocals, caddr, false);
 
-		      val U : unit =
+		      val () =
 			  	case pt of
 					Constnt _ => update (localConsts, caddr, SOME pt)
 				|  _ => update (localConsts, caddr, NONE); (* needed? *)
@@ -1414,7 +1406,7 @@ DCJM 2000.
                 )
 				| applyFn _ = raise InternalError "applyFn: not a Declar"               
                   
-              val U = apply applyFn mutualDecs;
+              val () = apply applyFn mutualDecs;
                       
               (* Process the rest of the block. Identifies all other
                  references to these declarations. *)
@@ -1431,13 +1423,13 @@ DCJM 2000.
 						Lambda lam => copyLambda lam closure
 					  | _ => insert dv;
                 (* SPF 18/5/95 - check whether we now have a constant *)
-		        val U : unit =
+		        val () =
 					case dec of
 						Constnt _ => update (localConsts, caddr, SOME dec)
 					  | _ => update (localConsts, caddr, NONE); (* needed? *)
 
                 (* copyLambda may set "closure" to true. *)
-                 val U : unit =
+                 val () =
                    update (closuresForLocals, caddr, !closure);
                in
                  mkDec (caddr, dec)
@@ -1483,7 +1475,7 @@ DCJM 2000.
                   (* Leave it for the moment. *)
                   else processClosures t  (h :: outlist) someFound
 
-               | processClosures _ outlist someFound =
+               | processClosures _ _ _ =
 					raise InternalError "processClosures: not a Declar"               
               
               (* Now we know all the references we can complete
@@ -1504,7 +1496,7 @@ DCJM 2000.
 					 mkDecRef value addr (if wasUsed then 1 else 0) :: copyEntries ds
 					 )
                 end
-               |  copyEntries (d::ds) =
+               |  copyEntries (_::_) =
 			   		raise InternalError "copyEntries: Not a Declar";
                       
               val decs = copyEntries (processClosures copiedDecs [] false);
@@ -1643,7 +1635,7 @@ DCJM 2000.
 		  val thenUsage = saveUsages();
 
 		  (* Reset the use-counts to the saved value. *)
-		  val U: unit = setToSaved usagesAfterIf;
+		  val () = setToSaved usagesAfterIf;
 
 		  (* Process the else-part. *)
 		  val insElse = insert condElse;
@@ -1658,7 +1650,7 @@ DCJM 2000.
 			 been set if they also appeared in the else-part.
 			 This sets the usage sets to the union of the then-part,
 			 the else-part and code after the if-expression. *)
-	  	  val U: unit = addFromSaved thenUsage;
+	  	  val () = addFromSaved thenUsage;
 
 	  	  (* Add kill entries to the other branch.  We simply add
 		     Extract entries with lastRef=true before the appropriate
@@ -1690,7 +1682,7 @@ DCJM 2000.
 		  datatype similarity = Different | Similar of loadForm;
 
 		  fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}))
-		  			  (Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=bRef})) =
+		  			  (Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
 				if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
 				then if aRef then Similar a else Similar b
 				else Different
@@ -1699,12 +1691,12 @@ DCJM 2000.
 		   			  (Indirect{offset=bOff, base=bBase}) =
 				if aOff <> bOff then Different else similar aBase bBase
 		      
-		   |  similar (a:codetree) (b:codetree) = Different;
+		   |  similar (_:codetree) (_:codetree) = Different;
 
          (* If we have a call to the int equality operation *)
          (* then we may be able to use a case statement. *)
          (* preCode.copyCode.insert.findCase *)
-         fun findCase (evl as Eval{ function=Constnt cv, argList, ... }) : caseVal =
+         fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
               (* Since we are comparing for equality with constants we
                  can do a case for short integers (tags) or arbitrary
                  precision integers.  This will certainly work with the
@@ -1842,11 +1834,11 @@ DCJM 2000.
 					     case a<last> of 1 => x | 2 => y | 3 => z
 					 i.e. the test IS the last reference.
 				   *)
-				 Similar(testVar as {lastRef = true, addr, level, ...}) =>
+				 Similar({lastRef = true, addr, level, ...}) =>
 				 	let (* Contains the last reference to the test variable. *)
 					(* Remove this variable from the usage table for the else-part
 					   since we are lifting it up to the test. *)
-					val U: unit = removeItem(elseUsage, addr, level);
+					val () = removeItem(elseUsage, addr, level);
 					(* Compute the new kill sets. *)
 					val (killThenOnly, killElseOnly) =
 					  	computeKillSets(thenUsage, elseUsage);
@@ -1937,8 +1929,7 @@ DCJM 2000.
          
     val insertedCode = 
       copyCode (pt,
-                fn (lf, i , b) => 
-                  raise InternalError "outer level reached in copyCode",
+                fn _ => raise InternalError "outer level reached in copyCode",
                 stretchArray (initTrans, false),
 				ref false);
   in
@@ -2234,7 +2225,7 @@ DCJM 2000.
 		| changeL(TupleFromContainer(container, size), nesting) =
 			TupleFromContainer(changeL(container, nesting), size)
 
-		| changeL(code, _) =
+		| changeL(_, _) =
 			(* The code we produce in these inline functions is very limited. *)
 			   raise InternalError "changeL: Unknown code"
 
@@ -2321,7 +2312,7 @@ DCJM 2000.
 			  case (spec, pushProc) of
 			  	(Lambda{isInline=NonInline, ...}, true) => simpleOptVal gen
 	          | _ => stripDecs ins  (* Remove the declarations before entering it. *)
-	        val U : unit = setTab (addrs, ov);
+	        val () = setTab (addrs, ov);
 	      in
 	        (* Just return the declarations. *)
 	        optDecs ins 
@@ -2332,7 +2323,7 @@ DCJM 2000.
 	        (* Declaration is simply giving a new name to a local
 	           - can ignore this declaration. *) 
 	        val optVal = stripDecs ins (* Simply copy the entry.  *)
-	        val U : unit = setTab (addrs, optVal);
+	        val () = setTab (addrs, optVal);
 	      in
 	        optDecs ins
 	      end
@@ -2380,7 +2371,7 @@ DCJM 2000.
 		| _ =>
 	      let (* Declare an identifier to have this value. *)
 	        val decSpval = ! spval; 
-	        val UUU      = spval := decSpval + 1 ;
+	        val ()       = spval := decSpval + 1 ;
 	        
 	        (* The table entry is similar to the result of the expression except
 	            that the declarations are taken off and put into the containing
@@ -2410,7 +2401,7 @@ DCJM 2000.
 			  recCall = optRec ins
 		    };
 		    
-	        val U : unit = setTab (addrs, optV);
+	        val () = setTab (addrs, optV);
 	      in
 	        optDecs ins @ [mkDecRef gen decSpval 0]
 	      end
@@ -2439,7 +2430,7 @@ DCJM 2000.
 	
 	 |  optimise (CodeNil, _) = simpleOptVal CodeNil
         
-     |  optimise (evl as Eval{function, argList, earlyEval}, tailCall) =
+     |  optimise (Eval{function, argList, earlyEval}, tailCall) =
         let
           (* Get the function to be called and see if it is inline or
              a lambda expression. *)
@@ -2517,7 +2508,7 @@ DCJM 2000.
 		  		    it.  Either loop or generate a function call. *)
 				notInlineCall recCall
 		  | (_,
-		  	Lambda { isInline, body=lambdaBody, name=lambdaName, closureRefs, ...}) =>
+		  	Lambda { isInline, body=lambdaBody, name=lambdaName, ...}) =>
 			let
            (* Calling inline proc or a lambda expression which is just called.
               The procedure is replaced with a block containing declarations
@@ -2529,7 +2520,7 @@ DCJM 2000.
 			val localNewVec = stretchArray (initTrans, NONE);
             
             (* copies the argument list. *)
-            fun copy []     argAddress = [] : codetree list
+            fun copy []     _          = [] : codetree list
               | copy (h::t) argAddress =
               let
 			    fun setTab (index, v) = update (paramVec, ~index, SOME v);
@@ -2580,7 +2571,7 @@ DCJM 2000.
 	                   is the table for local declarations and the original
 	                   environment in which the function was declared for
 	                   non-locals. *)
-		            fun lookupDec ({ addr=0, ...}, depth, 0) =
+		            fun lookupDec ({ addr=0, ...}, _, 0) =
 		               (* Recursive reference - shouldn't happen. *)
 		               raise InternalError "lookupDec: Inline function recurses"
 		            |   lookupDec ({ addr=index, ...}, depth, 0) =
@@ -2592,7 +2583,7 @@ DCJM 2000.
 		                 in
 		                   changeLevel optVal (depth - nestingOfThisProcedure)
 		                 end
-		            |  lookupDec (ptr as { addr=index, ...}, depth, levels) =
+		            |  lookupDec (ptr, depth, levels) =
 						 (optEnviron funct) (ptr, depth, levels - 1);
 
 				 in
@@ -2743,7 +2734,7 @@ DCJM 2000.
 								recCall = foptRec,
 								environ = errorEnv
 							 	}
-			            |   prev (ptr as { addr=index, ...}, depth, 0) =
+			            |   prev ({ addr=index, ...}, depth, 0) =
 		                     if index > 0  (* locals *)
 		                     then changeLevel(getSome (localVec sub index)) (depth - nesting)
 		                     else (* index < 0 - parameters *)
@@ -2754,7 +2745,7 @@ DCJM 2000.
 							 else (* Unchanged - get the entry from the table, converting
 							 		 the level because it's in the surrounding scope. *)
 							 	changeLevel (getSome (Vector.sub(frozenParams, ~index))) (depth-nesting+1)
-			            |  prev (ptr as { addr=index, ...}, depth, levels) =
+			            |  prev (ptr, depth, levels) =
 								(optEnviron funct) (ptr, depth, levels - 1);
 
 					    val newAddrTab = stretchArray (initTrans, NONE);
@@ -2824,7 +2815,7 @@ DCJM 2000.
 					(* Called initially or while we only have tail recursive
 					   calls.  We can inline the function. *)
 					let
-		            	fun prev (ptr as { addr=index, ...}, depth, 0) : optVal =
+		            	fun prev ({ addr=index, ...}, depth, 0) : optVal =
 		                 let (* On this level. *)
 		                   val optVal =
 		                     if index = 0
@@ -2846,7 +2837,7 @@ DCJM 2000.
 		                 in
 		                   changeLevel optVal (depth - nestingOfThisProcedure)
 		                 end
-		            	| prev (ptr as { addr=index, ...}, depth, levels) : optVal =
+		            	| prev (ptr, depth, levels) : optVal =
 							(* On another level. *)
 						 	(optEnviron funct) (ptr, depth, levels - 1);
 
@@ -3019,7 +3010,7 @@ DCJM 2000.
 			 dependencies. *)
              
           val nonLocals = ref nil;
-		  fun addNonLocal(ext: loadForm as {addr, level, fpRel, ...}, depth) =
+		  fun addNonLocal({addr, level, fpRel, ...}, depth) =
 		  let
 		     (* The level will be correct relative to the use, which may be
 			    in an inner function.  We want the level relative to the
@@ -3036,7 +3027,7 @@ DCJM 2000.
 
 		  fun checkRecursion(ext as {fpRel=oldfpRel, ...}, levels, depth) =
 		  	  case optGeneral(lookupNewAddr (ext, depth, levels)) of
-			  	 (res as Extract(ext as {addr=0, fpRel=false, level, ...})) =>
+			  	 (res as Extract(ext as {addr=0, fpRel=false, ...})) =>
 				 	 (
 					 (* If this is just a recursive call it doesn't count
 					    as a non-local reference.  This only happens if
@@ -3047,7 +3038,7 @@ DCJM 2000.
 					 else addNonLocal(ext, depth);
 					 res
 					 )
-			  |  res as Extract(ext as {addr, level, fpRel, ...}) =>
+			  |  res as Extract ext =>
 			  		(
 					 addNonLocal(ext, depth);
 					 res
@@ -3192,7 +3183,7 @@ DCJM 2000.
 			 val foptRec = ref false
 			 (* First process as though it was not a BeginLoop but just a
 			    set of declarations followed by an expression. *)
-			 val firstBeginBody =
+			 val _ =
 			 	optimiseProc 
 	              (mkEnv(args @ [body]), lookupNewAddr, lookupOldAddr,
 				   enterDec, enterNewDec, nestingOfThisProcedure,
@@ -3278,7 +3269,7 @@ DCJM 2000.
 			let
 				val thenDecs = optDecs insSecond and elseDecs = optDecs insThird
 
-				fun replaceContainerDec([], ad) =
+				fun replaceContainerDec([], _) =
 					raise InternalError "replaceContainerDec"
 				 |  replaceContainerDec((hd as Declar{addr, ...})::tl, ad)=
 						if addr = ad
@@ -3318,7 +3309,7 @@ DCJM 2000.
 					List.tabulate(size,
 						fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
 				val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
-		        fun env (l:loadForm, depth, levels) : optVal =
+		        fun env (l:loadForm, depth, _) : optVal =
 					changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
 			in
 				optVal 
@@ -3484,7 +3475,7 @@ DCJM 2000.
 			     for them and entering them in the table. *)
 			  val startAddr = !spval
 			  val addresses =
-			  	map (fn Declar{ value = decVal, addr, ... } =>
+			  	map (fn Declar{addr, ... } =>
 						let
 							val decSpval   = !spval;
 						in
@@ -3737,7 +3728,7 @@ DCJM 2000.
            are done exactly once. *)
         val allConsts = ref true;
         
-        fun makeDecs []     addr = {decs = [], gen_args = [], spec_args = []}
+        fun makeDecs []     _ = {decs = [], gen_args = [], spec_args = []}
           | makeDecs (h::t) addr =
           let
             (* Declare this value. If it is anything but a constant
@@ -3747,7 +3738,7 @@ DCJM 2000.
             val rest    = makeDecs t (addr + 1);
             val gen     = optGeneral thisArg;
             val spec    = optSpecial thisArg;
-            val UUU     =
+            val ()      =
               if not (isConstnt gen) then allConsts := false else ();
               
             val specArgs =
@@ -3768,7 +3759,7 @@ DCJM 2000.
 		
 		val vec = StretchArray.vector newTab
         
-        fun env ({addr, ...}:loadForm, depth, levels) : optVal =
+        fun env ({addr, ...}:loadForm, depth, _) : optVal =
           changeLevel
             (getSome (Vector.sub(vec, addr)))
             (depth - nestingOfThisProcedure)
@@ -3839,7 +3830,7 @@ DCJM 2000.
 			    recCall = ref false
 		      }
 	                       
-	    | (_, gen) => (* No special case possible. *)
+	    | (_, _) => (* No special case possible. *)
 	          optVal 
 		    {
 		      general = mkInd (offset, optGeneral source),
@@ -3905,7 +3896,7 @@ DCJM 2000.
 			val specialDecs =
 				List.tabulate(size, fn n => mkDec(n+baseAddr, mkInd(n, optGeneral optCont)))
 			val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
-	        fun env (l:loadForm, depth, levels) : optVal =
+	        fun env (l:loadForm, depth, _) : optVal =
 				changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
 		in
 			optVal 
@@ -3944,7 +3935,7 @@ DCJM 2000.
 							let
 								(* Get the declarations off the block and apply
 								   pushSetContainer to the last. *)
-								fun applyToLast (d, []) = raise List.Empty
+								fun applyToLast (_, []) = raise List.Empty
 								  | applyToLast (d, [last]) = pushSetContainer(last, d)
 								  | applyToLast (d, hd :: tl) =
 								  		applyToLast(hd :: d, tl)
@@ -4143,7 +4134,7 @@ DCJM 2000.
 	            expandMutual dec @ expandMutual decs
           | expandMutual ((dec as Declar _) :: decs) =
 	            dec :: expandMutual decs
-          | expandMutual (dec :: decs) =
+          | expandMutual (_ :: decs) =
             	expandMutual decs; (* expression *)
              
         (* There seems to be a problem with this code - we put declarations
@@ -4169,7 +4160,7 @@ DCJM 2000.
            a block with declarations in it. The gaps are replaced with zero
            values. However mutually recursive declarations may be in a random
            order so the list may have to be sorted. *)
-        fun getValues ([]: codetree list) (addr: int): codetree list =
+        fun getValues ([]: codetree list) _ : codetree list =
               [] (* Last of all the general value. *)
               
           | getValues (decs as (Declar{addr=declAddr, ...} :: vs)) (addr: int): codetree list =

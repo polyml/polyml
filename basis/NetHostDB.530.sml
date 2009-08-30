@@ -62,8 +62,6 @@ local
 	|   power2 n = 2 * power2(n-1)
 	val p32 = power2 32
 	val p24 = power2 24
-	val p16 = power2 16
-	val p8  = power2 8
 
 	fun scan getc src =
 	let
@@ -119,7 +117,7 @@ local
 								readNum 8 NONE limit src'
 					|	NONE => SOME(0, src') (* Just the zero. *)
 				)
-			|	SOME (ch, _) => (* Treat it as a decimal number. *)
+			|	SOME (_, _) => (* Treat it as a decimal number. *)
 					readNum 10 NONE limit src
 
 		fun scanAddr src limit i acc =
