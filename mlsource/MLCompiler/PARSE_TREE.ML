@@ -3113,9 +3113,16 @@ struct
                                         valTypeMessage (lex, typeEnv) ("Expression:", exp, expType),
                                         unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v)
         
-                        (* true if the expression is a possibly-constrained fn-expression *)
+                        (* true if the expression is a possibly-constrained fn-expression.
+                           It isn't clear whether a parenthesised expression is allowed here.
+                           As often, the definition is informal.  On p8 of the ML97
+                           definition it says "exp must be of the form fn match".  In ML90
+                           it added "possibly constrained by one or more type expressions".
+                           This is such a mess that I'm allowing both contraints and parentheses
+                           here. *)
                         fun isConstrainedFn (Constraint {value, ...}) = isConstrainedFn value
                         |   isConstrainedFn (Fn _)  = true
+                        |   isConstrainedFn (Parenthesised(p, _)) = isConstrainedFn p
                         |   isConstrainedFn _       = false;
                     in
                         (* Must check that the expression is of the form FN match. *)
@@ -5390,11 +5397,10 @@ struct
                or as a declaration. *)
           and codeProc(c, decName, isRecursive, varAddr, location) =
           let
-            fun getFnBody (exp : parsetree) : matchtree list = 
-              case exp of
-                Constraint {value, ...} => getFnBody value
-                  | Fn{matches, ...}  => matches
-                  | _     => raise InternalError "getFnBody: not a constrained fn-expression";
+            fun getFnBody (Constraint {value, ...}) = getFnBody value
+            |   getFnBody (Fn{matches, ...})  = matches
+            |   getFnBody (Parenthesised(p, _)) = getFnBody p
+            |   getFnBody _ = raise InternalError "getFnBody: not a constrained fn-expression";
           
             val f        = getFnBody c;
             val ()        = level := !level + 1; (* This function comprises a new declaration level*)
