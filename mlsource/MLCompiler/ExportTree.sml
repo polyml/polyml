@@ -41,6 +41,7 @@ struct
     |   PTdeclaredAt of location (* Declaration location for id. *)
     |   PTopenedAt of location (* When an identifier comes from an "open" the location of the open. *)
     |   PTstructureAt of location (* When an identifier comes from open S or S.a the declaration of S. *)
+    |   PTreferences of bool * location list (* The references to the ID.  The first is true if this is exported. *)
     |   PTparent of unit -> exportTree
     |   PTpreviousSibling of unit -> exportTree
     |   PTnextSibling of unit -> exportTree

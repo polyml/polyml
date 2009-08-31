@@ -1010,6 +1010,7 @@ struct
                  ("PTparent",           Unit ->> ParseTree),
                  ("PTpreviousSibling",  Unit ->> ParseTree),
                  ("PTprint",            Int ->> PrettyType),
+                 ("PTreferences",       Bool ** List Location),
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];

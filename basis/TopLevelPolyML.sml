@@ -104,6 +104,8 @@ local
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   DecRequest (* I *)
                 of { requestId: string, parseTreeId: string, location: basicLoc, decType: string }
+        |   RefRequest (* V *)
+                of { requestId: string, parseTreeId: string, location: basicLoc }
         |   CompileRequest (* R *)
                 of { requestId: string, fileName: string, startPosition: int,
                      preludeCode: string, sourceCode: string }
@@ -123,6 +125,8 @@ local
         |   DecResponse (* I *)
                 of { requestId: string, parseTreeId: string, location: basicLoc,
                      decLocation: PolyML.location option }
+        |   RefResponse (* V *)
+                of { requestId: string, parseTreeId: string, location: basicLoc, references: basicLoc list }
         |   CompilerResponse (* R *)
                 of { requestId: string, parseTreeId: string, finalOffset: int, result: compileResult }
         |   UnknownResponse (* Provided for upwards compatibility. *)
@@ -247,6 +251,20 @@ local
                         }
                 end
 
+                (* Return the local references to the given identifier. *)
+            |   #"V" =>
+                let
+                    val requestId = readToEscape("", #",")
+                    val parseTreeId = readToEscape("", #",")
+                    val startOffset = getInt #","
+                    val endOffset = getInt #"v"
+                in
+                    RefRequest{
+                        requestId = requestId, parseTreeId = parseTreeId,
+                        location = { startOffset = startOffset, endOffset = endOffset }
+                        }
+                end
+
             |   #"O" => (* Print list of valid commands. *)
                 let
                     val requestId = readToEscape("", #",")
@@ -363,6 +381,16 @@ local
                         SOME location => (printEsc #","; printFullLocation location)
                     |   NONE => ();
                     printEsc #"i"
+                )
+
+            |   makeResponse (RefResponse { requestId, parseTreeId, location, references }) =
+                (
+                    printEsc #"V";
+                    print requestId; printEsc #",";
+                    print parseTreeId;  printEsc #",";
+                    printLocation location;
+                    List.app (fn loc => (printEsc #","; printLocation loc)) references;
+                    printEsc #"v"
                 )
 
             |   makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
@@ -626,6 +654,10 @@ local
                                         |   printCode(PTdeclaredAt _, rest) = "I" :: rest
                                         |   printCode(PTopenedAt _, rest) = "J" :: rest
                                         |   printCode(PTstructureAt _, rest) = "S" :: rest
+                                        |   printCode(PTreferences(_, _::_), rest) = "V" :: rest
+                                                (* Only include references if there is at least one
+                                                   local reference. *)
+                                        |   printCode(PTreferences(_, []), rest) = rest
                                         |   printCode(PTprint _, rest) = rest
                                     in
                                         List.foldl printCode [] tree
@@ -761,6 +793,41 @@ local
                         DecResponse {
                             requestId = requestId, parseTreeId = currentParseID,
                             location = location, decLocation = decLocation
+                        });
+                    runProtocol currentCompilation
+                end
+
+            |   RefRequest { requestId, parseTreeId, location } =>
+                let (* Type of value at selected node. *)
+                    val (_, lastParsetree, currentParseID) = getCurrentParse()
+                    val (references, location) =
+                        if parseTreeId = currentParseID
+                        then
+                        let
+                            (* Move to the required location. *)
+                            val newTree = navigateTo(location, lastParsetree)
+                            val () = updateLastParse(currentParseID, newTree)
+                            (* Find the local references. *)
+                            val references =
+                                case newTree of
+                                    NONE => []
+                                |   SOME(_, tree) =>
+                                    (
+                                        case List.find (fn (PolyML.PTreferences _) => true | _ => false) tree of
+                                            SOME(PolyML.PTreferences(_, l)) =>
+                                                List.map (fn {startPosition, endPosition, ...} =>
+                                                            { startOffset=startPosition, endOffset=endPosition}) l
+                                        |   _ => []
+                                    )
+                        in
+                           (references, treeLocation newTree)
+                        end
+                        else ([], { startOffset = 0, endOffset = 0 })
+                in
+                    sendResponse(
+                        RefResponse {
+                            requestId = requestId, parseTreeId = currentParseID,
+                            location = location, references = references
                         });
                     runProtocol currentCompilation
                 end

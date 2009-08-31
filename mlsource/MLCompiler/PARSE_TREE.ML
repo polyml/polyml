@@ -1459,12 +1459,16 @@ struct
             let
                 (* Include the type and declaration properties if these
                    have been set. *)
-                val decProp =
+                val (decProp, references) =
                     case value of
-                        ref (Value{name = "<undefined>", ...}) => []
-                    |   ref (Value{locations, ...}) => mapLocationProps locations
+                        ref (Value{name = "<undefined>", ...}) => ([], NONE)
+                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references)
+                val refProp =
+                    case references of
+                        NONE => []
+                    |   SOME {exportedRef=ref exp, localRef=ref locals} => [PTreferences(exp, locals)]
             in
-                (location, PTtype expType :: decProp @ commonProps)
+                (location, PTtype expType :: decProp @ commonProps @ refProp)
             end
 
         |   Literal {location, expType=ref expType, ...} => (location, PTtype expType :: commonProps)
