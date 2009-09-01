@@ -362,7 +362,8 @@ struct
        typelist:  datatypebind list,
        withtypes: typebind list,
        declist:   parsetree list,
-       location:  location
+       location:  location,
+       equalityStatus: bool list ref
      }
      
    and datatypeReplicationForm =
@@ -662,7 +663,8 @@ struct
             typelist  = typelist,
             withtypes = withtypes,
             declist   = [],
-            location  = location
+            location  = location,
+            equalityStatus = ref []
        };
     
     fun mkAbstypeDeclaration (typelist, withtypes, declist, location) : parsetree =
@@ -671,7 +673,8 @@ struct
             typelist  = typelist,
             withtypes = withtypes,
             declist   = declist,
-            location  = location
+            location  = location,
+            equalityStatus = ref []
         };
 
     val mkDatatypeReplication = DatatypeReplication
@@ -2592,13 +2595,9 @@ struct
                 badType (* Does not return a type *)
             end
         
-          | DatatypeDeclaration 
-              {typelist, withtypes, declist, ...} =>
-                 assAbsData false typelist withtypes declist
+          | DatatypeDeclaration absData => assAbsData(false, absData)
     
-          | AbstypeDeclaration 
-              {typelist, withtypes, declist, ...} =>
-                 assAbsData true typelist withtypes declist
+          | AbstypeDeclaration absData => assAbsData(true, absData)
 
           | DatatypeReplication{oldType, newType, oldLoc, newLoc, ...} =>
                   (* Adds both the type and the constructors to the
@@ -3431,209 +3430,214 @@ struct
                 end)
         end (* assFunDeclaration *)
 
-        and assAbsData isAbs (typeList : datatypebind list) withtypes declist =
-    let
-      (* A type declaration causes a type to be entered in the type
-         environment, together with some constructors. *)
-      fun messFn (name, _, new) = 
-        errorNear (lex, true, v, declaredAt(tcLocations new),
-           name ^ " has already been bound in this declaration");
+        and assAbsData(isAbs, {typelist=typeList, withtypes, declist, equalityStatus, ...}) =
+        let
+            (* A type declaration causes a type to be entered in the type
+               environment, together with some constructors. *)
+            fun messFn (name, _, new) = 
+                errorNear (lex, true, v, declaredAt(tcLocations new),
+                   name ^ " has already been bound in this declaration");
 
-      val newEnv = noDuplicates messFn;
+            val newEnv = noDuplicates messFn;
       
-      (* datatype and abstype declarations are both recursive so we can
-         enter the type names into the environment during a first pass,
-         and then process the value constructors during a second. *)
-        fun enterType(innerType, outerType, typeName) =
-        (
-            checkForDots  (typeName, lex, declaredAt(tcLocations innerType)); (* Must not be qualified *)
-            #enter newEnv (typeName, innerType); (* Check for duplicates. *)
-            #enterType env  (typeName, outerType)  (* and put in the enclosing scope *)
-        );
+            (* datatype and abstype declarations are both recursive so we can
+               enter the type names into the environment during a first pass,
+               and then process the value constructors during a second. *)
+            fun enterType(innerType, outerType, typeName) =
+            (
+                checkForDots  (typeName, lex, declaredAt(tcLocations innerType)); (* Must not be qualified *)
+                #enter newEnv (typeName, innerType); (* Check for duplicates. *)
+                #enterType env  (typeName, outerType)  (* and put in the enclosing scope *)
+            );
        
-       (* Make the type constructors and put them in a list. *)
-        fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
-        let
-            (* Make a new ID.  If this is within a let declaration we always make
-               a free ID because it is purely local and can't be exported. *)
-            val description = { location = nameLoc, name = name, description = "" }
+            (* Make the type constructors and put them in a list. *)
+            fun enterTcon (DatatypeBind {name, tcon, typeVars, nameLoc, ...}) =
+            let
+                (* Make a new ID.  If this is within a let declaration we always make
+                   a free ID because it is purely local and can't be exported. *)
+                val description = { location = nameLoc, name = name, description = "" }
             
-            val newId =
-                if letDepth = 0
-                then makeTypeId(false, true, description)
-                else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
-            val tc =
-                makeDatatypeConstr(name, typeVars, newId,
-                                   letDepth, [DeclaredAt nameLoc])
-            val outerType =
-                if isAbs
-                then
-                    (* Outside the with..end section the type is not a datatype.
-                       The type constructor we enter in the outer environment
-                       uses the same typeId but with the constructors removed. *)
-                    makeFrozenTypeConstrs(name, typeVars, newId,
-                                          letDepth, [DeclaredAt nameLoc])
-                else tc
-        in
-            tcon := tc;
-            enterType(tc, outerType, name);
-            tc
-        end
+                val newId =
+                    if letDepth = 0
+                    then makeTypeId(false, true, description)
+                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
+                val tc =
+                    makeDatatypeConstr(name, typeVars, newId,
+                                       letDepth, [DeclaredAt nameLoc])
+                val outerType =
+                    if isAbs
+                    then
+                        (* Outside the with..end section the type is not a datatype.
+                           The type constructor we enter in the outer environment
+                           uses the same typeId but with the constructors removed. *)
+                        makeFrozenTypeConstrs(name, typeVars, newId,
+                                              letDepth, [DeclaredAt nameLoc])
+                    else tc
+            in
+                tcon := tc;
+                enterType(tc, outerType, name);
+                tc
+            end
       
-      val listOfTypes = map enterTcon typeList;
+            val listOfTypes = map enterTcon typeList;
 
-        (* First match all the types on the right-hand sides using the
-            datatypes and the existing bindings. *)
-        fun processType (TypeBind {decType = SOME decType, ...}) =
-        let
-            val t = typeFromTypeParse decType
-        in
-            ptAssignTypes t v;
-            t
-        end
-        |   processType _ = emptyType
+            (* First match all the types on the right-hand sides using the
+                datatypes and the existing bindings. *)
+            fun processType (TypeBind {decType = SOME decType, ...}) =
+            let
+                val t = typeFromTypeParse decType
+            in
+                ptAssignTypes t v;
+                t
+            end
+            |   processType _ = emptyType
 
-        val decTypes = List.map processType withtypes;
+            val decTypes = List.map processType withtypes;
 
-        (* Can now enter the `withtypes'. *)
-        fun enterWithType (TypeBind {name, typeVars, nameLoc, ...}, decType) =
-        let
-            (* Construct a type constructor which is an alias of the
-               right-hand side of the declaration. *)
-            val tcon =
-                makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
-        in
-            enterType(tcon, tcon, name)
-        end
+            (* Can now enter the `withtypes'. *)
+            fun enterWithType (TypeBind {name, typeVars, nameLoc, ...}, decType) =
+            let
+                (* Construct a type constructor which is an alias of the
+                   right-hand side of the declaration. *)
+                val tcon =
+                    makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
+            in
+                enterType(tcon, tcon, name)
+            end
 
-        val () = ListPair.app enterWithType (withtypes, decTypes);
+            val () = ListPair.app enterWithType (withtypes, decTypes);
         
-      (* For the constructors *)
-      fun messFn (name, _, Value{locations, ...}) =
-        errorNear (lex, true, v, declaredAt locations,
-          name ^ " has already been used as a constructor in this type");
+            (* For the constructors *)
+            fun messFn (name, _, Value{locations, ...}) =
+                errorNear (lex, true, v, declaredAt locations,
+                    name ^ " has already been used as a constructor in this type");
       
-      val consEnv = noDuplicates messFn;
+            val consEnv = noDuplicates messFn;
     
-      (* Now process the types and generate the constructors. *)
-      fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, ...}, typ) =
-      let
-        val numOfConstrs = length constrs;
+            (* Now process the types and generate the constructors. *)
+            fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, ...}, typ) =
+            let
+                val numOfConstrs = length constrs;
         
-        (* The new constructor applied to the type variables (if any) *)
-        val resultType = mkTypeConstruction (name, typ, List.map TypeVar typeVars, [DeclaredAt nameLoc]);
+                (* The new constructor applied to the type variables (if any) *)
+                val resultType = mkTypeConstruction (name, typ, List.map TypeVar typeVars, [DeclaredAt nameLoc]);
 
-        (* Sort the constructors by name.  This simplifies matching with
-           datatypes in signatures. *)
-        fun leq {constrName=xname: string, ...} {constrName=yname, ...} = xname < yname;
-        val sortedConstrs = quickSort leq constrs;
+                (* Sort the constructors by name.  This simplifies matching with
+                   datatypes in signatures. *)
+                fun leq {constrName=xname: string, ...} {constrName=yname, ...} = xname < yname;
+                val sortedConstrs = quickSort leq constrs;
 
-        fun processConstr ({constrName=name, constrArg, idLocn, ...}, repn) =
-        let
-          val cons =
-            case constrArg of
-                NONE =>
-                    mkGconstr (name, resultType, repn, true, numOfConstrs, [DeclaredAt idLocn])
-            |   SOME argtype =>
-                    mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType),
-                        repn, false, numOfConstrs, [DeclaredAt idLocn]);
+                fun processConstr ({constrName=name, constrArg, idLocn, ...}, repn) =
+                let
+                    val cons =
+                    case constrArg of
+                        NONE =>
+                            mkGconstr (name, resultType, repn, true, numOfConstrs, [DeclaredAt idLocn])
+                    |   SOME argtype =>
+                            mkGconstr (name, mkFunctionType (typeFromTypeParse argtype, resultType),
+                                repn, false, numOfConstrs, [DeclaredAt idLocn]);
         
-          (* Name must not be qualified *)
-          val () = checkForDots (name, lex, idLocn);
-          (* Must not be "true", "false" etc. *)
-          val () = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
+                    (* Name must not be qualified *)
+                    val () = checkForDots (name, lex, idLocn);
+                    (* Must not be "true", "false" etc. *)
+                    val () = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
           
-          (* Put into the environment. *)
-          val () = #enter consEnv (name, cons);
-        in    
-          cons
-        end (* processConstr *)
+                    (* Put into the environment. *)
+                    val () = #enter consEnv (name, cons);
+                in    
+                    cons
+                end (* processConstr *)
 
-        (* Declares the constructors and return a list of them. *)
-        fun decCons cs =
-        let
-            (* Match up identifiers to type constructors. *)
-            (* This side-effects "argtype" to set equivalence fields *)
-            (* Return entries for chooseConstrRepr which uses emptyType for nullary constrs. *)
-            fun checkValConstr{constrName, constrArg=NONE, ...} = (constrName, emptyType)
-            |   checkValConstr{constrName, constrArg=SOME t, ...} =
-                let val ty = typeFromTypeParse t in ptAssignTypes ty v; (constrName, ty) end
+                (* Declares the constructors and return a list of them. *)
+                fun decCons cs =
+                let
+                    (* Match up identifiers to type constructors. *)
+                    (* This side-effects "argtype" to set equivalence fields *)
+                    (* Return entries for chooseConstrRepr which uses emptyType for nullary constrs. *)
+                    fun checkValConstr{constrName, constrArg=NONE, ...} = (constrName, emptyType)
+                    |   checkValConstr{constrName, constrArg=SOME t, ...} =
+                        let val ty = typeFromTypeParse t in ptAssignTypes ty v; (constrName, ty) end
 
-            val constrTypes = List.map checkValConstr cs
+                    val constrTypes = List.map checkValConstr cs
 
-            (* Choose the representation for the constructors. *)
-            val reprs = chooseConstrRepr constrTypes
-        in
-            ListPair.map processConstr (cs,reprs)
-        end; (* decCons*)
+                    (* Choose the representation for the constructors. *)
+                    val reprs = chooseConstrRepr constrTypes
+                in
+                    ListPair.map processConstr (cs,reprs)
+                end; (* decCons*)
 
-      in
-        tcSetConstructors (typ, decCons sortedConstrs) : unit
-      end (* genValueConstrs *)
+            in
+                tcSetConstructors (typ, decCons sortedConstrs) : unit
+            end (* genValueConstrs *)
       
-      val () = ListPair.app genValueConstrs (typeList, listOfTypes);
+            val () = ListPair.app genValueConstrs (typeList, listOfTypes);
 
 
-      (* Third pass - Check to see if equality testing is allowed for
-         these types. *)
-      val () = computeDatatypeEqualities listOfTypes;
+            (* Third pass - Check to see if equality testing is allowed for
+               these types. *)
+            val () = computeDatatypeEqualities listOfTypes;
 
-      (* If this is a datatype declaration the value constructors should be
-         entered in the surrounding scope, otherwise (abstract type
-         declaration) we evaluate the declarations in an environment
-         containing the value constructors, but the value constructors
-         themselves do not appear in the surrounding scope. *)
-      val () =
-        if not isAbs
-        then #apply consEnv (#enterVal env)
-        else let   (* Abstract type *)
-          (* The declarations have to be evaluated in an environment in
-             which the constructors have been declared. When an identifier
-             is looked up it may:
-               (a) be one of these new declarations, or else
-               (b) be a constructor from the type declarations, or else
-               (c) be outside the abstract type declaration.
-             New declarations are entered in the local environment so that
-             they can be found under (a) and in the surrounding environment
-             where they will be available after this declaration. *)
-          val decEnv =
-        let
-          val localEnv = searchList ();
-          fun enterValFn pair = 
-            (#enter localEnv pair;
-             #enterVal env     pair);
-          val lookupValFn = 
-            lookupDefault (#lookup localEnv)
-             (lookupDefault (#lookup consEnv) (#lookupVal env))
-        in
-           { 
-             lookupVal     = lookupValFn,
-             lookupType    = #lookupType env,
-             lookupFix     = #lookupFix env,
-             lookupStruct  = #lookupStruct env,
-             lookupSig     = #lookupSig env,
-             lookupFunct   = #lookupFunct env,
-             lookupTvars   = #lookupTvars env,
-             enterVal      = enterValFn,
-             enterType     = #enterType env,
-             enterFix      = #enterFix env,
-             enterStruct   = #enterStruct env,
-             enterSig      = #enterSig env,
-             enterFunct    = #enterFunct env
-          }
-        end;
+            (* If this is a datatype declaration the value constructors should be
+               entered in the surrounding scope, otherwise (abstract type
+               declaration) we evaluate the declarations in an environment
+               containing the value constructors, but the value constructors
+               themselves do not appear in the surrounding scope. *)
+            val () =
+                if not isAbs
+                then #apply consEnv (#enterVal env)
+                else
+                let   (* Abstract type *)
+                    (* The declarations have to be evaluated in an environment in
+                       which the constructors have been declared. When an identifier
+                       is looked up it may:
+                       (a) be one of these new declarations, or else
+                       (b) be a constructor from the type declarations, or else
+                       (c) be outside the abstract type declaration.
+                       New declarations are entered in the local environment so that
+                       they can be found under (a) and in the surrounding environment
+                       where they will be available after this declaration. *)
+                    val decEnv =
+                    let
+                        val localEnv = searchList ();
+                        fun enterValFn pair = ( #enter localEnv pair; #enterVal env pair);
+                        val lookupValFn = 
+                            lookupDefault (#lookup localEnv)
+                                (lookupDefault (#lookup consEnv) (#lookupVal env))
+                    in
+                        { 
+                            lookupVal     = lookupValFn,
+                            lookupType    = #lookupType env,
+                            lookupFix     = #lookupFix env,
+                            lookupStruct  = #lookupStruct env,
+                            lookupSig     = #lookupSig env,
+                            lookupFunct   = #lookupFunct env,
+                            lookupTvars   = #lookupTvars env,
+                            enterVal      = enterValFn,
+                            enterType     = #enterType env,
+                            enterFix      = #enterFix env,
+                            enterStruct   = #enterStruct env,
+                            enterSig      = #enterSig env,
+                            enterFunct    = #enterFunct env
+                        }
+                    end;
   
+                in
+                    (* Process the declarations, discarding the result. *)
+                    assignSeq decEnv letDepth declist;
+                    (* Turn off equality outside the with..end block.  This is required by the
+                       "Abs" function defined in section 4.9 of the ML Definition.
+                       We need to record the equality status, though, because we need
+                       to reinstate this for code-generation. *)
+                    equalityStatus := List.map tcEquality listOfTypes;
+                    List.app(fn tc => tcSetEquality (tc, false)) listOfTypes;
+                    ()
+                end;
         in
-            (* Process the declarations, discarding the result. *)
-            assignSeq decEnv letDepth declist;
-            ()
-        end;
-        in
-      badType (* Does not return a type *)
-    end (* assAbsData *)
-      in 
+            badType (* Does not return a type *)
+        end (* assAbsData *)
+    in 
         assValues near v
-      end (* assignValues *);
+    end (* assignValues *);
 
       val Env gEnv = env
       
@@ -5931,7 +5935,7 @@ struct
                  (exdecs @ debugDecs, newDebugEnv)
                end (* ExDeclaration *)
   
-            |   AbstypeDeclaration {typelist, declist, ...} =>
+            |   AbstypeDeclaration {typelist, declist, equalityStatus = ref eqStatus, ...} =>
                 let (* Code-generate the eq and print functions for the abstype first
                        then the declarations, which may use these. *)
                     (* The debugging environment for the declarations should include
@@ -5939,7 +5943,7 @@ struct
                        ignore the constructors. *)
                     val typeIds =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-                    val typeFunctions = createDatatypeFunctions(typeIds, mkAddr, !level)
+                    val typeFunctions = createDatatypeFunctions(typeIds, eqStatus, mkAddr, !level)
                     val (code, newDebug) = codeSequence (declist, debugEnv, decName);
                 in
                     (typeFunctions @ code, newDebug)
@@ -5960,8 +5964,11 @@ struct
                         List.foldl getConstrs ([], debugEnv) typelist
                     val typeIds =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+                    (* Datatypes don't lose equality unlike abstypes so we can evaluate
+                       this here. *)
+                    val areEqTypes = List.map tcEquality typeIds
                 in
-                    (createDatatypeFunctions(typeIds, mkAddr, !level) @ decs, newDebugenv)
+                    (createDatatypeFunctions(typeIds, areEqTypes, mkAddr, !level) @ decs, newDebugenv)
                 end
 
            | OpenDec {variables=ref vars, ...} =>

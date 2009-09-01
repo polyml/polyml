@@ -304,9 +304,11 @@ struct
     |   isEquality (TypeFunction _) =
             raise InternalError "isEquality: TypeFunction" (* Requires analysis of the type function. *)
 
-    (* Set the equality property. *)
-    fun setEquality(Free{uid, allowUpdate=true, ...}) = uid := true
-    |   setEquality(Bound{eqType=VariableRef id, ...}) = id := true
+    (* Set the equality property.   Currently, free IDs are used for abstypes and
+       datatypes that are local to a function as well as the usual case of using them
+       for top-level types. *)
+    fun setEquality(Free{uid, allowUpdate=true, ...}, eq) = uid := eq
+    |   setEquality(Bound{eqType=VariableRef id, ...}, eq) = id := eq
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
 
     (* Signatures: Used for both signatures of local structures and for global structures 
@@ -433,8 +435,7 @@ struct
         |   _ => EmptyType
 
     val tcEquality = isEquality o tcIdentifier;
-    fun tcSetEquality(tc, true) = setEquality(tcIdentifier tc)
-    |   tcSetEquality(_, false) = raise InternalError "tcSetEquality: Removing equality"
+    fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 	
     fun tcSetConstructors (TypeConstrs {constrs, name, ...}, newConstrs) =
 	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)

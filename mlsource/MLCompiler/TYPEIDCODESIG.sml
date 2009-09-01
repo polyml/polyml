@@ -26,7 +26,7 @@ sig
     val codeId: typeId * int -> codetree
     val codeGenerativeId: typeId * bool * int -> codetree
     
-    val createDatatypeFunctions: typeConstrs list * (unit->int) * int -> codetree list
+    val createDatatypeFunctions: typeConstrs list * bool list * (unit->int) * int -> codetree list
     
     val codeForUniqueId: unit->codetree
 

@@ -713,7 +713,7 @@ struct
         val addrs = ref 0
         fun mkAddrs() = ! addrs before (addrs := !addrs+1)
         (* Create the datatype.  Sets the address of the local in "id". *)
-        val dtCode = createDatatypeFunctions([dtype], mkAddrs, 0)
+        val dtCode = createDatatypeFunctions([dtype], [isEqType], mkAddrs, 0)
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
         val newId = makeFreeId(Global globalCode, isEqType, description)

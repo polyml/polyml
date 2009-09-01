@@ -476,12 +476,12 @@ struct
     val equalityForType = fn (ty, level) => equalityForType(ty, level)
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
-    fun equalityForDatatypes(typelist, eqAddresses, baseLevel): codetree list =
+    fun equalityForDatatypes(typelist, eqAddresses, eqStatus, baseLevel): codetree list =
     let
         val typesAndAddresses = ListPair.zipEq(typelist, eqAddresses)
 
-        fun equalityForDatatype(tyConstr, addr) =
-        if tcEquality tyConstr
+        fun equalityForDatatype((tyConstr, addr), isEq) =
+        if isEq
         then
         let
             val argTypes = tcTypeVars tyConstr
@@ -605,7 +605,7 @@ struct
         else (* Not an equality type.  This will not be called. *)
             mkDec(addr, CodeZero)
     in
-        List.map equalityForDatatype typesAndAddresses
+        ListPair.map equalityForDatatype (typesAndAddresses, eqStatus)
     end
 
     (* Create a printer function for a datatype when the datatype is declared.
@@ -732,7 +732,7 @@ struct
         end
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
-    fun createDatatypeFunctions(typelist, mkAddr, level) =
+    fun createDatatypeFunctions(typelist, eqStatus, mkAddr, level) =
     let
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
@@ -743,7 +743,7 @@ struct
            can't create the typeIDs themselves as mutual declarations. *)
         val eqAddresses = List.map(fn _ => mkAddr()) typelist (* Make addresses for the equalities. *)
         val equalityFunctions =
-            mkMutualDecs(equalityForDatatypes(typelist, eqAddresses, level))
+            mkMutualDecs(equalityForDatatypes(typelist, eqAddresses, eqStatus, level))
 
         (* Create the typeId values and set their addresses.  The print function is
            initially set as zero. *)

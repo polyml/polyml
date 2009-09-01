@@ -163,7 +163,7 @@ sig
     val offsetId:     typeId -> int;
     val idAccess:     typeId -> valAccess;
     val sameTypeId:   typeId * typeId -> bool;
-    val setEquality:  typeId -> unit
+    val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
     val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
