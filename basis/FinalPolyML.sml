@@ -308,8 +308,8 @@ local
         (* To allow for the possibility of changing the representation we don't make Universal
            be the same as Bootstrap.Universal. *)
         (* Default error message function. *)
-        fun defaultErrorProc fileName (message: string, hard: bool, line: int) =
-           printOut(concat
+        fun defaultErrorProc fileName printFn (message: string, hard: bool, line: int) =
+           printFn(concat
                ( (if hard then ["Error-"] else ["Warning-"]) @
                  (if fileName = "" then [] else [" in '", fileName, "',"]) @
                  (if line = 0 then [] else [" line ", Int.toString line]) @
@@ -423,7 +423,7 @@ local
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
             val printenv = find (fn CPPrinterNameSpace s => SOME s | _ => NONE) nameSpace parameters
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE)
-                                (defaultErrorProc fileName) parameters
+                                (defaultErrorProc fileName printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
 
             (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)

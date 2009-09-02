@@ -399,7 +399,7 @@ local
            be the same as Bootstrap.Universal. *)
 
         (* Default error message function. *)
-        fun defaultErrorProc
+        fun defaultErrorProc printString
             {message: PolyML.pretty, hard: bool,
              location={startLine, startPosition, endPosition, file, ...},
              context: PolyML.pretty option} =
@@ -422,7 +422,7 @@ local
                 val separator = "\u001b,"
                 val finalSeparator = "\u001b;"
             in
-                printOut(
+                printString(
                     concat
                         [
                             openError,
@@ -433,17 +433,17 @@ local
                             Int.toString endPosition, finalSeparator
                          ]
                     );
-                prettyPrintWithIDEMarkup(printOut, !lineLength) fullMessage;
-                printOut closeError
+                prettyPrintWithIDEMarkup(printString, !lineLength) fullMessage;
+                printString closeError
             end
             else (* Plain text form. *)
             (
-                printOut(concat
+                printString(concat
                    ( (if hard then ["Error-"] else ["Warning-"]) @
                      (if file = "" then [] else [" in '", file, "',"]) @
                      (if startLine = 0 then [] else [" line ", Int.toString startLine]) @
                      (if startLine = 0 andalso file = "" then [] else [".\n"])));
-                PolyML.prettyPrint(printOut, !lineLength) fullMessage
+                PolyML.prettyPrint(printString, !lineLength) fullMessage
             )
         end
 
@@ -563,7 +563,7 @@ local
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
                (printAndEnter(printInOrder, nameSpace, outstream, printDepth())) parameters
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
-            val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) defaultErrorProc parameters
+            val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             local
     			(* Default is to filter the parse tree argument. *)
