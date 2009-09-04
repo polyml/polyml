@@ -106,6 +106,9 @@ in
 	else ()
 end;
 
+(* Build the Process structure for backwards compatibility. *)
+Bootstrap.use "basis/processes.ML";
+
 Bootstrap.use "basis/HashArray.ML";
 Bootstrap.use "basis/UniversalArray.ML";
 Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
@@ -136,8 +139,6 @@ PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
 
-(* Now we've created the new name space we must use PolyML.make/use. *)
+(* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
+   these don't automatically look at the -I option. *)
 
-
-(* Build the Process structure for backwards compatibility. *)
-PolyML.use "basis/processes";
