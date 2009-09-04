@@ -27,24 +27,34 @@ Bootstrap.use "basis/build.sml";
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)
 
-(* FFI. *)
-PolyML.make "mlsource/extra/CInterface";
-PolyML.use "mlsource/extra/CInterface/clean";
-
-(* XWindows/Motif *)
 let
-   val xcall: int*int->int*int =
-   	RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows;
-   (* See if the RTS supports the X GetTimeOfDay call. *)
-   val isX = (xcall(30, 0); true) handle _ => false
+    (* Bootstrap.use adds the path given as -I path but PolyML.make and PolyML.use
+       don't.  Add the path explicitly. *)
+    val args = CommandLine.arguments();
+	fun getPath [] = "." (* Default path *)
+	  | getPath ("-I" :: outFile :: _) = outFile
+	  | getPath (_::tl) = getPath tl
+	val path = getPath args
 in
-   if isX
-   then
-   	(
-   	PolyML.make "mlsource/extra/XWindows";
-   	PolyML.make "mlsource/extra/Motif"
-   	)
-   else ()
+    (* FFI. *)
+    PolyML.make (OS.Path.concat(path, "mlsource/extra/CInterface"));
+    PolyML.use (OS.Path.concat(path, "mlsource/extra/CInterface/clean"));
+
+    (* XWindows/Motif *)
+    let
+       val xcall: int*int->int*int =
+       	RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows;
+       (* See if the RTS supports the X GetTimeOfDay call. *)
+       val isX = (xcall(30, 0); true) handle _ => false
+    in
+       if isX
+       then
+       	(
+       	PolyML.make "mlsource/extra/XWindows";
+       	PolyML.make "mlsource/extra/Motif"
+       	)
+       else ()
+    end
 end;
 
 PolyML.print_depth 10;
@@ -52,9 +62,7 @@ PolyML.print_depth 10;
 (* Set the inline level to 40 which seems optimal. *)
 PolyML.Compiler.maxInlineSize := 40;
 
-(* Do this last.  There's a problem that replacing the standard input
-   loses any buffering in the previous input which includes any commands
-   after the one that does the replacing. *)
+(* Write out the result as an export file. *)
 let
     val args = CommandLine.arguments();
 	(* If we have -o filename use that as the output name.

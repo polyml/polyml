@@ -446,7 +446,17 @@ struct
     fun useIntoEnv globalEnv baseName =
     let
         val () = print ("Use: " ^ baseName ^ "\n")
+        (* See if there is a path given as a command line argument. *)
+        val args = CommandLine.arguments();
+    	(* If we have -o filename use that as the output name.
+    	   N.B.  polyImport takes the first argument that is not recognised as
+    	   an RTS argument and treats that as the file name so any -o must occur
+    	   AFTER the import file. *)
+    	fun getPath [] = "." (* Default path *)
+    	  | getPath ("-I" :: path :: _) = path
+    	  | getPath (_::tl) = getPath tl
         open OS.Path
+    	val filePath = joinDirFile { dir = getPath args, file = baseName }
         open VERSION
         (* See if we have a version of the file specific to this
            version of the compiler.  For x.ML see if x.VER.ML exists.
@@ -454,14 +464,14 @@ struct
            another we need to compile the basis library in both the
            old and new compiler.  If the interface has changed we may
            need version-specific files. *)
-        val { base, ext } = splitBaseExt baseName
+        val { base, ext } = splitBaseExt filePath
         val versionName =
             joinBaseExt {
                 base = joinBaseExt{base = base, ext = SOME versionSuffix},
                 ext = ext }
         val (inStream, fileName) =
             (TextIO.openIn versionName, versionName)
-                handle IO.Io _ => (TextIO.openIn baseName, baseName)
+                handle IO.Io _ => (TextIO.openIn filePath, filePath)
     in
         compileIntoEnv globalEnv (fileName, inStream);
         TextIO.closeIn inStream
