@@ -59,10 +59,10 @@ polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
 #
 polyexport.o: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
 
 polyexport.obj: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt < $(srcdir)/exportPoly.sml
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
 
 polyresource.o: PolyML.rc poly.ico
 	windres -o polyresource.o PolyML.rc
