@@ -19,10 +19,12 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
+#error "No configuration file"
 #endif
 
 #include <stdio.h>

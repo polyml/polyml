@@ -187,10 +187,12 @@
  *	used for input more than STRTOD_DIGLIM digits long (default 40).
  */
 
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
+#error "No configuration file"
 #endif
 
 #ifdef HAVE_SYS_PARAM_H

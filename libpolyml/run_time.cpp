@@ -24,10 +24,12 @@
 /* Contains most of the routines in the interface_map vector. Others are
    in their own modules e.g. arb.c, reals.c and persistence.c */
 
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
+#error "No configuration file"
 #endif
 
 /************************************************************************

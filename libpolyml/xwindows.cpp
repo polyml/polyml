@@ -20,14 +20,12 @@
 
 */
 
-#ifdef _WIN32_WCE
-#include "winceconfig.h"
-#else
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
-#endif
+#error "No configuration file"
 #endif
 
 #if (defined(WITH_XWINDOWS))

@@ -31,10 +31,12 @@ implementation of "poll".
 Directory operations are also included in here.
 DCJM May 2000. 
 */
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
+#error "No configuration file"
 #endif
 
 #ifdef HAVE_FCNTL_H

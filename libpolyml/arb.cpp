@@ -51,10 +51,12 @@ N.B. This actually breaks the rule that all immutable values must have a
 canonical representation.  That is required for structure equality to work.
 */ 
 
-#ifdef WIN32
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(WIN32)
 #include "winconfig.h"
 #else
-#include "config.h"
+#error "No configuration file"
 #endif
 
 #ifdef HAVE_STDIO_H
