@@ -558,7 +558,7 @@ SOURCE=.\version.h
 # End Source File
 # Begin Source File
 
-SOURCE=.\winconfig.h
+SOURCE=..\winconfig.h
 # End Source File
 # Begin Source File
 
