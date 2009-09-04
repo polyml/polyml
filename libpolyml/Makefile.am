@@ -75,7 +75,7 @@ polyexport.o: polyimport exportPoly.sml
 
 # Special rule for x86 assembly code.
 x86asmtemp.S: x86asm.asm
-	sed -f masm2gas < x86asm.asm > x86asmtemp.S
+	sed -f $(srcdir)/masm2gas < $(srcdir)/x86asm.asm > x86asmtemp.S
 
 # Special rule for Power PC.  This is needed because of pecularities with MAC OS X.
 ppcasmtemp.s: power_assembly.S
