@@ -206,7 +206,7 @@ struct
 	       	(* Find a process that matches and return the new list of partners
 			  and the new list of runnable processes. *)
 	       (* No match *) ([], NoMatch)
-		|	findAProcess((entry as (p,d,v)) :: t) =
+		|	findAProcess((entry as (_,d,_)) :: t) =
 			case getMatchingSynchs d of
 				MrTaken =>
 					(* This process is a committed choice in a different direction.  Drop
@@ -220,7 +220,7 @@ struct
 				in
 					(entry :: clist, result)
 				end
-			|	MrOK synchs =>
+			|	MrOK _ =>
 					(t, FoundMatch entry) (* Return the new list. *)
 		
 	in
@@ -261,7 +261,7 @@ struct
 			end
 	end
 
-	fun send (ch: 'a channel as CHAN {senders, receivers, chanLock, ...}, v:'a) =
+	fun send (CHAN {senders, receivers, chanLock, ...}, v:'a) =
 		blockInterrupt(fn () =>
 			let
 				val () = lock chanLock;
@@ -293,7 +293,7 @@ struct
 			end
 		)
 	
-	fun receive (ch: 'a channel as CHAN {senders, receivers, chanLock, ...}): 'a =
+	fun receive (CHAN {senders, receivers, chanLock, ...}): 'a =
 		blockInterrupt(fn () =>
 			let
 				val () = lock chanLock;
@@ -350,7 +350,7 @@ struct
 	let
 		(* Get the parent's synchroniser and remove any redundant entries. *)
 		val synch = getActiveSynchroniser(get_process_data(), true)
-		val threadId =
+		val _ =
 			new_process f synch (* Share the parent's synchroniser. *)
 				[EnableBroadcastInterrupt false] (* Does not accept broadcasts. *)
 	in
