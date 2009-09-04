@@ -30,15 +30,15 @@
 #error "No configuration file"
 #endif
 
-#ifdef HAVE_WINDOWS_H
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#define HAVE_PTHREAD 1
+#include <pthread.h>
+#elif (defined(HAVE_WINDOWS_H))
 // We need the next define since TryEnterCriticalSection is only
 // defined in Win NT.  This could mean that this code won't run under
 // Windows 95 or 98.
 #define _WIN32_WINNT 0x0400
 #include <windows.h>
-#elif (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-#define HAVE_PTHREAD 1
-#include <pthread.h>
 #endif
 
 #ifdef HAVE_ERRNO_H

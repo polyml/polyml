@@ -82,7 +82,7 @@
 #include <fcntl.h>
 #endif
 
-#if (!defined(WIN32) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 #define USE_PTHREAD_SIGNALS 1
 #endif
 
