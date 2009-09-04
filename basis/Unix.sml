@@ -142,7 +142,7 @@ struct
         fun sys_get_buffsize (strm: OS.IO.iodesc): int = doIo(15, strm, 0)
     end
 
-    fun textInstreamOf {pid, infd, ...} =
+    fun textInstreamOf {infd, ...} =
     let
         val n = Posix.FileSys.fdToIOD infd
         val textPrimRd =
@@ -153,7 +153,7 @@ struct
         TextIO.mkInstream streamIo
     end
         
-    fun textOutstreamOf {pid, outfd, ...} =
+    fun textOutstreamOf {outfd, ...} =
     let
         val n = Posix.FileSys.fdToIOD outfd
         val buffSize = sys_get_buffsize n
@@ -166,7 +166,7 @@ struct
         TextIO.mkOutstream streamIo
     end
 
-    fun binInstreamOf {pid, infd, ...} =
+    fun binInstreamOf {infd, ...} =
     let
         val n = Posix.FileSys.fdToIOD infd
         val binPrimRd =
@@ -177,7 +177,7 @@ struct
         BinIO.mkInstream streamIo
     end
         
-    fun binOutstreamOf {pid, outfd, ...} =
+    fun binOutstreamOf {outfd, ...} =
     let
         val n = Posix.FileSys.fdToIOD outfd
         val buffSize = sys_get_buffsize n
@@ -207,8 +207,8 @@ struct
     fun reap {result = ref(SOME r), ...} = r
     |   reap(p as {pid, infd, outfd, result}) =
     let
-        val u = Posix.IO.close infd;
-        val u = Posix.IO.close outfd;
+        val () = Posix.IO.close infd;
+        val () = Posix.IO.close outfd;
         val (_, status) =
             Posix.Process.waitpid(Posix.Process.W_CHILD pid, [])
     in
