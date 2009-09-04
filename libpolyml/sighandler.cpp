@@ -82,7 +82,9 @@
 #include <fcntl.h>
 #endif
 
-
+#if (!defined(WIN32) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#define USE_PTHREAD_SIGNALS 1
+#endif
 
 /*
 Signal handling is complicated in a multi-threaded environment.
@@ -135,7 +137,8 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 // not the "handler" field.
 static PLock sigLock;
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#if (!defined(WINDOWS_H) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#define USE_PTHREAD_SIGNALS 1
 static pthread_t detectionThreadId; // Thread processing signals.
 static sem_t *waitSema;
 static int lastSignals[NSIG];
@@ -159,7 +162,7 @@ static void signalArrived(int sig)
 void markSignalInuse(int sig)
 {
     sigData[sig].nonMaskable = true;
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#ifdef USE_PTHREAD_SIGNALS
     // Enable this signal.
     sigset_t sigset;
     sigemptyset(&sigset);
@@ -187,7 +190,7 @@ void RequestConsoleInterrupt(void)
 }
 #endif
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#ifdef USE_PTHREAD_SIGNALS
 // Request the main thread to change the blocking state of a signal.
 class SignalRequest: public MainThreadRequest
 {
@@ -273,7 +276,7 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
             // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
             if (! sigData[sign].nonMaskable)
             {
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#ifdef USE_PTHREAD_SIGNALS
                 SignalRequest request(sign, action);
                 processes->MakeRootRequest(taskData, &request);
 #endif
@@ -370,7 +373,7 @@ void initThreadSignals(TaskData *taskData)
     ASSERT(sigaltstack_result == 0);
 #endif
 #endif /* not the PC */
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#ifdef USE_PTHREAD_SIGNALS
     // Block all signals except those marked as in use by the RTS so
     // that they will only be picked up by the signal detection thread.
     // Since the signal mask is inherited we really don't need to do
@@ -464,7 +467,7 @@ public:
 // Declare this.  It will be automatically added to the table.
 static SigHandler sighandlerModule;
 
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#ifdef USE_PTHREAD_SIGNALS
 // This thread is really only to convert between POSIX semaphores and
 // pthread condition variables.  It waits for a semphore to be released by the
 // signal handler running on the main thread and then wakes up the ML handler
@@ -543,7 +546,7 @@ void SigHandler::Init(void)
 #ifdef SIGILL
     sigData[SIGILL].nonMaskable = true;
 #endif
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#ifdef USE_PTHREAD_SIGNALS
     // Initialise the "wait" semaphore so that it blocks immediately.
     waitSema = init_semaphore(&waitSemaphore, 0);
     if (waitSema == 0) return;

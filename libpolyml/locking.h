@@ -35,9 +35,8 @@
 
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
-#endif
-
-#ifdef HAVE_PTHREAD_H
+#elif HAVE_PTHREAD_H
+// Don't include pthread if this is Windows
 #include <pthread.h>
 #endif
 
@@ -51,10 +50,10 @@ public:
     bool Trylock(void); // Try to lock the mutex - returns true if succeeded
 
 private:
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-    pthread_mutex_t lock;
-#elif defined(HAVE_WINDOWS_H)
+#if defined(HAVE_WINDOWS_H)
     CRITICAL_SECTION lock;
+#elif (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    pthread_mutex_t lock;
 #endif
     friend class PCondVar;
 };
@@ -84,12 +83,12 @@ public:
     bool WaitFor(PLock *pLock, unsigned milliseconds);
     void Signal(void); // Wake up the waiting thread.
 private:
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
-    pthread_cond_t cond;
-    pthread_mutex_t *plock;
-#elif defined(HAVE_WINDOWS_H)
+#if defined(HAVE_WINDOWS_H)
     HANDLE cond;
     CRITICAL_SECTION *plock;
+#elif (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+    pthread_cond_t cond;
+    pthread_mutex_t *plock;
 #endif
 };
 

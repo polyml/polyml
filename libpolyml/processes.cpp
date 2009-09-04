@@ -81,9 +81,7 @@
 
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
-#endif
-
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#elif (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #endif

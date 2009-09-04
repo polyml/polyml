@@ -36,9 +36,7 @@
 // Windows 95 or 98.
 #define _WIN32_WINNT 0x0400
 #include <windows.h>
-#endif
-
-#if (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#elif (defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #endif
