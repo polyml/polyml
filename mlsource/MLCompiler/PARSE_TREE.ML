@@ -3850,7 +3850,7 @@ struct
                                 EnvException(name, typeOf, locations)
                         |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
                                 EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
-                        |    Value{name, typeOf, locations, ...} =>
+                        |   Value{name, typeOf, locations, ...} =>
                                 EnvValue(name, typeOf, locations)
                 in
                     { dec = dec, rtEnv = load, ctEnv = ctEntry :: ctEnv}
@@ -5941,18 +5941,68 @@ struct
                     (* The debugging environment for the declarations should include
                        the constructors but the result shouldn't.  For the moment
                        ignore the constructors. *)
-                    val typeIds =
+                    (* Add the type ids to the debug environment. *)
+                    val typeCons =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-                    val typeFunctions = createDatatypeFunctions(typeIds, eqStatus, mkAddr, !level)
-                    val (code, newDebug) = codeSequence (declist, debugEnv, decName);
+                    val typeFunctions = createDatatypeFunctions(typeCons, eqStatus, mkAddr, !level)
+                    val (typeDebugDecs, typeDebugEnv) =
+                        if not debugging then ([], debugEnv)
+                        else
+                        let
+                            fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
+                                let
+                                    (* This code will build a cons cell containing the run-time value
+                                       associated with the type Id as the hd and the rest of the run-time
+                                       environment as the tl. *)
+                                    val id = tcIdentifier tc
+                                    val loadTypeId = codeId(id, !level)
+                                    val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
+                                    val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                                    val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
+                                in
+                                    (dec @ decs, newEnv)
+                                end
+                            |   foldIds([], debugEnv) = ([], debugEnv)
+                        in
+                            foldIds(typeCons, debugEnv)
+                        end
+                    val (code, newDebug) = codeSequence (declist, typeDebugEnv, decName);
                 in
-                    (typeFunctions @ code, newDebug)
+                    (typeFunctions @ typeDebugDecs @ code, newDebug)
                 end
   
             |   DatatypeDeclaration {typelist, ...} =>
                    (* We just need the value constructors for the debug env.
-                      Later we will include the types as well. *)
+                      Types aren't currently included although the type-ids are. *)
                 let
+                    val typeCons =
+                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+                    (* Datatypes don't lose equality unlike abstypes so we can evaluate
+                       this here. *)
+                    val areEqTypes = List.map tcEquality typeCons
+                    val codeIds = createDatatypeFunctions(typeCons, areEqTypes, mkAddr, !level)
+                    val (typeDebugDecs, typeDebugEnv) =
+                        if not debugging then ([], debugEnv)
+                        else
+                        let
+                            fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
+                                let
+                                    (* This code will build a cons cell containing the run-time value
+                                       associated with the type Id as the hd and the rest of the run-time
+                                       environment as the tl. *)
+                                    val id = tcIdentifier tc
+                                    val loadTypeId = codeId(id, !level)
+                                    val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
+                                    val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                                    val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
+                                in
+                                    (dec @ decs, newEnv)
+                                end
+                            |   foldIds([], debugEnv) = ([], debugEnv)
+                        in
+                            foldIds(typeCons, debugEnv)
+                        end
+
                     fun getConstrs(DatatypeBind {tcon = ref tc, ...}, (decs, debugEnv)) =
                     let
                         val (newDecs, newDebug) = makeDebugEntries(tcConstructors tc, debugEnv)
@@ -5961,14 +6011,9 @@ struct
                     end
 
                     val (decs: codetree list, newDebugenv: debugenv) =
-                        List.foldl getConstrs ([], debugEnv) typelist
-                    val typeIds =
-                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-                    (* Datatypes don't lose equality unlike abstypes so we can evaluate
-                       this here. *)
-                    val areEqTypes = List.map tcEquality typeIds
+                        List.foldl getConstrs ([], typeDebugEnv) typelist
                 in
-                    (createDatatypeFunctions(typeIds, areEqTypes, mkAddr, !level) @ decs, newDebugenv)
+                    (codeIds @ typeDebugDecs @ decs, newDebugenv)
                 end
 
            | OpenDec {variables=ref vars, ...} =>

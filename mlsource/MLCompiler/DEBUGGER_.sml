@@ -46,18 +46,23 @@ sig
   val toMachineWord: 'a -> machineWord
 end;
 
-sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = CODETREE = ADDRESS
+structure COPIER: COPIERSIG
+structure TYPEIDCODE: TYPEIDCODESIG
+
+sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = COPIER.Sharing =
+        TYPEIDCODE.Sharing = CODETREE = ADDRESS
 )
 : DEBUGGERSIG
 =
 struct
-    open STRUCTVALS VALUEOPS CODETREE
+    open STRUCTVALS VALUEOPS CODETREE COPIER TYPETREE
 
 	(* The static environment contains these kinds of entries. *)
 	datatype environEntry =
 		EnvValue of string * types * locationProp list
 	|	EnvException of string * types * locationProp list
 	|	EnvVConstr of string * types * bool * int * locationProp list
+    |   EnvTypeid of { original: typeId, freeId: typeId }
 	|	EnvStaticLevel
 
     datatype debugReason =
@@ -74,6 +79,12 @@ struct
     val debuggerFunTag : debugger Universal.tag = Universal.tag()
     fun nullDebug _ = ()
 
+    (* When stopped at a break-point any Bound ids must be replaced by Free ids.
+       We make new Free ids at this point.  *)
+    fun envTypeId (id as Bound { description, ...}) =
+            EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description) }
+    |   envTypeId id = EnvTypeid { original = id, freeId = id }
+
     (* Reason codes passed to the debugger function. *)
     val debugEnterFun = 1
     and debugLeaveFun = 2
@@ -83,43 +94,87 @@ struct
     val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero, [])
     fun makeSpace ctEnv rtEnv =
     let
+        (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
+        local
+            fun searchType (EnvTypeid{original, freeId } :: ntl, valu :: vl) typeid =
+            let
+            in
+                if sameTypeId(original, typeid)
+                then
+                case freeId of
+                    Free { uid, allowUpdate, description, ... } =>
+                        (* This can occur for datatypes inside functions. *)
+                        Free { access= Global(mkConst valu), uid=uid, allowUpdate=allowUpdate, description=description }
+                |   _ => raise Misc.InternalError "searchType: TypeFunction"
+                else searchType(ntl, vl) typeid
+            end
+
+            |   searchType(EnvVConstr _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
+            |   searchType(EnvValue _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
+            |   searchType(EnvStaticLevel :: ntl, vl) typeid = searchType(ntl, vl) typeid
+            |   searchType(EnvException _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
+
+            |   searchType _ typeid =
+                let
+                    val description =
+                        case typeid of
+                            Bound { description, ...} => description
+                        |   Free { description, ...} => description
+                        |   TypeFunction _ => raise Misc.InternalError "searchType: TypeFunction"
+                in
+                    (* The type ID is missing.  Make a new temporary ID. *)
+                    makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+                end
+
+            fun copyId(Free{ access=Global _ , ...}) = NONE (* Use original *)
+            |   copyId id = SOME(searchType(ctEnv, rtEnv) id)
+        in
+            fun runTimeType ty =
+                copyType (ty, fn x => x,
+                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))                            
+        end
+
         (* Create the environment. *)
 		fun lookupValues (EnvValue(name, ty, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(mkGvar(name, ty, mkConst valu, location))
+				then SOME(mkGvar(name, runTimeType ty, mkConst valu, location))
 				else lookupValues(ntl, vl) s
 
 		  |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(mkGex(name, ty, mkConst valu, location))
+				then SOME(mkGex(name, runTimeType ty, mkConst valu, location))
 				else lookupValues(ntl, vl) s
 
 		  |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
 		  		if name = s
-				then SOME(makeValueConstr(name, ty, nullary, count, Global(mkConst valu), location))
+				then SOME(makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location))
 				else lookupValues(ntl, vl) s
 
 		  |  lookupValues (EnvStaticLevel :: ntl, vl) s =
 		  		(* Static level markers have no effect here. *)
 		  		lookupValues(ntl, vl) s
 
-		  | lookupValues _ _ =
+          |  lookupValues (EnvTypeid _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
+
+		  |  lookupValues _ _ =
 		  	 (* The name we are looking for isn't in
 			    the environment.
 				The lists should be the same length. *)
 			 NONE
 
  		fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
-		  		(name, mkGvar(name, ty, mkConst valu, location)) :: allValues(ntl, vl)
+		  		(name, mkGvar(name, runTimeType ty, mkConst valu, location)) :: allValues(ntl, vl)
 
 		 |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
-		  		(name, mkGex(name, ty, mkConst valu, location)) :: allValues(ntl, vl)
+		  		(name, mkGex(name, runTimeType ty, mkConst valu, location)) :: allValues(ntl, vl)
 
 		 |  allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
-		  		(name, makeValueConstr(name, ty, nullary, count, Global(mkConst valu), location)) ::
+		  		(name, makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location)) ::
 				    allValues(ntl, vl)
 
 		 |  allValues (EnvStaticLevel :: ntl, vl) = allValues(ntl, vl)
+
+		 |  allValues (EnvTypeid _ :: ntl, _ :: vl) = allValues(ntl, vl)
 
 		 |  allValues _ = []
          
@@ -207,5 +262,6 @@ struct
         type functors       = functors
         type locationProp   = locationProp
         type environEntry   = environEntry
+        type typeId         = typeId
     end
 end;

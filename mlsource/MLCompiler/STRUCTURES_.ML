@@ -38,6 +38,7 @@ structure PRETTY : PRETTYSIG
 structure COPIER: COPIERSIG
 structure TYPEIDCODE: TYPEIDCODESIG
 structure SIGNATURES: SIGNATURESSIG
+structure DEBUGGER : DEBUGGERSIG
 
 structure UTILITIES :
 sig
@@ -67,13 +68,14 @@ structure DEBUG :
 sig
     val inlineFunctorsTag: bool Universal.tag
     val errorDepthTag : int Universal.tag
+    val debugTag: bool Universal.tag
     val getParameter :
            'a Universal.tag -> Universal.universal list -> 'a 
 end;
 
 sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
     = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
-    = CODETREE = UNIVERSALTABLE = TYPEIDCODE.Sharing = SIGNATURES.Sharing
+    = CODETREE = UNIVERSALTABLE = TYPEIDCODE.Sharing = SIGNATURES.Sharing = DEBUGGER.Sharing
 
 ) : STRUCTURESSIG =
 
@@ -98,6 +100,7 @@ struct
   open EXPORTTREE;
   open TYPEIDCODE
   open SIGNATURES
+  open DEBUGGER
 
   (* Union of the various kinds of core language declaration.  Structures are included
      because they can be declared by opening a structure with substructures. *)
@@ -2094,8 +2097,10 @@ struct
 
   (* Generate code from the expressions and arrange to return the results
       so that "pass4" can find them. *)
-  fun gencodeStructs ((strs, _), lex) =
-  let
+    fun gencodeStructs ((strs, _), lex) =
+    let
+        val debugging = getParameter debugTag (debugParams lex)
+
     (* Each top level declaration is assigned a distinct address. *)
     val addresses = ref 1;
     fun mkAddr ()  = 
@@ -2551,9 +2556,42 @@ struct
                 val () = #addr  arg := ~1; 
                 val () = #level arg := !level;
                 val func = !valRef;
+
+                (* The debug environment has to contain at a minimum the type IDs from the arguments. *)
+                val (fBindDebugDecs, fBindDebugEnv) =
+                    if not debugging then ([], debugEnv)
+                    else
+                    let
+                        val argIds = sigBoundIds (structSignat argVal)
+
+                        fun loadTypeId(id as Bound { access = Formal addr, ... }, (ctEnv, rtEnv)) =
+                        let
+                            (* This code will build a cons cell containing the run-time value
+                               associated with the type Id as the hd and the rest of the run-time
+                               environment as the tl. *)
+                            val loadTypeId = mkInd(addr, mkLoad (~1, 0))
+                            val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
+                            val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                        in
+                            (dec, (envTypeId id :: ctEnv, load))
+                        end
+                        |   loadTypeId _ = raise InternalError "loadTypeId: Not bound"
+
+                        fun foldIds(id::ids, inEnv) =
+                            let
+                                val (dec, outEnv) = loadTypeId(id, inEnv)
+                                val (decs, newEnv) = foldIds(ids, outEnv)
+                            in
+                                (dec @ decs, newEnv)
+                            end
+                        |   foldIds([], debugEnv) = ([], debugEnv)
+                    in
+                        foldIds(argIds, debugEnv)
+                    end
+
                 (* Process the body and make a procedure out of it. *)
                 local
-                    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (body, name ^ "().", debugEnv)
+                    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (body, name ^ "().", fBindDebugEnv)
                     fun getIds(n, isEq) =
                     let
                         val id = #source(List.nth(resIds, n))
@@ -2567,7 +2605,7 @@ struct
                 in
                     val functorCode = (* The function that implements the functor. *)
                         (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                            (mkEnv(strCode @ [matchedCode]), !level, 1, name);
+                            (mkEnv(fBindDebugDecs @ strCode @ [matchedCode]), !level, 1, name);
                 end
 
                 (* Go back down a level and add 1 to address. *)

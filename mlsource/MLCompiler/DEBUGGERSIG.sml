@@ -29,6 +29,7 @@ sig
     type signatures
     type functors
     type locationProp
+    type typeId
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
@@ -36,7 +37,10 @@ sig
 		EnvValue of string * types * locationProp list
 	|	EnvException of string * types * locationProp list
 	|	EnvVConstr of string * types * bool * int * locationProp list
+    |   EnvTypeid of { original: typeId, freeId: typeId }
 	|	EnvStaticLevel
+
+    val envTypeId: typeId -> environEntry
 
     type nameSpace =
       { 
@@ -90,5 +94,6 @@ sig
         type functors       = functors
         type locationProp   = locationProp
         type environEntry   = environEntry
+        type typeId         = typeId
     end
 end;

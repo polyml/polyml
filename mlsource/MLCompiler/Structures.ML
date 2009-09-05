@@ -34,4 +34,5 @@ structure Structures =
     structure COPIER     = CopierStruct
     structure TYPEIDCODE = TypeIDCodeStruct
     structure SIGNATURES = SignaturesStruct
+    structure DEBUGGER   = Debugger
   );

@@ -25,4 +25,6 @@ structure Debugger =
 		structure VALUEOPS = ValueOps
 		structure TYPETREE = TypeTree
         structure ADDRESS = Address
+        structure COPIER = CopierStruct
+        structure TYPEIDCODE = TypeIDCodeStruct
 	);
