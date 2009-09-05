@@ -57,12 +57,13 @@ poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpo
 polyimport_SOURCES = polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
-#
+# Unix.
 polyexport.o: polyimport exportPoly.sml polytemp.txt
 	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
 
+# Windows.  When building on Windows make sure that we provide both stdin and stdout to suppress the GUI.
 polyexport.obj: polyimport exportPoly.sml polytemp.txt
-	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml
+	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml | cat
 
 polyresource.o: PolyML.rc poly.ico
 	windres -o polyresource.o PolyML.rc
