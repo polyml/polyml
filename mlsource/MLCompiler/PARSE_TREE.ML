@@ -1525,13 +1525,20 @@ struct
             let
                 (* It's easiest to put these all together into a single list. *)
                 datatype funEntry =
-                    FunIdent of { name: string, expType: types ref, location: location }
+                    FunIdent of { name: string, expType: types ref, location: location } * references
                 |   FunPtree of parsetree
                 |   FunConstraint of typeParsetree
                 |   FunInfixed of funEntry list * location
 
-                fun exportFunEntry(navigation, FunIdent{expType=ref expType, location, ...}) =
-                        (location, PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation)
+                fun exportFunEntry(navigation, FunIdent({expType=ref expType, location, ...}, refs)) =
+                    let
+                        val refProp =
+                            case refs of
+                                NONE => []
+                            |   SOME {exportedRef=ref exp, localRef=ref locals} => [PTreferences(exp, locals)]
+                    in
+                        (location, refProp @ (PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation))
+                    end
                 |   exportFunEntry(navigation, FunPtree pt) = getExportTree(navigation, pt)
                 |   exportFunEntry(navigation, FunConstraint typ) = typeExportTree(navigation, typ)
 
@@ -1544,7 +1551,7 @@ struct
                     end
 
                 fun exportAClause(
-                        FValClause{dec = {ident, isInfix, args, constraint}, exp, ...}, exportThis) =
+                        FValClause{dec = {ident, isInfix, args, constraint}, exp, ...}, refs, exportThis) =
                 let
                     (* The effect of this is to have all the elements of the clause as
                        a single level except that if we have an infixed application of
@@ -1552,27 +1559,28 @@ struct
                     val funAndArgs =
                         case (isInfix, args) of
                             (true, TupleTree([left, right], loc) :: otherArgs) => (* Infixed. *)
-                                FunInfixed([FunPtree left, FunIdent ident, FunPtree right], loc)
+                                FunInfixed([FunPtree left, FunIdent(ident, refs), FunPtree right], loc)
                                     :: map FunPtree otherArgs
                         |   (_, args) => (* Normal prefixed form. *)
-                                FunIdent ident :: map FunPtree args
+                                FunIdent(ident, refs) :: map FunPtree args
 
                     val constraint = case constraint of NONE => [] |SOME typ => [FunConstraint typ]
                 in
                     exportList(exportFunEntry, SOME exportThis) (funAndArgs @ constraint @ [FunPtree exp])
                 end
 
-                fun exportFB(navigation, fb as FValBind{clauses=[clause], location, ...}) =
+                fun exportFB(navigation,
+                        fb as FValBind{clauses=[clause], location, functVar = ref(Value{references, ...}), ...}) =
                     (* If there's just one clause go straight to it.  Otherwise we have an
                        unnecessary level of navigation. *)
                     let
                         val fbProps = exportNavigationProps navigation
-                        val asChild = exportAClause(clause, fn () => exportFB(navigation, fb))
+                        val asChild = exportAClause(clause, references, fn () => exportFB(navigation, fb))
                     in
                         (location, asChild @ fbProps)
                     end
                 
-                |   exportFB(navigation, fb as FValBind{clauses, location, ...}) =
+                |   exportFB(navigation, fb as FValBind{clauses, location, functVar = ref(Value{references, ...}), ...}) =
                     let
                         val fbProps = exportNavigationProps navigation
                         (* Each child gives a clause. *)
@@ -1583,7 +1591,7 @@ struct
                         fun exportClause(navigation, clause as FValClause{ line, ...}) =
                         let
                             val clProps = exportNavigationProps navigation
-                            val asChild = exportAClause(clause, fn () => exportClause(navigation, clause))
+                            val asChild = exportAClause(clause, references, fn () => exportClause(navigation, clause))
                         in
                             (line, asChild @ clProps)    
                         end
