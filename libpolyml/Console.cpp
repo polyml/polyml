@@ -1007,6 +1007,11 @@ static void uninitDDEControl(void)
     DdeUninitialize(dwDDEInstance);
 }
 
+// We want copyThread to be static but also a friend of CopyPipe
+// GCC requires it to be declared static first otherwise it creates it
+// extern when it sees it as a friend then complains when it's static.
+static DWORD WINAPI copyThread(LPVOID lpParameter);
+
 class CopyPipe {
 public:
     CopyPipe():
