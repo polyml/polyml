@@ -1,4 +1,6 @@
 #! /usr/bin/sed -f
+# N.B.  This is used only with GCC.  There's a bug in sed under MinGW which means
+# that CRNL line endings don't work so this file must be marked as binary.
 s/;#.*//
 s/^IFDEF/#ifdef/
 s/^ELSE/#else/
