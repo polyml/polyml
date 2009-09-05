@@ -83,6 +83,9 @@
 #endif
 
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+// If we have the pthread library and header and we have semaphores we can use the pthread
+// signalling mechanism.  But if this is a native Windows build we don't use semaphores or
+// pthread even if they're provided.
 #define USE_PTHREAD_SIGNALS 1
 #endif
 
@@ -137,8 +140,7 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 // not the "handler" field.
 static PLock sigLock;
 
-#if (!defined(WINDOWS_H) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
-#define USE_PTHREAD_SIGNALS 1
+#ifdef USE_PTHREAD_SIGNALS
 static pthread_t detectionThreadId; // Thread processing signals.
 static sem_t *waitSema;
 static int lastSignals[NSIG];
@@ -507,7 +509,7 @@ static void *SignalDetectionThread(void *)
 }
 #endif
 
-#if (defined(HAVE_SEMAPHORE_H))
+#ifdef USE_PTHREAD_SIGNALS
 static sem_t waitSemaphore;
 
 // Initialise a semphore.  Tries to create an unnamed semaphore if
