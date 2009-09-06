@@ -2023,7 +2023,7 @@ unsigned char *X86Dependent::BuildCallback(TaskData *taskData, int cbEntryNo, Ha
     cbEntryNo = cbEntryNo >> 8;
     *p++ = cbEntryNo & 0xff;
     /* The call is PC relative so we have to subtract the address of the END of the call instruction. */
-    cbAddr -= (int)p + 5; /* The instruction is 5 bytes long. */
+    cbAddr -= (long)p + 5; /* The instruction is 5 bytes long. */
     *p++ = 0xE8;    /* call cbAddr */
     *p++ = cbAddr & 0xff;
     cbAddr = cbAddr >> 8;
