@@ -58,7 +58,7 @@
 #define ASSERT(x)
 #endif
 
-#include "resource.h"
+#include "../resource.h"
 #include "mpoly.h"
 #include "PolyControl.h"
 #include "diagnostics.h"
