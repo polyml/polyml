@@ -1246,6 +1246,18 @@ EOF
 	exit ;;
     *:Darwin:*:*)
 	UNAME_PROCESSOR=`uname -p` || UNAME_PROCESSOR=unknown
+        # The next bit is a patch that appeared on the GCC mailing list.
+        # DCJM 7/9/09
+	eval $set_cc_for_build
+	sed 's/^                //' << EOF >$dummy.c
+        main()
+            {
+            }
+EOF
+	if test "`$CC_FOR_BUILD -o $dummy $dummy.c; file $dummy | grep -c x86_64`" = 1 ; then
+               UNAME_PROCESSOR=x86_64 
+        fi
+        # End of patch
 	case $UNAME_PROCESSOR in
 	    unknown) UNAME_PROCESSOR=powerpc ;;
 	esac
