@@ -51,6 +51,11 @@ else
 POLYOBJECTFILE = polyexport.o
 endif
 
+# The Darwin linker loses execute access to the Poly segment unless this is given.
+if EXPMACHO
+poly_LDFLAGS += -Wl,-segprot,POLY,rwx,rwx
+endif
+
 poly_SOURCES = 
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 

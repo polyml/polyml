@@ -36,6 +36,9 @@ bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
 @NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,_WinMain@16
 @NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows
 @NATIVE_WINDOWS_TRUE@am__append_3 = polyresource.o
+
+# The Darwin linker loses execute access to the Poly segment unless this is given.
+@EXPMACHO_TRUE@am__append_4 = -Wl,-segprot,POLY,rwx,rwx
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
@@ -241,7 +244,7 @@ man_MANS = poly.1 polyimport.1
 
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
-poly_LDFLAGS = $(am__append_1)
+poly_LDFLAGS = $(am__append_1) $(am__append_4)
 polyimport_LDFLAGS = $(am__append_2)
 POLYRESOURCES = $(am__append_3)
 @NATIVE_WINDOWS_FALSE@POLYOBJECTFILE = polyexport.o
