@@ -253,9 +253,14 @@ local
                 (* file: *) string * 
                 (*startLine:*) int *  (*startPosition:*) int *
                 (*endLine:*) int * (*endPosition:*) int
-        val loc = RunCall.run_call2 POLY_SYS_load_word(exn, 3): RuntimeLocation
     in
-        case loc of
+        (* If we get an exception in the compiler it may be code that was built using the
+           old exception packet format that didn't include a loction so we need to check the
+           length of the packet first.  This won't be needed once we can be sure we're using
+           5.3. *)
+        if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
+        then NONE
+        else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
             NoLocation => NONE
         |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
                 SOME { file=file, startLine=startLine, startPosition=startPosition,
