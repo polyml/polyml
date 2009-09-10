@@ -90,8 +90,8 @@ sig
     };
 
     type printTypeEnv =
-        { lookupType: string -> typeConstrs option,
-          lookupStruct: string -> structVals option}
+        { lookupType: string -> (typeConstrs * (int->typeId) option) option,
+          lookupStruct: string -> (structVals * (int->typeId) option) option}
 
     (* Print values. *)
     val displayFixStatus:  fixStatus -> pretty

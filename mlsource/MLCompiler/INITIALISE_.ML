@@ -1153,24 +1153,23 @@ struct
             (* The exported versions expect full name spaces as arguments.  Because we convert
                the exported versions to machineWord and give them types as data structures the
                compiler can't actually check that the type we give matched the internal type. *)
+            fun makeTypeEnv(nameSpace: nameSpace): printTypeEnv =
+            {
+                lookupType = fn s => case #lookupType nameSpace s of NONE => NONE | SOME t => SOME(t, NONE),
+                lookupStruct = fn s => case #lookupStruct nameSpace s of NONE => NONE | SOME t => SOME(t, NONE)
+            }
             fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
-                TYPETREE.displayTypeConstrs(tyCons, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                TYPETREE.displayTypeConstrs(tyCons, depth, makeTypeEnv nameSpace)
             and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
-                TYPETREE.display(ty, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
             and exportedDisplaySigs(sign, depth, nameSpace: nameSpace) =
-                    displaySignatures(sign, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                    displaySignatures(sign, depth, makeTypeEnv nameSpace)
             and exportedDisplayFunctors(funct, depth, nameSpace: nameSpace) =
-                    displayFunctors(funct, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                    displayFunctors(funct, depth, makeTypeEnv nameSpace)
             and exportedDisplayValues(valu, depth, nameSpace: nameSpace) =
-                    displayValues(valu, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                    displayValues(valu, depth, makeTypeEnv nameSpace)
             and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
-                    displayStructures(str, depth,
-                    { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace })
+                    displayStructures(str, depth, makeTypeEnv nameSpace)
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>

@@ -1112,25 +1112,28 @@ struct
 
     (* Prints "sig ... end" as a block, with no external formatting *)
     fun displaySig (Signatures{tab, typeIdMap, ...}, depth : int, _ : int,
-                    { lookupType, lookupStruct, ...}, sigMap) : pretty =
+                    { lookupType, lookupStruct, ...}, sigMap: (int-> typeId) option) : pretty =
     let
         (* Construct an environment for the types. *)
 
         val Env { lookupType = strType, lookupStruct = strStr, ...} = makeEnv tab
-        val compositeEnv =
-        {
-            lookupType   = fn s => case strType s of NONE => lookupType s | sm => sm,
-            lookupStruct = fn s => case strStr s of NONE => lookupStruct s | sm => sm
-        }
-        
-        val typeEnv: printTypeEnv =
-            { lookupType = #lookupType compositeEnv, lookupStruct = #lookupStruct compositeEnv }
 
         (* Construct a map for types. *)
         val innerMap =
             case sigMap of
                 NONE => SOME typeIdMap
             |   SOME outerMap => SOME(composeMaps(typeIdMap, outerMap))
+
+        val compositeEnv =
+        {
+            lookupType   =
+                fn s => case strType s of NONE => lookupType s | SOME t => SOME (t, innerMap),
+            lookupStruct =
+                fn s => case strStr s of NONE => lookupStruct s | SOME s => SOME (s, innerMap)
+        }
+        
+        val typeEnv: printTypeEnv =
+            { lookupType = #lookupType compositeEnv, lookupStruct = #lookupStruct compositeEnv }
 
         fun displaySpec (_, value) : pretty list =
         if (tagIs signatureVar value)
@@ -1169,7 +1172,7 @@ struct
         else []
        (* end displaySpec *)
     in
-        PrettyBlock (0, true, [],
+        PrettyBlock (2, true, [],
             PrettyString "sig" ::
             (
                 (
@@ -1282,12 +1285,24 @@ struct
                     let
                         (* Include the argument structure name in the type environment. *)
                         val argEnv =
-                            if argName = "" then nameSpace
+                            if argName = ""
+                            then
+                            let
+                                val Env { lookupType=lt, lookupStruct=ls, ...} =
+                                    makeEnv(sigTab(structSignat arg))
+                            in
+                                {
+                                    lookupType =
+                                        fn s => case lt s of NONE => #lookupType nameSpace s | SOME t => SOME(t, NONE),
+                                    lookupStruct =
+                                        fn s => case ls s  of NONE => #lookupStruct nameSpace s | SOME s => SOME(s, NONE)
+                                }
+                            end
                             else
                             {
                                 lookupType   = #lookupType nameSpace,
                                 lookupStruct =
-                                    fn s => if s = argName then SOME arg else #lookupStruct nameSpace s
+                                    fn s => if s = argName then SOME(arg, NONE) else #lookupStruct nameSpace s
                             }
                     in
                         displayNamedSig (functorResult funct, depth - 1, 1, argEnv, NONE)

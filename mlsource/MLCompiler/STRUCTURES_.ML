@@ -1185,7 +1185,13 @@ struct
     fun structValue(str, newTypeId: (bool*bool*bool*typeIdDescription)->typeId, currentTypeCount,
                     newTypeIdEnv: unit -> int->typeId, Env env, lex, lno, structPath) =
     let
-        val typeEnv = { lookupType = #lookupType env, lookupStruct = #lookupStruct env }
+        val typeEnv =
+        {
+            lookupType =
+                fn s => case #lookupType env s of NONE => NONE | SOME t => SOME(t, SOME(newTypeIdEnv())),
+            lookupStruct =
+                fn s => case #lookupStruct env s of NONE => NONE | SOME t => SOME(t, SOME(newTypeIdEnv()))
+        }
     in
         case str of
             StructureIdent {name, valRef, location} =>

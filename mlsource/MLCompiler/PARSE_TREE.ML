@@ -2012,7 +2012,11 @@ struct
 
     fun assignValues (level, letDepth, env, near, v)  =
     let
-        val typeEnv = { lookupType = #lookupType env, lookupStruct = #lookupStruct env }
+        val typeEnv =
+        {
+            lookupType = fn s => case #lookupType env s of NONE => NONE | SOME t => SOME(t, NONE),
+            lookupStruct = fn s => case #lookupStruct env s of NONE => NONE | SOME t => SOME(t, NONE)
+        }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
         fun assignSeq env depth (l: parsetree list) =

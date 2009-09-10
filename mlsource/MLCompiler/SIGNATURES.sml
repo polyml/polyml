@@ -828,6 +828,13 @@ struct
             val () = assignTypes (realisation, lookupGlobal, lex);
 
             fun cantSet(reason1, reason2) =
+            let
+                val typeEnv =
+                {
+                    lookupType = fn s => case #lookupType globalEnv s of NONE => NONE | SOME t => SOME(t, NONE),
+                    lookupStruct = fn s => case #lookupStruct globalEnv s of NONE => NONE | SOME t => SOME(t, NONE)
+                }
+            in
                 errorMsgNear (lex, true, fn n => displaySigs(sigExp, n), lno,
                     PrettyBlock(3, false, [],
                         [
@@ -837,10 +844,11 @@ struct
                             PrettyBreak(1, 0),
                             PrettyString reason1,
                             PrettyBreak(1, 0),
-                            display(realisation, 1000, { lookupType = #lookupType globalEnv, lookupStruct = #lookupStruct globalEnv}),
+                            display(realisation, 1000, typeEnv),
                             PrettyBreak(0, 0),
                             PrettyString reason2
                         ]))
+            end
          in
             (* Now try to set the target type to the type function. *)
             if isUndefinedTypeConstr sigTypeConstr

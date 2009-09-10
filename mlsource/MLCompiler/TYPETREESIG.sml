@@ -45,8 +45,8 @@ sig
     type codetree
 
     type printTypeEnv =
-        { lookupType: string -> typeConstrs option,
-          lookupStruct: string -> structVals option}
+        { lookupType: string -> (typeConstrs * (int->typeId) option) option,
+          lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
     val mkTypeVar:          int * bool * bool -> types;

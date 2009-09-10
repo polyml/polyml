@@ -482,8 +482,8 @@ struct
 
   (* Basic procedure to print a type structure. *)
     type printTypeEnv =
-        { lookupType: string -> typeConstrs option,
-          lookupStruct: string -> structVals option}
+        { lookupType: string -> (typeConstrs * (int->typeId) option) option,
+          lookupStruct: string -> (structVals * (int->typeId) option) option}
 
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
   
@@ -567,12 +567,12 @@ struct
                     (* If we're printing a value that refers to a type constructor we
                        want to print the correct amount of any structure prefix for the
                        current context. *)
-                    fun findType (_, [], _) = false
-                    |   findType ({ lookupType, ... }, [typeName], map) =
+                    fun findType (_, []) = false
+                    |   findType ({ lookupType, ... }, [typeName]) =
                         (
                             (* This must be the name of a type. *)
                             case lookupType typeName of
-                                SOME t =>
+                                SOME (t, map) =>
                                     (* TODO: If these are type-functions they won't match. *)
                                 let
                                     val typeId = tcIdentifier t
@@ -586,11 +586,11 @@ struct
                                 end
                             |   NONE => false
                         )
-                    |   findType ({ lookupStruct, ... }, structName :: tail, map) =
+                    |   findType ({ lookupStruct, ... }, structName :: tail) =
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
                             case lookupStruct structName of
-                                SOME str =>
+                                SOME(str, map) =>
                                     let
                                         val Signatures { tab, typeIdMap, ...} = structSignat str
                                         val Env { lookupType, lookupStruct, ...} = makeEnv tab
@@ -607,9 +607,12 @@ struct
                                                         |   id => id
                                                 )
                                             |   NONE => typeIdMap
+                                        fun subLookupType s =
+                                            case lookupType s of NONE => NONE | SOME t => SOME(t, SOME newMap)
+                                        fun subLookupStruct s =
+                                            case lookupStruct s of NONE => NONE | SOME t => SOME(t, SOME newMap)
                                     in
-                                        findType({lookupType=lookupType, lookupStruct=lookupStruct}, tail,
-                                            SOME newMap)
+                                        findType({lookupType=subLookupType, lookupStruct=subLookupStruct}, tail)
                                     end
                             |   NONE => false
                         )
@@ -622,11 +625,14 @@ struct
                             val { first, second } = splitString s
                             val currentList = second :: l
                         in
-                            if findType(env, currentList, sigMap)
+                            if findType(env, currentList)
                             then (currentList, true)
                             else nameToList(first, currentList)
                         end
                     (* TODO: If this is a type function it won't have matched. *)
+                    (* Because of delayed copying the constructor name is not likely to be
+                       qualified.  That could well be a problem for type functions in particular
+                       because we don't have a type identifier to fall back on. *)
                     val names =
                         case nameToList(constrName, []) of
                             (names, true) => names (* Found the type constructor name. *)
