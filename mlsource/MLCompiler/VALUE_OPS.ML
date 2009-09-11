@@ -696,11 +696,13 @@ struct
 (*****************************************************************************)
 
     (* Build a datatype within the basis. *)
-    fun buildBasisDatatype(tcName, tyVars, isEqType: bool,
+    fun buildBasisDatatype(tcName, tIdPath, tyVars, isEqType: bool,
             mkValConstrs: typeConstrs -> values list) =
     let
-        (* Create a temporary datatype. *)
-        val description = basisDescription tcName
+        (* Create a temporary datatype.  The "name" we put in here is usually the
+           same as the type constructor name except for datatypes in the PolyML structure
+           which have the PolyML prefix. *)
+        val description = basisDescription tIdPath
         val id =
             makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType, true, description)
         val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
@@ -740,7 +742,7 @@ struct
         end
     in
         val listType =
-            buildBasisDatatype("list",
+            buildBasisDatatype("list", "list",
                 [makeTv (EmptyType, generalisable, false, false)], true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
             case tcConstructors listType of
@@ -766,7 +768,7 @@ struct
         end
     in
         val optionType =
-            buildBasisDatatype("option",
+            buildBasisDatatype("option", "option",
                 [makeTv (EmptyType, generalisable, false, false)], true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
             case tcConstructors optionType of

@@ -728,7 +728,7 @@ struct
             let
                 val typeconstr =
                     makeFrozenTypeConstrs(typeName, [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription typeName), 0, declInBasis);
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)), 0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
@@ -825,7 +825,7 @@ struct
                         (constrs, chooseConstrRepr constrs)
             end
             val typeconstr =
-                buildBasisDatatype("context", [], false, makeConstructors)
+                buildBasisDatatype("context", "PolyML.context", [], false, makeConstructors)
         in
             val () = #enterType polyMLEnv ("context", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
@@ -854,7 +854,7 @@ struct
                         (constrs, chooseConstrRepr constrs)
             end
             val typeconstr =
-                buildBasisDatatype("pretty", [], false, makeConstructors)
+                buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
 		in
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
@@ -985,7 +985,7 @@ struct
             (* Parsetree properties datatype. *)
 			val propConstr =
                 makeDatatypeConstr("ptProperties", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "ptProperties"), 0, declInBasis);
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
@@ -998,7 +998,7 @@ struct
             (* Representation of the type of a value. *)
 			val typesConstr =
                 makeFrozenTypeConstrs("typeExpression", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "typeExpression"), 0, declInBasis);    
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 

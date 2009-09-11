@@ -63,7 +63,7 @@ sig
     val consConstructor: values;
     val optionType: typeConstrs
     val buildBasisDatatype:
-        string * typeVarForm list * bool * (typeConstrs -> values list) -> typeConstrs
+        string * string * typeVarForm list * bool * (typeConstrs -> values list) -> typeConstrs
 
     type nameSpace =
     { 
