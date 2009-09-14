@@ -329,17 +329,18 @@ struct
     in
         case ty of
             TypeVar tyVar =>
-            let
-              (* The type variable may be bound to something. *)
-              val tyVal = tvValue tyVar
-            in
-              (* If we have an unbound type variable it may either
-                 be a type constructor argument or it may be a free
-                 equality type variable. *)
-              if isEmpty tyVal
-              then returnFun(findTyVars tyVar, resKind)
-              else makeEq(tyVal, resKind, getEqFnForID, findTyVars)
-            end
+            (
+                case tvValue tyVar of
+				    OverloadSet _ =>
+                         (* This seems to occur if there are what amount to indirect references to literals. *)
+                        returnFun(equalityForConstruction(typeConstrFromOverload(ty, false), []), resKind)
+                |   EmptyType =>
+                        (* If we have an unbound type variable it may either
+                           be a type constructor argument or it may be a free
+                           equality type variable. *)
+                        returnFun(findTyVars tyVar, resKind)
+                |   tyVal => makeEq(tyVal, resKind, getEqFnForID, findTyVars)
+            )
 
         |   TypeConstruction{value, args, ...} =>
             let
@@ -390,7 +391,7 @@ struct
                     end
             end
 
-        |    _ => raise InternalError "Equality for function"
+        |   _ => raise InternalError "Equality for function"
     end
 
     (* Make an equality function and apply it to the arguments. *)
