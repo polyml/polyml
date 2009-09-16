@@ -88,22 +88,7 @@ struct
        function copies that as well. Does not copy value constructors. *)
     fun localCopyTypeConstr (tcon, typeMap, _, mungeName, cache) =
         case tcIdentifier tcon of
-            TypeFunction(args, equiv) =>
-            let
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-		                fn tcon =>
-                            localCopyTypeConstr (tcon, typeMap, fn x => x, mungeName, cache))
-            in
-                if identical (equiv, copiedEquiv)
-                then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *)
-                    if null (tcConstructors tcon)
-                then makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)
-                else raise Misc.InternalError "localCopyTypeConstr: Well-formedness broken"
-            end
-
-        |   id =>
+            id as TypeId{typeFn=(_, EmptyType), ...} =>
             (
                 case typeMap id of
                     NONE =>
@@ -141,6 +126,28 @@ struct
                     end
             )
 
+       |    TypeId{typeFn=(args, equiv), description, access, idKind, ...} =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+		                fn tcon =>
+                            localCopyTypeConstr (tcon, typeMap, fn x => x, mungeName, cache))
+            in
+                if identical (equiv, copiedEquiv)
+                then tcon (* Type is identical and we don't want to change the name. *)
+                else (* How do we find a type function? *)
+                    if null (tcConstructors tcon)
+                then (*makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)*)
+                    makeFrozenTypeConstrs (tcName tcon, args,
+                        TypeId {
+                            access = access, description = description, idKind = idKind,
+                            typeFn=(args, copiedEquiv)},
+		                0, tcLocations tcon)
+
+                else raise Misc.InternalError "localCopyTypeConstr: Well-formedness broken"
+            end
+
+
     (* Exported version. *)
     fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
         localCopyTypeConstr(tcon, typeMap, copyTypeVar, mungeName, [])
@@ -149,10 +156,13 @@ struct
        just return the result of the first. *)
     fun composeMaps(m1, m2) n =
     let
-        fun map2 (Bound{ offset, ...}) = m2 offset
-        |   map2 (TypeFunction(args, equiv)) =
+        fun map2 (TypeId{idKind=Bound{ offset, ...}, typeFn=(_, EmptyType), ...}) = m2 offset
+
+        |   map2 (id as TypeId{idKind=Free _, typeFn=(_, EmptyType), ...}) = id
+
+        |   map2 (TypeId{typeFn=(args, equiv), access, description, idKind, ...}) =
             let
-                fun copyId(Free _) = NONE
+                fun copyId(TypeId{idKind=Free _, ...}) = NONE
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
@@ -160,10 +170,8 @@ struct
                     copyType(equiv, fn x => x,
 		                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
             in
-                TypeFunction(args, copiedEquiv)
+                TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
             end
-
-        |   map2(id as Free _) = id
     in
         map2(m1 n)
     end
@@ -200,24 +208,13 @@ struct
             let
                 val tcon = tagProject typeConstrVar dVal
                 fun makeName s = strName ^ (#second(splitString s))
-                fun copyId(Bound{ offset, ...}) = SOME(mapTypeId offset)
+                fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
                 |   copyId _ = NONE
             in
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
                 case tcIdentifier tcon of
-                    TypeFunction(args, equiv) =>
-                    if buildDatatypes then rest (* Not on this pass. *)
-                    else (* Build a new entry whether the typeID has changed or not. *)
-                    let
-                        val copiedEquiv =
-                            copyType(equiv, fn x => x,
-        		                fn tcon =>
-                                    localCopyTypeConstr(tcon, copyId, fn x => x, makeName, initialCache))
-                    in
-                        makeTypeAbbreviation(makeName(tcName tcon), args, copiedEquiv, tcLocations tcon) :: rest
-                    end
-                |   id =>
+                    id as TypeId{typeFn=(_, EmptyType), ...} =>
                     if not buildDatatypes then rest (* Not on this pass. *)
                     else
                     (
@@ -228,6 +225,19 @@ struct
                                 (makeName(tcName tcon),
                                     tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon) :: rest
                     )
+                 |  TypeId{typeFn=(args, equiv), access, description, idKind, ...} =>
+                    if buildDatatypes then rest (* Not on this pass. *)
+                    else (* Build a new entry whether the typeID has changed or not. *)
+                    let
+                        val copiedEquiv =
+                            copyType(equiv, fn x => x,
+        		                fn tcon =>
+                                    localCopyTypeConstr(tcon, copyId, fn x => x, makeName, initialCache))
+                        val copiedId =
+                            TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
+                    in
+                        makeFrozenTypeConstrs(makeName(tcName tcon), args, copiedId, 0, tcLocations tcon) :: rest
+                    end
             end
             else rest
         in
@@ -248,7 +258,7 @@ struct
 
         fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
         let
-            fun copyId(Bound{ offset, ...}) = SOME(mapTypeId offset)
+            fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
             |   copyId _ = NONE
         in
             localCopyTypeConstr (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)

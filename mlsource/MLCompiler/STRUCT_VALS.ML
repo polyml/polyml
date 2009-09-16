@@ -105,6 +105,8 @@ struct
      functors and while compiling structures.  Type functions arise from
      type bindings (type abbreviations) or from "where type" definitions
      in signatures.
+     Type functions are now included as either Free or Bound Ids but with
+     the typeFn as other than ([], EmptyType)
      The type identifier also contains the equality attribute.
      In ML97 only types have these identifiers.  In ML90 these were also
      needed for structures.
@@ -112,11 +114,11 @@ struct
      value-printing functions. *)
     type typeIdDescription = { location: location, name: string, description: string }
     datatype typeId =
-        Free of
-            { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
-    |   Bound of
-            { access: valAccess, offset: int, eqType: bool  possRef, isDatatype: bool, description: typeIdDescription }
-    |   TypeFunction    of typeVarForm list * types
+        TypeId of { access: valAccess, description: typeIdDescription,
+                    typeFn: typeVarForm list * types, idKind: typeIdKind }
+    and typeIdKind =
+        Free of { uid: uniqueId, allowUpdate: bool  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
 
     (* A type is the union of these different cases. *)
     and types = 
@@ -266,49 +268,49 @@ struct
 
     (* Identifiers *)
     (* REF HOTSPOT - 400 *)
-    fun makeFreeId(access, eq, desc) =
-        Free {access=access, uid = ref eq, allowUpdate=false, description = desc};
+    fun makeFreeId(access, eq, desc, typeFn) =
+        TypeId { access=access, description = desc, typeFn=typeFn,
+            idKind = Free {uid = ref eq, allowUpdate=false}};
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq, desc) =
-        Free {access=access, uid = ref eq, allowUpdate=true, description = desc};
+    fun makeFreeIdEqUpdate(access, eq, desc, typeFn) =
+        TypeId { access=access, description = desc, typeFn=typeFn,
+            idKind = Free {uid = ref eq, allowUpdate=true}};
 
-    fun makeBoundId (access, n, eq, isdt, desc) =
-        Bound{access=access, offset=n, eqType=FrozenRef eq, isDatatype = isdt, description = desc};
+    fun makeBoundId (access, n, eq, isdt, desc, typeFn) =
+        TypeId { access=access, description = desc, typeFn=typeFn,
+            idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt}};
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc) =
-        Bound{access=access, offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, description = desc}
+    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc, typeFn) =
+        TypeId { access=access, description = desc, typeFn=typeFn,
+            idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt}}
 		    
     (* Unset variable. *)
-    fun isFreeId     (Free _ ) = true | isFreeId _ = false;
-    fun isBoundId    (Bound _) = true | isBoundId _ = false;
-    fun isTypeFunction (TypeFunction _) = true | isTypeFunction _ = false;
+    fun isFreeId     (TypeId { idKind = Free _, typeFn=([], EmptyType), ...}) = true | isFreeId _ = false;
+    fun isBoundId    (TypeId { idKind = Bound _, typeFn=([], EmptyType), ...}) = true | isBoundId _ = false;
+    fun isTypeFunction(TypeId {typeFn=([], EmptyType), ...}) = false | isTypeFunction _ = true
 
     (* Find the number - assuming it is bound. *)
-    fun offsetId (Bound {offset, ...}) = offset
+    fun offsetId (TypeId{idKind=Bound {offset, ...}, ...}) = offset
     |   offsetId _       = raise InternalError "offsetId: not a Bound";
 
     (* Are two type constructors the same? *)
-    fun sameTypeId (Free{uid = a, ...}, Free {uid = b, ...}) = a = b
-    |   sameTypeId (Bound{offset=a, ...}, Bound{offset=b, ...}) = a = b
+    fun sameTypeId (TypeId{idKind=Free{uid = a, ...}, ...}, TypeId{idKind=Free {uid = b, ...}, ...}) = a = b
+    |   sameTypeId (TypeId{idKind=Bound{offset=a, ...}, ...}, TypeId{idKind=Bound{offset=b, ...}, ...}) = a = b
     |   sameTypeId _ = false (* Includes type functions. *)
 
-    fun idAccess (Free { access, ...}) = access
-    |   idAccess (Bound{ access, ...}) = access
-    |   idAccess (TypeFunction _) = raise InternalError "idAccess: TypeFunction"
+    fun idAccess (TypeId { access, ...}) = access
 
-    fun isEquality (Free{uid = ref eq, ...}) = eq
-    |   isEquality (Bound{eqType, ...}) = pling eqType
-    |   isEquality (TypeFunction _) =
-            raise InternalError "isEquality: TypeFunction" (* Requires analysis of the type function. *)
+    fun isEquality (TypeId { idKind = Free{uid = ref eq, ...}, ...}) = eq
+    |   isEquality (TypeId { idKind = Bound{eqType, ...}, ...}) = pling eqType
 
     (* Set the equality property.   Currently, free IDs are used for abstypes and
        datatypes that are local to a function as well as the usual case of using them
        for top-level types. *)
-    fun setEquality(Free{uid, allowUpdate=true, ...}, eq) = uid := eq
-    |   setEquality(Bound{eqType=VariableRef id, ...}, eq) = id := eq
+    fun setEquality(TypeId{idKind = Free{uid, allowUpdate=true, ...}, ...}, eq) = uid := eq
+    |   setEquality(TypeId{idKind = Bound{eqType=VariableRef id, ...}, ...}, eq) = id := eq
     |   setEquality _ = raise InternalError "setEquality: can't set equality attribute"
 
     (* Signatures: Used for both signatures of local structures and for global structures 
@@ -431,8 +433,7 @@ struct
     (* This definition of tcEquivalent is a hack but it should simplify conversion. *)
     fun tcEquivalent tycons =
         case tcIdentifier tycons of
-            TypeFunction(_, result) => result
-        |   _ => EmptyType
+            TypeId({typeFn=(_, result), ...}) => result
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
@@ -456,17 +457,20 @@ struct
         };
 
     (* Construct a type abbreviation. *)
-    fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
+(*    fun makeTypeAbbreviation(name, idKind, typeVars, typeResult, locations) =
         TypeConstrs
         {
     		name       = name,
     		arity      = length typeVars,
     		typeVars   = typeVars,
             constrs    = FrozenRef [],
-    		identifier = TypeFunction(typeVars, typeResult),
+    		identifier =
+                TypeId{access=Global CodeZero, description=
+                }
+            TypeFunction(typeVars, typeResult),
     		letDepth   = 0,
             locations = locations
-        };
+        };*)
 
     (* Construct a type constructor that cannot have value constructors added.  This is
        primarily used in Initialise for base types such as "int". *)
@@ -511,8 +515,8 @@ struct
 
         fun makeType(name, eqFun) =
             makeFrozenTypeConstrs (name, [],
-                                   makeFreeId(eqAndPrintCode eqFun, true, basisDescription name),
-                                   0, [DeclaredAt inBasis]);
+                makeFreeId(eqAndPrintCode eqFun, true, basisDescription name, ([], EmptyType)),
+                0, [DeclaredAt inBasis]);
     in
         val intType    = makeType("int",    POLY_SYS_equala) (* Need arbitrary precision equality *)
         val charType   = makeType("char",   POLY_SYS_int_eq) (* Always short *)
@@ -525,22 +529,22 @@ struct
         val refType =
             makeDatatypeConstr 
                 ("ref", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "ref"),
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "ref", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         val arrayType =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array.array"),
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array.array", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         val array2Type =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array2.array"),
+                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array2.array", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolType =
             makeDatatypeConstr 
-                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true, basisDescription "bool"),
+                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true, basisDescription "bool", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
     end
 
@@ -564,7 +568,7 @@ struct
                 ]
         in
             makeFrozenTypeConstrs (
-                name, [], makeFreeId(Global (genCode(code, []) ()), false, basisDescription name),
+                name, [], makeFreeId(Global (genCode(code, []) ()), false, basisDescription name, ([], EmptyType)),
                 0, [DeclaredAt inBasis])
         end
     in
@@ -586,17 +590,22 @@ struct
            If the type constructor is not found this may appear in an error message. *)
         val undefType  =
             makeFrozenTypeConstrs (
-                "undefined", [], makeFreeId(Global (genCode(code, []) ()), false,
-                { location = inBasis, description = "Undefined", name = "undefined" }),
+                "undefined", [],
+                    makeFreeId(Global (genCode(code, []) ()), false,
+                    { location = inBasis, description = "Undefined", name = "undefined" },
+                    ([], EmptyType)),
                 0, [DeclaredAt inBasis])
     end
 
+    val globalCode = Global CodeZero
 
     (* The unit type is equivalent to the empty record. *)
     val unitType   =
-        makeTypeAbbreviation ("unit", [],
-	       LabelledType {recList = [], frozen = true, genericInstance = []},
-		   [DeclaredAt inBasis]);
+        makeFrozenTypeConstrs ("unit", [],
+            TypeId { access=globalCode, description = { location = inBasis, description = "unit", name = "unit" },
+                idKind = Free {uid = ref false, allowUpdate=false},
+                typeFn=([], LabelledType {recList = [], frozen = true, genericInstance = []})},
+		   0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  

@@ -561,7 +561,7 @@ struct
                     
                     val mappedTypeId =(*tcIdentifier typeConstructor*)
                         case (sigMap, tcIdentifier typeConstructor) of
-                            (SOME map, Bound{offset, ...}) => map offset
+                            (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
                         |   (_, id) => id
 
                     (* If we're printing a value that refers to a type constructor we
@@ -578,7 +578,7 @@ struct
                                     val typeId = tcIdentifier t
                                     val mId =
                                         case (map, typeId) of
-                                            (SOME map, Bound { offset, ... }) => map offset
+                                            (SOME map, TypeId{idKind=Bound { offset, ... }, ...}) => map offset
                                         |   (_, id) => id
                                 in
                                     sameTypeId(mId, mappedTypeId)
@@ -603,7 +603,7 @@ struct
                                                        since sameTypeId doesn't work for TypeFunction. *)
                                                     fn n =>
                                                         case typeIdMap n of
-                                                            Bound { offset, ...} => map offset
+                                                            TypeId{idKind=Bound { offset, ...}, ...} => map offset
                                                         |   id => id
                                                 )
                                             |   NONE => typeIdMap
@@ -639,11 +639,7 @@ struct
                         |   (names, false) =>
                             let
                                 (* Try the type identifier name. *)
-                                val idName =
-                                    case mappedTypeId of
-                                        Free { description = { name, ...}, ...} => name
-                                    |   Bound { description = { name, ...}, ...} => name
-                                    |   TypeFunction _ => ""
+                                val TypeId { description = { name=idName, ...}, ...} = mappedTypeId
                             in
                                 if idName = "" then names
                                 else
@@ -1398,9 +1394,9 @@ struct
      and then copying the type. *)
     fun makeEquivalent (atyp, args) =
         case tcIdentifier atyp of
-            TypeFunction(typeArgs, typeResult) =>
+            TypeId{typeFn=(_, EmptyType), ...} => raise InternalError "makeEquivalent: Not a type function"
+        |   TypeId{typeFn=(typeArgs, typeResult), ...} =>
                 generaliseTypes(typeResult, copyVars (typeArgs, args))
-        |   _ => raise InternalError "makeEquivalent: Not a type function";
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -2379,9 +2375,7 @@ struct
                             )
                 in
                     case tcIdentifier tyCons of
-                        Free { description, ...} => printWithDesc description
-                    |   Bound { description, ...} => printWithDesc description
-                    |   TypeFunction _ => display (ty, 1000, tyEnv) (* Perhaps display *)      
+                        TypeId { description, ...} => printWithDesc description
                 end
             in
                 PrettyBlock(3, false, [],
@@ -2609,7 +2603,7 @@ struct
                     { location = declLoc, name = name, description = "Constructed from a free type variable." }
                 val tCons =
                 	makeFrozenTypeConstrs (name, [],
-                        makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription),
+                        makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription, ([], EmptyType)),
                         0, [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
             in
@@ -2652,8 +2646,8 @@ struct
                 else
                 (
                     case tcIdentifier (pling value) of
-                        TypeFunction _ => NONE
-                    |   tId => SOME tId
+                        tId as TypeId{typeFn=(_, EmptyType), ...} => SOME tId
+                    |   _ => NONE
                 )
         |   _ => NONE
     end

@@ -133,9 +133,7 @@ struct
     |   codeAccess _ = raise InternalError "No access"
 
     (* Load an identifier. *)
-    fun codeId(Free{access, ...}, level) = codeAccess(access, level)
-    |   codeId(Bound{access, ...}, level) = codeAccess(access, level)
-    |   codeId _ = raise InternalError "codeId: Unknown form"
+    fun codeId(TypeId{access, ...}, level) = codeAccess(access, level)
 
     (* Create a printer for a type function.  This is used to create the general
        print function for any type. *)
@@ -696,7 +694,25 @@ struct
        does not affect the old type. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(TypeFunction(argTypes, resType), isEq, level) =
+    fun codeGenerativeId(sourceId as TypeId{typeFn=(_, EmptyType), ...}, _, level) =
+        let
+            (* TODO: Use multipleUses here. *)
+            val sourceCode = codeId(sourceId, level)
+        in
+            mkTuple
+            [
+                mkInd(0, sourceCode),
+                mkEval
+                    (mkConst (ioOp POLY_SYS_alloc_store),
+                    [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                     mkEval(mkConst(ioOp POLY_SYS_load_word),
+                        [mkInd(1, sourceCode), CodeZero], false)
+                      ],
+                false)  
+            ]
+        end
+
+    |   codeGenerativeId(TypeId{typeFn=(argTypes, resType), ...}, isEq, level) =
         let
             val printCode = printerForTypeFunction(argTypes, resType, level)
             and eqCode =
@@ -714,23 +730,6 @@ struct
             ]
         end
 
-    |   codeGenerativeId(sourceId, _, level) =
-        let
-            (* TODO: Use multipleUses here. *)
-            val sourceCode = codeId(sourceId, level)
-        in
-            mkTuple
-            [
-                mkInd(0, sourceCode),
-                mkEval
-                    (mkConst (ioOp POLY_SYS_alloc_store),
-                    [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                     mkEval(mkConst(ioOp POLY_SYS_load_word),
-                        [mkInd(1, sourceCode), CodeZero], false)
-                      ],
-                false)  
-            ]
-        end
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(typelist, eqStatus, mkAddr, level) =

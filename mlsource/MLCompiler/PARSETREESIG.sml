@@ -140,7 +140,8 @@ sig
   val wildCard  : location -> parsetree;
   val emptyTree : parsetree;
 
-    val pass2: parsetree * (bool * bool * typeIdDescription -> typeId) * env * lexan -> types
+    val pass2:
+        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) * env * lexan -> types
 
     type debugenv = environEntry list * (int->codetree)
 

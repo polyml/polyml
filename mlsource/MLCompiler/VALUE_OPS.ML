@@ -704,7 +704,8 @@ struct
            which have the PolyML prefix. *)
         val description = basisDescription tIdPath
         val id =
-            makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*), isEqType, true, description)
+            makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*),
+                isEqType, true, description, ([], EmptyType))
         val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val valConstrs = mkValConstrs dtype
@@ -718,7 +719,7 @@ struct
         val dtCode = createDatatypeFunctions([dtype], [isEqType], mkAddrs, 0)
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
-        val newId = makeFreeId(Global globalCode, isEqType, description)
+        val newId = makeFreeId(Global globalCode, isEqType, description, ([], EmptyType))
         (* Finally copy the datatype to put in the code. *)
     in
         fullCopyDatatype(dtype, fn 0 => newId | _ => raise Subscript, "")
@@ -904,7 +905,7 @@ struct
                 case #lookupVal (mkEnv tab) suffix of
                     SOME (Value{ name, typeOf, access, class, locations, ... }) =>
                     let
-                        fun copyId(Bound{ offset, ...}) = SOME(typeIdMap offset)
+                        fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(typeIdMap offset)
                         |   copyId _ = NONE
                         val copiedType =
                             copyType (typeOf, fn x => x,

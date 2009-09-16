@@ -81,8 +81,8 @@ struct
 
     (* When stopped at a break-point any Bound ids must be replaced by Free ids.
        We make new Free ids at this point.  *)
-    fun envTypeId (id as Bound { description, ...}) =
-            EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description) }
+    fun envTypeId (id as TypeId{ description, idKind = Bound _, typeFn, ...}) =
+            EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description, typeFn) }
     |   envTypeId id = EnvTypeid { original = id, freeId = id }
 
     (* Reason codes passed to the debugger function. *)
@@ -102,9 +102,9 @@ struct
                 if sameTypeId(original, typeid)
                 then
                 case freeId of
-                    Free { uid, allowUpdate, description, ... } =>
+                    TypeId{description, idKind as Free _, typeFn, ...} =>
                         (* This can occur for datatypes inside functions. *)
-                        Free { access= Global(mkConst valu), uid=uid, allowUpdate=allowUpdate, description=description }
+                        TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn }
                 |   _ => raise Misc.InternalError "searchType: TypeFunction"
                 else searchType(ntl, vl) typeid
             end
@@ -114,19 +114,11 @@ struct
             |   searchType(EnvStaticLevel :: ntl, vl) typeid = searchType(ntl, vl) typeid
             |   searchType(EnvException _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
 
-            |   searchType _ typeid =
-                let
-                    val description =
-                        case typeid of
-                            Bound { description, ...} => description
-                        |   Free { description, ...} => description
-                        |   TypeFunction _ => raise Misc.InternalError "searchType: TypeFunction"
-                in
+            |   searchType _ (typeid as TypeId{description, typeFn, ...}) =
                     (* The type ID is missing.  Make a new temporary ID. *)
-                    makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
-                end
+                    makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description, typeFn)
 
-            fun copyId(Free{ access=Global _ , ...}) = NONE (* Use original *)
+            fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
             |   copyId id = SOME(searchType(ctEnv, rtEnv) id)
         in
             fun runTimeType ty =

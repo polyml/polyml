@@ -2588,14 +2588,18 @@ struct
                             val description = { location = nameLoc, name = name, description = "" }
                         in
                             makeFrozenTypeConstrs (name, typeVars,
-                                makeTypeId(isEqtype, false, description), 0, [DeclaredAt nameLoc])
+                                makeTypeId(isEqtype, false, ([], EmptyType), description), 0, [DeclaredAt nameLoc])
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeFrozenTypeConstrs (name, typeVars,
-                                    typeId, 0, [DeclaredAt nameLoc])
+                                makeFrozenTypeConstrs (name, typeVars, typeId, 0, [DeclaredAt nameLoc])
                         |   NONE =>
-                                makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
+                            let
+                                val description = { location = nameLoc, name = name, description = "" }
+                            in
+                                makeFrozenTypeConstrs (name, typeVars,
+                                    makeTypeId(isEqtype, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
+                            end
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -3471,8 +3475,8 @@ struct
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, description)
-                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
+                    then makeTypeId(false, true, ([], EmptyType), description)
+                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description, ([], EmptyType))
                 val tc =
                     makeDatatypeConstr(name, typeVars, newId,
                                        letDepth, [DeclaredAt nameLoc])
@@ -3482,8 +3486,7 @@ struct
                         (* Outside the with..end section the type is not a datatype.
                            The type constructor we enter in the outer environment
                            uses the same typeId but with the constructors removed. *)
-                        makeFrozenTypeConstrs(name, typeVars, newId,
-                                              letDepth, [DeclaredAt nameLoc])
+                        makeFrozenTypeConstrs(name, typeVars, newId, letDepth, [DeclaredAt nameLoc])
                     else tc
             in
                 tcon := tc;
@@ -3512,7 +3515,12 @@ struct
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val tcon =
-                    makeTypeAbbreviation (name, typeVars, decType, [DeclaredAt nameLoc]);
+                    let
+                        val description = { location = nameLoc, name = name, description = "" }
+                    in
+                        makeFrozenTypeConstrs (name, typeVars,
+                            makeTypeId(false, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
+                    end
             in
                 enterType(tcon, tcon, name)
             end

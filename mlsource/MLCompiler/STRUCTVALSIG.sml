@@ -49,11 +49,11 @@ sig
     val makeRef: unit -> references
 
     datatype typeId =
-        Free of
-            { access: valAccess, uid: uniqueId, allowUpdate: bool, description: typeIdDescription }
-    |   Bound of
-            { access: valAccess, offset: int, eqType: bool  possRef, isDatatype: bool, description: typeIdDescription }
-    |   TypeFunction    of typeVarForm list * types
+        TypeId of { access: valAccess, description: typeIdDescription,
+                    typeFn: typeVarForm list * types, idKind: typeIdKind }
+    and typeIdKind =
+        Free of { uid: uniqueId, allowUpdate: bool  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -166,10 +166,10 @@ sig
     val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
-    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
-    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId;
-    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId;
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId;
+    val makeFreeId:     valAccess * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
+    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
+    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
+    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
     
     (* Types *)
     val badType:   types;
@@ -195,8 +195,8 @@ sig
         string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
     val makeFrozenTypeConstrs:
         string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
-    val makeTypeAbbreviation:
-        string * typeVarForm list * types * locationProp list -> typeConstrs;
+(*    val makeTypeAbbreviation:
+        string * typeVarForm list * types * locationProp list -> typeConstrs;*)
 
     val tvLevel:        typeVarForm -> int;
     val tvEquality:     typeVarForm -> bool;
@@ -330,6 +330,8 @@ sig
     val structVar:     structVals  Universal.tag;
     val signatureVar:  signatures  Universal.tag;
     val functorVar:    functors    Universal.tag;
+
+    val globalCode: valAccess
 
     (* Types that can be shared. *)
     structure Sharing:
