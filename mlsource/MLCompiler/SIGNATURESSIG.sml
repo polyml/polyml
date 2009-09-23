@@ -54,6 +54,7 @@ sig
     val sigExportTree: navigation * sigs -> exportTree 
     val sigVal: sigs * int * (int->typeId) * env * lexan * location -> signatures
     val undefinedSignature: signatures
+    val isUndefinedSignature: signatures -> bool
 
     structure Sharing:
     sig

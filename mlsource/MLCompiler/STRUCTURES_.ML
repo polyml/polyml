@@ -923,7 +923,9 @@ struct
                     [] => ()
                 |   _ => raise InternalError "Candidate structure with non-empty bound ID list"
         in
-            replaceMap(originalCandidate, typeIdMap, minTypes, [], typeIdEnv)
+            if isUndefinedSignature originalCandidate
+            then undefinedSignature
+            else replaceMap(originalCandidate, typeIdMap, minTypes, [], typeIdEnv)
         end
         
         val target = (* The signature. *)
@@ -962,7 +964,9 @@ struct
         (* Match typeIDs for types. This is slightly more
 	       complicated than simply assigning the stamps. *)
         fun matchNames (candidate, target, structPath) : unit =
-        univFold (sigTab target,
+        if isUndefinedSignature candidate
+        then () (* Suppress unnecessary messages. *)
+        else univFold (sigTab target,
             fn (dName, dVal, ()) =>
             if tagIs typeConstrVar dVal
             then
@@ -1034,7 +1038,9 @@ struct
         (* Match the values and exceptions in the signatures.
            This actually does the checking of types. *)
         fun matchVals (candidate, target, structPath) : unit =
-        (* Map the identifiers first, returning the originals if they are
+        if isUndefinedSignature candidate
+        then () (* Suppress unnecessary messages. *)
+        else (* Map the identifiers first, returning the originals if they are
            not in the map. *)
         let
             val () : unit =

@@ -182,8 +182,11 @@ struct
     val noLocation =
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
     val undefinedSignature =
-       makeSignature("UNDEFINED", makeSignatureTable(),
+       makeSignature("UNDEFINED SIGNATURE", makeSignatureTable(),
                 0, 0, noLocation, fn _ => raise Subscript, []);
+
+    (* We use a name that isn't otherwise valid for a signature. *)
+    fun isUndefinedSignature s = sigName s = "UNDEFINED SIGNATURE"
 
     fun displayList ([], _, _) _ = []
     
