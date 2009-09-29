@@ -138,7 +138,7 @@ struct
                 else (* How do we find a type function? *)
                     if null (tcConstructors tcon)
                 then (*makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)*)
-                    makeFrozenTypeConstrs (tcName tcon, args,
+                    makeFrozenTypeConstrs (mungeName(tcName tcon), args,
                         TypeId {
                             access = access, description = description, idKind = idKind,
                             typeFn=(args, copiedEquiv)},
@@ -207,7 +207,7 @@ struct
             then
             let
                 val tcon = tagProject typeConstrVar dVal
-                fun makeName s = strName ^ (#second(splitString s))
+                fun makeName s = strName ^ s
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
                 |   copyId _ = NONE
             in

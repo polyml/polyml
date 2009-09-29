@@ -480,7 +480,56 @@ struct
 		else NONE
 
 
-  (* Basic procedure to print a type structure. *)
+    fun equalTypeIds(x, xMap, y, yMap) =
+    let
+        (* True if two types are equal. *)
+        fun equalTypes (TypeConstruction{value=xVal, args=xArgs, ...},
+                        TypeConstruction{value=yVal, args=yArgs, ...}) =
+            equalTypeIds(tcIdentifier(pling xVal), xMap, tcIdentifier(pling yVal), yMap)
+                andalso equalTypeLists (xArgs, yArgs)
+    
+        | equalTypes (FunctionType x, FunctionType y) = 
+            equalTypes (#arg x, #arg y)   andalso 
+            equalTypes (#result x, #result y)
+                 
+        | equalTypes (LabelledType x, LabelledType y) =
+            #frozen x andalso #frozen y andalso  
+            equalRecordLists (#recList x, #recList y)
+
+        | equalTypes (TypeVar x, TypeVar y)  = sameTv (x, y)
+
+        | equalTypes (EmptyType, EmptyType) = true
+
+        | equalTypes _ = false
+                              
+        and equalTypeLists ([], [])    = true
+        |   equalTypeLists (x::xs, y::ys) =
+               equalTypes(x, y) andalso equalTypeLists (xs, ys)
+        |   equalTypeLists _           = false
+
+        and equalRecordLists ([],        [])    = true
+        |   equalRecordLists (x::xs, y::ys) =
+    	       #name x = #name y andalso 
+    	       equalTypes(#typeof x, #typeof y) andalso equalRecordLists (xs, ys)
+        |   equalRecordLists _             = false
+
+        val mappedX as TypeId{typeFn=(_, xEquiv), ...} =
+            case (xMap, x) of
+                (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
+            |   (_, id) => id
+        val mappedY as TypeId{typeFn=(_, yEquiv), ...} =
+            case (yMap, y) of
+                (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
+            |   (_, id) => id
+    in
+        (* If they are the same type ID they are the same type except in one
+           case.  If they are actually type functions that started out in the
+           same signature they will have the same (Free) type ID but may be
+           equivalent to different types. *)
+        sameTypeId(mappedX, mappedY) andalso equalTypes(xEquiv, yEquiv)
+    end
+
+    (* Basic procedure to print a type structure. *)
     type printTypeEnv =
         { lookupType: string -> (typeConstrs * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
@@ -559,11 +608,6 @@ struct
 		 	        val constrName = (* Use the type constructor name unless we're had an error. *)
                         if isUndefined typeConstructor then name else tcName typeConstructor
                     
-                    val mappedTypeId =(*tcIdentifier typeConstructor*)
-                        case (sigMap, tcIdentifier typeConstructor) of
-                            (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
-                        |   (_, id) => id
-
                     (* If we're printing a value that refers to a type constructor we
                        want to print the correct amount of any structure prefix for the
                        current context. *)
@@ -573,17 +617,7 @@ struct
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME (t, map) =>
-                                    (* TODO: If these are type-functions they won't match. *)
-                                let
-                                    val typeId = tcIdentifier t
-                                    val mId =
-                                        case (map, typeId) of
-                                            (SOME map, TypeId{idKind=Bound { offset, ... }, ...}) => map offset
-                                        |   (_, id) => id
-                                in
-                                    sameTypeId(mId, mappedTypeId)
-                                        (* sameTypeId always returns false for TypeFunction. *)
-                                end
+                                    equalTypeIds(tcIdentifier typeConstructor, sigMap, tcIdentifier t, map)
                             |   NONE => false
                         )
                     |   findType ({ lookupStruct, ... }, structName :: tail) =
@@ -639,13 +673,16 @@ struct
                         |   (names, false) =>
                             let
                                 (* Try the type identifier name. *)
-                                val TypeId { description = { name=idName, ...}, ...} = mappedTypeId
+                                val TypeId { description = { name=idName, ...}, ...} =
+                                    case (sigMap, tcIdentifier typeConstructor) of
+                                    (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
+                                |   (_, id) => id
                             in
                                 if idName = "" then names
                                 else
                                 case nameToList(idName, []) of
                                     (idNames, true) => idNames
-                                |   (_, _) => names (*@ ["(*N*)"]*) (* Temporary marker *)(* Use the type constructor name anyway. *)
+                                |   (_, _) => names (*@ ["(*N*)"] *) (* Temporary marker *)(* Use the type constructor name anyway. *)
                             end
                     val newName = String.concatWith "." names
                     (* TODO: If we don't find the type we want we should:
@@ -1137,41 +1174,6 @@ struct
     	recordNotFrozen (tvValue t)
 	| recordNotFrozen (LabelledType { frozen, ... }) = not frozen
 	| recordNotFrozen _ = false (* record or type alias *);
-
-  (* True if two types are equal. Used to reduce the storage required
-     when copying signatures. Rewritten using pattern-matching.
-     SPF 17/11/94. *)
-  fun equalTypes (TypeConstruction x)  (TypeConstruction y) = 
-      sameTypeId (tcIdentifier (pling(#value x)), tcIdentifier(pling(#value y)))
-        andalso equalTypeLists (#args x) (#args y)
-    
-   | equalTypes (FunctionType x) (FunctionType y) = 
-       equalTypes (#arg x)    (#arg y)   andalso 
-       equalTypes (#result x) (#result y)
-                 
-   | equalTypes (LabelledType x) (LabelledType y) =
-       #frozen x andalso #frozen y andalso  
-       equalRecordLists (#recList x) (#recList y)
-
-   | equalTypes (TypeVar x) (TypeVar y)  =
-      sameTv (x, y)
-      
-   | equalTypes BadType BadType     = true
-  
-   | equalTypes EmptyType EmptyType = true
-
-   | equalTypes _ _ = false
-                              
-  and equalTypeLists []        []    = true
-    | equalTypeLists (x::xs) (y::ys) =
-           equalTypes x y andalso equalTypeLists xs ys
-    | equalTypeLists _        _      = false
-
-  and equalRecordLists []        []    = true
-    | equalRecordLists (x::xs) (y::ys) =
-	       #name x = #name y andalso 
-	       equalTypes(#typeof x) (#typeof y) andalso equalRecordLists xs ys
-    | equalRecordLists _        _      = false;
 
   (* See if the types are the same. This is a bit of a fudge, but saves carrying
      around a flag saying whether the structures were copied. This is only an
