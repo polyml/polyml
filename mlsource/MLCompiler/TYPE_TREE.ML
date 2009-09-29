@@ -663,10 +663,8 @@ struct
                             then (currentList, true)
                             else nameToList(first, currentList)
                         end
-                    (* TODO: If this is a type function it won't have matched. *)
-                    (* Because of delayed copying the constructor name is not likely to be
-                       qualified.  That could well be a problem for type functions in particular
-                       because we don't have a type identifier to fall back on. *)
+                    (* Try the type constructor name first.  This is usually accurate.  If not
+                       fall back to the type identifier.  This may be needed in rarer cases. *)
                     val names =
                         case nameToList(constrName, []) of
                             (names, true) => names (* Found the type constructor name. *)
