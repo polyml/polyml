@@ -898,35 +898,41 @@ local
     (*                  "use": compile from a file.                              *)
     (*****************************************************************************)
 
-    fun use originalName =
+    fun use (originalName: string): unit =
     let
         (* use "f" first tries to open "f" but if that fails it tries "f.ML", "f.sml" etc. *)
+        (* We use the functional layer and a reference here rather than TextIO.input1 because
+           that requires locking round every read to make it thread-safe.  We know there's
+           only one thread accessing the stream so we don't need it here. *)
         fun trySuffixes [] =
             (* Not found - attempt to open the original and pass back the
                exception. *)
-            (TextIO.openIn originalName, originalName)
+            (TextIO.getInstream(TextIO.openIn originalName), originalName)
          |  trySuffixes (s::l) =
-            (TextIO.openIn (originalName ^ s), originalName ^ s)
+            (TextIO.getInstream(TextIO.openIn (originalName ^ s)), originalName ^ s)
                 handle IO.Io _ => trySuffixes l
         (* First in list is the name with no suffix. *)
         val (inStream, fileName) = trySuffixes("" :: ! suffixes)
+        val stream = ref inStream
 
         val lineNo   = ref 1;
         fun getChar () : char option =
-            case TextIO.input1 inStream of
-                eoln as SOME #"\n" =>
+            case TextIO.StreamIO.input1 (! stream) of
+                NONE => NONE
+            |   SOME (eoln as #"\n", strm) =>
                 (
                     lineNo := !lineNo + 1;
-                    eoln
+                    stream := strm;
+                    SOME eoln
                 )
-            |   c => c
+            |   SOME(c, strm) => (stream := strm; SOME c)
     in
-        while not (TextIO.endOfStream inStream) do
+        while not (TextIO.StreamIO.endOfStream(!stream)) do
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                 handle exn =>
                 (
-                    TextIO.closeIn inStream;
+                    TextIO.StreamIO.closeIn(!stream);
                     case exceptionLocation exn of
                         NONE => raise exn
                     |   SOME ex => PolyML.raiseWithLocation(exn, ex)
@@ -936,14 +942,14 @@ local
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                TextIO.closeIn inStream;
+                TextIO.StreamIO.input1 (! stream);
                 case exceptionLocation exn of
                     NONE => raise exn
                 |   SOME ex => PolyML.raiseWithLocation(exn, ex)
             )
         end;
         (* Normal termination: close the stream. *)
-        TextIO.closeIn inStream
+        TextIO.StreamIO.closeIn (! stream)
 
     end (* use *)
  
