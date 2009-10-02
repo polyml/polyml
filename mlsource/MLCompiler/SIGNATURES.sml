@@ -1152,21 +1152,52 @@ struct
                             let val addr = !address in address := addr+1; Formal addr end
                         |   newAccess _ = raise InternalError "newAccess: Not Formal"
 
+                        fun enterType(name, ty) =
+                        let
+                            (* Process value constructors with the type.  Because values can't
+                               be redefined within a signature we can't have overridden this
+                               with a new declaration.  We don't allocate run-time IDs to
+                               type identifiers.  That's done at the ende when we've sorted out
+                               any sharing *)
+                            fun copyConstructor(Value { name, typeOf, access, class, locations, ... }) =
+                            let
+                                val newConstr =
+                                    Value{name=name, typeOf = typeOf, access=newAccess access,
+                                          class=class, locations=locations, references=NONE}
+                            in
+                                #enterVal structEnv (name, newConstr);
+                                newConstr
+                            end
+                            val newType =
+                                case tcConstructors ty of
+                                    [] => ty (* Not a datatype. *)
+                                |   constrs =>
+                                    let
+                                        val newTy =
+                                        makeDatatypeConstr(tcName ty, tcTypeVars ty, tcIdentifier ty, 0,
+                                            tcLocations ty)
+                                    in
+                                        tcSetConstructors(newTy, List.map copyConstructor constrs);
+                                        newTy
+                                    end;
+                        in
+                            #enterType structEnv(name, newType)
+                        end
+
+                        and enterStruct(name, str) =
+                            #enterStruct structEnv
+                                (name, Struct{ name = structName str, signat = structSignat str,
+                                        access = newAccess(structAccess str),
+                                        locations = structLocations str})
+
+                        and enterVal(_, Value { class=Constructor _, ... }) = () (* Done with types. *)
+                        |   enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
+                            #enterVal structEnv (dName,
+                                Value{name=name, typeOf = typeOf, access=newAccess access,
+                                      class=class, locations=locations, references=NONE})
+
                         val tsvEnv =
-                        {
-                            enterType   = #enterType structEnv,
-                            enterStruct =
-                                fn (name, str) =>
-                                    #enterStruct structEnv
-                                        (name, Struct{ name = structName str, signat = structSignat str,
-                                                access = newAccess(structAccess str),
-                                                locations = structLocations str}),
-                            enterVal =
-                                fn (dName, Value { name, typeOf, access, class, locations, ... }) =>
-                                    #enterVal structEnv (dName,
-                                        Value{name=name, typeOf = typeOf, access=newAccess access,
-                                              class=class, locations=locations, references=NONE})
-                        }
+                            { enterType = enterType, enterStruct = enterStruct, enterVal = enterVal }
                         val () = openSignature(resultSig, tsvEnv, "")
                     in
                         ! address
