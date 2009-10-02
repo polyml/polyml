@@ -2136,31 +2136,32 @@ struct
                     val instanceType = 
                         (* If the result is a constructor use it. *)
                         if isConstructor nameVal (* exceptions. *)
+                        then if notConst
                         then
-                        ( 
-                            if notConst
-                            then errorNear (lex, true, pat, location,
-                                    "Identifier before `as' must not be a constructor")
-                            else ();
-                 
-                            (* set this value in the record *)
-                            value := nameVal;
-      
-                            (* Must be a nullary constructor otherwise it should
-                               have been applied to something. *)
-                            let
-                                val isNullary =
-                                    case nameVal of
-                                        Value{class=Constructor{nullary, ...}, ...} => nullary
-                                    |   Value{typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
-                            in
-                                if isNullary then ()
-                                else errorNear (lex, true, pat, location,
-                                                "Constructor must be applied to something.")
-                            end;
-                
-                            instanceType nameVal
+                        (
+                            errorNear (lex, true, pat, location,
+                                    "Identifier before `as' must not be a constructor.");
+                            badType
                         )
+                        else
+                        (* Must be a nullary constructor otherwise it should
+                           have been applied to something. *)
+                        let
+                            (* set this value in the record *)
+                            val () = value := nameVal;
+                            val isNullary =
+                                case nameVal of
+                                    Value{class=Constructor{nullary, ...}, ...} => nullary
+                                |   Value{typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
+                        in
+                            if isNullary then instanceType nameVal
+                            else
+                            (
+                                errorNear (lex, true, pat, location,
+                                            "Constructor must be applied to an argument pattern.");
+                                badType
+                            )
+                        end
       
                         (* If undefined or another variable, construct a new variable. *)
                         else
