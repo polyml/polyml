@@ -727,7 +727,7 @@ SHELL=${CONFIG_SHELL-/bin/sh}
 
 # Identity of this package.
 PACKAGE_NAME='Poly/ML'
-PACKAGE_TARNAME='poly-ml'
+PACKAGE_TARNAME='polyml'
 PACKAGE_VERSION='5.3'
 PACKAGE_STRING='Poly/ML 5.3'
 PACKAGE_BUGREPORT='polyml AT polyml DOT org'
@@ -1482,7 +1482,7 @@ Fine tuning of the installation directories:
   --infodir=DIR          info documentation [DATAROOTDIR/info]
   --localedir=DIR        locale-dependent data [DATAROOTDIR/locale]
   --mandir=DIR           man documentation [DATAROOTDIR/man]
-  --docdir=DIR           documentation root [DATAROOTDIR/doc/poly-ml]
+  --docdir=DIR           documentation root [DATAROOTDIR/doc/polyml]
   --htmldir=DIR          html documentation [DOCDIR]
   --dvidir=DIR           dvi documentation [DOCDIR]
   --pdfdir=DIR           pdf documentation [DOCDIR]
@@ -2321,7 +2321,7 @@ fi
 
 
 # Define the identity of the package.
- PACKAGE='poly-ml'
+ PACKAGE='polyml'
  VERSION='5.3'
 
 

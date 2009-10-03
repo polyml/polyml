@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML], [5.3], [polyml AT polyml DOT org])
+AC_INIT([Poly/ML], [5.3], [polyml AT polyml DOT org], [polyml])
 AM_INIT_AUTOMAKE
 AC_PREREQ(2.59)
 
