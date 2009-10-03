@@ -14,6 +14,7 @@
 
 @SET_MAKE@
 
+
 VPATH = @srcdir@
 pkgdatadir = $(datadir)/@PACKAGE@
 pkglibdir = $(libdir)/@PACKAGE@
@@ -40,10 +41,10 @@ bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
 # The Darwin linker loses execute access to the Poly segment unless this is given.
 @EXPMACHO_TRUE@am__append_4 = -Wl,-segprot,POLY,rwx,rwx
 subdir = .
-DIST_COMMON = $(am__configure_deps) $(srcdir)/Makefile.am \
-	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
-	$(top_srcdir)/configure COPYING config.guess config.sub \
-	depcomp install-sh ltmain.sh missing
+DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
+	$(srcdir)/Makefile.am $(srcdir)/Makefile.in \
+	$(srcdir)/config.h.in $(top_srcdir)/configure COPYING \
+	config.guess config.sub depcomp install-sh ltmain.sh missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
@@ -93,6 +94,7 @@ RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
 man1dir = $(mandir)/man1
 NROFF = nroff
 MANS = $(man_MANS)
+HEADERS = $(noinst_HEADERS)
 RECURSIVE_CLEAN_TARGETS = mostlyclean-recursive clean-recursive	\
   distclean-recursive maintainer-clean-recursive
 ETAGS = etags
@@ -244,6 +246,7 @@ man_MANS = poly.1 polyimport.1
 
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
+noinst_HEADERS = polyexports.h
 poly_LDFLAGS = $(am__append_1) $(am__append_4)
 polyimport_LDFLAGS = $(am__append_2)
 POLYRESOURCES = $(am__append_3)
@@ -253,6 +256,20 @@ poly_SOURCES =
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 polyimport_SOURCES = polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
+EXTRA_DIST = \
+	imports/polymli386.txt \
+	imports/polymlint64.txt \
+	imports/polymlint.txt \
+	imports/polymlppc.txt \
+	imports/polymlsparc.txt \
+	imports/polymlx86_64.txt \
+	libpolyml/power_assembly.S \
+	libpolyml/sparc_assembly.S \
+	libpolyml/x86asm.asm \
+	exportPoly.sml \
+	poly.1 \
+	polyimport.1
+
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -601,6 +618,9 @@ distdir: $(DISTFILES)
 	      || exit 1; \
 	  fi; \
 	done
+	$(MAKE) $(AM_MAKEFLAGS) \
+	  top_distdir="$(top_distdir)" distdir="$(distdir)" \
+	  dist-hook
 	-find $(distdir) -type d ! -perm -777 -exec chmod a+rwx {} \; -o \
 	  ! -type d ! -perm -444 -links 1 -exec chmod a+r {} \; -o \
 	  ! -type d ! -perm -400 -exec chmod a+r {} \; -o \
@@ -706,7 +726,7 @@ distcleancheck: distclean
 	       exit 1; } >&2
 check-am: all-am
 check: check-recursive
-all-am: Makefile $(PROGRAMS) $(MANS) config.h
+all-am: Makefile $(PROGRAMS) $(MANS) $(HEADERS) config.h
 installdirs: installdirs-recursive
 installdirs-am:
 	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"; do \
@@ -806,22 +826,27 @@ uninstall-man: uninstall-man1
 .PHONY: $(RECURSIVE_CLEAN_TARGETS) $(RECURSIVE_TARGETS) CTAGS GTAGS \
 	all all-am am--refresh check check-am clean clean-binPROGRAMS \
 	clean-generic clean-libtool clean-local ctags ctags-recursive \
-	dist dist-all dist-bzip2 dist-gzip dist-lzma dist-shar \
-	dist-tarZ dist-zip distcheck distclean distclean-compile \
-	distclean-generic distclean-hdr distclean-libtool \
-	distclean-tags distcleancheck distdir distuninstallcheck dvi \
-	dvi-am html html-am info info-am install install-am \
-	install-binPROGRAMS install-data install-data-am install-dvi \
-	install-dvi-am install-exec install-exec-am install-html \
-	install-html-am install-info install-info-am install-man \
-	install-man1 install-pdf install-pdf-am install-ps \
-	install-ps-am install-strip installcheck installcheck-am \
-	installdirs installdirs-am maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	tags tags-recursive uninstall uninstall-am \
+	dist dist-all dist-bzip2 dist-gzip dist-hook dist-lzma \
+	dist-shar dist-tarZ dist-zip distcheck distclean \
+	distclean-compile distclean-generic distclean-hdr \
+	distclean-libtool distclean-tags distcleancheck distdir \
+	distuninstallcheck dvi dvi-am html html-am info info-am \
+	install install-am install-binPROGRAMS install-data \
+	install-data-am install-dvi install-dvi-am install-exec \
+	install-exec-am install-html install-html-am install-info \
+	install-info-am install-man install-man1 install-pdf \
+	install-pdf-am install-ps install-ps-am install-strip \
+	installcheck installcheck-am installdirs installdirs-am \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
+	pdf pdf-am ps ps-am tags tags-recursive uninstall uninstall-am \
 	uninstall-binPROGRAMS uninstall-man uninstall-man1
 
+
+dist-hook:
+	find {basis,mlsource}/ -type d -exec mkdir $(distdir)/{} \;
+	find {basis,mlsource}/ -type f -not -name .svn \
+	    -exec cp -pf {} $(distdir)/{} \;
 
 # Unix.
 polyexport.o: polyimport exportPoly.sml polytemp.txt

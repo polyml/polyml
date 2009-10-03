@@ -14,6 +14,7 @@
 
 @SET_MAKE@
 
+
 VPATH = @srcdir@
 pkgdatadir = $(datadir)/@PACKAGE@
 pkglibdir = $(libdir)/@PACKAGE@
@@ -36,7 +37,8 @@ host_triplet = @host@
 # Force all references to be defined to build the DLL.
 @NO_UNDEFINED_TRUE@am__append_1 = -no-undefined
 subdir = libpolyml
-DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
+DIST_COMMON = $(noinst_HEADERS) $(srcdir)/Makefile.am \
+	$(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
@@ -124,6 +126,7 @@ LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	$(LDFLAGS) -o $@
 SOURCES = $(libpolyml_la_SOURCES)
 DIST_SOURCES = $(am__libpolyml_la_SOURCES_DIST)
+HEADERS = $(noinst_HEADERS)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -269,6 +272,55 @@ libpolyml_la_LDFLAGS = -version-info 1:1:0 $(am__append_1)
 @EXPPECOFF_TRUE@EXPORTSOURCE = pecoffexport.cpp
 @NATIVE_WINDOWS_FALSE@OSSOURCE = unix_specific.cpp
 @NATIVE_WINDOWS_TRUE@OSSOURCE = Console.cpp windows_specific.cpp
+noinst_HEADERS = \
+	arb.h \
+	basicio.h \
+	bitmap.h \
+	check_objects.h \
+	Console.h \
+	diagnostics.h \
+	elfexport.h \
+	errors.h \
+	exporter.h \
+	foreign.h \
+	gc.h \
+	globals.h \
+	int_opcodes.h \
+	io_internal.h \
+	locking.h \
+	machine_dep.h \
+	machoexport.h \
+	memmgr.h \
+	mpoly.h \
+	network.h \
+	noreturn.h \
+	objsize.h \
+	osmem.h \
+	os_specific.h \
+	pecoffexport.h \
+	pexport.h \
+	PolyControl.h \
+	poly_specific.h \
+	polystring.h \
+	process_env.h \
+	processes.h \
+	profiling.h \
+	proper_io.h \
+	realconv.h \
+	reals.h \
+	rts_module.h \
+	run_time.h \
+	savestate.h \
+	save_vec.h \
+	scanaddrs.h \
+	sharedata.h \
+	sighandler.h \
+	sys.h \
+	timing.h \
+	version.h \
+	xcall_numbers.h \
+	xwindows.h
+
 libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
     realconv.cpp objsize.cpp proper_io.cpp foreign.cpp \
@@ -526,7 +578,7 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile $(LTLIBRARIES)
+all-am: Makefile $(LTLIBRARIES) $(HEADERS)
 installdirs:
 	for dir in "$(DESTDIR)$(libdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
@@ -637,7 +689,7 @@ polyexport.o: polyimport exportPoly.sml
 
 # Special rule for x86 assembly code.
 x86asmtemp.S: x86asm.asm
-	sed -f $(srcdir)/masm2gas < $(srcdir)/x86asm.asm > x86asmtemp.S
+	sed -f $(srcdir)/masm2gas <  $< > $@ || { rm -f $@; false; }
 
 # Special rule for Power PC.  This is needed because of pecularities with MAC OS X.
 ppcasmtemp.s: power_assembly.S

@@ -38,6 +38,8 @@ endif
 endif
 endif
 
+noinst_HEADERS = polyexports.h
+
 poly_LDFLAGS=
 polyimport_LDFLAGS=
 POLYRESOURCES=
@@ -61,6 +63,27 @@ poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpo
 
 polyimport_SOURCES = polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
+
+EXTRA_DIST = \
+	imports/polymli386.txt \
+	imports/polymlint64.txt \
+	imports/polymlint.txt \
+	imports/polymlppc.txt \
+	imports/polymlsparc.txt \
+	imports/polymlx86_64.txt \
+	libpolyml/power_assembly.S \
+	libpolyml/sparc_assembly.S \
+	libpolyml/x86asm.asm \
+	exportPoly.sml \
+	poly.1 \
+	polyimport.1
+
+dist-hook:
+	find {basis,mlsource}/ -type d -exec mkdir $(distdir)/{} \;
+	find {basis,mlsource}/ -type f -not -name .svn \
+	    -exec cp -pf {} $(distdir)/{} \;
+
+
 
 # Unix.
 polyexport.o: polyimport exportPoly.sml polytemp.txt
