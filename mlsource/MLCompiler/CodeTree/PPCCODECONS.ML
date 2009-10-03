@@ -163,18 +163,15 @@ functor PPCCODECONS (
 structure DEBUG :
 sig
     val assemblyCodeTag : bool Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
+
 (*****************************************************************************)
-(*                  MISC                                                     *)
+(*                  PRETTY for compilerOutTag                                *)
 (*****************************************************************************)
-structure MISC :
-  sig
-    exception InternalError of string
-  end
+structure PRETTY: PRETTYSIG
 
 ) :
 
@@ -418,7 +415,7 @@ struct
   open CODESEG;
   open DEBUG;
   open ADDRESS;
-  open MISC;
+  open Misc;
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
   
@@ -2379,7 +2376,7 @@ struct
          cacheState       = ref (Reachable true),
          needReturn       = ref false,
         printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-        printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
+        printStream    = PRETTY.getSimplePrinter parameters
       }
   end;
   
