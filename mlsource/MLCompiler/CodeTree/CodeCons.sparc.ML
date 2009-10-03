@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000
+	Copyright (c) 2000, 2009
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -19,9 +19,7 @@
 
 structure CodeCons =
   SPARCCODECONS (
-    structure CODESEG = CodeSeg
     structure DEBUG   = Debug
-    structure MISC    = Boot.Misc
-    structure ADDRESS = Address
+    structure PRETTY  = Pretty
   );
 

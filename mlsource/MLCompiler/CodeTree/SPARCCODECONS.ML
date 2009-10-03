@@ -1,5 +1,5 @@
 (*
-	Copyright (c) 2000-7
+	Copyright (c) 2000-9
 		Cambridge University Technical Services Limited
 
 	This library is free software; you can redistribute it and/or
@@ -85,20 +85,15 @@ functor SPARCCODECONS (
 structure DEBUG :
 sig
     val assemblyCodeTag : bool Universal.tag
-    val compilerOutputTag:      (string->unit) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
 
-
-
 (*****************************************************************************)
-(*                  MISC                                                     *)
+(*                  PRETTY for compilerOutTag                                *)
 (*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string
-end
+structure PRETTY: PRETTYSIG
+
 ) :
 
 (*****************************************************************************)
@@ -265,80 +260,14 @@ sig
   val traceContext: code -> string;
 end (* CODECONS export signature *) =
 
-
-let
-
-(*****************************************************************************)
-(*                  ADDRESS                                                  *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
-  type short = Word.word;
-  type address;
-  type handler;
-
-  val wordSize : int; (* still 4, but will change one day *)
-
-  val wordEq : 'a * 'a -> bool;
-  
-  val isShort:  'a     -> bool;
-  val toShort:  'a     -> short;
-  val toMachineWord:   'a     -> machineWord;
-  val toAddress: 'a -> address
-
-  val loadByte:  address * short -> Word8.word 
-  val loadWord:  address * short -> machineWord
-  val unsafeCast: 'a -> 'b
-
-  val offsetAddr : address * short -> handler;
- 
-  val alloc:  (short * Word8.word * machineWord) -> address;
-  val length: address -> short;
-  val flags:  address -> Word8.word;
-
-  val F_words : Word8.word;
- 
-  val isWords : address -> bool;
-  val isBytes : address -> bool;
-  val isCode  : address -> bool;
-  
-  val lock : address -> unit;
-  
-  val isIoAddress : address -> bool
-end = Address;
-
-(*****************************************************************************)
-(*                  CODESEG                                                  *)
-(*****************************************************************************)
-structure CODESEG :
-sig
-  type machineWord;
-  type short;
-  type address;
-  type cseg;
-  
-  val csegMake:          int  -> cseg;
-  val csegConvertToCode: cseg -> unit;
-  val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> Word8.word;
-  val csegSet:           cseg * int * Word8.word -> unit;
-  val csegPutWord:       cseg * int * machineWord -> unit;
-  val csegCopySeg:       cseg * cseg * int * int -> unit;
-  val csegAddr:          cseg -> address;
-  val csegPutConstant:	 cseg * int * machineWord * 'a -> unit;
-end = CodeSeg;
-
-in
-
 (*****************************************************************************)
 (*                  CODECONS functor body                                    *)
 (*****************************************************************************)
 struct                                                   
-  open CODESEG;
+  open CodeSeg;
   open DEBUG;
-  open ADDRESS;
-  open MISC;
+  open Address;
+  open Misc;
 
   val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
   
@@ -689,7 +618,7 @@ struct
          accCache       = ref Empty,
          constLoads     = ref [],
          printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-         printStream    = DEBUG.getParameter DEBUG.compilerOutputTag parameters
+         printStream    = PRETTY.getSimplePrinter parameters
       };
   
   datatype quad =  (* the 4 bytes of the instruction word *)
@@ -3718,6 +3647,5 @@ If we have no self-calls (as opposed to self-jumps), we can produce:
   (* Function name and code offset to help tracing. *)
      procName ^ ":" ^ Int.fmt StringCvt.HEX (getByteAddr ic)
 
-end (* CODECONS functor body *)
+end; (* CODECONS functor body *)
 
-end (* structure-level let *)
