@@ -25,15 +25,23 @@ local
     fun exnPrint depth _ exn =
     let
         val (exnId, exnName, exnArg, _) = unsafeCast exn
+
+        (* This parenthesis code is used in various places and probably should be centralised. *)
+        fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
+        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
+        |   parenthesise(s as PrettyBlock _) =
+                PrettyBlock(3, true, [], [ PrettyString "(", s, PrettyString ")" ])
+        |   parenthesise s = s (* String or Break *)
+
         fun nullaryException s = PrettyString s
         and parameterException(s, param) =
             PrettyBlock(1, false, [],
                 [
                     PrettyString s,
                     PrettyBreak(1, 1),
-                    PrettyString "of",
-                    PrettyBreak(1, 1),
-                    param
+                    parenthesise param
                 ])
         (* Use prettyRepresentation because this correctly quotes the string. *)
         fun stringException(s, arg: string) =
