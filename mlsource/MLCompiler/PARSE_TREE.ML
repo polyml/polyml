@@ -2518,17 +2518,37 @@ struct
                             COPIER.openSignature 
                             (sigTbl,
                             {
-                              enterType   =
-                                fn (s,v) => #enterType env (s, v),
-                              enterStruct =
-                              fn (name, strVal) =>
+                                enterType   =
+                                fn (s, ty) =>
+                                #enterType env (s, 
+                                    case tcConstructors ty of
+                                        [] => ty
+                                    |   cons =>
+                                        let
+                                            (* We also have to turn the value constructors into
+                                               "selected" entries in case we use datatype
+                                               replication. Unlike with "include" in signatures,
+                                               there's no guarantee that the constructors will also
+                                               be part of the value environment. They could have
+                                               been redefined. *)
+                                            val newTy =
+                                                makeDatatypeConstr(tcName ty, tcTypeVars ty,
+                                                    tcIdentifier ty, 0, tcLocations ty)
+                                        in
+                                            tcSetConstructors(newTy,
+                                                List.map (fn c => mkSelectedVar (c, str, openLocs)) cons);
+                                            newTy
+                                        end
+                                ),
+                                enterStruct =
+                                fn (name, strVal) =>
                                     let
                                         val selectedStruct = 
                                             makeSelectedStruct (strVal, str, openLocs);
                                     in
                                         #enterStruct env (name, selectedStruct)
                                     end,
-                              enterVal    =
+                                enterVal    =
                                 fn (name, value) =>
                                     let
                                         val selectedVar = 
@@ -2641,10 +2661,8 @@ struct
 
                 val newValConstrs = tcConstructors newTypeCons
             in
-                (* Check that it has at least one constructor. *)
-                case newValConstrs of
-                    [] => errorNear (lex, true, v, oldLoc, oldType ^ " is not a datatype")
-                |    _ => ();
+                (* This previously checked that it was a datatype but that's
+                   not actually correct. *)
                 (* Enter the value constrs in the environment. *)
                 List.app (fn c => (#enterVal env) (valName c, c)) newValConstrs;
                 (* Add this type constructor to the environment. *)
