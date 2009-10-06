@@ -529,6 +529,193 @@ struct
         sameTypeId(mappedX, mappedY) andalso equalTypes(xEquiv, yEquiv)
     end
 
+
+    (* See if the types are the same. This is a bit of a fudge, but saves carrying
+       around a flag saying whether the structures were copied. This is only an
+       optimisation. If the values are different it will not go wrong. *)
+    val identical : types * types -> bool = PolyML.pointerEq
+    and identicalConstr : typeConstrs * typeConstrs -> bool = PolyML.pointerEq
+    and identicalList : 'a list * 'a list -> bool = PolyML.pointerEq
+
+    (* Copy a type, avoiding copying type structures unnecessarily.
+       Used to make new type variables for all distinct type variables when
+       generalising polymorphic functions, and to make new type stamps for
+       type constructors when generalising signatures. *)
+    fun copyType (at, copyTypeVar, copyTypeConstr) =
+    let
+        fun copyList [] = []
+        |   copyList (l as (h :: t)) =
+        let
+            val h' = copyType (h, copyTypeVar, copyTypeConstr);
+            val t' = copyList t;
+        in
+            if identical (h', h) andalso identicalList (t', t)
+            then l
+            else h' :: t'
+        end  (* copyList *);
+
+        fun copyRecordList [] = []
+        |   copyRecordList (l as ({name, typeof} :: t)) =
+        let
+            val typeof' = copyType (typeof, copyTypeVar, copyTypeConstr);
+            val t' = copyRecordList t;
+        in
+            if identical (typeof', typeof) andalso identicalList (t', t)
+            then l
+            else {name=name, typeof=typeof'} :: t'
+        end  (* copyList *);
+
+        val atyp = eventual at;
+    in
+        case atyp of
+            TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
+                copyTypeVar atyp
+    
+        |   TypeConstruction {value, args, locations, ...} => 
+            let
+                val copiedArgs   = copyList args;
+                val copiedConstr = copyTypeConstr (pling value);
+                (* Use the name from the copied constructor.  This will normally
+                   be the same as the original EXCEPT in the case where we are
+                   using copyType to generate copies of the value constructors of
+                   replicated datatypes. *)
+                val copiedName = tcName copiedConstr
+            in
+                if identicalList   (copiedArgs, args) andalso
+                    identicalConstr (copiedConstr, pling value)
+                (* Although it's logically unnecessary we also copy it if we have
+                   a ref pointing to the constructor.  This reduces the number of
+                   refs left around. *)
+                    andalso (case value of FrozenRef _ => true | _ => false)
+                then atyp 
+                else (* Must copy it. *) 
+                    mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
+            end 
+           
+        |   FunctionType {arg, result} => 
+            let
+                val copiedArg  = copyType (arg,    copyTypeVar, copyTypeConstr);
+                val copiedRes  = copyType (result, copyTypeVar, copyTypeConstr);
+            in
+                if identical (copiedArg, arg) andalso 
+                    identical (copiedRes, result)
+                then atyp 
+                else FunctionType {arg = copiedArg, result = copiedRes}
+            end 
+              
+        |   LabelledType {recList, frozen, ...} =>
+                (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
+            let
+                val copiedList = copyRecordList recList;
+            in
+                if identicalList (copiedList, recList)
+                then atyp 
+                else LabelledType {recList = copiedList, frozen = frozen, genericInstance = []}
+            end
+                        
+        |   EmptyType =>
+                EmptyType
+
+        |   BadType =>
+                BadType
+        
+        |   OverloadSet _ =>
+                raise InternalError "copyType: OverloadSet found"
+
+    end (* copyType *);
+
+    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
+       function copies that as well. Does not copy value constructors. *)
+    fun copyTypeConstrWithCache (tcon, typeMap, _, mungeName, cache) =
+        case tcIdentifier tcon of
+            id as TypeId{typeFn=(_, EmptyType), ...} =>
+            (
+                case typeMap id of
+                    NONE =>
+                    (
+                        (*print(concat[tcName tcon, " not copied\n"]);*)
+                        tcon (* No change *)
+                    )
+                |   SOME newId =>
+                    let
+                        val name = #second(splitString (tcName tcon))
+                        fun cacheMatch tc =
+                            sameTypeId(tcIdentifier tc, newId) andalso #second(splitString(tcName tc)) = name
+                    in
+                        case List.find cacheMatch cache of
+                            SOME tc =>
+                            (
+                                (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
+                                tc (* Use the entry from the cache. *)
+                            )
+                        |   NONE =>
+                            (* Either a hidden identifier or alternatively this can happen as part of
+                               the matching process.
+                               When matching a structure to a signature we first match up the type
+                               constructors then copy the type of each value replacing bound type IDs
+                               with the actual IDs as part of the checking process.
+                               We will return SOME newId but we don't have a
+                               cache so return NONE for List.find. *)
+                            let
+                                val newName = mungeName(tcName tcon)
+                            in
+                                (*print(concat[tcName tcon, " not cached\n"]);*)
+                                makeDatatypeConstr(newName,
+                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+                            end
+                    end
+            )
+
+       |    TypeId{typeFn=(args, equiv), description, access, idKind, ...} =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+		                fn tcon =>
+                            copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
+            in
+                if identical (equiv, copiedEquiv)
+                then tcon (* Type is identical and we don't want to change the name. *)
+                else (* How do we find a type function? *)
+                    if null (tcConstructors tcon)
+                then (*makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)*)
+                    makeFrozenTypeConstrs (mungeName(tcName tcon), args,
+                        TypeId {
+                            access = access, description = description, idKind = idKind,
+                            typeFn=(args, copiedEquiv)},
+		                0, tcLocations tcon)
+
+                else raise Misc.InternalError "localCopyTypeConstr: Well-formedness broken"
+            end
+
+
+    (* Exported version. *)
+    fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
+        copyTypeConstrWithCache(tcon, typeMap, copyTypeVar, mungeName, [])
+
+    (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
+       just return the result of the first. *)
+    fun composeMaps(m1, m2) n =
+    let
+        fun map2 (TypeId{idKind=Bound{ offset, ...}, typeFn=(_, EmptyType), ...}) = m2 offset
+
+        |   map2 (id as TypeId{idKind=Free _, typeFn=(_, EmptyType), ...}) = id
+
+        |   map2 (TypeId{typeFn=(args, equiv), access, description, idKind, ...}) =
+            let
+                fun copyId(TypeId{idKind=Free _, ...}) = NONE
+                |   copyId id = SOME(map2 id)
+                (* If it's a type function e.g. this was a "where type" we have to apply the
+                   map to any type identifiers in the type. *)
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+		                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
+            in
+                TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
+            end
+    in
+        map2(m1 n)
+    end
+
     (* Basic procedure to print a type structure. *)
     type printTypeEnv =
         { lookupType: string -> (typeConstrs * (int->typeId) option) option,
@@ -630,16 +817,7 @@ struct
                                         val Env { lookupType, lookupStruct, ...} = makeEnv tab
                                         val newMap =
                                             case map of
-                                                SOME map =>
-                                                (
-                                                    (* This is a reduced version of COPIER.composeMaps that
-                                                       doesn't handle TypeFunctions.  That's not a problem
-                                                       since sameTypeId doesn't work for TypeFunction. *)
-                                                    fn n =>
-                                                        case typeIdMap n of
-                                                            TypeId{idKind=Bound { offset, ...}, ...} => map offset
-                                                        |   id => id
-                                                )
+                                                SOME map => composeMaps(typeIdMap, map)
                                             |   NONE => typeIdMap
                                         fun subLookupType s =
                                             case lookupType s of NONE => NONE | SOME t => SOME(t, SOME newMap)
@@ -1172,105 +1350,6 @@ struct
     	recordNotFrozen (tvValue t)
 	| recordNotFrozen (LabelledType { frozen, ... }) = not frozen
 	| recordNotFrozen _ = false (* record or type alias *);
-
-  (* See if the types are the same. This is a bit of a fudge, but saves carrying
-     around a flag saying whether the structures were copied. This is only an
-     optimisation. If the values are different it will not go wrong. *)
-  val identical : types * types -> bool = 
-    ADDRESS.wordEq;
-
-  val identicalConstr : typeConstrs * typeConstrs -> bool =
-    ADDRESS.wordEq;
-
-  val identicalList : 'a list * 'a list -> bool =
-    ADDRESS.wordEq;
-
-  (* Copy a type, avoiding copying type structures unnecessarily.
-     Used to make new type variables for all distinct type variables when
-     generalising polymorphic functions, and to make new type stamps for
-     type constructors when generalising signatures. *)
-  fun copyType (at, copyTypeVar, copyTypeConstr) =
-  let
-    fun copyList [] = []
-      | copyList (l as (h :: t)) =
-      let
-        val h' = copyType (h, copyTypeVar, copyTypeConstr);
-        val t' = copyList t;
-      in
-        if identical (h', h) andalso identicalList (t', t)
-        then l
-        else h' :: t'
-      end  (* copyList *);
-
-    fun copyRecordList [] = []
-      | copyRecordList (l as ({name, typeof} :: t)) =
-      let
-        val typeof' = copyType (typeof, copyTypeVar, copyTypeConstr);
-        val t' = copyRecordList t;
-      in
-        if identical (typeof', typeof) andalso identicalList (t', t)
-        then l
-        else {name=name, typeof=typeof'} :: t'
-      end  (* copyList *);
-
-    val atyp = eventual at;
-  in
-    case atyp of
-      TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
-        copyTypeVar atyp
-    
-    | TypeConstruction {value, args, locations, ...} => 
-      let
-		val copiedArgs   = copyList args;
-		val copiedConstr = copyTypeConstr (pling value);
-		(* Use the name from the copied constructor.  This will normally
-		   be the same as the original EXCEPT in the case where we are
-		   using copyType to generate copies of the value constructors of
-		   replicated datatypes. *)
-		val copiedName = tcName copiedConstr
-      in
-		if identicalList   (copiedArgs, args) andalso
-		   identicalConstr (copiedConstr, pling value)
-		   (* Although it's logically unnecessary we also copy it if we have
-		      a ref pointing to the constructor.  This reduces the number of
-			  refs left around. *)
-		   andalso (case value of FrozenRef _ => true | _ => false)
-		then atyp 
-		else (* Must copy it. *) 
-		  mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
-      end 
-           
-    | FunctionType {arg, result} => 
-      let
-        val copiedArg  = copyType (arg,    copyTypeVar, copyTypeConstr);
-        val copiedRes  = copyType (result, copyTypeVar, copyTypeConstr);
-      in
-        if identical (copiedArg, arg) andalso 
-           identical (copiedRes, result)
-        then atyp 
-        else FunctionType {arg = copiedArg, result = copiedRes}
-      end 
-              
-    | LabelledType {recList, frozen, ...} =>
-		(* Rigid labelled records only.  Flexible ones are treated as type vars. *)
-      let
-        val copiedList = copyRecordList recList;
-      in
-        if identicalList (copiedList, recList)
-        then atyp 
-        else LabelledType {recList = copiedList, frozen = frozen, genericInstance = []}
-      end
-                        
-    | EmptyType =>
-        EmptyType
-
-    | BadType =>
-        BadType
-		
-	| OverloadSet _ =>
-		raise InternalError "copyType: OverloadSet found"
-
-  end (* copyType *);
 
     datatype match = Matched of {old: typeVarForm, new: types};
 

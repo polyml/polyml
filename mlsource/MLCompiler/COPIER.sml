@@ -84,98 +84,6 @@ struct
        that carries that type ID so that when we copy the values the string
        name is appropriate. *)
 
-    (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
-       function copies that as well. Does not copy value constructors. *)
-    fun localCopyTypeConstr (tcon, typeMap, _, mungeName, cache) =
-        case tcIdentifier tcon of
-            id as TypeId{typeFn=(_, EmptyType), ...} =>
-            (
-                case typeMap id of
-                    NONE =>
-                    (
-                        (*print(concat[tcName tcon, " not copied\n"]);*)
-                        tcon (* No change *)
-                    )
-                |   SOME newId =>
-                    let
-                        val name = #second(splitString (tcName tcon))
-                        fun cacheMatch tc =
-                            sameTypeId(tcIdentifier tc, newId) andalso #second(splitString(tcName tc)) = name
-                    in
-                        case List.find cacheMatch cache of
-                            SOME tc =>
-                            (
-                                (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
-                                tc (* Use the entry from the cache. *)
-                            )
-                        |   NONE =>
-                            (* Either a hidden identifier or alternatively this can happen as part of
-                               the matching process.
-                               When matching a structure to a signature we first match up the type
-                               constructors then copy the type of each value replacing bound type IDs
-                               with the actual IDs as part of the checking process.
-                               We will return SOME newId but we don't have a
-                               cache so return NONE for List.find. *)
-                            let
-                                val newName = mungeName(tcName tcon)
-                            in
-                                (*print(concat[tcName tcon, " not cached\n"]);*)
-                                makeDatatypeConstr(newName,
-                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
-                            end
-                    end
-            )
-
-       |    TypeId{typeFn=(args, equiv), description, access, idKind, ...} =>
-            let
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-		                fn tcon =>
-                            localCopyTypeConstr (tcon, typeMap, fn x => x, mungeName, cache))
-            in
-                if identical (equiv, copiedEquiv)
-                then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *)
-                    if null (tcConstructors tcon)
-                then (*makeTypeAbbreviation(tcName tcon, args, copiedEquiv, tcLocations tcon)*)
-                    makeFrozenTypeConstrs (mungeName(tcName tcon), args,
-                        TypeId {
-                            access = access, description = description, idKind = idKind,
-                            typeFn=(args, copiedEquiv)},
-		                0, tcLocations tcon)
-
-                else raise Misc.InternalError "localCopyTypeConstr: Well-formedness broken"
-            end
-
-
-    (* Exported version. *)
-    fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
-        localCopyTypeConstr(tcon, typeMap, copyTypeVar, mungeName, [])
-
-    (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
-       just return the result of the first. *)
-    fun composeMaps(m1, m2) n =
-    let
-        fun map2 (TypeId{idKind=Bound{ offset, ...}, typeFn=(_, EmptyType), ...}) = m2 offset
-
-        |   map2 (id as TypeId{idKind=Free _, typeFn=(_, EmptyType), ...}) = id
-
-        |   map2 (TypeId{typeFn=(args, equiv), access, description, idKind, ...}) =
-            let
-                fun copyId(TypeId{idKind=Free _, ...}) = NONE
-                |   copyId id = SOME(map2 id)
-                (* If it's a type function e.g. this was a "where type" we have to apply the
-                   map to any type identifiers in the type. *)
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-		                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
-            in
-                TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
-            end
-    in
-        map2(m1 n)
-    end
-
     (* Generate new entries for all the elements of the signature.
        As well as copying the signature it also keeps track of addresses used in
        the signature for values.  This is needed because when we're constructing a signature
@@ -232,7 +140,7 @@ struct
                         val copiedEquiv =
                             copyType(equiv, fn x => x,
         		                fn tcon =>
-                                    localCopyTypeConstr(tcon, copyId, fn x => x, makeName, initialCache))
+                                    copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
                         val copiedId =
                             TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
                     in
@@ -261,7 +169,7 @@ struct
             fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
             |   copyId _ = NONE
         in
-            localCopyTypeConstr (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
+            copyTypeConstrWithCache (tcon, copyId, fn x => x, fn s => strName ^ s, typeCache)
         end
 
         fun copyTyp (t : types) : types =

@@ -76,8 +76,18 @@ sig
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
 
+    (* Copy a type constructor. *)
+    val copyTypeConstr:
+        typeConstrs * (typeId -> typeId option) * (types -> types) * (string -> string) -> typeConstrs
+    val copyTypeConstrWithCache:
+        typeConstrs * (typeId -> typeId option) * (types -> types) *
+        (string -> string) * typeConstrs list -> typeConstrs
+
     (* Copy a type. *)
     val copyType: types * (types -> types) * (typeConstrs -> typeConstrs) -> types;
+
+    (* Compose two typeId maps. *)
+    val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
 
     (* Print it out prettily *)
     val display: types * int * printTypeEnv -> pretty;

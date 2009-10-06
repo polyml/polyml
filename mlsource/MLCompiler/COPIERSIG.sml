@@ -31,11 +31,7 @@ sig
                   enterVal   : string * values      -> unit };
     val openSignature: signatures * tsvEnv * string -> unit
     val fullCopyDatatype: typeConstrs * (int -> typeId) * string -> typeConstrs
-    val copyTypeConstr:
-        typeConstrs * (typeId -> typeId option) * (types -> types) * (string -> string) -> typeConstrs
     val replaceMap: signatures * (int -> typeId) * int * typeId list * (int -> typeId) -> signatures
-
-    val composeMaps: (int -> typeId) * (int -> typeId) -> (int -> typeId)
 
     val getNextRuntimeOffset : signatures -> int
 
