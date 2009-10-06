@@ -5,6 +5,8 @@ AC_INIT([Poly/ML], [5.3], [polyml AT polyml DOT org], [polyml])
 AM_INIT_AUTOMAKE
 # Require 2.62 to ensure that we can detect X includes on Mac OS 10.6.
 AC_PREREQ(2.62)
+# libtoolize recommends this line.
+AC_CONFIG_MACRO_DIR([m4])
 
 ac_debug_mode="no"
 

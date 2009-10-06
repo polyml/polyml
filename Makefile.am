@@ -1,4 +1,5 @@
 AUTOMAKE_OPTIONS=foreign
+ACLOCAL_AMFLAGS= -I m4 --install
 
 AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing

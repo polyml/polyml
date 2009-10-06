@@ -202,13 +202,13 @@
 /* Define to 1 if you have the <math.h> header file. */
 #undef HAVE_MATH_H
 
-/* Define to 1 if `gregs' is member of `mcontext_t'. */
+/* Define to 1 if `mcontext_t' is a member of `gregs'. */
 #undef HAVE_MCONTEXT_T_GREGS
 
-/* Define to 1 if `mc_esp' is member of `mcontext_t'. */
+/* Define to 1 if `mcontext_t' is a member of `mc_esp'. */
 #undef HAVE_MCONTEXT_T_MC_ESP
 
-/* Define to 1 if `regs' is member of `mcontext_t'. */
+/* Define to 1 if `mcontext_t' is a member of `regs'. */
 #undef HAVE_MCONTEXT_T_REGS
 
 /* Define to 1 if you have the `memmove' function. */
@@ -357,31 +357,31 @@
 /* Define to 1 if you have the `strtod' function. */
 #undef HAVE_STRTOD
 
-/* Define to 1 if `ss' is member of `struct mcontext'. */
+/* Define to 1 if `struct mcontext' is a member of `ss'. */
 #undef HAVE_STRUCT_MCONTEXT_SS
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
-/* Define to 1 if `sun_len' is member of `struct sockaddr_un'. */
+/* Define to 1 if `struct sockaddr_un' is a member of `sun_len'. */
 #undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
 
-/* Define to 1 if `ss' is member of `struct __darwin_mcontext32'. */
+/* Define to 1 if `struct __darwin_mcontext32' is a member of `ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
 
-/* Define to 1 if `__ss' is member of `struct __darwin_mcontext32'. */
+/* Define to 1 if `struct __darwin_mcontext32' is a member of `__ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32___SS
 
-/* Define to 1 if `ss' is member of `struct __darwin_mcontext64'. */
+/* Define to 1 if `struct __darwin_mcontext64' is a member of `ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT64_SS
 
-/* Define to 1 if `__ss' is member of `struct __darwin_mcontext64'. */
+/* Define to 1 if `struct __darwin_mcontext64' is a member of `__ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT64___SS
 
-/* Define to 1 if `ss' is member of `struct __darwin_mcontext'. */
+/* Define to 1 if `struct __darwin_mcontext' is a member of `ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT_SS
 
-/* Define to 1 if `__ss' is member of `struct __darwin_mcontext'. */
+/* Define to 1 if `struct __darwin_mcontext' is a member of `__ss'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT___SS
 
 /* Define to 1 if you have the `sysctl' function. */
@@ -540,6 +540,10 @@
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
 
+/* Define to the sub-directory in which libtool stores uninstalled libraries.
+   */
+#undef LT_OBJDIR
+
 /* Name of package */
 #undef PACKAGE
 
@@ -555,11 +559,11 @@
 /* Define to the one symbol short name of this package. */
 #undef PACKAGE_TARNAME
 
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
-
-/* Define to 1 if the C compiler supports function prototypes. */
-#undef PROTOTYPES
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #undef RETSIGTYPE
@@ -572,11 +576,6 @@
 
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
-
-/* Define to 1 if the `setvbuf' function takes the buffering type as its
-   second argument and the buffer pointer as the third, as on System V before
-   release 3. */
-#undef SETVBUF_REVERSED
 
 /* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
@@ -606,9 +605,6 @@
 
 /* Define if the X-Windows interface should be built */
 #undef WITH_XWINDOWS
-
-/* Define like PROTOTYPES; this can be used by system headers. */
-#undef __PROTOTYPES
 
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
