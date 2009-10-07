@@ -485,7 +485,8 @@ struct
         (* True if two types are equal. *)
         fun equalTypes (TypeConstruction{value=xVal, args=xArgs, ...},
                         TypeConstruction{value=yVal, args=yArgs, ...}) =
-            equalTypeIds(tcIdentifier(pling xVal), xMap, tcIdentifier(pling yVal), yMap)
+            (* The equivalents are as the result of mapping so we mustn't remap them. *)
+            sameTypeId(tcIdentifier(pling xVal), tcIdentifier(pling yVal))
                 andalso equalTypeLists (xArgs, yArgs)
     
         | equalTypes (FunctionType x, FunctionType y) = 
