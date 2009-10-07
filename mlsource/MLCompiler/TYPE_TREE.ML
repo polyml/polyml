@@ -640,8 +640,10 @@ struct
                 |   SOME newId =>
                     let
                         val name = #second(splitString (tcName tcon))
+                        (* We must only match here if they're really the same. *)
                         fun cacheMatch tc =
-                            sameTypeId(tcIdentifier tc, newId) andalso #second(splitString(tcName tc)) = name
+                            equalTypeIds(tcIdentifier tc, NONE, newId, NONE)
+                                andalso #second(splitString(tcName tc)) = name
                     in
                         case List.find cacheMatch cache of
                             SOME tc =>
