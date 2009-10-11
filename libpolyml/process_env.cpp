@@ -115,6 +115,7 @@ static bool exiting = false;
 
 static PLock atExitLock; // Thread lock for above.
 
+
 Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
     int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
@@ -341,33 +342,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 3: /* Get the explanatory message for an error. */
         {
-            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
-            Handle  res;
-#ifdef WINDOWS_PC
-            /* In the Windows version we may have both errno values
-               and also GetLastError values.  We convert the latter into
-               negative values before returning them. */
-            if (e < 0)
-            {
-                LPTSTR lpMsg = NULL;
-                TCHAR *p;
-                if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
-                        FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                        FORMAT_MESSAGE_IGNORE_INSERTS,
-                        NULL, (DWORD)(-e), 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
-                {
-                    /* The message is returned with CRLF at the end.  Remove them. */
-                    for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
-                    *p = '\0';
-                    res = SAVE(C_string_to_Poly(mdTaskData, lpMsg));
-                    LocalFree(lpMsg);
-                    return res;
-                }
-            }
-#endif
-            res = SAVE(C_string_to_Poly(mdTaskData, strerror(e)));
-            return res;
+            return errorMsg(mdTaskData, get_C_long(mdTaskData, DEREFWORDHANDLE(args)));
         }
+
     case 4: /* Try to convert an error string to an error number. */
         {
             char buff[40];

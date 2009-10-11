@@ -2,7 +2,7 @@
     Title:      Run-time system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000
+    Copyright (c) 2000, 2009
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -20,9 +20,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
-
-/* Contains most of the routines in the interface_map vector. Others are
-   in their own modules e.g. arb.c, reals.c and persistence.c */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -215,6 +212,46 @@ Handle full_gc_c(TaskData *taskData)
     return SAVE(TAGGED(0));
 }
 
+
+/******************************************************************************/
+/*                                                                            */
+/*      Error Messages                                                        */
+/*                                                                            */
+/******************************************************************************/
+
+
+// Return the handle to a string error message.  This will return
+// something like "Unknown error" from strerror if it doesn't match
+// anything.
+Handle errorMsg(TaskData *taskData, int err)
+{
+#ifdef WINDOWS_PC
+    /* In the Windows version we may have both errno values
+       and also GetLastError values.  We convert the latter into
+       negative values before returning them. */
+    if (err < 0)
+    {
+        LPTSTR lpMsg = NULL;
+        TCHAR *p;
+        if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+                FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL, (DWORD)(-err), 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
+        {
+            /* The message is returned with CRLF at the end.  Remove them. */
+            for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
+            *p = '\0';
+            Handle res = SAVE(C_string_to_Poly(taskData, lpMsg));
+            LocalFree(lpMsg);
+            return res;
+        }
+    }
+#endif
+    // Unix and unknown Windows errors.
+    return SAVE(C_string_to_Poly(taskData, strerror(err)));
+}
+
+
 /******************************************************************************/
 /*                                                                            */
 /*      EXCEPTIONS                                                            */
@@ -295,38 +332,31 @@ void raise_exception_string(TaskData *taskData, int id, const char *str)
     /*NOTREACHED*/
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      create_syscall_exception - called by run-time system                  */
-/*                                                                            */
-/******************************************************************************/
-// Create a syscall exception packet.
-Handle create_syscall_exception(TaskData *taskData, const char *errmsg, int err)
+// Raise a SysErr exception with a given error code.
+// The string part must match the result of OS.errorMsg
+void raiseSyscallError(TaskData *taskData, int err)
 {
-    /* exception SysErr of (string * syserror Option.option) */
-    /* If the argument is zero we don't have a suitable error number
-       so map this to NONE.  Other values are mapped to SOME(n) */
-    /* Create a pair of the error message and the error number. */
-    Handle pushed_option, pushed_name, pair;
-    if (err == 0) pushed_option = SAVE(NONE_VALUE); /* NONE */
-    else
-    {   /* SOME err */
-        Handle errornum = Make_arbitrary_precision(taskData, err);
-        pushed_option = alloc_and_save(taskData, 1);
-        DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum));
-    }
-    pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
-    pair = alloc_and_save(taskData, 2);
+    Handle errornum = Make_arbitrary_precision(taskData, err);
+    Handle pushed_option = alloc_and_save(taskData, 1);
+    DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
+    Handle pushed_name = errorMsg(taskData, err); // Generate the string.
+    Handle pair = alloc_and_save(taskData, 2);
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
-    return pair;
+
+    raise_exception(taskData, EXC_syserr, pair);
 }
 
-
-/* Raises a Syserr exception. */
-void raise_syscall(TaskData *taskData, const char *errmsg, int err)
+// Raise a SysErr exception which does not correspond to an error code.
+void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
 {
-    raise_exception(taskData, EXC_syserr, create_syscall_exception(taskData, errmsg, err));
+    Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
+    Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
+    Handle pair = alloc_and_save(taskData, 2);
+    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
+    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+
+    raise_exception(taskData, EXC_syserr, pair);
 }
 
 // Raises a Fail exception.

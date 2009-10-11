@@ -1,7 +1,7 @@
 /*
     Title:  run_time.h
 
-    Copyright (c) 2000-7
+    Copyright (c) 2000-9
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -70,12 +70,18 @@ extern Handle ex_tracec(TaskData *taskData, Handle exc_data, Handle handler_hand
 NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
 NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));
 NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, const char *str));
-NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
 NORETURNFN(extern void raise_fail(TaskData *taskData, const char *errmsg));
-Handle create_syscall_exception(TaskData *taskData, const char *errmsg, int err);
 
-typedef void (*InterruptFunc)(int signum);
-extern void register_interrupt_proc(InterruptFunc int_proc);
+// Raise OS.SysCall(OS.errorMsg err, SOME err)
+NORETURNFN(extern void raiseSyscallError(TaskData *taskData, int err));
+// Raise OS.SysCall(msg, NONE)
+NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errmsg));
+// This was the previous version.  The errmsg argument is ignored unless err is zero.
+inline void raise_syscall(TaskData *taskData, const char *errmsg, int err)
+{
+    if (err == 0) raiseSyscallMessage(taskData, errmsg);
+    else raiseSyscallError(taskData, err);
+}
 
 extern void re_init_run_time_system(void);
 extern void init_run_time_system(void);
@@ -95,5 +101,7 @@ extern Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle a
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
 extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
+
+extern Handle errorMsg(TaskData *taskData, int err);
 
 #endif /* _RUNTIME_H_DEFINED */
