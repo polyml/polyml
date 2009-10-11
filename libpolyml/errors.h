@@ -1,7 +1,7 @@
 /*
     Title:  Error number names
 
-    Copyright (c) 2000-7
+    Copyright (c) 2000-9
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -388,6 +388,118 @@ static struct {
 #ifdef ENODATA
     { ENODATA, "ENODATA"},
 #endif
+#ifdef EBADE
+    { EBADE, "EBADE"},
+#endif
+#ifdef EBADR
+    { EBADR, "EBADR"},
+#endif
+#ifdef EXFULL
+    { EXFULL, "EXFULL"},
+#endif
+#ifdef ENOANO
+    { ENOANO, "ENOANO"},
+#endif
+#ifdef EBADRQC
+    { EBADRQC, "EBADRQC"},
+#endif
+#ifdef EBADSLT
+    { EBADSLT, "EBADSLT"},
+#endif
+#ifdef EDEADLOCK
+    { EDEADLOCK, "EDEADLOCK"},
+#endif
+#ifdef EBFONT
+    { EBFONT, "EBFONT"},
+#endif
+#ifdef EBFONT
+    { EBFONT, "EBFONT"},
+#endif
+#ifdef ENOPKG
+    { ENOPKG, "ENOPKG"},
+#endif
+#ifdef ELBIN
+    { ELBIN, "ELBIN"},
+#endif
+#ifdef ENOTUNIQ
+    { ENOTUNIQ, "ENOTUNIQ"},
+#endif
+#ifdef EBADFD
+    { EBADFD, "EBADFD"},
+#endif
+#ifdef ELIBACC
+    { ELIBACC, "ELIBACC"},
+#endif
+#ifdef ELIBBAD
+    { ELIBBAD, "ELIBBAD"},
+#endif
+#ifdef ELIBSCN
+    { ELIBSCN, "ELIBSCN"},
+#endif
+#ifdef ELIBMAX
+    { ELIBMAX, "ELIBMAX"},
+#endif
+#ifdef ESTRPIPE
+    { ESTRPIPE, "ESTRPIPE"},
+#endif
+#ifdef ELIBEXEC
+    { ELIBEXEC, "ELIBEXEC"},
+#endif
+#ifdef ENMFILE
+    { ENMFILE, "ENMFILE"},
+#endif
+#ifdef ENOTNAM
+    { ENOTNAM, "ENOTNAM"},
+#endif
+#ifdef ENAVAIL
+    { ENAVAIL, "ENAVAIL"},
+#endif
+#ifdef EISNAM
+    { EISNAM, "EISNAM"},
+#endif
+#ifdef EREMOTEIO
+    { EREMOTEIO, "EREMOTEIO"},
+#endif
+#ifdef ENOMEDIUM
+    { ENOMEDIUM, "ENOMEDIUM"},
+#endif
+#ifdef EMEDIUMTYPE
+    { EMEDIUMTYPE, "EMEDIUMTYPE"},
+#endif
+#ifdef ENOKEY
+    { ENOKEY, "ENOKEY"},
+#endif
+#ifdef EKEYEXPIRED
+    { EKEYEXPIRED, "EKEYEXPIRED"},
+#endif
+#ifdef EKEYREVOKED
+    { EKEYREVOKED, "EKEYREVOKED"},
+#endif
+#ifdef EKEYREJECTED
+    { EKEYREJECTED, "EKEYREJECTED"},
+#endif
+#ifdef EOWNERDEAD
+    { EOWNERDEAD, "EOWNERDEAD"},
+#endif
+#ifdef ENOTRECOVERABLE
+    { ENOTRECOVERABLE, "ENOTRECOVERABLE"},
+#endif
+#ifdef ENOTSUP
+    { ENOTSUP, "ENOTSUP"},
+#endif
+#ifdef ENOMEDIUM
+    { ENOMEDIUM, "ENOMEDIUM"},
+#endif
+#ifdef ENOSHARE
+    { ENOSHARE, "ENOSHARE"},
+#endif
+#ifdef ECASECLASH
+    { ECASECLASH, "ECASECLASH"},
+#endif
+#ifdef EOVERFLOW
+    { EOVERFLOW, "EOVERFLOW"},
+#endif
+
 
 #ifdef WINDOWS_PC
 /* We generate all Windows messages as negative numbers to
