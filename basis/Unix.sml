@@ -92,12 +92,10 @@ struct
         open Posix
         (* Test first for presence of the file and then that we
            have correct access rights. *)
-        val s = FileSys.stat cmd
-            handle OS.SysErr(_, e) =>
-               raise OS.SysErr("File does not exist", e)
+        val s = FileSys.stat cmd (* Raises SysErr if the file doesn't exist. *)
         val () =
            if not (FileSys.ST.isReg s) orelse not (FileSys.access(cmd, [FileSys.A_EXEC]))
-           then raise OS.SysErr("Cannot execute file", SOME Error.acces)
+           then raise OS.SysErr(OS.errorMsg Error.acces, SOME Error.acces)
            else ()
         val toChild = IO.pipe()
         and fromChild = IO.pipe()
