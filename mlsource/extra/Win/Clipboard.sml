@@ -204,7 +204,7 @@ struct
 			val res = call2(user "SetClipboardData") (CLIPFORMAT, POINTER) POINTER (cf, data)
 		in
 			if fromCint res = 0
-			then raise OS.SysErr("SetClipboardData", SOME(GetLastError()))
+			then raiseSysErr ()
 			else ()
 		end
 
@@ -213,9 +213,7 @@ struct
 			(* The result of GetClipboardData is a handle, usually but not always an
 			   HGLOBAL pointing to a piece of memory. *)
 			val res = call1 (user "GetClipboardData") (CLIPFORMAT) POINTER (f)
-			val _ = if fromCint res = 0
-				then raise OS.SysErr("GetClipboardData", SOME(GetLastError()))
-				else ()
+			val _ = checkResult (fromCint res <> 0)
 			fun getMem(p: vol) =
 			let
 				val hg = fromHG p

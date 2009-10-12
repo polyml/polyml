@@ -132,8 +132,7 @@ struct
 		fun user name = load_sym (load_lib "user32.dll") name
 	    and kernel name = load_sym (load_lib "kernel32.dll") name
 
-		fun checkWindow name c =
-			if isHNull c then raise OS.SysErr(name, SOME(GetLastError())) else c
+		fun checkWindow c = (checkResult(not(isHNull c)); c)
 
 		(* Dialogue procedures never call DefWindowProc. *)
 		fun dlgProcRes (lres, state) = (lres, state)
@@ -468,7 +467,7 @@ struct
 			fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
 			let
 				val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
-				val res = checkWindow "CreateDialog" 
+				val res = checkWindow
 					(sysCreateDialog(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0))
 			in
 				(* Add this to the modeless dialogue list so that keyboard
@@ -493,7 +492,7 @@ struct
 				fun copyToBuf(i, v): unit =
 					assign Cchar (offset i Cchar templ) (toCint(Word8.toInt v))
 				val _ = Word8Vector.appi copyToBuf compiled
-				val res = checkWindow "CreateDialog" 
+				val res = checkWindow
 					(sysCreateDialogIndirect(hInst, address templ, hWndParent, Message.mainCallbackFunction, 0))
 			in
 				(* Add this to the modeless dialogue list so that keyboard

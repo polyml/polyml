@@ -187,9 +187,8 @@ struct
 				(* The result is supposed to be an atom but it doesn't always work to
 				   pass this directly to CreateWindow. *)
 			in
-				if res = 0
-				then raise OS.SysErr("RegisterClassEx", SOME(GetLastError()))
-				else Registered{proc = wndProc, className = className}
+				checkResult(res <> 0);
+				Registered{proc = wndProc, className = className}
 			end
 
 			fun GetClassInfoEx(hInst, class): 'a WNDCLASSEX =

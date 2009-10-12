@@ -169,8 +169,7 @@ local
 	open Resource
 	open Class
 
-	fun checkWindow name c =
-		if isHNull c then raise OS.SysErr(name, SOME(GetLastError())) else c
+	fun checkWindow c = (checkResult(not(isHNull c)); c)
 in
 	type HWND = HWND and HINSTANCE = HINSTANCE and RECT = RECT and POINT = POINT
 	and HMENU = HMENU
@@ -218,10 +217,10 @@ in
     val CloseWindow =
 		call1 (user "CloseWindow") (HWND) (SUCCESSSTATE "CloseWindow")
 	val FindWindow =
-		checkWindow "FindWindow" o
+		checkWindow o
 		call2 (user "FindWindowA") (STRING, STRINGOPT) HWND
 	val FindWindowEx =
-		checkWindow "FindWindowEx" o
+		checkWindow o
 		call4 (user "FindWindowExA") (HWNDOPT, HWNDOPT, STRING, STRINGOPT) HWND
     val GetDesktopWindow       = call0 (user "GetDesktopWindow") () HWND
     val GetForegroundWindow    = call0 (user "GetForegroundWindow") () HWND
@@ -277,7 +276,7 @@ in
 		(* Only GW_HWNDNEXT and GW_HWNDPREV are allowed here but it's probably not
 		   worth making it a special case. *)
 		fun GetNextWindow(win: HWND, gwFlag) =
-			checkWindow "GetNextWindow" (
+			checkWindow (
 				call2 (user "GetNextWindow") (HWND,INT) HWND (win, winFlag gwFlag))
 	end
 
@@ -293,9 +292,8 @@ in
 		val res = call2 (user "GetClientRect") (HWND, POINTER) BOOL (hWnd, address buff)
 		val (toRect,_,_) = breakConversion RECT
 	in
-		if res
-		then toRect buff
-		else raise OS.SysErr("GetClientRect", SOME(GetLastError()))
+        checkResult res;
+		toRect buff
 	end
 
 	fun GetWindowRect(hWnd: HWND): RECT =
@@ -304,9 +302,8 @@ in
 		val res = call2 (user "GetWindowRect") (HWND, POINTER) BOOL (hWnd, address buff)
 		val (toRect,_,_) = breakConversion RECT
 	in
-		if res
-		then toRect buff
-		else raise OS.SysErr("GetWindowRect", SOME(GetLastError()))
+        checkResult res;
+		toRect buff
 	end
 
 	fun AdjustWindowRect(rect: RECT, style: Style.flags, bMenu: bool): RECT =
@@ -316,9 +313,8 @@ in
 		val res = call3 (user "AdjustWindowRect") (POINTER, INT, BOOL) BOOL
 					(address buff, LargeWord.toInt(Style.toWord style), bMenu)
 	in
-		if res
-		then toRect buff
-		else raise OS.SysErr("AdjustWindowRect", SOME(GetLastError()))
+        checkResult res;
+		toRect buff
 	end
 
 	fun AdjustWindowRectEx(rect: RECT, style: Style.flags, bMenu: bool, exStyle: int): RECT =
@@ -328,9 +324,8 @@ in
 		val res = call4 (user "AdjustWindowRectEx") (POINTER, INT, BOOL, INT) BOOL
 					(address buff, LargeWord.toInt(Style.toWord style), bMenu, exStyle)
 	in
-		if res
-		then toRect buff
-		else raise OS.SysErr("AdjustWindowRectEx", SOME(GetLastError()))
+        checkResult res;
+		toRect buff
 	end
 
 	val ArrangeIconicWindows = call1 (user "ArrangeIconicWindows") (HWND) INT (* POSINT? *)
@@ -343,9 +338,8 @@ in
 	let
 		val old = call2 (user "SetParent") (HWND, HWND) HWND (child, getOpt(new, hwndNull))
 	in
-		if isHNull old
-		then raise OS.SysErr("SetParent", SOME(GetLastError()))
-		else old
+        checkResult(not(isHNull old));
+		old
 	end
 
 	fun CreateWindowEx{class: 'a Class.ATOM, (* Window class *)
@@ -376,8 +370,7 @@ in
 				(ExStyle.toWord exStyle, className, name, styleWord, x, y, width, height, parent, menu,
 				 instance, 0)
 	in
-		if isHNull res
-		then raise OS.SysErr("CreateWindowEx", SOME(GetLastError())) else ();
+		checkResult(not(isHNull res));
 		res
 	end
 
@@ -413,9 +406,8 @@ in
 				(0w0, "MDICLIENT", 0w0, styleWord, 0, 0, 0, 0, parent, menu,
 				 instance, createS)
 	in
-		if isHNull res
-		then raise OS.SysErr("CreateWindowEx", SOME(GetLastError()))
-		else res
+		checkResult(not(isHNull res));
+		res
 	end
 
  

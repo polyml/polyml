@@ -131,10 +131,7 @@ struct
 		val WIDTH = INT: int Conversion
 		val HEIGHT = INT: int Conversion
 
-		fun checkBitmap name c =
-			if isHgdiObjNull c
-			then raise OS.SysErr(name, SOME(GetLastError()))
-			else c
+		fun checkBitmap c = (checkResult(not(isHgdiObjNull c)); c)
 	in
 		type HDC = HDC and HBITMAP = HBITMAP
 		type COLORREF = Color.COLORREF
@@ -179,7 +176,7 @@ struct
 	                                     
 
 	    val CreateCompatibleBitmap     = 
-			checkBitmap "CreateCompatibleBitmap" o
+			checkBitmap o
 				call3 (gdi "CreateCompatibleBitmap") (HDC,WIDTH,HEIGHT) HBITMAP
 
 
@@ -211,11 +208,11 @@ struct
 										 (HBITMAP,SIZE)
 
 		val CreateBitmapIndirect	   =
-			checkBitmap "CreateBitmapIndirect" o
+			checkBitmap o
 				call1 (gdi "CreateBitmapIndirect") (POINTERTO BITMAP) HBITMAP
 
 		local
-			val cbm = checkBitmap "CreateBitmap" o
+			val cbm = checkBitmap o
 				call5 (gdi "CreateBitmap") (INT, INT, INT, INT, POINTER) HBITMAP
 		in
 			fun CreateBitmap{width, height, planes, bitsPerPixel, bits} =
@@ -323,9 +320,8 @@ struct
 					val res = getDIBits(hdc, hb, startScan, scanLines, toCint 0,
 									address v, DIB_RGB_COLORS)
 				in
-					if res = 0
-					then raise OS.SysErr("GetDIBits", SOME(GetLastError()))
-					else fromCbytes(address v, sizeof rtype)
+					checkResult(res <> 0);
+					fromCbytes(address v, sizeof rtype)
 				end
 
 			 |  GetDIBits(hdc: HDC, hb: HBITMAP, startScan, scanLines,
@@ -343,9 +339,7 @@ struct
 					val _ = assign rtype w v
 					val res = getDIBits(hdc, hb, startScan, scanLines, toCint 0,
 									address w, DIB_RGB_COLORS)
-					val _ = if res = 0
-						then raise OS.SysErr("GetDIBits", SOME(GetLastError()))
-						else ()
+					val _ = checkResult(res <> 0)
 					val (_, _, _, _, _, _, sizeImage, _, _, _, _) = fromR w
 					(* Calculate the size of the palette. *)
 					val numColours =
@@ -364,9 +358,8 @@ struct
 								address(offset bitOffset Cchar mem),
 								address mem, DIB_RGB_COLORS)
 				in
-					if res = 0
-					then raise OS.SysErr("GetDIBits", SOME(GetLastError()))
-					else fromCbytes(address mem, size)					
+					checkResult(res <> 0);
+					fromCbytes(address mem, size)					
 				end
 
 		
@@ -391,9 +384,7 @@ struct
 				val res = setDIBits(hdc, hb, startScan, scanLines,
 						address(offset bitOffset Cchar (deref v)), v, DIB_RGB_COLORS)
 			in
-				if res = 0
-				then raise OS.SysErr("SetDIBits", SOME(GetLastError()))
-				else ()
+				checkResult(res <> 0)
 			end
 		end
 

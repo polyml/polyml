@@ -90,7 +90,7 @@ struct
 			val null = toCint 0
 			(* Passing 0 as the size will retrieve the number of points. *)
 			val count = gpCall(h, null, null, 0)
-			val _ = if count < 0 then raise OS.SysErr("GetPath", SOME(GetLastError())) else ()
+			val _ = checkResult(count >= 0)
 
 		    val (fromPt, _, ptStruct) = breakConversion POINT
 		    val (fromTy, _, _) = breakConversion GdiBase.POINTTYPE

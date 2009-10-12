@@ -103,25 +103,22 @@ struct
 		val SetSytemCursor =
 			call2 (user "SetSytemCursor") (HCURSOR, CURSORID) (SUCCESSSTATE "SetSytemCursor")
 
-		fun checkCursor name c =
-			if isHcursorNull c
-			then raise OS.SysErr(name, SOME(GetLastError()))
-			else c
+		fun checkCursor c = (checkResult(not(isHcursorNull c)); c);
 
 		val LoadCursorFromFile =
-			checkCursor "LoadCursorFromFile" o
+			checkCursor o
 			call1 (user "LoadCursorFromFileA") (STRING) HCURSOR
 
 		(* ML extension - simpler than having a separate function. *)
 		val LoadSystemCursorFromFile =
-			checkCursor "LoadCursorFromFile" o
+			checkCursor o
 			call1 (user "LoadCursorFromFileA") (CURSORID) HCURSOR
 
 		val ClipCursor =
 			call1 (user "ClipCursor") (POINTERTO RECT) (SUCCESSSTATE "ClipCursor")
 
 		val CopyCursor =
-			checkCursor "CopyCursor" o
+			checkCursor o
 			call1 (user "CopyCursor") (HCURSOR) HCURSOR
 
 		val DestroyCursor =
@@ -133,9 +130,8 @@ struct
 			val buff = alloc 4 Clong
 			val res = call1 (user "GetClipCursor") (POINTER) BOOL (address buff)
 		in
-			if res
-			then toRect buff
-			else raise OS.SysErr("GetClipCursor", SOME(GetLastError()))
+			checkResult res;
+			toRect buff
 		end
 
 		val GetCursor = call0 (user "GetCursor") () HCURSOR
@@ -146,9 +142,8 @@ struct
 			val buff = alloc 2 Clong
 			val res = call1 (user "GetCursorPos") (POINTER) BOOL (address buff)
 		in
-			if res
-			then toPoint buff
-			else raise OS.SysErr("GetCursorPos", SOME(GetLastError()))
+			checkResult res;
+			toPoint buff
 		end
 
 		val SetCursor = call1 (user "SetCursor") HCURSOR HCURSOR
@@ -159,11 +154,11 @@ struct
 		val ShowCursor = call1 (user "ShowCursor") BOOL INT
 
 		val LoadCursor =
-			checkCursor "LoadCursor" o
+			checkCursor o
 			call2 (user "LoadCursorA") (HINSTANCE, RESID) HCURSOR
 
 		fun LoadSystemCursor(id: CursorId) =
-			checkCursor "LoadCursor"
+			checkCursor
 				((call2 (user "LoadCursorA") (HINSTANCE, CURSORID) HCURSOR) (hinstanceNull, id))
 (*
 TODO:

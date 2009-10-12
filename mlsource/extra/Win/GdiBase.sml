@@ -232,9 +232,7 @@ struct
 			]
 			(* SetMapMode and GetMapMode return 0 in the event of an error. *)
 			fun toInt _ = raise Match
-			fun fromInt i =
-				if i = 0 then raise OS.SysErr("MapMode", SOME(GetLastError()))
-				else raise Match;
+			fun fromInt i = (checkResult(i <> 0); raise Match);
 		in
 		    val MAPMODE = tableConversion(tab, SOME(fromInt, toInt))
 		end

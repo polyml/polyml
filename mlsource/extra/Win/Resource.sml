@@ -69,8 +69,7 @@ struct
 	and HUPDATE: HUPDATE Conversion =
 		absConversion {abs=handleOfInt, rep=intOfHandle} INT
 
-	fun checkHandle name h =
-		if isHNull h then raise OS.SysErr(name, SOME(GetLastError())) else h
+	fun checkHandle h = (checkResult(not(isHNull h)); h)
 
 	datatype ResourceType =
 		RT_CURSOR | RT_BITMAP | RT_ICON | RT_MENU | RT_DIALOG | RT_STRING | RT_FONTDIR |
@@ -110,12 +109,12 @@ struct
 
 		val LoadLibrary = call1 (kernel "LoadLibraryA") (STRING) HINSTANCE
 		and FreeLibrary = call1 (kernel "FreeLibrary") (HINSTANCE) BOOL
-		and FindResource = checkHandle "FindResource" o
+		and FindResource = checkHandle o
 			call3 (kernel "FindResourceA")
 				(HINSTANCE, RESID, RESOURCETYPE) HRSRC
 		and SizeofResource = call2 (kernel "SizeofResource") (HINSTANCE, HRSRC) INT
 		(* The name and type are in the reverse order in FindResource and FindResourceEx *)
-		and FindResourceEx = checkHandle "FindResourceEx" o
+		and FindResourceEx = checkHandle o
 			 call4 (kernel "FindResourceExA")
 				(HINSTANCE, RESOURCETYPE, RESID, LocaleBase.LANGID) HRSRC
 
@@ -162,7 +161,7 @@ struct
 
 		fun BeginUpdateResource(str, flag): HUPDATE =
 			case call2 (user "BeginUpdateResourceA") (STRING, BOOL) INT (str, flag) of
-				0 => raise OS.SysErr("BeginUpdateResource", SOME(GetLastError()))
+				0 => raiseSysErr()
 			|	h => handleOfInt h
 
 		val EndUpdateResource =

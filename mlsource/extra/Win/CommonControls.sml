@@ -205,8 +205,7 @@ struct
 			            hBMInst, wBMID, buttonVec, nButtons, xButton, yButton, xBitmap, yBitmap,
 						sizeof tbButton)
 		in
-    		if isHNull res
-    		then raise OS.SysErr("CreateToolbarEx", SOME(GetLastError())) else ();
+            checkResult(not(isHNull res));
     		res
 		end
 		
@@ -216,8 +215,7 @@ struct
 			val CreateStatusWindow = call4 (comctl "CreateStatusWindowA") (WORD,STRING,HWND,UINT) HWND
 			val res = CreateStatusWindow(styleWord, text, parent, childId)
 		in
-    		if isHNull res
-    		then raise OS.SysErr("CreateToolbarEx", SOME(GetLastError())) else ();
+    		checkResult(not(isHNull res));
     		res
 		end
 

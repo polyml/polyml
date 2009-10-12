@@ -64,10 +64,7 @@ struct
 	local
 		open CInterface Base GdiBase
 
-		fun checkDC name c =
-			if isHdcNull c
-			then raise OS.SysErr(name, SOME(GetLastError()))
-			else c
+		fun checkDC c = (checkResult(not(isHdcNull c)); c)
 	in
 		type ResultRegion = Region.ResultRegion
 		type HDC = HDC and HRGN = HRGN and HWND = HWND
@@ -145,7 +142,7 @@ struct
 			fun BeginPaint(hwnd: HWND): HDC * PAINTSTRUCT =
 			let
 				val b = alloc 1 psStr
-				val hdc = checkDC "BeginPaint" (beginPaint (hwnd, address b))
+				val hdc = checkDC (beginPaint (hwnd, address b))
 			in
 				(hdc, fromCPS b)
 			end
@@ -153,7 +150,7 @@ struct
 		end
 		
 		val InvalidateRect =
-		    (checkResult "InvalidateRect") o
+		    checkResult o
 		    (call3 (user "InvalidateRect") (HWND, POINTERTO RECT, BOOL) BOOL)
 		(*
 			Other painting and drawing functions:

@@ -47,18 +47,17 @@ struct
 			val startdoc = call2(gdi "StartDocA")(HDC, DOCINFO) INT
 			val res = startdoc(hdc, (sizeof dinfo, docName, output, dType, 0w0))
 		in
-			if res > 0 then res else raise OS.SysErr("StartDoc", SOME(GetLastError()))
+            checkResult(res > 0);
+			res
 		end
 
 		local
-			fun checkSuccess name res =
-				if res > 0 then ()
-				else raise OS.SysErr(name, SOME(GetLastError()))
+			fun checkSuccess res = checkResult(res > 0)
 		in
-			val EndDoc		= checkSuccess "EndDoc" o call1(gdi "EndDoc") HDC INT
-			val StartPage	= checkSuccess "StartPage" o call1(gdi "StartPage") HDC INT
-			val EndPage		= checkSuccess "EndPage" o call1(gdi "EndPage") HDC INT
-			val AbortDoc	= checkSuccess "AbortDoc" o call1(gdi "AbortDoc") HDC INT
+			val EndDoc		= checkSuccess o call1(gdi "EndDoc") HDC INT
+			val StartPage	= checkSuccess o call1(gdi "StartPage") HDC INT
+			val EndPage		= checkSuccess o call1(gdi "EndPage") HDC INT
+			val AbortDoc	= checkSuccess o call1(gdi "AbortDoc") HDC INT
 		end
 
 		datatype WMPrintOption = datatype MessageBase.WMPrintOption

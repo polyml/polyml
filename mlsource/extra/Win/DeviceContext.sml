@@ -408,10 +408,7 @@ struct
 	        in  (from2 (deref va2))
 	        end
 
-		fun checkDC name c =
-			if isHdcNull c
-			then raise OS.SysErr(name, SOME(GetLastError()))
-			else c
+		fun checkDC c = (checkResult(not(isHdcNull c)); c)
 	in
 		type HDC = HDC and HGDIOBJ = HGDIOBJ and HWND = HWND and HRGN = HRGN
 		type LOGFONT = Font.LOGFONT
@@ -471,9 +468,7 @@ struct
 			W of int
 			(* GetObjectType returns 0 in the event of an error. *)
 			fun toInt _ = raise Match
-			fun fromInt i =
-				if i = 0 then raise OS.SysErr("ObjectType", SOME(GetLastError()))
-				else raise Match;
+			fun fromInt i = (checkResult(i <> 0); raise Match);
 		in
 			val ENUMOBJECT = tableConversion(tab, SOME(fromInt, toInt))
 		end
@@ -642,8 +637,8 @@ struct
 	    val DeleteDC                   = call1(gdi "DeleteDC") (HDC) (SUCCESSSTATE "DeleteDC")
 	    val DeleteObject               = call1(gdi "DeleteObject") (HGDIOBJ) (SUCCESSSTATE "DeleteObject")
 	    val GetCurrentObject           = call2(gdi "GetCurrentObject") (HDC,ENUMOBJECT) HGDIOBJ
-        val GetDC                  	   = checkDC "GetDC" o call1(user "GetDC") (HWND) HDC
-	    val GetDCEx                    = checkDC "GetDCEx" o call3(user "GetDCEx") (HWND,HRGN,DEVICECONTEXTFLAG) HDC
+        val GetDC                  	   = checkDC o call1(user "GetDC") (HWND) HDC
+	    val GetDCEx                    = checkDC o call3(user "GetDCEx") (HWND,HRGN,DEVICECONTEXTFLAG) HDC
 	    val GetDCOrgEx                 = gdicall_IW "GetDCOrgEx" (SUCCESSSTATE "GetDCOrgEx") (HDC,POINT)
 	    val GetDeviceCaps              = call2(gdi "GetDeviceCaps") (HDC,DEVICEITEM) INT
 	    val GetObjectType              = call1(gdi "GetObjectType") (HGDIOBJ) ENUMOBJECT
@@ -663,7 +658,7 @@ struct
 		in
 			fun CreateDC(driver: string option, device: string option, output: string option,
 					data: DEVMODE option) =
-				checkDC "CreateDC"
+				checkDC
 					(cdc(driver, device, output,
 					case data of NONE => toCint 0 | SOME dev => toCdev dev))
 		end
@@ -692,9 +687,7 @@ struct
 				(* Call with a NULL buffer to find out the memory required.  Also
 				   checks the GDI object. *)
 				val space = getObj(hgdi, 0, toCint 0)
-				val _ =
-					if space <= 0 then raise OS.SysErr("GetObject", SOME(GetLastError()))
-					else ()
+				val _ = checkResult(space > 0);
 				val mem = alloc space Cchar
 				val res = getObj(hgdi, space, address mem)
 			in

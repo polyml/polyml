@@ -152,7 +152,7 @@ struct
 				    (h,start,no,address palarr)
 		in
 			if res <= 0
-			then raise OS.SysErr("GetPaletteEntries", SOME(GetLastError()))
+			then raiseSysErr()
 			else List.tabulate(res, fn i => fromPE (offset i Clong palarr))
 		end 
 		
@@ -165,7 +165,7 @@ struct
 				    (h,start,no,address palarr)
 		in
 			if res <= 0
-			then raise OS.SysErr("GetSystemPaletteEntries", SOME(GetLastError()))
+			then raiseSysErr()
 			else List.tabulate(res, fn i => fromPE (offset i Clong palarr))
 		end 
 		 
@@ -198,7 +198,7 @@ local
 		PolyML.PrettyString
             (concat["RGB{red=", Int.toString red,
 				   ",green=", Int.toString green,
-				   ",blue=", Int.toString blue, "}"], [])
+				   ",blue=", Int.toString blue, "}"])
 	end
 in
 	val _ = PolyML.addPrettyPrinter printColorRef

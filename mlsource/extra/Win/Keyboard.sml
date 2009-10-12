@@ -30,8 +30,7 @@ structure Keyboard:
 struct
 	local
 		open CInterface Base
-		fun checkWindow name c =
-			if isHNull c then raise OS.SysErr(name, SOME(GetLastError())) else c
+		fun checkWindow c = (checkResult(not(isHNull c)); c)
 	in
 		type HWND = HWND
 		val EnableWindow = call2 (user "EnableWindow") (HWND, BOOL) BOOL
@@ -39,7 +38,7 @@ struct
     	val GetFocus = call0 (user "GetFocus") () HWNDOPT
 	    val IsWindowEnabled = call1 (user "IsWindowEnabled") (HWND) BOOL
 	    val SetActiveWindow =
-			checkWindow "SetActiveWindow" o call1 (user "SetActiveWindow") (HWND) HWND
+			checkWindow o call1 (user "SetActiveWindow") (HWND) HWND
 
 		(* The argument to SetFocus is an option because we may ignore input.
 		   The result may be null if there was an error or if no window had focus. *)

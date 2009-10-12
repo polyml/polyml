@@ -45,22 +45,21 @@ struct
 		val hiconNull = hgdiObjNull
 		and isHiconNull = isHgdiObjNull
 
-		fun checkIcon name c =
-			if isHiconNull c then raise OS.SysErr(name, SOME(GetLastError())) else c
+		fun checkIcon c = (checkResult(not(isHiconNull c)); c)
 
 		val CopyIcon =
-			checkIcon "CopyIcon" o call1 (user "CopyIcon") (HICON) HICON
+			checkIcon o call1 (user "CopyIcon") (HICON) HICON
 
 		val DestroyIcon =
-			checkResult "DestroyIcon" o call1 (user "DestroyIcon") (HICON) BOOL
+			checkResult o call1 (user "DestroyIcon") (HICON) BOOL
 			
 		val DrawIcon =
-			checkResult "DrawIcon" o call4 (user "DrawIcon") (HDC, INT, INT, HICON) BOOL
+			checkResult o call4 (user "DrawIcon") (HDC, INT, INT, HICON) BOOL
 
 		val ExtractIcon = call3 (user "ExtractIcon") (HINSTANCE, STRING, INT) HICON
 
 		val LoadIcon =
-			checkIcon "LoadIcon" o call2 (user "LoadIconA") (HINSTANCE, RESID) HICON
+			checkIcon o call2 (user "LoadIconA") (HINSTANCE, RESID) HICON
 
 		(* Built-in icons. *)
 		val IDI_APPLICATION		= Resource.IdAsInt 32512

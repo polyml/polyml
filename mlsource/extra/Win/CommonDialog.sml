@@ -707,12 +707,12 @@ struct
 		let
 			val gft = call3(commdlg "GetFileTitleA") (STRING, POINTER, SHORT) SHORT
 			val buffsize = gft(file, toCint 0, 0)
-			val _ = if buffsize < 0 then raise OS.SysErr("GetFileTitle", SOME(GetLastError())) else ()
+			val _ = checkResult(buffsize >= 0)
 			val buf = alloc buffsize Cchar
 			val result = gft(file, address buf, buffsize)
 		in
-			if result < 0 then raise OS.SysErr("GetFileTitle", SOME(GetLastError())) 
-			else fromCstring(address buf)
+            checkResult(result >= 0);
+			fromCstring(address buf)
 		end
 
 
@@ -794,14 +794,13 @@ struct
 				val result =
 					call1 (commdlg (name ^"A")) POINTER HWND converted
 			in
-				if isHNull result
-				then raise OS.SysErr(name, SOME(GetLastError()))
-				else (* We need to keep hold of the vol corresponding to the
-						FINDREPLACE structure otherwise it may be garbage-
-						collected away. Also, since this is a modeless dialogue
-						we have to add it to the modeless dialogue list so
-						that keyboard functions work. *)
-					(Message.addModelessDialogue(result, converted); result)
+                checkResult(not(isHNull result));
+				(* We need to keep hold of the vol corresponding to the
+					FINDREPLACE structure otherwise it may be garbage-
+					collected away. Also, since this is a modeless dialogue
+					we have to add it to the modeless dialogue list so
+					that keyboard functions work. *)
+				(Message.addModelessDialogue(result, converted); result)
 			end
 		in
 			val FindText = findReplace "FindText"

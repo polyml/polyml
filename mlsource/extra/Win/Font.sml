@@ -446,7 +446,7 @@ struct
 			val getFaceCall = call3(gdi "GetTextFaceA") (HDC, INT, POINTER) INT
 			(* Call with a NULL buffer to find out the size. *)
 			val count = getFaceCall(hdc, 0, toCint 0)
-			val _ = if count < 0 then raise OS.SysErr("GetTextFace", SOME(GetLastError())) else ()
+			val _ = checkResult(count >= 0)
 			val buff = alloc count Cchar
 			val res = getFaceCall(hdc, count, address buff)
 		in

@@ -34,18 +34,18 @@ struct
                 open PolyML
 			  val stringFlags = accumulateFlags x flagTable
     	      fun plist [] depth = []
-    	       |  plist _ 0 = [PrettyString("...", [])]
-    		   |  plist [h]    depth = [PrettyString(h, [])]
+    	       |  plist _ 0 = [PrettyString "..."]
+    		   |  plist [h]    depth = [PrettyString h]
     		   |  plist (h::t) depth =
-                        PrettyString(h ^ ",", []) ::
+                        PrettyString(h ^ ",") ::
                         PrettyBreak (1, 0) ::
                         plist t (depth - 1)
 		    in
-    	      PrettyBlock (3, false,
-                PrettyString("[", []) ::
-        	        ((if depth <= 0 then [PrettyString("...", [])]
+    	      PrettyBlock (3, false, [],
+                PrettyString "[" ::
+        	        ((if depth <= 0 then [PrettyString "..."]
                           else plist stringFlags depth) @
-        	        [PrettyString("]", [])]
+        	        [PrettyString "]"]
                     )
                 )
 			end

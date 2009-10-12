@@ -153,7 +153,7 @@ struct
 				case gemfd(hemf, 0, toCint 0) of
 					0 => NONE (* No error - simply no description. *)
 				|	len =>
-						if len < 0 then raise OS.SysErr("GetEnhMetaFileDescription", SOME(GetLastError()))
+						if len < 0 then raiseSysErr()
 						else
 						let
 							(* The application and picture names are encoded as a pair. *)

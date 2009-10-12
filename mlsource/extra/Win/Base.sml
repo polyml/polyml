@@ -47,9 +47,11 @@ in
 	fun GetLastError(): OS.syserror =
 		RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1100, ())
 
+    (* The string argument of the SysErr exception is supposed to match the result of OS.errMsg. *)
+    fun raiseSysErr () = let val err = GetLastError() in raise OS.SysErr(OS.errorMsg err, SOME err) end
+
 	(* Many system calls return bool.  If the result is false we raise an exception. *)
-	fun checkResult name true = ()
-	|	checkResult name false = raise OS.SysErr(name, SOME(GetLastError()))
+	fun checkResult true = () |	checkResult false = raiseSysErr ()
 
 	(* SUCCESSSTATE returns a conversion which checks the result is true.
 	   It cannot be used for an argument, only a result. *)
@@ -57,7 +59,7 @@ in
 		val (fromCbool, _, bool) = breakConversion BOOL
 	in
 	fun SUCCESSSTATE name =
-		mkConversion (checkResult name o fromCbool)
+		mkConversion (checkResult o fromCbool)
 			(fn () => raise OS.SysErr("SUCCESSSTATE", NONE)) bool
 	end
 
@@ -752,9 +754,7 @@ in
 
 	(* Various functions return zero if error.  This conversion checks for that. *)
 	fun POSINT name =
-		absConversion {abs = fn 0 => raise OS.SysErr(name, SOME(GetLastError()))
-							   | n => n,
-				       rep = fn i => i} UINT
+		absConversion {abs = fn 0 => raiseSysErr() | n => n, rep = fn i => i} UINT
 
 	(* Conversion between string option and C strings.  NONE is converted to NULL. *)
 	local

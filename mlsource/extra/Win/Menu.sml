@@ -130,31 +130,28 @@ struct
 		val hmenuNull = hmenuNull
 		and isHmenuNull = isHmenuNull
 
-		fun checkMenu name c =
-			if isHmenuNull c
-			then raise OS.SysErr(name, SOME(GetLastError()))
-			else c
+		fun checkMenu c = (checkResult(not(isHmenuNull c)); c)
 
 		(* Check here means "make active", the opposite of uncheck *)
 		val CheckMenuRadioItem =
-			checkResult "CheckMenuRadioItem" o
+			checkResult o
 			call5 (user "CheckMenuRadioItem") (HMENU, UINT, UINT, UINT, MENUFLAG) BOOL
 
 		val CreateMenu =
-			checkMenu "CreateMenu" o call0 (user "CreateMenu") () HMENU
+			checkMenu o call0 (user "CreateMenu") () HMENU
 
 		val CreatePopupMenu =
-			checkMenu "CreatePopupMenu" o call0 (user "CreatePopupMenu") () HMENU
+			checkMenu o call0 (user "CreatePopupMenu") () HMENU
 
 		val DeleteMenu = 
-			checkResult "DeleteMenu" o
+			checkResult o
 			call3 (user "DeleteMenu") (HMENU, UINT, MENUFLAG) BOOL
 
 		val DestroyMenu = 
-			checkResult "DestroyMenu" o call1 (user "DestroyMenu") (HMENU) BOOL
+			checkResult o call1 (user "DestroyMenu") (HMENU) BOOL
 
 		val DrawMenuBar = 
-			checkResult "DrawMenuBar" o call1 (user "DrawMenuBar") (HWND) BOOL
+			checkResult o call1 (user "DrawMenuBar") (HWND) BOOL
 
 		local
 			val enableCall = call3(user "EnableMenuItem") (HMENU, INT, MENUFLAG) INT
@@ -163,9 +160,8 @@ struct
 			let
 				val res = enableCall(hMenu, id, flags)
 			in
-				if res = ~1
-				then raise OS.SysErr("EnableMenuItem", SOME(GetLastError()))
-				else toMenuFlagSet res
+				checkResult(res <> ~1);
+				toMenuFlagSet res
 			end
 		end
 
@@ -188,15 +184,14 @@ struct
 				
 				val res = callGMDI(hMenu, m, opts)
 			in
-				if res = ~1
-				then raise OS.SysErr("GetMenuDefaultItem", SOME(GetLastError()))
-				else res
+				checkResult(res <> ~1);
+				res
 			end
 		end
 
 		fun GetMenuItemCount hMenu =
 		case call1 (user "GetMenuItemCount") (HMENU) INT (hMenu) of
-			~1 => raise OS.SysErr("GetMenuItemCount", SOME(GetLastError()))
+			~1 => raiseSysErr()
 		|	n => n
 
 		val GetMenuItemID = call1 (user "GetMenuItemID") (HMENU) INT
@@ -378,9 +373,8 @@ struct
 			let
 				val res = getMenuState(hm, i, mf)
 			in
-				if res < 0
-				then raise OS.SysErr("GetMenuState", SOME(GetLastError()))
-				else (toMenuFlagSet(LOWORD res), HIWORD res)
+				checkResult(res >= 0);
+				(toMenuFlagSet(LOWORD res), HIWORD res)
 			end
 		end
 
