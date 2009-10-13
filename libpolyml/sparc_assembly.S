@@ -1212,35 +1212,36 @@ INLINE_ROUTINE(minus_word)
     TEST(word_lss,bcs)
 
 INLINE_ROUTINE(atomic_incr)
-    ld      MR_GLOBALLOCK,%i5   ! Load address of global lock
+    membar #StoreLoad | #LoadLoad ! Pre-atomic barrier
 ati1:
-    ldstub [%i5],%i4            ! Load current value and set to 0xff
-    cmp    %i4,0                ! Was it previously locked?
-    bne    ati1                 ! If yes, keep looping
-    nop
     ld     [%o0],%i4            ! First word of mutex
-    add    %i4,shiftup(1,TAGSHIFT),%i4 ! Add one
-    st     %i4,[%o0]            ! Store in mutex
-    mov    %i4,%o0              ! Result to result reg
-    mov    0,%i4                ! Set the lock to zero
-    st     %i4,[%i5]
+    add    %i4,shiftup(1,TAGSHIFT),%i5 ! Add one
+    cas    [%o0],%i4,%i5        ! Try to update it
+    cmp    %i4,%i5              ! Did it work?
+    bne,pn %icc,ati1
+    nop                         ! (DELAY SLOT)
+    add    %i4,shiftup(1,TAGSHIFT),%o0 ! Put the updated value in %o0
+    ba,pt  %xcc,ati2
+    membar #StoreLoad | #StoreStore
+ati2:
     jmp    %o7+6
     nop
     RegMask (atomic_incr,M_O0|M_O4|M_O7)
 
 INLINE_ROUTINE(atomic_decr)
+    membar #StoreLoad | #LoadLoad ! Pre-atomic barrier
     ld      MR_GLOBALLOCK,%i5   ! Load address of global lock
 atd1:
-    ldstub [%i5],%i4            ! Load current value and set to 0xff
-    cmp    %i4,0                ! Was it previously locked?
-    bne    atd1                 ! If yes, keep looping
-    nop
     ld     [%o0],%i4            ! First word of mutex
-    sub    %i4,shiftup(1,TAGSHIFT),%i4 ! Add one
-    st     %i4,[%o0]            ! Store in mutex
-    mov    %i4,%o0              ! Result to result reg
-    mov    0,%i4                ! Set the lock to zero
-    st     %i4,[%i5]
+    sub    %i4,shiftup(1,TAGSHIFT),%i5 ! Subtract one
+    cas    [%o0],%i4,%i5        ! Try to update it
+    cmp    %i4,%i5              ! Did it work?
+    bne,pn %icc,atd1
+    nop                         ! (DELAY SLOT)
+    sub    %i4,shiftup(1,TAGSHIFT),%o0 ! Put the updated value in %o0
+    ba,pt  %xcc,atd2
+    membar #StoreLoad | #StoreStore
+atd2:
     jmp    %o7+6
     nop
     RegMask (atomic_decr,M_O0|M_O4|M_O7)

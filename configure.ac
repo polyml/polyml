@@ -3,8 +3,7 @@
 
 AC_INIT([Poly/ML], [5.3], [polyml AT polyml DOT org], [polyml])
 AM_INIT_AUTOMAKE
-# Require 2.62 to ensure that we can detect X includes on Mac OS 10.6.
-AC_PREREQ(2.62)
+AC_PREREQ(2.59)
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -21,7 +20,7 @@ if test "$ac_debug_mode" != "yes"; then
         # test X || Y  is equivalent to  if !X then Y
         test "${CFLAGS+set}" = set || CFLAGS="-O3"
         test "${CXXFLAGS+set}" = set || CXXFLAGS="-O3"
-	test "${CCASFLAGS+set}" = set || CCASFLAGS=""
+        test "${CCASFLAGS+set}" = set || CCASFLAGS=""
 else
         test "${CFLAGS+set}" = set || CFLAGS="-g"
         test "${CXXFLAGS+set}" = set || CXXFLAGS="-g"
@@ -270,6 +269,11 @@ case "${host_cpu}" in
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
             polyarch=sparc
+            # Need the v9 argument to compile the atomic code.  This means that this will not work
+            # on older processors.
+            CXXFLAGS="$CXXFLAGS -mcpu=v9"
+            CFLAGS="$CFLAGS -mcpu=v9"
+            CCASFLAGS="$CCASFLAGS -mcpu=v9"
             ;;
       power* | ppc*)
             AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])

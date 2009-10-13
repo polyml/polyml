@@ -1375,6 +1375,26 @@ void SparcDependent::SetCodeConstant(TaskData *taskData, Handle data, Handle con
     }
 }
 
+static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
+{
+    POLYUNSIGNED result;
+    __asm__ __volatile__ (
+      "membar #StoreLoad | #LoadLoad\n" 
+      "1: ld [%2],%%l0\n"  
+      " add %%l0,%1,%%l1\n"
+      " cas [%2],%%l0,%%l1\n"
+      " bne,pn %%icc,1b\n"
+      " nop\n"
+      " add %%l0,%1,%0\n"
+      " ba,pt %%xcc,1f\n"
+      " membar #StoreLoad | #StoreStore\n"
+      "1:\n"
+    :"=r"(result) // Output
+    :"r"(toAdd), "r" (p) // Input
+    : "%l0", "%l1", "cc", "memory" // Modifies l0, l1, cc and memory
+    );
+    return result;
+}
 
 // We have assembly code versions of atomic increment and decrement and it's
 // important that if we use the same method of locking a mutex whether it's
@@ -1383,40 +1403,16 @@ void SparcDependent::SetCodeConstant(TaskData *taskData, Handle data, Handle con
 Handle SparcDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
-    unsigned *gLock = &globalLock;
-    __asm__ __volatile__ (
-     "1: ldstub [%0],%%l0\n"  // Load the value in globalLock and set it to 0xff
-         " cmp %%l0,0\n"      // If the value was already 0xff try again
-         " bne 1b\n"
-         " nop\n"
-    :                       // No output
-    :"r"(gLock)             // %0 - Input - Address of globalLock
-    : "%l0", "cc", "memory" // Modifies l0, cc and memory
-    );
-    PolyWord result = PolyWord::FromUnsigned(p->Get(0).AsUnsigned() + (1<<POLY_TAGSHIFT));
-    p->Set(0, result);
-    globalLock = 0; // Release the lock
-    return taskData->saveVec.push(result);
+    POLYUNSIGNED result = AtomicAdd(p, 1 << POLY_TAGSHIFT);
+    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
 // Decrement the value contained in the first word of the mutex.
 Handle SparcDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
-    unsigned *gLock = &globalLock;
-    __asm__ __volatile__ (
-     "1: ldstub [%0],%%l0\n"  // Load the value in globalLock and set it to 0xff
-         " cmp %%l0,0\n"      // If the value was already 0xff try again
-         " bne 1b\n"
-         " nop\n"
-    :                       // No output
-    :"r"(gLock)             // %0 - Input - Address of globalLock
-    : "%l0", "cc", "memory" // Modifies l0, cc and memory
-    );
-    PolyWord result = PolyWord::FromUnsigned(p->Get(0).AsUnsigned() - (1<<POLY_TAGSHIFT));
-    p->Set(0, result);
-    globalLock = 0; // Release the lock
-    return taskData->saveVec.push(result);
+    POLYUNSIGNED result = AtomicAdd(p, (-1) << POLY_TAGSHIFT);
+    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
 void SparcDependent::FlushInstructionCache(void *p, POLYUNSIGNED bytes)
