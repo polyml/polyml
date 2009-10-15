@@ -94,7 +94,6 @@ of a garbage collection.
 #define MR_STACKTOP       [%i0+28]
 #define MR_IOENTRY        [%i0+36]
 #define MR_THREADID       [%i0+40]
-#define MR_GLOBALLOCK     [%i0+44]
 
 #define loadg(x, r) sethi %hi(x),r; ld [r+%lo(x)],r
 #define storeg(r, x, w) sethi %hi(x),w; st r,[w+%lo(x)]
@@ -1230,7 +1229,6 @@ ati2:
 
 INLINE_ROUTINE(atomic_decr)
     membar #StoreLoad | #LoadLoad ! Pre-atomic barrier
-    ld      MR_GLOBALLOCK,%i5   ! Load address of global lock
 atd1:
     ld     [%o0],%i4            ! First word of mutex
     sub    %i4,shiftup(1,TAGSHIFT),%i5 ! Subtract one

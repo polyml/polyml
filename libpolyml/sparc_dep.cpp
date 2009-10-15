@@ -133,7 +133,6 @@ typedef struct _MemRegisters {
     byte        *raiseException; // Called to raise an exception
     byte        *ioEntry; // Called to save the ML state and return to C.
     PolyObject  *threadId; // Pointer to ML thread object.
-    unsigned    *globalLock; // Pointer to global lock.
 } MemRegisters;
 
 class SparcTaskData: public MDTaskData {
@@ -148,7 +147,7 @@ public:
 
 class SparcDependent: public MachineDependent {
 public:
-    SparcDependent(): globalLock(0) {}
+    SparcDependent() {}
 
     // Create a task data object.
     virtual MDTaskData *CreateTaskData(void) { return new SparcTaskData(); }
@@ -188,7 +187,6 @@ private:
     Handle BuildCodeSegment(TaskData *taskData, const unsigned *code, unsigned codeWords, char functionName);
     Handle BuildKillSelfCode(TaskData *taskData);
 
-    unsigned globalLock; // This is used in atomic increment and decrement.
 };
 
 #define VERSION_NUMBER POLY_version_number
@@ -498,7 +496,6 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
     
     mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
     mdTask->memRegisters.threadId = taskData->threadObject;
-    mdTask->memRegisters.globalLock = &globalLock;
     
     if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
         // We need to retry the call.  The entry point should be the
