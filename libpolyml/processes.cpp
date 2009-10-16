@@ -1211,12 +1211,16 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     {
         // Look at the threads to see if they are running.
         bool allStopped = true;
-        bool allDied = true;
+        bool noUserThreads = true;
+        bool signalThreadRunning = false;
         for (unsigned i = 0; i < taskArraySize; i++)
         {
             ProcessTaskData *p = taskArray[i];
-            // If the only thread left is the signal thread assume we're finished.
-            if (p && p != sigTask) allDied = false;
+            if (p)
+            {
+                if (p == sigTask) signalThreadRunning = true;
+                else noUserThreads = false;
+            }
             if (p && p->inMLHeap)
             {
                 allStopped = false;
@@ -1225,8 +1229,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                     machineDependent->InterruptCode(p);
             }
         }
-        if (allDied)
-            break; // All threads have died: exit.
+        if (noUserThreads)
+        {
+            // If all threads apart from the signal thread have exited then
+            // we can finish but we must make sure that the signal thread has
+            // exited before we finally finish and deallocate the memory.
+            if (signalThreadRunning) exitRequest = true;
+            else break; // Really no threads.
+        }
 
         if (allStopped && threadRequest != 0)
         {
