@@ -120,6 +120,8 @@ public:
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
     virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+    // Set a mutex to one.  On the Sparc this requires a memory barrier.
+    virtual void SetToReleased(TaskData *taskData, Handle mutexp);
 };
 
 extern MachineDependent *machineDependent;

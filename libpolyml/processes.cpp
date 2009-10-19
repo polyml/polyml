@@ -370,6 +370,13 @@ Handle MachineDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
     return SAVE(newValue);
 }
 
+// Release a mutex and if necessary apply a write barrier.
+// This is the default code for platforms that don't need a barrier.
+void MachineDependent::SetToReleased(TaskData * /*taskData*/, Handle mutexp)
+{
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
+}
+
 // Called from interface vector.  Generally the assembly code will be
 // used instead of this.
 Handle AtomicIncrement(TaskData *taskData, Handle mutexp)
@@ -517,7 +524,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             Handle decrResult = machineDependent->AtomicIncrement(taskData, mutexH);
             if (UNTAGGED(decrResult->Word()) != 1)
             {
-                DEREFHANDLE(mutexH)->Set(0, TAGGED(1)); // Set this to released.
+                machineDependent->SetToReleased(taskData, mutexH);
                 // The mutex was locked so we have to release any waiters.
                 // Unlock any waiters.
                 for (unsigned i = 0; i < taskArraySize; i++)

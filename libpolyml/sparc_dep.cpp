@@ -179,6 +179,8 @@ public:
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
     virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+    // Set a mutex to one.  On the Sparc this requires a memory barrier.
+    virtual void SetToReleased(TaskData *taskData, Handle mutexp);
 
 private:
     bool TrapHandle(TaskData *taskData);
@@ -1411,6 +1413,19 @@ Handle SparcDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
     POLYUNSIGNED result = AtomicAdd(p, (-1) << POLY_TAGSHIFT);
     return taskData->saveVec.push(PolyWord::FromUnsigned(result));
 }
+
+// Release a mutex and if necessary apply a write barrier.
+void SparcDependent::SetToReleased(TaskData * /*taskData*/, Handle mutexp)
+{
+    __asm__ __volatile__ (
+      " membar #LoadStore|#StoreStore\n"
+    :
+    :
+    : "memory"
+    );
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
+}
+
 
 void SparcDependent::FlushInstructionCache(void *p, POLYUNSIGNED bytes)
 {
