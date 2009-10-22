@@ -95,7 +95,7 @@ local
 					if bit = 0wx80
 					then
 						(
-						System_setb(vec, byteno, acc);
+						System_setb(vec, byteno, byte);
 						init(byteno+0w1, 0w0, 0w1, b)
 						)
 					else init(byteno, byte, bit << 0w1, b)
