@@ -1266,7 +1266,22 @@ struct
                 fun makeId (eq, isdt, typeFn, loc) =
                     makeVariableId(eq, isdt, true, loc, typeFn, structPath)
 
-                val _ : types = pass2 (dec, makeId, Env newEnv, lex);
+                (* We need a map to look up types.  This is only used in one place:
+                   if the item we're processing is a datatype then we need to look
+                   at the bindings of type identifiers to compute equality correctly.
+                   e.g. type t = int*int datatype s = X of t . *)
+                fun equalityForId(id as TypeId {typeFn=(_, EmptyType), ...}) = isEquality id
+                |   equalityForId(TypeId{typeFn=(_, equiv), ...}) = typePermitsEquality equiv
+
+                fun findEquality n =
+                    if n < initTypeId
+                    then equalityForId(outerTypeIdEnv n)
+                    else case realId(n-initTypeId) of
+                        FreeSlot t => equalityForId t
+                    |   VariableSlot { boundId, ...} => equalityForId boundId
+                    |   _ => raise InternalError "internalMap: Not bound or Free"
+
+                val _ : types = pass2 (dec, makeId, Env newEnv, lex, findEquality);
                 (* Replace the constructor list for the datatype with the modified
                    constructors.  All the constructors should be in the set.  Is
                    it possible that one might not be because of an error? *)

@@ -141,7 +141,8 @@ sig
   val emptyTree : parsetree;
 
     val pass2:
-        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) * env * lexan -> types
+        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
+        env * lexan * (int -> bool) -> types
 
     type debugenv = environEntry list * (int->codetree)
 

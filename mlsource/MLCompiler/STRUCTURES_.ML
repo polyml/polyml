@@ -1703,7 +1703,7 @@ struct
                         (typeVars, decType))
 
             (* Process the body and discard the type. *)
-            val _ : types = pass2 (dec, makeId, Env newEnv, lex);
+            val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
        in
          ()
        end; (* pass2Singleton *)

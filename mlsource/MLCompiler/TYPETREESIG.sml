@@ -107,7 +107,7 @@ sig
     val typeConstrFromOverload: types * bool -> typeConstrs;
 
     (* Check a set of mutually recursive datatypes to see which admit equality. *)
-    val computeDatatypeEqualities: typeConstrs list -> unit;
+    val computeDatatypeEqualities: typeConstrs list * (int -> bool) -> unit;
 
     (* Unify two type structures to give a unified type. *)
     val unifyTypes: types * types -> matchResult option

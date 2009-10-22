@@ -1843,7 +1843,7 @@ struct
        declarations. It performs the type checking. "makeTypeId" is used
        to construct unique identifiers for types depending on the context
        (i.e. in a signature, structure or functor). *)
-    fun pass2 (v, makeTypeId, env, lex) =
+    fun pass2 (v, makeTypeId, env, lex, sigTypeIdMap) =
     let
       (* Returns a function which can be passed to unify or apply to
          print a bit of context info. *)
@@ -3614,7 +3614,7 @@ struct
 
             (* Third pass - Check to see if equality testing is allowed for
                these types. *)
-            val () = computeDatatypeEqualities listOfTypes;
+            val () = computeDatatypeEqualities(listOfTypes, sigTypeIdMap);
 
             (* If this is a datatype declaration the value constructors should be
                entered in the surrounding scope, otherwise (abstract type

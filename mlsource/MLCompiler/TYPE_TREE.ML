@@ -1597,7 +1597,7 @@ struct
      types are mutually recursive so value constructors of one type may
      take arguments involving values of any of the others. *)
      
-    fun computeDatatypeEqualities types =
+    fun computeDatatypeEqualities(types, boundIdEq) =
     let
         datatype state =
           Processed of tri              (* Already processed or processing. *)
@@ -1645,7 +1645,12 @@ struct
         let 
             (* Look it up to see if we have already done it. It may fail because
                we may have constructors that do not admit equality. *)
-            val thisState = getOpt(lookup constructorId, Processed No);
+            val thisState =
+                case (lookup constructorId, constructorId) of
+                    (SOME inList, _) => inList
+                |   (NONE, TypeId{idKind = Bound{offset, ...}, ...}) =>
+                        Processed(if boundIdEq offset then Yes else No)
+                |   _ => Processed No
         in
             if isProcessed thisState
             then stateProcessed thisState (* Have either done it already or are currently doing it. *)
