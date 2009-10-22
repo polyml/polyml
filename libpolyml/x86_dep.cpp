@@ -88,6 +88,15 @@
 /* The unchecked reg field is used for the condition codes. */
 #define UNCHECKED_REGS  1
 
+// Number of arguments passed in registers,
+// The remainder go on the stack.
+#ifndef HOSTARCHITECTURE_X86_64
+#define ARGS_IN_REGS    2
+#else /* HOSTARCHITECTURE_X86_64 */
+#define ARGS_IN_REGS    5
+#endif /* HOSTARCHITECTURE_X86_64 */
+
+
 /* the amount of ML stack space to reserve for registers,
    C exception handling etc. The compiler requires us to
    reserve 2 stack-frames worth (2 * 20 words) plus whatever
@@ -1633,10 +1642,10 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         POLYUNSIGNED argCount = argv->Length();
         // Check we have space for the arguments.  This may result in a GC which
         // in turn may throw a C++ exception.
-        if (argCount > 2)
+        if (argCount > ARGS_IN_REGS)
         {
             try {
-                CheckAndGrowStack(taskData, taskData->stack->p_sp - (argCount - 2));
+                CheckAndGrowStack(taskData, taskData->stack->p_sp - (argCount - ARGS_IN_REGS));
             }
             catch (IOException)
             {
@@ -1658,13 +1667,12 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
             PSP_R10(taskData->stack) = argv->Get(4);
 #endif /* HOSTARCHITECTURE_X86_64 */
         // Remaining args go on the stack.
-#ifndef HOSTARCHITECTURE_X86_64
-        for (POLYUNSIGNED i = 2; i < argCount; i++)
-            *(--PSP_SP(taskData->stack)) = argv->Get(i+2);
-#else /* HOSTARCHITECTURE_X86_64 */
-        for (POLYUNSIGNED i = 5; i < argCount; i++)
+        PolyWord returnAddress = *PSP_SP(taskData->stack)++;
+        for (POLYUNSIGNED i = ARGS_IN_REGS; i < argCount; i++)
+        {
             *(--PSP_SP(taskData->stack)) = argv->Get(i);
-#endif /* HOSTARCHITECTURE_X86_64 */
+        }
+        *(--PSP_SP(taskData->stack)) = returnAddress;
     }
     // The closure goes into the closure reg.
     PSP_EDX(taskData->stack) = DEREFWORD(closure);
