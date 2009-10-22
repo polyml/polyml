@@ -772,15 +772,27 @@ struct
 
 
             fun nextLevel {express: parsetree*location,operator: string*location,preclevl,right}
-                           (returnLevel, lastRight, lastOp) =
+                           (returnLevel, lastRight) =
             let
                 val next = readNextOps(); (* get the next operator and operand.*)
+
+                (* In ML97 two operators of the same precedence must both be
+                   left associative or both right associative. *)
+                val () =
+                    if #preclevl next = preclevl andalso #right next <> right
+                    then errorMessage (lex, location lex,
+                            concat["Operators \"", #1 operator, "\" and \"", #1 (#operator next),
+                                "\" have the same precedence but \"", #1 operator, "\" is ",
+                                if right then "right" else "left", "-associative while \"",
+                                #1 (#operator next), "\" is ",
+                                if #right next then "right" else "left", "-associative."])
+                    else ();
 
                 val rightOp =
                     if #preclevl next > preclevl orelse
                         (* next operator is more binding-it must be processed first *)
                         right andalso #preclevl next = preclevl 
-                    then nextLevel next (preclevl, right, #1 operator)
+                    then nextLevel next (preclevl, right)
                     else next;
 
                 (* At this point we are either at the end of the expression or
@@ -801,20 +813,9 @@ struct
                    (i.e. stronger than the operator before this series) then
                     repeat else return this result. *)
             in
-                (* In ML97 two operators of the same precedence must both be
-                   left associative or both right associative. *)
-                if #preclevl rightOp = returnLevel andalso #right rightOp <> lastRight
-                then errorMessage (lex, location lex,
-                        concat["Operators \"", lastOp, "\" and \"", #1 (#operator rightOp),
-                            "\" have the same precedence but \"", lastOp, "\" is ",
-                            if lastRight then "right" else "left", "-associative while \"",
-                            #1 (#operator rightOp), "\" is ",
-                            if #right rightOp then "right" else "left", "-associative."])
-                else ();
-
                 if #preclevl rightOp > returnLevel orelse
                     #preclevl rightOp = returnLevel andalso lastRight
-                then nextLevel applied (returnLevel, lastRight, lastOp)
+                then nextLevel applied (returnLevel, lastRight)
                 else applied
             end (* nextLevel *);
 
@@ -823,7 +824,7 @@ struct
         in
             if #preclevl ops < 0 (* no operator *)
             then #express ops
-            else #express (nextLevel ops (~1, false, ""))
+            else #express (nextLevel ops (~1, false))
         end (* parseInfix *);
 
         fun pattern fsys lex env =
