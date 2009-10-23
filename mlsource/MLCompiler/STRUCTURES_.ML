@@ -1759,26 +1759,6 @@ struct
             enterSig      = #enter newSigEnv,
             enterFunct    = #enter newFuncEnv
         };
-
-        (* Check for free type-variables. *)
-		(* Check the type of a value. *)
-		fun checkValueForFreeTypeVariables(name: string, v: values) =
-			checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
-
-		(* Find all the values in the structure. *)
-		fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
-		let
-			fun checkEntry(dName: string, dVal: universal, ()) =
-				if tagIs structVar dVal
-				then checkStructSigForFreeTypeVariables(name ^ dName ^ ".",
-						structSignat((tagProject structVar) dVal))
-				else if tagIs valueVar dVal
-				then checkValueForFreeTypeVariables(name ^ dName, (tagProject valueVar) dVal)
-				else ()
-		in
-			univFold(sigTab s, checkEntry, ())
-		end
-
         (* Create the free identifiers.  These are initially Bound but are replaced
            by Free after the code has been executed and we have the values for the
            printer and equality functions.  They are only actually created in
@@ -1811,7 +1791,40 @@ struct
                 end
         end
 
-        fun pass2TopDec (StrDec(str, typeIds)) =
+        (* We have to check that a type does not contain free variables and turn them into
+           unique monotypes if they exist.  This is a bit messy.  We have to allow subsequent
+           structure declarations to freeze the types (there's an example on p90 of the
+           Definition) but we can't functors to get access to unfrozen free variables because
+           that can break the type system.  *)
+		fun checkValueForFreeTypeVariables(name: string, v: values) =
+			checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
+
+		(* Find all the values in the structure. *)
+		fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
+		let
+			fun checkEntry(dName: string, dVal: universal, ()) =
+				if tagIs structVar dVal
+				then checkStructSigForFreeTypeVariables(name ^ dName ^ ".",
+						structSignat((tagProject structVar) dVal))
+				else if tagIs valueVar dVal
+				then checkValueForFreeTypeVariables(name ^ dName, (tagProject valueVar) dVal)
+				else ()
+		in
+			univFold(sigTab s, checkEntry, ())
+		end
+
+        fun checkVariables (newValEnv, newStrEnv) =
+        (
+    		#apply newValEnv
+                (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
+    		#apply newStrEnv (
+    			fn (n: string, s: structVals) =>
+    				checkStructSigForFreeTypeVariables(n^".", structSignat s))
+        )
+            
+        fun pass2TopDec ([], envs) = List.app checkVariables envs
+
+        |   pass2TopDec (StrDec(str, typeIds)::rest, envs) =
             let
                 (* Remember the top-level Ids created in this strdec. *)
                 fun makeId(isVar, eq, isdt, desc) =
@@ -1824,23 +1837,14 @@ struct
             in
                 (* strdec: structure or core-language topdec. *)
                 pass2Struct([str], makeId, topLevelIdNumber, makeTopLevelIdEnv, Env env, lex, location lex, "");
-                (* Check for free type variables.  We have to do this after unification
-                   within the strdec because later declarations may freeze earlier but
-                   we must do this for each topdec.  Otherwise it's possible to associate
-                   a global ref with a functor argument and break the type system. *)
-                if errorOccurred lex then ()
-    		  	else
-                (
-            		#apply newValEnv
-                        (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
-            		#apply newStrEnv (
-            			fn (n: string, s: structVals) =>
-            				checkStructSigForFreeTypeVariables(n^".", structSignat s))
-                )
+
+                pass2TopDec(rest, if errorOccurred lex then [] else (newValEnv, newStrEnv) :: envs)
             end
    
-        |   pass2TopDec(topdec as FunctorDec (structList : functorBind list, lno)) =
+        |   pass2TopDec((topdec as FunctorDec (structList : functorBind list, lno)) :: rest, envs) =
             let
+                val () = List.app checkVariables envs (* Check previous variables. *)
+
                 (* There is a restriction that the same name may not be bound twice.
         		   As with other bindings functor bindings happen in parallel.
         		   DCJM 6/1/00. *)
@@ -2056,11 +2060,14 @@ struct
                 (* Each element in the list is a functor binding. *)
                 List.app pass2FunctorBind structList;
                 (* Put them into the enclosing env. *)
-                #apply sEnv (#enterFunct env)		
+                #apply sEnv (#enterFunct env);
+                pass2TopDec(rest, [])		
             end (* FunctorDec *)
 
-        |   pass2TopDec(topdec as SignatureDec (structList : sigBind list, lno)) =
+        |   pass2TopDec((topdec as SignatureDec (structList : sigBind list, lno)) :: rest, envs) =
             let
+                val () = List.app checkVariables envs (* Check previous variables. *)
+
                 (* There is a restriction that the same name may not be bound twice.
     		       As with other bindings functor bindings happen in parallel.
     		       DCJM 6/1/00. *)
@@ -2087,10 +2094,11 @@ struct
             in
                 List.app pass2SignatureBind structList;
                 (* Put them into the enclosing env. *)
-                #apply sEnv (#enterSig env)		
+                #apply sEnv (#enterSig env)	;
+                pass2TopDec(rest, [])
             end
     in 
-        List.app pass2TopDec strs;
+        pass2TopDec(strs, []);
         (* Mark any exported values as referenced. *)
 		#apply newValEnv
             (fn (s: string, _: values) =>
