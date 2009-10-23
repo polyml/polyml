@@ -1,0 +1,112 @@
+(* Run the regression tests. *)
+
+let
+
+    fun runTests (dirName, expect) =
+    let
+        (* Run a file.  Returns true if it succeeds, false if it fails. *)
+        fun runTest fileName =
+        let
+            open PolyML.Compiler
+            (* First in list is the name with no suffix. *)
+            val inStream = TextIO.getInstream(TextIO.openIn fileName)
+            val stream = ref inStream
+
+            val lineNo   = ref 1;
+            fun getChar () : char option =
+                case TextIO.StreamIO.input1 (! stream) of
+                    NONE => NONE
+                |   SOME (eoln as #"\n", strm) =>
+                    (
+                        lineNo := !lineNo + 1;
+                        stream := strm;
+                        SOME eoln
+                    )
+                |   SOME(c, strm) => (stream := strm; SOME c)
+            (* Create a private name space for each test otherwise declarations in one
+               could affect another. *)
+            fun makeSpace(globalLook, globalAll) =
+            let
+                open HashArray
+                val table = hash 10
+                infix 8 sub
+                fun lookup s =
+                    case table sub s of
+                        NONE => globalLook s
+                    |   SOME r => SOME r
+                fun enter(s, v) = update(table, s, v)
+                fun all () = fold (fn(s, v, l) => (s, v) :: l) (globalAll()) table
+            in
+                { lookup = lookup, enter = enter, all = all }
+            end
+            val { lookupFix, lookupSig, lookupVal, lookupType, lookupFunct, lookupStruct,
+                  allFix, allSig, allVal, allType, allFunct, allStruct, ...} = PolyML.globalNameSpace;
+            val fixSpace = makeSpace(lookupFix, allFix)
+            val sigSpace = makeSpace(lookupSig, allSig)
+            val valSpace = makeSpace(lookupVal, allVal)
+            val typeSpace = makeSpace(lookupType, allType)
+            val funSpace = makeSpace(lookupFunct, allFunct)
+            val strSpace = makeSpace(lookupStruct, allStruct)
+
+            val localNameSpace: PolyML.NameSpace.nameSpace =
+            {
+                lookupFix    = #lookup fixSpace,
+                lookupSig    = #lookup sigSpace,
+                lookupVal    = #lookup valSpace,
+                lookupType   = #lookup typeSpace,
+                lookupFunct  = #lookup funSpace,
+                lookupStruct = #lookup strSpace,
+                enterFix     = #enter fixSpace,
+                enterSig     = #enter sigSpace,
+                enterVal     = #enter valSpace,
+                enterType    = #enter typeSpace,
+                enterFunct   = #enter funSpace,
+                enterStruct  = #enter strSpace,
+                allFix       = #all fixSpace,
+                allSig       = #all sigSpace,
+                allVal       = #all valSpace,
+                allType      = #all typeSpace,
+                allFunct     = #all funSpace,
+                allStruct    = #all strSpace
+            }
+
+        in
+            (
+                while not (TextIO.StreamIO.endOfStream(!stream)) do
+                let
+                    fun discardOut _ = ()
+                    val nameSpace = PolyML.globalNameSpace
+    
+                    val code = PolyML.compiler(getChar, [CPOutStream discardOut, CPNameSpace localNameSpace])
+                in
+                    code()
+                end;
+                (* Normal termination: close the stream. *)
+                TextIO.StreamIO.closeIn (! stream);
+                true (* Succeeded. *)
+            ) handle exn => (TextIO.StreamIO.closeIn(!stream); false)
+
+        end;
+
+        open OS.FileSys OS.Path
+        val dir = openDir dirName
+        fun runDir () =
+            case readDir dir of
+                NONE => () (* Finished *)
+            |   SOME f =>
+                (
+                    print f; print " => ";
+                    if runTest(joinDirFile{dir=dirName, file=f}) = expect
+                    then print "Passed\n"
+                    else print "Failed\n";
+                    runDir()
+                )
+    in
+        runDir ();
+        closeDir dir
+    end;
+in
+    (* Each test in the Succeed directory should succeed and *)
+    runTests("Succeed", true);
+    runTests("Fail", false)
+end;
