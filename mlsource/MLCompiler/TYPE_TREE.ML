@@ -1426,26 +1426,8 @@ struct
   end (* generaliseTypes *);
 
 
-  (* Exported wrapper for generaliseTypes. *)
-  fun generalise (atyp : types) : types = generaliseTypes (atyp, []);
-
-  fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
-  let
-	fun checkTypes (typ: types) (ok: bool) : bool =
-		case typ of
-			TypeConstruction {value, ...} =>
-				if ok andalso tcLetDepth (pling value) > depth
-				then
-					(
-					errorFn("Type contains local datatype (" ^ tcName  (pling value) ^")");
-					false
-					)
-				else true
-		|	_ => true
-  in
-  	foldType checkTypes ty true;
-	()
-  end
+    (* Exported wrapper for generaliseTypes. *)
+    fun generalise (atyp : types) : types = generaliseTypes (atyp, []);
 	
   (* Make a match list from a list of type variables and types. *)
   
@@ -1471,14 +1453,40 @@ struct
        copyVars (List.map typesTypeVar (#args (typesTypeConstruction (#result constrFun))), typeArgs))
   end;
 
-  (* If we have a type construction which is an alias for another type
-     we construct the alias by first instantiating all the type variables
-     and then copying the type. *)
+    (* If we have a type construction which is an alias for another type
+       we construct the alias by first instantiating all the type variables
+       and then copying the type. *)
     fun makeEquivalent (atyp, args) =
         case tcIdentifier atyp of
             TypeId{typeFn=(_, EmptyType), ...} => raise InternalError "makeEquivalent: Not a type function"
         |   TypeId{typeFn=(typeArgs, typeResult), ...} =>
                 generaliseTypes(typeResult, copyVars (typeArgs, args))
+
+    (* Look for the occurrence of locally declared datatypes in the type of a value. *)
+    fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
+    let
+	    fun checkTypes (typ: types) (ok: bool) : bool =
+		case typ of
+			TypeConstruction {value, args, ...} =>
+            let
+                val constr = pling value
+            in
+                if tcIsAbbreviation constr
+                then (* May be an alias for a type that contains a local datatype. *)
+                    foldType checkTypes (makeEquivalent (constr, args)) ok
+				else if ok andalso tcLetDepth constr > depth
+				then
+					(
+					errorFn("Type contains local datatype (" ^ tcName constr ^")");
+					false
+					)
+				else true
+            end
+		|	_ => true
+    in
+  	    foldType checkTypes ty true;
+	    ()
+    end
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
