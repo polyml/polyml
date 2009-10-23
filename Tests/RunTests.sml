@@ -94,6 +94,8 @@ let
             case readDir dir of
                 NONE => () (* Finished *)
             |   SOME f =>
+                if String.isSuffix "ML" f
+                then
                 (
                     print f; print " => ";
                     if runTest(joinDirFile{dir=dirName, file=f}) = expect
@@ -101,12 +103,13 @@ let
                     else print "Failed\n";
                     runDir()
                 )
+                else runDir()
     in
         runDir ();
         closeDir dir
     end;
 in
-    (* Each test in the Succeed directory should succeed and *)
+    (* Each test in the Succeed directory should succeed and those in the Fail directory should fail. *)
     runTests("Succeed", true);
     runTests("Fail", false)
 end;
