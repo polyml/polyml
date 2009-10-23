@@ -772,27 +772,32 @@ struct
 
 
             fun nextLevel {express: parsetree*location,operator: string*location,preclevl,right}
-                           (returnLevel, lastRight) =
+                           (returnLevel, lastRight, lastOp) =
             let
                 val next = readNextOps(); (* get the next operator and operand.*)
-
+                
                 (* In ML97 two operators of the same precedence must both be
-                   left associative or both right associative. *)
-                val () =
-                    if #preclevl next = preclevl andalso #right next <> right
+                   left associative or both right associative.
+                   We actually have to check this in two different places depending
+                   on whether these are consecutive operators or there is a higher precedence
+                   operator in the middle. *)
+                fun checkAssociativity(op1, op2 (* Type includes unused express field. *)) =
+                    if #preclevl op1 = #preclevl op2 andalso #right op1 <> #right op2
                     then errorMessage (lex, location lex,
-                            concat["Operators \"", #1 operator, "\" and \"", #1 (#operator next),
-                                "\" have the same precedence but \"", #1 operator, "\" is ",
-                                if right then "right" else "left", "-associative while \"",
-                                #1 (#operator next), "\" is ",
-                                if #right next then "right" else "left", "-associative."])
+                            concat["Operators \"", #1(#operator op1), "\" and \"", #1 (#operator op2),
+                                "\" have the same precedence but \"", #1(#operator op1), "\" is ",
+                                if #right op1 then "right" else "left", "-associative while \"",
+                                #1 (#operator op2), "\" is ",
+                                if #right op2 then "right" else "left", "-associative."])
                     else ();
+
+                val () = checkAssociativity({right=right, operator=operator, preclevl=preclevl}, next)
 
                 val rightOp =
                     if #preclevl next > preclevl orelse
                         (* next operator is more binding-it must be processed first *)
                         right andalso #preclevl next = preclevl 
-                    then nextLevel next (preclevl, right)
+                    then nextLevel next (preclevl, right, operator)
                     else next;
 
                 (* At this point we are either at the end of the expression or
@@ -813,9 +818,11 @@ struct
                    (i.e. stronger than the operator before this series) then
                     repeat else return this result. *)
             in
+                checkAssociativity({right=lastRight, operator=lastOp, preclevl=returnLevel}, rightOp);
+
                 if #preclevl rightOp > returnLevel orelse
                     #preclevl rightOp = returnLevel andalso lastRight
-                then nextLevel applied (returnLevel, lastRight)
+                then nextLevel applied (returnLevel, lastRight, lastOp)
                 else applied
             end (* nextLevel *);
 
@@ -824,7 +831,7 @@ struct
         in
             if #preclevl ops < 0 (* no operator *)
             then #express ops
-            else #express (nextLevel ops (~1, false))
+            else #express (nextLevel ops (~1, false, ("", nullLocation)))
         end (* parseInfix *);
 
         fun pattern fsys lex env =
