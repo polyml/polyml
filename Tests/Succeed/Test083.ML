@@ -19,8 +19,15 @@ in
 	(if isOut p then ["Out"] else []) @
 	(if isPri p then ["Pri"] else []) @ l
 end;
+
 verify(null(List.foldl printPoll [] (OS.IO.poll([OS.IO.pollIn xPoll, OS.IO.pollOut xPoll], SOME(Time.fromSeconds 1)))));
-verify(null(List.foldl printPoll [] (OS.IO.poll([OS.IO.pollIn yPoll, OS.IO.pollOut yPoll], SOME(Time.fromSeconds 1)))));
+let
+    val p1 = List.foldl printPoll [] (OS.IO.poll([OS.IO.pollIn yPoll, OS.IO.pollOut yPoll], SOME(Time.fromSeconds 1)))
+in
+    (* This gives [] in Windows but ["Out"] on Linux*)
+    verify(p1 = [] orelse p1 = ["Out"])
+end;
+
 let
 val (_, port) = INetSock.fromAddr(Socket.Ctl.getSockName x)
 in
