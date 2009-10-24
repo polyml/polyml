@@ -996,14 +996,47 @@ struct
 		fun poll (l : poll_desc list, t: Time.time Option.option) :
 			poll_info list =
 		let
+            (* The original poll descriptor list may contain multiple occurrences of
+               the same IO descriptor with the same or different flags.  On Cygwin, at
+               least, passing this directly produces funny results so we transform the
+               request so that we make at most one request for each descriptor. *)
+            local
+                fun quickSort _                      ([]:'a list)      = []
+                |   quickSort _                      ([h]:'a list)     = [h]
+                |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
+                let
+                    val (after, befor) = List.partition (leq h) t
+                in
+                    quickSort leq befor @ (h :: quickSort leq after)
+                end;
+
+                fun leqPoll((p1, f1): poll_desc) ((p2, f2): poll_desc) =
+                    case compare(f1, f2) of
+                        EQUAL => p1 <= p2
+                    |   LESS => true
+                    |   GREATER => false
+                
+                fun merge ((p1, f1) :: (p2, f2) :: rest) =
+                        if compare(f1, f2) = EQUAL
+                        then merge((Word.orb(p1, p2), f1) :: rest)
+                        else (p1, f1) :: merge((p2, f2) :: rest)
+                |   merge c = c
+
+                val sortedDescs = quickSort leqPoll l
+            in
+                val mergedDescs = merge sortedDescs
+            end
+
 			(* Turn the list into vectors of io descriptors and
 			   request bits - easier for the RTS to manage. 
 			   N.B.  This assumes that Vector.vector creates a simple memory vector and
 			   does not wrap it in any way. *)
-			val ioVector: iodesc Vector.vector =
-				Vector.fromList(List.map(fn(_, i) => i) l)
-			val bitVector: word Vector.vector =
-				Vector.fromList(List.map(fn(b, _) => b) l)
+            local
+                val (bits, ioDescs) = ListPair.unzip mergedDescs
+            in
+    			val bitVector: word Vector.vector = Vector.fromList bits
+    			and ioVector: iodesc Vector.vector = Vector.fromList ioDescs
+            end
 			(* Do the actual polling.  Returns a vector with bits
 			   set for the results. *)
 			val resV: word Vector.vector =
@@ -1022,19 +1055,23 @@ struct
 						   time because the RTS may retry this call if the
 						   polled events haven't happened. *)
 						else sys_poll_wait(ioVector, bitVector, tt + Time.now())
-			(* Convert the results into a list of poll infos ignoring
-			   zero results. *)
-			fun resList(_, []) = []
-			 |  resList(i, pd :: pdl) =
-				let
-					val r = Vector.sub(resV, i)
-				in
-					if r <> 0w0
-					then PI(r, pd) :: resList(i+1, pdl)
-					else resList(i+1, pdl)
-				end
+            (* Process the original list to see which items are present, retaining the
+               original order. *)
+            fun testResults(request as (bits, iod), tl) =
+            let
+                val (index, _) = (* Find the IO descriptor.  It must be there somewhere. *)
+                    valOf(Vector.findi (fn (_, iod1) => compare(iod, iod1) = EQUAL) ioVector)
+                (* The result is in the corresponding index position.   We need to AND this
+                   with the request because we could have separate requests asking for
+                   different bits for the same file descriptor. *)
+                val result = Word.andb(bits, Vector.sub(resV, index))
+            in
+                if result = 0w0
+                then tl
+                else PI(result, request) :: tl
+            end
 		in
-			resList(0, l)
+			List.foldl testResults [] l
 		end
 
 		fun isIn(PI(b, _)) = Word.andb(b, inBit) <> 0w0
@@ -1122,9 +1159,7 @@ struct
 end;
 
 local
-	(* Install the pretty printer for OS.IO.Kind and OS.syserror.
-	   This must be done outside
-	   the structure if we use opaque matching. *)
+	(* Install the pretty printer for OS.IO.Kind and OS.syserror. *)
 	fun kind_string k =
 		if k = OS.IO.Kind.file then "file"
 		else if k = OS.IO.Kind.dir then "dir"
@@ -1137,7 +1172,13 @@ local
 
 	fun printKind _ _ x = PolyML.PrettyString(kind_string x)
 	fun printSysError _ _ x = PolyML.PrettyString(OS.errorName x)
+
+    (* For the moment just make these opaque. *)
+    fun printPollDesc _ _ (_: OS.IO.poll_desc) = PolyML.PrettyString "?"
+    and printPollInfo _ _ (_: OS.IO.poll_info) = PolyML.PrettyString "?"
 in
 	val () = PolyML.addPrettyPrinter printKind
 	val () = PolyML.addPrettyPrinter printSysError
+    val () = PolyML.addPrettyPrinter printPollDesc
+    val () = PolyML.addPrettyPrinter printPollInfo
 end
