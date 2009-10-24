@@ -90,26 +90,27 @@ let
 
         open OS.FileSys OS.Path
         val dir = openDir dirName
-        fun runDir () =
+        fun runDir (fails: string list) =
             case readDir dir of
-                NONE => () (* Finished *)
+                NONE => fails (* Finished *)
             |   SOME f =>
                 if String.isSuffix "ML" f
                 then
                 (
                     print f; print " => ";
                     if runTest(joinDirFile{dir=dirName, file=f}) = expect
-                    then print "Passed\n"
-                    else print "Failed\n";
-                    runDir()
+                    then (print "Passed\n"; runDir fails)
+                    else (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
                 )
-                else runDir()
+                else runDir fails
+        val failedTests = runDir []
     in
-        runDir ();
-        closeDir dir
+        closeDir dir;
+        failedTests
     end;
 in
     (* Each test in the Succeed directory should succeed and those in the Fail directory should fail. *)
-    runTests("Succeed", true);
-    runTests("Fail", false)
+    case runTests("Succeed", true) @ runTests("Fail", false) of
+        [] => true (* All succeeded *)
+    |   failedTests => (print "\nFailed Tests: "; print(String.concatWith " " failedTests); print "\n"; false)
 end;
