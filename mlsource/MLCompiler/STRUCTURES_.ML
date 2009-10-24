@@ -2742,15 +2742,21 @@ struct
                 end
 
 		    |   makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
-	          (* If we open a structure we've created in the same "program" we may have a non-global
-                 substructure.  We have to process any structures. *)
+	            (* If we open a structure we've created in the same "program" we may have a non-global
+                   substructure.  We have to process any structures and also map any type IDs. *)
                 let
-                    val name = structName dec
+                    local
+                        val Signatures { name, declaredAt, typeIdMap, tab, ...} = structSignat dec
+                    in
+                        val resultSig =
+                            makeSignature(name, tab, 0, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])
+                    end
+                    val strName = structName dec
                     val newStruct =
-                        Struct { name = name, signat = structSignat dec,
+                        Struct { name = strName, signat = resultSig,
                                  access = Global(mkInd (addr, results)), locations = structLocations dec }
                 in
-                 (addr+1, { fixes=fixes, values=values, structures=(name, newStruct) :: structures,
+                 (addr+1, { fixes=fixes, values=values, structures=(strName, newStruct) :: structures,
                           signatures=signatures, functors=functors, types=types } )
                 end
 
