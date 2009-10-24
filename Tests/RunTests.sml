@@ -1,7 +1,7 @@
 (* Run the regression tests. *)
 
+fun runTests parentDir =
 let
-
     fun runTests (dirName, expect) =
     let
         (* Run a file.  Returns true if it succeeds, false if it fails. *)
@@ -89,7 +89,8 @@ let
         end;
 
         open OS.FileSys OS.Path
-        val dir = openDir dirName
+        val testPath = joinDirFile{dir=parentDir, file=dirName}
+        val dir = openDir testPath
         fun runDir (fails: string list) =
             case readDir dir of
                 NONE => fails (* Finished *)
@@ -98,7 +99,7 @@ let
                 then
                 (
                     print f; print " => ";
-                    if runTest(joinDirFile{dir=dirName, file=f}) = expect
+                    if runTest(joinDirFile{dir=testPath, file=f}) = expect
                     then (print "Passed\n"; runDir fails)
                     else (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
                 )
