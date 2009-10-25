@@ -19652,9 +19652,6 @@ else
 fi
 
 
-
-
-
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 ac_config_commands="$ac_config_commands basis"

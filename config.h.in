@@ -1,9 +1,5 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
-
-#ifndef CONF_H_INCLUDED
-#define CONF_H_INCLUDED
-
 /* Define to 1 if the `closedir' function returns void instead of `int'. */
 #undef CLOSEDIR_VOID
 
@@ -632,6 +628,3 @@
 
 /* Define as `fork' if `vfork' does not work. */
 #undef vfork
-
-
-#endif

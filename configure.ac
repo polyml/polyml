@@ -326,12 +326,6 @@ AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 
-AH_TOP([
-#ifndef CONF_H_INCLUDED
-#define CONF_H_INCLUDED])
-AH_BOTTOM([
-#endif])
-
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])
