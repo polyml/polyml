@@ -106,7 +106,7 @@ compiler: all
 	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
 	$(MAKE)
 
-reboot: cvs
+reboot: compiler
 	cp polytemp.txt $(POLYIMPORT)
 
 # Retain this target for backwards compatibility.
@@ -114,4 +114,8 @@ cvs: compiler
 
 clean-local:
 	rm -f *.obj polytemp.txt
+
+# Run tests
+tests: all
+	echo "use \"$(srcdir)/Tests/RunTests\"; OS.Process.exit(if runTests \"$(srcdir)/Tests\" then OS.Process.success else OS.Process.failure):unit;" | ./poly
 
