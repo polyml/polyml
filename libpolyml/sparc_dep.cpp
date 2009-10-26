@@ -1382,6 +1382,7 @@ static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
       "1: ld [%2],%%l0\n"  
       " add %%l0,%1,%%l1\n"
       " cas [%2],%%l0,%%l1\n"
+      " cmp %%l0,%%l1\n"
       " bne,pn %%icc,1b\n"
       " nop\n"
       " add %%l0,%1,%0\n"
