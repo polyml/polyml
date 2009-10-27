@@ -35,9 +35,7 @@ sig
 	structure Word8Array:
 		sig
 		datatype array = Array of word*address
-		datatype vector = Vector of address
-		val toString: address -> string
-		and fromString: string -> address
+		datatype vector = Vector of string
 		end
 	val wordSize: word
 	val bigEndian: bool
@@ -52,10 +50,21 @@ sig
 	val unsignedShortOrRaiseSize: int -> word
 	val unsignedShortOrRaiseSubscript: int -> word
 	val sizeAsWord		: string -> word
+    val stringAsAddress : string -> address
 end
 =
 struct
-	type address = string
+    (* An address is the address of a vector in memory. *)
+	datatype address = Address of int array (* This forces pointer equality. *)
+
+    local
+        (* Add a pretty printer to avoid crashes during debugging. *)
+        open PolyML
+        fun prettyAddress _ _ (Address _) = PolyML.PrettyString "address"
+    in
+        val () = addPrettyPrinter prettyAddress
+    end
+
 	(* Provide the implementation of CharArray.array, Word8Array.array
 	   and Word8Array.vector (= Word8Vector.vector) here so that they
 	   are available to the IO routines. *)
@@ -70,10 +79,12 @@ struct
 		   This is because we can't use opaque matching because we want to make use of the internal
 		   representation in the IO structures. *)
 		datatype array = Array of word*address
-		and		 vector = Vector of address
-	    fun toString s = s
-		fun fromString s = s
+		and		 vector = Vector of string
 	end
+
+    (* There are circumstances when we want to pass the address of a string where
+       we expect an address. *)
+    val stringAsAddress : string -> address = RunCall.unsafeCast
 
 	open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
 	open MachineConstants;
@@ -83,7 +94,7 @@ struct
 
 	local
 		val F_mutable_bytes : word = 0wx41;
-		val byteMask : word =  0w255;
+
 		val System_alloc: word*word*word->string  =
 			RunCall.run_call3 POLY_SYS_alloc_store
 
@@ -96,19 +107,11 @@ struct
 		val System_loadb: string*word->char =
 			RunCall.run_call2 POLY_SYS_load_byte;
 
-		val And: word * word -> word =
-		    RunCall.run_call2 POLY_SYS_and_word;
-
 		val SetLengthWord: string * word -> unit =
 		    RunCall.run_call2 POLY_SYS_set_string_length;
 		  
 		val MemMove: string*word*string*word*word -> unit = 
 			RunCall.run_call5 POLY_SYS_move_bytes
-
-		val >> : word * word -> word = 
-		    RunCall.run_call2 POLY_SYS_shift_right_word;
-
-		infix >> And;
 
 		val maxString = 
 			RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
@@ -137,6 +140,8 @@ struct
 
 		fun allocBytes bytes : address =
 			let
+                val System_alloc_array: word*word*word->address  =
+        			RunCall.run_call3 POLY_SYS_alloc_store
 				val words : word =
 					if bytes = 0w0
 					then 0w1 (* Zero-sized objects are not allowed. *)
@@ -150,7 +155,7 @@ struct
 					then raise Size
 					else (bytes + wordSize - 0w1) div wordSize
 			in
-				System_alloc(words, F_mutable_bytes, 0w0)
+				System_alloc_array(words, F_mutable_bytes, 0w0)
 			end
 
 		(* Allocate store for the string and set the first word to contain
@@ -171,8 +176,7 @@ struct
 				   WORD including any unused bytes at the end.
 				   It might be faster if we didn't want to initialise every
 				   byte to simply zero the last word of the segment. *)
-				val vec = 
-					System_alloc(words, F_mutable_bytes, 0w0) handle Range => raise General.Size
+				val vec = System_alloc(words, F_mutable_bytes, 0w0)
 			in
 				(* Set the length word.  Since this is untagged we can't simply
 				   use assign_word.*)
@@ -196,7 +200,7 @@ struct
 		    	else let
 					val dest = allocString chars;
 		  
-					fun copy (i, []:char list) = ()
+					fun copy (_, []:char list) = ()
 					  | copy (i, H :: T) =
 						(
 			            System_setb (dest, i, H);

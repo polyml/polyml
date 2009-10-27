@@ -125,7 +125,7 @@ struct
 		fun read_number sign src =
 			case getc src of
 				NONE => NONE
-			  | SOME(ch, src') =>
+			  | SOME(ch, _) =>
 					if not (ch >= #"0" andalso ch <= #"9" orelse ch = #".")
 					then NONE (* Bad "*)
 					else (* Digits or decimal. *)
@@ -195,14 +195,14 @@ end;
 local
 	(* Install the pretty printer for Time.time.  This has to be
 	   done outside the structure because of the opaque matching. *)
-	fun pretty(p, _, _, _) _ _ x = p(Time.toString x)
+	fun pretty _ _ x = PolyML.PrettyString(Time.toString x)
 in
-	val it = PolyML.install_pp pretty
+	val () = PolyML.addPrettyPrinter pretty
 	(* Add overloads for +, -, <= etc *)
-	val it = RunCall.addOverload Time.+ "+";
-	val it = RunCall.addOverload Time.- "-";
-	val it = RunCall.addOverload Time.< "<";
-	val it = RunCall.addOverload Time.> ">";
-	val it = RunCall.addOverload Time.<= "<=";
-	val it = RunCall.addOverload Time.>= ">=";
+	val () = RunCall.addOverload Time.+ "+";
+	val () = RunCall.addOverload Time.- "-";
+	val () = RunCall.addOverload Time.< "<";
+	val () = RunCall.addOverload Time.> ">";
+	val () = RunCall.addOverload Time.<= "<=";
+	val () = RunCall.addOverload Time.>= ">=";
 end

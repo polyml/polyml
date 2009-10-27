@@ -46,21 +46,15 @@ struct
       };
 
 	(* The Match exception is created in the General structure in the basis
-	   library which hasn't been built yet. *)
-    local
-		structure Match = RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_Match )
-	in
-		exception Match = Match.ex
-	end
-  
+	   library which hasn't been built yet. *)  
     fun tag () : 'a tag =
     let
       exception E of 'a;
     in
       { 
         inject  = fn x => E x,
-        project = fn E x => x    | _ => raise Match,
-        is      = fn E x => true | _ => false
+        project = fn E x => x    | _ => raise RunCall.Match,
+        is      = fn E _ => true | _ => false
       }
     end ;
 

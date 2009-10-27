@@ -155,8 +155,8 @@ sig
         val conditionVar: unit -> conditionVar
         (* wait: Release the mutex and block until the condition variable is
            signalled.  When wait returns the mutex has been re-acquired.
-           If thread is deferring interrupts a call to "wait" may cause an Interrupt
-           exception to be delivered.
+           If thread is handling interrupts synchronously a call to "wait" may cause
+           an Interrupt exception to be delivered.
            (The implementation must ensure that if an Interrupt is delivered as well
            as signal waking up a single thread that the interrupted thread does not
            consume the "signal".)
@@ -179,18 +179,12 @@ structure Thread :> THREAD =
 struct
     open RuntimeCalls (* for POLY_SYS and EXC numbers *)
     
-    local
-        structure ThreadEx =
-            RunCall.Run_exception1(type ex_type = string; val ex_iden  = EXC_thread)
-    in
-        exception Thread = ThreadEx.ex
-    end
+    exception Thread = RunCall.Thread
     
     local
         (* Create non-overwritable mutables for mutexes and condition variables.
            A non-overwritable mutable in the executable or a saved state is not
            overwritten when a saved state further down the hierarchy is loaded. *)
-		val F_non_overwrite_mutable : word = 0wx48;
 		val System_alloc: word*word*word->word  =
 			RunCall.run_call3 POLY_SYS_alloc_store
     in
@@ -260,12 +254,7 @@ struct
             [bcast, InterruptState(getIstateBits w)]
         end
         
-        local
-            structure Interrupt =
-                RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_interrupt )
-        in
-            exception Interrupt = Interrupt.ex
-        end
+        exception Interrupt = RunCall.Interrupt
 
         (* The thread id is opaque outside this structure but is actually a three
            word mutable object.
@@ -632,3 +621,15 @@ struct
         end
     end
 end;
+
+local
+    fun prettyMutex _ _ (_: Thread.Mutex.mutex) = PolyML.PrettyString "?"
+    and prettyThread _ _ (_: Thread.Thread.thread) = PolyML.PrettyString "?"
+    and prettyCondVar _ _ (_: Thread.ConditionVar.conditionVar) = PolyML.PrettyString "?"
+in
+    val () = PolyML.addPrettyPrinter prettyMutex
+    and () = PolyML.addPrettyPrinter prettyThread
+    and () = PolyML.addPrettyPrinter prettyCondVar
+end;
+
+

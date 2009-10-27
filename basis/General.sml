@@ -53,36 +53,12 @@ local
 	open RuntimeCalls (* for POLY_SYS and EXC numbers *)
 	val System_loadw: exn*int->string  = RunCall.run_call2 POLY_SYS_load_word
 in
-    local
-		structure Bind = RunCall.Run_exception0( val ex_iden  = EXC_Bind )
-	in
-		exception Bind = Bind.ex
-	end
-    local
-		structure Div = RunCall.Run_exception0( val ex_iden  = EXC_divide )
-	in
-		exception Div = Div.ex
-	end
-    local
-		structure Match = RunCall.Run_exception0( val ex_iden  = EXC_Match )
-	in
-		exception Match = Match.ex
-	end
-    local
-		structure Overflow = RunCall.Run_exception0( val ex_iden  = EXC_overflow )
-	in
-		exception Overflow = Overflow.ex
-	end
-    local
-		structure Subscript = RunCall.Run_exception0( val ex_iden  = EXC_subscript )
-	in
-		exception Subscript = Subscript.ex
-	end
-    local
-		structure Size = RunCall.Run_exception0( val ex_iden  = EXC_size )
-	in
-		exception Size = Size.ex
-	end
+    exception Bind      = RunCall.Bind
+	and       Div       = RunCall.Div
+	and       Match     = RunCall.Match
+	and       Overflow  = RunCall.Overflow
+	and       Subscript = RunCall.Subscript
+	and       Size      = RunCall.Size
 
 	exception Domain and Span and Chr
 
@@ -90,25 +66,13 @@ in
 	   the exception name and the third is the exception argument. *)
 	fun exnName (ex: exn) = System_loadw(ex, 1)
 	
-	(* exnMessage is contained in the Bootstrap.ExnMessage structure and is
-       actually just the same as PolyML.makeString.  However we have to make
-       sure that we don't capture the namespace that is being used to compile
-       the code at this point.
-       Since exception packets don't contain any description of the type of the
-       exception argument if we want to be able to print it we have to find the
-       type by using the unique id.  We can search all the declared exceptions
-       and all the exceptions in structures to find the unique id and if we find
-       it we can use the type information there.  That requires a name space and
-       the best choice of name space is the one used to compile the code that
-       contains the CALL to exnMessage, not the one used to declare it here. *)
-    open Bootstrap.ExnMessage
-    
-	(* fun exnMessage (ex: exn) = PolyML.makestring ex *)
+    (* Since exception packets carry a printer function this is just PolyML.makestring. *)
+	fun exnMessage (ex: exn) = PolyML.makestring ex
 	
     datatype order = LESS | EQUAL | GREATER
 	
-	fun op before (a, b) = a
-	fun ignore a = ()
+	fun op before (a, _) = a
+	fun ignore _ = ()
 	
 	structure General (*: GENERAL *) (* Don't use a signature here. *) =
 		struct
@@ -122,7 +86,7 @@ in
 		and op := = op := and ! = ! and op o = op o
 		and op before = op before and ignore = ignore
 
-        open Bootstrap.ExnMessage
+        val exnMessage = exnMessage
 		
 	    datatype order = datatype order
 	end

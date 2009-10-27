@@ -1,7 +1,7 @@
 (*
-    Title:      Final version of the PolyML structure
+    Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008
+    Copyright   David Matthews 2008-9
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,9 @@ and TextIO.stdOut.
 
 This contains the top-level read-eval-print loop as well as "use" and
 Poly/ML's "make".
+
+The rootFunction has now been pulled out into a separate file and is added on
+after this. 
 *)
 local
     open PolyML.NameSpace
@@ -106,31 +109,46 @@ local
            Provides a default stream for other output.  Default: TextIO.print *)
     |   CPNameSpace of PolyML.NameSpace.nameSpace
         (* Name space to look up and enter results.  Default: globalNameSpace *)
-    |   CPErrorMessageProc of string * bool * int -> unit
+    |   CPErrorMessageProc of
+            { message: PolyML.pretty, hard: bool, location: PolyML.location, context: PolyML.pretty option } -> unit
         (* Called by the compiler to generate error messages.
-           Arguments (message, isHard, lineNo).  message is the message with
-           context information.  isHard is true if this is an error, false if
-           a warning.  lineNo is the line number passed in.
+           Arguments (message, isHard, lineNo, context).  message is the message.
+           isHard is true if this is an error, false if a warning. 
+           location is the file-name, line number and position.  context is an
+           optional extra piece of information showing the part of the parse tree
+           where the error was detected.
            Default: print this to CPOutStream value using CPLineNo and CPFileName. *)
     |   CPLineNo of unit -> int
         (* Called by the compiler to get the current "line number".  This is passed
            to CPErrorMessageProc and the debugger.  It may actually be a more general
            location than a source line.  Default: fn () => 0 i.e. no line numbering. *)
+    |   CPLineOffset of unit -> int
+        (* Called by the compiler to get the current "offset".  This is passed
+           to CPErrorMessageProc and the debugger.  This may either be an offset on
+           the current file, a byte offset or simply zero.
+           Default: fn () => 0 i.e. no line offset. *)
     |   CPFileName of string
         (* The current file being compiled.  This is used by the default CPErrorMessageProc
            and the debugger.  Default: "" i.e. interactive stream. *)
     |   CPPrintInAlphabeticalOrder of bool
         (* Whether to sort the results by alphabetical order before printing them.  Applies
            only to the default CPResultFun.  Default value of printInAlphabeticalOrder. *)
-    |   CPPrintTypesWithStructure of bool
-        (* Whether when printing the type of a value to include any structure name
-           with the type constructors.  Default value of printTypesWithStructureName. *)
     |   CPResultFun of {
             fixes: (string * fixityVal) list, values: (string * valueVal) list,
             structures: (string * structureVal) list, signatures: (string * signatureVal) list,
             functors: (string * functorVal) list, types: (string * typeVal) list} -> unit
         (* Function to apply to the result of compiling and running the code.
            Default: print and enter the values into CPNameSpace. *)
+    |   CPCompilerResultFun of
+            PolyML.parseTree option *
+            ( unit -> {
+                fixes: (string * fixityVal) list, values: (string * valueVal) list,
+                structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+                functors: (string * functorVal) list, types: (string * typeVal) list}) option -> unit -> unit
+        (* Function to process the result of compilation.  This can be used to capture the
+           parse tree even if type-checking fails.
+           Default: Execute the code and call the result function if the compilation
+           succeeds.  Raise an exception if the compilation failed. *)
     |   CPProfiling of int
         (* Control profiling.  0 is no profiling, 1 is time etc.  Default is value of PolyML.profiling. *)
     |   CPTiming of bool
@@ -149,19 +167,21 @@ local
     |   CPPrintStream of string->unit
         (* This is bound into any occurrence of PolyML.print and is used to produce
            the outut.  Default: CPOutStream. *)
-    |   CPPrinterNameSpace of PolyML.NameSpace.nameSpace
-        (* This is bound into any occurrence of PolyML.print, PolyML.makestring or
-           General.exnMessage.  It is used to search for an exception identifier in
-           order to print the argument of an exception packet.  It is also used to find
-           infixed datatype constructors when printing values. e.g. it might print
-           1::2 rather than ::(1,2) if lists weren't treated specially.
-           Default: CPNameSpace *)
     |   CPErrorDepth of int
         (* Controls the depth of context to produce in error messages.
            Default : value of PolyML.error_depth. *)
     |   CPLineLength of int
         (* Bound into any occurrences of PolyML.print.  This is the length of a line
            used in the pretty printer.  Default: value of PolyML.line_length. *)
+    |   CPRootTree of
+        {
+            parent: (unit -> PolyML.parseTree) option,
+            next: (unit -> PolyML.parseTree) option,
+            previous: (unit -> PolyML.parseTree) option
+        }
+        (* This can be used to provide a parent for parse trees created by the
+           compiler.  This appears as a PTparent property in the tree.
+           The default is NONE which does not to provide a parent.  *)
 
     (* References for control and debugging. *)
     val profiling = ref 0
@@ -175,18 +195,81 @@ local
     and codetreeAfterOpt = ref false
     and pstackTrace = ref false
     and parsetree = ref false
+    and reportUnreferencedIds = ref false
     
     val debug = ref false
     val inlineFunctors = ref true
     val maxInlineSize = ref 40
-    val ml90 = ref false
     val printInAlphabeticalOrder = ref true
-    val printTypesWithStructureName = ref true
     val traceCompiler = ref false
+    
+    fun prettyPrintWithIDEMarkup(stream : string -> unit, lineWidth : int): PolyML.pretty -> unit =
+    let
+        open PolyML
+        val openDeclaration = "\u001bD"
+        val closeDeclaration = "\u001bd"
+        val separator = "\u001b,"
+        val finalSeparator = "\u001b;"
+        
+        fun beginMarkup context =
+            case List.find (fn ContextLocation _ => true | _ => false) context of
+                SOME (ContextLocation{file,startLine,startPosition,endPosition, ...}) =>
+                let
+                    (* In the unlikely event there's an escape character in the
+                       file name convert it to ESC-ESC. *)
+                    fun escapeEscapes #"\u001b" = "\u001b\u001b"
+                    |   escapeEscapes c = str c
+                in
+                    stream openDeclaration;
+                    stream(String.translate escapeEscapes file);
+                    stream separator;
+                    stream(Int.toString startLine);
+                    stream separator;
+                    stream(Int.toString startPosition);
+                    stream separator;
+                    stream(Int.toString endPosition);
+                    stream finalSeparator
+                end
+            |   _ => ()
+            
+        fun endMarkup context =
+            List.app (fn ContextLocation _ => stream closeDeclaration | _ => ()) context
+    in
+        prettyMarkup (beginMarkup, endMarkup) (stream, lineWidth)
+    end;
+
+    (* useMarkupInOutput is set according to the setting of *)
+    val useMarkupInOutput = ref false
+    fun prettyPrintWithOptionalMarkup(stream, lineWidth) =
+        if ! useMarkupInOutput then prettyPrintWithIDEMarkup(stream, lineWidth)
+        else PolyML.prettyPrint(stream, lineWidth)
+
+    fun exceptionLocation(exn: exn): PolyML.location option =
+    let
+    	open RuntimeCalls
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+    in
+        (* If we get an exception in the compiler it may be code that was built using the
+           old exception packet format that didn't include a loction so we need to check the
+           length of the packet first.  This won't be needed once we can be sure we're using
+           5.3. *)
+        if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
+        then NONE
+        else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
+            NoLocation => NONE
+        |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
+                SOME { file=file, startLine=startLine, startPosition=startPosition,
+                       endLine=endLine, endPosition=endPosition }
+    end
 
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
-    
+
     (* Debugger control. *)
 
     (* Whenever we enter a function we push information onto this stack. *)
@@ -214,16 +297,19 @@ local
     val debugLevel = ref 0
     (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
     val exitLoop = ref false;
+    (* Exception packet sent if this was continueWithEx. *)
+    val debugExPacket: exn option ref = ref NONE
     (* Call tracing. *)
     val tracing = ref false;
     val breakNext = ref false;
     (* Single stepping. *)
     val stepDebug = ref false;
     val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
-    (* Break points.  We have two breakpoint lists: a list of file-line
-       pairs and a list of function names. *)
+    (* Break points.  We have three breakpoint lists: a list of file-line
+       pairs, a list of function names and a list of exceptions. *)
     val lineBreakPoints = ref []
     and fnBreakPoints = ref []
+    and exBreakPoints = ref []
 
     fun checkLineBreak (file, line) =
         let
@@ -258,13 +344,22 @@ local
         List.exists matchName (! fnBreakPoints)
     end
 
+    (* Get the exception id from an exception packet.  The id is
+       the first word in the packet.  It's a mutable so treat it
+       as an int ref here. *)
+    fun getExnId(ex: exn): int ref =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word (ex, 0)
+    
+    fun checkExnBreak(ex: exn) =
+        let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end
+
     fun printOut s =
         TextIO.print s
         (* If we get an exception while writing to stdOut we've got
            a big problem and can't continue.  It could happen if
            we have closed stdOut.  Try reporting the error through
            stdErr and exit. *)
-        handle SML90.Interrupt => raise SML90.Interrupt
+        handle Thread.Thread.Interrupt => raise Thread.Thread.Interrupt
         |     exn =>
             (
                 (
@@ -307,18 +402,59 @@ local
         open Bootstrap Bootstrap.Universal
         (* To allow for the possibility of changing the representation we don't make Universal
            be the same as Bootstrap.Universal. *)
+
         (* Default error message function. *)
-        fun defaultErrorProc fileName printFn (message: string, hard: bool, line: int) =
-           printFn(concat
-               ( (if hard then ["Error-"] else ["Warning-"]) @
-                 (if fileName = "" then [] else [" in '", fileName, "',"]) @
-                 (if line = 0 then [] else [" line ", Int.toString line]) @
-                 (if line = 0 andalso fileName = "" then [] else [".\n"]) @
-                 [message]))
+        fun defaultErrorProc printString
+            {message: PolyML.pretty, hard: bool,
+             location={startLine, startPosition, endPosition, file, ...},
+             context: PolyML.pretty option} =
+        let
+            open PolyML
+            val fullMessage =
+                case context of
+                    NONE => message
+                |   SOME ctxt =>
+                        PrettyBlock(0, true, [],
+                            [ message, PrettyBreak(1, 0),
+                                PrettyBlock(2, false, [], [PrettyString "Found near", PrettyBreak(1, 0), ctxt])
+                            ])
+        in
+            if ! useMarkupInOutput
+            then (* IDE mark-up of error messages.  This is actually the same as within the IDE. *)
+            let
+                val openError = "\u001bE"
+                val closeError = "\u001be"
+                val separator = "\u001b,"
+                val finalSeparator = "\u001b;"
+            in
+                printString(
+                    concat
+                        [
+                            openError,
+                            if hard then "E" else "W", separator,
+                            file, (* TODO double any escapes. *) separator,
+                            Int.toString startLine, separator,
+                            Int.toString startPosition, separator,
+                            Int.toString endPosition, finalSeparator
+                         ]
+                    );
+                prettyPrintWithIDEMarkup(printString, !lineLength) fullMessage;
+                printString closeError
+            end
+            else (* Plain text form. *)
+            (
+                printString(concat
+                   ( (if hard then ["Error-"] else ["Warning-"]) @
+                     (if file = "" then [] else [" in '", file, "',"]) @
+                     (if startLine = 0 then [] else [" line ", Int.toString startLine]) @
+                     (if startLine = 0 andalso file = "" then [] else [".\n"])));
+                PolyML.prettyPrint(printString, !lineLength) fullMessage
+            )
+        end
 
         (* Default function to print and enter a value. *)
         fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
-                           stream: string->unit, depth: int, withStruct: bool)
+                           stream: string->unit, depth: int)
             { fixes: (string * fixityVal) list, values: (string * valueVal) list,
               structures: (string * structureVal) list, signatures: (string * signatureVal) list,
               functors: (string * functorVal) list, types: (string * typeVal) list}: unit =
@@ -351,8 +487,8 @@ local
                     if s1 = s2 then kindToInt k1 <= kindToInt k2
                     else s1 <= s2
 
-            fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
-            |   quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
+            fun quickSort _                      ([]:'a list)      = []
+            |   quickSort _                      ([h]:'a list)     = [h]
             |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
             let
                 val (after, befor) = List.partition (leq h) t
@@ -366,32 +502,44 @@ local
 
             fun printDec(n, FixStatusKind f) =
                 (
-                    if depth > 0 then displayFix((n,f), stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix(n,f))
+                    else ();
                     #enterFix space (n,f)
                 )
             |   printDec(n, TypeConstrKind t) =
                 (
-                    if depth > 0 then displayType(t, depth, withStruct, stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))
+                    else ();
                     #enterType space (n,t)
                 )
             |   printDec(n, SignatureKind s) =
                 (
-                    if depth > 0 then displaySig(s, depth, space, withStruct, stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displaySig(s, depth, space))
+                    else ();
                     #enterSig space (n,s)
                 )
             |   printDec(n, StructureKind s) =
                 (
-                    if depth > 0 then displayStruct(s, depth, space, withStruct, stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayStruct(s, depth, space))
+                    else ();
                     #enterStruct space (n,s)
                 )
             |   printDec(n, FunctorKind f) =
                 (
-                    if depth > 0 then displayFunct(f, depth, space, withStruct, stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFunct(f, depth, space))
+                    else ();
                     #enterFunct space (n,f)
                 )
             |   printDec(n, ValueKind v) =
                 (
-                    if depth > 0 then displayVal(v, depth, space, withStruct, stream) else ();
+                    if depth > 0
+                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayVal(v, depth, space))
+                    else ();
                     #enterVal space (n,v)
                 )
         in
@@ -401,7 +549,7 @@ local
         fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
         let
             (* Find the first item that matches or return the default. *)
-            fun find f def [] = def
+            fun find _ def [] = def
               | find f def (hd::tl) =
                   case f hd of
                       SOME s => s
@@ -410,29 +558,45 @@ local
             val outstream = find (fn CPOutStream s => SOME s | _ => NONE) TextIO.print parameters
             val nameSpace = find (fn CPNameSpace n => SOME n | _ => NONE) globalNameSpace parameters
             val lineNo = find (fn CPLineNo l => SOME l | _ => NONE) (fn () => 0) parameters
+            val lineOffset = find (fn CPLineOffset l => SOME l | _ => NONE) (fn () => 0) parameters
             val fileName = find (fn CPFileName s => SOME s | _ => NONE) "" parameters
             val printInOrder = find (fn CPPrintInAlphabeticalOrder t => SOME t | _ => NONE)
                                 (! printInAlphabeticalOrder) parameters
             val profiling = find (fn CPProfiling i => SOME i | _ => NONE) (!profiling) parameters
             val timing = find  (fn CPTiming b => SOME b | _ => NONE) (!timing) parameters
             val printDepth = find (fn CPPrintDepth f => SOME f | _ => NONE) (fn () => !printDepth) parameters
-            val printWithStruct = find (fn CPPrintTypesWithStructure t => SOME t | _ => NONE)
-                                (! printTypesWithStructureName) parameters
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
-               (printAndEnter(printInOrder, nameSpace, outstream, printDepth(), printWithStruct)) parameters
+               (printAndEnter(printInOrder, nameSpace, outstream, printDepth())) parameters
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
-            val printenv = find (fn CPPrinterNameSpace s => SOME s | _ => NONE) nameSpace parameters
-            val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE)
-                                (defaultErrorProc fileName printString) parameters
+            val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
+            local
+    			(* Default is to filter the parse tree argument. *)
+    			fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
+                |   defaultCompilerResultFun (_, SOME code) = fn () => resultFun(code()) 
+            in
+                val compilerResultFun = find (fn CPCompilerResultFun f => SOME f | _ => NONE)
+                    defaultCompilerResultFun parameters
+            end
+
+            (* TODO: Make this available as a parameter. *)
+            val prettyOut = prettyPrintWithOptionalMarkup(printString, !lineLength)
+            
+            val compilerOut = prettyPrintWithOptionalMarkup(outstream, !lineLength)
+
+            (* Parent tree defaults to empty. *)
+            val parentTree =
+                find (fn CPRootTree f => SOME f | _ => NONE)
+                    { parent = NONE, next = NONE, previous = NONE } parameters
 
             (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)
-            val code =
+            val treeAndCode =
                 PolyML.compiler(nameSpace, getChar,
                     [
                     tagInject errorMessageProcTag errorProc,
-                    tagInject compilerOutputTag outstream,
+                    tagInject compilerOutputTag compilerOut,
                     tagInject lineNumberTag lineNo,
+                    tagInject offsetTag lineOffset,
                     tagInject fileNameTag fileName,
                     tagInject inlineFunctorsTag (! inlineFunctors),
                     tagInject maxInlineSizeTag (! maxInlineSize),
@@ -447,14 +611,14 @@ local
                     tagInject printDepthFunTag printDepth,
                     tagInject lineLengthTag (! lineLength),
                     tagInject traceCompilerTag (! traceCompiler),
-                    tagInject ml90Tag (! ml90),
                     tagInject debugTag debugging,
-                    tagInject printStringTag printString,
-                    tagInject printEnvironTag printenv,
-                    tagInject debuggerTag debugFunction
+                    tagInject debuggerTag debugFunction,
+                    tagInject printOutputTag prettyOut,
+                    tagInject rootTreeTag parentTree,
+                    tagInject reportUnreferencedIdsTag (! reportUnreferencedIds)
                     ])
         in
-            fn () => resultFun(code())
+		    compilerResultFun treeAndCode
         end
  
         (* Top-level read-eval-print loop.  This is the normal top-level loop but is
@@ -478,7 +642,7 @@ local
                significant characters are typed. *)
             fun readin () : char option =
             let
-                val setPrompt : unit =
+                val () =
                     if !lastWasEol (* Start of line *)
                     then if !realDataRead
                     then printOut (if isDebug then "debug " ^ !prompt2 else !prompt2)
@@ -531,39 +695,32 @@ local
                 in
                     code ()
                     (* Report exceptions in running code. *)
-                        handle  exn =>
-                        (
-                            printOut ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
+                        handle exn =>
+                        let
+                            open PolyML
+                            val exLoc =
+                                case exceptionLocation exn of
+                                    NONE => []
+                                |   SOME loc => [ContextLocation loc]
+                        in
+                            prettyPrintWithOptionalMarkup(TextIO.print, ! lineLength)
+                                (PrettyBlock(0, false, [],
+                                    [
+                                        PrettyBlock(0, false, exLoc, [PrettyString "Exception-"]),
+                                        PrettyBreak(1, 3),
+                                        prettyRepresentation(exn, ! printDepth),
+                                        PrettyBreak(1, 3),
+                                        PrettyString "raised"
+                                    ]));
                             raise exn
-                        )
+                        end
                 end
             end; (* readEvalPrint *)
-            
-            (* If we are debugging we may pass exceptions back to the
-               debugged function. *) 
-            fun handleDebuggingException () =
-            let
-                val () = printOut "Pass exception to function being debugged (y/n)?";
-                val () = flushInput ();
-                val response =
-                    case TextIO.input1 TextIO.stdIn of
-                        NONE => false
-                    |   SOME #"y" => false
-                    |   SOME #"n" => true
-                    |   _ => handleDebuggingException()
-            in
-                flushInput();
-                response
-            end
             
             fun handledLoop () : unit =
             (
                 (* Process a single top-level command. *)
-                readEvalPrint()
-                    handle exn =>
-                        if not isDebug orelse handleDebuggingException()
-                        then ()
-                        else raise exn;
+                readEvalPrint() handle _ => ();
                 (* Exit if we've seen end-of-file or we're in the debugger
                    and we've run "continue". *)
                 if !endOfFile orelse exitLoop() then ()
@@ -578,7 +735,8 @@ local
         and debugFunction(code, value, line, file, name, debugEnv) =
         let
             val stack: debugStackEntry list ref = getStack()
-            fun printVal v = Bootstrap.printVal(v, !printDepth, globalNameSpace, TextIO.print)
+            fun printVal v =
+                prettyPrintWithOptionalMarkup(TextIO.print, 77) (Bootstrap.printValue(v, !printDepth, globalNameSpace))
 
             fun enterDebugger ()=
             let
@@ -594,7 +752,7 @@ local
                 val () = breakNext := false;
                 val () =
                     case !stack of
-                        {lineNo, fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
+                        {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
                     |   [] => () (* Shouldn't happen. *)
 
                 val compositeNameSpace = (* Compose any debugEnv with the global environment *)
@@ -626,7 +784,12 @@ local
                     }
                 end
             in
-                topLevel true (compositeNameSpace, fn _ => ! exitLoop)
+                topLevel true (compositeNameSpace, fn _ => ! exitLoop);
+
+                (* If this was continueWithEx raise the exception. *)
+                case ! debugExPacket of
+                    NONE => ()
+                |   SOME exn => (debugExPacket := NONE; raise exn)
             end
 
             fun printSpaces () =
@@ -677,13 +840,16 @@ local
 
             |   3 => (* Function raised an exception. *)
                 let
-                     val (args, stackTail) =
+                     val (args, _) =
                         case !stack of
                             [] => (value, []) (* Use the passed in value for the arg. *)
                         |   {arguments, ...} ::tl => (arguments, tl)
                 in
                     if ! tracing
                     then (printSpaces(); print name; print " "; printVal args; print " raised "; printVal value; print "\n")
+                    else ();
+                    if checkExnBreak(Bootstrap.getValue value)
+                    then enterDebugger ()
                     else ();
                     (* Pop the stack. *)
                     stack := (case !stack of [] => [] | _::tl => tl)
@@ -716,72 +882,74 @@ local
         end
 
         (* Normal, non-debugging top-level loop. *)
-        fun shell () = topLevel false (globalNameSpace, fn _ => false)
-
+        fun shell () =
+        (
+            (* Generate mark-up in IDE code when printing if the option has been given
+               on the command line. *)
+            useMarkupInOutput := List.exists(fn s => s = "--with-markup") (CommandLine.arguments());
+            topLevel false (globalNameSpace, fn _ => false)
+        )
     end
 
+    val suffixes = ref ["", ".ML", ".sml"];
 
-    val bindName = ref "ml_bind";
-    val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
-    (* The architecture-specific suffixes take precedence. *)
-    val suffixes = ref [archSuffix, "",archSuffix^".ML", ".ML", archSuffix^".sml", ".sml"];
-
-    (* isDir raises an exception if the file does not exist so this is
-       an easy way to test for the file. *)
-    fun fileDirExists (name : string) : bool =
-       (OS.FileSys.isDir name; true) handle OS.SysErr _ => false
-
-    fun findFileTuple (directory, object) [] = NONE
-    |   findFileTuple (directory, object) (suffix :: suffixes) =
-    let
-        val fileName  = object ^ suffix
-    in
-        if fileDirExists (OS.Path.joinDirFile{dir=directory, file = fileName})
-        then SOME (directory, fileName)
-        else findFileTuple (directory, object) suffixes
-    end;
 
     (*****************************************************************************)
     (*                  "use": compile from a file.                              *)
     (*****************************************************************************)
 
-    fun use originalName =
+    fun use (originalName: string): unit =
     let
         (* use "f" first tries to open "f" but if that fails it tries "f.ML", "f.sml" etc. *)
+        (* We use the functional layer and a reference here rather than TextIO.input1 because
+           that requires locking round every read to make it thread-safe.  We know there's
+           only one thread accessing the stream so we don't need it here. *)
         fun trySuffixes [] =
             (* Not found - attempt to open the original and pass back the
                exception. *)
-            (TextIO.openIn originalName, originalName)
+            (TextIO.getInstream(TextIO.openIn originalName), originalName)
          |  trySuffixes (s::l) =
-            (TextIO.openIn (originalName ^ s), originalName ^ s)
+            (TextIO.getInstream(TextIO.openIn (originalName ^ s)), originalName ^ s)
                 handle IO.Io _ => trySuffixes l
         (* First in list is the name with no suffix. *)
         val (inStream, fileName) = trySuffixes("" :: ! suffixes)
+        val stream = ref inStream
+
         val lineNo   = ref 1;
         fun getChar () : char option =
-            case TextIO.input1 inStream of
-                eoln as SOME #"\n" =>
+            case TextIO.StreamIO.input1 (! stream) of
+                NONE => NONE
+            |   SOME (eoln as #"\n", strm) =>
                 (
                     lineNo := !lineNo + 1;
-                    eoln
+                    stream := strm;
+                    SOME eoln
                 )
-            |   c => c
+            |   SOME(c, strm) => (stream := strm; SOME c)
     in
-        while not (TextIO.endOfStream inStream) do
+        while not (TextIO.StreamIO.endOfStream(!stream)) do
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
-                handle exn => (TextIO.closeIn inStream; raise exn)
+                handle exn =>
+                (
+                    TextIO.StreamIO.closeIn(!stream);
+                    case exceptionLocation exn of
+                        NONE => raise exn
+                    |   SOME ex => PolyML.raiseWithLocation(exn, ex)
+                )
         in
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
-                TextIO.print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
-                TextIO.closeIn inStream;
-                raise exn
+                TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
+                TextIO.StreamIO.input1 (! stream);
+                case exceptionLocation exn of
+                    NONE => raise exn
+                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
             )
         end;
         (* Normal termination: close the stream. *)
-        TextIO.closeIn inStream
+        TextIO.StreamIO.closeIn (! stream)
 
     end (* use *)
  
@@ -793,11 +961,11 @@ local
     type 'a tag = 'a Universal.tag;
   
     fun splitFilename (name: string) : string * string =
-       let
+    let
          val {dir, file } = OS.Path.splitDirFile name
-     in
+    in
          (dir, file)
-     end
+    end
 
     (* Make *)
     (* There are three possible states - The object may have been checked,
@@ -829,7 +997,7 @@ local
             present
         end
     
-    fun findFileTuple (directory, object) [] = NONE
+    fun findFileTuple _                   [] = NONE
     |   findFileTuple (directory, object) (suffix :: suffixes) =
     let
         val fileName  = object ^ suffix
@@ -841,7 +1009,18 @@ local
     end;
     
     fun filePresent (directory : string, object : string) =
-        findFileTuple (directory, object) (!suffixes)
+    let
+        (* Construct suffixes with the architecture and version number in so
+           we can compile architecture- and version-specific code. *)
+        val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
+        val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
+        val extraSuffixes = [archSuffix, versionSuffix, "" ]
+        val addedSuffixes =
+            List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+    in
+        (* For each of the suffixes in the list try it. *)
+        findFileTuple (directory, object) addedSuffixes
+    end
     
     (* See if the corresponding file is there and if it is a directory. *)
     fun testForDirectory (name: string) : bool =
@@ -854,9 +1033,6 @@ local
     val newTimeStamp : unit -> timeStamp = Time.now
     (* Get the date of a file. *)
     val fileTimeStamp : string -> timeStamp = OS.FileSys.modTime
-    (* String representation - includes trailing "\n"! *)
-    fun stringOfTimeStamp (t : timeStamp) : string =
-        Date.toString(Date.fromTimeLocal t) ^ "\n"
     
     local
         open Universal
@@ -915,7 +1091,7 @@ local
                     (* If the object is a directory the source is in the bind file. *)
                     val (dir : string, file : string) =
                         if objIsDir
-                        then (here, !bindName)
+                        then (here,"ml_bind")
                         else (directory, objName);
                 in
                     case filePresent (dir, file) of
@@ -1029,9 +1205,9 @@ local
                             enterFix     = #enterFix globalNameSpace,
                             enterVal     = #enterVal globalNameSpace,
                             enterType    = #enterType globalNameSpace,
-                            enterStruct  = enterMakeEnv ("signature", #enterStruct globalNameSpace),
+                            enterStruct  = enterMakeEnv ("structure", #enterStruct globalNameSpace),
                             enterSig     = enterMakeEnv ("signature", #enterSig globalNameSpace),
-                            enterFunct   = enterMakeEnv ("signature", #enterFunct globalNameSpace),
+                            enterFunct   = enterMakeEnv ("functor", #enterFunct globalNameSpace),
                             allFix       = #allFix globalNameSpace,
                             allVal       = #allVal globalNameSpace,
                             allType      = #allType globalNameSpace,
@@ -1065,18 +1241,22 @@ local
                             handle exn as Fail _ => raise exn
                             |  exn =>
                             (
-                                print ("Exception- " ^ PolyML.makestringInNameSpace(exn, globalNameSpace) ^ " raised\n");
-                                raise exn
+                                print ("Exception- " ^ exnMessage exn ^ " raised\n");
+                                case exceptionLocation exn of
+                                    NONE => raise exn
+                                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
                             )
                     end
                 end (* body of scope of inStream *)
                     handle exn => (* close inStream if an error occurs *)
                     (
                         TextIO.closeIn inStream;
-                        raise exn
+                        case exceptionLocation exn of
+                            NONE => raise exn
+                        |   SOME ex => PolyML.raiseWithLocation(exn, ex)
                     )
             in (* remake normal termination *)
-                TextIO.closeIn inStream
+                TextIO.closeIn inStream 
             end (* remakeCurrentObj *)
             
         in (* body of remakeObj *)
@@ -1185,51 +1365,6 @@ local
         end
     end (* make *)
 
-    (* This is the root function to run the Poly/ML top level. *)
-    fun rootShell () =
-    let
-        val argList = CommandLine.arguments();
-        fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
-        fun rtsCopyright() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (11, ())
-        fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
-    in
-        if List.exists(fn s => s = "-v") argList
-        then (* -v option : Print version information and exit *)
-            print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, 
-                                 "    RTS version: ", rtsRelease(), "\n"])
-
-        else if List.exists(fn s => s = "--help") argList
-        then (* --help option: Print argument information and exit. *)
-           (
-            print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
-            print "Compiler arguments:\n";
-            print "\n";
-            print "-v        Print the version of Poly/ML and exit\n";
-            print "--help    Print this message and exit\n";
-            print "-q        Suppress the start-up message\n";
-            print "\nRun time system arguments:\n";
-            print (rtsHelp())
-           )
-        else (* Enter Poly/ML. *)
-        let
-            open Signal;
-            val () =
-                if List.exists(fn s => s = "-q") (CommandLine.arguments())
-                then ()
-                else print (String.concat ["Poly/ML ", Bootstrap.compilerVersion, "\n"]);
-            (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
-               If a handler has been set up by an initialisation function don't replace it. *)
-            val () =
-                case signal(2, SIG_IGN) of
-                   SIG_IGN => ()
-                |  SIG_DFL => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())
-                |  oldHandle => (signal(2, oldHandle); ())
-        in
-            shell();
-            OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
-        end
-    end;
-
 in
     structure PolyML =
     struct
@@ -1239,18 +1374,19 @@ in
 
         val globalNameSpace = globalNameSpace
 
-        val use = use and make = make
+        val use = use and make = make and shell = shell
         val suffixes = suffixes
         val compiler = polyCompiler
 
-        (* Main root function: run the main loop. *)
-        val rootFunction: unit->unit = rootShell
+        val exceptionLocation = exceptionLocation
+        val prettyPrintWithIDEMarkup = prettyPrintWithIDEMarkup
 
         structure Compiler =
         struct
             datatype compilerParameters = datatype compilerParameters
 
             val compilerVersion = Bootstrap.compilerVersion
+            val compilerVersionNumber = Bootstrap.compilerVersionNumber
 
             val forgetSignature: string -> unit = forgetSig
             and forgetStructure: string -> unit = forgetStruct
@@ -1272,14 +1408,12 @@ in
             
             val assemblyCode = assemblyCode and codetree = codetree
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
-            and parsetree = parsetree
+            and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             
             val debug = debug
             val inlineFunctors = inlineFunctors
             val maxInlineSize = maxInlineSize
-            val ml90 = ml90
             val printInAlphabeticalOrder = printInAlphabeticalOrder
-            val printTypesWithStructureName = printTypesWithStructureName
             val traceCompiler = traceCompiler
         end
         
@@ -1294,6 +1428,8 @@ in
             and stepOver() = (stepDebug := true; stepDepth := List.length(!(getStack())); exitLoop := true)
             and stepOut() = (stepDebug := true; stepDepth := List.length(!(getStack())) - 1; exitLoop := true)
             and continue () = (stepDebug := false; stepDepth := ~1; exitLoop := true)
+            and continueWithEx exn =
+                (stepDebug := false; stepDepth := ~1; exitLoop := true; debugExPacket := SOME exn)
             and trace b = tracing := b
 
             fun breakAt (file, line) =
@@ -1322,7 +1458,21 @@ in
             in
                 fnBreakPoints := findBreak (! fnBreakPoints)
             end
-        
+
+            fun breakEx exn =
+                if checkExnBreak exn then  () (* Already there. *)
+                else exBreakPoints := getExnId exn :: ! exBreakPoints
+
+            fun clearEx exn =
+            let
+                val exnId = getExnId exn
+                fun findBreak [] = (TextIO.print "No such breakpoint.\n"; [])
+                 |  findBreak (n :: rest) =
+                      if exnId = n then rest else n :: findBreak rest
+            in
+                exBreakPoints := findBreak (! exBreakPoints)
+            end
+
             (* Stack traversal. *)
             fun up () =
             let
@@ -1369,7 +1519,8 @@ in
 
             local
                 fun printVal v =
-                    Bootstrap.displayVal(v, !printDepth, globalNameSpace, ! printTypesWithStructureName, TextIO.print)
+                    prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
+                        (NameSpace.displayVal(v, !printDepth, globalNameSpace))
                 fun printStack stack =
                     List.app (fn (_,v) => printVal v) (#allVal (#space stack) ())
             in
@@ -1398,18 +1549,3 @@ in
         and line_length i = Compiler.lineLength := i
     end
 end (* PolyML. *);
-
-val use = PolyML.use;
-
-(* Copy everything out of the original name space. *)
-(* Do this AFTER we've finished compiling PolyML and after adding "use". *)
-val () = List.app (#enterVal PolyML.globalNameSpace) (#allVal Bootstrap.globalSpace ())
-and () = List.app (#enterFix PolyML.globalNameSpace) (#allFix Bootstrap.globalSpace ())
-and () = List.app (#enterSig PolyML.globalNameSpace) (#allSig Bootstrap.globalSpace ())
-and () = List.app (#enterType PolyML.globalNameSpace) (#allType Bootstrap.globalSpace ())
-and () = List.app (#enterFunct PolyML.globalNameSpace) (#allFunct Bootstrap.globalSpace ())
-and () = List.app (#enterStruct PolyML.globalNameSpace) (#allStruct Bootstrap.globalSpace ())
-
-(* We don't want Bootstrap copied over. *)
-val () = PolyML.Compiler.forgetStructure "Bootstrap";
-

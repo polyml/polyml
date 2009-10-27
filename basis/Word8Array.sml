@@ -36,12 +36,15 @@ local
     datatype vector = datatype LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+    val System_loads: string*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_loadb: address*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setb: address * word * Word8.word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
-    val System_isShort   : address -> bool = RunCall.run_call1 POLY_SYS_is_short
+    val System_move_str:
+        string*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
+    val System_isShort   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
     val emptyVec: vector = (* This is represented by a null string not a null vector. *)
         RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_emptystring;
 
@@ -74,7 +77,7 @@ in
             if i < 0 orelse i >= length v then raise General.Subscript
             else if System_isShort s
             then RunCall.unsafeCast s 
-            else System_loadb (s, intAsWord i + wordSize)
+            else System_loads (s, intAsWord i + wordSize)
      
         (* Because Word8Vector.vector is implemented as a string and Word8.word
            as a byte all these functions have the same implementation in
@@ -101,8 +104,8 @@ in
                 struct
                     type vector = vector and elem = elem
                     val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
-                    fun unsafeSub (v as Vector s, i) =
-                        if System_isShort s then RunCall.unsafeCast s else System_loadb(s, i + wordSize);
+                    fun unsafeSub (Vector s, i) =
+                        if System_isShort s then RunCall.unsafeCast s else System_loads(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
     
@@ -113,29 +116,28 @@ in
             (* Install the pretty printer for Word8Vector.vector *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-            fun pretty(put: string->unit, beg: int*bool->unit,
-                       brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-                let
-                    val last = length x - 1
-                    fun put_elem (index, w, d) =
-                        if d = 0 then (put "..."; d-1)
-                        else if d < 0 then d-1
-                        else
-                        (
-                        put("0wx" ^ Word8.toString w);
-                        if index <> last then (put ","; brk(1, 0)) else ();
-                        d-1
-                        )
-                in
-                    beg(3, false);
-                    put "fromList[";
-                    if depth <= 0 then put "..."
-                    else (foldli put_elem depth x; ());
-                    put "]";
-                    nd()
-                end
+    		fun pretty(depth: int) _ (x: vector) =
+    			let
+                    open PolyML
+    				val last = length x - 1
+    				fun put_elem (index, w, (l, d)) =
+    					if d = 0 then ([PrettyString "...]"], d+1)
+    					else if d < 0 then ([], d+1)
+    					else
+    					(
+    					PrettyString("0wx" ^ Word8.toString w) ::
+    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+    					d+1
+    					)
+    			in
+    				PrettyBlock(3, false, [],
+        				PrettyString "fromList[" ::
+        				(if depth <= 0 then [PrettyString "...]"]
+        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                   )
+    			end
         in
-            val unused = PolyML.install_pp pretty
+            val () = PolyML.addPrettyPrinter pretty
         end
     
     end (* Vector *);
@@ -214,8 +216,7 @@ in
             else
             let
                 (* Make an array initialised to zero. *)
-                val new_vec =
-                    LibrarySupport.Word8Array.fromString(allocString len)
+                val new_vec = allocString len
             in
                 System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
                 System_lock new_vec;
@@ -225,7 +226,7 @@ in
         (* Copy an array into another.  It's possible for the arrays to be the
            same but in that case di must be zero (since len = dlen) and the copy is
            a no-op. *)
-        fun copy {src as Array (len, s), dst as Array (dlen, d), di: int} =
+        fun copy {src=Array (len, s), dst=Array (dlen, d), di: int} =
             let
                 val diW = unsignedShortOrRaiseSubscript di
             in
@@ -235,7 +236,7 @@ in
             end
     
         (* Copy a vector into an array. *)
-        fun copyVec {src as Vector s, dst as Array (dlen, d), di: int} =
+        fun copyVec {src as Vector s, dst=Array (dlen, d), di: int} =
             let
                 val len = intAsWord(vecLength src)
                 val diW = unsignedShortOrRaiseSubscript di
@@ -246,7 +247,7 @@ in
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
                     System_setb(d, diW, RunCall.unsafeCast s)
-                else System_move_bytes(s, wordSize, d, diW, len)
+                else System_move_str(s, wordSize, d, diW, len)
             end
 
         (* Create the other functions. *)
@@ -265,29 +266,28 @@ in
             (* Install the pretty printer for Word8Array.array *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-            fun pretty(put: string->unit, beg: int*bool->unit,
-                       brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-                let
-                    val last = length x - 1
-                    fun put_elem (index, w, d) =
-                        if d = 0 then (put "..."; d-1)
-                        else if d < 0 then d-1
-                        else
-                        (
-                        put("0wx" ^ Word8.toString w);
-                        if index <> last then (put ","; brk(1, 0)) else ();
-                        d-1
-                        )
-                in
-                    beg(3, false);
-                    put "fromList[";
-                    if depth <= 0 then put "..."
-                    else (foldli put_elem depth x; ());
-                    put "]";
-                    nd()
-                end
+    		fun pretty(depth: int) _ (x: array) =
+    			let
+                    open PolyML
+    				val last = length x - 1
+    				fun put_elem (index, w, (l, d)) =
+    					if d = 0 then ([PrettyString "...]"], d+1)
+    					else if d < 0 then ([], d+1)
+    					else
+    					(
+    					PrettyString("0wx" ^ Word8.toString w) ::
+    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+    					d+1
+    					)
+    			in
+    				PrettyBlock(3, false, [],
+        				PrettyString "fromList[" ::
+        				(if depth <= 0 then [PrettyString "...]"]
+        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                   )
+    			end
         in
-            val unused = PolyML.install_pp pretty
+            val () = PolyML.addPrettyPrinter pretty
         end
     end (* Word8Array *);
     
@@ -302,9 +302,9 @@ in
                 struct
                     type vector = vector and elem = Word8.word
                     val vecLength = wVecLength
-                    fun unsafeVecSub(v as Vector s, i: word) =
+                    fun unsafeVecSub(Vector s, i: word) =
                         if System_isShort s then RunCall.unsafeCast s
-                        else System_loadb(s, i + wordSize)
+                        else System_loads(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
                 end);
     
@@ -330,29 +330,28 @@ in
         (* Install the pretty printer for Word8VectorSlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(put: string->unit, beg: int*bool->unit,
-                   brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-            let
-                val last = Word8VectorSlice.length x - 1
-                fun put_elem (index, w, d) =
-                    if d = 0 then (put "..."; d-1)
-                    else if d < 0 then d-1
-                    else
-                    (
-                    put("0wx" ^ Word8.toString w);
-                    if index <> last then (put ","; brk(1, 0)) else ();
-                    d-1
-                    )
-            in
-                beg(3, false);
-                put "fromList[";
-                if depth <= 0 then put "..."
-                else (Word8VectorSlice.foldli put_elem depth x; ());
-                put "]";
-                nd()
-            end
+		fun pretty(depth: int) _ (x: Word8VectorSlice.slice) =
+			let
+                open PolyML Word8VectorSlice
+				val last = length x - 1
+				fun put_elem (index, w, (l, d)) =
+					if d = 0 then ([PrettyString "...]"], d+1)
+					else if d < 0 then ([], d+1)
+					else
+					(
+					PrettyString("0wx" ^ Word8.toString w) ::
+					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+					d+1
+					)
+			in
+				PrettyBlock(3, false, [],
+    				PrettyString "fromList[" ::
+    				(if depth <= 0 then [PrettyString "...]"]
+    				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+               )
+			end
     in
-        val _ = PolyML.install_pp pretty
+        val _ = PolyML.addPrettyPrinter pretty
     end;
 
     structure Word8ArraySlice:> MONO_ARRAY_SLICE where type elem = Word8.word where type vector = Word8Vector.vector
@@ -387,8 +386,7 @@ in
                 let
                     val len = intAsWord length
                     (* Make an array initialised to zero. *)
-                    val new_vec =
-                        LibrarySupport.Word8Array.fromString(allocString len)
+                    val new_vec = allocString len
                 in
                     System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
                     System_lock new_vec;
@@ -397,7 +395,7 @@ in
             end
 
         (* Copy a slice into an array. *)
-        fun copy {src, dst as Array (dlen, d), di: int} =
+        fun copy {src, dst as Array (_, d), di: int} =
         let
             val (Array(_, s), start, length) = base src
         in
@@ -407,7 +405,7 @@ in
         end
     
         (* Copy a vector slice into an array. *)
-        fun copyVec {src: Word8VectorSlice.slice, dst as Array (dlen, d), di: int} =
+        fun copyVec {src: Word8VectorSlice.slice, dst=Array (dlen, d), di: int} =
             let
                 val (Vector source, i, l) = Word8VectorSlice.base src
                 val len = intAsWord l and offset = intAsWord i
@@ -420,7 +418,7 @@ in
                         so we just need to insert the character into the array. *)
                     System_setb(d, diW + offset, RunCall.unsafeCast source)
                     (* The source is represented by a string whose first word is the length. *)
-                else System_move_bytes(source, offset + wordSize, d, diW, len)
+                else System_move_str(source, offset + wordSize, d, diW, len)
             end
         
     end (* Word8ArraySlice *);
@@ -429,40 +427,28 @@ in
         (* Install the pretty printer for Word8ArraySlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(put: string->unit, beg: int*bool->unit,
-                   brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-            let
-                val last = Word8ArraySlice.length x - 1
-                fun put_elem (index, w, d) =
-                    if d = 0 then (put "..."; d-1)
-                    else if d < 0 then d-1
-                    else
-                    (
-                    put("0wx" ^ Word8.toString w);
-                    if index <> last then (put ","; brk(1, 0)) else ();
-                    d-1
-                    )
-            in
-                beg(3, false);
-                put "fromList[";
-                if depth <= 0 then put "..."
-                else (Word8ArraySlice.foldli put_elem depth x; ());
-                put "]";
-                nd()
-            end
+		fun pretty(depth: int) _ (x: Word8ArraySlice.slice) =
+			let
+                open PolyML Word8ArraySlice
+				val last = length x - 1
+				fun put_elem (index, w, (l, d)) =
+					if d = 0 then ([PrettyString "...]"], d+1)
+					else if d < 0 then ([], d+1)
+					else
+					(
+					PrettyString("0wx" ^ Word8.toString w) ::
+					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+					d+1
+					)
+			in
+				PrettyBlock(3, false, [],
+    				PrettyString "fromList[" ::
+    				(if depth <= 0 then [PrettyString "...]"]
+    				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+               )
+			end
     in
-        val unused = PolyML.install_pp pretty
+        val unused = PolyML.addPrettyPrinter pretty
     end
 
 end;
-
-(* Install overloaded equality functions. Since Word8.word
-   is an equality type the only effect of this is to speed
-   up equality. (c.f. Array ) *)
-val it: Word8Array.array * Word8Array.array -> bool = 
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-RunCall.addOverload it "=";
-val it: Word8Array.array * Word8Array.array -> bool = 
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-RunCall.addOverload it "<>";
-

@@ -45,12 +45,7 @@ struct
     type array = Array.array
     type pos = PrimIO.pos
 
-    local
-        structure Interrupt =
-            RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_interrupt )
-    in
-        exception Interrupt = Interrupt.ex
-    end
+    exception Interrupt = RunCall.Interrupt
 
     (* Called after any exception in the lower level reader or
        writer to map any exception other than Io into Io. *)
@@ -278,7 +273,7 @@ struct
 
     local
         (* Return the reader. *) 
-        fun getReader' (ref (HaveRead {vec, rest, ...})) = getReader' rest
+        fun getReader' (ref (HaveRead {rest, ...})) = getReader' rest
         |   getReader' (ref Truncated) =
                 raise Io { name = "",  function = "getReader", cause = ClosedStream }
         |   getReader' (state as ref (ToRead reader)) =
@@ -286,7 +281,7 @@ struct
     in
         fun getReader'' (Uncommitted { state, locker }) =
                 LibraryIOSupport.protect locker getReader' state
-        |   getReader'' (Committed { vec, offset, rest, ... }) = getReader'' rest
+        |   getReader'' (Committed { rest, ... }) = getReader'' rest
 
         fun getReader f =
         let
@@ -371,7 +366,7 @@ struct
         (* Find the first entry to get the position. *)
         fun filePosIn (Uncommitted { state = ref state, locker }) =
                 LibraryIOSupport.protect locker filePosIn' state
-        |   filePosIn (Committed { vec, offset, rest, startPos = SOME startPos }) =
+        |   filePosIn (Committed { offset, rest, startPos = SOME startPos, ... }) =
                 findPosition(startPos, offset, rest)
         |   filePosIn (Committed { startPos = NONE, ... }) =
               (* This can occur either because the reader doesn't support getPos or
@@ -544,14 +539,14 @@ struct
             (* Already terminated. *)
                 raise Io { name = name, function = "getWriter",
                            cause = ClosedStream }
-         |  getWriter'(f as OutStream{buffType, buf, bufp, wrtr, isTerm, ...}) =
+         |  getWriter'(f as OutStream{buffType, wrtr, ...}) =
             (
                terminateStream' f;
                (wrtr, !buffType)
             )
 
         (* Set the buffer mode, possibly flushing the buffer as it does. *)
-        fun setBufferMode' newBuff (f as OutStream{buffType, buf, bufp, wrtr, ...}) =
+        fun setBufferMode' newBuff (f as OutStream{buffType, bufp, ...}) =
         (* Question: What if the stream is terminated? *)
             (
             if newBuff = NO_BUF andalso !bufp <> 0
@@ -606,7 +601,7 @@ struct
            length provided. *)
         fun outputVector _ (OutStream{isTerm=ref true, wrtr=WR{name, ...}, ...}) =
             raise Io { name = name, function = "output", cause = ClosedStream }
-        |   outputVector (v, start, vecLen) (f as OutStream{buffType, buf, bufp, wrtr, ...})  =
+        |   outputVector (v, start, vecLen) (f as OutStream{buffType, buf, bufp, ...})  =
         let
             val buffLen = Array.length buf
 
@@ -677,20 +672,19 @@ struct
                 raise Io { name = name, function = "getPosOut",
                            cause = RandomAccessNotSupported }
     
-        fun setPosOut' p (f as OutStream{wrtr=WR{name, setPos=SOME setPos, ...}, ...}) =
+        fun setPosOut' p (f as OutStream{wrtr=WR{setPos=SOME setPos, ...}, ...}) =
             (
                 flushOut' f;
                 setPos p;
                 f
             )
-        |   setPosOut' p (OutStream{wrtr=WR{name, ...}, ...}) =
+        |   setPosOut' _ (OutStream{wrtr=WR{name, ...}, ...}) =
                 raise Io { name = name, function = "setPosOut",
                            cause = RandomAccessNotSupported }
     in
         fun output1(f, c) = protectOut (output1' c) f
         fun output(f, v) = protectOut (outputVector(v, 0, Vector.length v)) f
         val flushOut = protectOut flushOut'
-        val terminateStream = protectOut terminateStream'
         val closeOut = protectOut closeOut'
         val getWriter = protectOut getWriter'
         fun setBufferMode(f, n) = protectOut (setBufferMode' n) f
@@ -745,8 +739,34 @@ struct
         end
         fun doOnEntry () = (discardAll(); PolyML.onLoad doOnLoad; OS.Process.atExit closeAll)
     in
-        val it = PolyML.onEntry doOnEntry;
-        val it = doOnEntry() (* Set it up for this session as well. *)
+        val () = PolyML.onEntry doOnEntry;
+        val () = doOnEntry() (* Set it up for this session as well. *)
+    end
+
+    local
+        open PolyML
+        fun printWithName(s, name) =
+            PolyML.PrettyString(String.concat[s, "-\"", String.toString name, "\""])
+
+        fun prettyIn depth a (Committed { rest, ...}) =
+                prettyIn depth a rest
+        |   prettyIn _     _ (Uncommitted { state = ref streamState, ...}) =
+            let
+                fun prettyState Truncated =
+                        PolyML.PrettyString("Instream-truncated")
+                |   prettyState (HaveRead{ rest = ref rest, ...}) =
+                        prettyState rest
+                |   prettyState (ToRead(RD{name, ...})) =
+                        printWithName("Instream", name)
+            in
+                prettyState streamState
+            end
+
+        fun prettyOut _ _ (OutStream { wrtr = WR { name, ...}, ...}) =
+            printWithName("Outstream", name)
+    in
+        val () = addPrettyPrinter prettyIn
+        val () = addPrettyPrinter prettyOut
     end
 end;
 

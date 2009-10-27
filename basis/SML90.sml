@@ -66,12 +66,7 @@ struct
 		  and Neg = Overflow and Sum = Overflow and Diff = Overflow
 		  and Floor = Overflow and Exp = Overflow and Sqrt = Overflow
 		  and Ln = Overflow and Ord = Overflow and Mod = Div
-    local
-		structure Interrupt =
-			RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_interrupt )
-	in
-		exception Interrupt = Interrupt.ex
-	end
+          and Interrupt = RunCall.Interrupt
 
 	exception Io of string
 

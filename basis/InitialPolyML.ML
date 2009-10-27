@@ -123,9 +123,6 @@ in
 
     local
         val onLoadList = ref []
-
-        fun loadSavedState (f: string): unit =
-    	    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
     in
         (* Add a function to be called when a saved state is loaded.  This is really
 		   here to ensure that we can preserve the contents of the buffer for stdIn. *)
@@ -160,24 +157,29 @@ in
 			end
         end
     end
-    
-    local
-    	(* Poly/ML exceptions. *)
-        structure XWindowsEx =
-          RunCall.Run_exception1
-            (
-              type ex_type = string;
-              val ex_iden  = RuntimeCalls.EXC_XWindows
-            )
-        and ForeignEx =
-          RunCall.Run_exception1
-            (
-              type ex_type = string;
-              val ex_iden  = RuntimeCalls.EXC_foreign
-            )
+
+    (* Raise an exception using a given location rather than the value in the packet. *)
+    fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
+    let
+        open RunCall RuntimeCalls
+        fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
+        (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
+           location in an exception packet.  It includes the possibility that the location
+           information may be missing. *)
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+       val packet =
+        (getEntry 0, getEntry 1, getEntry 2,
+                SomeLocation(file, startLine, startPosition, endLine, endPosition))
     in
-        exception XWindows = XWindowsEx.ex
-        and       Foreign  = ForeignEx.ex
-    end;
+        run_call1 POLY_SYS_raisex packet
+    end
+    
+        exception XWindows = RunCall.XWindows
+        and       Foreign  = RunCall.Foreign
 	end
 end;

@@ -230,7 +230,7 @@ struct
 		fun yearDay({day, month, year, ...}:date) = dayInYear(day, month, year)
 
 		(* Convert the date into a UTC time value. *)
-		fun toTime (date as {year, month, day, hour, minute, second, offset}) =
+		fun toTime (date as {year, hour, minute, second, offset, ...}) =
 		let
 			(* Compute the seconds. *)
 			val secs =
@@ -532,7 +532,7 @@ end;
 local
 	(* Install the pretty printer for Date.date.  This has to be
 	   done outside the structure because of the opaque matching. *)
-	fun pretty(p, _, _, _) _ _ x = p(Date.toString x)
+	fun pretty _ _ x = PolyML.PrettyString(Date.toString x)
 in
-	val () = PolyML.install_pp pretty
+	val () = PolyML.addPrettyPrinter pretty
 end

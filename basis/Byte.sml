@@ -40,8 +40,8 @@ structure Byte: BYTE =
 		fun charToByte (c: char) : Word8.word = RunCall.unsafeCast c
 
 		(* Conversion between Word8Vector.vector and string is just a cast. *)
-		fun bytesToString (LibrarySupport.Word8Array.Vector v) : string = LibrarySupport.Word8Array.toString v
-		fun stringToBytes (s: string) : Word8Vector.vector = LibrarySupport.Word8Array.Vector(LibrarySupport.Word8Array.fromString s)
+		fun bytesToString (LibrarySupport.Word8Array.Vector v) : string = v
+		fun stringToBytes (s: string) : Word8Vector.vector = LibrarySupport.Word8Array.Vector s
 
 		fun unpackStringVec slice : string = bytesToString(Word8VectorSlice.vector slice)
 		fun unpackString slice : string = bytesToString(Word8ArraySlice.vector slice)

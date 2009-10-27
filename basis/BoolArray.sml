@@ -23,7 +23,7 @@ local
 	open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
 	open LibrarySupport
 
-	datatype address = Address of word(* Abstract *)
+	datatype address = Address of int Vector.vector (* Abstract but using structure equality. *)
 	
 	(* TODO: Use a single word for vectors of size <= 31 (30 on Sparc). *)
 	datatype vector = Vector of int*address
@@ -32,8 +32,6 @@ local
 	val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 	val System_loadb: address*word->word = RunCall.run_call2 POLY_SYS_load_byte;
 	val System_setb: address * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
-	val System_move_bytes:
-		address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
 
 	val wordSize : word = LibrarySupport.wordSize;
 
@@ -97,7 +95,7 @@ local
 					if bit = 0wx80
 					then
 						(
-						System_setb(vec, byteno, acc);
+						System_setb(vec, byteno, byte);
 						init(byteno+0w1, 0w0, 0w1, b)
 						)
 					else init(byteno, byte, bit << 0w1, b)
@@ -142,17 +140,6 @@ local
 		in
 			byte andb mask <> 0w0
 		end
-
-	(* Internal function.  Checks a slice for validity and returns the
-	   effective length if it is valid otherwise raises Subscript. *)
-	fun vec_slice_length(Vector(len, vec): vector, i: int, NONE) =
-			if i >= 0 andalso i <= len
-			then len-i (* Length is rest of vector. *)
-			else raise General.Subscript
-	 |  vec_slice_length(Vector(len, vec): vector, i: int, SOME l) =
-			if i >= 0 andalso l >= 0 andalso i+l <= len
-			then l (* Length is as given. *)
-			else raise General.Subscript
 
 	(* Move a set of bits from one vector of bytes to another.  The bits
 	   may not be on the same byte alignment.  Does not examine the
@@ -215,7 +202,7 @@ in
 		
 		fun length(Vector(l, _)) = l
 		
-		fun op sub (vec as Vector(l, v), i: int): bool =
+		fun op sub (Vector(l, v), i: int): bool =
 			if i < 0 orelse i >= l then raise General.Subscript
 			else uncheckedSub(v, i)
 	
@@ -236,18 +223,7 @@ in
 		    System_lock vec;
 		    Vector(length, vec)
 		end
-		
-		fun extract(slice as (Vector(_, vec), i: int, _)) =
-		let
-			(* Check the slice for validity and get the length *)
-			val len = vec_slice_length slice
-		in
-			(* TODO: We may be able to handle special cases where the
-			   source and destination are aligned on the same bit offset.
-			   For the moment just take the simple approach. *)
-			tabulate(len, fn j => uncheckedSub(vec, j+i))
-		end
-	
+			
 (*		fun map f (Vector(len, vec)) =
 			let
 				val new_vec = alloc len (* Destination vector. *)
@@ -356,29 +332,28 @@ in
 
 		local
 			(* Install the pretty printer for BoolVector.vector *)
-			fun pretty(put: string->unit, beg: int*bool->unit,
-					   brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-				let
-					val last = length x - 1
-					fun put_elem (index, w, d) =
-						if d = 0 then (put "..."; d-1)
-						else if d < 0 then d-1
-						else
-						(
-						put(if w then "true" else "false");
-						if index <> last then (put ","; brk(1, 0)) else ();
-						d-1
-						)
-				in
-					beg(3, false);
-					put "fromList[";
-					if depth <= 0 then put "..."
-					else (foldli put_elem depth x; ());
-					put "]";
-					nd()
-				end
+    		fun pretty(depth: int) _ (x: vector) =
+    			let
+                    open PolyML
+    				val last = length x - 1
+    				fun put_elem (index, w, (l, d)) =
+    					if d = 0 then ([PrettyString "...]"], d+1)
+    					else if d < 0 then ([], d+1)
+    					else
+    					(
+    					PrettyString(if w then "true" else "false") ::
+    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+    					d+1
+    					)
+    			in
+    				PrettyBlock(3, false, [],
+        				PrettyString "fromList[" ::
+        				(if depth <= 0 then [PrettyString "...]"]
+        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                   )
+    			end
 		in
-			val () = PolyML.install_pp pretty
+			val () = PolyML.addPrettyPrinter pretty
 		end
 	
 	end
@@ -449,7 +424,7 @@ in
 			BoolVector.tabulate(len, fn j => uncheckedSub(vec, j))
 
 		(* Copy one array into another. The arrays could be the same but in that case di must be zero. *)
-		fun copy {src as Array (slen, s), dst as Array (dlen, d), di: int} =
+		fun copy {src=Array (slen, s), dst=Array (dlen, d), di: int} =
 			if di < 0 orelse di+slen > dlen
 			then raise General.Subscript
 			else (* TODO: Handle multiple bits where possible by using
@@ -495,7 +470,7 @@ in
 			end
 *)	
 		(* Copy a vector into an array. *)
-		fun copyVec {src as Vector(slen, s), dst as Array (dlen, d), di: int} =
+		fun copyVec {src=Vector(slen, s), dst=Array (dlen, d), di: int} =
 			let
 				fun copyBits n =
 					if n >= slen then ()
@@ -524,29 +499,28 @@ in
 			(* Install the pretty printer for BoolArray.array *)
 			(* We may have to do this outside the structure if we
 			   have opaque signature matching. *)
-			fun pretty(put: string->unit, beg: int*bool->unit,
-					   brk: int*int->unit, nd: unit->unit) (depth: int) _ x =
-				let
-					val last = length x - 1
-					fun put_elem (index, w, d) =
-						if d = 0 then (put "..."; d-1)
-						else if d < 0 then d-1
-						else
-						(
-						put(if w then "true" else "false");
-						if index <> last then (put ","; brk(1, 0)) else ();
-						d-1
-						)
-				in
-					beg(3, false);
-					put "fromList[";
-					if depth <= 0 then put "..."
-					else (foldli put_elem depth x; ());
-					put "]";
-					nd()
-				end
+    		fun pretty(depth: int) _ (x: array) =
+    			let
+                    open PolyML
+    				val last = length x - 1
+    				fun put_elem (index, w, (l, d)) =
+    					if d = 0 then ([PrettyString "...]"], d+1)
+    					else if d < 0 then ([], d+1)
+    					else
+    					(
+    					PrettyString(if w then "true" else "false") ::
+    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+    					d+1
+    					)
+    			in
+    				PrettyBlock(3, false, [],
+        				PrettyString "fromList[" ::
+        				(if depth <= 0 then [PrettyString "...]"]
+        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                   )
+    			end
 		in
-			val () = PolyML.install_pp pretty
+			val () = PolyML.addPrettyPrinter pretty
 		end
 	end
 end;

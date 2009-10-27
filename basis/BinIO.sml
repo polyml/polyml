@@ -98,11 +98,7 @@ struct
 
 	open RuntimeCalls;
 
-    local
-		structure Interrupt = RunCall.Run_exception0( val ex_iden  = EXC_interrupt )
-	in
-		exception Interrupt = Interrupt.ex
-	end
+    exception Interrupt = RunCall.Interrupt
 
 	(* Called after any exception in the lower level reader or
 	   writer to map any exception other than Io into Io. *)

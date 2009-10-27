@@ -45,7 +45,9 @@ Bootstrap.use "basis/Int.sml";
 Bootstrap.use "basis/Array.sml";
 Bootstrap.use "basis/LargeWord.sml";
 Bootstrap.use "basis/Word8.sml";
-Bootstrap.use "basis/Word32.sml";
+if PolyML.architecture() = "X86_64"
+then Bootstrap.use "basis/Word32.x86_64.sml"
+else Bootstrap.use "basis/Word32.sml";
 Bootstrap.use "basis/INTEGER.sml";
 Bootstrap.use "basis/IntInf.sml";
 Bootstrap.use "basis/Int32.sml";
@@ -64,6 +66,7 @@ Bootstrap.use "basis/Thread.sml"; (* Non-standard. *)
 Bootstrap.use "basis/Timer.sml";
 Bootstrap.use "basis/CommandLine.sml";
 Bootstrap.use "basis/OS.sml";
+Bootstrap.use "basis/ExnPrinter.sml"; (* Relies on OS. *)
 Bootstrap.use "basis/IO.sml";
 Bootstrap.use "basis/PRIM_IO.sml";
 Bootstrap.use "basis/PrimIO.sml";
@@ -103,9 +106,28 @@ in
 	else ()
 end;
 
+(* Build the Process structure for backwards compatibility. *)
+Bootstrap.use "basis/processes.ML";
+
 Bootstrap.use "basis/HashArray.ML";
 Bootstrap.use "basis/UniversalArray.ML";
+Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
 Bootstrap.use "basis/FinalPolyML.sml";
+Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
+
+val use = PolyML.use;
+
+(* Copy everything out of the original name space. *)
+(* Do this AFTER we've finished compiling PolyML and after adding "use". *)
+val () = List.app (#enterVal PolyML.globalNameSpace) (#allVal Bootstrap.globalSpace ())
+and () = List.app (#enterFix PolyML.globalNameSpace) (#allFix Bootstrap.globalSpace ())
+and () = List.app (#enterSig PolyML.globalNameSpace) (#allSig Bootstrap.globalSpace ())
+and () = List.app (#enterType PolyML.globalNameSpace) (#allType Bootstrap.globalSpace ())
+and () = List.app (#enterFunct PolyML.globalNameSpace) (#allFunct Bootstrap.globalSpace ())
+and () = List.app (#enterStruct PolyML.globalNameSpace) (#allStruct Bootstrap.globalSpace ())
+
+(* We don't want Bootstrap copied over. *)
+val () = PolyML.Compiler.forgetStructure "Bootstrap";
 
 (* Clean out structures and functors which are only used to build
    the library. *)
@@ -117,8 +139,6 @@ PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
 
-(* Now we've created the new name space we must use PolyML.make/use. *)
+(* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
+   these don't automatically look at the -I option. *)
 
-
-(* Build the Process structure for backwards compatibility. *)
-PolyML.use "basis/processes";

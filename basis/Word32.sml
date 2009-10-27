@@ -53,10 +53,7 @@ struct
     fun fromLargeWord (w: LargeWord.word) =   andb(w, maxWordAsWord)
     val fromLarge = fromLargeWord
 
-    (* Internal function to convert from Word.word. *)
-    fun fromWord (w: Word.word) = fromLargeWord(Word.toLarge(w))
-
-    and fromInt (i: int): word = fromLargeWord(LargeWord.fromInt i)
+    fun fromInt (i: int): word = fromLargeWord(LargeWord.fromInt i)
 
             (* Arithmetic shift - sign extends. *) 
     (* Shift the "sign" bit into the real sign bit position then
@@ -105,14 +102,6 @@ end;
 (* Because we are using opaque signature matching we have to install
    type-dependent functions OUTSIDE the structure. *)
 local
-    open RuntimeCalls
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
         (* The string may be either 0wnnn or 0wxXXX *)
         fun convWord s : Word32.word =
                 let
@@ -121,15 +110,15 @@ local
                         if String.sub(s, 2) = #"x" then StringCvt.HEX else StringCvt.DEC
                 in
                         case StringCvt.scanString (Word32.scan radix) s of
-                                NONE => raise Conversion "Invalid word8 constant"
+                                NONE => raise RunCall.Conversion "Invalid word8 constant"
                           | SOME res => res
                 end
 
         (* Install the pretty printer for Word32.word *)
-        fun pretty(p, _, _, _) _ _ x = p("0wx" ^ Word32.toString x)
+        fun pretty _ _ x = PolyML.PrettyString("0wx" ^ Word32.toString x)
 in
         val () = RunCall.addOverload convWord "convWord"
-        val () = PolyML.install_pp pretty
+        val () = PolyML.addPrettyPrinter pretty
 end;
 
 

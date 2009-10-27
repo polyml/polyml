@@ -134,7 +134,7 @@ struct
 	fun op + (a, b) = fromWord(Word.+(a, b))
 	and op - (a, b) = fromWord(Word.-(a, b))
 	and op * (a, b) = fromWord(Word.*(a, b))
-
+	
     fun ~ x = 0w0 - x
 
 end;
@@ -142,14 +142,6 @@ end;
 (* Because we are using opaque signature matching we have to install
    type-dependent functions OUTSIDE the structure. *)
 local
-	open RuntimeCalls
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
 	(* The string may be either 0wnnn or 0wxXXX *)
 	fun convWord s : Word8.word =
 		let
@@ -158,15 +150,15 @@ local
 			if String.sub(s, 2) = #"x" then StringCvt.HEX else StringCvt.DEC
 		in
 			case StringCvt.scanString (Word8.scan radix) s of
-				NONE => raise Conversion "Invalid word8 constant"
+				NONE => raise RunCall.Conversion "Invalid word8 constant"
 			  | SOME res => res
 		end
 		
 	(* Install the pretty printer for Word8.word *)
-	fun pretty(p, _, _, _) _ _ x = p("0wx" ^ Word8.toString x)
+	fun pretty _ _ x = PolyML.PrettyString("0wx" ^ Word8.toString x)
 in
 	val () = RunCall.addOverload convWord "convWord"
-	val () = PolyML.install_pp pretty
+	val () = PolyML.addPrettyPrinter pretty
 end;
 
 (* Add the overloaded operators. *)
@@ -180,11 +172,3 @@ RunCall.addOverload Word8.< "<";
 RunCall.addOverload Word8.> ">";
 RunCall.addOverload Word8.<= "<=";
 RunCall.addOverload Word8.>= ">=";
-(* Add overloadings for = and <>.  The effect of this is to provide
-   more efficient implementations than the default structure equality. *)
-val it : Word8.word * Word8.word -> bool =
-	RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-RunCall.addOverload it "=";
-val it : Word8.word * Word8.word -> bool =
-	RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-RunCall.addOverload it "<>";

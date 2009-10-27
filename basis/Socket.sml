@@ -452,7 +452,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			send(sock, v, i + Word.toInt wordSize, length, don't_route, oob)
+			send(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVec (sock, vbuff) = sendVec'(sock, vbuff, nullOut)
 		
@@ -460,7 +460,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendNB(sock, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendNB(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecNB (sock, vbuff) = sendVecNB'(sock, vbuff, nullOut)
 	
@@ -484,7 +484,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendTo(sock, addr, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendTo(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecTo (sock, addr, vbuff) = sendVecTo'(sock, addr, vbuff, nullOut)
 
@@ -492,7 +492,7 @@ struct
 		let
 			val (Vector v, i, length) = Word8VectorSlice.base slice
 		in
-			sendToNB(sock, addr, v, i + Word.toInt wordSize, length, don't_route, oob)
+			sendToNB(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
 		end
 		and sendVecToNB (sock, addr, vbuff) = sendVecToNB'(sock, addr, vbuff, nullOut)
 
@@ -636,11 +636,11 @@ local
 	(* Install the pretty printer for Socket.AF.addr_family
 	   This must be done outside
 	   the structure if we use opaque matching. *)
-	fun printAF(p, _, _, _) _ _ x = p(Socket.AF.toString x)
-	fun printSK(p, _, _, _) _ _ x = p(Socket.SOCK.toString x)
+	fun printAF _ _ x = PolyML.PrettyString(Socket.AF.toString x)
+	fun printSK _ _ x = PolyML.PrettyString(Socket.SOCK.toString x)
 in
-	val () = PolyML.install_pp printAF
-	val () = PolyML.install_pp printSK
+	val () = PolyML.addPrettyPrinter printAF
+	val () = PolyML.addPrettyPrinter printSK
 end
 
 

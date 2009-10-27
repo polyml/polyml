@@ -140,4 +140,16 @@ struct
 	and getPosOut(OutStream{fStream=ref f, ...}) = StreamIO.getPosOut f
 
 	fun setPosOut(OutStream{fStream, ...}, p) = fStream := StreamIO.setPosOut p
+    
+    (* Add pretty printers to hide the internals.  These just use the implementation streams. *)
+    local
+        open PolyML
+        fun prettyIn depth _ (InStream{ fStream = ref s, ...}) =
+            PolyML.prettyRepresentation(s, depth)
+        fun prettyOut depth _ (OutStream { fStream = ref s, ...}) =
+            PolyML.prettyRepresentation(s, depth)
+    in
+        val () = addPrettyPrinter prettyIn
+        val () = addPrettyPrinter prettyOut
+    end
 end;

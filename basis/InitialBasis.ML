@@ -138,66 +138,6 @@ infix  0  before
     fun it x = if x >= zero then x else ~ x
   end;
   RunCall.addOverload it "abs";
-	
-  (* Equality functions.  In this case we
-     are not actually adding overloadings (equality is
-	 handled specially by the type system) but telling
-	 the compiler about functions which provide faster
-	 implementation of equality than the general-purpose
-	 structure equality. *)
-  (* POLY_SYS_equala performs equality checking on both short and long
-     versions of arbitrary precision integers. *)
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_equala;
-  RunCall.addOverload it "=";
-  (* POLY_SYS_int_eq does a simple bitwise comparison on its
-     arguments which is sufficient if the values are always short. *)
-  val it: bool*bool->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_eq;
-  RunCall.addOverload it "=";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_eq;
-  RunCall.addOverload it "=";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststreq;
-  RunCall.addOverload it "=";
-  (* POLY_SYS_word_eq is the same as POLY_SYS_int_eq in the memory mapped
-     version of Poly/ML.  It used to be different in the persistent store
-	 version because it was possible for two pointers to the same object
-	 to have different values.  *)
-  (* Adding an overload for equality on 'a ref has the effect of allowing
-     equality on all ref types. *)
-  local
-    (* This is even more messy than usual because we have a type variable
-	   in the type. *)
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq
-  in
-   fun it (x: 'a ref, y: 'a ref) = RunCall.unsafeCast f (x,y)
-  end;
-  RunCall.addOverload it "=";
-  val it : word * word -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_eq;
-  RunCall.addOverload it "=";
-
-
-  local
-  	val not = RunCall.run_call1 RuntimeCalls.POLY_SYS_not_bool
-  in
-    fun it(i:int, j: int): bool = not(RunCall.run_call2 RuntimeCalls.POLY_SYS_equala(i, j))
-  end;
-  RunCall.addOverload it "<>";
-  val it: bool*bool->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_neq;
-  RunCall.addOverload it "<>";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_neq;
-  RunCall.addOverload it "<>";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrneq;
-  RunCall.addOverload it "<>";
-  local
-    (* This is even more messy than usual because of the types. *)
-    val f : word*word->bool =
-		RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq
-  in
-   fun it (x: 'a ref, y: 'a ref) = RunCall.unsafeCast f (x,y)
-  end;
-  RunCall.addOverload it "<>";
-  val it : word * word -> bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_neq;
-  RunCall.addOverload it "<>";
 
   (* div, mod and / are overloaded in ML97.  *)
   val it: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real;
@@ -251,18 +191,9 @@ infix  0  before
   val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word;
   RunCall.addOverload it "mod";
 
-local
 	(* We need to use the same identifier for this that we used when
 	   compiling the compiler, particularly "make". *)
-    structure Fail =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = RuntimeCalls.EXC_Fail
-        )
-in
-    exception Fail = Fail.ex
-end;
+    exception Fail = RunCall.Fail
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
@@ -306,14 +237,6 @@ local
 	   the Char structure. *)
 	open RuntimeCalls;
 
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-    exception Conversion = Conversion.ex;
-
 	val isShortString   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
 	fun convChar (s: string) : char =
@@ -322,7 +245,7 @@ local
 	in
 		(* Should be exactly a single character i.e. a single short value. *)
 		if isShortString convS then RunCall.unsafeCast convS
-		else raise Conversion "Bad character"
+		else raise RunCall.Conversion "Bad character"
 	end;
 
 in
@@ -333,44 +256,57 @@ end;
    are installed here merely so that we can get useful output if we get a failure while
    compiling it. *)
 local
-	open RuntimeCalls
+	open RuntimeCalls PolyML
 
-    val ord0 = ord #"0";
-	val chr = RunCall.unsafeCast
+	fun print_bool _ _ (b: bool) =
+		PrettyString(if b then "true" else "false")
 
-	fun print_bool (put, beg, brk, nd) depth _ (b: bool) =
-		put(if b then "true" else "false")
+	fun print_string _ _ (s: string) = PrettyString s (* Not escaped at the moment. *)
 
-	fun print_string (put, beg, brk, nd) depth _ (s: string) =
-		put(s) (* Not escaped at the moment. *)
+	fun print_char _ _ (c: char) =
+		PrettyBlock (0, false, [], [PrettyString "#", PrettyString(RunCall.unsafeCast c)])
 
-	fun print_char (put, beg, brk, nd) depth _ (c: char) =
-		(put("#");  put(RunCall.unsafeCast c))
-
-	fun print_list (put, beg, brk, nd) depth printEl (l: 'a list) =
+	fun print_list depth printEl (l: 'a list) =
 		let
 		(* Print the list as [<elem>, <elem>, etc ]. Replace the
 		   rest of the list by ... once the depth reaches zero. *)
-	      fun plist [] depth = ()
-	       |  plist _ 0 = put "..."
-		   |  plist [h]    depth = printEl (h, depth) 
+	      fun plist [] _ = []
+	       |  plist _ 0 = [PrettyString "..."]
+		   |  plist [h]    depth = [printEl (h, depth)]
 		   |  plist (h::t) depth =
-			      ( printEl (h, depth);
-					put ",";
-					brk (1, 0);
-					plist t (depth - 1)
-			      )
+                    printEl (h, depth) ::
+                    PrettyString "," ::
+                    PrettyBreak (1, 0) ::
+                    plist t (depth - 1)
+                    
+          fun nil @ y = y (* This is redefined later. *)
+          |  (a::b) @ y = a :: (b @ y)
 	    in
-	      beg (3, false); (* Wrap this in a begin-end block to keep it together. *)
-	      put "[";
-	      if depth <= 0 then put "..." else plist l depth;
-	      put "]";
-	      nd ()
+	      PrettyBlock (1, false, [], (* Wrap this in a begin-end block to keep it together. *)
+            PrettyString "[" ::
+    	        ((if depth <= 0 then [PrettyString "..."] else plist l depth) @
+    	        [PrettyString "]"]
+                )
+            )
 	    end
 
+    (* If we have an expression as the argument we parenthesise it unless it is
+       a simple string, a tuple, a record or a list. *)
+    fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
+    |   parenthesise(s as PrettyBlock _) =
+            PrettyBlock(3, true, [], [ PrettyString "(", s, PrettyString ")" ])
+    |   parenthesise s = s (* String or Break *)
+
+    fun print_ref depth doArg (ref x) =
+        PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth)) ])
+
 in
-  	val it = PolyML.install_pp print_bool;
-  	val it = PolyML.install_pp print_string;
-  	val it = PolyML.install_pp print_char;
-  	val it = PolyML.install_pp print_list
+  	val () = addPrettyPrinter print_bool;
+  	val () = addPrettyPrinter print_string;
+  	val () = addPrettyPrinter print_char;
+  	val () = addPrettyPrinter print_list
+  	val () = addPrettyPrinter print_ref
 end;

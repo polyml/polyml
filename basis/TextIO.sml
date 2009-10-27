@@ -87,12 +87,7 @@ structure TextIO :> TEXT_IO = struct
     type vector = String.string
     and  elem = Char.char
 
-    local
-        structure Interrupt =
-            RunCall.Run_exception0( val ex_iden  = RuntimeCalls.EXC_interrupt )
-    in
-        exception Interrupt = Interrupt.ex
-    end
+    exception Interrupt = RunCall.Interrupt
 
     (* Called after any exception in the lower level reader or
        writer to map any exception other than Io into Io. *)
@@ -286,8 +281,6 @@ structure TextIO :> TEXT_IO = struct
              = RunCall.run_call3 POLY_SYS_io_dispatch
     in
         val stdInDesc: fileDescr = doIo(0, 0, "")
-        and stdOutDesc: fileDescr = doIo(1, 0, "")
-        and stdErrDesc: fileDescr = doIo(2, 0, "")
 
         fun sys_open_in_text name = doIo(3, 0, name)
         and sys_open_out_text name = doIo(5, 0, name)
@@ -634,7 +627,7 @@ structure TextIO :> TEXT_IO = struct
 
     local
         fun inputAll'(ref(Underlying strm)) = ImpIO.inputAll strm
-        |   inputAll'(ref(Direct(strm as {buffer, bufp, buflimit, descr, name, ...}))) =
+        |   inputAll'(ref(Direct({buffer, bufp, buflimit, descr, name, ...}))) =
             if !buflimit = 0
             (* Last read returned an empty buffer.  Clear the EOF state once
                we return this empty string. *)
@@ -653,7 +646,7 @@ structure TextIO :> TEXT_IO = struct
                 let
                     (* The call to sys_avail can raise an exception if the file is a
                        special device e.g. in the /proc filing system on Linux. *)
-                    val charsAvailable = sys_avail descr handle exn => 0
+                    val charsAvailable = sys_avail descr handle _ => 0
                     (* If it's less than the blocksize get a block.  This way we
                        always get a reasonable amount if "avail" is giving us a
                        small amount. *)
@@ -738,7 +731,7 @@ structure TextIO :> TEXT_IO = struct
 
     local
         fun closeIn'(ref(Underlying strm)) = ImpIO.closeIn strm
-        |   closeIn'(strm as ref(Direct{descr, ...})) =
+        |   closeIn'(ref(Direct{descr, ...})) =
             (
                 (* Do we need to do something to get the right effect with
                    getInstream? *)
@@ -773,7 +766,7 @@ structure TextIO :> TEXT_IO = struct
                     let
                         (* It's not clear what should happen here.  Assume that this clears any
                            temporary EOF. *)
-                        val (s, f') = StreamIO.input f
+                        val (_, f') = StreamIO.input f
                     in
                         ImpIO.setInstream(strm, f');
                         NONE
@@ -910,6 +903,16 @@ structure TextIO :> TEXT_IO = struct
                 SOME v
             )
                    
+    end
+
+    local
+        open PolyML
+        fun prettyIn _     _ (InStream(ref(Direct{ name, ... }), _)) =
+                PolyML.PrettyString(String.concat["Instream-\"", String.toString name, "\""])
+        |   prettyIn depth _ (InStream(ref(Underlying s), _)) =
+                PolyML.prettyRepresentation(s, depth)
+    in
+        val () = addPrettyPrinter prettyIn
     end
 end;
 

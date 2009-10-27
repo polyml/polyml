@@ -145,7 +145,7 @@ struct
 	    wordAsVec vec
 	end
 		
-    fun tabulate (0, f) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+    fun tabulate (0, _) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
      |  tabulate (length: int , f : int->'a): 'a vector =
 	let
 		val vec =
@@ -258,32 +258,30 @@ struct
 		(* Install the pretty printer for vectors *)
 		(* We may have to do this outside the structure if we
 		   have opaque signature matching. *)
-		fun pretty(put: string->unit, beg: int*bool->unit,
-				   brk: int*int->unit, nd: unit->unit)
-				  (depth: int)
-				  (printElem: 'a * int -> unit)
+		fun pretty(depth: int)
+				  (printElem: 'a * int -> PolyML.pretty)
 				  (x: 'a vector) =
 			let
+                open PolyML
 				val last = length x - 1
-				fun put_elem (index, w, d) =
-					if d = 0 then (put "..."; d-1)
-					else if d < 0 then d-1
+				fun put_elem (index, w, (l, d)) =
+					if d = 0 then ([PrettyString "...]"], d+1)
+					else if d < 0 then ([], d+1)
 					else
 					(
-					printElem(w, d-1);
-					if index <> last then (put ","; brk(1, 0)) else ();
-					d-1
+					printElem(w, d-1) ::
+					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+					d+1
 					)
 			in
-				beg(3, false);
-				put "fromList[";
-				if depth <= 0 then put "..."
-				else (foldli put_elem depth x; ());
-				put "]";
-				nd()
+				PrettyBlock(3, false, [],
+    				PrettyString "fromList[" ::
+    				(if depth <= 0 then [PrettyString "...]"]
+    				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+               )
 			end
 	in
-		val unused = PolyML.install_pp pretty
+		val () = PolyML.addPrettyPrinter pretty
 	end
 
 end (* Vector *)
@@ -464,38 +462,36 @@ signature VECTOR_SLICE =
 structure VectorSlice :> VECTOR_SLICE = VectorSlice;
 
 local
-	open VectorSlice
-
+    open VectorSlice
 	(* Install the pretty printer for vector slices *)
 	(* We may have to do this outside the structure if we
 	   have opaque signature matching. *)
-	fun pretty(put: string->unit, beg: int*bool->unit,
-			   brk: int*int->unit, nd: unit->unit)
-			  (depth: int)
-			  (printElem: 'a * int -> unit)
+	fun pretty(depth: int)
+			  (printElem: 'a * int -> PolyML.pretty)
 			  (x: 'a slice) =
 		let
+            open PolyML
 			val last = length x - 1
-			fun put_elem (index, w, d) =
-				if d = 0 then (put "..."; d-1)
-				else if d < 0 then d-1
+			fun put_elem (index, w, (l, d)) =
+				if d = 0 then ([PrettyString "...]"], d+1)
+				else if d < 0 then ([], d+1)
 				else
 				(
-				printElem(w, d-1);
-				if index <> last then (put ","; brk(1, 0)) else ();
-				d-1
+				printElem(w, d-1) ::
+				    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+				d+1
 				)
 		in
-			beg(3, false);
-			put "fromList[";
-			if depth <= 0 then put "..."
-			else (foldli put_elem depth x; ());
-			put "]";
-			nd()
+			PrettyBlock(3, false, [],
+				PrettyString "fromList[" ::
+				(if depth <= 0 then [PrettyString "...]"]
+				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+           )
 		end
 in
-	val _ = PolyML.install_pp pretty
-end;
+	val unused = PolyML.addPrettyPrinter pretty
+end
+;
 
 
 (* type 'a vector is available unqualified in the global basis. *)

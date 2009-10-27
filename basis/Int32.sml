@@ -62,12 +62,6 @@ structure Int32 :> INTEGER = struct
 end;
 
 local
-   open RuntimeCalls
-   structure Conversion =
-      RunCall.Run_exception1
-     (type ex_type = string;
-          val ex_iden  = EXC_conversion);
-   exception Conversion = Conversion.ex;
    fun convInt s = let
       val radix =
       if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
@@ -75,13 +69,13 @@ local
       then StringCvt.HEX else StringCvt.DEC
    in
       case StringCvt.scanString (Int32.scan radix) s of
-     NONE => raise Conversion "Invalid integer constant"
+     NONE => raise RunCall.Conversion "Invalid integer constant"
        | SOME res => res
    end
-   fun pretty (p, _, _, _) _ _ x = p (Int32.toString x)
+   fun pretty _ _ x = PolyML.PrettyString (Int32.toString x)
 in
    val () = RunCall.addOverload convInt "convInt"
-   val () = PolyML.install_pp pretty
+   val () = PolyML.addPrettyPrinter pretty
 end;
 
 RunCall.addOverload Int32.~ "~";
