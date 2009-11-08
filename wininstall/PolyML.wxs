@@ -49,14 +49,15 @@
         <Directory Id="DesktopFolder" Name="Desktop"/>
       </Directory>
 
-      <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML and MLShell" Display='expand' AllowAdvertise="yes"> 
+      <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML" Display='expand' AllowAdvertise="yes"> 
         <Feature Id='PolyML' Title='Poly ML' Description='The Poly/ML Program' Level='1'> 
           <ComponentRef Id='PolyLib.dll' />
           <ComponentRef Id='PolyML.exe' />
         </Feature>
         <ComponentRef Id='IDProgramGroup' />
       </Feature>
-      <UIRef Id="WixUI_Mondo" />
+
+      <UIRef Id="WixUI_Minimal" />
       <UIRef Id="WixUI_ErrorProgressText" />
       <Icon Id="polyicon.exe" SourceFile="polyicon\Release\polyicon.exe" />
   	  <Property Id="ARPPRODUCTICON" Value="polyicon.exe" />

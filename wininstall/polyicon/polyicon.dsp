@@ -54,6 +54,10 @@ LINK32=link.exe
 # Name "polyicon - Win32 Release"
 # Begin Source File
 
+SOURCE=..\..\poly.ico
+# End Source File
+# Begin Source File
+
 SOURCE=.\polyicon.c
 # End Source File
 # Begin Source File

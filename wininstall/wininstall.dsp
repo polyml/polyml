@@ -45,6 +45,7 @@ SOURCE=.\Licence.rtf
 # Begin Source File
 
 SOURCE=.\PolyML.wxs
+USERDEP__POLYM="Licence.rtf"	
 # Begin Custom Build
 InputPath=.\PolyML.wxs
 
