@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='windows-1252'?>
+  <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'> 
+    <Product Name='PolyML 5.3' Id='67E9D6E7-B357-4E0B-B8D4-7BC3D919E617'
+	  	UpgradeCode='D7A17500-0FF5-4FC3-BC36-DD799D57071A'
+		Language='2057' Codepage='1252' Version='5.3.0' Manufacturer='Poly/ML'> 
+      <Package Id='*' Keywords='Installer' Description="Poly/ML 5.3.0 Installer"
+			  InstallerVersion='100' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
+      <WixVariable Id="WixUILicenseRtf" Value="Licence.rtf" />
+      <Media Id='1' Cabinet='Sample.cab' EmbedCab='yes' DiskPrompt="CD-ROM #1" />
+      <Property Id='DiskPrompt' Value="Poly/ML 5.3.0 Installation [1]" />
+
+      <Directory Id='TARGETDIR' Name='SourceDir'> 
+        <Directory Id='ProgramFilesFolder' Name='PFiles'> 
+          <Directory Id='POLYMLDIR' Name='Poly ML'>
+
+
+			<!-- Poly/ML -->
+            <Component Id='PolyLib.dll' Guid='7A568B43-7E9B-4569-B61C-33CE9BB63651'> 
+              <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='..\Release\PolyLib.dll' />
+            </Component>
+            <Component Id='PolyML.exe' Guid='B85CF180-EF3A-4A20-9479-654DD7E48856'> 
+              <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='..\Release\PolyML.exe' KeyPath="yes"> 
+                <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
+								Advertise="yes"
+								  WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
+                <Shortcut Id="desktopPolyML" Directory="DesktopFolder" Name="PolyML"
+								Advertise="yes"
+								  WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
+              </File>
+
+			  <!-- Path registry key so MLShell can find PolyML.exe -->
+			  <RegistryKey Id='AppPath' Root='HKLM' Key='SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\PolyML.exe' 
+			 			 Action='createAndRemoveOnUninstall'>
+				  <RegistryValue Id='DefaultValue' Type='string' Value='[#PolyML.exe]' Action='write' />
+				  <RegistryValue Id='Path' Name='Path' Type='string' Value='[$PolyML.exe]' Action='write' />
+			  </RegistryKey>
+            </Component>
+          </Directory>
+        </Directory>
+
+        <Directory Id="ProgramMenuFolder" Name="Programs"> 
+          <Directory Id="ProgramMenuDir" Name='Poly ML' > 
+            <Component Id='IDProgramGroup' Guid='A12E9CB4-EFE7-4bc3-A24C-E06205CFEF9F'> 
+              <RemoveFolder Id='IDProgramGroup' On='uninstall'/>
+              <RegistryValue Root='HKCU' Key='SOFTWARE\PolyML\PolyML'  Type='string' Value='Poly ML'  KeyPath='yes' />
+            </Component>
+          </Directory>
+        </Directory>
+        <Directory Id="DesktopFolder" Name="Desktop"/>
+      </Directory>
+
+      <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML and MLShell" Display='expand' AllowAdvertise="yes"> 
+        <Feature Id='PolyML' Title='Poly ML' Description='The Poly/ML Program' Level='1'> 
+          <ComponentRef Id='PolyLib.dll' />
+          <ComponentRef Id='PolyML.exe' />
+        </Feature>
+        <ComponentRef Id='IDProgramGroup' />
+      </Feature>
+      <UIRef Id="WixUI_Mondo" />
+      <UIRef Id="WixUI_ErrorProgressText" />
+      <Icon Id="polyicon.exe" SourceFile="polyicon\Release\polyicon.exe" />
+  	  <Property Id="ARPPRODUCTICON" Value="polyicon.exe" />
+      <Property Id="ARPHELPLINK" Value="http://www.polyml.org"/>
+	  <Property Id="ALLUSERS" Value="2"/>
+    </Product>
+  </Wix>
