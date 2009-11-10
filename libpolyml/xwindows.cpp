@@ -9556,7 +9556,8 @@ void XWinModule::GarbageCollect(ScanAddress *process)
 void XWinModule::Init(void)
 {
     initXList(); /* added 9/12/93 SPF */
-    
+
+    XtToolkitThreadInitialize();
     XtToolkitInitialize();
     
     XSetErrorHandler(XWindowsError);
