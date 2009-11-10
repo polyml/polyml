@@ -286,3 +286,17 @@ structure MotifTypes = struct
   end (* local *) ;
   
 end (* struct *) ;
+
+(* Suppress printing of abstract types. *)
+local
+    open MotifTypes
+    fun printWidget _ _ (_: Widget) = PolyML.PrettyString "?"
+    and printAccel  _ _ (_: XtAccelerators) = PolyML.PrettyString "?"
+    and printTrans _ _ (_: XtTranslations) = PolyML.PrettyString "?"
+in
+    val () = PolyML.addPrettyPrinter printWidget
+    and () = PolyML.addPrettyPrinter printAccel
+    and () = PolyML.addPrettyPrinter printTrans
+end;
+
+

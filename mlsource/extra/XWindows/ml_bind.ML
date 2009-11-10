@@ -2437,10 +2437,7 @@ end (* structure XWindows *);
 
 exception XWindows = XWindows.XWindows;
 
-(* Comment out the following.  It causes problems because
-   we need different versions for 5.2 and 5.3. *)
-
-(*let
+let
   open XWindows;
   
   fun printRect _ _ (r:XRectangle) =
@@ -2452,5 +2449,4 @@ exception XWindows = XWindows.XWindows;
 in
   PolyML.addPrettyPrinter printRect
 end;
-*)
 
