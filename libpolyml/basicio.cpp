@@ -223,7 +223,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return true; /* At EOF - will not block. */
-        else raise_syscall(taskData, "PeekNamedPipe failed", -err);
+        else raiseSyscallError(taskData, -err);
         /*NOTREACHED*/
     }
 
