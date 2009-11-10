@@ -1344,7 +1344,7 @@ Handle int_to_word_c(TaskData *taskData, Handle x)
     POLYUNSIGNED r = 0;
     for (unsigned i=0; i < sizeof(PolyWord); i++)
     {
-        r |= u[i] << (8*i);
+        r |= (POLYUNSIGNED)u[i] << (8*i);
     }
     if (OBJ_IS_NEGATIVE(x->Word().AsObjPtr()->LengthWord()))
         r = 0-r; // Use 0-r rather than -r since it's an unsigned value.
