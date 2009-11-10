@@ -253,7 +253,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
       if (selRes > 0) return true; /* Something waiting. */
       else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-          raise_syscall(taskData, "select failed %d\n", errno);
+          raiseSyscallError(taskData, errno);
       else return false;
 }
 
