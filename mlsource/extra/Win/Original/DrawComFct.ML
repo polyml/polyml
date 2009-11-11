@@ -1,19 +1,19 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
 *)
 
 (**************************************************************************
@@ -41,23 +41,23 @@ functor DrawComFct() =
 struct
 
 local
-	open UserFn
-	open UserFn2
-	open GdiFn
-	val mkDrawCommand = Gadget.mkDrawCommand
+    open UserFn
+    open UserFn2
+    open GdiFn
+    val mkDrawCommand = Gadget.mkDrawCommand
 
     fun dc1 gf       = mkDrawCommand (fn dc => gf dc)
     fun dc2 gf a     = mkDrawCommand (fn dc => gf (dc,a))
     fun dc3 gf (a,b) = mkDrawCommand (fn dc => gf (dc,a,b))
-	fun dc4	gf (a,b,c) = mkDrawCommand (fn dc => gf (dc,a,b,c))
-    fun dc5	gf (a,b,c,d) = mkDrawCommand (fn dc => gf (dc,a,b,c,d))
-    fun dc6	gf (a,b,c,d,e) = mkDrawCommand (fn dc => gf (dc,a,b,c,d,e))
-	fun dc9	gf (a,b,c,d,e,f,g,h) = 
-	        mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h))
-	fun dc11 gf (a,b,c,d,e,f,g,h,i,j) = 
-	        mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h,i,j))
-	fun dc12 gf (a,b,c,d,e,f,g,h,i,j,k) = 
-	        mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h,i,j,k))
+    fun dc4 gf (a,b,c) = mkDrawCommand (fn dc => gf (dc,a,b,c))
+    fun dc5 gf (a,b,c,d) = mkDrawCommand (fn dc => gf (dc,a,b,c,d))
+    fun dc6 gf (a,b,c,d,e) = mkDrawCommand (fn dc => gf (dc,a,b,c,d,e))
+    fun dc9 gf (a,b,c,d,e,f,g,h) = 
+            mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h))
+    fun dc11 gf (a,b,c,d,e,f,g,h,i,j) = 
+            mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h,i,j))
+    fun dc12 gf (a,b,c,d,e,f,g,h,i,j,k) = 
+            mkDrawCommand (fn dc => gf (dc,a,b,c,d,e,f,g,h,i,j,k))
 in
     val GetClipBox = dc1 GetClipBox
     val OffsetWindowOrgEx = dc3 OffsetWindowOrgEx
@@ -70,17 +70,17 @@ in
     val SetMetaRgn = dc1 SetMetaRgn
     val GetCurrentPositionEx = dc1 GetCurrentPositionEx
     val StrokePath = dc1 StrokePath
-    val GetWorldTransform = dc1	GetWorldTransform
+    val GetWorldTransform = dc1 GetWorldTransform
     val SetMapperFlags = dc2 SetMapperFlags
     val FrameRgn = dc5 FrameRgn
-    val SetWorldTransform = dc2	SetWorldTransform
+    val SetWorldTransform = dc2 SetWorldTransform
     val FlattenPath = dc1 FlattenPath 
-    val SelectClipRgn = dc2	SelectClipRgn
-    val GetDeviceCaps = dc2	GetDeviceCaps
+    val SelectClipRgn = dc2 SelectClipRgn
+    val GetDeviceCaps = dc2 GetDeviceCaps
     val GetDCOrgEx = dc1 GetDCOrgEx
-    val PtVisible = dc4	PtVisible
+    val PtVisible = dc4 PtVisible
     val WidenPath = dc1 WidenPath
-    val CreateHalftonePalette = dc1	CreateHalftonePalette
+    val CreateHalftonePalette = dc1 CreateHalftonePalette
     val GetMapMode = dc1 GetMapMode
     val SelectObject = dc2 SelectObject
     val SetMapMode = dc3 SetMapMode

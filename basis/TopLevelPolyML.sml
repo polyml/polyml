@@ -69,11 +69,11 @@ local
                 |   SOME writeArr =>
                         SOME(fn a => LibraryIOSupport.protect outputLock writeArr a)
             val lockedWriter =
-    			TextPrimIO.WR { name = name, chunkSize = chunkSize,
+                TextPrimIO.WR { name = name, chunkSize = chunkSize,
                                 writeVec = lockedWriteVec, writeArr = lockedWriteArray,
-    				            writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
-    				            getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
-    				            close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
+                                writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
             (* Use this locked version for normal stdOut. *)
             val () = setOutstream(stdOut,
                         StreamIO.mkOutstream(TextPrimIO.augmentWriter lockedWriter, buffMode))
@@ -82,10 +82,10 @@ local
                releasing the lock.  Because mutexes are not recursive we can't use the locking
                version. *)
             val unLockedWriter =
-    			TextPrimIO.WR { name = name, chunkSize = chunkSize, writeVec = writeVec, writeArr = writeArr,
-    				            writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
-    				            getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
-    				            close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
+                TextPrimIO.WR { name = name, chunkSize = chunkSize, writeVec = writeVec, writeArr = writeArr,
+                                writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
         in
             val unlockedStream = StreamIO.mkOutstream(TextPrimIO.augmentWriter unLockedWriter, buffMode)
             val outputLock = outputLock
@@ -872,10 +872,10 @@ local
                             let
                                 val stringStream = TextIO.openString stringInput
 
-                    			fun compilerResultFun (_, codeOpt) =
-                    			    case codeOpt of
-                    					SOME code => (fn () => resultFun(code()))
-                    				 |	NONE => raise Fail "Static Errors"
+                                fun compilerResultFun (_, codeOpt) =
+                                    case codeOpt of
+                                        SOME code => (fn () => resultFun(code()))
+                                     |  NONE => raise Fail "Static Errors"
 
                                 fun compilerLoop () =
                                 (* Compile each "program" until either we get to the end or an exception. *)
@@ -935,16 +935,16 @@ local
                                     else SOME(String.sub(stringInput, posn)) before (stringPosition := posn+1)
                                 end
                                 (* We need to define our own compilerResultFun in order to capture the parse trees. *)
-                    			fun compilerResultFun (parsetree, codeOpt) =
+                                fun compilerResultFun (parsetree, codeOpt) =
                                 (
                                     (* Add the parsetree to the list.  Record this as the position of the last valid tree. *)
                                     case parsetree of
                                         SOME pt =>
                                             (resultTrees := ! resultTrees @ [pt]; lastTreePosition := !stringPosition)
                                     |   NONE => (); (* Not if parse failed. *)
-                    			    case codeOpt of
-                    					SOME code => (fn () => resultFun(code()))
-                    				 |	NONE => raise Fail "Static Errors"
+                                    case codeOpt of
+                                        SOME code => (fn () => resultFun(code()))
+                                     |  NONE => raise Fail "Static Errors"
                                 )
 
                                 fun compilerLoop () =

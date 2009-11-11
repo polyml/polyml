@@ -18,9 +18,9 @@ struct
   fun print mode = 
   let 
      fun printid s = (case mode of 
-		        compressed => HashTable.hash s
-		      | uncompressed => HashTable.unhash s
-		      | verbose => HashTable.unhash s)
+                compressed => HashTable.hash s
+              | uncompressed => HashTable.unhash s
+              | verbose => HashTable.unhash s)
    in printid
   end
 

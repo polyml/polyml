@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -126,7 +126,7 @@ struct
     |   TypeConstruction of typeConstructionForm
     |   FunctionType     of functionTypeForm
     |   LabelledType     of labelledRecForm
-    |   OverloadSet		 of overloadSetForm
+    |   OverloadSet      of overloadSetForm
     |   BadType
     |   EmptyType
 
@@ -136,15 +136,15 @@ struct
             name:       string,
             arity:      int,
             typeVars:   typeVarForm list,
-		    constrs:    values list possRef, (* List of value constructors. *)
+            constrs:    values list possRef, (* List of value constructors. *)
             identifier: typeId,
-		    letDepth:	int, (* Needed to check for local datatypes. *)
+            letDepth:   int, (* Needed to check for local datatypes. *)
             locations:  locationProp list (* Location of declaration *)
         }
 
     (* Access to a value, structure or functor. *)
     and valAccess =
-  	    Global   of codetree
+        Global   of codetree
     |   Local    of { addr: int ref, level: int ref }
     |   Selected of { addr: int,     base:  structVals }
     |   Formal   of int
@@ -191,21 +191,21 @@ struct
     |   GetLocation
 
     and values =
-  	    Value of
+        Value of
         {
-		    name: string,
-		    typeOf: types,
-		    access: valAccess,
-		    class: valueClass,
+            name: string,
+            typeOf: types,
+            access: valAccess,
+            class: valueClass,
             locations: locationProp list, (* Location of declaration *)
             references: references
         }
 
     (* Classes of values. *)
     and valueClass =
-  	    SimpleValue
-	|   Exception
-	|   Constructor of
+        SimpleValue
+    |   Exception
+    |   Constructor of
         {
             nullary: bool, (* True if this is a single value (e.g. "nil") rather than a function. *)
             ofConstrs: int (* Total number of constructors in the datatype. *)
@@ -245,26 +245,26 @@ struct
     { 
         recList: { name: string, typeof: types } list,
         frozen: bool,
-	    genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
+        genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
     }
-	
+    
   (* A set of type contructors.  This is used only during the
      compilation process and represents the set of possible types
-	 which may occur. It functions in much the same way as a type
-	 variable.  Because we only allow overloading on monomorphic
-	 type constructors such as "int" and "word" we can restrict the
-	 set to containing only type constructors rather than general types.
-	 This overload set was added for ML 97 because ML 97, unlike ML 90,
-	 defaults overloaded operators and constants if unification does
-	 not result in a single type being found.  
-	 The overload set is used in a similar way to a flexible record
-	 and will always be pointed at by a type variable so that the
-	 set can be replaced by a single type construction if the unification
-	 reduces to a single type. *)
+     which may occur. It functions in much the same way as a type
+     variable.  Because we only allow overloading on monomorphic
+     type constructors such as "int" and "word" we can restrict the
+     set to containing only type constructors rather than general types.
+     This overload set was added for ML 97 because ML 97, unlike ML 90,
+     defaults overloaded operators and constants if unification does
+     not result in a single type being found.  
+     The overload set is used in a similar way to a flexible record
+     and will always be pointed at by a type variable so that the
+     set can be replaced by a single type construction if the unification
+     reduces to a single type. *)
     and overloadSetForm =
-  	{
-		typeset: typeConstrs list
-	}
+    {
+        typeset: typeConstrs list
+    }
 
     (* Identifiers *)
     (* REF HOTSPOT - 400 *)
@@ -286,7 +286,7 @@ struct
     fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc, typeFn) =
         TypeId { access=access, description = desc, typeFn=typeFn,
             idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt}}
-		    
+            
     (* Unset variable. *)
     fun isFreeId     (TypeId { idKind = Free _, typeFn=([], EmptyType), ...}) = true | isFreeId _ = false;
     fun isBoundId    (TypeId { idKind = Bound _, typeFn=([], EmptyType), ...}) = true | isBoundId _ = false;
@@ -329,11 +329,11 @@ struct
 
     (* Make a signature, freezing the table. *)
     fun makeSignature (name, table, minTypes, maxTypes, location, typeIdMap, boundIds) =
-    	Signatures { name = name,
-			   tab        = univFreeze table,
+        Signatures { name = name,
+               tab        = univFreeze table,
                typeIdMap  = typeIdMap,
-			   minTypes   = minTypes, 
-			   maxTypes   = maxTypes,
+               minTypes   = minTypes, 
+               maxTypes   = maxTypes,
                boundIds   = boundIds,
                declaredAt = location  };
     
@@ -352,11 +352,11 @@ struct
   fun isBad               BadType             = true | isBad              _ = false;
   
   fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
-  	Value
+    Value
     { 
       name    = name,
       typeOf  = typeOf,
-	  access  = access,
+      access  = access,
       class   = Constructor { nullary = nullary, ofConstrs = constrs },
       locations = locations,
       references = NONE
@@ -437,22 +437,22 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
-	
+    
     fun tcSetConstructors (TypeConstrs {constrs, name, ...}, newConstrs) =
-	    updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
-	
-    fun tcLetDepth	(TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
+        updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
+    
+    fun tcLetDepth  (TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 
     (* Construct a datatype.  The value constructors can be added on later. *)
     fun makeDatatypeConstr (name, typeVars, uid, depth, locations) =
         TypeConstrs
         {
-    		name       = name,
-    		arity      = length typeVars,
-    		typeVars   = typeVars,
+            name       = name,
+            arity      = length typeVars,
+            typeVars   = typeVars,
             constrs    = VariableRef (ref []), (* REF HOTSPOT - 690 refs here. *)
-    		identifier = uid,
-    		letDepth   = depth,
+            identifier = uid,
+            letDepth   = depth,
             locations = locations
         };
 
@@ -460,15 +460,15 @@ struct
 (*    fun makeTypeAbbreviation(name, idKind, typeVars, typeResult, locations) =
         TypeConstrs
         {
-    		name       = name,
-    		arity      = length typeVars,
-    		typeVars   = typeVars,
+            name       = name,
+            arity      = length typeVars,
+            typeVars   = typeVars,
             constrs    = FrozenRef [],
-    		identifier =
+            identifier =
                 TypeId{access=Global CodeZero, description=
                 }
             TypeFunction(typeVars, typeResult),
-    		letDepth   = 0,
+            letDepth   = 0,
             locations = locations
         };*)
 
@@ -477,12 +477,12 @@ struct
     fun makeFrozenTypeConstrs (name, typeVars, uid, depth, locations) =
         TypeConstrs
         {
-		    name       = name,
-		    arity      = length typeVars,
-		    typeVars   = typeVars,
-		    constrs    = FrozenRef [],
-		    identifier = uid,
-		    letDepth   = depth,
+            name       = name,
+            arity      = length typeVars,
+            typeVars   = typeVars,
+            constrs    = FrozenRef [],
+            identifier = uid,
+            letDepth   = depth,
             locations = locations
         };
 
@@ -605,7 +605,7 @@ struct
             TypeId { access=globalCode, description = { location = inBasis, description = "unit", name = "unit" },
                 idKind = Free {uid = ref false, allowUpdate=false},
                 typeFn=([], LabelledType {recList = [], frozen = true, genericInstance = []})},
-		   0, [DeclaredAt inBasis]);
+           0, [DeclaredAt inBasis]);
 
     (* Infix status. *) 
  
@@ -657,35 +657,35 @@ struct
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, location) =
-		makeStruct (name, signat, makeGlobal code, [DeclaredAt location]);
+        makeStruct (name, signat, makeGlobal code, [DeclaredAt location]);
  
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
-		makeStruct (name,
+        makeStruct (name,
             Signatures { name = "",
-    			   tab        = makeUnivTable(),
+                   tab        = makeUnivTable(),
                    typeIdMap  = fn _ => raise Subscript,
-    			   minTypes   = 0, 
-    			   maxTypes   = 0,
+                   minTypes   = 0, 
+                   maxTypes   = 0,
                    boundIds   = [],
                    declaredAt = inBasis  },
             makeGlobal CodeZero, [DeclaredAt inBasis]);
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
-		makeStruct (name, signat, makeLocal (), location);
+        makeStruct (name, signat, makeLocal (), location);
      
     (* Structure in a local structure or a functor argument. *)
     fun makeSelectedStruct (selected, base, openLocs) = 
     (
       case structAccess selected of 
-		Formal sel =>
-		   makeStruct(structName selected, structSignat selected, makeSelected (sel, base),
+        Formal sel =>
+           makeStruct(structName selected, structSignat selected, makeSelected (sel, base),
                       openLocs @ structLocations selected)
       | Global code => (* Need to add the locations. *)
-		   makeStruct(structName selected, structSignat selected, Global code,
+           makeStruct(structName selected, structSignat selected, Global code,
                       openLocs @ structLocations selected)
-	  | _          => selected
+      | _          => selected
     );
   
     fun makeFormalStruct (name, signat, addr, location) =
@@ -699,7 +699,7 @@ struct
   
   fun makeLocalV (name, typeOf, addr, level, locations) : values =
     Value{ name = name, typeOf = typeOf, access = Local {addr = addr, level = level},
-			class = SimpleValue, locations = locations, references = makeRef() };
+            class = SimpleValue, locations = locations, references = makeRef() };
   
   fun makeFormalV (name, typeOf, addr, locations) : values =
     Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue, locations = locations, references = NONE };
@@ -740,13 +740,13 @@ struct
   with
     fun makeFunctor (name, arg, result, access, location) = 
       Functor 
-	{
-	  name = name,
-	  arg = arg,
-	  result = result,
-	  access = access,
+    {
+      name = name,
+      arg = arg,
+      result = result,
+      access = access,
       declaredAt = location
-	};
+    };
     
     val undefinedFunctor = NoFunctor;
     

@@ -4142,8 +4142,8 @@ itself.
         fun encodeReg(r, n: short): short =
         let
             open Word
-		    infix << orb
-			val reg = 0w1 << Word.fromInt (nReg r)
+            infix << orb
+            val reg = 0w1 << Word.fromInt (nReg r)
         in
             reg orb n
         end

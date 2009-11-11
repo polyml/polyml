@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 structure Universal :>
@@ -34,8 +34,8 @@ end =
 
 struct
 
-	(* The universal type is based on exn which provides a tagged union.
-	   We use opaque signature matching to create a different type. *)
+    (* The universal type is based on exn which provides a tagged union.
+       We use opaque signature matching to create a different type. *)
     type universal = exn
 
     type 'a tag =
@@ -45,8 +45,8 @@ struct
         project: universal -> 'a
       };
 
-	(* The Match exception is created in the General structure in the basis
-	   library which hasn't been built yet. *)  
+    (* The Match exception is created in the General structure in the basis
+       library which hasn't been built yet. *)  
     fun tag () : 'a tag =
     let
       exception E of 'a;

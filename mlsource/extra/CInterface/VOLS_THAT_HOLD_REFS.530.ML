@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (***
@@ -43,7 +43,7 @@ arrays.  DCJM 27/6/01.
 functor VOLS_THAT_HOLD_REFS
     (structure Underlying : VolatileSig
      structure ForeignException : ForeignExceptionSig)
-	 :> VolatileSig =
+     :> VolatileSig =
 struct
 
 
@@ -57,7 +57,7 @@ open Union
 
 
 (*.....
-datatype owner	= Owner of rawvol * dependancy ref list
+datatype owner  = Owner of rawvol * dependancy ref list
 and vol = Vol of rawvol * dependancy
 where type dependancy = (int * owner) option
 .....*)
@@ -83,7 +83,7 @@ fun selfOwner v deps =
      * Create a vol that `owns' itself, with dependencies "deps".
      ******)
     vol (v,Some(0,Owner(v, ref deps)))
-	
+    
 
 (***********************************************************************
 a = alloc(n)
@@ -96,9 +96,9 @@ a = alloc(n)
    and they don't actually have dependencies. *)
 fun alloc n ctype =
     let val m = n * sizeof ctype
-	val v = Underlying.alloc n ctype
+    val v = Underlying.alloc n ctype
     in
-	selfOwner v (Array.array(Int.min(m div PointerSize, MaxVectorSize), None))
+    selfOwner v (Array.array(Int.min(m div PointerSize, MaxVectorSize), None))
     end
 
 (***********************************************************************
@@ -123,20 +123,20 @@ a = *b
    the list.) *)
 fun deref(Vol{thevol, depends}) =
     vol (Underlying.deref thevol,
-		case depends of
-			None => None
-		|	Some(i, Owner(_, ref refs)) =>
-			    if i mod PointerSize <> 0
-			    then None
-				else 
-				let
-					val j = i div PointerSize
-				in
-					if j < 0 orelse j >= Array.length refs
-					then None
-					else Array.sub(refs, j)
-				end)
-		 
+        case depends of
+            None => None
+        |   Some(i, Owner(_, ref refs)) =>
+                if i mod PointerSize <> 0
+                then None
+                else 
+                let
+                    val j = i div PointerSize
+                in
+                    if j < 0 orelse j >= Array.length refs
+                    then None
+                    else Array.sub(refs, j)
+                end)
+         
 
 (***********************************************************************
 a = b.X (offset n objects of type ctype)    [*a = ( char* )&b + n]
@@ -151,10 +151,10 @@ a = b.X (offset n objects of type ctype)    [*a = ( char* )&b + n]
 fun offset n ctype (Vol{thevol, depends}) =
     let val m = n * sizeof ctype
     in
-	vol (Underlying.offset n ctype thevol,
-	     case depends of
-		 None => None
-	       | Some (i,x) => Some (i+m, x))
+    vol (Underlying.offset n ctype thevol,
+         case depends of
+         None => None
+           | Some (i,x) => Some (i+m, x))
     end
 
 (***********************************************************************
@@ -167,52 +167,52 @@ a := b (n bytes)
 fun assign ctype g h =
     let val n = sizeof ctype
     in
-		case (depends g, depends h) of
-			(Some(i, Owner(_, drefs as ref destRefs)), Some(j, Owner(_, ref sourceRefs))) =>
-				(* We only copy the references if we're moving at least a word and the
-				   source and destinations are word aligned.  We also skip this if the
-				   offsets are negative.  It's just possible that there might be a C
-				   function which would return an area of memory with a pointer offset
-				   within it.  In that case we don't want to raise a Subscript exception
-				   but I don't know how to deal with the dependencies. *)
-				if n < PointerSize orelse i mod PointerSize <> 0 orelse j mod PointerSize <> 0
-				   orelse i < 0 orelse j < 0
-				then ()
-				else
-				let
-					(* Neither the source array nor the destination array may be big enough. *)
-					val di = i div PointerSize (* Starting offset in dest. *)
-					val si = j div PointerSize (* Starting offset in source. *)
-					val maxLen = n div PointerSize (* Words to copy. *)
-					val sLen = Array.length sourceRefs
-					val toCopy = if si + maxLen <= sLen then maxLen else sLen - si
-				in
-					if toCopy <= 0
-					then () (* Nothing in the source to copy. *)
-					else
-					let
-						val diMax = di + toCopy (* Maximum offset. *)
-						val dLen = Array.length destRefs
-						val dVec =
-							if dLen < diMax
-							then (* Need to grow array. *)
-							let
-								val newSize = Int.max(diMax, dLen + dLen div 2)
-								val newArray = Array.array(newSize, None)
-							in
-								(* Copy the old dependencies *)
-								Array.copy{dst = newArray, src = destRefs, di = 0};
-								drefs := newArray; (* Remember this new array. *)
-								newArray
-							end
-							else destRefs
-					in
-						(* Copy the dependencies being updated by the assignment. *)
-						ArraySlice.copy{dst = dVec, src = ArraySlice.slice(sourceRefs, si, SOME toCopy), di = di}
-					end
-				end
-		|	_ => ();
-	 Underlying.assign ctype (thevol g) (thevol h)
+        case (depends g, depends h) of
+            (Some(i, Owner(_, drefs as ref destRefs)), Some(j, Owner(_, ref sourceRefs))) =>
+                (* We only copy the references if we're moving at least a word and the
+                   source and destinations are word aligned.  We also skip this if the
+                   offsets are negative.  It's just possible that there might be a C
+                   function which would return an area of memory with a pointer offset
+                   within it.  In that case we don't want to raise a Subscript exception
+                   but I don't know how to deal with the dependencies. *)
+                if n < PointerSize orelse i mod PointerSize <> 0 orelse j mod PointerSize <> 0
+                   orelse i < 0 orelse j < 0
+                then ()
+                else
+                let
+                    (* Neither the source array nor the destination array may be big enough. *)
+                    val di = i div PointerSize (* Starting offset in dest. *)
+                    val si = j div PointerSize (* Starting offset in source. *)
+                    val maxLen = n div PointerSize (* Words to copy. *)
+                    val sLen = Array.length sourceRefs
+                    val toCopy = if si + maxLen <= sLen then maxLen else sLen - si
+                in
+                    if toCopy <= 0
+                    then () (* Nothing in the source to copy. *)
+                    else
+                    let
+                        val diMax = di + toCopy (* Maximum offset. *)
+                        val dLen = Array.length destRefs
+                        val dVec =
+                            if dLen < diMax
+                            then (* Need to grow array. *)
+                            let
+                                val newSize = Int.max(diMax, dLen + dLen div 2)
+                                val newArray = Array.array(newSize, None)
+                            in
+                                (* Copy the old dependencies *)
+                                Array.copy{dst = newArray, src = destRefs, di = 0};
+                                drefs := newArray; (* Remember this new array. *)
+                                newArray
+                            end
+                            else destRefs
+                    in
+                        (* Copy the dependencies being updated by the assignment. *)
+                        ArraySlice.copy{dst = dVec, src = ArraySlice.slice(sourceRefs, si, SOME toCopy), di = di}
+                    end
+                end
+        |   _ => ();
+     Underlying.assign ctype (thevol g) (thevol h)
     end
 
 
@@ -221,7 +221,7 @@ fun assign ctype g h =
  From / To C values
  **********************************************************************)
 
-fun makeVol v	=  selfOwner v (Array.array(1, None))
+fun makeVol v   =  selfOwner v (Array.array(1, None))
 
     
 fun load_lib s =
@@ -235,12 +235,12 @@ fun load_sym (Vol{thevol, ...}) s =
 fun ID x = x;    
 fun call_sym_and_convert g args rt =
     let val (u,us) =
-	Underlying.call_sym_and_convert
-	    (thevol g)
-	    (map (mapDirectedArg ID thevol) args)
-	    rt
+    Underlying.call_sym_and_convert
+        (thevol g)
+        (map (mapDirectedArg ID thevol) args)
+        rt
     in
-	(mapUnion makeVol u, map (mapUnion makeVol) us)
+    (mapUnion makeVol u, map (mapUnion makeVol) us)
     end;
 
     
@@ -258,11 +258,11 @@ val toCbytes    = makeVol o Underlying.toCbytes
 val fromCchar   = Underlying.fromCchar      o thevol
 val fromCdouble = Underlying.fromCdouble    o thevol
 val fromCfloat  = Underlying.fromCfloat     o thevol
-val fromCint    = Underlying.fromCint  	    o thevol
-val fromClong   = Underlying.fromClong 	    o thevol
+val fromCint    = Underlying.fromCint       o thevol
+val fromClong   = Underlying.fromClong      o thevol
 val fromCshort  = Underlying.fromCshort     o thevol
 val fromCstring = Underlying.fromCstring    o thevol
-val fromCuint   = Underlying.fromCuint 	    o thevol
+val fromCuint   = Underlying.fromCuint      o thevol
 
 val fillCstring = Underlying.fillCstring    o thevol
 
@@ -273,27 +273,27 @@ DCJM 7/4/04.  I've added these although I suspect that they need to do more than
 they're currently doing.
 *)
 fun toCfunction argType resType (f: vol list -> vol) =
-	let
-		fun appF (args: Underlying.vol list) : Underlying.vol =
-			let
-			in
-			   thevol (f (map makeVol args))
-			end
-	in
-		makeVol (Underlying.toCfunction argType resType appF)
-	end
+    let
+        fun appF (args: Underlying.vol list) : Underlying.vol =
+            let
+            in
+               thevol (f (map makeVol args))
+            end
+    in
+        makeVol (Underlying.toCfunction argType resType appF)
+    end
 
 
 fun toPascalfunction argType resType (f: vol list -> vol) =
-	let
-		fun appF (args: Underlying.vol list) : Underlying.vol =
-			let
-			in
-			   thevol (f (map makeVol args))
-			end
-	in
-		makeVol (Underlying.toPascalfunction argType resType appF)
-	end
+    let
+        fun appF (args: Underlying.vol list) : Underlying.vol =
+            let
+            in
+               thevol (f (map makeVol args))
+            end
+    in
+        makeVol (Underlying.toPascalfunction argType resType appF)
+    end
 
 
 fun setFinal f v = Underlying.setFinal (thevol f) (thevol v)

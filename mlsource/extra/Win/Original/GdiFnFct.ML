@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -22,10 +22,10 @@ signature importConstTypeSig =
 sig
     type 'a Conversion
 
-	type ArcDirection
-	type TextAlign
-	type EnumObject
-	type DeviceItem
+    type ArcDirection
+    type TextAlign
+    type EnumObject
+    type DeviceItem
     type DeviceContextFlag
     type DrawTextMode
     type SetWindowPositionStyle
@@ -57,7 +57,7 @@ sig
     type BkMode
 
   structure UpperCaseConversions :
-	sig
+    sig
     val TEXTALIGN : TextAlign Conversion
     val ENUMOBJECT : EnumObject Conversion
     val DEVICEITEM : DeviceItem Conversion
@@ -88,8 +88,8 @@ sig
     val RASTEROPCODE : RasterOpCode Conversion
     val ICONIDENTIFIER : IconIdentifier Conversion
     val REDRAWWINDOWFLAG : RedrawWindowFlag Conversion
-	val BKMODE : BkMode Conversion
-	val XFORMTYPE : XFormType Conversion
+    val BKMODE : BkMode Conversion
+    val XFORMTYPE : XFormType Conversion
     val ARCDIRECTION : ArcDirection Conversion
   end
 
@@ -99,10 +99,10 @@ end;
 signature importCInterfaceSig =
 sig
     type vol
-	type Ctype
-	type 'a Conversion
-	type sym
-	type dylib
+    type Ctype
+    type 'a Conversion
+    type sym
+    type dylib
 
     val alloc       : int -> Ctype -> vol
     val address     : vol -> vol
@@ -110,15 +110,15 @@ sig
     val offset      : int -> Ctype -> vol -> vol
     val assign      : Ctype -> vol -> vol -> unit
 
-	val Cpointer    : Ctype -> Ctype
-	val Cvoid       : Ctype
+    val Cpointer    : Ctype -> Ctype
+    val Cvoid       : Ctype
 
-	val breakConversion : 'a Conversion -> (vol -> 'a) * ('a -> vol) * Ctype
+    val breakConversion : 'a Conversion -> (vol -> 'a) * ('a -> vol) * Ctype
     val call_sym     : sym -> (Ctype * vol) list -> Ctype -> vol
-	val load_lib     : string -> dylib
+    val load_lib     : string -> dylib
     val load_sym     : dylib -> string -> sym
 
-    val CHAR	: string Conversion
+    val CHAR    : string Conversion
     val DOUBLE  : real Conversion
     val FLOAT   : real Conversion
     val INT     : int Conversion
@@ -132,7 +132,7 @@ end;
 
 
 signature importTypeSig =
-sig	
+sig 
     type 'a Conversion
     type ForceBackground
     type ClassName
@@ -157,13 +157,13 @@ sig
     type MLHPALETTE
     type MLHICON
     type MLHMENU
-	type MLHDWP
-	type Fmf
-	type ListBox
+    type MLHDWP
+    type Fmf
+    type ListBox
     type StaticControl
-	type MenuItem
+    type MenuItem
 
-	val HWND : MLHWND Conversion
+    val HWND : MLHWND Conversion
     val HDC : MLHDC Conversion
     val HGDIOBJ : MLHGDIOBJ Conversion
     val HBITMAP : MLHBITMAP Conversion
@@ -172,9 +172,9 @@ sig
     val HPALETTE : MLHPALETTE Conversion
     val HICON : MLHICON Conversion
     val HMENU : MLHMENU Conversion
-	val HDWP : MLHDWP Conversion
+    val HDWP : MLHDWP Conversion
 
-	type Point
+    type Point
     type Size
     type XForm
 
@@ -190,14 +190,14 @@ sig
     val HEIGHT : Height Conversion
     val INDEX : Index Conversion
 
-	val RWPERMISSION : RWpermission Conversion
-	val FONTMAPPERFLAG : Fmf Conversion
-	val SUCCESSSTATE : SuccessState Conversion
-	val DCINSTANCE : DCinstance Conversion
-	val FORCEBACKGROUND : ForceBackground Conversion
-	val LISTBOX : ListBox Conversion
-	val STATICCONTROL : StaticControl Conversion
-	val MENUITEM : int Conversion
+    val RWPERMISSION : RWpermission Conversion
+    val FONTMAPPERFLAG : Fmf Conversion
+    val SUCCESSSTATE : SuccessState Conversion
+    val DCINSTANCE : DCinstance Conversion
+    val FORCEBACKGROUND : ForceBackground Conversion
+    val LISTBOX : ListBox Conversion
+    val STATICCONTROL : StaticControl Conversion
+    val MENUITEM : int Conversion
 
 end;
 
@@ -219,8 +219,8 @@ functor GdiFnFct  ( structure Dir : importDirSig
                   ) = 
 struct
     local
-	    open CInterface
-		open Dir
+        open CInterface
+        open Dir
 
         fun call name = call_sym (load_sym (load_lib gdilibname) name)
         fun rcall_IIIIIIIII name CR (C1,C2,C3,C4,C5,C6,C7,C8,C9) (a1,a2,a3,a4,a5,a6,a7,a8,a9) =
@@ -496,9 +496,9 @@ struct
             in  (fromR res)
             end
     in
-		open ConstType
-		open UpperCaseConversions 
-		open Type
+        open ConstType
+        open UpperCaseConversions 
+        open Type
         val BitBlt                     = rcall_IIIIIIIII "BitBlt" SUCCESSSTATE
                                          (HDC,XCOORD,YCOORD,WIDTH,HEIGHT,HDC,XCOORD,YCOORD,RASTEROPERATION)
         val CreateCompatibleBitmap     = rcall_III "CreateCompatibleBitmap" HBITMAP (HDC,WIDTH,HEIGHT)

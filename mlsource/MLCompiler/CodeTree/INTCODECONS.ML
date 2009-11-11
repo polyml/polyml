@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -232,23 +232,23 @@ struct
 
   (*
       The original way of dealing with constants was to store the offset (in bytes)
-	  of the constant from the end of the instruction.  That has a problem when
-	  the database is ported to a different word-length machine because while the
-	  byte count to the end of the interpreted code does not change the marker word
-	  and other constants will all have a different length.  I've changed it to use
-	  new instructions which take an extra argument which is the number of the
-	  constant.  The byte offset is then always the number of bytes to the end of
-	  the code.  DCJM 25/9/00.
+      of the constant from the end of the instruction.  That has a problem when
+      the database is ported to a different word-length machine because while the
+      byte count to the end of the interpreted code does not change the marker word
+      and other constants will all have a different length.  I've changed it to use
+      new instructions which take an extra argument which is the number of the
+      constant.  The byte offset is then always the number of bytes to the end of
+      the code.  DCJM 25/9/00.
   *)
   val usePortableConstantOffset = true;
 
   (* To make the code portable these are both functions.  Note that
      similar changes are needed in Code_seg.ML and in the basis library.
-	 DCJM 28/9/00. *)
+     DCJM 28/9/00. *)
   (* Unfortunately the code-generator always evaluates these at compile time
      if it can.  We need to use a ref to force it not to.  It's too
-	 complicated making this completely word-length independent but it's
-	 useful to have it byte-order independent. *)
+     complicated making this completely word-length independent but it's
+     useful to have it byte-order independent. *)
   local
       val bigEndian = ref RuntimeCalls.POLY_SYS_is_big_endian
   in
@@ -256,7 +256,7 @@ struct
   end;
 
   val wordLength : unit->int =
-  		RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word;
+        RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word;
  
   val MAXINTARGS = (* 31 *) 126;
 
@@ -332,11 +332,11 @@ struct
     (* Opcode 1 reserved for Interpreter's internal use *)
     val opcode_jump              = Opcode 2;
     val opcode_jumpFalse         = Opcode 3;
-	val opcode_containerW		 = Opcode 4; (* Added DCJM 5/10/05. *)
+    val opcode_containerW        = Opcode 4; (* Added DCJM 5/10/05. *)
     val opcode_delHandler        = Opcode 5;
     val opcode_jumpI             = Opcode 6;
     val opcode_jumpIFalse        = Opcode 7;
- 	val opcode_set_containerW	 = Opcode 8; (* Added DCJM 5/10/05. *)
+    val opcode_set_containerW    = Opcode 8; (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
     val opcode_caseSwitch        = Opcode 10;
     val opcode_callSl            = Opcode 11;
@@ -352,7 +352,7 @@ struct
     val opcode_indirectW         = Opcode 20;
     val opcode_moveToVecW        = Opcode 21;
 
-	val opcode_callSlX		     = Opcode 22; (* Added DCJM 25/9/00. *)
+    val opcode_callSlX           = Opcode 22; (* Added DCJM 25/9/00. *)
 
     val opcode_setStackValW      = Opcode 23;
     val opcode_resetW            = Opcode 24;
@@ -411,17 +411,17 @@ struct
     val opcode_moveToVec_5       = Opcode 74;
     val opcode_moveToVec_6       = Opcode 75;
     val opcode_moveToVec_7       = Opcode 76;
-	
-	val opcode_constAddrX_b		 = Opcode 77; (* Added DCJM 25/9/00. *)
-	val opcode_constAddrX_w		 = Opcode 78; (* Added DCJM 25/9/00. *)
-	val opcode_callSlCX		     = Opcode 79; (* Added DCJM 25/9/00. *)
+    
+    val opcode_constAddrX_b      = Opcode 77; (* Added DCJM 25/9/00. *)
+    val opcode_constAddrX_w      = Opcode 78; (* Added DCJM 25/9/00. *)
+    val opcode_callSlCX          = Opcode 79; (* Added DCJM 25/9/00. *)
     
     val opcode_reset_1           = Opcode 80;
     val opcode_reset_2           = Opcode 81;
     val opcode_getStore_2        = Opcode 82;
     val opcode_getStore_3        = Opcode 83;
     val opcode_getStore_4        = Opcode 84;
- 	val opcode_tuple_containerW	 = Opcode 85; (* Added DCJM 5/10/05. *)
+    val opcode_tuple_containerW  = Opcode 85; (* Added DCJM 5/10/05. *)
 
     val opcode_nonLocalL_1       = Opcode 86;
     val opcode_nonLocalL_2       = Opcode 87;
@@ -792,17 +792,17 @@ struct
 
   fun setLong (value : int, Addr a : addrs, seg : cseg) : unit =
   let
-  	fun putBytes(value, a, seg, i) =
-	if i = wordLength() then ()
-	else
-		(
-		csegSet(seg,
-			if littleEndian() then a+i else a+wordLength()-i-1,
-			Word8.fromInt(value mod 256));
-		putBytes(value div 256, a, seg, i+1)
-		)
+    fun putBytes(value, a, seg, i) =
+    if i = wordLength() then ()
+    else
+        (
+        csegSet(seg,
+            if littleEndian() then a+i else a+wordLength()-i-1,
+            Word8.fromInt(value mod 256));
+        putBytes(value div 256, a, seg, i+1)
+        )
   in
-  	putBytes(value, a, seg, 0)
+    putBytes(value, a, seg, 0)
   end;
 
   fun putByte (ival: int, Addr a, cvec: code) : unit =
@@ -877,29 +877,29 @@ struct
         end
          
       else if !(carry cvec)
-	then if 3 < offset
-	  then let
-	    val () = genByte (opcode_down opcode_resetRB, cvec);
-	  in
-	    genByte (offset, cvec)
-	  end
-	  else let
-	    val opc : int = opcode_down opcode_resetR_1 + offset - 1;
-	  in
-	    genByte(opc, cvec)
-	  end
-	
+    then if 3 < offset
+      then let
+        val () = genByte (opcode_down opcode_resetRB, cvec);
+      in
+        genByte (offset, cvec)
+      end
+      else let
+        val opc : int = opcode_down opcode_resetR_1 + offset - 1;
+      in
+        genByte(opc, cvec)
+      end
+    
       else if 2 < offset
-	then let
-	  val () = genByte (opcode_down opcode_resetB, cvec);
-	in
-	  genByte (offset, cvec)
-	end
-	else let
-	  val opc : int = opcode_down opcode_reset_1 + offset - 1;
-	in
-	  genByte(opc, cvec)
-	end
+    then let
+      val () = genByte (opcode_down opcode_resetB, cvec);
+    in
+      genByte (offset, cvec)
+    end
+    else let
+      val opc : int = opcode_down opcode_reset_1 + offset - 1;
+    in
+      genByte(opc, cvec)
+    end
   in
     stackReset cvec := 0
   end; (* resetSp *)
@@ -1030,22 +1030,22 @@ struct
       | convertLabels (lab::labs) =
     let
       (* Process the list starting at the end. The reason for this
-	 is that more recent labels appear before earlier ones.
-	 We must put the earliest labels in first because they may
-	 be about to go out of range. *)
+     is that more recent labels appear before earlier ones.
+     We must put the earliest labels in first because they may
+     be about to go out of range. *)
        val convertRest = convertLabels labs;
     in
       (* Now do this entry. *)
       case !lab of
-	Jump16From _ => (* shouldn't happen? *)
-	  convertRest
-	
+    Jump16From _ => (* shouldn't happen? *)
+      convertRest
+    
       | Jump8From addr =>
-	let
-	  val here : addrs = !(ic cvec);
-	in
-	  if maxDiff < here addrMinus addr
-	  then let (* Getting close -  fix up the short branch to indirect via here *)
+    let
+      val here : addrs = !(ic cvec);
+    in
+      if maxDiff < here addrMinus addr
+      then let (* Getting close -  fix up the short branch to indirect via here *)
             (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
             val newOffset : int = here addrMinus (addr addrPlus 1);
 
@@ -1068,22 +1068,22 @@ struct
             val () = putByte (newInstrByte, instrAddr, cvec);
             val () = putByte (newOffset, addr, cvec);
 
-	    (* Generate the indirection itself, and alter the jump state *)
-	    val () = genWord (0, cvec);
-	    val () = lab := Jump16From here;
-	  in
-	    convertRest
-	  end
-	  else let
-	    (* Not ready to remove this. Just find out if
-	       this is an earlier branch and continue. *)
-	    val () =
-	      if addr addrLt !(longestBranch cvec)
-	      then longestBranch cvec := addr
-	      else ();
-	  in
-	    lab :: convertRest
-	  end
+        (* Generate the indirection itself, and alter the jump state *)
+        val () = genWord (0, cvec);
+        val () = lab := Jump16From here;
+      in
+        convertRest
+      end
+      else let
+        (* Not ready to remove this. Just find out if
+           this is an earlier branch and continue. *)
+        val () =
+          if addr addrLt !(longestBranch cvec)
+          then longestBranch cvec := addr
+          else ();
+      in
+        lab :: convertRest
+      end
        end
     end; (* convertLabels *)
   in
@@ -1095,15 +1095,15 @@ struct
       val () = stackReset cvec := 0;
         
       (* Must skip round the branches unless we have just
-	 taken an unconditional branch. *)
+     taken an unconditional branch. *)
       val lab : labels = 
-	if branched then noJump
-	else let
-	  val () = genByte(opcode_down opcode_jump, cvec);
-	  val () = genByte(0, cvec);
-	in
-	  makeLabel(cvec, !(ic cvec) addrPlus ~1)
-	end
+    if branched then noJump
+    else let
+      val () = genByte(opcode_down opcode_jump, cvec);
+      val () = genByte(0, cvec);
+    in
+      makeLabel(cvec, !(ic cvec) addrPlus ~1)
+    end
 
       (* Find the new longest branch while converting the labels *)
       val () = longestBranch cvec := addrLast;
@@ -1154,8 +1154,8 @@ struct
      Other arguments which will fit into a byte generate opB followed by
      the argument. The rest require opW and a word argument. *)
   fun gen1 (opW: opcode, opB: opcode, opF: opcode,
-	    first : int, last : int, arg1: int, cvec: code) : unit =
-	    
+        first : int, last : int, arg1: int, cvec: code) : unit =
+        
     if (first <= arg1 andalso arg1 <= last)
     then genOpc (opcode_up (opcode_down opF + arg1 - first), 1, cvec)
 
@@ -1174,39 +1174,39 @@ struct
 
   fun genReturn (arg1 : int, cvec : code) : unit =
     gen1 (opcode_returnW,
-	  opcode_returnB,
-	  opcode_return_0,
-	  0, 3, arg1, cvec);
+      opcode_returnB,
+      opcode_return_0,
+      0, 3, arg1, cvec);
 
   fun genGetStore (arg1 : int, cvec : code) : unit =
     gen1 (opcode_getStoreW,
-	  opcode_getStoreB,
-	  opcode_getStore_2,
-	  2, 4, arg1, cvec);
+      opcode_getStoreB,
+      opcode_getStore_2,
+      2, 4, arg1, cvec);
 
   fun genLocal (arg1 : int, cvec : code) : unit =
     gen1 (opcode_localW, 
-	  opcode_localB, 
-	  opcode_local_0,
-	  0, 11, arg1, cvec);
+      opcode_localB, 
+      opcode_local_0,
+      0, 11, arg1, cvec);
 
   fun genIndirect (arg1 : int, cvec : code) : unit =
     gen1 (opcode_indirectW, 
-	  opcode_indirectB,
-	  opcode_indirect_0,
-	  0, 5, arg1, cvec);
+      opcode_indirectB,
+      opcode_indirect_0,
+      0, 5, arg1, cvec);
 
   fun genMoveToVec (arg1 : int, cvec : code) : unit =
     gen1 (opcode_moveToVecW,
-	  opcode_moveToVecB,
-	  opcode_moveToVec_0,
-	  0, 7, arg1, cvec);
+      opcode_moveToVecB,
+      opcode_moveToVec_0,
+      0, 7, arg1, cvec);
 
   fun genSetStackVal (arg1 : int, cvec : code) : unit =
     gen1 (opcode_setStackValW,
-	  opcode_setStackValB,
-	  opcode_setStackValB, (* Don't care - no "implied" form exists *)
-	  1, 0, arg1, cvec);
+      opcode_setStackValB,
+      opcode_setStackValB, (* Don't care - no "implied" form exists *)
+      1, 0, arg1, cvec);
 
   fun genCase (arg1 : int, cvec : code) : unit =
   let
@@ -1219,14 +1219,14 @@ struct
 
   fun genTuple (arg1: int, cvec: code) : unit =
     gen1 (opcode_tupleW,
-	  opcode_tupleB,
-	  opcode_tuple_2,
-	  2, 4, arg1, cvec);
+      opcode_tupleB,
+      opcode_tuple_2,
+      2, 4, arg1, cvec);
 
   (* Single byte argument. *)
 (*  fun genIoVecEntry (arg: int, cvec : code) : unit =
     case arg of (* Some of these entries are very common. *)
-	5 => genOpc(opcode_ioVec_5,   1, cvec)
+    5 => genOpc(opcode_ioVec_5,   1, cvec)
     |   6 => genOpc(opcode_ioVec_6,   1, cvec)
     | 225 => genOpc(opcode_ioVec_225, 1, cvec)
     | 226 => genOpc(opcode_ioVec_226, 1, cvec)
@@ -1238,9 +1238,9 @@ struct
     | 255 => genOpc(opcode_ioVec_255, 1, cvec)
     | _ =>
       let
-	val () = genOpc(opcode_ioVecEntry, 2, cvec);
+    val () = genOpc(opcode_ioVecEntry, 2, cvec);
       in
-	genByte(arg, cvec)
+    genByte(arg, cvec)
       end;*)
 
   fun genNonLocal (arg1 : int, arg2 : int, arg3 : int, cvec: code) : unit =
@@ -1319,8 +1319,8 @@ struct
       val lab : labels = makeLabel (cvec, !(ic cvec) addrPlus ~1);
       
       (* Having just generated an unconditional branch we can extend
-	 branches without the overhead of an extra branch. That's
-	 why we did a genByte, rather than a genOpc, just now. *)
+     branches without the overhead of an extra branch. That's
+     why we did a genByte, rather than a genOpc, just now. *)
       val () = checkBranchList (cvec, true, 0);
     in
       lab
@@ -1342,17 +1342,17 @@ struct
         (* For opcode_jumpBack, exceptionally, the offset is relative
            to the START of the instruction. Also, the offset is
            backwards, as opposed to the usual forwards convention. *)
-	val () = genByte (opcode_down opcode_jumpBack, cvec);
+    val () = genByte (opcode_down opcode_jumpBack, cvec);
       in
-	genByte (newOffset, cvec)
+    genByte (newOffset, cvec)
       end
       else let (* must use indirect jump *)
         (* For all other jumps, the offset is relative to the END of
            the instruction, which explains the "0" and the "+ 4". *)
-	val () = genByte (opcode_down opcode_jumpI, cvec);
-	val () = genByte (0, cvec); (* Indirect through next word. *)
+    val () = genByte (opcode_down opcode_jumpI, cvec);
+    val () = genByte (0, cvec); (* Indirect through next word. *)
       in
-	genWord (~ (newOffset + 4), cvec)
+    genWord (~ (newOffset + 4), cvec)
       end;
   in
     (* Having just generated an unconditional branch we can extend
@@ -1371,9 +1371,9 @@ struct
           else raise InternalError "fixupConstantLoad: already fixed-up";
 
         val constAddr : addrs =
-		   if usePortableConstantOffset
-		   then constStartAddrs
-		   else constStartAddrs addrPlus (wordLength() * (constNum+4));
+           if usePortableConstantOffset
+           then constStartAddrs
+           else constStartAddrs addrPlus (wordLength() * (constNum+4));
           
         (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
         val newOffset : int = constAddr addrMinus (fixupAddr addrPlus 2);
@@ -1447,11 +1447,11 @@ struct
     else let (* address or large short *)
       val constNum : int = addConstToVec (WVal value, cvec);
       val () =
-	  	if not usePortableConstantOffset
-		then genOpc (opcode_constAddr, 3, cvec)
-		else if constNum < 256
-		then (genOpc (opcode_constAddrX_b, 4, cvec); genByte (constNum, cvec))
-		else (genOpc (opcode_constAddrX_w, 5, cvec); genWord (constNum, cvec));
+        if not usePortableConstantOffset
+        then genOpc (opcode_constAddr, 3, cvec)
+        else if constNum < 256
+        then (genOpc (opcode_constAddrX_b, 4, cvec); genByte (constNum, cvec))
+        else (genOpc (opcode_constAddrX_w, 5, cvec); genWord (constNum, cvec));
     in
       genConstRef (constNum, cvec)
     end;
@@ -1460,9 +1460,9 @@ struct
      themselves adjust the return address etc. SPF 23/6/95 *)
   (* That may be OK for some architectures but it's no good for
      the portable interpreted code.  Changed back to align OFF word.
-	 Note: I've left it as addr mod 4 <> 2 rather than addr mod wordLength <> 2
-	 since I think that it would be safe to treat word+2 or word+6 as being
-	 code addresses. DCJM 21/9/2000. *)
+     Note: I've left it as addr mod 4 <> 2 rather than addr mod wordLength <> 2
+     since I think that it would be safe to treat word+2 or word+6 as being
+     code addresses. DCJM 21/9/2000. *)
   fun alignOffWord (cvec: code, length: int) : unit =
   let
     val mustReset = !(stackReset cvec) <> 0;
@@ -1580,11 +1580,11 @@ struct
   let
     val constNum : int = codeConst (target, into);
     val () =
-	  	if not usePortableConstantOffset
-		then genOpc (opcode_constAddr, 3, into)
-		else if constNum < 256
-		then (genOpc (opcode_constAddrX_b, 4, into); genByte (constNum, into))
-		else (genOpc (opcode_constAddrX_w, 5, into); genWord (constNum, into));
+        if not usePortableConstantOffset
+        then genOpc (opcode_constAddr, 3, into)
+        else if constNum < 256
+        then (genOpc (opcode_constAddrX_b, 4, into); genByte (constNum, into))
+        else (genOpc (opcode_constAddrX_w, 5, into); genWord (constNum, into));
   in
     genConstRef (constNum, into)
   end;
@@ -1597,31 +1597,31 @@ struct
       within the range. *)
    in
      if level <= 15 andalso 2 <= offset andalso offset <= 17
-		andalso (not usePortableConstantOffset orelse constNum < 256)
+        andalso (not usePortableConstantOffset orelse constNum < 256)
      then (
-		if usePortableConstantOffset
-		then (
-			alignOffWord (into, 5);
-			genOpc (opcode_callSlCX, 5, into);
-			genByte(constNum, into)
-			)
-		else (alignOffWord (into, 4); genOpc (opcode_callSlC, 4, into));
-		genConstRef (constNum, into);
-		genByte ((offset - 2) * 16 + level, into)
-		) 
+        if usePortableConstantOffset
+        then (
+            alignOffWord (into, 5);
+            genOpc (opcode_callSlCX, 5, into);
+            genByte(constNum, into)
+            )
+        else (alignOffWord (into, 4); genOpc (opcode_callSlC, 4, into));
+        genConstRef (constNum, into);
+        genByte ((offset - 2) * 16 + level, into)
+        ) 
      else
-		(
-		if usePortableConstantOffset
-		then (
-			alignOffWord (into, 9);
-			genOpc (opcode_callSlX, 9, into);
-			genWord (constNum, into)
-			)
-		else (alignOffWord (into, 7); genOpc (opcode_callSl, 7, into));
-		genConstRef (constNum, into);
-		genWord (offset, into);
-       	genWord (level, into)
-		)
+        (
+        if usePortableConstantOffset
+        then (
+            alignOffWord (into, 9);
+            genOpc (opcode_callSlX, 9, into);
+            genWord (constNum, into)
+            )
+        else (alignOffWord (into, 7); genOpc (opcode_callSl, 7, into));
+        genConstRef (constNum, into);
+        genWord (offset, into);
+        genWord (level, into)
+        )
    end;
 
   fun genContainer (size : int, cvec: code) : unit =
@@ -1761,7 +1761,7 @@ struct
     
             else if opc = opcode_callSlX
               then
-			  	(
+                (
                 printOp (2, "\t");
                 printDisp (2, ",", false);
                 printOp (2, ",");
@@ -1770,14 +1770,14 @@ struct
 
              else if opc = opcode_callSlC
               then
-			  (
+              (
                 printDisp (2, "\t", false);
                 printOp (1, ",")
               )
     
              else if opc = opcode_callSlCX
               then
-			  (
+              (
                 printOp (1, "\t");
                 printDisp (2, ",", false);
                 printOp (1, ",")
@@ -1835,20 +1835,20 @@ struct
   fun loadConstCount (a : address, offset : int) : int =
   let
     val byteOffset : int = wordLength() * offset;
-	fun loadBytes (i: int) (acc: int) : int =
-		if i = wordLength() then acc
-		else
-		let
-			val addr: int =
-				if littleEndian() then byteOffset + wordLength() - i - 1
-				else byteOffset + i;
-			val b = loadByte (a, toShort addr);
-			val acc' = acc*256 + Word8.toInt b
-		in
-			loadBytes (i+1) acc'
-		end
+    fun loadBytes (i: int) (acc: int) : int =
+        if i = wordLength() then acc
+        else
+        let
+            val addr: int =
+                if littleEndian() then byteOffset + wordLength() - i - 1
+                else byteOffset + i;
+            val b = loadByte (a, toShort addr);
+            val acc' = acc*256 + Word8.toInt b
+        in
+            loadBytes (i+1) acc'
+        end
   in
-  	loadBytes 0 0
+    loadBytes 0 0
    end;
   
   (* Bootstrapping problems currently prevent us from using Address.nameOfCode *)
@@ -1899,41 +1899,41 @@ struct
         end
 
     | WVal w => 
-	if isShort w
-	then let
-	  val value : int = Word.toInt (toShort w);
-	  val () = printStream "short:\t";
-	  val () = printHex(value, printStream);
-	  val () = printStream " (";
-	  val () = printStream (Int.toString value);
-	in
-	  printStream ")"
-	end
-	else let
-	  val a : address = toAddress w;
-	in
-	  if isIoAddress a
-	    then printStream "RTS entry"
-	  else if isCode a
-	    then printConstCode(a, printStream)
-	  else if isBytes a
-	    then printBytes(a, printStream)
-	  else if isWords a andalso 0w1 <= ADDRESS.length a
-	    then let
-	      val w' : machineWord = loadWord (a, 0w0)
-	    in
-	      if not (isShort w')
-	      then let
+    if isShort w
+    then let
+      val value : int = Word.toInt (toShort w);
+      val () = printStream "short:\t";
+      val () = printHex(value, printStream);
+      val () = printStream " (";
+      val () = printStream (Int.toString value);
+    in
+      printStream ")"
+    end
+    else let
+      val a : address = toAddress w;
+    in
+      if isIoAddress a
+        then printStream "RTS entry"
+      else if isCode a
+        then printConstCode(a, printStream)
+      else if isBytes a
+        then printBytes(a, printStream)
+      else if isWords a andalso 0w1 <= ADDRESS.length a
+        then let
+          val w' : machineWord = loadWord (a, 0w0)
+        in
+          if not (isShort w')
+          then let
             val a' : address = toAddress w';
-	      in
+          in
             if not (isIoAddress a') andalso isCode a'
             then printConstClosure(a', printStream)
             else printWords(a, printStream) (* First element of tuple is not a code segment *) 
-	      end
-	      else printWords(a, printStream) (* First element of tuple is a short *)
-	    end
-	    else printWords(a, printStream) (* Not a proper tuple (shouldn't occur) *)
-	end;
+          end
+          else printWords(a, printStream) (* First element of tuple is a short *)
+        end
+        else printWords(a, printStream) (* Not a proper tuple (shouldn't occur) *)
+    end;
            
   fun printConstants (_    : int, [] : const list, _) : unit = ()
     | printConstants (addr : int, h :: t, printStream) : unit =
@@ -1950,9 +1950,9 @@ struct
   fun constLabels (cvec : code, num : int, value : machineWord) : unit =
   let
     val seg       = scSet (!(resultSeg cvec));
-	(* The +2 in the next instruction is because ic is always the byte count of
-	   the word after the marker word.  We need to skip over the function name
-	   and the profile count. *)
+    (* The +2 in the next instruction is because ic is always the byte count of
+       the word after the marker word.  We need to skip over the function name
+       and the profile count. *)
     val constAddr = (getAddr (!(ic cvec))) div wordLength() + num + 2;
   in
     csegPutWord (seg, constAddr, value)
@@ -2001,9 +2001,9 @@ struct
        the last instruction (return) had a zero argument, this could give
        a whole word of zero, which would mess up the garbage-collector. 
     *)
-	(* Now round up to 8 byte boundary.  This makes porting to a 64 bit
-	   machine much simpler. DCJM 22/9/00. *)
-	val alignTo = if wordLength() < 8 then 8 else wordLength();
+    (* Now round up to 8 byte boundary.  This makes porting to a 64 bit
+       machine much simpler. DCJM 22/9/00. *)
+    val alignTo = if wordLength() < 8 then 8 else wordLength();
     val () = 
        while (getAddr (! (ic cvec)) mod alignTo) <> 0 do
           genByte (opcode_down opcode_pad, cvec);
@@ -2101,16 +2101,16 @@ struct
       if noClosure cvec
       then csegAddr seg
       else let
-	val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg));
-	
-	(* Logically unnecessary; however the RTS currently allocates everything
-	   as mutable because Dave's code assumed that things were done this
-	   way and I'm not completely sure that everything that needs a mutable
-	   allocation actually asks for it yet. SPF 19/2/97
-	*)
-	val () = lock addr;
+    val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg));
+    
+    (* Logically unnecessary; however the RTS currently allocates everything
+       as mutable because Dave's code assumed that things were done this
+       way and I'm not completely sure that everything that needs a mutable
+       allocation actually asks for it yet. SPF 19/2/97
+    *)
+    val () = lock addr;
       in
-	addr
+    addr
       end
 
     (* Now we know the address of this object we can fix up
@@ -2121,14 +2121,14 @@ struct
     val () = 
       if printAssemblyCode
       then let (* print out the code *)
-	val () = printCode (seg, procName cvec, getAddr endIC, printStream);
-	(* Skip: byte offset of start of code segment, 
-		 number of constants,
-		 profiling word,
-		 name of code segment
-	*)
-	val constants : const list = ! (constVec cvec);
-	val () = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
+    val () = printCode (seg, procName cvec, getAddr endIC, printStream);
+    (* Skip: byte offset of start of code segment, 
+         number of constants,
+         profiling word,
+         name of code segment
+    *)
+    val constants : const list = ! (constVec cvec);
+    val () = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
       in
          printStream"\n"
       end

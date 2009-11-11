@@ -13,11 +13,11 @@ Socket.acceptNB x;
 val xPoll = valOf(OS.IO.pollDesc(Socket.ioDesc x)) and yPoll = valOf(OS.IO.pollDesc(Socket.ioDesc y));
 fun printPoll(p, l) =
 let
-	open OS.IO
+    open OS.IO
 in
-	(if isIn p then ["In"] else []) @
-	(if isOut p then ["Out"] else []) @
-	(if isPri p then ["Pri"] else []) @ l
+    (if isIn p then ["In"] else []) @
+    (if isOut p then ["Out"] else []) @
+    (if isPri p then ["Pri"] else []) @ l
 end;
 
 verify(null(List.foldl printPoll [] (OS.IO.poll([OS.IO.pollIn xPoll, OS.IO.pollOut xPoll], SOME(Time.fromSeconds 1)))));

@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -286,26 +286,26 @@ struct
        if locn < 0 (* Args. *)
        then pushStackValue (~locn, 0)
        else (* positive address - on the stack. *)
-	 case STRETCHARRAY.sub (decVec, locn) of
-	   StackAddr n => pushStackValue (~ n, 0)
+     case STRETCHARRAY.sub (decVec, locn) of
+       StackAddr n => pushStackValue (~ n, 0)
  
-	 | _ => (* Should be on the stack, not a procedure. *)
-	   raise InternalError "locaddr: bad stack address"
+     | _ => (* Should be on the stack, not a procedure. *)
+       raise InternalError "locaddr: bad stack address"
          
      else (* closure-pointer relative *)
-	case loadStaticLink (locn, 1) of
-	  Recursive code =>
-	  let
-	    val () = genRecRef (code, cvec)
-	  in
-	    incsp ()
-	  end
-	  
+    case loadStaticLink (locn, 1) of
+      Recursive code =>
+      let
+        val () = genRecRef (code, cvec)
+      in
+        incsp ()
+      end
+      
        | Address (addr, level) =>
-	   pushStackValue (addr, level)
+       pushStackValue (addr, level)
        
        | StaticLink _ =>
-	   raise InternalError "locaddr: illegal use of static-link function"
+       raise InternalError "locaddr: illegal use of static-link function"
    end; (* locaddr *)
 
    (* generates code from the tree *)
@@ -318,17 +318,17 @@ struct
        case pt of
          MatchFail =>
            (* Leave stack adjustments until later *)
-	   matchFailFn ()
+       matchFailFn ()
 
        | AltMatch (exp1, exp2) => (* A bit like Cond *)
-	 let
-	   val failLabs = ref ([] : labels list);
-	   fun newMatchFailFn () = 
-	   let
-	     (* Cut back the stack and branch *)
-	     val adjustment = !realstackptr - oldsp;
-	     
-	     val () =
+     let
+       val failLabs = ref ([] : labels list);
+       fun newMatchFailFn () = 
+       let
+         (* Cut back the stack and branch *)
+         val adjustment = !realstackptr - oldsp;
+         
+         val () =
                if adjustment < 0
                  then raise InternalError ("gencde (AltMatch): bad adjustment " ^ Int.toString adjustment)
                else if !exited orelse adjustment = 0
@@ -338,73 +338,73 @@ struct
                  
              val () = realstackptr := oldsp;
 
-	     val thisFailure : labels = putBranchInstruction (jump, cvec);
-	     val () = exited := true
-	   in
+         val thisFailure : labels = putBranchInstruction (jump, cvec);
+         val () = exited := true
+       in
              failLabs := thisFailure :: !failLabs
-	   end;
-	   
-	   val () = 
-	      gencde (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
-	     
-	   (* Get rid of the result from the stack.
-	      If there is a result then exp2 will push it. *)
-	   val () = case whereto of ToStack => decsp () | NoResult => ();
-	   val exp1Exited : bool = !exited;
+       end;
+       
+       val () = 
+          gencde (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
+         
+       (* Get rid of the result from the stack.
+          If there is a result then exp2 will push it. *)
+       val () = case whereto of ToStack => decsp () | NoResult => ();
+       val exp1Exited : bool = !exited;
 
-	   (* If exp1 succeeded, we skip exp2 *)
-	   val suceedLab : labels = 
-	     if exp1Exited then noJump else putBranchInstruction (jump, cvec);
-	     
-	   val () =
-	     if !realstackptr = oldsp then ()
-	     else raise InternalError "gencde: bad stack value"
-	   
-	   (* If exp1 failed, we come here (with NO result). *)
-	   val () = exited := false; (* Don't try to be too clever *)
-	   val () = apply (fn (lab : labels) => fixup (lab, cvec)) (!failLabs);
-	   
-	   (* Compile exp2 using the OLD matchFailFn *)
-	   val () = gencde (exp2, whereto, tailKind, matchFailFn, loopAddr);
+       (* If exp1 succeeded, we skip exp2 *)
+       val suceedLab : labels = 
+         if exp1Exited then noJump else putBranchInstruction (jump, cvec);
+         
+       val () =
+         if !realstackptr = oldsp then ()
+         else raise InternalError "gencde: bad stack value"
+       
+       (* If exp1 failed, we come here (with NO result). *)
+       val () = exited := false; (* Don't try to be too clever *)
+       val () = apply (fn (lab : labels) => fixup (lab, cvec)) (!failLabs);
+       
+       (* Compile exp2 using the OLD matchFailFn *)
+       val () = gencde (exp2, whereto, tailKind, matchFailFn, loopAddr);
 
-	   (* If exp1 succeeded, we merge back in here. *)
-	   val () = fixup (suceedLab, cvec);
-	 in
-	   exited := (!exited andalso exp1Exited)
-	 end
+       (* If exp1 succeeded, we merge back in here. *)
+       val () = fixup (suceedLab, cvec);
+     in
+       exited := (!exited andalso exp1Exited)
+     end
             
        | Eval evl =>
            genEval (evl, tailKind, matchFailFn)
          
        (* Declarations are not necessarily nested in Newenv *)
        | Declar {value, addr, ...} =>
-	   (* Put the entry for this declaration in the table. *)
-	   (case value of
-	      Lambda (lam as {makeClosure = false, name, ...}) => 
-	      let
-		val newCode : code = codeCreate (true, name, parameters);
-		val () =
-		  STRETCHARRAY.update (decVec, addr, ProcConst newCode);
-	      in
-		genSlProc (lam, newCode)
-	      end
-	      
-	    | _ => (* Other declaration - to the stack. *)
-	      let
-		val () = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
-	      in
-		STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
-	      end
-	   )
+       (* Put the entry for this declaration in the table. *)
+       (case value of
+          Lambda (lam as {makeClosure = false, name, ...}) => 
+          let
+        val newCode : code = codeCreate (true, name, parameters);
+        val () =
+          STRETCHARRAY.update (decVec, addr, ProcConst newCode);
+          in
+        genSlProc (lam, newCode)
+          end
+          
+        | _ => (* Other declaration - to the stack. *)
+          let
+        val () = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
+          in
+        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+          end
+       )
 
         (* MutualDecs should nested in Newenv??? *)
       | MutualDecs _ =>
             raise InternalError "gencde: MutualDecs only allowed inside Newenv"
 
        | Extract ext =>
-	   	   (* This may just be being used to discard a value which isn't
-		      used on this branch. *)
-	   	   if whereto = NoResult then ()
+           (* This may just be being used to discard a value which isn't
+              used on this branch. *)
+           if whereto = NoResult then ()
            else locaddr ext
        
        | Indirect {base, offset} =>
@@ -457,61 +457,61 @@ struct
           in
             codeList vl
           end
-		  
-		 | BeginLoop (body, args) =>
-		    (* Execute the body which will contain at least one Loop instruction.
-		  	   There will also be path(s) which don't contain Loops and these
-			   will drop through. *)
-		 	let
-		 		(* Evaluate each of the arguments, pushing the result onto the stack. *)
-				fun genLoopArg (Declar {addr, value, ...}) =
-					(
-					 gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
-					 STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
-					 !realstackptr (* Return the posn on the stack. *)
-					)
-				|	genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
-				val argIndexList = map genLoopArg args;
+          
+         | BeginLoop (body, args) =>
+            (* Execute the body which will contain at least one Loop instruction.
+               There will also be path(s) which don't contain Loops and these
+               will drop through. *)
+            let
+                (* Evaluate each of the arguments, pushing the result onto the stack. *)
+                fun genLoopArg (Declar {addr, value, ...}) =
+                    (
+                     gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
+                     STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
+                     !realstackptr (* Return the posn on the stack. *)
+                    )
+                |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
+                val argIndexList = map genLoopArg args;
 
-				val startSp = ! realstackptr; (* Remember the current top of stack. *)
-				val startLoop : addrs = ic cvec; (* Start of loop *)
-			in
-				(* Process the body, passing the jump-back address down for the Loop instruction(s). *)
-				gencde (body, whereto, tailKind, matchFailFn, SOME(startLoop, startSp, argIndexList))
-				(* Leave the arguments on the stack.  They can be cleared later if needed. *)
-			end
+                val startSp = ! realstackptr; (* Remember the current top of stack. *)
+                val startLoop : addrs = ic cvec; (* Start of loop *)
+            in
+                (* Process the body, passing the jump-back address down for the Loop instruction(s). *)
+                gencde (body, whereto, tailKind, matchFailFn, SOME(startLoop, startSp, argIndexList))
+                (* Leave the arguments on the stack.  They can be cleared later if needed. *)
+            end
 
-		 | Loop argList => (* Jump back to the enclosing BeginLoop. *)
-		 	let
-				val (startLoop, startSp, argIndexList) =
-					case loopAddr of
-						SOME l => l
-					|	NONE => raise InternalError "No BeginLoop for Loop instr"
-				(* Evaluate the arguments.  First push them to the stack because evaluating
-				   an argument may depend on the current value of others.  Only when we've
-				   evaluated all of them can we overwrite the original argument positions. *)
-				fun loadArgs ([], []) = !realstackptr - startSp (* The offset of all the args. *)
-				  | loadArgs (arg:: argList, _ :: argIndexList) =
-				  	let
-						(* Evaluate all the arguments. *)
-						val () = gencde (arg, ToStack, NotEnd, matchFailFn, NONE);
-						val argOffset = loadArgs(argList, argIndexList);
-					in
-						genSetStackVal(argOffset, cvec); (* Copy the arg over. *)
-						decsp(); (* The argument has now been popped. *)
-						argOffset
-					end
-				  | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
+         | Loop argList => (* Jump back to the enclosing BeginLoop. *)
+            let
+                val (startLoop, startSp, argIndexList) =
+                    case loopAddr of
+                        SOME l => l
+                    |   NONE => raise InternalError "No BeginLoop for Loop instr"
+                (* Evaluate the arguments.  First push them to the stack because evaluating
+                   an argument may depend on the current value of others.  Only when we've
+                   evaluated all of them can we overwrite the original argument positions. *)
+                fun loadArgs ([], []) = !realstackptr - startSp (* The offset of all the args. *)
+                  | loadArgs (arg:: argList, _ :: argIndexList) =
+                    let
+                        (* Evaluate all the arguments. *)
+                        val () = gencde (arg, ToStack, NotEnd, matchFailFn, NONE);
+                        val argOffset = loadArgs(argList, argIndexList);
+                    in
+                        genSetStackVal(argOffset, cvec); (* Copy the arg over. *)
+                        decsp(); (* The argument has now been popped. *)
+                        argOffset
+                    end
+                  | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
 
-				val _: int = loadArgs(argList, argIndexList)
-			in
-				if !realstackptr <> startSp
-				then resetStack (!realstackptr - startSp, false, cvec) (* Remove any local variables. *)
-				else ();
-		    
-				(* Jump back to the start of the loop. *)
-				jumpback (startLoop, cvec)
-			end
+                val _: int = loadArgs(argList, argIndexList)
+            in
+                if !realstackptr <> startSp
+                then resetStack (!realstackptr - startSp, false, cvec) (* Remove any local variables. *)
+                else ();
+            
+                (* Jump back to the start of the loop. *)
+                jumpback (startLoop, cvec)
+            end
   
        | Raise exp =>
          let
@@ -529,17 +529,17 @@ struct
            val () = genPushHandler cvec;
            val () = incsp ();
   
-	   fun genTag (tag : codetree) : handler =
-	   let
-	     (* Push address of new handler. *)
-	     val handlerLab : labels = putBranchInstruction (setHandler, cvec);
+       fun genTag (tag : codetree) : handler =
+       let
+         (* Push address of new handler. *)
+         val handlerLab : labels = putBranchInstruction (setHandler, cvec);
              val () = incsp ();
  
-	     (* Push the exception to be caught. *)
-	     val () = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
-	   in
-	     handlerLab
-	   end;
+         (* Push the exception to be caught. *)
+         val () = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
+       in
+         handlerLab
+       end;
 
            (* Generate the list of tags and handler addreses. We reverse
               the taglist so the tags that are first in the list are
@@ -548,13 +548,13 @@ struct
               stack order. (I don't think this is important, but
               I'm not sure.) Did you get all that? SPF 26/11/96
            *)
-	   val handlerList : handler list = rev (map genTag (rev taglist));
+       val handlerList : handler list = rev (map genTag (rev taglist));
 
-	  (* Code generate the body; "NotEnd" because we have to come back
-	     to remove the handler; "ToStack" because delHandler needs
-	     a result to carry down. *)
-	  val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
-	  
+      (* Code generate the body; "NotEnd" because we have to come back
+         to remove the handler; "ToStack" because delHandler needs
+         a result to carry down. *)
+      val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
+      
           (* Now get out of the handler and restore the old one. *)
           val skipHandler : labels = putBranchInstruction (delHandler, cvec);
           
@@ -565,18 +565,18 @@ struct
              of this. This means that I don't want to do any clever "end-of-function"
              optimisation either. SPF 6/1/97
 
-	     The exception handler must be aligned to an odd word boundary
-	     so that the garbage collector does not get confused when it
-	     finds the address on the stack. Values on full-word
-	     boundaries always point to the start of objects whereas
-	     values off full-word boundaries (either return addresses or
-	     catch-phrases) point into code-segments.
+         The exception handler must be aligned to an odd word boundary
+         so that the garbage collector does not get confused when it
+         finds the address on the stack. Values on full-word
+         boundaries always point to the start of objects whereas
+         values off full-word boundaries (either return addresses or
+         catch-phrases) point into code-segments.
           *)
           val () = realstackptr := oldsp;
           val () = exited := false;
-	  val () = alignOffWord (cvec, 0);
+      val () = alignOffWord (cvec, 0);
           val () = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
-	  (* If we were executing machine code we must re-enter the interpreter. *)
+      (* If we were executing machine code we must re-enter the interpreter. *)
           val () = genEnterIntCatch cvec;
           val () = gencde (handler, ToStack, NotEnd, matchFailFn, loopAddr);
           
@@ -622,63 +622,63 @@ struct
            realstackptr := !realstackptr - (size - 1)
          end
 
-			(* Containers are supposed to be implemented on the stack for efficiency.
-			   Unfortunately they cause problems in this code because we assume
-			   that if we generate a value to the stack it only occupies a single
-			   word.  Rather than change this code and risk breaking something I'm
-			   simply generating them as mutable tuples on the heap. *)
-	    | Container size =>
-			(* Reserve a number of words on the stack for use as a tuple on the
-			   stack.  The result is the address of this space. *)
-			(
-			genContainer(size, cvec); (* Push the address of this container. *)
-			incsp() (* Pushes a single word. *)
-			)
+            (* Containers are supposed to be implemented on the stack for efficiency.
+               Unfortunately they cause problems in this code because we assume
+               that if we generate a value to the stack it only occupies a single
+               word.  Rather than change this code and risk breaking something I'm
+               simply generating them as mutable tuples on the heap. *)
+        | Container size =>
+            (* Reserve a number of words on the stack for use as a tuple on the
+               stack.  The result is the address of this space. *)
+            (
+            genContainer(size, cvec); (* Push the address of this container. *)
+            incsp() (* Pushes a single word. *)
+            )
 
-		| SetContainer{container, tuple, size} =>
-			(* Copy the contents of a tuple into a container.  If the tuple is a
-			   Recconstr instruction we can avoid generating the tuple and then
-			   unpacking it and simply copy the fields that make up the tuple
-			   directly into the container. *)
-			(
-				(* Load the address of the container. *)
-				gencde (container, ToStack, NotEnd, matchFailFn, loopAddr);
-			
-				case tuple of
-					Recconstr cl =>
-						(* Simply set the container from the values. *)
-					let
-						fun setValue(v, offset) =
-						(
-							gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
-							(* Move the entry into the container. This instruction
-							   pops the value to be moved but not the destination. *)
-							genMoveToVec(offset, cvec);
-							decsp();
-							offset + 1
-						)
-					in
-						List.foldl setValue 0 cl;
-						() (* The container address is still on the stack. *)
-					end
+        | SetContainer{container, tuple, size} =>
+            (* Copy the contents of a tuple into a container.  If the tuple is a
+               Recconstr instruction we can avoid generating the tuple and then
+               unpacking it and simply copy the fields that make up the tuple
+               directly into the container. *)
+            (
+                (* Load the address of the container. *)
+                gencde (container, ToStack, NotEnd, matchFailFn, loopAddr);
+            
+                case tuple of
+                    Recconstr cl =>
+                        (* Simply set the container from the values. *)
+                    let
+                        fun setValue(v, offset) =
+                        (
+                            gencde (v, ToStack, NotEnd, matchFailFn, loopAddr);
+                            (* Move the entry into the container. This instruction
+                               pops the value to be moved but not the destination. *)
+                            genMoveToVec(offset, cvec);
+                            decsp();
+                            offset + 1
+                        )
+                    in
+                        List.foldl setValue 0 cl;
+                        () (* The container address is still on the stack. *)
+                    end
 
-				|	_ =>
-					( (* General case. *)
-						gencde (tuple, ToStack, NotEnd, matchFailFn, loopAddr);
-						genSetContainer(size, cvec);
-						decsp(); decsp()
-					)
+                |   _ =>
+                    ( (* General case. *)
+                        gencde (tuple, ToStack, NotEnd, matchFailFn, loopAddr);
+                        genSetContainer(size, cvec);
+                        decsp(); decsp()
+                    )
 
-			)
+            )
 
-		| TupleFromContainer(container, _) =>
-			(* Create a tuple from the contents of a container. *)
-			(
-			    (* TODO: This returns a MUTABLE record which is different from the
-			       other code-generators.  That could cause problems if we expect
-			       an immutable object. *)
-			    gencde(container, ToStack, NotEnd, matchFailFn, loopAddr)
-			)
+        | TupleFromContainer(container, _) =>
+            (* Create a tuple from the contents of a container. *)
+            (
+                (* TODO: This returns a MUTABLE record which is different from the
+                   other code-generators.  That could cause problems if we expect
+                   an immutable object. *)
+                gencde(container, ToStack, NotEnd, matchFailFn, loopAddr)
+            )
    
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
@@ -770,16 +770,16 @@ struct
       end
 
       else let (* Full closure required. *)
-	(* If there is a closure we must fetch all non-local references
-	   from it. *)
+    (* If there is a closure we must fetch all non-local references
+       from it. *)
 
-	(* Loads the value from the closure. *)
-	fun loadSl (addr : int, level : int) : slValue =
-	  if addr = 0
-	  then (* recursive - return address of closure. *)
-	    Address (~1, level - 1)
-	  else (* Return an entry in the closure. *)
-	    Address (addr, level);
+    (* Loads the value from the closure. *)
+    fun loadSl (addr : int, level : int) : slValue =
+      if addr = 0
+      then (* recursive - return address of closure. *)
+        Address (~1, level - 1)
+      else (* Return an entry in the closure. *)
+        Address (addr, level);
 
         val newCode : code = codeCreate (true, #name lam, parameters);
 
@@ -861,20 +861,20 @@ struct
        if prevloc = 0 (* recursive call *)
        then StaticLink (newCode, level)
        else let
-	 val closureEntry = findClosure (closureList, prevloc);
-	 val locn = #addr closureEntry; (* Get new address *)
+     val closureEntry = findClosure (closureList, prevloc);
+     val locn = #addr closureEntry; (* Get new address *)
        in
-	 if #fpRel closureEntry
-	 then (* This level *)
-	    if locn < 0 (* Address  *)
-	    then Address (~ locn, level)
-	    else (* Local - is it a procedure? *)
-	      case STRETCHARRAY.sub (decVec, locn) of
-		StackAddr n => Address (~ n, level)
-	      | ProcConst c => StaticLink (c, level)
-	      | Empty       => raise InternalError "loadSl: missing decVec entry"
-	  else (* Try the next level *) 
-	    loadStaticLink (locn, level + 1)
+     if #fpRel closureEntry
+     then (* This level *)
+        if locn < 0 (* Address  *)
+        then Address (~ locn, level)
+        else (* Local - is it a procedure? *)
+          case STRETCHARRAY.sub (decVec, locn) of
+        StackAddr n => Address (~ n, level)
+          | ProcConst c => StaticLink (c, level)
+          | Empty       => raise InternalError "loadSl: missing decVec entry"
+      else (* Try the next level *) 
+        loadStaticLink (locn, level + 1)
        end; (* loadSl *)
        
      (* Now code-generate the procedure. We can throw away the result because
@@ -891,7 +891,7 @@ struct
                 whereto: whereto,
                 tailKind: tail,
                 matchFailFn : unit -> unit,
-				loopAddr) : unit =
+                loopAddr) : unit =
    let
      val () = gencde (first, ToStack, NotEnd, matchFailFn, loopAddr);
      val toElse : labels = putBranchInstruction(jumpFalse, cvec);
@@ -913,27 +913,27 @@ struct
        
      | _ =>
        let
-	 val () = gencde (second, whereto, tailKind, matchFailFn, loopAddr);
-	 (* Get rid of the result from the stack. If there is a result then the
-	    ``else-part'' will push it. *)
-	 val () = case whereto of ToStack => decsp () | NoResult => ();
-	 
-	 val thenExited : bool = !exited;
+     val () = gencde (second, whereto, tailKind, matchFailFn, loopAddr);
+     (* Get rid of the result from the stack. If there is a result then the
+        ``else-part'' will push it. *)
+     val () = case whereto of ToStack => decsp () | NoResult => ();
+     
+     val thenExited : bool = !exited;
  
-	 val toExit : labels =
-	   if thenExited then noJump
-	   else putBranchInstruction (jump, cvec);
+     val toExit : labels =
+       if thenExited then noJump
+       else putBranchInstruction (jump, cvec);
     
-	 (* start of "else part" *)
-	 val () = fixup (toElse, cvec);
-	 val () = exited := false;
-	 val () = gencde (third, whereto, tailKind, matchFailFn, loopAddr);
+     (* start of "else part" *)
+     val () = fixup (toElse, cvec);
+     val () = exited := false;
+     val () = gencde (third, whereto, tailKind, matchFailFn, loopAddr);
  
-	 val elseExited : bool= !exited;
-	 
-	 val () = fixup (toExit, cvec);
+     val elseExited : bool= !exited;
+     
+     val () = fixup (toExit, cvec);
        in
-	 exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
+     exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
        end
    end (* genCond *)
 
@@ -975,101 +975,101 @@ struct
          end;
          
       val () =
-	case #function eval of
-	   (* The procedure is being loaded from the stack or closure so it
-	      may be a static-link procedure. *)
-	  Extract ext =>
-	  let
-	    (* Since the procedure is on the stack there can be no side-effects
-	       in loading it. Can therefore load the arguments now. *)
-	    val () = loadArgs argList;
+    case #function eval of
+       (* The procedure is being loaded from the stack or closure so it
+          may be a static-link procedure. *)
+      Extract ext =>
+      let
+        (* Since the procedure is on the stack there can be no side-effects
+           in loading it. Can therefore load the arguments now. *)
+        val () = loadArgs argList;
   
-	    val staticLinkValue =
-	      if #fpRel ext
-	      then let (* Local *)
-	        val addr : int = #addr ext;
-	      in
-		if addr < 0 (* Address *)
-		then Address (~ addr, 0)
-		else (* Local - is it a procedure? *)
-		  case STRETCHARRAY.sub (decVec, addr) of
-		    StackAddr n => Address (~ n, 0)
-		  | ProcConst c => StaticLink (c, 0)
-		  | Empty       => raise InternalError "staticLinkValue: missing decVec entry"
-	      end
-	      else (* Non-local or recursive. *) 
-		loadStaticLink (#addr ext, 1);
-	  in
-	    case staticLinkValue of
-	      Address (addr, level) =>
-	      let
-	        val () = pushStackValue (addr, level);
-	      in
-	        callClosure ()
-	      end
-	      
-	      (* recursive reference to a procedure - not static link. *)
-	    | Recursive code =>
-	      let
-	        val () = genRecRef (code, cvec);
-	        val () = incsp();
-	      in
-	        callClosure ()
-	      end
-	      
-	     (* Static link *)
-	    | StaticLink (code, level) =>
-	      let
-	        val () = genCallSl(!realstackptr, level, code, cvec);
-	      in
-	        incsp ()
-	      end
-	  end (* Extract *)
-	
-	| _ => (* The procedure is not being found by simply loading a value
-		  from the stack or the closure. *)
-	  let
-	    (* Must load the closure and call. *)
-	    (* Have to guarantee that the expression to return the procedure
-	      is evaluated before the arguments. *)
+        val staticLinkValue =
+          if #fpRel ext
+          then let (* Local *)
+            val addr : int = #addr ext;
+          in
+        if addr < 0 (* Address *)
+        then Address (~ addr, 0)
+        else (* Local - is it a procedure? *)
+          case STRETCHARRAY.sub (decVec, addr) of
+            StackAddr n => Address (~ n, 0)
+          | ProcConst c => StaticLink (c, 0)
+          | Empty       => raise InternalError "staticLinkValue: missing decVec entry"
+          end
+          else (* Non-local or recursive. *) 
+        loadStaticLink (#addr ext, 1);
+      in
+        case staticLinkValue of
+          Address (addr, level) =>
+          let
+            val () = pushStackValue (addr, level);
+          in
+            callClosure ()
+          end
+          
+          (* recursive reference to a procedure - not static link. *)
+        | Recursive code =>
+          let
+            val () = genRecRef (code, cvec);
+            val () = incsp();
+          in
+            callClosure ()
+          end
+          
+         (* Static link *)
+        | StaticLink (code, level) =>
+          let
+            val () = genCallSl(!realstackptr, level, code, cvec);
+          in
+            incsp ()
+          end
+      end (* Extract *)
     
-	    (* Returns true if evaluating it later is safe. *)
-	    fun safeToLeave (node: codetree) : bool =
-	      case node of
-		Constnt _ => true
-	      | Lambda _  => true
-	      | Indirect {base, ...} => 
-		(* Safe only if the expression (always a type) being indirected
-		   is. This is put in because calling procedures in a type is a
-		   common occurence and should be made reasonably efficient. *)
-		   safeToLeave base
-	      | _        => false
+    | _ => (* The procedure is not being found by simply loading a value
+          from the stack or the closure. *)
+      let
+        (* Must load the closure and call. *)
+        (* Have to guarantee that the expression to return the procedure
+          is evaluated before the arguments. *)
     
-	    val () =
-	      if (case argList of [] => true | _ => safeToLeave (#function eval))
-	      then let
-		(* Can load the args first. *)
-		val () = loadArgs argList;
-	      in 
-		gencde (#function eval, ToStack, NotEnd, matchFailFn, NONE)
-	      end
-	      
-	      else let
-		(* The expression for the procedure is too complicated to
-		   risk leaving. It might have a side-effect and we must
-		   ensure that any side-effects it has are done before the
-		   arguments are loaded. *)
-		val () = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
-		val () = loadArgs(argList);
-		(* Load the procedure again. *)
-		val () = genLocal(argsToPass, cvec);
-	      in
-		incsp ()
-	      end
-	 in
-	   (* Call the procedure. *)
-	   callClosure ()
-	 end; (* Not Extract *)
+        (* Returns true if evaluating it later is safe. *)
+        fun safeToLeave (node: codetree) : bool =
+          case node of
+        Constnt _ => true
+          | Lambda _  => true
+          | Indirect {base, ...} => 
+        (* Safe only if the expression (always a type) being indirected
+           is. This is put in because calling procedures in a type is a
+           common occurence and should be made reasonably efficient. *)
+           safeToLeave base
+          | _        => false
+    
+        val () =
+          if (case argList of [] => true | _ => safeToLeave (#function eval))
+          then let
+        (* Can load the args first. *)
+        val () = loadArgs argList;
+          in 
+        gencde (#function eval, ToStack, NotEnd, matchFailFn, NONE)
+          end
+          
+          else let
+        (* The expression for the procedure is too complicated to
+           risk leaving. It might have a side-effect and we must
+           ensure that any side-effects it has are done before the
+           arguments are loaded. *)
+        val () = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
+        val () = loadArgs(argList);
+        (* Load the procedure again. *)
+        val () = genLocal(argsToPass, cvec);
+          in
+        incsp ()
+          end
+     in
+       (* Call the procedure. *)
+       callClosure ()
+     end; (* Not Extract *)
 
        (* Make sure we interpret when we return from the call *)
        val () = genEnterIntCall (cvec, argsToPass);
@@ -1085,7 +1085,7 @@ struct
          whereto: whereto,
          tailKind: tail,
          matchFailFn : unit -> unit,
-		 loopAddr) : unit =
+         loopAddr) : unit =
    let
      (* If there is no default case the results are all
         void for the type-checking to work so we don't
@@ -1133,38 +1133,38 @@ struct
      fun genEachCase ([] : (codetree * int list) list) : unit = ()
        | genEachCase ((body : codetree, matches : int list) :: otherCases) : unit =
        let
-	 (* First exit from the previous case or the default if
-	    this is the first. *)
-	 val () = 
-	   lastEndJump :=
-	     linkLabels
-	       (!lastEndJump,
-		if !exited then noJump else putBranchInstruction(jump, cvec),
-		cvec);
-		
-	 (* Remove the result - the last case will leave it. *)
-	 val () = case whereto of ToStack => decsp () | NoResult => ();
-	 
-	 (* Now put the address of this code into the table if
-	    an entry has not already been set. If it has the new
-	    entry should be ignored. It is NOT an error (just
-	    redundant). *)
-	 fun genEachMatch (i: int) =
-	 let
-	   val entryAddr : addrs = addrPlus(startVec, (i - #min pt) * 2);
-	 in
-	   if getBytes(2, entryAddr, cvec) = defaultAddr
-	   then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
-	   else ()
-	 end
-	    
-	 val () = apply genEachMatch matches;
+     (* First exit from the previous case or the default if
+        this is the first. *)
+     val () = 
+       lastEndJump :=
+         linkLabels
+           (!lastEndJump,
+        if !exited then noJump else putBranchInstruction(jump, cvec),
+        cvec);
+        
+     (* Remove the result - the last case will leave it. *)
+     val () = case whereto of ToStack => decsp () | NoResult => ();
+     
+     (* Now put the address of this code into the table if
+        an entry has not already been set. If it has the new
+        entry should be ignored. It is NOT an error (just
+        redundant). *)
+     fun genEachMatch (i: int) =
+     let
+       val entryAddr : addrs = addrPlus(startVec, (i - #min pt) * 2);
+     in
+       if getBytes(2, entryAddr, cvec) = defaultAddr
+       then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
+       else ()
+     end
+        
+     val () = apply genEachMatch matches;
 
-	 (* Generate code for this case *)
-	 val () = exited := false;
-	 val () = gencde (body, whereto, tailKind, matchFailFn, loopAddr);
+     (* Generate code for this case *)
+     val () = exited := false;
+     val () = gencde (body, whereto, tailKind, matchFailFn, loopAddr);
        in
-	 genEachCase otherCases
+     genEachCase otherCases
        end; (* genEachCase *)
          
      val () = genEachCase (#cases pt);
@@ -1181,7 +1181,7 @@ struct
          whereto : whereto,
          tailKind : tail,
          matchFailFn : unit -> unit,
-		 loopAddr) : unit =
+         loopAddr) : unit =
    let
      (* Have already dealt with cases where there is only one case. *)
      (* If there is no default case the results are all
@@ -1219,16 +1219,16 @@ struct
           val lab : labels = putBranchInstruction (jumpFalse, cvec);
           val ()     = decsp (); (* Remove result of test. *)
         in (* body of putInCases *)
-	  if lastOne
-	  then lab (* last one - skip if value does not match. *)
-	  else let
-	    (* More than one. If this one matches skip the other tests. *)
-	    (* Drop through to other tests if it does not match. *)
-	    val rLab : labels = putInCases cs;
-	    val () = fixup (lab, cvec);
-	  in
-	    rLab
-	  end
+      if lastOne
+      then lab (* last one - skip if value does not match. *)
+      else let
+        (* More than one. If this one matches skip the other tests. *)
+        (* Drop through to other tests if it does not match. *)
+        val rLab : labels = putInCases cs;
+        val () = fixup (lab, cvec);
+      in
+        rLab
+      end
         end; (* putInCases *)
             
         val lab : labels = putInCases matches;
@@ -1263,11 +1263,11 @@ struct
         case #default pt of
           CodeNil => ()
         | _ => (* put in the default *)
-	    let
-	      val () = gencde(#default pt, whereto, tailKind, matchFailFn, loopAddr);
-	    in
-	      exited := (!exited andalso casesExited)
-	    end;
+        let
+          val () = gencde(#default pt, whereto, tailKind, matchFailFn, loopAddr);
+        in
+          exited := (!exited andalso casesExited)
+        end;
     in
       (* Finally go down the list of exit labels pointing them to here. *)
       fixup (!lastEndJump, cvec)
@@ -1281,39 +1281,39 @@ struct
      (
        case #value decl of
          Lambda lam =>
-	   if not (#makeClosure lam)
-	   then let (* Static link. *)
-	     (* Create a code-segment and put it in the table in case of
-		 mutually recursive references. *)
-	     val newCode : code = codeCreate(true, #name lam, parameters);
-	     val () = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
-	     (* Deal with any other possible references. *)
-	     val () = genMutualDecs (otherDecs, matchFailFn);
-	   in
-	     (* Can now process this procedure since we have made an entry
-		in the table for everything it could refer to. *)
-	      genSlProc (lam, newCode)
-	   end
-	   
-	   else let (* Closure. *)
-	     fun doRest () : unit  = 
-	     let
-	       val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (! realstackptr));
-	     in
-	       (* Now time to do the other closures. *)
-	       genMutualDecs (otherDecs, matchFailFn)
-	     end
-	   in
-	     genProc (lam, true, doRest, matchFailFn)
-	   end
-	 
+       if not (#makeClosure lam)
+       then let (* Static link. *)
+         (* Create a code-segment and put it in the table in case of
+         mutually recursive references. *)
+         val newCode : code = codeCreate(true, #name lam, parameters);
+         val () = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
+         (* Deal with any other possible references. *)
+         val () = genMutualDecs (otherDecs, matchFailFn);
+       in
+         (* Can now process this procedure since we have made an entry
+        in the table for everything it could refer to. *)
+          genSlProc (lam, newCode)
+       end
+       
+       else let (* Closure. *)
+         fun doRest () : unit  = 
+         let
+           val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (! realstackptr));
+         in
+           (* Now time to do the other closures. *)
+           genMutualDecs (otherDecs, matchFailFn)
+         end
+       in
+         genProc (lam, true, doRest, matchFailFn)
+       end
+     
        | dec => (* constants or reccons.*)
-	 let
-	   val () = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
-	   val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
-	 in
-	   genMutualDecs (otherDecs, matchFailFn)
-	 end
+     let
+       val () = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
+       val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
+     in
+       genMutualDecs (otherDecs, matchFailFn)
+     end
      )
      | genMutualDecs _ : unit =
         raise InternalError "genMutualDecs: mutual declaration list contains non-declaration";
@@ -1371,7 +1371,7 @@ struct
           raise InternalError "top level reached";
 
        val closureAddr : address =
-	 codegen (pt, newCode, loadRecLink, 0, parameters)
+     codegen (pt, newCode, loadRecLink, 0, parameters)
      in
        (* Result is a procedure to execute the code. *)
        fn () => call (closureAddr, toMachineWord ())

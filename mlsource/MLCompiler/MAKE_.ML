@@ -78,10 +78,10 @@ sig
     (* The completed compiler. *)
     val compiler :
         nameSpace * (unit->char option) * Universal.universal list ->
-		exportTree option * ( unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
+        exportTree option * ( unit ->
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option
 
 end;
 
@@ -230,10 +230,10 @@ sig
     type exportTree
       
     val compiler : nameSpace * (unit->char option) * Universal.universal list ->
-		exportTree option * ( unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
+        exportTree option * ( unit ->
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option
 
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
@@ -399,22 +399,22 @@ struct
                     
                     (* Compile the code *)
                     val code = 
-					    case COMPILERBODY.compiler
-	                        (useEnv, getChar,
-	                          [
+                        case COMPILERBODY.compiler
+                            (useEnv, getChar,
+                              [
                                  tagInject traceCompilerTag true,
-	                             tagInject PRETTY.compilerOutputTag (print o PRETTY.uglyPrint),
-	                             tagInject lineNumberTag (fn () => !lineNo),
+                                 tagInject PRETTY.compilerOutputTag (print o PRETTY.uglyPrint),
+                                 tagInject lineNumberTag (fn () => !lineNo),
                                  tagInject fileNameTag fileName,
-	                             tagInject LEX.errorMessageProcTag errorProc,
-	                             (* Set the debug level to 50 while compiling the basis.  This makes
-	                                sure that String.foldr can be expanded inline which reduces the
-	                                garbage in the hashValue function. *)
-	                             tagInject maxInlineSizeTag 50,
+                                 tagInject LEX.errorMessageProcTag errorProc,
+                                 (* Set the debug level to 50 while compiling the basis.  This makes
+                                    sure that String.foldr can be expanded inline which reduces the
+                                    garbage in the hashValue function. *)
+                                 tagInject maxInlineSizeTag 50,
                                  tagInject reportUnreferencedIdsTag true
-	                          ] ) of
-						(_, NONE) => raise Fail "Static Errors"
-					 |  (_, SOME c) => c
+                              ] ) of
+                        (_, NONE) => raise Fail "Static Errors"
+                     |  (_, SOME c) => c
                     (* execute the code and get the resulting declarations. *)
                     val { fixes, values, structures, signatures, functors, types } = PolyML.exception_trace code
                 in
@@ -448,15 +448,15 @@ struct
         val () = print ("Use: " ^ baseName ^ "\n")
         (* See if there is a path given as a command line argument. *)
         val args = CommandLine.arguments();
-    	(* If we have -o filename use that as the output name.
-    	   N.B.  polyImport takes the first argument that is not recognised as
-    	   an RTS argument and treats that as the file name so any -o must occur
-    	   AFTER the import file. *)
-    	fun getPath [] = "." (* Default path *)
-    	  | getPath ("-I" :: path :: _) = path
-    	  | getPath (_::tl) = getPath tl
+        (* If we have -o filename use that as the output name.
+           N.B.  polyImport takes the first argument that is not recognised as
+           an RTS argument and treats that as the file name so any -o must occur
+           AFTER the import file. *)
+        fun getPath [] = "." (* Default path *)
+          | getPath ("-I" :: path :: _) = path
+          | getPath (_::tl) = getPath tl
         open OS.Path
-    	val filePath = joinDirFile { dir = getPath args, file = baseName }
+        val filePath = joinDirFile { dir = getPath args, file = baseName }
         open VERSION
         (* See if we have a version of the file specific to this
            version of the compiler.  For x.ML see if x.VER.ML exists.

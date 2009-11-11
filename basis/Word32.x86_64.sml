@@ -51,8 +51,8 @@ struct
     (* Not the same as Word.notb because it only affects the bottom 32 bits.  *)
     fun notb x = xorb(maxWordAsWord, x)
 
-	(* Internal function to convert from Word.word. *)
-	fun fromWord (w: Word.word) = andb(w, maxWordAsWord)
+    (* Internal function to convert from Word.word. *)
+    fun fromWord (w: Word.word) = andb(w, maxWordAsWord)
 
     (* Converting from LargeWord.word.  First convert to Word.word and
        then mask. *)

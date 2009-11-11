@@ -19,34 +19,34 @@ then ()
 else raise Fail "FAIL";
 
 local
-	datatype t = X | Y of int * int;
+    datatype t = X | Y of int * int;
 in
-	structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
-	val isOk = 
-		if S1.f(Y(1,1)) = (1,1) then "OK" else "FAIL";
+    structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
+    val isOk = 
+        if S1.f(Y(1,1)) = (1,1) then "OK" else "FAIL";
 end;
 
 structure Q =
 let
-	datatype t = X | Y of int * int;
-	structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
+    datatype t = X | Y of int * int;
+    structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
 in
-	struct
-		val isOk = S1.f(Y(1,1)) = (1,1);
-	end
+    struct
+        val isOk = S1.f(Y(1,1)) = (1,1);
+    end
 end;
 if Q.isOk then () else raise Fail "wrong";
 
 structure Q =
 struct
-	structure T =
-	let
-		datatype t = X | Y of int * int;
-		structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
-	in
-		struct
-			val isOk = S1.f(Y(1,1)) = (1,1)
-		end
-	end
+    structure T =
+    let
+        datatype t = X | Y of int * int;
+        structure S1 = F(struct type s = int * int datatype t = datatype t val def = (0,0) end);
+    in
+        struct
+            val isOk = S1.f(Y(1,1)) = (1,1)
+        end
+    end
 end;
 if Q.T.isOk then () else raise Fail "wrong";

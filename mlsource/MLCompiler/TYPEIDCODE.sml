@@ -329,7 +329,7 @@ struct
             TypeVar tyVar =>
             (
                 case tvValue tyVar of
-				    OverloadSet _ =>
+                    OverloadSet _ =>
                          (* This seems to occur if there are what amount to indirect references to literals. *)
                         returnFun(equalityForConstruction(typeConstrFromOverload(ty, false), []), resKind)
                 |   EmptyType =>

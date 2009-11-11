@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* Hash table type - Creates a hash table of specified initial size. This
@@ -68,12 +68,12 @@ in
   type 'a iter = 'a iter;
 
   fun hashValue (N : int) (str: string) : int =
-	  	Word.toInt(
-		    Word.mod(
-    		  	CharVector.foldr
-    				(fn (ch: char, n: Word.word) => Word.fromInt(Char.ord ch) + 0w7*n)
-    				0w0 str,
-			    (Word.fromInt N)))
+        Word.toInt(
+            Word.mod(
+                CharVector.foldr
+                    (fn (ch: char, n: Word.word) => Word.fromInt(Char.ord ch) + 0w7*n)
+                    0w0 str,
+                (Word.fromInt N)))
 
 (* The above function is the quickest and simplest way of computing the
    hash value now that we have Word.* and Word.mod compiled inline.
@@ -91,7 +91,7 @@ in
       {
         entries: 'a namedOption vector,
         hash: (string -> int)
-	  };
+      };
   
     fun hashMake (n : int) =
         Hash
@@ -142,10 +142,10 @@ in
 
     fun hashSet (Frozen _, name : string, _ :  'a) : unit =
        raise Fail ("Attempt to set a value with name (" ^ name ^ ") in a frozen hash table")
-	   
+       
     |  hashSet (Hash {entries, used, hash}, name : string, value :  'a) =
     let
-	    open Array
+        open Array
         (* Enters the value at the first free entry at or after the
            one pointed to by the hash value. *)
         fun enterTab (_ : 'a namedOption array, _ : int, None : 'a namedOption) = ()
@@ -174,7 +174,7 @@ in
         (* Do we need to rehash ? *)
         if !used * 5 > N * 4 (* More than 80% full so rehash *)
         then
-		let
+        let
             val newN  : int                   = N * 2; (* Double the size *)
             val newA  : 'a namedOption array = array (newN, None);
             val hashNewN : string -> int      = hashValue newN;
@@ -201,10 +201,10 @@ in
   
     fun hashOver table =
     let
-	    val (length, getItem) =
-		    case table of
-			    Hash { entries = ref e, ...} => (Array.length e, fn i => Array.sub(e, i))
-			|   Frozen { entries, ... } => (Vector.length entries, fn i => Vector.sub(entries, i))
+        val (length, getItem) =
+            case table of
+                Hash { entries = ref e, ...} => (Array.length e, fn i => Array.sub(e, i))
+            |   Frozen { entries, ... } => (Vector.length entries, fn i => Vector.sub(entries, i))
         (* An iterator over the non-empty entries in the table. *)
           
         fun continue i = i < length;
@@ -216,7 +216,7 @@ in
         if continue i then
             case (getItem i) of
               None      => raise InternalError "HashTable.hashOver.value (None)"
-			| Some pair => pair
+            | Some pair => pair
         else
             raise InternalError "HashTable.hashOver.value (limit passed)"
 
@@ -250,7 +250,7 @@ in
     let
         fun foldF i acc =
             if not (Continue i) then acc
-			else
+            else
             let
                 val (name,alpha) = Value i;
             in
@@ -261,11 +261,11 @@ in
     end;
 
     (* If this is a mutable hash table create an immutable one from it.  The reason
-	   for this is to reduce the number of mutables stored.
-	   TODO: Possible change the size of the table rather than simply copy it. *)
+       for this is to reduce the number of mutables stored.
+       TODO: Possible change the size of the table rather than simply copy it. *)
     fun hashFreeze (Hash{entries = ref e, hash = ref hashN, ...}) =
-	    Frozen{ entries = Array.vector e, hash = hashN }
-	|   hashFreeze h = h
+        Frozen{ entries = Array.vector e, hash = hashN }
+    |   hashFreeze h = h
 
 
 end (* local *);

@@ -1,25 +1,25 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
-    Title: 	Parse Types.
-    Author: 	Dave Matthews, Cambridge University Computer Laboratory
+    Title:  Parse Types.
+    Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
 *)
 
@@ -165,72 +165,72 @@ struct
     let
         fun tupleType fsys =
         let
-	        fun basicType fsys =
-	        let (* First part may be a type sequence. *)
+            fun basicType fsys =
+            let (* First part may be a type sequence. *)
                 val sym = sy lex and startLocn = location lex
-	            val (tySeq, seqLocn) = 
-	                if sym eq leftParen
-	                then (* sequence of types *)
-	                let
-	                    fun processList () =
-	                    let
-	                        val thisType = 
-	                            if sy lex inside startTypeSys
-	                            then #1 (parseType (fsys ++ tyseqSyntax, lex, env))
-	                            else
-		                        (
-		                            badsyms (typeIdent, lex);
-		                            ParseTypeBad (* not there *)
-		                        );
-	                    in (* Check for any more *)
-	                        if testfor (SYMBOLS.comma, startTypeSys, lex)
-	                        then thisType :: processList() (* get some more *)
-	                        else [thisType] (* that's it *)
-	                    end (* processList *);
+                val (tySeq, seqLocn) = 
+                    if sym eq leftParen
+                    then (* sequence of types *)
+                    let
+                        fun processList () =
+                        let
+                            val thisType = 
+                                if sy lex inside startTypeSys
+                                then #1 (parseType (fsys ++ tyseqSyntax, lex, env))
+                                else
+                                (
+                                    badsyms (typeIdent, lex);
+                                    ParseTypeBad (* not there *)
+                                );
+                        in (* Check for any more *)
+                            if testfor (SYMBOLS.comma, startTypeSys, lex)
+                            then thisType :: processList() (* get some more *)
+                            else [thisType] (* that's it *)
+                        end (* processList *);
 
-	                    val ()      = insymbol lex;  (* Remove opening bracket *)
-	                    val sequence = processList(); (* read list of items *)
+                        val ()      = insymbol lex;  (* Remove opening bracket *)
+                        val sequence = processList(); (* read list of items *)
                         val endLocn = location lex (* Should be the loc. of the close paren. *)
-	                in
-	                    getsym (SYMBOLS.rightParen, lex);
-	                    (sequence, locSpan(startLocn, endLocn))
-	                end
+                    in
+                        getsym (SYMBOLS.rightParen, lex);
+                        (sequence, locSpan(startLocn, endLocn))
+                    end
 
-	                else if sym eq leftCurly
-	                then
-	                let
-	                    val () = insymbol lex; (* Remove opening bracket *)
+                    else if sym eq leftCurly
+                    then
+                    let
+                        val () = insymbol lex; (* Remove opening bracket *)
                         val posEnd = location lex
                     in
-	    
-	                    if testfor (SYMBOLS.rightCurly, empty, lex)
-	                    then
+        
+                        if testfor (SYMBOLS.rightCurly, empty, lex)
+                        then
                         let
                             val locs = locSpan(startLocn, posEnd)
                         in
                             ([unitTree locs], locs)
                         end
-	    
-	                    else
+        
+                        else
                         let
                             (* The same label name should not be used more than once. *)
                             fun reportDup (name, newLoc, _) =
                                 errorMessage (lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
                             val dupCheck = noDuplicates reportDup
                             (* All the labels should be the same sort. *)
-	                        val (l, _) = 
-	                            getList (SYMBOLS.comma, empty, lex,
-		                            fn () =>
-		                            let
-		                                val nameAndLoc as (_, nameLoc) =
+                            val (l, _) = 
+                                getList (SYMBOLS.comma, empty, lex,
+                                    fn () =>
+                                    let
+                                        val nameAndLoc as (_, nameLoc) =
                                             getLabel (fsys ++ SYMSET.colon, lex);
                                         val () = #enter dupCheck nameAndLoc;
-		                                val () = getsym (SYMBOLS.colon, lex);
+                                        val () = getsym (SYMBOLS.colon, lex);
                                         val (types, typeLoc) = parseType (fsys ++ lrSyntax, lex, env)
                                         val fullLoc = locSpan(nameLoc, typeLoc)
-		                            in
-		                                ((nameAndLoc, types, fullLoc), fullLoc)
-		                            end);
+                                    in
+                                        ((nameAndLoc, types, fullLoc), fullLoc)
+                                    end);
                             val locs = locSpan(startLocn, location lex) (* Include '}' *)
                         in
                             getsym (SYMBOLS.rightCurly, lex);
@@ -238,58 +238,58 @@ struct
                         end
                     end
                     
-	                else if sym eq typeIdent
+                    else if sym eq typeIdent
                     then
                     let (* type variable *)
-	                    val ty = #lookupTvar env (id lex);
-	                in
-	                    getsym (typeIdent, lex);
-	                    ([makeParseTypeId(ty, startLocn)], startLocn)
-	                end
-	  
-	                else if sym eq SYMBOLS.ident
-	                (* Constructor such as `int' *)
-	                then
+                        val ty = #lookupTvar env (id lex);
+                    in
+                        getsym (typeIdent, lex);
+                        ([makeParseTypeId(ty, startLocn)], startLocn)
+                    end
+      
+                    else if sym eq SYMBOLS.ident
+                    (* Constructor such as `int' *)
+                    then
                     let
                         val idLocn as (_, locn) = getid (SYMSET.ident, fsys, lex)
                     in
                         ([makeParseTypeConstruction (idLocn, ([], locn), locn)], locn)
                     end
-	                else
-	                (
-	                    badsyms (SYMBOLS.ident, lex);
-	                    ([], startLocn)
-	                );
-	        in
-	            (* Type sequence read. Can now have some type constructors. *)
-	            if sy lex eq SYMBOLS.ident
-	            then
-	            let (* Returns the type made from the constructors. *)
-	                fun constructors(args, argLoc) =
-	                let
+                    else
+                    (
+                        badsyms (SYMBOLS.ident, lex);
+                        ([], startLocn)
+                    );
+            in
+                (* Type sequence read. Can now have some type constructors. *)
+                if sy lex eq SYMBOLS.ident
+                then
+                let (* Returns the type made from the constructors. *)
+                    fun constructors(args, argLoc) =
+                    let
                         val idAndLoc as (_, idLoc) = (id lex, location lex)
                         val loc = locSpan(argLoc, idLoc)
-	                    val constructed = makeParseTypeConstruction(idAndLoc, (args, argLoc), loc);
-	                in
-	                    insymbol lex;
-	                    if sy lex eq SYMBOLS.ident
-	                    then constructors([constructed], loc)
-	                    else (constructed, loc)
-	                end;
-	            in
-	                constructors(tySeq, seqLocn)
-	            end
+                        val constructed = makeParseTypeConstruction(idAndLoc, (args, argLoc), loc);
+                    in
+                        insymbol lex;
+                        if sy lex eq SYMBOLS.ident
+                        then constructors([constructed], loc)
+                        else (constructed, loc)
+                    end;
+                in
+                    constructors(tySeq, seqLocn)
+                end
 
-	            (* no constructor - get the first part of the sequence
-	               and check that that's all. *)
-	            else
-	            case tySeq of
-	              []     => (ParseTypeBad, seqLocn)
-	            | [t]    => (t, seqLocn)
-	            | (t::_) => (badsyms (SYMBOLS.ident, lex); (t, seqLocn))
-	        end (* basicType *);
+                (* no constructor - get the first part of the sequence
+                   and check that that's all. *)
+                else
+                case tySeq of
+                  []     => (ParseTypeBad, seqLocn)
+                | [t]    => (t, seqLocn)
+                | (t::_) => (badsyms (SYMBOLS.ident, lex); (t, seqLocn))
+            end (* basicType *);
 
-	        (* ty * .. * ty  *)
+            (* ty * .. * ty  *)
             fun getProduct () =
             let
                 val fsys' = fsys ++ SYMSET.asterisk;

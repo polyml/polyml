@@ -12,10 +12,10 @@
    end;
 
    functor F (structure S' : A
-	      structure T1 : B
-		sharing T1.S = S'
-	      structure T2 : B
-		sharing T1.S = S') =
+          structure T1 : B
+        sharing T1.S = S'
+          structure T2 : B
+        sharing T1.S = S') =
    struct
      type r = int
    end;

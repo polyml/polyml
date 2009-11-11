@@ -1,22 +1,22 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
     Modified David C.J. Matthews 2008
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* Hash table type - Creates a hash table of specified initial size. This
@@ -53,12 +53,12 @@ local
 in
 
   fun hashValue (N : int) (str: string) : int =
-	  	Word.toInt(
-		    Word.mod(
-    		  	CharVector.foldr
-    				(fn (ch: char, n: Word.word) => Word.fromInt(Char.ord ch) + 0w7*n)
-    				0w0 str,
-			    (Word.fromInt N)))
+        Word.toInt(
+            Word.mod(
+                CharVector.foldr
+                    (fn (ch: char, n: Word.word) => Word.fromInt(Char.ord ch) + 0w7*n)
+                    0w0 str,
+                (Word.fromInt N)))
 
 (* The above function is the quickest and simplest way of computing the
    hash value now that we have Word.* and Word.mod compiled inline.
@@ -104,7 +104,7 @@ in
 
     fun update (Hash {entries, used, hash}, name : string, value :  '_a) =
     let
-	    open Array
+        open Array
         (* Enters the value at the first free entry at or after the
            one pointed to by the hash value. *)
         fun enterTab (_ : '_a namedOption array, _ : int, None : '_a namedOption) = ()
@@ -133,7 +133,7 @@ in
         (* Do we need to rehash ? *)
         if !used * 5 > N * 4 (* More than 80% full so rehash *)
         then
-		let
+        let
             val newN  : int                   = N * 2; (* Double the size *)
             val newA  : '_a namedOption array = array (newN, None);
             val hashNewN : string -> int      = hashValue newN;
@@ -160,11 +160,11 @@ in
 
     fun fold f init (Hash { entries = ref e, ...}) =
     let
-	    val length = Array.length e
+        val length = Array.length e
 
         fun foldF i acc =
             if i >= length then acc
-			else foldF (i+1)
+            else foldF (i+1)
                 (case Array.sub(e, i) of
                      None => acc
                  |   Some (name,alpha) => f (name,alpha,acc)

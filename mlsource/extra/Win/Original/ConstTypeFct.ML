@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -208,10 +208,10 @@ local
     val hexOR = Macro.hexOR
 
 
-	fun MAKEINTRESOURCE i = i
-	val TRUE = 1
-	val FALSE = 0
-	val DIFFERENCE = 11 
+    fun MAKEINTRESOURCE i = i
+    val TRUE = 1
+    val FALSE = 0
+    val DIFFERENCE = 11 
 in
 
 open CInterface
@@ -228,46 +228,46 @@ INDEX: 'a encoding wraps 'a <-> int
 
 
     abstype 'a encoding =
-	E of (int -> 'a) * ('a -> int) 
+    E of (int -> 'a) * ('a -> int) 
     with
-	val encoding = E
-	fun absE (E (abs,rep)) = abs
-	fun repE (E (abs,rep)) = rep
+    val encoding = E
+    fun absE (E (abs,rep)) = abs
+    fun repE (E (abs,rep)) = rep
     end
 
     fun absConversion E C =
-	let val (fromC,toC,ctype) = breakConversion C
-	in  mkConversion (absE E o fromC) (toC o repE E) ctype
-	end
+    let val (fromC,toC,ctype) = breakConversion C
+    in  mkConversion (absE E o fromC) (toC o repE E) ctype
+    end
 
     fun conversionOfEncoding E = absConversion E INT
 
     local
-	(******
-	 * This scheme reduces the number of functions.
-	 * e.g. 40 types, t1 t2 t3 etc...
-	 *      with 40 t1 encoding values
-	 *      and the 4 general functions below.
-	 *      40 + 4 = 44 values.
-	 * This is equivalent to 40 * 4 = 160 values.
-	 ******)
-	fun split n = (n mod 2=1,n div 2)
-	fun extendBoolOp f (0,0) = 0
-	  | extendBoolOp f (n,m) = let val (n0,n) = split n
-				       val (m0,m) = split m
-				   in  (if f (n0,m0) then 1 else 0) + 2 * extendBoolOp f (n,m)
-				   end
-	fun extend bop E (a,b) = absE E (extendBoolOp bop (repE E a,repE E b))
-	fun curry f a b = f (a,b)
-	fun fold f Z [] = Z
-	  | fold f Z (x::xs) = fold f (f Z x) xs
+    (******
+     * This scheme reduces the number of functions.
+     * e.g. 40 types, t1 t2 t3 etc...
+     *      with 40 t1 encoding values
+     *      and the 4 general functions below.
+     *      40 + 4 = 44 values.
+     * This is equivalent to 40 * 4 = 160 values.
+     ******)
+    fun split n = (n mod 2=1,n div 2)
+    fun extendBoolOp f (0,0) = 0
+      | extendBoolOp f (n,m) = let val (n0,n) = split n
+                       val (m0,m) = split m
+                   in  (if f (n0,m0) then 1 else 0) + 2 * extendBoolOp f (n,m)
+                   end
+    fun extend bop E (a,b) = absE E (extendBoolOp bop (repE E a,repE E b))
+    fun curry f a b = f (a,b)
+    fun fold f Z [] = Z
+      | fold f Z (x::xs) = fold f (f Z x) xs
     in
         val orE    = extend (fn (a,b) => a orelse b)
         val andE   = extend (fn (a,b) => a andalso b)
         val xorE   = extend (fn (a,b) => (not a andalso b) orelse (a andalso not b))
-	fun orLE E = fold (curry (orE E)) (absE E 0)
-	fun addE E = fn a => fn b => absE E (repE E a + repE E b)
-	fun addLE E = fold (addE E) (absE E 0)	    
+    fun orLE E = fold (curry (orE E)) (absE E 0)
+    fun addE E = fn a => fn b => absE E (repE E a + repE E b)
+    fun addLE E = fold (addE E) (absE E 0)      
     end
 
 
@@ -282,7 +282,7 @@ INDEX: DocumentMode
 (*TYPE: DocumentMode *)
 local
     datatype DocumentMode =
-	W of int
+    W of int
 in
     type DocumentMode = DocumentMode
     val DocumentModeE = encoding (W,fn W n => n)
@@ -309,7 +309,7 @@ INDEX: DeviceCapability
 (*TYPE: DeviceCapability *)
 local
     datatype DeviceCapability =
-	W of int
+    W of int
 in
     type DeviceCapability = DeviceCapability
     val DeviceCapabilityE = encoding (W,fn W n => n)
@@ -347,7 +347,7 @@ INDEX: RasterOperation
 (*TYPE: RasterOperation *)
 local
     datatype RasterOperation =
-	W of int
+    W of int
 in
     type RasterOperation = RasterOperation
     val RasterOperationE = encoding (W,fn W n => n)
@@ -384,7 +384,7 @@ INDEX: RasterOpCode
 (*TYPE: RasterOpCode *)
 local
     datatype RasterOpCode =
-	W of int
+    W of int
 in
     type RasterOpCode = RasterOpCode
     val RasterOpCodeE = encoding (W,fn W n => n)
@@ -415,7 +415,7 @@ INDEX: GdiError
 (*TYPE: GdiError *)
 local
     datatype GdiError =
-	W of int
+    W of int
 in
     type GdiError = GdiError
     val GdiErrorE = encoding (W,fn W n => n)
@@ -449,7 +449,7 @@ INDEX: ResultRegion
 (*TYPE: ResultRegion *)
 local
     datatype ResultRegion =
-	W of int
+    W of int
 in
     type ResultRegion = ResultRegion
     val ResultRegionE = encoding (W,fn W n => n)
@@ -475,7 +475,7 @@ INDEX: RegionOperation
 (*TYPE: RegionOperation *)
 local
     datatype RegionOperation =
-	W of int
+    W of int
 in
     type RegionOperation = RegionOperation
     val RegionOperationE = encoding (W,fn W n => n)
@@ -501,7 +501,7 @@ INDEX: StretchMode
 (*TYPE: StretchMode *)
 local
     datatype StretchMode =
-	W of int
+    W of int
 in
     type StretchMode = StretchMode
     val StretchModeE = encoding (W,fn W n => n)
@@ -528,7 +528,7 @@ INDEX: PolyFillMode
 (*TYPE: PolyFillMode *)
 local
     datatype PolyFillMode =
-	W of int
+    W of int
 in
     type PolyFillMode = PolyFillMode
     val PolyFillModeE = encoding (W,fn W n => n)
@@ -550,7 +550,7 @@ INDEX: TextAlign
 (*TYPE: TextAlign *)
 local
     datatype TextAlign =
-	W of int
+    W of int
 in
     type TextAlign = TextAlign
     val TextAlignE = encoding (W,fn W n => n)
@@ -575,7 +575,7 @@ INDEX: VirtualTextAlign
 (*TYPE: VirtualTextAlign *)
 local
     datatype VirtualTextAlign =
-	W of int
+    W of int
     fun f ta = W (repE TextAlignE ta)
 in
     type VirtualTextAlign = VirtualTextAlign
@@ -602,7 +602,7 @@ INDEX: ExtendedTextOut
 (*TYPE: ExtendedTextOut *)
 local
     datatype ExtendedTextOut =
-	W of int
+    W of int
 in
     type ExtendedTextOut = ExtendedTextOut
     val ExtendedTextOutE = encoding (W,fn W n => n)
@@ -633,7 +633,7 @@ INDEX: DCBound
 (*TYPE: DCBound *)
 local
     datatype DCBound =
-	W of int
+    W of int
 in
     type DCBound = DCBound
     val DCBoundE = encoding (W,fn W n => n)
@@ -657,7 +657,7 @@ INDEX: MetaFunction
 (*TYPE: MetaFunction *)
 local
     datatype MetaFunction =
-	W of int
+    W of int
 in
     type MetaFunction = MetaFunction
     val MetaFunctionE = encoding (W,fn W n => n)
@@ -741,7 +741,7 @@ INDEX: GDIEscapes
 (*TYPE: GDIEscapes *)
 local
     datatype GDIEscapes =
-	W of int
+    W of int
 in
     type GDIEscapes = GDIEscapes
     val GDIEscapesE = encoding (W,fn W n => n)
@@ -839,7 +839,7 @@ INDEX: SpoolerErrorCode
 (*TYPE: SpoolerErrorCode *)
 local
     datatype SpoolerErrorCode =
-	W of int
+    W of int
 in
     type SpoolerErrorCode = SpoolerErrorCode
     val SpoolerErrorCodeE = encoding (W,fn W n => n)
@@ -865,7 +865,7 @@ INDEX: EnumObject
 (*TYPE: EnumObject *)
 local
     datatype EnumObject =
-	W of int
+    W of int
 in
     type EnumObject = EnumObject
     val EnumObjectE = encoding (W,fn W n => n)
@@ -896,7 +896,7 @@ INDEX: XFormType
 (*TYPE: XFormType *)
 local
     datatype XFormType =
-	W of int
+    W of int
 in
     type XFormType = XFormType
     val XFormTypeE = encoding (W,fn W n => n)
@@ -920,7 +920,7 @@ INDEX: BitmapCompression
 (*TYPE: BitmapCompression *)
 local
     datatype BitmapCompression =
-	W of int
+    W of int
 in
     type BitmapCompression = BitmapCompression
     val BitmapCompressionE = encoding (W,fn W n => n)
@@ -942,7 +942,7 @@ INDEX: TextMetricPitchandFamily
 (*TYPE: TextMetricPitchandFamily *)
 local
     datatype TextMetricPitchandFamily =
-	W of int
+    W of int
 in
     type TextMetricPitchandFamily = TextMetricPitchandFamily
     val TextMetricPitchandFamilyE = encoding (W,fn W n => n)
@@ -962,7 +962,7 @@ INDEX: NewTextMetric
 (*TYPE: NewTextMetric *)
 local
     datatype NewTextMetric =
-	W of int
+    W of int
 in
     type NewTextMetric = NewTextMetric
     val NewTextMetricE = encoding (W,fn W n => n)
@@ -981,7 +981,7 @@ INDEX: LogicalFont
 (*TYPE: LogicalFont *)
 local
     datatype LogicalFont =
-	W of int
+    W of int
 in
     type LogicalFont = LogicalFont
     val LogicalFontE = encoding (W,fn W n => n)
@@ -1001,7 +1001,7 @@ INDEX: OutputPrecision
 (*TYPE: OutputPrecision *)
 local
     datatype OutputPrecision =
-	W of int
+    W of int
 in
     type OutputPrecision = OutputPrecision
     val OutputPrecisionE = encoding (W,fn W n => n)
@@ -1029,7 +1029,7 @@ INDEX: ClippingPrecision
 (*TYPE: ClippingPrecision *)
 local
     datatype ClippingPrecision =
-	W of int
+    W of int
 in
     type ClippingPrecision = ClippingPrecision
     val ClippingPrecisionE = encoding (W,fn W n => n)
@@ -1054,7 +1054,7 @@ INDEX: OutputQuality
 (*TYPE: OutputQuality *)
 local
     datatype OutputQuality =
-	W of int
+    W of int
 in
     type OutputQuality = OutputQuality
     val OutputQualityE = encoding (W,fn W n => n)
@@ -1075,7 +1075,7 @@ INDEX: FontPitch
 (*TYPE: FontPitch *)
 local
     datatype FontPitch =
-	W of int
+    W of int
 in
     type FontPitch = FontPitch
     val FontPitchE = encoding (W,fn W n => n)
@@ -1096,7 +1096,7 @@ INDEX: CharacterSet
 (*TYPE: CharacterSet *)
 local
     datatype CharacterSet =
-	W of int
+    W of int
 in
     type CharacterSet = CharacterSet
     val CharacterSetE = encoding (W,fn W n => n)
@@ -1121,7 +1121,7 @@ INDEX: FontFamily
 (*TYPE: FontFamily *)
 local
     datatype FontFamily =
-	W of int
+    W of int
 in
     type FontFamily = FontFamily
     val FontFamilyE = encoding (W,fn W n => n)
@@ -1145,7 +1145,7 @@ INDEX: FontWeight
 (*TYPE: FontWeight *)
 local
     datatype FontWeight =
-	W of int
+    W of int
 in
     type FontWeight = FontWeight
     val FontWeightE = encoding (W,fn W n => n)
@@ -1178,7 +1178,7 @@ INDEX: CulturePANOSE
 (*TYPE: CulturePANOSE *)
 local
     datatype CulturePANOSE =
-	W of int
+    W of int
 in
     type CulturePANOSE = CulturePANOSE
     val CulturePANOSEE = encoding (W,fn W n => n)
@@ -1196,7 +1196,7 @@ INDEX: FamilyTypePANOSE
 (*TYPE: FamilyTypePANOSE *)
 local
     datatype FamilyTypePANOSE =
-	W of int
+    W of int
 in
     type FamilyTypePANOSE = FamilyTypePANOSE
     val FamilyTypePANOSEE = encoding (W,fn W n => n)
@@ -1218,7 +1218,7 @@ INDEX: IndexPANOSE
 (*TYPE: IndexPANOSE *)
 local
     datatype IndexPANOSE =
-	W of int
+    W of int
 in
     type IndexPANOSE = IndexPANOSE
     val IndexPANOSEE = encoding (W,fn W n => n)
@@ -1245,7 +1245,7 @@ INDEX: SerifStylePANOSE
 (*TYPE: SerifStylePANOSE *)
 local
     datatype SerifStylePANOSE =
-	W of int
+    W of int
 in
     type SerifStylePANOSE = SerifStylePANOSE
     val SerifStylePANOSEE = encoding (W,fn W n => n)
@@ -1277,7 +1277,7 @@ INDEX: WeightPANOSE
 (*TYPE: WeightPANOSE *)
 local
     datatype WeightPANOSE =
-	W of int
+    W of int
 in
     type WeightPANOSE = WeightPANOSE
     val WeightPANOSEE = encoding (W,fn W n => n)
@@ -1305,7 +1305,7 @@ INDEX: ProportionPANOSE
 (*TYPE: ProportionPANOSE *)
 local
     datatype ProportionPANOSE =
-	W of int
+    W of int
 in
     type ProportionPANOSE = ProportionPANOSE
     val ProportionPANOSEE = encoding (W,fn W n => n)
@@ -1331,7 +1331,7 @@ INDEX: ContrastPANOSE
 (*TYPE: ContrastPANOSE *)
 local
     datatype ContrastPANOSE =
-	W of int
+    W of int
 in
     type ContrastPANOSE = ContrastPANOSE
     val ContrastPANOSEE = encoding (W,fn W n => n)
@@ -1357,7 +1357,7 @@ INDEX: StrokeVariationPANOSE
 (*TYPE: StrokeVariationPANOSE *)
 local
     datatype StrokeVariationPANOSE =
-	W of int
+    W of int
 in
     type StrokeVariationPANOSE = StrokeVariationPANOSE
     val StrokeVariationPANOSEE = encoding (W,fn W n => n)
@@ -1382,7 +1382,7 @@ INDEX: ArmStylePANOSE
 (*TYPE: ArmStylePANOSE *)
 local
     datatype ArmStylePANOSE =
-	W of int
+    W of int
 in
     type ArmStylePANOSE = ArmStylePANOSE
     val ArmStylePANOSEE = encoding (W,fn W n => n)
@@ -1410,7 +1410,7 @@ INDEX: LetterFormPANOSE
 (*TYPE: LetterFormPANOSE *)
 local
     datatype LetterFormPANOSE =
-	W of int
+    W of int
 in
     type LetterFormPANOSE = LetterFormPANOSE
     val LetterFormPANOSEE = encoding (W,fn W n => n)
@@ -1442,7 +1442,7 @@ INDEX: MidlinePANOSE
 (*TYPE: MidlinePANOSE *)
 local
     datatype MidlinePANOSE =
-	W of int
+    W of int
 in
     type MidlinePANOSE = MidlinePANOSE
     val MidlinePANOSEE = encoding (W,fn W n => n)
@@ -1472,7 +1472,7 @@ INDEX: XHeightPANOSE
 (*TYPE: XHeightPANOSE *)
 local
     datatype XHeightPANOSE =
-	W of int
+    W of int
 in
     type XHeightPANOSE = XHeightPANOSE
     val XHeightPANOSEE = encoding (W,fn W n => n)
@@ -1496,7 +1496,7 @@ INDEX: ExtLogFont
 (*TYPE: ExtLogFont *)
 local
     datatype ExtLogFont =
-	W of int
+    W of int
 in
     type ExtLogFont = ExtLogFont
     val ExtLogFontE = encoding (W,fn W n => n)
@@ -1515,7 +1515,7 @@ INDEX: FontType
 (*TYPE: FontType *)
 local
     datatype FontType =
-	W of int
+    W of int
 in
     type FontType = FontType
     val FontTypeE = encoding (W,fn W n => n)
@@ -1536,7 +1536,7 @@ INDEX: PaletteEntryFlag
 (*TYPE: PaletteEntryFlag *)
 local
     datatype PaletteEntryFlag =
-	W of int
+    W of int
 in
     type PaletteEntryFlag = PaletteEntryFlag
     val PaletteEntryFlagE = encoding (W,fn W n => n)
@@ -1558,7 +1558,7 @@ INDEX: BkMode
 (*TYPE: BkMode *)
 local
     datatype BkMode =
-	W of int
+    W of int
 in
     type BkMode = BkMode
     val BkModeE = encoding (W,fn W n => n)
@@ -1580,7 +1580,7 @@ INDEX: GraphicsMode
 (*TYPE: GraphicsMode *)
 local
     datatype GraphicsMode =
-	W of int
+    W of int
 in
     type GraphicsMode = GraphicsMode
     val GraphicsModeE = encoding (W,fn W n => n)
@@ -1602,7 +1602,7 @@ INDEX: PointType
 (*TYPE: PointType *)
 local
     datatype PointType =
-	W of int
+    W of int
 in
     type PointType = PointType
     val PointTypeE = encoding (W,fn W n => n)
@@ -1625,7 +1625,7 @@ INDEX: MapMode
 (*TYPE: MapMode *)
 local
     datatype MapMode =
-	W of int
+    W of int
 in
     type MapMode = MapMode
     val MapModeE = encoding (W,fn W n => n)
@@ -1652,7 +1652,7 @@ INDEX: TransMode
 (*TYPE: TransMode *)
 local
     datatype TransMode =
-	W of int
+    W of int
 in
     type TransMode = TransMode
     val TransModeE = encoding (W,fn W n => n)
@@ -1672,7 +1672,7 @@ INDEX: StockObjectType
 (*TYPE: StockObjectType *)
 local
     datatype StockObjectType =
-	W of int
+    W of int
 in
     type StockObjectType = StockObjectType
     val StockObjectTypeE = encoding (W,fn W n => n)
@@ -1707,7 +1707,7 @@ INDEX: BrushStyle
 (*TYPE: BrushStyle *)
 local
     datatype BrushStyle =
-	W of int
+    W of int
 in
     type BrushStyle = BrushStyle
     val BrushStyleE = encoding (W,fn W n => n)
@@ -1733,7 +1733,7 @@ INDEX: HatchStyle
 (*TYPE: HatchStyle *)
 local
     datatype HatchStyle =
-	W of int
+    W of int
 in
     type HatchStyle = HatchStyle
     val HatchStyleE = encoding (W,fn W n => n)
@@ -1778,7 +1778,7 @@ INDEX: PenStyle
 (*TYPE: PenStyle *)
 local
     datatype PenStyle =
-	W of int
+    W of int
 in
     type PenStyle = PenStyle
     val PenStyleE = encoding (W,fn W n => n)
@@ -1814,7 +1814,7 @@ INDEX: ArcDirection
 
 local
     datatype ArcDirection =
-	W of int
+    W of int
 in
     type ArcDirection = ArcDirection
     val ArcDirectionE = encoding (W,fn W n => n)
@@ -1833,7 +1833,7 @@ INDEX: DeviceItem
 (*TYPE: DeviceItem *)
 local
     datatype DeviceItem =
-	W of int
+    W of int
 in
     type DeviceItem = DeviceItem
     val DeviceItemE = encoding (W,fn W n => n)
@@ -1885,7 +1885,7 @@ INDEX: DeviceTechnology
 (*TYPE: DeviceTechnology *)
 local
     datatype DeviceTechnology =
-	W of int
+    W of int
 in
     type DeviceTechnology = DeviceTechnology
     val DeviceTechnologyE = encoding (W,fn W n => n)
@@ -1910,7 +1910,7 @@ INDEX: CurveCapability
 (*TYPE: CurveCapability *)
 local
     datatype CurveCapability =
-	W of int
+    W of int
 in
     type CurveCapability = CurveCapability
     val CurveCapabilityE = encoding (W,fn W n => n)
@@ -1939,7 +1939,7 @@ INDEX: LineCapability
 (*TYPE: LineCapability *)
 local
     datatype LineCapability =
-	W of int
+    W of int
 in
     type LineCapability = LineCapability
     val LineCapabilityE = encoding (W,fn W n => n)
@@ -1965,7 +1965,7 @@ INDEX: PolygonalCapability
 (*TYPE: PolygonalCapability *)
 local
     datatype PolygonalCapability =
-	W of int
+    W of int
 in
     type PolygonalCapability = PolygonalCapability
     val PolygonalCapabilityE = encoding (W,fn W n => n)
@@ -1994,7 +1994,7 @@ INDEX: ClippingCapability
 (*TYPE: ClippingCapability *)
 local
     datatype ClippingCapability =
-	W of int
+    W of int
 in
     type ClippingCapability = ClippingCapability
     val ClippingCapabilityE = encoding (W,fn W n => n)
@@ -2016,7 +2016,7 @@ INDEX: TextCapability
 (*TYPE: TextCapability *)
 local
     datatype TextCapability =
-	W of int
+    W of int
 in
     type TextCapability = TextCapability
     val TextCapabilityE = encoding (W,fn W n => n)
@@ -2051,7 +2051,7 @@ INDEX: RasterCapability
 (*TYPE: RasterCapability *)
 local
     datatype RasterCapability =
-	W of int
+    W of int
 in
     type RasterCapability = RasterCapability
     val RasterCapabilityE = encoding (W,fn W n => n)
@@ -2093,7 +2093,7 @@ INDEX: DeviceIndependentPalette
 (*TYPE: DeviceIndependentPalette *)
 local
     datatype DeviceIndependentPalette =
-	W of int
+    W of int
 in
     type DeviceIndependentPalette = DeviceIndependentPalette
     val DeviceIndependentPaletteE = encoding (W,fn W n => n)
@@ -2117,7 +2117,7 @@ INDEX: SystemPaletteUse
 (*TYPE: SystemPaletteUse *)
 local
     datatype SystemPaletteUse =
-	W of int
+    W of int
 in
     type SystemPaletteUse = SystemPaletteUse
     val SystemPaletteUseE = encoding (W,fn W n => n)
@@ -2139,7 +2139,7 @@ INDEX: BitmapInit
 (*TYPE: BitmapInit *)
 local
     datatype BitmapInit =
-	W of int
+    W of int
 in
     type BitmapInit = BitmapInit
     val BitmapInitE = encoding (W,fn W n => n)
@@ -2159,7 +2159,7 @@ INDEX: FloodFillMode
 (*TYPE: FloodFillMode *)
 local
     datatype FloodFillMode =
-	W of int
+    W of int
 in
     type FloodFillMode = FloodFillMode
     val FloodFillModeE = encoding (W,fn W n => n)
@@ -2179,7 +2179,7 @@ INDEX: DeviceMode
 (*TYPE: DeviceMode *)
 local
     datatype DeviceMode =
-	W of int
+    W of int
 in
     type DeviceMode = DeviceMode
     val DeviceModeE = encoding (W,fn W n => n)
@@ -2210,7 +2210,7 @@ INDEX: PaperOrientation
 (*TYPE: PaperOrientation *)
 local
     datatype PaperOrientation =
-	W of int
+    W of int
 in
     type PaperOrientation = PaperOrientation
     val PaperOrientationE = encoding (W,fn W n => n)
@@ -2228,7 +2228,7 @@ INDEX: PaperSize
 (*TYPE: PaperSize *)
 local
     datatype PaperSize =
-	W of int
+    W of int
 in
     type PaperSize = PaperSize
     val PaperSizeE = encoding (W,fn W n => n)
@@ -2290,7 +2290,7 @@ INDEX: BinMode
 (*TYPE: BinMode *)
 local
     datatype BinMode =
-	W of int
+    W of int
 in
     type BinMode = BinMode
     val BinModeE = encoding (W,fn W n => n)
@@ -2322,7 +2322,7 @@ INDEX: DevModeResolution
 (*TYPE: DevModeResolution *)
 local
     datatype DevModeResolution =
-	W of int
+    W of int
 in
     type DevModeResolution = DevModeResolution
     val DevModeResolutionE = encoding (W,fn W n => n)
@@ -2396,7 +2396,7 @@ INDEX: DocumentMode
 (*TYPE: DocumentMode *)
 local
     datatype DocumentMode =
-	W of int
+    W of int
 in
     type DocumentMode = DocumentMode
     val DocumentModeE = encoding (W,fn W n => n)
@@ -2422,7 +2422,7 @@ INDEX: DeviceCapability
 (*TYPE: DeviceCapability *)
 local
     datatype DeviceCapability =
-	W of int
+    W of int
 in
     type DeviceCapability = DeviceCapability
     val DeviceCapabilityE = encoding (W,fn W n => n)
@@ -2451,10 +2451,10 @@ end
 (*------------------------------------------------------------------------------
 INDEX: ColorAdjustmentFlag
 ------------------------------------------------------------------------------*)
-	
+    
 local
     datatype ColorAdjustmentFlag =
-	W of int
+    W of int
 in
     type ColorAdjustmentFlag = ColorAdjustmentFlag
     val ColorAdjustmentFlagE = encoding (W,fn W n => n)
@@ -2466,10 +2466,10 @@ end
 (*------------------------------------------------------------------------------
 INDEX: IlluminantConstant
 ------------------------------------------------------------------------------*)
-	
+    
 local
     datatype IlluminantConstant =
-	W of int
+    W of int
 in
     type IlluminantConstant = IlluminantConstant
     val IlluminantConstantE = encoding (W,fn W n => n)
@@ -2637,7 +2637,7 @@ INDEX: ResourceType
 (*TYPE: ResourceType *)
 local
     datatype ResourceType =
-	W of int
+    W of int
 in
     type ResourceType = ResourceType
     val ResourceTypeE = encoding (W,fn W n => n)
@@ -2670,7 +2670,7 @@ INDEX: ScrollBarType
 (*TYPE: ScrollBarType *)
 local
     datatype ScrollBarType =
-	W of int
+    W of int
 in
     type ScrollBarType = ScrollBarType
     val ScrollBarTypeE = encoding (W,fn W n => n)
@@ -2708,7 +2708,7 @@ INDEX: ShowWindowMode
 (*TYPE: ShowWindowMode *)
 local
     datatype ShowWindowMode =
-	W of int
+    W of int
 in
     type ShowWindowMode = ShowWindowMode
     val ShowWindowModeE = encoding (W,fn W n => n)
@@ -2747,7 +2747,7 @@ INDEX: KeyFunction
 (*TYPE: KeyFunction *)
 local
     datatype KeyFunction =
-	W of int
+    W of int
 in
     type KeyFunction = KeyFunction
     val KeyFunctionE = encoding (W,fn W n => n)
@@ -2771,7 +2771,7 @@ INDEX: VirtualKey
 (*TYPE: VirtualKey *)
 local
     datatype VirtualKey =
-	W of int
+    W of int
 in
     type VirtualKey = VirtualKey
     val VirtualKeyE = encoding (W,fn W n => n)
@@ -2876,7 +2876,7 @@ INDEX: WindowHook
 (*TYPE: WindowHook *)
 local
     datatype WindowHook =
-	W of int
+    W of int
 in
     type WindowHook = WindowHook
     val WindowHookE = encoding (W,fn W n => n)
@@ -2907,7 +2907,7 @@ INDEX: HookCode
 (*TYPE: HookCode *)
 local
     datatype HookCode =
-	W of int
+    W of int
 in
     type HookCode = HookCode
     val HookCodeE = encoding (W,fn W n => n)
@@ -2932,7 +2932,7 @@ INDEX: HookProcedureCode
 (*TYPE: HookProcedureCode *)
 local
     datatype HookProcedureCode =
-	W of int
+    W of int
 in
     type HookProcedureCode = HookProcedureCode
     val HookProcedureCodeE = encoding (W,fn W n => n)
@@ -2958,7 +2958,7 @@ INDEX: InputEventType
 (*TYPE: InputEventType *)
 local
     datatype InputEventType =
-	W of int
+    W of int
 in
     type InputEventType = InputEventType
     val InputEventTypeE = encoding (W,fn W n => n)
@@ -2986,7 +2986,7 @@ INDEX: KeyLayoutFlag
 (*TYPE: KeyLayoutFlag *)
 local
     datatype KeyLayoutFlag =
-	W of int
+    W of int
 in
     type KeyLayoutFlag = KeyLayoutFlag
     val KeyLayoutFlagE = encoding (W,fn W n => n)
@@ -3007,7 +3007,7 @@ INDEX: DesktopOperation
 (*TYPE: DesktopOperation *)
 local
     datatype DesktopOperation =
-	W of int
+    W of int
 in
     type DesktopOperation = DesktopOperation
     val DesktopOperationE = encoding (W,fn W n => n)
@@ -3031,7 +3031,7 @@ INDEX: WindowStationAccess
 (*TYPE: WindowStationAccess *)
 local
     datatype WindowStationAccess =
-	W of int
+    W of int
 in
     type WindowStationAccess = WindowStationAccess
     val WindowStationAccessE = encoding (W,fn W n => n)
@@ -3059,7 +3059,7 @@ INDEX: GetWindowLongParam
 (*TYPE: GetWindowLongParam *)
 local
     datatype GetWindowLongParam =
-	W of int
+    W of int
 in
     type GetWindowLongParam = GetWindowLongParam
     val GetWindowLongParamE = encoding (W,fn W n => n)
@@ -3085,7 +3085,7 @@ INDEX: GetWindowLongValue
 (*TYPE: GetWindowLongValue *)
 local
     datatype GetWindowLongValue =
-	W of int
+    W of int
 in
     type GetWindowLongValue = GetWindowLongValue
     val GetWindowLongValueE = encoding (W,fn W n => n)
@@ -3113,7 +3113,7 @@ INDEX: WindowActivationState
 (*TYPE: WindowActivationState *)
 local
     datatype WindowActivationState =
-	W of int
+    W of int
 in
     type WindowActivationState = WindowActivationState
     val WindowActivationStateE = encoding (W,fn W n => n)
@@ -3134,7 +3134,7 @@ INDEX: PowerState
 (*TYPE: PowerState *)
 local
     datatype PowerState =
-	W of int
+    W of int
 in
     type PowerState = PowerState
     val PowerStateE = encoding (W,fn W n => n)
@@ -3157,7 +3157,7 @@ INDEX: WindowMessage
 (*TYPE: WindowMessage *)
 local
     datatype WindowMessage =
-	W of int
+    W of int
 in
     type WindowMessage = WindowMessage
     val WindowMessageE = encoding (W,fn W n => n)
@@ -3326,7 +3326,7 @@ INDEX: HitTest
 (*TYPE: HitTest *)
 local
     datatype HitTest =
-	W of int
+    W of int
 in
     type HitTest = HitTest
     val HitTestE = encoding (W,fn W n => n)
@@ -3368,7 +3368,7 @@ INDEX: SendMessageTimeOut
 (*TYPE: SendMessageTimeOut *)
 local
     datatype SendMessageTimeOut =
-	W of int
+    W of int
 in
     type SendMessageTimeOut = SendMessageTimeOut
     val SendMessageTimeOutE = encoding (W,fn W n => n)
@@ -3389,7 +3389,7 @@ INDEX: MessageActivateFlag
 (*TYPE: MessageActivateFlag *)
 local
     datatype MessageActivateFlag =
-	W of int
+    W of int
 in
     type MessageActivateFlag = MessageActivateFlag
     val MessageActivateFlagE = encoding (W,fn W n => n)
@@ -3411,7 +3411,7 @@ INDEX: SizeFlag
 (*TYPE: SizeFlag *)
 local
     datatype SizeFlag =
-	W of int
+    W of int
 in
     type SizeFlag = SizeFlag
     val SizeFlagE = encoding (W,fn W n => n)
@@ -3437,7 +3437,7 @@ INDEX: WindowAttribute
 (*TYPE: WindowAttribute *)
 local
     datatype WindowAttribute =
-	W of int
+    W of int
 in
     type WindowAttribute = WindowAttribute
     val WindowAttributeE = encoding (W,fn W n => n)
@@ -3466,7 +3466,7 @@ INDEX: MouseKey
 (*TYPE: MouseKey *)
 local
     datatype MouseKey =
-	W of int
+    W of int
 in
     type MouseKey = MouseKey
     val MouseKeyE = encoding (W,fn W n => n)
@@ -3491,7 +3491,7 @@ INDEX: WindowStyle
 (*TYPE: WindowStyle *)
 local
     datatype WindowStyle =
-	W of int
+    W of int
 in
     type WindowStyle = WindowStyle
     val WindowStyleE = encoding (W,fn W n => n)
@@ -3520,15 +3520,15 @@ in
     val WS_ICONIC                                    = WS_MINIMIZE
     val WS_SIZEBOX                                   = WS_THICKFRAME
     val WS_OVERLAPPEDWINDOW                          = orLE WindowStyleE [WS_OVERLAPPED,
-									  WS_CAPTION,
-									  WS_SYSMENU,
-									  WS_THICKFRAME,
-									  WS_MINIMIZEBOX,
-									  WS_MAXIMIZEBOX]
+                                      WS_CAPTION,
+                                      WS_SYSMENU,
+                                      WS_THICKFRAME,
+                                      WS_MINIMIZEBOX,
+                                      WS_MAXIMIZEBOX]
     val WS_TILEDWINDOW                               = WS_OVERLAPPEDWINDOW
     val WS_POPUPWINDOW                               = orLE WindowStyleE [WS_POPUP,
-									  WS_BORDER,
-									  WS_SYSMENU]
+                                      WS_BORDER,
+                                      WS_SYSMENU]
     val WS_CHILDWINDOW                               = WS_CHILD
 end
 
@@ -3543,7 +3543,7 @@ INDEX: WindowStyleExtended
 (*TYPE: WindowStyleExtended *)
 local
     datatype WindowStyleExtended =
-	W of int
+    W of int
 in
     type WindowStyleExtended = WindowStyleExtended
     val WindowStyleExtendedE = encoding (W,fn W n => n)
@@ -3566,7 +3566,7 @@ INDEX: ClassStyle
 (*TYPE: ClassStyle *)
 local
     datatype ClassStyle =
-	W of int
+    W of int
 in
     type ClassStyle = ClassStyle
     val ClassStyleE = encoding (W,fn W n => n)
@@ -3598,7 +3598,7 @@ INDEX: ClipboardFormat
 (*TYPE: ClipboardFormat *)
 local
     datatype ClipboardFormat =
-	W of int
+    W of int
 in
     type ClipboardFormat = ClipboardFormat
     val ClipboardFormatE = encoding (W,fn W n => n)
@@ -3639,7 +3639,7 @@ INDEX: AccelaratorFunction
 (*TYPE: AccelaratorFunction *)
 local
     datatype AccelaratorFunction =
-	W of int
+    W of int
 in
     type AccelaratorFunction = AccelaratorFunction
     val AccelaratorFunctionE = encoding (W,fn W n => n)
@@ -3662,7 +3662,7 @@ INDEX: WindowPlacementFlag
 (*TYPE: WindowPlacementFlag *)
 local
     datatype WindowPlacementFlag =
-	W of int
+    W of int
 in
     type WindowPlacementFlag = WindowPlacementFlag
     val WindowPlacementFlagE = encoding (W,fn W n => n)
@@ -3684,7 +3684,7 @@ INDEX: OwnerDrawnType
 (*TYPE: OwnerDrawnType *)
 local
     datatype OwnerDrawnType =
-	W of int
+    W of int
 in
     type OwnerDrawnType = OwnerDrawnType
     val OwnerDrawnTypeE = encoding (W,fn W n => n)
@@ -3706,7 +3706,7 @@ INDEX: OwnerDrawnAction
 (*TYPE: OwnerDrawnAction *)
 local
     datatype OwnerDrawnAction =
-	W of int
+    W of int
 in
     type OwnerDrawnAction = OwnerDrawnAction
     val OwnerDrawnActionE = encoding (W,fn W n => n)
@@ -3730,7 +3730,7 @@ INDEX: PeekMessageAction
 (*TYPE: PeekMessageAction *)
 local
     datatype PeekMessageAction =
-	W of int
+    W of int
 in
     type PeekMessageAction = PeekMessageAction
     val PeekMessageActionE = encoding (W,fn W n => n)
@@ -3751,7 +3751,7 @@ INDEX: HotKeyModifier
 (*TYPE: HotKeyModifier *)
 local
     datatype HotKeyModifier =
-	W of int
+    W of int
 in
     type HotKeyModifier = HotKeyModifier
     val HotKeyModifierE = encoding (W,fn W n => n)
@@ -3772,7 +3772,7 @@ INDEX: HotKeyIdentifier
 (*TYPE: HotKeyIdentifier *)
 local
     datatype HotKeyIdentifier =
-	W of int
+    W of int
 in
     type HotKeyIdentifier = HotKeyIdentifier
     val HotKeyIdentifierE = encoding (W,fn W n => n)
@@ -3792,7 +3792,7 @@ INDEX: ExitWindowMode
 (*TYPE: ExitWindowMode *)
 local
     datatype ExitWindowMode =
-	W of int
+    W of int
 in
     type ExitWindowMode = ExitWindowMode
     val ExitWindowModeE = encoding (W,fn W n => n)
@@ -3823,7 +3823,7 @@ INDEX: SetWindowPositionStyle
 (*TYPE: SetWindowPositionStyle *)
 local
     datatype SetWindowPositionStyle =
-	W of int
+    W of int
 in
     type SetWindowPositionStyle = SetWindowPositionStyle
     val SetWindowPositionStyleE = encoding (W,fn W n => n)
@@ -3852,7 +3852,7 @@ INDEX: KeyEvent
 (*TYPE: KeyEvent *)
 local
     datatype KeyEvent =
-	W of int
+    W of int
 in
     type KeyEvent = KeyEvent
     val KeyEventE = encoding (W,fn W n => n)
@@ -3872,7 +3872,7 @@ INDEX: MouseEvent
 (*TYPE: MouseEvent *)
 local
     datatype MouseEvent =
-	W of int
+    W of int
 in
     type MouseEvent = MouseEvent
     val MouseEventE = encoding (W,fn W n => n)
@@ -3898,7 +3898,7 @@ INDEX: QueueStatus
 (*TYPE: QueueStatus *)
 local
     datatype QueueStatus =
-	W of int
+    W of int
 in
     type QueueStatus = QueueStatus
     val QueueStatusE = encoding (W,fn W n => n)
@@ -3912,22 +3912,22 @@ in
     val QS_SENDMESSAGE                               = W (hex "0x40")
     val QS_HOTKEY                                    = W (hex "0x80")
     val QS_MOUSE                                     = orLE QueueStatusE [QS_MOUSEMOVE,
-									  QS_MOUSEBUTTON]
+                                      QS_MOUSEBUTTON]
     val QS_INPUT                                     = orLE QueueStatusE [QS_MOUSE,
-									  QS_KEY]
+                                      QS_KEY]
     val QS_ALLEVENTS                                 = orLE QueueStatusE [QS_INPUT,
-									  QS_POSTMESSAGE,
-									  QS_TIMER,
-									  QS_PAINT,
-									  QS_HOTKEY]
+                                      QS_POSTMESSAGE,
+                                      QS_TIMER,
+                                      QS_PAINT,
+                                      QS_HOTKEY]
     val QS_ALLINPUT                                  = orLE QueueStatusE [QS_SENDMESSAGE,
-									  QS_PAINT,
-									  QS_TIMER,
-									  QS_POSTMESSAGE,
-									  QS_MOUSEBUTTON,
-									  QS_MOUSEMOVE,
-									  QS_HOTKEY,
-									  QS_KEY] 
+                                      QS_PAINT,
+                                      QS_TIMER,
+                                      QS_POSTMESSAGE,
+                                      QS_MOUSEBUTTON,
+                                      QS_MOUSEMOVE,
+                                      QS_HOTKEY,
+                                      QS_KEY] 
 end
 
 
@@ -3941,7 +3941,7 @@ INDEX: SystemMetrics
 (*TYPE: SystemMetrics *)
 local
     datatype SystemMetrics =
-	W of int
+    W of int
 in
     type SystemMetrics = SystemMetrics
     val SystemMetricsE = encoding (W,fn W n => n)
@@ -4004,7 +4004,7 @@ INDEX: TrackPopMenu
 (*TYPE: TrackPopMenu *)
 local
     datatype TrackPopMenu =
-	W of int
+    W of int
 in
     type TrackPopMenu = TrackPopMenu
     val TrackPopMenuE = encoding (W,fn W n => n)
@@ -4027,7 +4027,7 @@ INDEX: DrawTextMode
 (*TYPE: DrawTextMode *)
 local
     datatype DrawTextMode =
-	W of int
+    W of int
 in
     type DrawTextMode = DrawTextMode
     val DrawTextModeE = encoding (W,fn W n => n)
@@ -4060,7 +4060,7 @@ INDEX: DeviceContextFlag
 (*TYPE: DeviceContextFlag *)
 local
     datatype DeviceContextFlag =
-	W of int
+    W of int
 in
     type DeviceContextFlag = DeviceContextFlag
     val DeviceContextFlagE = encoding (W,fn W n => n)
@@ -4091,7 +4091,7 @@ INDEX: RedrawWindowFlag
 (*TYPE: RedrawWindowFlag *)
 local
     datatype RedrawWindowFlag =
-	W of int
+    W of int
 in
     type RedrawWindowFlag = RedrawWindowFlag
     val RedrawWindowFlagE = encoding (W,fn W n => n)
@@ -4121,7 +4121,7 @@ INDEX: ScrollWindowFlag
 (*TYPE: ScrollWindowFlag *)
 local
     datatype ScrollWindowFlag =
-	W of int
+    W of int
 in
     type ScrollWindowFlag = ScrollWindowFlag
     val ScrollWindowFlagE = encoding (W,fn W n => n)
@@ -4142,7 +4142,7 @@ INDEX: EnableScrollBarFlag
 (*TYPE: EnableScrollBarFlag *)
 local
     datatype EnableScrollBarFlag =
-	W of int
+    W of int
 in
     type EnableScrollBarFlag = EnableScrollBarFlag
     val EnableScrollBarFlagE = encoding (W,fn W n => n)
@@ -4169,7 +4169,7 @@ INDEX: MessageBoxValue
 (*TYPE: MessageBoxValue *)
 local
     datatype MessageBoxValue =
-	W of int
+    W of int
 in
     type MessageBoxValue = MessageBoxValue
     val MessageBoxValueE = encoding (W,fn W n => n)
@@ -4213,7 +4213,7 @@ INDEX: ControlColor
 (*TYPE: ControlColor *)
 local
     datatype ControlColor =
-	W of int
+    W of int
 in
     type ControlColor = ControlColor
     val ControlColorE = encoding (W,fn W n => n)
@@ -4239,7 +4239,7 @@ INDEX: ColorType
 (*TYPE: ColorType *)
 local
     datatype ColorType =
-	W of int
+    W of int
 in
     type ColorType = ColorType
     val ColorTypeE = encoding (W,fn W n => n)
@@ -4278,7 +4278,7 @@ INDEX: GetWindowFlag
 (*TYPE: GetWindowFlag *)
 local
     datatype GetWindowFlag =
-	W of int
+    W of int
 in
     type GetWindowFlag = GetWindowFlag
     val GetWindowFlagE = encoding (W,fn W n => n)
@@ -4309,7 +4309,7 @@ INDEX: MenuFlag
 (*TYPE: MenuFlag *)
 local
     datatype MenuFlag =
-	W of int
+    W of int
 in
     type MenuFlag = MenuFlag
     val MenuFlagE = encoding (W,fn W n => n)
@@ -4353,7 +4353,7 @@ INDEX: SystemCommand
 (*TYPE: SystemCommand *)
 local
     datatype SystemCommand =
-	W of int
+    W of int
 in
     type SystemCommand = SystemCommand
     val SystemCommandE = encoding (W,fn W n => n)
@@ -4389,7 +4389,7 @@ INDEX: CursorIdentifier
 (*TYPE: CursorIdentifier *)
 local
     datatype CursorIdentifier =
-	W of int
+    W of int
 in
     type CursorIdentifier = CursorIdentifier
     val CursorIdentifierE = encoding (W,fn W n => n)
@@ -4421,7 +4421,7 @@ INDEX: BitmapOption
 (*TYPE: BitmapOption *)
 local
     datatype BitmapOption =
-	W of int
+    W of int
 in
     type BitmapOption = BitmapOption
     val BitmapOptionE = encoding (W,fn W n => n)
@@ -4471,7 +4471,7 @@ INDEX: OCRFlag
 (*TYPE: OCRFlag *)
 local
     datatype OCRFlag =
-	W of int
+    W of int
 in
     type OCRFlag = OCRFlag
     val OCRFlagE = encoding (W,fn W n => n)
@@ -4501,7 +4501,7 @@ INDEX: OICFlag
 (*TYPE: OICFlag *)
 local
     datatype OICFlag =
-	W of int
+    W of int
 in
     type OICFlag = OICFlag
     val OICFlagE = encoding (W,fn W n => n)
@@ -4523,7 +4523,7 @@ INDEX: IconIdentifier
 (*TYPE: IconIdentifier *)
 local
     datatype IconIdentifier =
-	W of int
+    W of int
 in
     type IconIdentifier = IconIdentifier
     val IconIdentifierE = encoding (W,fn W n => n)
@@ -4546,7 +4546,7 @@ INDEX: MessageBoxIdentifier
 (*TYPE: MessageBoxIdentifier *)
 local
     datatype MessageBoxIdentifier =
-	W of int
+    W of int
 in
     type MessageBoxIdentifier = MessageBoxIdentifier
     val MessageBoxIdentifierE = encoding (W,fn W n => n)
@@ -4571,7 +4571,7 @@ INDEX: EditStyle
 (*TYPE: EditStyle *)
 local
     datatype EditStyle =
-	W of int
+    W of int
 in
     type EditStyle = EditStyle
     val EditStyleE = encoding (W,fn W n => n)
@@ -4614,15 +4614,15 @@ in
     val ES_ICONIC                                    = ES_MINIMIZE
     val ES_SIZEBOX                                   = ES_THICKFRAME
     val ES_OVERLAPPEDWINDOW                          = orLE EditStyleE [ES_OVERLAPPED,
-									  ES_CAPTION,
-									  ES_SYSMENU,
-									  ES_THICKFRAME,
-									  ES_MINIMIZEBOX,
-									  ES_MAXIMIZEBOX]
+                                      ES_CAPTION,
+                                      ES_SYSMENU,
+                                      ES_THICKFRAME,
+                                      ES_MINIMIZEBOX,
+                                      ES_MAXIMIZEBOX]
     val ES_TILEDWINDOW                               = ES_OVERLAPPEDWINDOW
     val ES_POPUPWINDOW                               = orLE EditStyleE [ES_POPUP,
-									  ES_BORDER,
-									  ES_SYSMENU]
+                                      ES_BORDER,
+                                      ES_SYSMENU]
     val ES_CHILDWINDOW                               = ES_CHILD
 
 end
@@ -4638,7 +4638,7 @@ INDEX: ControlNotification
 (*TYPE: ControlNotification *)
 local
     datatype ControlNotification =
-	W of int
+    W of int
 in
     type ControlNotification = ControlNotification
     val  ControlNotificationE = encoding (W,fn W n => n)
@@ -4692,7 +4692,7 @@ INDEX: EditCtlBehaviour
 (*TYPE: EditCtlBehaviour *)
 local
     datatype EditCtlBehaviour =
-	W of int
+    W of int
 in
     type EditCtlBehaviour = EditCtlBehaviour
     val EditCtlBehaviourE = encoding (W,fn W n => n)
@@ -4739,7 +4739,7 @@ INDEX: WordBreakFlag
 (*TYPE: WordBreakFlag *)
 local
     datatype WordBreakFlag =
-	W of int
+    W of int
 in
     type WordBreakFlag = WordBreakFlag
     val WordBreakFlagE = encoding (W,fn W n => n)
@@ -4763,7 +4763,7 @@ INDEX: ButtonStyle
 (*TYPE: ButtonStyle *)
 local
     datatype ButtonStyle =
-	W of int
+    W of int
 in
     type ButtonStyle = ButtonStyle
     val ButtonStyleE = encoding (W,fn W n => n)
@@ -4805,15 +4805,15 @@ in
     val BS_ICONIC                                    = BS_MINIMIZE
     val BS_SIZEBOX                                   = BS_THICKFRAME
     val BS_OVERLAPPEDWINDOW                          = orLE ButtonStyleE [BS_OVERLAPPED,
-									  BS_CAPTION,
-									  BS_SYSMENU,
-									  BS_THICKFRAME,
-									  BS_MINIMIZEBOX,
-									  BS_MAXIMIZEBOX]
+                                      BS_CAPTION,
+                                      BS_SYSMENU,
+                                      BS_THICKFRAME,
+                                      BS_MINIMIZEBOX,
+                                      BS_MAXIMIZEBOX]
     val BS_TILEDWINDOW                               = BS_OVERLAPPEDWINDOW
     val BS_POPUPWINDOW                               = orLE ButtonStyleE [BS_POPUP,
-									  BS_BORDER,
-									  BS_SYSMENU]
+                                      BS_BORDER,
+                                      BS_SYSMENU]
     val BS_CHILDWINDOW                               = BS_CHILD
 
 end
@@ -4828,7 +4828,7 @@ INDEX: ButtonMessageEnquiry
 (*TYPE: ButtonMessageEnquiry *)
 local
     datatype ButtonMessageEnquiry =
-	W of int
+    W of int
 in
     type ButtonMessageEnquiry = ButtonMessageEnquiry
     val ButtonMessageEnquiryE = encoding (W,fn W n => n)
@@ -4852,7 +4852,7 @@ INDEX: StaticStyle
 (*TYPE: StaticStyle *)
 local
     datatype StaticStyle =
-	W of int
+    W of int
 in
     type StaticStyle = StaticStyle
     val StaticStyleE = encoding (W,fn W n => n)
@@ -4896,15 +4896,15 @@ in
     val SS_ICONIC                                    = SS_MINIMIZE
     val SS_SIZEBOX                                   = SS_THICKFRAME
     val SS_OVERLAPPEDWINDOW                          = orLE StaticStyleE [SS_OVERLAPPED,
-									  SS_CAPTION,
-									  SS_SYSMENU,
-									  SS_THICKFRAME,
-									  SS_MINIMIZEBOX,
-									  SS_MAXIMIZEBOX]
+                                      SS_CAPTION,
+                                      SS_SYSMENU,
+                                      SS_THICKFRAME,
+                                      SS_MINIMIZEBOX,
+                                      SS_MAXIMIZEBOX]
     val SS_TILEDWINDOW                               = SS_OVERLAPPEDWINDOW
     val SS_POPUPWINDOW                               = orLE StaticStyleE [SS_POPUP,
-									  SS_BORDER,
-									  SS_SYSMENU]
+                                      SS_BORDER,
+                                      SS_SYSMENU]
     val SS_CHILDWINDOW                               = SS_CHILD
 
 end
@@ -4920,7 +4920,7 @@ INDEX: StaticMessage
 (*TYPE: StaticMessage *)
 local
     datatype StaticMessage =
-	W of int
+    W of int
 in
     type StaticMessage = StaticMessage
     val StaticMessageE = encoding (W,fn W n => n)
@@ -4941,7 +4941,7 @@ INDEX: DWLParameter
 (*TYPE: DWLParameter *)
 local
     datatype DWLParameter =
-	W of int
+    W of int
 in
     type DWLParameter = DWLParameter
     val DWLParameterE = encoding (W,fn W n => n)
@@ -4962,7 +4962,7 @@ INDEX: DialogBoxFlag
 (*TYPE: DialogBoxFlag *)
 local
     datatype DialogBoxFlag =
-	W of int
+    W of int
 in
     type DialogBoxFlag = DialogBoxFlag
     val DialogBoxFlagE = encoding (W,fn W n => n)
@@ -4989,7 +4989,7 @@ INDEX: DialogStyle
 (*TYPE: DialogStyle *)
 local
     datatype DialogStyle =
-	W of int
+    W of int
 in
     type DialogStyle = DialogStyle
     val DialogStyleE = encoding (W,fn W n => n)
@@ -5012,7 +5012,7 @@ INDEX: DefaultMessageAction
 (*TYPE: DefaultMessageAction *)
 local
     datatype DefaultMessageAction =
-	W of int
+    W of int
 in
     type DefaultMessageAction = DefaultMessageAction
     val DefaultMessageActionE = encoding (W,fn W n => n)
@@ -5040,7 +5040,7 @@ INDEX: DialogCode
 (*TYPE: DialogCode *)
 local
     datatype DialogCode =
-	W of int
+    W of int
 in
     type DialogCode = DialogCode
     val DialogCodeE = encoding (W,fn W n => n)
@@ -5067,7 +5067,7 @@ INDEX: ListBoxFlag
 (*TYPE: ListBoxFlag *)
 local
     datatype ListBoxFlag =
-	W of int
+    W of int
 in
     type ListBoxFlag = ListBoxFlag
     val ListBoxFlagE = encoding (W,fn W n => n)
@@ -5088,7 +5088,7 @@ INDEX: ListBoxAction
 (*TYPE: ListBoxAction *)
 local
     datatype ListBoxAction =
-	W of int
+    W of int
 in
     type ListBoxAction = ListBoxAction
     val ListBoxActionE = encoding (W,fn W n => n)
@@ -5145,7 +5145,7 @@ INDEX: ListBoxStyle
 (*TYPE: ListBoxStyle *)
 local
     datatype ListBoxStyle =
-	W of int
+    W of int
 in
     type ListBoxStyle = ListBoxStyle
     val ListBoxStyleE = encoding (W,fn W n => n)
@@ -5165,9 +5165,9 @@ in
     val LBS_DISABLENOSCROLL                          = W (hex "0x1000")
     val LBS_NODATA                                   = W (hex "0x2000")
     val LBS_STANDARD                                 = orLE ListBoxStyleE [LBS_NOTIFY,
-									   LBS_SORT,
-									   W (repE WindowStyleE WS_VSCROLL),
-									   W (repE WindowStyleE WS_BORDER)]
+                                       LBS_SORT,
+                                       W (repE WindowStyleE WS_VSCROLL),
+                                       W (repE WindowStyleE WS_BORDER)]
 
     val LBS_OVERLAPPED                                = W (hex "0x00000000")
     val LBS_POPUP                                     = W (hex "0x80000000")
@@ -5193,15 +5193,15 @@ in
     val LBS_ICONIC                                    = LBS_MINIMIZE
     val LBS_SIZEBOX                                   = LBS_THICKFRAME
     val LBS_OVERLAPPEDWINDOW                          = orLE ListBoxStyleE [LBS_OVERLAPPED,
-									  LBS_CAPTION,
-									  LBS_SYSMENU,
-									  LBS_THICKFRAME,
-									  LBS_MINIMIZEBOX,
-									  LBS_MAXIMIZEBOX]
+                                      LBS_CAPTION,
+                                      LBS_SYSMENU,
+                                      LBS_THICKFRAME,
+                                      LBS_MINIMIZEBOX,
+                                      LBS_MAXIMIZEBOX]
     val LBS_TILEDWINDOW                               = LBS_OVERLAPPEDWINDOW
     val LBS_POPUPWINDOW                               = orLE ListBoxStyleE [LBS_POPUP,
-									  LBS_BORDER,
-									  LBS_SYSMENU]
+                                      LBS_BORDER,
+                                      LBS_SYSMENU]
     val LBS_CHILDWINDOW                               = LBS_CHILD
 
 end
@@ -5217,7 +5217,7 @@ INDEX: ComboBoxValue
 (*TYPE: ComboBoxValue *)
 local
     datatype ComboBoxValue =
-	W of int
+    W of int
 in
     type ComboBoxValue = ComboBoxValue
     val ComboBoxValueE = encoding (W,fn W n => n)
@@ -5237,7 +5237,7 @@ INDEX: ComboBoxStyle
 (*TYPE: ComboBoxStyle *)
 local
     datatype ComboBoxStyle =
-	W of int
+    W of int
 in
     type ComboBoxStyle = ComboBoxStyle
     val ComboBoxStyleE = encoding (W,fn W n => n)
@@ -5278,15 +5278,15 @@ in
     val CBS_ICONIC                                    = CBS_MINIMIZE
     val CBS_SIZEBOX                                   = CBS_THICKFRAME
     val CBS_OVERLAPPEDWINDOW                          = orLE ComboBoxStyleE [CBS_OVERLAPPED,
-									  CBS_CAPTION,
-									  CBS_SYSMENU,
-									  CBS_THICKFRAME,
-									  CBS_MINIMIZEBOX,
-									  CBS_MAXIMIZEBOX]
+                                      CBS_CAPTION,
+                                      CBS_SYSMENU,
+                                      CBS_THICKFRAME,
+                                      CBS_MINIMIZEBOX,
+                                      CBS_MAXIMIZEBOX]
     val CBS_TILEDWINDOW                               = CBS_OVERLAPPEDWINDOW
     val CBS_POPUPWINDOW                               = orLE ComboBoxStyleE [CBS_POPUP,
-									  CBS_BORDER,
-									  CBS_SYSMENU]
+                                      CBS_BORDER,
+                                      CBS_SYSMENU]
     val CBS_CHILDWINDOW                               = CBS_CHILD
 
 end
@@ -5302,7 +5302,7 @@ INDEX: ComboBoxAction
 (*TYPE: ComboBoxAction *)
 local
     datatype ComboBoxAction =
-	W of int
+    W of int
 in
     type ComboBoxAction = ComboBoxAction
     val ComboBoxActionE = encoding (W,fn W n => n)
@@ -5348,7 +5348,7 @@ INDEX: ScrollBarStyle
 (*TYPE: ScrollBarStyle *)
 local
     datatype ScrollBarStyle =
-	W of int
+    W of int
 in
     type ScrollBarStyle = ScrollBarStyle
     val ScrollBarStyleE = encoding (W,fn W n => n)
@@ -5387,15 +5387,15 @@ in
     val SBS_ICONIC                                    = SBS_MINIMIZE
     val SBS_SIZEBOX                                   = SBS_THICKFRAME
     val SBS_OVERLAPPEDWINDOW                          = orLE ScrollBarStyleE [SBS_OVERLAPPED,
-									  SBS_CAPTION,
-									  SBS_SYSMENU,
-									  SBS_THICKFRAME,
-									  SBS_MINIMIZEBOX,
-									  SBS_MAXIMIZEBOX]
+                                      SBS_CAPTION,
+                                      SBS_SYSMENU,
+                                      SBS_THICKFRAME,
+                                      SBS_MINIMIZEBOX,
+                                      SBS_MAXIMIZEBOX]
     val SBS_TILEDWINDOW                               = SBS_OVERLAPPEDWINDOW
     val SBS_POPUPWINDOW                               = orLE ScrollBarStyleE [SBS_POPUP,
-									  SBS_BORDER,
-									  SBS_SYSMENU]
+                                      SBS_BORDER,
+                                      SBS_SYSMENU]
     val SBS_CHILDWINDOW                               = SBS_CHILD
 
 end
@@ -5409,7 +5409,7 @@ INDEX: ScrollBarAction
 (*TYPE: ScrollBarAction *)
 local
     datatype ScrollBarAction =
-	W of int
+    W of int
 in
     type ScrollBarAction = ScrollBarAction
     val ScrollBarActionE = encoding (W,fn W n => n)
@@ -5430,7 +5430,7 @@ INDEX: HelpOption
 (*TYPE: HelpOption *)
 local
     datatype HelpOption =
-	W of int
+    W of int
 in
     type HelpOption = HelpOption
     val HelpOptionE = encoding (W,fn W n => n)
@@ -5462,7 +5462,7 @@ INDEX: SysParamInfo
 (*TYPE: SysParamInfo *)
 local
     datatype SysParamInfo =
-	W of int
+    W of int
 in
     type SysParamInfo = SysParamInfo
     val SysParamInfoE = encoding (W,fn W n => n)
@@ -5739,7 +5739,7 @@ structure UpperCaseConversions = struct
     val BITMAPINIT                 = conversionOfEncoding BitmapInitE
     val FLOODFILLMODE              = conversionOfEncoding FloodFillModeE
     val DEVICEMODE                 = conversionOfEncoding DeviceModeE
-    val PAPERORIENTATION           = conversionOfEncoding PaperOrientationE	
+    val PAPERORIENTATION           = conversionOfEncoding PaperOrientationE 
     val PAPERSIZE                  = conversionOfEncoding PaperSizeE
     val BINMODE                    = conversionOfEncoding BinModeE
     val DEVMODERESOLUTION          = conversionOfEncoding DevModeResolutionE

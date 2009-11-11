@@ -855,8 +855,8 @@ struct
     (* Reg 7 - Reg 10 are general purpose registers *)
     val regTemp1    = Reg 11; (* temporary *)
     val regTemp2    = Reg 12; (* temporary *)
-	(* R13 points to the memRegisters structure. *)
-	val regMemRegs  = Reg 13;
+    (* R13 points to the memRegisters structure. *)
+    val regMemRegs  = Reg 13;
     (* Reg 14 - Reg 22 are general purpose registers *)
     val regCode     = NONE; (* No special register required *)
     val regClosure  = Reg 24; (* address of closure (or static link) *)
@@ -3271,10 +3271,10 @@ struct
            (* The g.c. and set_code_constant need to be able to combine
               the upper and lower halves of the constant. To simplify this
               make sure that we don't fix up a branch between the two.  Also
-			  SetCodeConstant in the RTS assumes that the "ic" value points
-			  at an addis instruction and not a branch. *)
+              SetCodeConstant in the RTS assumes that the "ic" value points
+              at an addis instruction and not a branch. *)
             checkBranchList (2, cvec);
-			(* Record the address after any branch. *)
+            (* Record the address after any branch. *)
             constVec := (cnstnt, !ic) :: ! constVec;
             genInstruction (addis (destR, regZero, hi), cvec);
             genInstruction (ori (destR, destR, lo), cvec)
@@ -4692,8 +4692,8 @@ not be decremented.
         fun encodeReg(r, n: short): short =
         let
             open Word
-		    infix << orb
-			val reg = 0w1 << Word.fromInt (nReg r)
+            infix << orb
+            val reg = 0w1 << Word.fromInt (nReg r)
         in
             reg orb n
         end

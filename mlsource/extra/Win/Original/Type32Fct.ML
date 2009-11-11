@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 signature importConstTypeSig = 
@@ -174,7 +174,7 @@ type Ycoord = int
 type Xoffset = int
 type Yoffset = int
 type Width = int
-type Height	= int
+type Height = int
 type Index = int
 type SuccessState = bool
 type DCinstance = int
@@ -183,7 +183,7 @@ type ListBox = int
 type StaticControl = int
 datatype MenuItem = MenuID of int
 type RWpermission = int
-type DCInstance	= int
+type DCInstance = int
 type Fmf = int
 
 val MENUITEM = INT : int Conversion
@@ -207,7 +207,7 @@ datatype Range = Range of {min:int,max:int}
 
 type SuccessState = bool
 
-datatype KeyState = KeyUp | KeyDown	 | NoKey
+datatype KeyState = KeyUp | KeyDown  | NoKey
 
 datatype ShiftState = Shift | Ctrl | Alt | Comb of ShiftState list 
 
@@ -224,7 +224,7 @@ in mkConversion (abs o fromC) (toC o rep) (Ctype)
 end
 
 abstype Size = S of int * int
-with					
+with                    
  fun mkSize {width,height} = S (width,height)
  fun breakSize (S (width,height)) = {width=width,height=height}
 
@@ -267,31 +267,31 @@ datatype PaletteEntry = PE of {red:int,green:int,
 
 datatype ColorAdjustment = CA of {flags:ColorAdjustmentFlag,
                                   illuminance:IlluminantConstant,
-								  Rgamma:int,
-								  Ggamma:int,
-								  Bgamma:int,
-								  referenceBlack:int,
-								  referenceWhite:int,
-								  contrast:int,
-								  brightness:int,
-								  colorfullness:int,
-								  Rgammatint:int }
+                                  Rgamma:int,
+                                  Ggamma:int,
+                                  Bgamma:int,
+                                  referenceBlack:int,
+                                  referenceWhite:int,
+                                  contrast:int,
+                                  brightness:int,
+                                  colorfullness:int,
+                                  Rgammatint:int }
 
 datatype Fraction = Fraction of {num:int,denom:int}
 
-datatype ABC = ABC of {	Aspacing:int,
+datatype ABC = ABC of { Aspacing:int,
                         Bspacing:int,
-						Cspacing:int }
+                        Cspacing:int }
 
 datatype ABCfloat = ABCfloat of { Aspacing:real,
                                   Bspacing:real,
-						          Cspacing:real }
+                                  Cspacing:real }
 
 datatype VirtualKeyData = VK of int list
 
 datatype MenuItemData = MID of {option:MenuFlag,
                                 id:MenuItem,
-								display:string}
+                                display:string}
 
 
 type PaintData = MLHDC * bool * Rectangle

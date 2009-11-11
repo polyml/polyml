@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2001
-		David C.J. Matthews
+    Copyright (c) 2001
+        David C.J. Matthews
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 structure Locale:
@@ -26,9 +26,9 @@ sig
         | LANG_FARSI | LANG_FINNISH | LANG_FRENCH | LANG_GERMAN | LANG_GREEK | LANG_HEBREW
         | LANG_HUNGARIAN | LANG_ICELANDIC | LANG_INDONESIAN | LANG_ITALIAN | LANG_JAPANESE
         | LANG_KOREAN | LANG_LATVIAN | LANG_LITHUANIAN | LANG_NORWEGIAN | LANG_POLISH
-		| LANG_PORTUGUESE | LANG_ROMANIAN | LANG_RUSSIAN | LANG_SERBIAN | LANG_SLOVAK
-		| LANG_SLOVENIAN | LANG_SPANISH | LANG_SWEDISH | LANG_THAI | LANG_TURKISH
-		| LANG_UKRANIAN | LANG_VIETNAMESE | LANG_NEUTRAL
+        | LANG_PORTUGUESE | LANG_ROMANIAN | LANG_RUSSIAN | LANG_SERBIAN | LANG_SLOVAK
+        | LANG_SLOVENIAN | LANG_SPANISH | LANG_SWEDISH | LANG_THAI | LANG_TURKISH
+        | LANG_UKRANIAN | LANG_VIETNAMESE | LANG_NEUTRAL
     datatype SubLanguage =
           SUBLANG_ARABIC_ALGERIA | SUBLANG_ARABIC_BAHRAIN | SUBLANG_ARABIC_EGYPT
         | SUBLANG_ARABIC_IRAQ | SUBLANG_ARABIC_JORDAN | SUBLANG_ARABIC_KUWAIT
@@ -59,15 +59,15 @@ sig
         | SUBLANG_NEUTRAL | SUBLANG_DEFAULT | SUBLANG_SYS_DEFAULT
 
     datatype LANGID = MAKELANGID of PrimaryLanguage * SubLanguage
-	val GetUserDefaultLangID: unit -> LANGID
-	and GetSystemDefaultLangID: unit -> LANGID
+    val GetUserDefaultLangID: unit -> LANGID
+    and GetSystemDefaultLangID: unit -> LANGID
 end =
 struct
-	local
-		open CInterface Base
-	in
-		open LocaleBase
-		val GetUserDefaultLangID = call0 (kernel "GetUserDefaultLangID") () LANGID
-		and GetSystemDefaultLangID = call0 (kernel "GetSystemDefaultLangID") () LANGID
-	end
+    local
+        open CInterface Base
+    in
+        open LocaleBase
+        val GetUserDefaultLangID = call0 (kernel "GetUserDefaultLangID") () LANGID
+        and GetSystemDefaultLangID = call0 (kernel "GetSystemDefaultLangID") () LANGID
+    end
 end;

@@ -116,26 +116,26 @@ in
             (* Install the pretty printer for Word8Vector.vector *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-    		fun pretty(depth: int) _ (x: vector) =
-    			let
+            fun pretty(depth: int) _ (x: vector) =
+                let
                     open PolyML
-    				val last = length x - 1
-    				fun put_elem (index, w, (l, d)) =
-    					if d = 0 then ([PrettyString "...]"], d+1)
-    					else if d < 0 then ([], d+1)
-    					else
-    					(
-    					PrettyString("0wx" ^ Word8.toString w) ::
-    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
-    					d+1
-    					)
-    			in
-    				PrettyBlock(3, false, [],
-        				PrettyString "fromList[" ::
-        				(if depth <= 0 then [PrettyString "...]"]
-        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                    val last = length x - 1
+                    fun put_elem (index, w, (l, d)) =
+                        if d = 0 then ([PrettyString "...]"], d+1)
+                        else if d < 0 then ([], d+1)
+                        else
+                        (
+                        PrettyString("0wx" ^ Word8.toString w) ::
+                            (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+                        d+1
+                        )
+                in
+                    PrettyBlock(3, false, [],
+                        PrettyString "fromList[" ::
+                        (if depth <= 0 then [PrettyString "...]"]
+                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
                    )
-    			end
+                end
         in
             val () = PolyML.addPrettyPrinter pretty
         end
@@ -266,26 +266,26 @@ in
             (* Install the pretty printer for Word8Array.array *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-    		fun pretty(depth: int) _ (x: array) =
-    			let
+            fun pretty(depth: int) _ (x: array) =
+                let
                     open PolyML
-    				val last = length x - 1
-    				fun put_elem (index, w, (l, d)) =
-    					if d = 0 then ([PrettyString "...]"], d+1)
-    					else if d < 0 then ([], d+1)
-    					else
-    					(
-    					PrettyString("0wx" ^ Word8.toString w) ::
-    					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
-    					d+1
-    					)
-    			in
-    				PrettyBlock(3, false, [],
-        				PrettyString "fromList[" ::
-        				(if depth <= 0 then [PrettyString "...]"]
-        				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                    val last = length x - 1
+                    fun put_elem (index, w, (l, d)) =
+                        if d = 0 then ([PrettyString "...]"], d+1)
+                        else if d < 0 then ([], d+1)
+                        else
+                        (
+                        PrettyString("0wx" ^ Word8.toString w) ::
+                            (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+                        d+1
+                        )
+                in
+                    PrettyBlock(3, false, [],
+                        PrettyString "fromList[" ::
+                        (if depth <= 0 then [PrettyString "...]"]
+                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
                    )
-    			end
+                end
         in
             val () = PolyML.addPrettyPrinter pretty
         end
@@ -330,26 +330,26 @@ in
         (* Install the pretty printer for Word8VectorSlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-		fun pretty(depth: int) _ (x: Word8VectorSlice.slice) =
-			let
+        fun pretty(depth: int) _ (x: Word8VectorSlice.slice) =
+            let
                 open PolyML Word8VectorSlice
-				val last = length x - 1
-				fun put_elem (index, w, (l, d)) =
-					if d = 0 then ([PrettyString "...]"], d+1)
-					else if d < 0 then ([], d+1)
-					else
-					(
-					PrettyString("0wx" ^ Word8.toString w) ::
-					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
-					d+1
-					)
-			in
-				PrettyBlock(3, false, [],
-    				PrettyString "fromList[" ::
-    				(if depth <= 0 then [PrettyString "...]"]
-    				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                val last = length x - 1
+                fun put_elem (index, w, (l, d)) =
+                    if d = 0 then ([PrettyString "...]"], d+1)
+                    else if d < 0 then ([], d+1)
+                    else
+                    (
+                    PrettyString("0wx" ^ Word8.toString w) ::
+                        (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+                    d+1
+                    )
+            in
+                PrettyBlock(3, false, [],
+                    PrettyString "fromList[" ::
+                    (if depth <= 0 then [PrettyString "...]"]
+                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
                )
-			end
+            end
     in
         val _ = PolyML.addPrettyPrinter pretty
     end;
@@ -427,26 +427,26 @@ in
         (* Install the pretty printer for Word8ArraySlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-		fun pretty(depth: int) _ (x: Word8ArraySlice.slice) =
-			let
+        fun pretty(depth: int) _ (x: Word8ArraySlice.slice) =
+            let
                 open PolyML Word8ArraySlice
-				val last = length x - 1
-				fun put_elem (index, w, (l, d)) =
-					if d = 0 then ([PrettyString "...]"], d+1)
-					else if d < 0 then ([], d+1)
-					else
-					(
-					PrettyString("0wx" ^ Word8.toString w) ::
-					    (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
-					d+1
-					)
-			in
-				PrettyBlock(3, false, [],
-    				PrettyString "fromList[" ::
-    				(if depth <= 0 then [PrettyString "...]"]
-    				 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                val last = length x - 1
+                fun put_elem (index, w, (l, d)) =
+                    if d = 0 then ([PrettyString "...]"], d+1)
+                    else if d < 0 then ([], d+1)
+                    else
+                    (
+                    PrettyString("0wx" ^ Word8.toString w) ::
+                        (if index <> last then PrettyString "," :: PrettyBreak(1, 0) :: l else l),
+                    d+1
+                    )
+            in
+                PrettyBlock(3, false, [],
+                    PrettyString "fromList[" ::
+                    (if depth <= 0 then [PrettyString "...]"]
+                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
                )
-			end
+            end
     in
         val unused = PolyML.addPrettyPrinter pretty
     end

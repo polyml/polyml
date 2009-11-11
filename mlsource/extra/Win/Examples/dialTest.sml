@@ -1,29 +1,29 @@
 (*
-	Copyright (c) 2001-7
-		David C.J. Matthews
+    Copyright (c) 2001-7
+        David C.J. Matthews
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* Test routine for dialogue.  Tests various messages. *)
 
 fun dlgProc (h, Message.WM_INITDIALOG _, ()) = (Message.LRESINT 1, ())
  |  dlgProc (h, Message.WM_COMMAND{notifyCode = 0, wId, ...}, ()) =
- 		(if wId = MessageBox.IDOK orelse wId = MessageBox.IDCANCEL
-		 then (Dialog.EndDialog(h, wId); Message.PostQuitMessage 0) else ();
-		 (Message.LRESINT 1, ()))
+        (if wId = MessageBox.IDOK orelse wId = MessageBox.IDCANCEL
+         then (Dialog.EndDialog(h, wId); Message.PostQuitMessage 0) else ();
+         (Message.LRESINT 1, ()))
  |  dlgProc msg = ((*PolyML.print msg;*)(Message.LRESINT 0, ()));
 
 val dial = ref Base.hwndNull;
@@ -53,24 +53,24 @@ val template =
         class = DLG_LISTBOX (flags[WS_CHILD, WS_VISIBLE, WS_BORDER, WS_VSCROLL, WS_TABSTOP]),
         title = DLG_TITLESTRING ""}]}
 fun makedial() =
-	CreateDialogIndirect(Globals.ApplicationInstance(), template,
-		Globals.MainWindow(), dlgProc, ());
+    CreateDialogIndirect(Globals.ApplicationInstance(), template,
+        Globals.MainWindow(), dlgProc, ());
 end;
 (*
 val hi = Resource.LoadLibrary "C:\\Source Files\\DialogueDLL\\Debug\\DialogueDLL.dll";
-	 
+     
 fun makedial() = Dialog.CreateDialog(hi, Resource.IdAsString "MYDIALOGUE", Globals.MainWindow(),
-	dlgProc, ());
+    dlgProc, ());
 *)
 (* The dialogue has to be created by the thread that will handle its messages. *)
 fun runDialogue() =
     (
         dial := makedial();
-	    Window.ShowWindow(!dial, Window.SW_SHOW);
+        Window.ShowWindow(!dial, Window.SW_SHOW);
         Window.SetForegroundWindow (!dial);
         Message.RunApplication();
-		()
-	);
+        ()
+    );
 
 Thread.Thread.fork(runDialogue, []);
 

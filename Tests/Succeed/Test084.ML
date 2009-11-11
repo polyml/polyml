@@ -6,7 +6,7 @@ val y = f 7
 ;
 
 structure A: sig val f: int->int end =
-	struct
-		val f = (fn x => x) (fn x => x)
-	end
+    struct
+        val f = (fn x => x) (fn x => x)
+    end
 ;

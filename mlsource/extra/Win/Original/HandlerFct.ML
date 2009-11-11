@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*****************************************************************
@@ -29,19 +29,19 @@ signature importCInterfaceSig =
 sig
     type sym
     type vol
-	type Ctype
-	type 'a Conversion
+    type Ctype
+    type 'a Conversion
 
-    val get_sym	     : string -> string -> sym
-	val address      : vol -> vol
-	val alloc        : int -> Ctype -> vol
+    val get_sym      : string -> string -> sym
+    val address      : vol -> vol
+    val alloc        : int -> Ctype -> vol
 
-	val voidStar : Ctype
-	val Cstruct  : Ctype list -> Ctype
-	val Cint     : Ctype
-	val Clong    : Ctype
+    val voidStar : Ctype
+    val Cstruct  : Ctype list -> Ctype
+    val Cint     : Ctype
+    val Clong    : Ctype
     
-	val toCint       : int -> vol
+    val toCint       : int -> vol
     val toClong      : int -> vol
 
     val call0   : sym -> 
@@ -58,44 +58,44 @@ sig
     -> 'a * 'b -> 'c
     
     val call3 : sym ->
-	  'a Conversion
-	* 'b Conversion
-	* 'c Conversion -> 'd Conversion
-	-> 'a * 'b * 'c -> 'd
-	
+      'a Conversion
+    * 'b Conversion
+    * 'c Conversion -> 'd Conversion
+    -> 'a * 'b * 'c -> 'd
+    
     val call4 : sym ->
-	  'a Conversion
-	* 'b Conversion
-	* 'c Conversion
-	* 'd Conversion -> 'e Conversion
-	-> 'a * 'b * 'c * 'd -> 'e
+      'a Conversion
+    * 'b Conversion
+    * 'c Conversion
+    * 'd Conversion -> 'e Conversion
+    -> 'a * 'b * 'c * 'd -> 'e
 
     val call5 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion -> 'f Conversion
-	-> 'a * 'b * 'c * 'd * 'e -> 'f
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion -> 'f Conversion
+    -> 'a * 'b * 'c * 'd * 'e -> 'f
 
-	val call6 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion 
-	* 'f Conversion -> 'g Conversion
-	-> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val call6 : sym ->
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion 
+    * 'f Conversion -> 'g Conversion
+    -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
 
     val STRUCT4 : 'a1 Conversion * 'a2 Conversion * 
               'a3 Conversion * 'a4 Conversion
              -> ('a1 * 'a2 * 'a3 * 'a4) Conversion
 
-	val INT     : int Conversion
+    val INT     : int Conversion
     val LONG    : int Conversion
-	val BOOL    : bool Conversion
-	val VOID    : unit Conversion
-	val POINTER : vol Conversion
+    val BOOL    : bool Conversion
+    val VOID    : unit Conversion
+    val POINTER : vol Conversion
 
 end;
 
@@ -134,16 +134,16 @@ end;
 functor HandlerFct ( structure Dir : importDirSig
                      structure CInterface : importCInterfaceSig 
                      structure Type : importTypeSig
-					 structure MsgFn : importMsgFnSig
-					 structure UserFn : importUserFnSig
+                     structure MsgFn : importMsgFnSig
+                     structure UserFn : importUserFnSig
 
-					 sharing type CInterface.vol =
-					              Type.vol
-					 sharing type CInterface.Conversion =
-					              Type.Conversion
-					 sharing type Type.MLHWND =
-					              MsgFn.MLHWND =
-								  UserFn.MLHWND
+                     sharing type CInterface.vol =
+                                  Type.vol
+                     sharing type CInterface.Conversion =
+                                  Type.Conversion
+                     sharing type Type.MLHWND =
+                                  MsgFn.MLHWND =
+                                  UserFn.MLHWND
                    ) = 
 struct
 
@@ -171,7 +171,7 @@ open Dir
   (* Masks used by GetQueueLength *)
   datatype mask = ALL         (* All messages *)
                 | SYSALL      (* All System messages *)
-				| SYS of int  (* Specific System messages *)
+                | SYS of int  (* Specific System messages *)
                 | ALPHA       (* Polymorphic messages *)
                 | EXPIRED     (* Delayed messages which have expired and are
                                  in R.T.S. Local Queue *)
@@ -251,7 +251,7 @@ open Dir
       call1 (get_sym executable "Getpid") (HWND) (INT)
 
   val GethwndRTS = 
-	  call1 (get_sym executable "GetHWND") (INT) (HWND)
+      call1 (get_sym executable "GetHWND") (INT) (HWND)
 
   val AddProcessRTS =
       call1 (get_sym executable "AddProcess") (INT) (BOOL) 
@@ -275,7 +275,7 @@ open Dir
       call2 (get_sym executable "SetProcessRunState") (INT,INT) (VOID)
 
   val EnableProcessWindowsRTS = 
-	  call2 (get_sym executable "EnableProcessWindows") (INT,BOOL) (VOID)
+      call2 (get_sym executable "EnableProcessWindows") (INT,BOOL) (VOID)
 
   val GetDeviceContextRTS =
       call1 (get_sym executable "GetDeviceContext") (HWND) (HDC) 
@@ -294,18 +294,18 @@ open Dir
             (INT,HWND,INT) (INT) 
 
   val GetLengthLocalDListRTS = 
-	  call2 (get_sym executable "GetLengthLocalDList") 
+      call2 (get_sym executable "GetLengthLocalDList") 
             (INT,HWND) (INT) 
           
   val PeekLocalQueueRTS = 
       call1 (get_sym executable "PeekLocalQueue") (INT) (Qmessage) 
 
   val MessageExistsLocalQueueRTS =
-	   call3 (get_sym executable "MessageExistsLocalQueue") 
+       call3 (get_sym executable "MessageExistsLocalQueue") 
             (INT,HWND,INT) (BOOL) 
 
   val SelectMessageLocalQueueRTS =
-	   call3 (get_sym executable "SelectMessageLocalQueue") 
+       call3 (get_sym executable "SelectMessageLocalQueue") 
             (INT,HWND,INT) (Qmessage) 
 
   (*****************************************************************)
@@ -322,7 +322,7 @@ open Dir
 
      fun putQ ( e , ( Q(inl,outl) ) ) = Q( e::inl , outl )
 
-	 fun putfrontQ ( e , ( Q(inl,outl) ) ) = Q( inl , e :: outl )
+     fun putfrontQ ( e , ( Q(inl,outl) ) ) = Q( inl , e :: outl )
 
      fun getQ ( Q([],[]) ) = raise EMPTY_QUEUE
      |   getQ ( Q(inl,[]) ) = getQ ( Q([], rev inl) )
@@ -345,9 +345,9 @@ open Dir
   let
   fun pexists p ([]) = false
   |   pexists p ( (p1,q1,q2) :: rest ) = 
-	  if p=p1 then true
-	  else if p>p1 then false
-	  else pexists p rest
+      if p=p1 then true
+      else if p>p1 then false
+      else pexists p rest
   in
     pexists p ( !PROCESSTABLE )
   end
@@ -385,9 +385,9 @@ open Dir
   let
   fun wexists w ([]) = false
   |   wexists w ( (w1,s) :: rest ) = 
-	  if w=w1 then true
-	  else if w>w1 then false
-	  else wexists w rest
+      if w=w1 then true
+      else if w>w1 then false
+      else wexists w rest
   in
     wexists (GetwidRTS w) ( !CALLBACKTABLE )
   end
@@ -420,11 +420,11 @@ open Dir
   fun GetCallbackML wp = 
   let
      fun get w [] = raise WINDOWERROR {wid = GetwidRTS wp,
-	                                   fname = "GetCallbackML",
+                                       fname = "GetCallbackML",
                                        message = "Window does not exist" }
      |   get w (l as (w1,s1) :: rest) =
      if w > w1 then raise WINDOWERROR {wid = GetwidRTS wp,
-	                                   fname = "GetCallbackML",
+                                       fname = "GetCallbackML",
                                        message = "Window does not exist" }
      else if w < w1 then get w rest
      else s1 
@@ -463,24 +463,24 @@ open Dir
   let
     exception ERROR
 
-	fun get n [] = raise ERROR
-	|   get 1 (h::t) = (h,t)
-	|   get n (h::t) = 
-	let
-	  val (h2,rest) = get (n-1) t
-	in 
-	  (h2,h::rest)
-	end;
-	
+    fun get n [] = raise ERROR
+    |   get 1 (h::t) = (h,t)
+    |   get n (h::t) = 
+    let
+      val (h2,rest) = get (n-1) t
+    in 
+      (h2,h::rest)
+    end;
+    
     fun swap n [] = raise ERROR
-	|   swap 1 [h] = [h]
-	|   swap n (h::t) =
-	let
-	  val (out,rest) = get (n-1) t
+    |   swap 1 [h] = [h]
+    |   swap n (h::t) =
+    let
+      val (out,rest) = get (n-1) t
     in
-	  out :: h :: rest
-	end
-	 
+      out :: h :: rest
+    end
+     
     fun move p off ([]) = 
           raise PROCESSERROR { pid = p,
                                fname = "MovePolymorphicML",  
@@ -525,7 +525,7 @@ open Dir
 
   fun PostDelayedML p delay m = 
   let
-	val timeout = GetTime () + delay; 
+    val timeout = GetTime () + delay; 
 
     fun ins (t,m) ([]) = [(t,m)]
     |   ins (t,m) (l as ((t1,m1) :: rest)) = 
@@ -547,24 +547,24 @@ open Dir
   let
     exception ERROR
 
-	fun get n [] = raise ERROR
-	|   get 1 (h::t) = (h,t)
-	|   get n (h::t) = 
-	let
-	  val (h2,rest) = get (n-1) t
-	in 
-	  (h2,h::rest)
-	end;
-	
+    fun get n [] = raise ERROR
+    |   get 1 (h::t) = (h,t)
+    |   get n (h::t) = 
+    let
+      val (h2,rest) = get (n-1) t
+    in 
+      (h2,h::rest)
+    end;
+    
     fun swap n [] = raise ERROR
-	|   swap 1 [h] = [h]
-	|   swap n (h::t) =
-	let
-	  val (out,rest) = get (n-1) t
+    |   swap 1 [h] = [h]
+    |   swap n (h::t) =
+    let
+      val (out,rest) = get (n-1) t
     in
-	  out :: h :: rest
-	end
-	 
+      out :: h :: rest
+    end
+     
     fun move p off ([]) = 
           raise PROCESSERROR { pid = p,
                                fname = "MoveDelayedML",  
@@ -625,7 +625,7 @@ open Dir
   fun ProcessQueueML p = 
   if IsEmptyLocalQueueRTS p then true
   else
-  let 							
+  let                           
        val (h,m,w,l) = GetLocalQueueRTS p
   in
       if (m <> DESTROY_PROCESS_MESSAGE) then 
@@ -635,10 +635,10 @@ open Dir
                      else ProcessSystem (h,m,w,l) )
          handle Windows s => output (std_out,"Exception Windows <"^s^"> raised.\n")
        | _                => ();
-	     ProcessQueueML p 
+         ProcessQueueML p 
        )
       else false
-  end							
+  end                           
 
 
   fun HANDLER p =
@@ -688,23 +688,23 @@ open Dir
   fun GetQueueLength p w m =
   if ProcessExistsML p
    then 
-  ( case m of	
-	(* All messages for window w in local queue *)
+  ( case m of   
+    (* All messages for window w in local queue *)
     ALL    => GetLengthLocalQueueRTS (p,GethwndRTS w,1030 )
 
-	(* System messages for window w in local queue *)
+    (* System messages for window w in local queue *)
   | SYSALL => GetLengthLocalQueueRTS (p,GethwndRTS w,1031 )
 
-	(* Specific system messages for window w in local queue *)
+    (* Specific system messages for window w in local queue *)
   | SYS n => GetLengthLocalQueueRTS (p,GethwndRTS w,n)
 
-	(* Polymorphicn messages for window w in local queue *)
-  | ALPHA => GetLengthLocalQueueRTS	(p,GethwndRTS w,POLYMORPHIC)
+    (* Polymorphicn messages for window w in local queue *)
+  | ALPHA => GetLengthLocalQueueRTS (p,GethwndRTS w,POLYMORPHIC)
 
-	(* Delayed messages for window w which have expired in local queue *)
+    (* Delayed messages for window w which have expired in local queue *)
   | EXPIRED => GetLengthLocalQueueRTS (p,GethwndRTS w,DELAYED)
 
-	 (* Delayed messages for window w which have not expired yet *)
+     (* Delayed messages for window w which have not expired yet *)
   | PENDING => GetLengthLocalDListRTS (p,GethwndRTS w)  )
    else 
      raise PROCESSERROR{ pid = p,
@@ -714,7 +714,7 @@ open Dir
 
   fun PeekNext p =
   if not (ProcessExistsML p) then
-	raise PROCESSERROR{ pid = p,
+    raise PROCESSERROR{ pid = p,
                         fname = "PeekNext",
                         message = "Attemp to access inactive process"}
   else if (IsEmptyLocalQueueRTS p) then
@@ -732,56 +732,56 @@ open Dir
 
   fun MessageExists p w m =
   if not (ProcessExistsML p) then
-	raise PROCESSERROR{ pid = p,
+    raise PROCESSERROR{ pid = p,
                         fname = "MessageExists",
                         message = "Attemp to access inactive process"}
   else if not (WindowExistsML w) then 
-	raise WINDOWERROR{ wid = (GetwidRTS w),
+    raise WINDOWERROR{ wid = (GetwidRTS w),
                        fname = "MessageExists",
                        message = "Attemp to access inesistent window"}
   else
     let
-	  val h = w
-	in 
+      val h = w
+    in 
 
-	 ( case m of	
-	    (* All messages for window w in local queue *)
+     ( case m of    
+        (* All messages for window w in local queue *)
         ALL    => MessageExistsLocalQueueRTS (p,h,1030)
 
-	    (* System messages for window w in local queue *)
+        (* System messages for window w in local queue *)
       | SYSALL => MessageExistsLocalQueueRTS (p,h,1031)
 
-	    (* Specific system messages for window w in local queue *)
+        (* Specific system messages for window w in local queue *)
       | SYS n => MessageExistsLocalQueueRTS (p,h,n)
 
-	    (* Polymorphicn messages for window w in local queue *)
-      | ALPHA => MessageExistsLocalQueueRTS	(p,h,POLYMORPHIC)
+        (* Polymorphicn messages for window w in local queue *)
+      | ALPHA => MessageExistsLocalQueueRTS (p,h,POLYMORPHIC)
 
-	    (* Delayed messages for window w which have expired in local queue *)
+        (* Delayed messages for window w which have expired in local queue *)
       | EXPIRED => MessageExistsLocalQueueRTS (p,h,DELAYED)
 
-	    (* Delayed messages for window w which have not expired yet *)
+        (* Delayed messages for window w which have not expired yet *)
       | PENDING => raise PROCESSERROR{ pid = p,
           fname = "MessageExists",
           message = "Pending messages are not placed in the queues yet!"} )
-	end
+    end
 
   (*
   fun SelectMessage p w m =
   if not (ProcessExistsML p) then
-	raise PROCESSERROR{ pid = p,
+    raise PROCESSERROR{ pid = p,
                         fname = "SelectMessage",
                         message = "Attemp to access inactive process"}
   else if not (WindowExistsML w) then 
-	raise WINDOWERROR{ wid = GetwidRTS w,
+    raise WINDOWERROR{ wid = GetwidRTS w,
                        fname = "SelectMessage",
                        message = "Attemp to access inexistent window"}
   else
-	 let
-	   val h = w
-	   
-	   val (h2,m,p1,p2) = 
-	     ( case m of	
+     let
+       val h = w
+       
+       val (h2,m,p1,p2) = 
+         ( case m of    
             ALL     => SelectMessageLocalQueueRTS (p,h,1030 )
           | SYSALL  => SelectMessageLocalQueueRTS (p,h,1031 )
           | SYS n   => SelectMessageLocalQueueRTS (p,h,n)
@@ -791,28 +791,28 @@ open Dir
               fname = "SelectMessage",
               message = "Pending messages are not placed in the queues yet!"} 
          )
-	   val w2 = GetwidRTS h2
+       val w2 = GetwidRTS h2
      in
        if(w2=0) then false
-	   else if m=POLYMORPHIC then (MovePolymorphicML (p,p1) ; true) 
-	   else if m=DELAYED then (MoveDelayedML (p,p1) ; true) 
-	   else true
-	 end
+       else if m=POLYMORPHIC then (MovePolymorphicML (p,p1) ; true) 
+       else if m=DELAYED then (MoveDelayedML (p,p1) ; true) 
+       else true
+     end
    *)
 
   fun profile () =
   let
    val printProcTable = 
      call0 (get_sym executable "printProcTable")
-	 () (VOID)
+     () (VOID)
 
    val printWinTable = 
-	 call0 (get_sym executable "printWinTable")
-	 () (VOID)
+     call0 (get_sym executable "printWinTable")
+     () (VOID)
   in
   ( printProcTable () ;
     printWinTable () ;
-    ExtendedIO.flush_out std_out	;
+    ExtendedIO.flush_out std_out    ;
     (!PROCESSTABLE,!CALLBACKTABLE); () )
   end
 
@@ -822,7 +822,7 @@ open Dir
                    (pid,MLHWND (toCint 0),DESTROY_PROCESS_MESSAGE,0,0); 
                    SetProcessRunStateRTS (pid,1);
                    ())
-																	  
+                                                                      
   fun closeDownWin (w:window) = ( DestroyWindow w;
                                   RemoveWindowRTS (GetwidRTS w);
                                   DeleteCallbackML w )

@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -99,9 +99,9 @@ struct
   val unsafeCast : 'a -> 'b = RunCall.unsafeCast;
 
   local
-  	  val short : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
+      val short : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
   in
-  	  fun isShort (x:'a): bool = unsafeCast short x
+      fun isShort (x:'a): bool = unsafeCast short x
   end
 
   (* The following cast is always safe *)
@@ -118,13 +118,13 @@ struct
   
   (* Note: 
        assignByte should *not* be used with word-objects
-	 (we might copy half a pointer into the object,
-	  then call the garbage collector)
+     (we might copy half a pointer into the object,
+      then call the garbage collector)
        
        loadWord should *not* be used with byte-objects
-	 (we might load something that's not a valid ML value,
-	  then call the garbage collector)
-	  
+     (we might load something that's not a valid ML value,
+      then call the garbage collector)
+      
     Violating these assertions may corrupt the heap and cause unpredictable
     behaviour.
     
@@ -194,10 +194,10 @@ struct
   val F_gc           : Word8.word = 0wx80;
 
   local
-		val doCall: int*address -> bool
-			 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+        val doCall: int*address -> bool
+             = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
   in
-		fun isIoAddress (a: address) : bool = doCall(102, a)
+        fun isIoAddress (a: address) : bool = doCall(102, a)
   end
 
 
@@ -218,8 +218,8 @@ struct
     val isCode  = isType F_code;
     val isStack = isType F_stack;
 
-	(* The mutable flag may be used with any of the others. *)
-	fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
+    (* The mutable flag may be used with any of the others. *)
+    fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
   end;
 end
 

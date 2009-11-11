@@ -3,7 +3,7 @@
 structure A = struct end;
 signature SIG =
 sig
-	structure B : sig end
-	sharing A = B
+    structure B : sig end
+    sharing A = B
 end;
 

@@ -3,19 +3,19 @@
     Author:     David Matthews
     Copyright   David Matthews 1999
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* G&R 2004 status: checked, no change. *)
@@ -50,46 +50,46 @@ signature GENERAL =
    reason for this is that we would prefer that types unit and exn
    did not capture the General structure name. *)
 local
-	open RuntimeCalls (* for POLY_SYS and EXC numbers *)
-	val System_loadw: exn*int->string  = RunCall.run_call2 POLY_SYS_load_word
+    open RuntimeCalls (* for POLY_SYS and EXC numbers *)
+    val System_loadw: exn*int->string  = RunCall.run_call2 POLY_SYS_load_word
 in
     exception Bind      = RunCall.Bind
-	and       Div       = RunCall.Div
-	and       Match     = RunCall.Match
-	and       Overflow  = RunCall.Overflow
-	and       Subscript = RunCall.Subscript
-	and       Size      = RunCall.Size
+    and       Div       = RunCall.Div
+    and       Match     = RunCall.Match
+    and       Overflow  = RunCall.Overflow
+    and       Subscript = RunCall.Subscript
+    and       Size      = RunCall.Size
 
-	exception Domain and Span and Chr
+    exception Domain and Span and Chr
 
-	(* Exception packets.  The first word is the code, a unique id; the second is
-	   the exception name and the third is the exception argument. *)
-	fun exnName (ex: exn) = System_loadw(ex, 1)
-	
+    (* Exception packets.  The first word is the code, a unique id; the second is
+       the exception name and the third is the exception argument. *)
+    fun exnName (ex: exn) = System_loadw(ex, 1)
+    
     (* Since exception packets carry a printer function this is just PolyML.makestring. *)
-	fun exnMessage (ex: exn) = PolyML.makestring ex
-	
+    fun exnMessage (ex: exn) = PolyML.makestring ex
+    
     datatype order = LESS | EQUAL | GREATER
-	
-	fun op before (a, _) = a
-	fun ignore _ = ()
-	
-	structure General (*: GENERAL *) (* Don't use a signature here. *) =
-		struct
-		type unit = unit (* This has to be primitive because its value is given by () *)
-		type exn = exn
-		exception Bind = Bind and Div = Div and Match = Match and Chr = Chr
-		exception Overflow = Overflow and Domain= Domain and Fail = Fail
-		exception Span = Span and Subscript = Subscript and Size = Size
+    
+    fun op before (a, _) = a
+    fun ignore _ = ()
+    
+    structure General (*: GENERAL *) (* Don't use a signature here. *) =
+        struct
+        type unit = unit (* This has to be primitive because its value is given by () *)
+        type exn = exn
+        exception Bind = Bind and Div = Div and Match = Match and Chr = Chr
+        exception Overflow = Overflow and Domain= Domain and Fail = Fail
+        exception Span = Span and Subscript = Subscript and Size = Size
 
-		val exnName = exnName
-		and op := = op := and ! = ! and op o = op o
-		and op before = op before and ignore = ignore
+        val exnName = exnName
+        and op := = op := and ! = ! and op o = op o
+        and op before = op before and ignore = ignore
 
         val exnMessage = exnMessage
-		
-	    datatype order = datatype order
-	end
+        
+        datatype order = datatype order
+    end
 end
 
 (* Although these are available unqualified we always use them

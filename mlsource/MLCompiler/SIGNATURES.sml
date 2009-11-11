@@ -159,13 +159,13 @@ struct
     fun mkWhereType (sigexp, typeVars, name, types, line) = 
         WhereType {
           sigExp      = sigexp,
-		  typeVars    = typeVars,
+          typeVars    = typeVars,
           typeName    = name,
           realisation = types,
           line        = line
         };
 
-	val mkInclude = IncludeSig
+    val mkInclude = IncludeSig
     and mkStructureSig = StructureSig
     and mkSig = SigDec
 
@@ -455,7 +455,7 @@ struct
 
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
-  	    Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations, references = NONE}
+        Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations, references = NONE}
 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
@@ -780,7 +780,7 @@ struct
                 let
                     val copiedEquiv =
                         copyType(equiv, fn x => x,
-    		                fn tcon => copyTypeConstr (tcon, typeMap, fn x => x, fn s => s))
+                            fn tcon => copyTypeConstr (tcon, typeMap, fn x => x, fn s => s))
                     val newId =
                         makeVariableId(isEquality oldId, isDatatype, false, description, (args, copiedEquiv), structPath)
                     fun newMap(id as TypeId{idKind=Bound{offset=n, ...}, ...}) =

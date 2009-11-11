@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -63,7 +63,7 @@ sig
   val break_struct  : Ctype list -> vol -> vol list
   val make_struct   : (Ctype * vol) list -> vol
 
-  val CHAR	: string Conversion
+  val CHAR  : string Conversion
   val DOUBLE  : real Conversion
   val FLOAT   : real Conversion
   val INT     : int Conversion
@@ -75,11 +75,11 @@ sig
   val POINTER : vol Conversion
 
     val call4 : sym ->
-	  'a Conversion
-	* 'b Conversion
-	* 'c Conversion
-	* 'd Conversion -> 'e Conversion
-	-> 'a * 'b * 'c * 'd -> 'e
+      'a Conversion
+    * 'b Conversion
+    * 'c Conversion
+    * 'd Conversion -> 'e Conversion
+    -> 'a * 'b * 'c * 'd -> 'e
 end;
 
 signature importMacroSig = 
@@ -98,17 +98,17 @@ sig
     type EditCtlBehaviour
     type ListBoxAction
 
-	type ButtonStyle
-	val ButtonStyleE : ButtonStyle encoding
-	 
-	type EnableScrollBarFlag
-	val EnableScrollBarFlagE : EnableScrollBarFlag encoding
+    type ButtonStyle
+    val ButtonStyleE : ButtonStyle encoding
+     
+    type EnableScrollBarFlag
+    val EnableScrollBarFlagE : EnableScrollBarFlag encoding
 
-	type DialogBoxFlag
-	val DialogBoxFlagE : DialogBoxFlag encoding
+    type DialogBoxFlag
+    val DialogBoxFlagE : DialogBoxFlag encoding
 
     val repE : 'a encoding -> 'a -> int
-	val absE : 'a encoding -> int -> 'a
+    val absE : 'a encoding -> int -> 'a
 
     val ButtonMessageEnquiryE : ButtonMessageEnquiry encoding
     val BM_GETCHECK : ButtonMessageEnquiry
@@ -259,14 +259,14 @@ end;
 functor CtrlFnFct ( structure Dir : importDirSig
                     structure CInterface : importCInterfaceSig
                     structure Macro : importMacroSig
-					structure ConstType : importConstTypeSig
-					structure Type : importTypeSig
+                    structure ConstType : importConstTypeSig
+                    structure Type : importTypeSig
 
-					sharing type CInterface.vol =
-					             Type.vol
-				    sharing type CInterface.Conversion =
-					             Type.Conversion
-				  ) =
+                    sharing type CInterface.vol =
+                                 Type.vol
+                    sharing type CInterface.Conversion =
+                                 Type.Conversion
+                  ) =
 struct
 
 local
@@ -281,17 +281,17 @@ val get = get_sym userlibname
 val SendMessage = call4 (get "SendMessageA") (HWND,LONG,LONG,LONG) (LONG)
 fun SendMessageV (MLHWND h,m,p1,p2) = fromClong ( call_sym 
                                                     (get "SendMessageA")
-										            [(Cvoid,h),
-										             (Clong,toClong m),
-										             (Clong,toClong p1),
-										             (Clong,p2) ] Clong )
+                                                    [(Cvoid,h),
+                                                     (Clong,toClong m),
+                                                     (Clong,toClong p1),
+                                                     (Clong,p2) ] Clong )
 
 fun SendMessageVV (MLHWND h,m,p1,p2) = fromClong ( call_sym 
                                                     (get "SendMessageA")
-										            [(Cvoid,h),
-										             (Clong,toClong m),
-										             (Clong,p1),
-										             (Clong,p2) ] Clong )
+                                                    [(Cvoid,h),
+                                                     (Clong,toClong m),
+                                                     (Clong,p1),
+                                                     (Clong,p2) ] Clong )
 
 fun btoi b = if b then 1 else 0
 
@@ -330,7 +330,7 @@ fun scrollbar_SETRANGEREDRAW (w,min,max) = SendMessage(w,repE ScrollBarActionE S
 
 fun scrollbar_GETRANGE (w,mp,Mp)         = SendMessage(w,repE ScrollBarActionE SBM_GETRANGE,mp,Mp)
 
-fun scrollbar_ENABLE_ARROWS	(w,f)        = SendMessage(w,repE ScrollBarActionE SBM_ENABLE_ARROWS,repE EnableScrollBarFlagE f,0)
+fun scrollbar_ENABLE_ARROWS (w,f)        = SendMessage(w,repE ScrollBarActionE SBM_ENABLE_ARROWS,repE EnableScrollBarFlagE f,0)
 
 (* Combo Boxes *)
 
@@ -381,7 +381,7 @@ fun combobox_SETITEMDATA   (w,i,data) = SendMessage(w,repE ComboBoxActionE CB_SE
 fun combobox_GETDROPPEDCONTROLRECT (w) =
 let val rect = alloc 4 Clong 
     val r = SendMessageV(w,repE ComboBoxActionE CB_GETDROPPEDCONTROLRECT,0,address rect)
-	val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
+    val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
 in
   mkRect {left=fromClong t,top=fromClong r,right=fromClong b,bottom=fromClong l}
 end
@@ -414,7 +414,7 @@ fun editcontrol_SETSEL  (w,start,finish) = SendMessage(w,repE EditCtlBehaviourE 
 fun editcontrol_GETRECT (w) = 
 let val rect = alloc 4 Clong
     val r = SendMessageV(w,repE EditCtlBehaviourE EM_GETRECT,0,address rect)
-	val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
+    val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
 in mkRect {top=fromClong t,left=fromClong r,bottom=fromClong b,right=fromClong l}
 end
 
@@ -422,9 +422,9 @@ fun editcontrol_SETRECT (w,r) =
 let val {top,right,bottom,left} = breakRect r  
     val rect = make_struct 
              [(Clong,toClong left),
-			  (Clong,toClong top),
-			  (Clong,toClong right),
-			  (Clong,toClong bottom) ]
+              (Clong,toClong top),
+              (Clong,toClong right),
+              (Clong,toClong bottom) ]
 
 in SendMessageV(w,repE EditCtlBehaviourE EM_SETRECT,0,address rect)
 end
@@ -433,9 +433,9 @@ fun editcontrol_SETRECTNP (w,r) =
 let val {top,right,bottom,left} = breakRect r  
     val rect = make_struct 
              [(Clong,toClong left),
-			  (Clong,toClong top),
-			  (Clong,toClong right),
-			  (Clong,toClong bottom) ]
+              (Clong,toClong top),
+              (Clong,toClong right),
+              (Clong,toClong bottom) ]
 in SendMessageV(w,repE EditCtlBehaviourE EM_SETRECTNP,0,address rect)
 end
 
@@ -492,7 +492,7 @@ fun editcontrol_GETFIRSTVISIBLELINE (w) = SendMessage(w,repE EditCtlBehaviourE E
 
 fun editcontrol_SETREADONLY (w,f) = SendMessage(w,repE EditCtlBehaviourE EM_SETREADONLY,btoi f,0)
 
-fun editcontrol_GETPASSWORDCHAR (w) = chr (SendMessage (w,repE EditCtlBehaviourE EM_GETPASSWORDCHAR,0,0)	)
+fun editcontrol_GETPASSWORDCHAR (w) = chr (SendMessage (w,repE EditCtlBehaviourE EM_GETPASSWORDCHAR,0,0)    )
 
 
 (* List Box *)
@@ -538,8 +538,8 @@ fun listbox_GETSELCOUNT           (w) = SendMessage(w,repE ListBoxActionE LB_GET
 fun listbox_GETSELITEMS           (w,i) = 
 let val buf = alloc i Cint
     val r = SendMessageV(w,repE ListBoxActionE LB_GETSELITEMS,i,address buf)
-	fun v2l v 0 = []
-	|   v2l v i = (v2l v (i-1)) @ [(fromCint (offset (i-1) Cint v))]   
+    fun v2l v 0 = []
+    |   v2l v i = (v2l v (i-1)) @ [(fromCint (offset (i-1) Cint v))]   
 in
   v2l buf
 end
@@ -564,7 +564,7 @@ fun listbox_SETTOPINDEX           (w,i) = SendMessage(w,repE ListBoxActionE LB_S
 fun listbox_GETITEMRECT           (w,i) = 
 let val rect = alloc 4 Clong
     val r = SendMessageV(w,repE ListBoxActionE LB_GETITEMRECT,i,address rect)
-	val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
+    val (t,r,b,l) = break_struct4 ([Clong,Clong,Clong,Clong]) rect
 in mkRect {top=fromClong t,left=fromClong r, bottom=fromClong b,right=fromClong l}
 end
 

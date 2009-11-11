@@ -1,22 +1,22 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
     Modified David C.J. Matthews 2008.
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -145,14 +145,14 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
     (* The completed compiler.
-	   Returns the parse tree and, if successful, a function that executes the
-	   compiled code.  *)
+       Returns the parse tree and, if successful, a function that executes the
+       compiled code.  *)
     val compiler :
         nameSpace * (unit->char option) * Universal.universal list ->
-		exportTree option * (unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option;
+        exportTree option * (unit ->
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option;
 end =
 
 (*****************************************************************************)
@@ -210,9 +210,9 @@ struct
 
   fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
        exportTree option * (unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option =
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option =
   let (* let1 *)
 
     val compilerOutput = getCompilerOutput debugSwitches
@@ -238,13 +238,13 @@ struct
         enterFunct   = #enterFunct nameSpace
     };
 
-	(* Return the total user+system time since the start. *)
-	fun cpuTime start =
-	let
-		val {usr, sys} = Timer.checkCPUTimer start
-	in
-		usr+sys
-	end
+    (* Return the total user+system time since the start. *)
+    fun cpuTime start =
+    let
+        val {usr, sys} = Timer.checkCPUTimer start
+    in
+        usr+sys
+    end
 
     val startTime = Timer.startCPUTimer();
     
@@ -264,8 +264,8 @@ struct
     then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
        then (NONE, NONE)
        else (SOME(locSpan(startLocn, location lex), []), 
-	             SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
-			) (* Do nothing *)
+                 SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
+            ) (* Do nothing *)
     else let (* let2 *)
       (* create a "throw away" compiling environment for this topdec *)
       val newFixEnv = UTILITIES.searchList ();
@@ -284,98 +284,98 @@ struct
         else ();
         
       in (* let2 *)
-	      if errorOccurred lex
-		  then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
-		  else let (* let3 *)
-	      (* If no errors then do second pass to match identifiers
-	         and declarations and return type of expression. *)
-	      val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
-	 
-	      val pass2Time = cpuTime startTime;
-		  
-		  in (* let3 *)
-	        if errorOccurred lex
-	        then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
-	        else let (* let4 *)
-		      
-		      (* Only code-generate if there were no errors and
-		         it's not a directive. *)
-		      val optimisedCode : CODETREE.codetree =
-		        STRUCTURES.gencodeStructs (parseTree, lex);
-		      val treeTime = cpuTime startTime;
-			  
-			  in
-		        if errorOccurred lex
-		        then (* Errors can be produced during the code-generation phase. *)
-		           (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
-		        else let (* let5 *)
-				       val () =
-				         if printCodetree
-				         then compilerOutput(CODETREE.pretty optimisedCode)
-				         else ();
-				      
-				      val resultCode : unit -> CODETREE.codetree =
-				         CODETREE.genCode(optimisedCode, debugSwitches);
-				      val codeTime = cpuTime startTime;
-					  
-				      (* This is the procedure which is returned as the result of
-				         the compilation. *)
-					  fun executeCode() =
-			            let
-			                (* Save the value of the profiling switch,
-			                     and switch profiling on if required. *)
-			                val wasProfiling = profiling;
-			        
-			                val startRunTime = Timer.startCPUTimer(); (* Save the run-time *)
-			                val () = startProfile wasProfiling;
-			
-			                val resultVec = (* Now run it *)
+          if errorOccurred lex
+          then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
+          else let (* let3 *)
+          (* If no errors then do second pass to match identifiers
+             and declarations and return type of expression. *)
+          val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
+     
+          val pass2Time = cpuTime startTime;
+          
+          in (* let3 *)
+            if errorOccurred lex
+            then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
+            else let (* let4 *)
+              
+              (* Only code-generate if there were no errors and
+                 it's not a directive. *)
+              val optimisedCode : CODETREE.codetree =
+                STRUCTURES.gencodeStructs (parseTree, lex);
+              val treeTime = cpuTime startTime;
+              
+              in
+                if errorOccurred lex
+                then (* Errors can be produced during the code-generation phase. *)
+                   (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
+                else let (* let5 *)
+                       val () =
+                         if printCodetree
+                         then compilerOutput(CODETREE.pretty optimisedCode)
+                         else ();
+                      
+                      val resultCode : unit -> CODETREE.codetree =
+                         CODETREE.genCode(optimisedCode, debugSwitches);
+                      val codeTime = cpuTime startTime;
+                      
+                      (* This is the procedure which is returned as the result of
+                         the compilation. *)
+                      fun executeCode() =
+                        let
+                            (* Save the value of the profiling switch,
+                                 and switch profiling on if required. *)
+                            val wasProfiling = profiling;
+                    
+                            val startRunTime = Timer.startCPUTimer(); (* Save the run-time *)
+                            val () = startProfile wasProfiling;
+            
+                            val resultVec = (* Now run it *)
                                 (* If we were profiling or timing we have to handle the exception to turn
                                    these off even though it will mess up information about where the exception
                                    was raised. *)
                                 if wasProfiling <> 0 orelse timing
                                 then
                                 (
-			                     resultCode ()
-			                         handle exn => (* Exceptions in run-time code. *)
-			                         let
-			                             val () = stopProfile wasProfiling;
-			                             val endRunTime = cpuTime startRunTime;
-			                             (* if we are profiling, stop and force out the profile counts *)
-			                             val () = stopProfile wasProfiling;
-			                         in
-			                             (* print out timing info *)
-			                             if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
-			                             raise exn
-			                         end
+                                 resultCode ()
+                                     handle exn => (* Exceptions in run-time code. *)
+                                     let
+                                         val () = stopProfile wasProfiling;
+                                         val endRunTime = cpuTime startRunTime;
+                                         (* if we are profiling, stop and force out the profile counts *)
+                                         val () = stopProfile wasProfiling;
+                                     in
+                                         (* print out timing info *)
+                                         if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
+                                         raise exn
+                                     end
                                 )
                                 else resultCode ()
-			 
-			                val () = stopProfile wasProfiling;
-			                val endRunTime = cpuTime startRunTime;
-			                 
-			                val extractedResults = STRUCTURES.pass4Structs (resultVec, parseTree)
-			
-			            in
-			                (* print out timing info *)
-			                if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
-			    
-			                extractedResults
-			            end
-				     
-				    in
-					    (SOME(structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
-			    	end (* let5 *)
-				end (* let4 *)
-			end (* let3 *)
-		end (* let2 *)
-	end; (* let1 *)
+             
+                            val () = stopProfile wasProfiling;
+                            val endRunTime = cpuTime startRunTime;
+                             
+                            val extractedResults = STRUCTURES.pass4Structs (resultVec, parseTree)
+            
+                        in
+                            (* print out timing info *)
+                            if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
+                
+                            extractedResults
+                        end
+                     
+                    in
+                        (SOME(structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
+                    end (* let5 *)
+                end (* let4 *)
+            end (* let3 *)
+        end (* let2 *)
+    end; (* let1 *)
 
     fun compiler (nameSpace: nameSpace, getChar: unit->char option, parameters: Universal.universal list) : 
-	   exportTree option * (unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option =
+       exportTree option * (unit ->
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option =
     let
         val debugSwitches = parameters 
         val lex = LEX.initial(getChar, debugSwitches);
@@ -392,27 +392,27 @@ struct
       handle
         SML90.Interrupt =>
         (
-		  printReport ("Compilation interrupted\n");
+          printReport ("Compilation interrupted\n");
           raise SML90.Interrupt
         )
-		 
+         
       | InternalError s =>
-		let
-		  val s' =
-		  "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
-		in
-		  printReport (s' ^ "\n");
-		  raise Fail s'
-		end
+        let
+          val s' =
+          "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
+        in
+          printReport (s' ^ "\n");
+          raise Fail s'
+        end
        
       | exn =>
-     	let
-		  val s' =
-		      "Exception- " ^ General.exnName exn ^ " unexpectedly raised while compiling"
-		in
-		  printReport (s' ^ "\n");
-		  raise Fail s'
-		end
+        let
+          val s' =
+              "Exception- " ^ General.exnName exn ^ " unexpectedly raised while compiling"
+        in
+          printReport (s' ^ "\n");
+          raise Fail s'
+        end
     end
 
 end; (* struct *)

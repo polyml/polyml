@@ -139,7 +139,7 @@ struct
                     let
                         val copiedEquiv =
                             copyType(equiv, fn x => x,
-        		                fn tcon =>
+                                fn tcon =>
                                     copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
                         val copiedId =
                             TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}

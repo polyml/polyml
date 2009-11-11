@@ -3,4 +3,4 @@
 (* Actually that appears to have been an error, so this is now in the
    Invalid directory. *)
 fun f x =
-	let datatype t = A of 'a val b = A x val A c = b in c end;
+    let datatype t = A of 'a val b = A x val A c = b in c end;

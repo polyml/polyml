@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -148,8 +148,8 @@ struct
       if i > size name
         then ()
       else if String.str(String.sub(name, i-1)) = "." 
-	then errorMessage (lex, location,
-	       "qualified name " ^ name ^ " illegal here")
+    then errorMessage (lex, location,
+           "qualified name " ^ name ^ " illegal here")
       else check (i + 1)
   in
     check 1
@@ -167,16 +167,16 @@ struct
     local    
       fun member (_, [] : ('a * 'b) list) = false
       |   member (x, h::t) = same (#1 h, x) orelse member (x, t);
-	
+    
       fun delete (_, [] : ('a * 'b) list) = []
       |   delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t);
-    in	
+    in  
       fun enter (entry as (a: 'a, _: 'b)) : unit =
       let
-	val list    = !table;
-	val newList = if member (a, list) then delete (a, list) else list;
+    val list    = !table;
+    val newList = if member (a, list) then delete (a, list) else list;
       in
-	table := entry :: newList
+    table := entry :: newList
       end;
     end;
 
@@ -202,12 +202,12 @@ struct
      Returns the string split at the last ".". The first part is empty
      if there are no dots in it. *)
    let
-   	  val (first, second) = Substring.splitr(fn c => c <> #".") (Substring.full s)
+      val (first, second) = Substring.splitr(fn c => c <> #".") (Substring.full s)
    in
-   	  if Substring.isEmpty first
-	  then {first  = "", second = s}
-	  else {first  = Substring.string(Substring.trimr 1 first),
-	  	    second = Substring.string second }
+      if Substring.isEmpty first
+      then {first  = "", second = s}
+      else {first  = Substring.string(Substring.trimr 1 first),
+            second = Substring.string second }
    end
 
     structure Sharing =

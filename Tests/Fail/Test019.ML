@@ -8,12 +8,12 @@ structure S:
    end =
    struct
       val make: unit -> 'a option -> 'a option =
-	 fn () =>
-	 let
-	    val r: 'a option ref = ref NONE
-	 in
-	    fn z => (!r before (r := z))
-	 end
+     fn () =>
+     let
+        val r: 'a option ref = ref NONE
+     in
+        fn z => (!r before (r := z))
+     end
       val f = make ()
    end
 

@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 structure Misc :
@@ -88,28 +88,28 @@ struct
   end;
 
 
-	(* Convert a string, recognising and converting escape codes.  This is
-	   installed as the initial string conversion function and replaced
-	   when the String structure is compiled.
-	   We can't use fromString because it stops on invalid input and
-	   returns as much as it can rather than raising an exception. *)
-	fun unescapeString(s: string) : string =
-		let
-		val len = size s
-		fun rdr i =
-			if i = len then NONE
-			else SOME(String.sub(s, i), i+1)
-		(* Repeatedly convert escape sequences and accumulate the
-		   results in a list. *)
-		fun convChars i =
-			if i = len then [] (* Finished *)
-			else case Char.scan rdr i of
-				NONE => (* Bad conversion *)
-					raise Conversion "Invalid string constant"
-			  | SOME(res, j) => res :: convChars j
-		in
-			String.implode(convChars 0)
-		end
+    (* Convert a string, recognising and converting escape codes.  This is
+       installed as the initial string conversion function and replaced
+       when the String structure is compiled.
+       We can't use fromString because it stops on invalid input and
+       returns as much as it can rather than raising an exception. *)
+    fun unescapeString(s: string) : string =
+        let
+        val len = size s
+        fun rdr i =
+            if i = len then NONE
+            else SOME(String.sub(s, i), i+1)
+        (* Repeatedly convert escape sequences and accumulate the
+           results in a list. *)
+        fun convChars i =
+            if i = len then [] (* Finished *)
+            else case Char.scan rdr i of
+                NONE => (* Bad conversion *)
+                    raise Conversion "Invalid string constant"
+              | SOME(res, j) => res :: convChars j
+        in
+            String.implode(convChars 0)
+        end
   
   fun forsucc succ (op <=) =
   let
@@ -120,8 +120,8 @@ struct
   end;
 
   datatype 'a iter = Iter of { continue: bool,
-			       value:    unit -> 'a,
-			       next:     unit -> 'a iter };
+                   value:    unit -> 'a,
+                   next:     unit -> 'a iter };
   
   fun Continue (Iter {continue,...}) = continue;
   fun Value    (Iter {value,...})    = value();
@@ -130,17 +130,17 @@ struct
   fun iterList i = if Continue i then Value i :: iterList (Next i) else [];
   
   fun first condition (* The condition to search for *)
-	    thenpart  (* Executed if found *)
-	    elsepart  (* Executed if not *) =
+        thenpart  (* Executed if found *)
+        elsepart  (* Executed if not *) =
   let
     fun search i = if Continue i
-		   then
-		     let
-		       val v = Value i;
-		     in
-		       if condition v then thenpart v else search (Next i)
-		     end
-		   else elsepart()
+           then
+             let
+               val v = Value i;
+             in
+               if condition v then thenpart v else search (Next i)
+             end
+           else elsepart()
   in
     search
   end;
@@ -150,15 +150,15 @@ struct
   fun mapIterator     f   i = map     f   (iterList i);
   (*fun revfoldIterator f x i = revfold f x (iterList i);*)
   fun revfoldIterator f x i =
-  	if Continue i
-	then revfoldIterator f (f (Value i) x) (Next i)
-	else x
+    if Continue i
+    then revfoldIterator f (f (Value i) x) (Next i)
+    else x
   
   fun upto start finish =
   let
     fun succ n = Iter { continue = n <= finish,
-			next     = fn () => succ (n+1),
-			value    = fn () => n };
+            next     = fn () => succ (n+1),
+            value    = fn () => n };
   in
     succ start
   end;
@@ -166,8 +166,8 @@ struct
   fun downto start finish =
   let
     fun pred n = Iter { continue = n >= finish,
-			next     = fn () => pred (n-1),
-			value    = fn () => n };
+            next     = fn () => pred (n-1),
+            value    = fn () => n };
   in
     pred start
   end;

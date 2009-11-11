@@ -4,9 +4,9 @@
 
 let
 fun eqforfun (x: int->int, y: int->int) =
-	case ({a=1,b=x}, {a=1,b=y}) of
-		(xx as {a=1,...}, yy as {a=1, ...}) => xx = yy
-	  | _ => false
+    case ({a=1,b=x}, {a=1,b=y}) of
+        (xx as {a=1,...}, yy as {a=1, ...}) => xx = yy
+      | _ => false
 in
 eqforfun(fn x=>x, fn x=>x)
 end;

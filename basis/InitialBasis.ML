@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -133,7 +133,7 @@ infix  0  before
   fun it (x: real): real = if x >= 0.0 then x else ~ x;
   RunCall.addOverload it "abs";
   local
-  	val zero: word = RunCall.unsafeCast 0
+    val zero: word = RunCall.unsafeCast 0
   in
     fun it x = if x >= zero then x else ~ x
   end;
@@ -143,47 +143,47 @@ infix  0  before
   val it: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real;
   RunCall.addOverload it "/";
   
-	local
-	  infix 7 quot
-	  val op quot: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_adiv;
-	in
-	  fun it (x, y) =
-	  let
-	    (* If the signs differ the normal quot operation will give the wrong
-	       answer. We have to round the result down by subtracting either y-1 or
-	       y+1. This will round down because it will have the opposite sign to x *)
-	    
-	(* ...
-	    val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
-	... *)
-	    val xpos = x >= 0;
-	    val ypos = y >= 0;
-	
-	    val d =
-	      if xpos = ypos 
-	        then x
-	      else if ypos
-	        then (x - (y - 1))
-	        else (x - (y + 1))
-	  in
-	    d quot y (* may raise Div for divide-by-zero *)
-	  end;
-	end;
+    local
+      infix 7 quot
+      val op quot: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_adiv;
+    in
+      fun it (x, y) =
+      let
+        (* If the signs differ the normal quot operation will give the wrong
+           answer. We have to round the result down by subtracting either y-1 or
+           y+1. This will round down because it will have the opposite sign to x *)
+        
+    (* ...
+        val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
+    ... *)
+        val xpos = x >= 0;
+        val ypos = y >= 0;
+    
+        val d =
+          if xpos = ypos 
+            then x
+          else if ypos
+            then (x - (y - 1))
+            else (x - (y + 1))
+      in
+        d quot y (* may raise Div for divide-by-zero *)
+      end;
+    end;
   RunCall.addOverload it "div";
  
-	local
-	  infix 7 rem
-	  val op rem:  int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amod;
-	in
-	  fun it(x, y) =
-	  let
-	    val r = (x rem y) (* must handle divide-by-zero *)
-	      (* handle Div => raise Mod; *)
-	  in
-	    if r = 0 orelse (y >= 0) = (r >= 0) then r else r + y
-	  end;
-	
-	end;
+    local
+      infix 7 rem
+      val op rem:  int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amod;
+    in
+      fun it(x, y) =
+      let
+        val r = (x rem y) (* must handle divide-by-zero *)
+          (* handle Div => raise Mod; *)
+      in
+        if r = 0 orelse (y >= 0) = (r >= 0) then r else r + y
+      end;
+    
+    end;
   RunCall.addOverload it "mod";
 
   val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word;
@@ -191,8 +191,8 @@ infix  0  before
   val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word;
   RunCall.addOverload it "mod";
 
-	(* We need to use the same identifier for this that we used when
-	   compiling the compiler, particularly "make". *)
+    (* We need to use the same identifier for this that we used when
+       compiling the compiler, particularly "make". *)
     exception Fail = RunCall.Fail
 
 (* A few useful functions which are in the top-level environment.
@@ -205,7 +205,7 @@ infix  0  before
    fun size (s: string): int = if isShort s then 1 else POLY_SYS_get_string_length s;
    The advantage would be that the . *)
 val size : string -> int =
-	  RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
+      RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
 
 val str: char ->string = RunCall.unsafeCast;
 val ord: char -> int = RunCall.unsafeCast;
@@ -213,67 +213,67 @@ val not: bool -> bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_not_bool;
 val use: string -> unit = Bootstrap.use; (* This will be replaced. *)
 
 local
-	val System_setw: (* 'a ref*int*'a*) word*int*word ->unit  =
-			RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word
+    val System_setw: (* 'a ref*int*'a*) word*int*word ->unit  =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word
 in
-	fun (var: 'a ref) := (v: 'a) : unit =
-			(RunCall.unsafeCast System_setw (var, 0, v); ())
+    fun (var: 'a ref) := (v: 'a) : unit =
+            (RunCall.unsafeCast System_setw (var, 0, v); ())
 end;
 
 (* The following version of "o" currently gets optimised better. *)
 fun (f o g) = fn x => f (g x); (* functional composition *)
 
 fun length l =
-	let
-	(* Tail-recursive function. *)
-	fun len [] i = i
-	 |  len (_::l) i = len l (i+1)
-	in
-	len l 0
-	end
+    let
+    (* Tail-recursive function. *)
+    fun len [] i = i
+     |  len (_::l) i = len l (i+1)
+    in
+    len l 0
+    end
 
 local
-	(* Temporary conversion function for characters. This is replaced in
-	   the Char structure. *)
-	open RuntimeCalls;
+    (* Temporary conversion function for characters. This is replaced in
+       the Char structure. *)
+    open RuntimeCalls;
 
-	val isShortString   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
+    val isShortString   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
-	fun convChar (s: string) : char =
-	let
-		val convS = Bootstrap.convString s
-	in
-		(* Should be exactly a single character i.e. a single short value. *)
-		if isShortString convS then RunCall.unsafeCast convS
-		else raise RunCall.Conversion "Bad character"
-	end;
+    fun convChar (s: string) : char =
+    let
+        val convS = Bootstrap.convString s
+    in
+        (* Should be exactly a single character i.e. a single short value. *)
+        if isShortString convS then RunCall.unsafeCast convS
+        else raise RunCall.Conversion "Bad character"
+    end;
 
 in
-	val it = RunCall.addOverload convChar "convChar";
+    val it = RunCall.addOverload convChar "convChar";
 end;
 
 (* Print functions.  Some of these are replaced by functions in the Basis library and
    are installed here merely so that we can get useful output if we get a failure while
    compiling it. *)
 local
-	open RuntimeCalls PolyML
+    open RuntimeCalls PolyML
 
-	fun print_bool _ _ (b: bool) =
-		PrettyString(if b then "true" else "false")
+    fun print_bool _ _ (b: bool) =
+        PrettyString(if b then "true" else "false")
 
-	fun print_string _ _ (s: string) = PrettyString s (* Not escaped at the moment. *)
+    fun print_string _ _ (s: string) = PrettyString s (* Not escaped at the moment. *)
 
-	fun print_char _ _ (c: char) =
-		PrettyBlock (0, false, [], [PrettyString "#", PrettyString(RunCall.unsafeCast c)])
+    fun print_char _ _ (c: char) =
+        PrettyBlock (0, false, [], [PrettyString "#", PrettyString(RunCall.unsafeCast c)])
 
-	fun print_list depth printEl (l: 'a list) =
-		let
-		(* Print the list as [<elem>, <elem>, etc ]. Replace the
-		   rest of the list by ... once the depth reaches zero. *)
-	      fun plist [] _ = []
-	       |  plist _ 0 = [PrettyString "..."]
-		   |  plist [h]    depth = [printEl (h, depth)]
-		   |  plist (h::t) depth =
+    fun print_list depth printEl (l: 'a list) =
+        let
+        (* Print the list as [<elem>, <elem>, etc ]. Replace the
+           rest of the list by ... once the depth reaches zero. *)
+          fun plist [] _ = []
+           |  plist _ 0 = [PrettyString "..."]
+           |  plist [h]    depth = [printEl (h, depth)]
+           |  plist (h::t) depth =
                     printEl (h, depth) ::
                     PrettyString "," ::
                     PrettyBreak (1, 0) ::
@@ -281,14 +281,14 @@ local
                     
           fun nil @ y = y (* This is redefined later. *)
           |  (a::b) @ y = a :: (b @ y)
-	    in
-	      PrettyBlock (1, false, [], (* Wrap this in a begin-end block to keep it together. *)
+        in
+          PrettyBlock (1, false, [], (* Wrap this in a begin-end block to keep it together. *)
             PrettyString "[" ::
-    	        ((if depth <= 0 then [PrettyString "..."] else plist l depth) @
-    	        [PrettyString "]"]
+                ((if depth <= 0 then [PrettyString "..."] else plist l depth) @
+                [PrettyString "]"]
                 )
             )
-	    end
+        end
 
     (* If we have an expression as the argument we parenthesise it unless it is
        a simple string, a tuple, a record or a list. *)
@@ -304,9 +304,9 @@ local
         PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth)) ])
 
 in
-  	val () = addPrettyPrinter print_bool;
-  	val () = addPrettyPrinter print_string;
-  	val () = addPrettyPrinter print_char;
-  	val () = addPrettyPrinter print_list
-  	val () = addPrettyPrinter print_ref
+    val () = addPrettyPrinter print_bool;
+    val () = addPrettyPrinter print_string;
+    val () = addPrettyPrinter print_char;
+    val () = addPrettyPrinter print_list
+    val () = addPrettyPrinter print_ref
 end;

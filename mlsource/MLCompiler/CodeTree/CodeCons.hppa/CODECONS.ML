@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* This module contains the code vector and operations to insert code into
@@ -75,8 +75,8 @@ have a maximum of 2 entry points:
   (2) L3/L4 Self-call entry point - doesn't change regCode
 
 L1, L2: 
-        ADDIL	L%<code-size>,regCode
-        LDO	R%<code-size>(%r1),regCode
+        ADDIL   L%<code-size>,regCode
+        LDO R%<code-size>(%r1),regCode
 L3, L4: 
         <stack-check code>
 
@@ -88,33 +88,33 @@ Calling a Function
 We make the global assumption that we are running in the segment addressed by %sr0.
 
 Call:
-	BLE	0(%sr0,regCode)
-	DEPI	2,32,2,regReturn	(* tag return address *)
+    BLE 0(%sr0,regCode)
+    DEPI    2,32,2,regReturn    (* tag return address *)
 
 Self-call:
-	BL	L3,%regReturn
-	DEPI	2,32,2,regReturn	(* tag return address *)
+    BL  L3,%regReturn
+    DEPI    2,32,2,regReturn    (* tag return address *)
 
 Tail-call:
-	BV	%r0(regCode)
-	COPY	returnReg,regReturn	(* If returnReg <> regReturn *)
+    BV  %r0(regCode)
+    COPY    returnReg,regReturn (* If returnReg <> regReturn *)
 
 Self-tail-call:
-	MOVB	returnReg,regReturn,L4  (* If branch is less than 2^11 words *)
-	NOP
+    MOVB    returnReg,regReturn,L4  (* If branch is less than 2^11 words *)
+    NOP
 or
-        ADDIL	L%(L4-L1)-<code-size>,regCode (* If we have a long branch *)
-        LDO	R%(L4-L1)-<code-size>(%r1),%r1
-	BV	%r0(%r1)
-	COPY	returnReg,regReturn
+        ADDIL   L%(L4-L1)-<code-size>,regCode (* If we have a long branch *)
+        LDO R%(L4-L1)-<code-size>(%r1),%r1
+    BV  %r0(%r1)
+    COPY    returnReg,regReturn
 
 Note that generating a "long" self-call implies we're going to need a "long" function
 prelude.
 
 Return:
-	LDO	-2(returnReg),%rt1  (* N.B. not regReturn *)
-	BV	%r0(%rt1)
-	NOP
+    LDO -2(returnReg),%rt1  (* N.B. not regReturn *)
+    BV  %r0(%rt1)
+    NOP
 
 *)
 
@@ -1256,12 +1256,12 @@ struct
     case h of
       COMB (cond : condition, nullify : bool, r1 : reg, r2 : reg, lab : label) =>
       let
-	val isShortForwardJump : bool =
-	  case lab of
-	    Label (ref (Some target)) => 
-	      isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
-	  | _ => 
-	      false;
+    val isShortForwardJump : bool =
+      case lab of
+        Label (ref (Some target)) => 
+          isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
+      | _ => 
+          false;
       in
         if isShortForwardJump
         then revExpandOnto (here wordAddrPlus ~1, t, h :: l)
@@ -1278,12 +1278,12 @@ struct
     
     | COMIB (cond : condition, nullify : bool, imm : int5, r : reg, lab : label) =>
       let
-	val isShortForwardJump : bool =
-	  case lab of
-	    Label (ref (Some target)) => 
-	      isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
-	  | _ => 
-	      false;
+    val isShortForwardJump : bool =
+      case lab of
+        Label (ref (Some target)) => 
+          isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
+      | _ => 
+          false;
       in
         if isShortForwardJump
         then revExpandOnto (here wordAddrPlus ~1, t, h :: l)
@@ -1300,56 +1300,56 @@ struct
         
     | ARBCOMB (cond : condition, r1 : reg, r2 : reg, lab : label) => 
       let
-	val TESTTAGS : reg * reg -> instruction = 
-	  if isEqTest cond then TESTTAG1 else TESTTAG2;
-	  
-	val isShortForwardJump : bool =
-	  case lab of
-	    Label (ref (Some target)) => 
-	      isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
-	  | _ => 
-	      false;
+    val TESTTAGS : reg * reg -> instruction = 
+      if isEqTest cond then TESTTAG1 else TESTTAG2;
+      
+    val isShortForwardJump : bool =
+      case lab of
+        Label (ref (Some target)) => 
+          isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
+      | _ => 
+          false;
       in
         if isShortForwardJump
         then 
-	  revExpandOnto (here wordAddrPlus ~3, t, 
-	    TESTTAGS (r1, r2) ::
-	    UNTAGCHECK (regZero, regZero) :: 
-	    COMB (cond, true, r1, r2, lab) ::
-	    l)
+      revExpandOnto (here wordAddrPlus ~3, t, 
+        TESTTAGS (r1, r2) ::
+        UNTAGCHECK (regZero, regZero) :: 
+        COMB (cond, true, r1, r2, lab) ::
+        l)
         else let
           val newLab : label = Label (ref (Some here));
         in
           revExpandOnto (here wordAddrPlus ~4, t,
-	    TESTTAGS (r1, r2) ::
-	    UNTAGCHECK (regZero, regZero) :: 
-	    COMB (invert cond, true, r1, r2, newLab) ::
+        TESTTAGS (r1, r2) ::
+        UNTAGCHECK (regZero, regZero) :: 
+        COMB (invert cond, true, r1, r2, newLab) ::
             BRANCH (true, lab) ::
             JUMPTARGET [newLab] ::
-	    l)
+        l)
         end
       end
     
     | ARBCOMBAUX (cond : condition, r1 : reg, r2 : reg, lab : label) =>
       let
-	val isShortForwardJump : bool =
-	  case lab of
-	    Label (ref (Some target)) => 
-	      isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
-	  | _ => 
-	      false;
+    val isShortForwardJump : bool =
+      case lab of
+        Label (ref (Some target)) => 
+          isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
+      | _ => 
+          false;
       in
         if isShortForwardJump
         then 
-	  revExpandOnto (here wordAddrPlus ~2, t, 
-	    UNTAGCHECK (r2, regZero) ::
-	    COMB (cond, true, r1, r2, lab) :: 
-	    l)
+      revExpandOnto (here wordAddrPlus ~2, t, 
+        UNTAGCHECK (r2, regZero) ::
+        COMB (cond, true, r1, r2, lab) :: 
+        l)
         else let
           val newLab : label = Label (ref (Some here));
         in
           revExpandOnto (here wordAddrPlus ~3, t,
-	    UNTAGCHECK (r2, regZero) ::
+        UNTAGCHECK (r2, regZero) ::
             COMB (invert cond, true, r1, r2, newLab) ::
             BRANCH (true, lab) ::
             JUMPTARGET [newLab] ::
@@ -1359,31 +1359,31 @@ struct
  
     | ARBCOMIB (cond : condition, imm : int5, r : reg, lab : label) =>
       let
-	val isShortForwardJump : bool =
-	  case lab of
-	    Label (ref (Some target)) => 
-	      isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
-	  | _ => 
-	      false;
+    val isShortForwardJump : bool =
+      case lab of
+        Label (ref (Some target)) => 
+          isPositive12Bit (target wordAddrMinus (here wordAddrPlus 1))
+      | _ => 
+          false;
       in
         if isShortForwardJump
         then 
-	  revExpandOnto (here wordAddrPlus ~2, t, 
-	    UNTAGCHECK (r, regZero) ::
-	    COMIB (cond, true, imm, r, lab) :: 
-	    l)
+      revExpandOnto (here wordAddrPlus ~2, t, 
+        UNTAGCHECK (r, regZero) ::
+        COMIB (cond, true, imm, r, lab) :: 
+        l)
         else let
           val newLab : label = Label (ref (Some here));
         in
           revExpandOnto (here wordAddrPlus ~3, t,
-	    UNTAGCHECK (r, regZero) ::
+        UNTAGCHECK (r, regZero) ::
             COMIB (invert cond, true, imm, r, newLab) ::
             BRANCH (true, lab) ::
             JUMPTARGET [newLab] ::
             l)
         end
       end
-	  
+      
     | JUMPTARGET labs => 
       let
         val U : unit = applyList (fixupLabel here, labs);
@@ -1415,164 +1415,164 @@ struct
   fun reprInstruction (segStartAddr : addrs, instr : instruction) : string =
     case instr of
       COPY (r1 : reg, rt : reg) =>
-	implode ["COPY (", regRepr r1, ", ", regRepr rt, ")"]
+    implode ["COPY (", regRepr r1, ", ", regRepr rt, ")"]
     
     | AND (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["AND (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["AND (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | OR (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["OR (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["OR (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | XOR (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["XOR (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["XOR (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | TESTTAG1 (r1 : reg, r2 : reg) => 
-	implode ["TESTTAG1 (", regRepr r1, ", ", regRepr r2, ")"]
+    implode ["TESTTAG1 (", regRepr r1, ", ", regRepr r2, ")"]
    
     | TESTTAG2  (r1 : reg, r2 : reg) => (* AND,OD r1,r2,%r0 *) 
-	implode ["TESTTAG2 (", regRepr r1, ", ", regRepr r2, ")"]
+    implode ["TESTTAG2 (", regRepr r1, ", ", regRepr r2, ")"]
 
     | ADDO (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["ADDO (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["ADDO (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | ADDL (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["ADDL (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["ADDL (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | SUB (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["SUB (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["SUB (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | ARBSUB (r1 : reg, r2 : reg, rt : reg) =>
-	implode ["ARBSUB (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
+    implode ["ARBSUB (", regRepr r1, ", ", regRepr r2, ", ", regRepr rt, ")"]
     
     | STACKCHECK (r1 : reg) =>
-	implode ["STACKCHECK (", regRepr r1, ")"]
+    implode ["STACKCHECK (", regRepr r1, ")"]
     
     | HEAPCHECK (r1 : reg) =>
-	implode ["HEAPCHECK (", regRepr r1, ")"]
+    implode ["HEAPCHECK (", regRepr r1, ")"]
 
     | ARBADDI (imm : int11, r1 : reg, rt : reg) =>
-	implode ["ARBADDI (", Int.toString (getInt11 imm), ", ",  regRepr r1, ", ", regRepr rt, ")"]
+    implode ["ARBADDI (", Int.toString (getInt11 imm), ", ",  regRepr r1, ", ", regRepr rt, ")"]
     
     | UNTAGCHECK (r1 : reg, rt : reg) => (* ADDIT,OD  -1,rs,rd *)
-	implode ["UNTAGCHECK (", regRepr r1, ", ", regRepr rt, ")"]
+    implode ["UNTAGCHECK (", regRepr r1, ", ", regRepr rt, ")"]
     
     | HEAPCHECKI (imm : int11) => (* ADDIT,<  n,%rhl,%rhl *)
-	implode ["HEAPCHECKI (", Int.toString (getInt11 imm), ")"]
+    implode ["HEAPCHECKI (", Int.toString (getInt11 imm), ")"]
 
     | LSHR (sh : nat5, r1 : reg, rt : reg) =>
-	implode ["LSHR (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
+    implode ["LSHR (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
     
     | ASHR (sh : nat5, r1 : reg, rt : reg) => (* EXTRS r,31-n,32-n,t *)
-	implode ["ASHR (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
+    implode ["ASHR (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
     
     | SHL (sh : nat5, r1 : reg, rt : reg) => (* ZDEP  r,31-n,32-n,t *)
-	implode ["SHL (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
+    implode ["SHL (", Int.toString (getNat5 sh), ", ", regRepr r1, ", ", regRepr rt, ")"]
 
     | TAGCODEREG (imm : int5, r : reg) =>
-	implode ["TAGCODEREG (", Int.toString (getInt5 imm), ", ", regRepr r, ")"]
+    implode ["TAGCODEREG (", Int.toString (getInt5 imm), ", ", regRepr r, ")"]
 
     | ADDIL (imm : int21, r : reg) =>
-	implode ["ADDIL (", Int.toString (getInt21 imm), ", ", regRepr r, ")"]
+    implode ["ADDIL (", Int.toString (getInt21 imm), ", ", regRepr r, ")"]
 
     | LDO (imm : int14, rb : reg, rt : reg) =>
-	implode ["LDO (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
+    implode ["LDO (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
 
     | LDB (imm : int14, rb : reg, rt : reg) =>
-	implode ["LDB (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
+    implode ["LDB (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
 
     | LDW (imm : int14, rb : reg, rt : reg) =>
-	implode ["LDW (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
+    implode ["LDW (", Int.toString (getInt14 imm), ", ",  regRepr rb, ", ", regRepr rt, ")"]
 
     | STB (rs : reg, imm : int14, rb : reg) =>
-	implode ["STB (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
+    implode ["STB (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
 
     | STW (rs : reg, imm : int14, rb : reg) =>
-	implode ["STW (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
+    implode ["STW (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
 
     | STWM (rs : reg, imm : int14, rb : reg) =>
-	implode ["STWM (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
+    implode ["STWM (", regRepr rs, ", ", Int.toString (getInt14 imm), ", ",  regRepr rb, ")"]
 
     | LOADCONST (constNum : int, rb : reg, rt : reg) => (* LDW <4*n+offset>(b),t *)
-	implode ["LOADCONST (", Int.toString constNum, ", " ,regRepr rb, ", ",  regRepr rt, ")"]
+    implode ["LOADCONST (", Int.toString constNum, ", " ,regRepr rb, ", ",  regRepr rt, ")"]
  
     | LDBXSH (rx : reg, rb : reg, rt : reg) =>
-	implode ["LDBXSH (", regRepr rx, ", ", regRepr rb, ", ",  regRepr rt, ")"]
-	
+    implode ["LDBXSH (", regRepr rx, ", ", regRepr rb, ", ",  regRepr rt, ")"]
+    
     | LDWXSH (rx : reg, rb : reg, rt : reg) =>
-	implode ["LDWXSH (", regRepr rx, ", ", regRepr rb, ", ",  regRepr rt, ")"]
+    implode ["LDWXSH (", regRepr rx, ", ", regRepr rb, ", ",  regRepr rt, ")"]
     
     | BRANCH (nullify : bool, Label (ref None)) =>
-	implode ["BRANCH (", reprBool nullify, ", ???label???)"]
+    implode ["BRANCH (", reprBool nullify, ", ???label???)"]
 
     | BRANCH (nullify : bool, Label (ref (Some targetAddr))) =>
       let
-	val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
+    val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["BRANCH (", reprBool nullify, ", ", Int.toString byteAddr, ")"]
+    implode ["BRANCH (", reprBool nullify, ", ", Int.toString byteAddr, ")"]
       end
     
     | JUMPREG (nullify : bool, r : reg) => 
-	implode ["JUMPREG (", reprBool nullify, ", ", regRepr r, ")"]
+    implode ["JUMPREG (", reprBool nullify, ", ", regRepr r, ")"]
     
     | JUMPSELF (nullify : bool) =>
-	implode ["JUMPSELF (", reprBool nullify, ")"]
+    implode ["JUMPSELF (", reprBool nullify, ")"]
     
     | LOADCODEADDR (r : reg) =>
-	implode ["LOADCODEADDR (", regRepr r, ")"]
+    implode ["LOADCODEADDR (", regRepr r, ")"]
 
     | BYTEOFFSET (tableAddr : addrs, Label (ref None)) =>
       let
-	val tableOffset  : int = tableAddr  byteAddrMinus segStartAddr;
+    val tableOffset  : int = tableAddr  byteAddrMinus segStartAddr;
       in
-	implode ["BYTEOFFSET (", Int.toString tableOffset, ", ???label???)"]
+    implode ["BYTEOFFSET (", Int.toString tableOffset, ", ???label???)"]
       end
       
     | BYTEOFFSET (tableAddr : addrs, Label (ref (Some targetAddr))) =>
       let
-	val tableOffset  : int = tableAddr  byteAddrMinus segStartAddr;
-	val targetOffset : int = targetAddr byteAddrMinus segStartAddr;
+    val tableOffset  : int = tableAddr  byteAddrMinus segStartAddr;
+    val targetOffset : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["BYTEOFFSET (", Int.toString tableOffset, ", ", Int.toString targetOffset, ")"]
+    implode ["BYTEOFFSET (", Int.toString tableOffset, ", ", Int.toString targetOffset, ")"]
       end
 
     | CALLREG (r : reg) =>
-	implode ["CALLREG (", regRepr r, ")"]
+    implode ["CALLREG (", regRepr r, ")"]
     
     | CALLSELF =>
-	"CALLSELF"
+    "CALLSELF"
     
     | COMB (cond : condition, nullify : bool, r1 : reg, r2 : reg, Label (ref None)) =>
-	implode ["COMB (", reprCond cond, ", ", reprBool nullify, ", ", 
-		 regRepr r1, ", ",  regRepr r2, ", ???label???)"]
+    implode ["COMB (", reprCond cond, ", ", reprBool nullify, ", ", 
+         regRepr r1, ", ",  regRepr r2, ", ???label???)"]
 
     | COMB (cond : condition, nullify : bool, r1 : reg, r2 : reg, Label (ref (Some targetAddr))) =>
       let
-	val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
+    val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["COMB (", reprCond cond, ", ", reprBool nullify, ", ", 
-		 regRepr r1, ", ",  regRepr r2, ", ", Int.toString byteAddr, ")"]
+    implode ["COMB (", reprCond cond, ", ", reprBool nullify, ", ", 
+         regRepr r1, ", ",  regRepr r2, ", ", Int.toString byteAddr, ")"]
       end
 
     | COMIB (cond : condition, nullify : bool, imm : int5, r : reg, Label (ref None)) =>
-	implode ["COMIB (", reprCond cond, ", ", reprBool nullify, ", ", 
-		 Int.toString (getInt5 imm) , ", ",  regRepr r, ", ???label???)"]
+    implode ["COMIB (", reprCond cond, ", ", reprBool nullify, ", ", 
+         Int.toString (getInt5 imm) , ", ",  regRepr r, ", ???label???)"]
 
     | COMIB (cond : condition, nullify : bool, imm : int5, r : reg, Label (ref (Some targetAddr))) =>
       let
-	val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
+    val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["COMIB (", reprCond cond, ", ", reprBool nullify, ", ", 
-		 Int.toString (getInt5 imm) , ", ",  regRepr r, ", ", Int.toString byteAddr, ")"]
+    implode ["COMIB (", reprCond cond, ", ", reprBool nullify, ", ", 
+         Int.toString (getInt5 imm) , ", ",  regRepr r, ", ", Int.toString byteAddr, ")"]
       end
       
     | ARBCOMB (cond : condition, r1 : reg, r2 : reg, _) =>
-	implode ["ARBCOMB (", reprCond cond, ", ", regRepr r1, ", ",  regRepr r2, ", ???)"]
+    implode ["ARBCOMB (", reprCond cond, ", ", regRepr r1, ", ",  regRepr r2, ", ???)"]
 
     | ARBCOMBAUX (cond : condition, r1 : reg, r2 : reg, _) =>
-	implode ["ARBCOMBAUX (", reprCond cond, ", ", regRepr r1, ", ",  regRepr r2, ", ???)"]
+    implode ["ARBCOMBAUX (", reprCond cond, ", ", regRepr r1, ", ",  regRepr r2, ", ???)"]
 
     | ARBCOMIB (cond : condition, imm : int5, r : reg, _) =>
-	implode ["ARBCOMIB (", reprCond cond, ", ",  Int.toString (getInt5 imm) , ", ",  regRepr r, ", ???)"]
+    implode ["ARBCOMIB (", reprCond cond, ", ",  Int.toString (getInt5 imm) , ", ",  regRepr r, ", ???)"]
 
     | JUMPTARGET labs =>
         implode ["JUMPTARGET (", Int.toString (length labs), ")"]
@@ -1582,27 +1582,27 @@ struct
 
 (* ...
     | MOVBTR (nullify : bool, r1 : reg, rt : reg, Label (ref None)) =>
-	implode ["MOVBTR (", reprBool nullify, ", ", 
-		 regRepr r1, ", ",  regRepr rt, ", ???label???)"]
+    implode ["MOVBTR (", reprBool nullify, ", ", 
+         regRepr r1, ", ",  regRepr rt, ", ???label???)"]
 
     | MOVBTR (nullify : bool, r1 : reg, rt : reg, Label (ref (Some targetAddr))) =>
       let
-	val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
+    val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["MOVBTR (", reprBool nullify, ", ", 
-		 regRepr r1, ", ",  regRepr rt, ", ", Int.toString byteAddr, ")"]
+    implode ["MOVBTR (", reprBool nullify, ", ", 
+         regRepr r1, ", ",  regRepr rt, ", ", Int.toString byteAddr, ")"]
       end
 
     | MOVIBTR (nullify : bool, imm : int5, rt : reg, Label (ref None)) =>
-	implode ["MOVIBTR (", reprBool nullify, ", ", 
-		 Int.toString (getInt5 imm) , ", ",  regRepr rt, ", ???label???)"]
+    implode ["MOVIBTR (", reprBool nullify, ", ", 
+         Int.toString (getInt5 imm) , ", ",  regRepr rt, ", ???label???)"]
 
     | MOVIBTR (nullify : bool, imm : int5, rt : reg, Label (ref (Some targetAddr))) =>
       let
-	val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
+    val byteAddr : int = targetAddr byteAddrMinus segStartAddr;
       in
-	implode ["MOVIBTR (", reprBool nullify, ", ", 
-		 Int.toString (getInt5 imm) , ", ",  regRepr rt, ", ", Int.toString byteAddr, ")"]
+    implode ["MOVIBTR (", reprBool nullify, ", ", 
+         Int.toString (getInt5 imm) , ", ",  regRepr rt, ", ", Int.toString byteAddr, ")"]
       end;
 ... *)
 
@@ -1646,7 +1646,7 @@ struct
        imm : int11, r1 : reg, rt : reg, cf : short) : quad =
     let
       (* The only tricky part is that the sign bit of the immediate
-	 is stored in the LSB (not the nomal MSB) position.
+     is stored in the LSB (not the nomal MSB) position.
       *)
       val r1_short  : short = toShort (getReg r1);
       val rt_short  : short = toShort (getReg rt);
@@ -1672,8 +1672,8 @@ struct
     val DEPIop2  : short = short7;
   
     fun mkExtrDepQuad 
-	 (opcode : short, opcode2 : short, 
-	  r2 : short, r1 : short, pos : short, len : short) : quad =
+     (opcode : short, opcode2 : short, 
+      r2 : short, r1 : short, pos : short, len : short) : quad =
     let
       (* We generate the c field as zero (NEVER) *)
       val b0 : short = (opcode << short2) Or ((r2 >> short3) And mask2Bits);
@@ -1695,7 +1695,7 @@ struct
     fun mkLoadStoreQuad (opcode : short, rb : reg, rt : reg, offset : int14) : quad =
     let
       (* The only tricky part is that the sign bit of the offset
-	 is stored in the LSB (not the nomal MSB) position.
+     is stored in the LSB (not the nomal MSB) position.
       *)
       val rb_short  : short = toShort (getReg rb);
       val rt_short  : short = toShort (getReg rt);
@@ -1784,7 +1784,7 @@ struct
         cond : short, offset : int12, nullify : bool) : quad =
     let
       (* The only tricky part is that the top 2 bits of the immediate
-	 is stored in the LSB (not the normal MSB) positions.
+     is stored in the LSB (not the normal MSB) positions.
       *)
       val off_short : short = toShort (getInt12 offset);
       val n_short   : short = if nullify then short1 else short0;
@@ -1807,119 +1807,119 @@ struct
         selfCallAddr : addrs ) : quad =
       case instr of
         COPY (r1 : reg, rt : reg) =>
-	  mkALUquad (ORop2 : short, r1, regZero, rt, NEVER_short : short)
+      mkALUquad (ORop2 : short, r1, regZero, rt, NEVER_short : short)
       
       | AND (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (ANDop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (ANDop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | OR (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (ORop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (ORop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | XOR (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (XORop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (XORop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | TESTTAG1 (r1 : reg, r2 : reg) => (* OR,OD r1,r2,%r0 *) 
-	  mkALUquad (ORop2 : short, r1 : reg, r2 : reg, regZero : reg, OD_short : short)
+      mkALUquad (ORop2 : short, r1 : reg, r2 : reg, regZero : reg, OD_short : short)
      
       | TESTTAG2  (r1 : reg, r2 : reg) => (* AND,OD r1,r2,%r0 *) 
-	  mkALUquad (ANDop2 : short, r1 : reg, r2 : reg, regZero : reg, OD_short : short)
+      mkALUquad (ANDop2 : short, r1 : reg, r2 : reg, regZero : reg, OD_short : short)
   
       | ADDO (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (ADDOop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (ADDOop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | ADDL (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (ADDLop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (ADDLop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | SUB (r1 : reg, r2 : reg, rt : reg) =>
-	  mkALUquad (SUBop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
+      mkALUquad (SUBop2 : short, r1 : reg, r2 : reg, rt : reg, NEVER_short : short)
       
       | ARBSUB (r1 : reg, r2 : reg, rt : reg) => (* SUBTO,EV  r1,r2,rd *)
-	  mkALUquad (SUBTOop2 : short, r1 : reg, r2 : reg, rt : reg, EV_short : short)
+      mkALUquad (SUBTOop2 : short, r1 : reg, r2 : reg, rt : reg, EV_short : short)
       
       | STACKCHECK (r1 : reg) => (* SUBT,>>  %rsl,r,%r0 *)
-	  mkALUquad (SUBTop2 : short, regStackLim : reg, r1 : reg, regZero : reg, UGT_short : short)
+      mkALUquad (SUBTop2 : short, regStackLim : reg, r1 : reg, regZero : reg, UGT_short : short)
       
       | HEAPCHECK (r1 : reg) => (* SUBT,<  %rhl,r,%rhl *)
-	  mkALUquad (SUBTop2 : short, regHeapLim : reg, r1 : reg, regHeapLim : reg, LT_short : short)
+      mkALUquad (SUBTop2 : short, regHeapLim : reg, r1 : reg, regHeapLim : reg, LT_short : short)
   
       | ARBADDI (imm : int11, r1 : reg, rt : reg) => (* ADDITO,EV n,r1,rd  *)
-	  mkALUimmedQuad (ADDITop, true, imm, r1, rt, EV_short)
+      mkALUimmedQuad (ADDITop, true, imm, r1, rt, EV_short)
       
       | UNTAGCHECK (r1 : reg, rt : reg) => (* ADDIT,OD  -1,rs,rd *)
-	  mkALUimmedQuad (ADDITop, false, int11_minus1, r1, rt, OD_short)
+      mkALUimmedQuad (ADDITop, false, int11_minus1, r1, rt, OD_short)
       
       | HEAPCHECKI (imm : int11) => (* ADDIT,<  n,%rhl,%rhl *)
-	  mkALUimmedQuad (ADDITop, false, imm, regHeapLim, regHeapLim, LT_short)
+      mkALUimmedQuad (ADDITop, false, imm, regHeapLim, regHeapLim, LT_short)
   
   
       | LSHR (sh : nat5, r1 : reg, rt : reg) => (* EXTRU r,31-n,32-n,t *)
-	let
-	  (* p   = 31 - sh;
-	     len = 32 - sh; clen = 32 - len = sh;
-	  *)
-	  val rt_short   : short = toShort (getReg rt);
-	  val r1_short   : short = toShort (getReg r1);
-	  val sh_short   : short = toShort (getNat5 sh);
-	  val p_short    : short = toShort (31 - getNat5 sh);
-	  val clen_short : short = sh_short;
-	in
-	  mkExtrDepQuad (EXTRop, EXTRUop2, r1_short, rt_short, p_short, clen_short)
-	end
+    let
+      (* p   = 31 - sh;
+         len = 32 - sh; clen = 32 - len = sh;
+      *)
+      val rt_short   : short = toShort (getReg rt);
+      val r1_short   : short = toShort (getReg r1);
+      val sh_short   : short = toShort (getNat5 sh);
+      val p_short    : short = toShort (31 - getNat5 sh);
+      val clen_short : short = sh_short;
+    in
+      mkExtrDepQuad (EXTRop, EXTRUop2, r1_short, rt_short, p_short, clen_short)
+    end
       
       | ASHR (sh : nat5, r1 : reg, rt : reg) => (* EXTRS r,31-n,32-n,t *)
-	let
-	  (* p   = 31 - sh;
-	     len = 32 - sh; clen = 32 - len = sh;
-	  *)
-	  val rt_short   : short = toShort (getReg rt);
-	  val r1_short   : short = toShort (getReg r1);
-	  val sh_short   : short = toShort (getNat5 sh);
-	  val p_short    : short = toShort (31 - getNat5 sh);
-	  val clen_short : short = sh_short;
-	in
-	  mkExtrDepQuad (EXTRop, EXTRSop2, r1_short, rt_short, p_short, clen_short)
-	end
+    let
+      (* p   = 31 - sh;
+         len = 32 - sh; clen = 32 - len = sh;
+      *)
+      val rt_short   : short = toShort (getReg rt);
+      val r1_short   : short = toShort (getReg r1);
+      val sh_short   : short = toShort (getNat5 sh);
+      val p_short    : short = toShort (31 - getNat5 sh);
+      val clen_short : short = sh_short;
+    in
+      mkExtrDepQuad (EXTRop, EXTRSop2, r1_short, rt_short, p_short, clen_short)
+    end
       
       | SHL (sh : nat5, r1 : reg, rt : reg) => (* ZDEP  r,31-n,32-n,t *)
-	let
-	  (* p   = 31 - sh; cp   = 31 - p   = sh;
-	     len = 32 - sh; clen = 32 - len = sh;
-	  *)
-	  val rt_short   : short = toShort (getReg rt);
-	  val r1_short   : short = toShort (getReg r1);
-	  val sh_short   : short = toShort (getNat5 sh);
-	  val cp_short   : short = sh_short;
-	  val clen_short : short = sh_short;
-	in
-	  mkExtrDepQuad (DEPop, ZDEPop2, rt_short, r1_short, cp_short, clen_short)
-	end
+    let
+      (* p   = 31 - sh; cp   = 31 - p   = sh;
+         len = 32 - sh; clen = 32 - len = sh;
+      *)
+      val rt_short   : short = toShort (getReg rt);
+      val r1_short   : short = toShort (getReg r1);
+      val sh_short   : short = toShort (getNat5 sh);
+      val cp_short   : short = sh_short;
+      val clen_short : short = sh_short;
+    in
+      mkExtrDepQuad (DEPop, ZDEPop2, rt_short, r1_short, cp_short, clen_short)
+    end
   
       | TAGCODEREG (imm : int5, rt : reg) => (* DEPI  imm,31,2,rt *)
-	let
-	  (* p   = 31; cp   = 31 - p   = 0;
-	     len = 2;  clen = 32 - len = 30;
-	  *)
-	  val rt_short    : short = toShort (getReg rt);
-	  val imm5_short  : short = toShort (getInt5 imm);
-	  val imm5_rep    : short = ((imm5_short And mask4Bits) << short1) Or ((imm5_short >> short4) And mask1Bit);
-	  val cp_short    : short = short0;
-	  val clen_short  : short = short30;
-	in
-	  mkExtrDepQuad (DEPop, DEPIop2, rt_short, imm5_rep, cp_short, clen_short)
-	end
+    let
+      (* p   = 31; cp   = 31 - p   = 0;
+         len = 2;  clen = 32 - len = 30;
+      *)
+      val rt_short    : short = toShort (getReg rt);
+      val imm5_short  : short = toShort (getInt5 imm);
+      val imm5_rep    : short = ((imm5_short And mask4Bits) << short1) Or ((imm5_short >> short4) And mask1Bit);
+      val cp_short    : short = short0;
+      val clen_short  : short = short30;
+    in
+      mkExtrDepQuad (DEPop, DEPIop2, rt_short, imm5_rep, cp_short, clen_short)
+    end
 
       | ADDIL (imm : int21, r : reg) =>
-	let
-	  (* The tricky part is that the offset gets horribly munged.
-	     The following use more instructions that strictly necessary,
-	     but I value correctness over speed!
-	     SPF 20/2/97
-	  *)
-	  val opcode    : short = short10; (* 0x0A *)
-	  val r_short   : short = toShort (getReg r);
-	  val imm_short : short = toShort (getInt21 imm);
-	  
-	  val field0 : short = (imm_short >> short20) And mask1Bit;
+    let
+      (* The tricky part is that the offset gets horribly munged.
+         The following use more instructions that strictly necessary,
+         but I value correctness over speed!
+         SPF 20/2/97
+      *)
+      val opcode    : short = short10; (* 0x0A *)
+      val r_short   : short = toShort (getReg r);
+      val imm_short : short = toShort (getInt21 imm);
+      
+      val field0 : short = (imm_short >> short20) And mask1Bit;
           val field1 : short = (imm_short >> short9)  And mask11Bits;
           val field2 : short = (imm_short >> short7)  And mask2Bits;
           val field3 : short = (imm_short >> short2)  And mask5Bits;
@@ -1932,31 +1932,31 @@ struct
             (field1 << short1)  Or
              field0;
 
-	  val b0 : short = (opcode << short2) Or ((r_short >> short3) And mask2Bits);
-	  val b1 : short = ((r_short And mask3Bits) << short5) Or ((rep_short >> short16) And mask5Bits);
-	  val b2 : short = (rep_short >> short8) And mask8Bits;
-	  val b3 : short = rep_short And mask8Bits;
-	in
-	  Quad (b0, b1, b2, b3)
-	end
+      val b0 : short = (opcode << short2) Or ((r_short >> short3) And mask2Bits);
+      val b1 : short = ((r_short And mask3Bits) << short5) Or ((rep_short >> short16) And mask5Bits);
+      val b2 : short = (rep_short >> short8) And mask8Bits;
+      val b3 : short = rep_short And mask8Bits;
+    in
+      Quad (b0, b1, b2, b3)
+    end
 
       | LDO (imm : int14, rb : reg, rt : reg) =>
-	  mkLoadStoreQuad (LDOop, rb, rt, imm)
+      mkLoadStoreQuad (LDOop, rb, rt, imm)
   
       | LDB (imm : int14, rb : reg, rt : reg) =>
-	  mkLoadStoreQuad (LDBop, rb, rt, imm)
+      mkLoadStoreQuad (LDBop, rb, rt, imm)
   
       | LDW (imm : int14, rb : reg, rt : reg) =>
-	  mkLoadStoreQuad (LDWop, rb, rt, imm)
+      mkLoadStoreQuad (LDWop, rb, rt, imm)
   
       | STB (rs : reg, imm : int14, rb : reg) =>
-	  mkLoadStoreQuad (STBop, rb, rs, imm)
+      mkLoadStoreQuad (STBop, rb, rs, imm)
   
       | STW (rs : reg, imm : int14, rb : reg) =>
-	  mkLoadStoreQuad (STWop, rb, rs, imm)
+      mkLoadStoreQuad (STWop, rb, rs, imm)
   
       | STWM (rs : reg, imm : int14, rb : reg) =>
-	  mkLoadStoreQuad (STWMop, rb, rs, imm)
+      mkLoadStoreQuad (STWMop, rb, rs, imm)
   
       | LOADCONST (constNum : int, rb : reg, rt : reg) => (* LDW <4*n+offset>(b),t *)
         let
@@ -1973,13 +1973,13 @@ struct
           val imm : int = getInt14 constByteOffset + wordSize * constNum;
         in
           if is14Bit imm
-	  then mkLoadStoreQuad (LDWop, rb, rt, int14 imm)
-	  else raise InternalError 
-	               (implode ["mkQuad: LOADCONST - constant number ",
-	                         Int.toString constNum,
-	                         " requires an offset of ",
-	                         Int.toString imm,
-	                         " which is too large for a signed 14-bit field"])
+      then mkLoadStoreQuad (LDWop, rb, rt, int14 imm)
+      else raise InternalError 
+                   (implode ["mkQuad: LOADCONST - constant number ",
+                             Int.toString constNum,
+                             " requires an offset of ",
+                             Int.toString imm,
+                             " which is too large for a signed 14-bit field"])
         end
    
       | LDBXSH (rx : reg, rb : reg, rt : reg) =>
@@ -1992,30 +1992,30 @@ struct
           raise InternalError "mkQuad: BRANCH - jump has not been fixed-up"
 
       | BRANCH (nullify : bool, Label (ref (Some targetAddr))) => (* BL,? lab,regZero *)
-	let
-	  val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if is17Bit wordOffset
-	  then mkUncondBranch17Quad (BLop, BLop2, regZero, int17 wordOffset, nullify)
-	  else raise InternalError "mkQuad: BRANCH - jump exceeds 17 bit range"
-	end
+    let
+      val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if is17Bit wordOffset
+      then mkUncondBranch17Quad (BLop, BLop2, regZero, int17 wordOffset, nullify)
+      else raise InternalError "mkQuad: BRANCH - jump exceeds 17 bit range"
+    end
       
       | JUMPREG (nullify : bool, destReg : reg) => (* BV,?  regZero(destReg) *) 
           mkBVquad (regZero, destReg, nullify)
       
       | JUMPSELF (nullify : bool) => (* BL,? L4,regZero *)
-	let
-	  (* Offsets are calculated from 2 words beyond the current instruction *)
-	  val wordOffset : int = selfCallAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if is17Bit wordOffset
-	  then mkUncondBranch17Quad (BLop, BLop2, regZero, int17 wordOffset, nullify)
-	  else raise InternalError "mkQuad: JUMPSELF - jump exceeds 17 bit range"
-	end
+    let
+      (* Offsets are calculated from 2 words beyond the current instruction *)
+      val wordOffset : int = selfCallAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if is17Bit wordOffset
+      then mkUncondBranch17Quad (BLop, BLop2, regZero, int17 wordOffset, nullify)
+      else raise InternalError "mkQuad: JUMPSELF - jump exceeds 17 bit range"
+    end
       
-	(* Load the absolute address of here+2 into destReg *)
+    (* Load the absolute address of here+2 into destReg *)
       | LOADCODEADDR (destReg : reg) => (* BL,? $+2,destReg *)
-	   mkUncondBranch17Quad (BLop, BLop2, destReg, int17_0, false)
+       mkUncondBranch17Quad (BLop, BLop2, destReg, int17_0, false)
       
         (* Compute the byte offset lab - baseAddr *)
       | BYTEOFFSET (baseAddr : addrs, Label (ref None)) =>
@@ -2032,57 +2032,57 @@ struct
           mkUncondBranch17Quad (BLEop, short0 (* %sr0 *), r, int17_0, false)
       
       | CALLSELF => (* BL L3,regReturn *)
-	let
-	  (* Offsets are calculated from 2 words beyond the current instruction *)
-	  val wordOffset : int = selfCallAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if is17Bit wordOffset
-	  then mkUncondBranch17Quad (BLop, BLop2, regReturn, int17 wordOffset, false)
-	  else raise InternalError "mkQuad: CALLSELF - jump exceeds 17 bit range"
-	end
+    let
+      (* Offsets are calculated from 2 words beyond the current instruction *)
+      val wordOffset : int = selfCallAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if is17Bit wordOffset
+      then mkUncondBranch17Quad (BLop, BLop2, regReturn, int17 wordOffset, false)
+      else raise InternalError "mkQuad: CALLSELF - jump exceeds 17 bit range"
+    end
       
       | COMB (cond : condition, nullify : bool, r1 : reg, r2 : reg, Label (ref None)) =>
           raise InternalError "mkQuad: COMB - jump has not been fixed-up"
 
       | COMB (cond : condition, nullify : bool, r1 : reg, r2 : reg, Label (ref (Some targetAddr))) =>
-	let
-	  val r2_short : short = toShort(getReg r2);
-	  val r1_short : short = toShort(getReg r1);
-	  val (posCond : bool, cond_short : short) = encodeArithCond cond;
-	  val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  (* Nullification doesn't work "properly" for backwards condtional branches *)
-	  if wordOffset < 0 andalso nullify
-	  then raise InternalError "mkQuad: COMB - can't nullify backwards jump"
-	
-	  else if is12Bit wordOffset
-	    then if posCond
-	      then mkCondBranchQuad (COMBTop, r2_short, r1_short, cond_short, int12 wordOffset, nullify)
-	      else mkCondBranchQuad (COMBFop, r2_short, r1_short, cond_short, int12 wordOffset, nullify)
-	    else raise InternalError "mkQuad: COMB - jump exceeds 12 bit range"
-	end
+    let
+      val r2_short : short = toShort(getReg r2);
+      val r1_short : short = toShort(getReg r1);
+      val (posCond : bool, cond_short : short) = encodeArithCond cond;
+      val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      (* Nullification doesn't work "properly" for backwards condtional branches *)
+      if wordOffset < 0 andalso nullify
+      then raise InternalError "mkQuad: COMB - can't nullify backwards jump"
+    
+      else if is12Bit wordOffset
+        then if posCond
+          then mkCondBranchQuad (COMBTop, r2_short, r1_short, cond_short, int12 wordOffset, nullify)
+          else mkCondBranchQuad (COMBFop, r2_short, r1_short, cond_short, int12 wordOffset, nullify)
+        else raise InternalError "mkQuad: COMB - jump exceeds 12 bit range"
+    end
 
       | COMIB (cond : condition, nullify : bool, imm : int5, r : reg, Label (ref None)) =>
           raise InternalError "mkQuad: COMIB - jump has not been fixed-up"
 
       | COMIB (cond : condition, nullify : bool, imm : int5, r : reg, Label (ref (Some targetAddr))) =>
-	let
-	  val r_short   : short = toShort(getReg r);
-	  val imm_short : short = toShort (getInt5 imm);
-	  val imm_rep   : short = ((imm_short And mask4Bits) << short1) Or 
-	                          ((imm_short >> short4) And mask1Bit);
-	  val (posCond : bool, cond_short : short) = encodeArithCond cond;
-	  val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if wordOffset < 0 andalso nullify
-	  then raise InternalError "mkQuad: COMIB - can't nullify backwards jump"
-	
-	  else if is12Bit wordOffset
-	    then if posCond
-	      then mkCondBranchQuad (COMIBTop, r_short, imm_rep, cond_short, int12 wordOffset, nullify)
-	      else mkCondBranchQuad (COMIBFop, r_short, imm_rep, cond_short, int12 wordOffset, nullify)
-	    else raise InternalError "mkQuad: COMIB - jump exceeds 12 bit range"
-	end
+    let
+      val r_short   : short = toShort(getReg r);
+      val imm_short : short = toShort (getInt5 imm);
+      val imm_rep   : short = ((imm_short And mask4Bits) << short1) Or 
+                              ((imm_short >> short4) And mask1Bit);
+      val (posCond : bool, cond_short : short) = encodeArithCond cond;
+      val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if wordOffset < 0 andalso nullify
+      then raise InternalError "mkQuad: COMIB - can't nullify backwards jump"
+    
+      else if is12Bit wordOffset
+        then if posCond
+          then mkCondBranchQuad (COMIBTop, r_short, imm_rep, cond_short, int12 wordOffset, nullify)
+          else mkCondBranchQuad (COMIBFop, r_short, imm_rep, cond_short, int12 wordOffset, nullify)
+        else raise InternalError "mkQuad: COMIB - jump exceeds 12 bit range"
+    end
 
       | ARBCOMB _ =>
           raise InternalError "mkQuad: ARBCOMB not expanded"
@@ -2104,39 +2104,39 @@ struct
           raise InternalError "mkQuad: MOVBTR - jump has not been fixed-up"
 
       | MOVBTR (nullify : bool, r1 : reg, rt : reg, Label (ref (Some targetAddr))) =>
-	let
-	  val rt_short   : short = toShort (getReg rt);
-	  val r1_short   : short = toShort (getReg r1);
-	  val cond_short : short = short4; (* encoding of TR using the shift/extract/deposit table *)
-	  val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if wordOffset < 0 andalso nullify
-	  then raise InternalError "mkQuad: MOVBTR - can't nullify backwards jump"
+    let
+      val rt_short   : short = toShort (getReg rt);
+      val r1_short   : short = toShort (getReg r1);
+      val cond_short : short = short4; (* encoding of TR using the shift/extract/deposit table *)
+      val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if wordOffset < 0 andalso nullify
+      then raise InternalError "mkQuad: MOVBTR - can't nullify backwards jump"
 
-	  else if is12Bit wordOffset
-	    then mkCondBranchQuad (MOVBop, rt_short, r1_short, cond_short, int12 wordOffset, nullify)
-	    else raise InternalError "mkQuad: MOVBTR - jump exceeds 12 bit range"
-	end
+      else if is12Bit wordOffset
+        then mkCondBranchQuad (MOVBop, rt_short, r1_short, cond_short, int12 wordOffset, nullify)
+        else raise InternalError "mkQuad: MOVBTR - jump exceeds 12 bit range"
+    end
 
       | MOVIBTR (nullify : bool, imm : int5, rt : reg, Label (ref None)) =>
           raise InternalError "mkQuad: MOVIBTR - jump has not been fixed-up"
 
       | MOVIBTR (nullify : bool, imm : int5, rt : reg, Label (ref (Some targetAddr))) =>
-	let
-	  val rt_short  : short = toShort (getReg rt);
-	  val imm_short : short = toShort (getInt5 imm);
-	  val imm_rep   : short = ((imm_short And mask4Bits) << short1) Or 
-	                          ((imm_short >> short4) And mask1Bit);
-	  val cond_short : short = short4; (* encoding of TR using the shift/extract/deposit table *)
-	  val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
-	in
-	  if wordOffset < 0 andalso nullify
-	  then raise InternalError "mkQuad: MOVIBTR - can't nullify backwards jump"
+    let
+      val rt_short  : short = toShort (getReg rt);
+      val imm_short : short = toShort (getInt5 imm);
+      val imm_rep   : short = ((imm_short And mask4Bits) << short1) Or 
+                              ((imm_short >> short4) And mask1Bit);
+      val cond_short : short = short4; (* encoding of TR using the shift/extract/deposit table *)
+      val wordOffset : int = targetAddr wordAddrMinus (thisAddr wordAddrPlus 2);
+    in
+      if wordOffset < 0 andalso nullify
+      then raise InternalError "mkQuad: MOVIBTR - can't nullify backwards jump"
 
-	  else if is12Bit wordOffset
-	    then mkCondBranchQuad (MOVIBop, rt_short, imm_rep, cond_short, int12 wordOffset, nullify)
-	    else raise InternalError "mkQuad: MOVIBTR - jump exceeds 12 bit range"
-	end
+      else if is12Bit wordOffset
+        then mkCondBranchQuad (MOVIBop, rt_short, imm_rep, cond_short, int12 wordOffset, nullify)
+        else raise InternalError "mkQuad: MOVIBTR - jump exceeds 12 bit range"
+    end
 ... *)
     (* end mkQuad *) 
   in 
@@ -2150,32 +2150,32 @@ struct
     let
       fun genQuadToSeg (wordIndex : int, instr : instruction) : unit =
       let
-	(* Relative to start of code segment *)
-	val realAddr : addrs = mkWordAddr wordIndex;
-	
-	(* Relative to end of code segment *)
-	val thisAddr : addrs = segStartAddr wordAddrPlus wordIndex;
+    (* Relative to start of code segment *)
+    val realAddr : addrs = mkWordAddr wordIndex;
+    
+    (* Relative to end of code segment *)
+    val thisAddr : addrs = segStartAddr wordAddrPlus wordIndex;
 
         (* Quad generation uses addresses that are relative to the end of the segment.
            That's because branch labels are relative to the end of the segment, because
            that makes branches extension in revExpandOnto somewhat easier to implement.
          *)
-	val thisQuad : quad  = mkQuad (thisAddr, instr, constByteOffset, selfCallAddr);
-	
-	val U : unit =
-	  if (!assemblyCode)
-	  then let
-	    val U : unit = printString (Int.toString (getByteAddr realAddr));
-	    val U : unit = printString "\t";
-	    val U : unit = printHexN (8, fromQuad thisQuad);
-	    val U : unit = printString "\t";
-	    val U : unit = printString (reprInstruction (segStartAddr, instr));
-	  in
-	    printString "\n"
-	  end
-	  else ()
+    val thisQuad : quad  = mkQuad (thisAddr, instr, constByteOffset, selfCallAddr);
+    
+    val U : unit =
+      if (!assemblyCode)
+      then let
+        val U : unit = printString (Int.toString (getByteAddr realAddr));
+        val U : unit = printString "\t";
+        val U : unit = printHexN (8, fromQuad thisQuad);
+        val U : unit = printString "\t";
+        val U : unit = printString (reprInstruction (segStartAddr, instr));
       in
-	setQuad (thisQuad, realAddr, seg)
+        printString "\n"
+      end
+      else ()
+      in
+    setQuad (thisQuad, realAddr, seg)
       end;
       
       fun genQuadLoop (wordIndex, []) = ()
@@ -2183,11 +2183,11 @@ struct
         case instr of
           JUMPTARGET labs => genQuadLoop (wordIndex, rest)
         | _ =>
-	  let
-	    val U : unit = genQuadToSeg (wordIndex, instr)
-	  in
-	    genQuadLoop (wordIndex + 1, rest)
-	  end;
+      let
+        val U : unit = genQuadToSeg (wordIndex, instr)
+      in
+        genQuadLoop (wordIndex + 1, rest)
+      end;
     in
       genQuadLoop (0, instrList)
     end;
@@ -2326,104 +2326,104 @@ struct
     | _  =>
     let
       val sortedConstants : (int * const) list =
-	quickSort (fn (n1, _) => fn (n2, _) => n1 < n2) constants;
+    quickSort (fn (n1, _) => fn (n2, _) => n1 < n2) constants;
     
       fun printConstCode (a : address) : unit =
-	printString ("code:\t" ^ nameOfCode a);
+    printString ("code:\t" ^ nameOfCode a);
       
       fun printConstClosure (a : address) : unit =
-	printString ("clos:\t" ^ nameOfCode a);
+    printString ("clos:\t" ^ nameOfCode a);
       
       fun printWords (a : address) : unit =
-	let
-	  val objLength : int = toInt (ADDRESS.length a)
-	in
-	  if objLength = 1
-	  then printString ("words:\t1 word")
-	  else printString ("words:\t" ^ Int.toString objLength ^ " words")
-	end;
+    let
+      val objLength : int = toInt (ADDRESS.length a)
+    in
+      if objLength = 1
+      then printString ("words:\t1 word")
+      else printString ("words:\t" ^ Int.toString objLength ^ " words")
+    end;
       
       fun printBytes (a : address) : unit =
-	let
-	  val objLength  : int = toInt (ADDRESS.length a)
-	in
-	  if objLength = 1
-	  then printString ("bytes:\t1 word")
-	  else printString ("bytes:\t" ^ Int.toString objLength ^ " words")
-	end;
+    let
+      val objLength  : int = toInt (ADDRESS.length a)
+    in
+      if objLength = 1
+      then printString ("bytes:\t1 word")
+      else printString ("bytes:\t" ^ Int.toString objLength ^ " words")
+    end;
   
       fun printConst (constNum : int, value : const) : unit =
       let
         val constAddr : addrs = constStartAddr wordAddrPlus constNum;
-	val U : unit = printString (Int.toString (getByteAddr constAddr));
-	val U : unit = printString "\tconst "; 
-	val U : unit = printString (Int.toString constNum);
-	val U : unit = printString " = \t"; 
-	val U : unit = 
-	  case value of
-	    CVal c =>
-	      let
-		val U : unit = printString (if noClosure c then "code:\t" else "clos:\t");
-	      in
-		printString (procName c)
-	      end
-	      
-	  | HVal (Label (ref None)) =>
-	      printString "handle:\t????? (not fixed up)"
-	      
-	  | HVal  (Label (ref (Some targetAddr))) =>
-	      let
-		val U : unit = printString "handle:\t";
-	      in
-		printString (Int.toString (targetAddr byteAddrMinus segStartAddr))
-	      end
-	      
-	  | WVal w => 
-	      if isShort w
-	      then let
-		val value : int = toInt (toShort w);
-		val U : unit = printString "short:\t";
-		val U : unit = printHex value;
-		val U : unit = printString " (";
-		val U : unit = printString (Int.toString value);
-	      in
-		printString ")"
-	      end
-	      
-	      else if isString w
-	      then let
-		val U : unit = printString "string:\t";
-	      in
-		printString (String.toString (toString w))
-	      end
-	      
-	      else let
-		val a : address = toAddress w;
-	      in
-		if 256 <= toInt (flags a)
-		  then printString "RTS entry"
-		else if isCode a
-		  then printConstCode a
-		else if isBytes a
-		  then printBytes a
-		else if isWords a andalso 1 <= toInt (ADDRESS.length a)
-		  then let
-		    val w' : word = loadWord (a, short0)
-		  in
-		    if not (isShort w')
-		    then let
-		      val a' : address = toAddress w';
-		    in
-		      if toInt (flags a') < 256 andalso isCode a'
-		      then printConstClosure a'
-		      else printWords a (* First element of tuple is not a code segment *) 
-		    end
-		    else printWords a (* First element of tuple is a short *)
-		  end
-		  else printWords a (* Not a proper tuple (shouldn't occur) *)
-	      end;
+    val U : unit = printString (Int.toString (getByteAddr constAddr));
+    val U : unit = printString "\tconst "; 
+    val U : unit = printString (Int.toString constNum);
+    val U : unit = printString " = \t"; 
+    val U : unit = 
+      case value of
+        CVal c =>
+          let
+        val U : unit = printString (if noClosure c then "code:\t" else "clos:\t");
+          in
+        printString (procName c)
+          end
+          
+      | HVal (Label (ref None)) =>
+          printString "handle:\t????? (not fixed up)"
+          
+      | HVal  (Label (ref (Some targetAddr))) =>
+          let
+        val U : unit = printString "handle:\t";
+          in
+        printString (Int.toString (targetAddr byteAddrMinus segStartAddr))
+          end
+          
+      | WVal w => 
+          if isShort w
+          then let
+        val value : int = toInt (toShort w);
+        val U : unit = printString "short:\t";
+        val U : unit = printHex value;
+        val U : unit = printString " (";
+        val U : unit = printString (Int.toString value);
+          in
+        printString ")"
+          end
+          
+          else if isString w
+          then let
+        val U : unit = printString "string:\t";
+          in
+        printString (String.toString (toString w))
+          end
+          
+          else let
+        val a : address = toAddress w;
+          in
+        if 256 <= toInt (flags a)
+          then printString "RTS entry"
+        else if isCode a
+          then printConstCode a
+        else if isBytes a
+          then printBytes a
+        else if isWords a andalso 1 <= toInt (ADDRESS.length a)
+          then let
+            val w' : word = loadWord (a, short0)
+          in
+            if not (isShort w')
+            then let
+              val a' : address = toAddress w';
+            in
+              if toInt (flags a') < 256 andalso isCode a'
+              then printConstClosure a'
+              else printWords a (* First element of tuple is not a code segment *) 
+            end
+            else printWords a (* First element of tuple is a short *)
+          end
+          else printWords a (* Not a proper tuple (shouldn't occur) *)
+          end;
       in
-	printString "\n"
+    printString "\n"
       end (* printConst *)
       
       val U : unit = printString "Constants section:\n";
@@ -2459,9 +2459,9 @@ struct
     case ! (resultSeg r) of
       Set (seg : cseg, _)  =>
       let
-	 val addr : address = csegAddr seg;
+     val addr : address = csegAddr seg;
        in
-	 addConstToVec (WVal (toWord addr), cvec)
+     addConstToVec (WVal (toWord addr), cvec)
        end
     
     | Unset => (* forward *)
@@ -2547,52 +2547,52 @@ struct
         case instr of
           JUMPTARGET labList => addLabels (labs @ labList, rest)
 
-	| COMB (_, true, _, _, lab : label) =>
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
+    | COMB (_, true, _, _, lab : label) =>
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
     
-	| COMIB (_, true, _, _, lab : label) =>
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
+    | COMIB (_, true, _, _, lab : label) =>
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
     
-	| ARBCOMB (_, _, _, lab : label) => 
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
-	
-	| ARBCOMBAUX (_, _, _, lab : label) =>
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
+    | ARBCOMB (_, _, _, lab : label) => 
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
+    
+    | ARBCOMBAUX (_, _, _, lab : label) =>
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
      
-	| ARBCOMIB  (_, _, _, lab : label) =>
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
-	      
-	| BRANCH (true, lab : label) =>
-	    if inList (lab, labs) then addLabels (remove (lab, labs), rest) else
-	   (case rest of
+    | ARBCOMIB  (_, _, _, lab : label) =>
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else default
+          
+    | BRANCH (true, lab : label) =>
+        if inList (lab, labs) then addLabels (remove (lab, labs), rest) else
+       (case rest of
               COMB (cond : condition, true, r1 : reg, r2 : reg, lab2 : label) :: rest2 =>
-		if inList (lab2, labs)
-		then addLabels (remove (lab2, labs), COMB (invert cond, true, r1, r2, lab) :: rest2)
-		else default
-	
-	    | COMIB (cond : condition, true, imm : int5, r : reg, lab2 : label) :: rest2  =>
-		if inList (lab2, labs)
-		then addLabels (remove (lab2, labs), COMIB (invert cond, true, imm, r, lab) :: rest2)
-		else default
-	
-	    | ARBCOMB (cond : condition, r1 : reg, r2 : reg, lab2 : label) :: rest2  => 
-		if inList (lab2, labs)
-		then addLabels (remove (lab2, labs), ARBCOMB (invert cond, r1, r2, lab) :: rest2)
-		else default
-	    
-	    | ARBCOMBAUX (cond : condition, r1 : reg, r2 : reg, lab2 : label) :: rest2  => 
-		if inList (lab2, labs)
-		then addLabels (remove (lab2, labs), ARBCOMBAUX (invert cond, r1, r2, lab) :: rest2)
-		else default
-	 
-	    | ARBCOMIB (cond : condition, imm : int5, r : reg, lab2 : label) :: rest2 =>
-		if inList (lab2, labs)
-		then addLabels (remove (lab2, labs), ARBCOMIB (invert cond, imm, r,  lab) :: rest2)
-		else default
-	      
-	    | _ => default)
+        if inList (lab2, labs)
+        then addLabels (remove (lab2, labs), COMB (invert cond, true, r1, r2, lab) :: rest2)
+        else default
     
-	| _ => default
+        | COMIB (cond : condition, true, imm : int5, r : reg, lab2 : label) :: rest2  =>
+        if inList (lab2, labs)
+        then addLabels (remove (lab2, labs), COMIB (invert cond, true, imm, r, lab) :: rest2)
+        else default
+    
+        | ARBCOMB (cond : condition, r1 : reg, r2 : reg, lab2 : label) :: rest2  => 
+        if inList (lab2, labs)
+        then addLabels (remove (lab2, labs), ARBCOMB (invert cond, r1, r2, lab) :: rest2)
+        else default
+        
+        | ARBCOMBAUX (cond : condition, r1 : reg, r2 : reg, lab2 : label) :: rest2  => 
+        if inList (lab2, labs)
+        then addLabels (remove (lab2, labs), ARBCOMBAUX (invert cond, r1, r2, lab) :: rest2)
+        else default
+     
+        | ARBCOMIB (cond : condition, imm : int5, r : reg, lab2 : label) :: rest2 =>
+        if inList (lab2, labs)
+        then addLabels (remove (lab2, labs), ARBCOMIB (invert cond, imm, r,  lab) :: rest2)
+        else default
+          
+        | _ => default)
+    
+    | _ => default
    end;
     
   (* addSpecialLabel does NOT attempt to optimise jumps to this label. That's
@@ -2694,9 +2694,9 @@ struct
     | _  =>
       let
         val U : unit = genPendingStackAdjustment cvec;
-	val U : unit = exited cvec := false;
+    val U : unit = exited cvec := false;
       in
-	codeVec cvec := addLabels (labs, ! (codeVec cvec))
+    codeVec cvec := addLabels (labs, ! (codeVec cvec))
       end;
   
   (* Used when the label may be the target of several branch instructions *)
@@ -2719,8 +2719,8 @@ struct
     else let
       (* Do we need to fix-up the stack pointer? *)
       val U : unit = 
-	if rt regEq regStackPtr
-	then genPendingStackAdjustment cvec
+    if rt regEq regStackPtr
+    then genPendingStackAdjustment cvec
         else ();
         
       val adjustedOffset : int = byteOffset;
@@ -2739,14 +2739,14 @@ struct
      if is14Bit adjustedOffset
       then gen (cvec, LDW (int14 adjustedOffset, ra, rt))
       else let
-	val (adjustedOffset_left : int21, adjustedOffset_right : int14) =
-	  splitLeftRight adjustedOffset;
+    val (adjustedOffset_left : int21, adjustedOffset_right : int14) =
+      splitLeftRight adjustedOffset;
       in
-	genList (cvec,
-	  [
-	    ADDIL (adjustedOffset_left, ra),
-	    LDW   (adjustedOffset_right, regUnsafe, rt)
-	  ])
+    genList (cvec,
+      [
+        ADDIL (adjustedOffset_left, ra),
+        LDW   (adjustedOffset_right, regUnsafe, rt)
+      ])
       end
     end;
 
@@ -2757,8 +2757,8 @@ struct
     else let
       (* Do we need to fix-up the stack pointer? *)
       val U : unit = 
-	if rs regEq regStackPtr
-	then genPendingStackAdjustment cvec
+    if rs regEq regStackPtr
+    then genPendingStackAdjustment cvec
         else ();
 
       val adjustedOffset : int = byteOffset;
@@ -2777,14 +2777,14 @@ struct
       if is14Bit adjustedOffset
       then gen (cvec, STW (rs, int14 adjustedOffset, ra))
       else let
-	val (adjustedOffset_left : int21, adjustedOffset_right : int14) =
-	  splitLeftRight adjustedOffset;
+    val (adjustedOffset_left : int21, adjustedOffset_right : int14) =
+      splitLeftRight adjustedOffset;
       in
-	genList (cvec,
-	  [
-	     ADDIL (adjustedOffset_left, ra),
-	     STW   (rs, adjustedOffset_right, regUnsafe)
-	  ])
+    genList (cvec,
+      [
+         ADDIL (adjustedOffset_left, ra),
+         STW   (rs, adjustedOffset_right, regUnsafe)
+      ])
       end
     end;
 
@@ -2828,24 +2828,24 @@ struct
       val U : unit = genPendingStackAdjustment cvec;
 
       val oldLabs : label list =
-	case ! (codeVec cvec) of
-	  JUMPTARGET labs :: rest =>
-	  let
-	    (* Ungenerate branch-in *)
-	    val U : unit = codeVec cvec := rest;
-	    val U : unit = exited cvec  := noFallThrough rest;
-	  in
-	    labs
-	  end
-	| _ => []
+    case ! (codeVec cvec) of
+      JUMPTARGET labs :: rest =>
+      let
+        (* Ungenerate branch-in *)
+        val U : unit = codeVec cvec := rest;
+        val U : unit = exited cvec  := noFallThrough rest;
+      in
+        labs
+      end
+    | _ => []
     in
       if unreachable cvec then oldLabs
       else let (* branch-out required *)
-	val lab : label = Label (ref None);
-	val U   : unit  = genBlock (cvec, [BRANCH (true, lab)])
-	val U   : unit  = exited cvec := false;
+    val lab : label = Label (ref None);
+    val U   : unit  = genBlock (cvec, [BRANCH (true, lab)])
+    val U   : unit  = exited cvec := false;
       in
-	lab :: oldLabs
+    lab :: oldLabs
       end
     end;
   
@@ -2863,29 +2863,29 @@ struct
     fun genLoadConst (v : word, constR : reg, destR : reg, cvec : code) : unit =
       if unreachable cvec then ()
       else let
-	val constNum : int = addConstToVec (WVal v, cvec);
+    val constNum : int = addConstToVec (WVal v, cvec);
       in
-	genLoadConstant (constNum, constR, destR, cvec)
+    genLoadConstant (constNum, constR, destR, cvec)
       end;
   
     fun genLoadCoderef (rf : code, constR : reg, destR : reg, cvec : code) : unit =
       if unreachable cvec then ()
       else let
-	val constNum : int = codeConst (rf : code, cvec);
+    val constNum : int = codeConst (rf : code, cvec);
       in
-	genLoadConstant (constNum, constR, destR, cvec)
+    genLoadConstant (constNum, constR, destR, cvec)
       end;
   
     fun pushAddress (constR : reg, cvec : code) : handlerLab =
       if unreachable cvec then None
       else let
-	val lab : label = Label (ref None);
-	val constNum : int = addConstToVec (HVal lab, cvec);
-	val regTemp  : reg = chooseTempReg cvec;
-	val U : unit = genLoadConstant (constNum, constR, regTemp, cvec);
-	val U : unit = genPush (regTemp, cvec);
+    val lab : label = Label (ref None);
+    val constNum : int = addConstToVec (HVal lab, cvec);
+    val regTemp  : reg = chooseTempReg cvec;
+    val U : unit = genLoadConstant (constNum, constR, regTemp, cvec);
+    val U : unit = genPush (regTemp, cvec);
       in
-	Some lab
+    Some lab
       end;
   end;
 
@@ -2957,26 +2957,26 @@ Calling conventions:
   fun callFunction (callKind, cvec) : unit =
     let
       val U : unit = 
-	case callKind of 
-	  Recursive =>
-	    genBlock (cvec, [CALLSELF, TAGCODEREG (int5_CODETAG, regReturn)])
-	    
-	| PureCode =>
-	    genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
+    case callKind of 
+      Recursive =>
+        genBlock (cvec, [CALLSELF, TAGCODEREG (int5_CODETAG, regReturn)])
+        
+    | PureCode =>
+        genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
     
-	| StaticLink => 
-	    genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
-	    
-	| FullCall =>
-	  let
-	    (* This is NOT generated as part of the following genBlock, because we
-	       want to allow the code-reordering phase (when written!) to move
-	       this instruction further back into the basic block. SPF 19/2/97
-	    *)
-	    val U : unit = gen (cvec, LDW (int14_0, regClosure, regCode));
-	  in
-	    genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
-	  end
+    | StaticLink => 
+        genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
+        
+    | FullCall =>
+      let
+        (* This is NOT generated as part of the following genBlock, because we
+           want to allow the code-reordering phase (when written!) to move
+           this instruction further back into the basic block. SPF 19/2/97
+        *)
+        val U : unit = gen (cvec, LDW (int14_0, regClosure, regCode));
+      in
+        genBlock (cvec, [CALLREG regCode, TAGCODEREG (int5_CODETAG, regReturn)])
+      end
     in
       mustCheckStack cvec := true
     end
@@ -3004,50 +3004,50 @@ Calling conventions:
   fun jumpToFunction (callKind, returnReg, cvec) : unit =
     let
       val U : unit = 
-	case callKind of
-	  Recursive =>
-	    if returnReg regEq regReturn
-	    then genBlock (cvec, [JUMPSELF true])
-	    else genBlock (cvec, [JUMPSELF false, COPY (returnReg, regReturn)])
+    case callKind of
+      Recursive =>
+        if returnReg regEq regReturn
+        then genBlock (cvec, [JUMPSELF true])
+        else genBlock (cvec, [JUMPSELF false, COPY (returnReg, regReturn)])
           
-	| PureCode =>
-	  let
-	    val U : unit = 
-	      if returnReg regEq regCode
-	      then raise InternalError "jumpToFunction: returnReg is regCode"
-	      else ();
+    | PureCode =>
+      let
+        val U : unit = 
+          if returnReg regEq regCode
+          then raise InternalError "jumpToFunction: returnReg is regCode"
+          else ();
           in
-	    if returnReg regEq regReturn
-	    then genBlock (cvec, [JUMPREG (true, regCode)])
-	    else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
+        if returnReg regEq regReturn
+        then genBlock (cvec, [JUMPREG (true, regCode)])
+        else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
           end
           
-	| StaticLink =>
-	  let
-	    val U : unit = 
-	      if returnReg regEq regCode
-	      then raise InternalError "jumpToFunction: returnReg is regCode"
-	      else ();
+    | StaticLink =>
+      let
+        val U : unit = 
+          if returnReg regEq regCode
+          then raise InternalError "jumpToFunction: returnReg is regCode"
+          else ();
           in
-	    if returnReg regEq regReturn
-	    then genBlock (cvec, [JUMPREG (true, regCode)])
-	    else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
+        if returnReg regEq regReturn
+        then genBlock (cvec, [JUMPREG (true, regCode)])
+        else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
           end
-	    
-	| FullCall =>
-	  let
-	    val U : unit = 
-	      if returnReg regEq regCode
-	      then raise InternalError "jumpToFunction: returnReg is regCode"
-	      else ();
+        
+    | FullCall =>
+      let
+        val U : unit = 
+          if returnReg regEq regCode
+          then raise InternalError "jumpToFunction: returnReg is regCode"
+          else ();
 
-	    val U : unit = gen (cvec, LDW (int14_0, regClosure, regCode));
-	  in
-	    if returnReg regEq regReturn
-	    then genBlock (cvec, [JUMPREG (true, regCode)])
-	    else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
-	  end;
-	  
+        val U : unit = gen (cvec, LDW (int14_0, regClosure, regCode));
+      in
+        if returnReg regEq regReturn
+        then genBlock (cvec, [JUMPREG (true, regCode)])
+        else genBlock (cvec, [JUMPREG (false, regCode), COPY (returnReg, regReturn)])
+      end;
+      
       val U : unit =
         case callKind of
           PureCode => () 
@@ -3243,52 +3243,52 @@ Calling conventions:
     case instr of
       InstrMove =>
         gen (cvec, COPY (r1, rd))
-	
+    
     | InstrAddA =>
       let
         val regTemp : reg = chooseTempReg cvec;
       in
         if r1 regEq r2
         then
-	  genBlock (cvec,
-	  [
-	    UNTAGCHECK (r1, regTemp),
-	    ADDO  (r1, regTemp, rd)
-	  ])
+      genBlock (cvec,
+      [
+        UNTAGCHECK (r1, regTemp),
+        ADDO  (r1, regTemp, rd)
+      ])
         else
-	  genBlock (cvec,
-	  [
-	    UNTAGCHECK (r2, regTemp),
-	    UNTAGCHECK (r1, regZero),
-	    ADDO  (r1, regTemp, rd)
-	  ])
+      genBlock (cvec,
+      [
+        UNTAGCHECK (r2, regTemp),
+        UNTAGCHECK (r1, regZero),
+        ADDO  (r1, regTemp, rd)
+      ])
       end
       
     | InstrSubA =>
         if r1 regEq r2
         then genList (cvec, loadImmed (tagged 0, rd))
-	else let
-	  val regTemp : reg = chooseTempReg cvec;
-	in
-	  genBlock (cvec,
-	  [
-	    UNTAGCHECK (r2, regTemp),
-	    ARBSUB    (r1, regTemp, rd)
-	  ])
-	end
+    else let
+      val regTemp : reg = chooseTempReg cvec;
+    in
+      genBlock (cvec,
+      [
+        UNTAGCHECK (r2, regTemp),
+        ARBSUB    (r1, regTemp, rd)
+      ])
+    end
     
     | InstrRevSubA =>
         if r1 regEq r2
         then genList (cvec, loadImmed (tagged 0, rd))
-	else let
-	  val regTemp : reg = chooseTempReg cvec;
-	in
-	  genBlock (cvec,
-	  [
-	    UNTAGCHECK (r1, regTemp),
-	    ARBSUB    (r2, regTemp, rd)
-	  ])
-	end
+    else let
+      val regTemp : reg = chooseTempReg cvec;
+    in
+      genBlock (cvec,
+      [
+        UNTAGCHECK (r1, regTemp),
+        ARBSUB    (r2, regTemp, rd)
+      ])
+    end
     
     | InstrOrW =>
         gen (cvec, OR (r1, r2, rd))
@@ -3299,15 +3299,15 @@ Calling conventions:
     | InstrXorW =>
         if r1 regEq r2
         then genList (cvec, loadImmed (tagged 0, rd))
-	else let
+    else let
           val regTemp : reg = chooseTempReg cvec;
-	in
-	  genList (cvec,
-	  [
-	    XOR  (r1, r2, regTemp),
-	    LDO  (int14_1, regTemp, rd)
-	  ])
-	end
+    in
+      genList (cvec,
+      [
+        XOR  (r1, r2, regTemp),
+        LDO  (int14_1, regTemp, rd)
+      ])
+    end
 
     | InstrLoad =>
       let
@@ -3352,7 +3352,7 @@ Calling conventions:
       val c : int = toInt (toShort cnstnt);
     in
       case instr of
-	InstrMove       => true          (* is32Bit (tagged c) *)
+    InstrMove       => true          (* is32Bit (tagged c) *)
       | InstrAddA       => isShort (~ c) (* is32Bit (semiTagged (~ c)); false for MININT *)
       | InstrSubA       => true          (* is32Bit (semiTagged c) *)
       | InstrRevSubA    => true          (* is32Bit (tagged c)     *)
@@ -3475,49 +3475,49 @@ Calling conventions:
           val regTemp : reg = chooseTempReg cvec;
         in
           genList (cvec,
-	    [
-	      ADDIL (byteOffset_left, rs),
-	      LDB   (byteOffset_right, regUnsafe, regTemp),
-	      SHL   (nat5_TAGSHIFT, regTemp, regTemp),
-	      LDO   (int14_1, regTemp, rd)
-	    ])
+        [
+          ADDIL (byteOffset_left, rs),
+          LDB   (byteOffset_right, regUnsafe, regTemp),
+          SHL   (nat5_TAGSHIFT, regTemp, regTemp),
+          LDO   (int14_1, regTemp, rd)
+        ])
         end
 
     | InstrVeclen =>
       let
         val regTemp : reg = chooseTempReg cvec;
       in
-	genList (cvec,
-	[
-	  LDW  (int14_minus4, rs, regTemp),
-	  SHL  (nat5_FLAGLENGTH, regTemp, regTemp),
-	  LSHR (nat5_FLminusTS, regTemp, regTemp),
-	  LDO  (int14_1, regTemp, rd)
-	])
+    genList (cvec,
+    [
+      LDW  (int14_minus4, rs, regTemp),
+      SHL  (nat5_FLAGLENGTH, regTemp, regTemp),
+      LSHR (nat5_FLminusTS, regTemp, regTemp),
+      LDO  (int14_1, regTemp, rd)
+    ])
       end
 
     | InstrUpshiftW =>   (* logical shift left *)
       let
         val regTemp : reg = chooseTempReg cvec;
       in
-	genList (cvec,
-	[
-	  LSHR (nat5_TAGSHIFT, rs, regTemp),
-	  SHL  (nat5 (c + TAGSHIFT), regTemp, regTemp),
-	  LDO  (int14_1, regTemp, rd)
-	])
+    genList (cvec,
+    [
+      LSHR (nat5_TAGSHIFT, rs, regTemp),
+      SHL  (nat5 (c + TAGSHIFT), regTemp, regTemp),
+      LDO  (int14_1, regTemp, rd)
+    ])
       end
 
     | InstrDownshiftW =>  (* logical shift right *)
       let
         val regTemp : reg = chooseTempReg cvec;
       in
-	genList (cvec,
-	[
-	  LSHR (nat5 (c + TAGSHIFT), rs, regTemp),
-	  SHL  (nat5_TAGSHIFT, regTemp, regTemp),
-	  LDO  (int14_1, regTemp, rd)
-	])
+    genList (cvec,
+    [
+      LSHR (nat5 (c + TAGSHIFT), rs, regTemp),
+      SHL  (nat5_TAGSHIFT, regTemp, regTemp),
+      LDO  (int14_1, regTemp, rd)
+    ])
       end
     
     | InstrPush =>
@@ -3556,7 +3556,7 @@ Calling conventions:
       let
         val lab : label = Label (ref None);
         val U : unit =
-	  genBlock (cvec, [COMB (cond, true, r1, r2, lab)])
+      genBlock (cvec, [COMB (cond, true, r1, r2, lab)])
       in
         [lab]
       end
@@ -3586,17 +3586,17 @@ Calling conventions:
         val c : int = tagged (toInt (toShort cnstnt));
         val lab : label = Label (ref None);
         val U : unit =
-	  if is5Bit c
-	  then
-	    genBlock (cvec, [COMIB (swapArgs cond, true, int5 c, r, lab)])
-	    
-	  else let
-	    (* It's safe to load a tagged SHORT into an untagged register *)
-	    val regTemp : reg = chooseTempReg cvec;
-	    val U : unit = genList (cvec, loadImmed (c, regTemp));
-	  in
-	    genBlock (cvec, [COMB (cond, true, r, regTemp, lab)])
-	  end
+      if is5Bit c
+      then
+        genBlock (cvec, [COMIB (swapArgs cond, true, int5 c, r, lab)])
+        
+      else let
+        (* It's safe to load a tagged SHORT into an untagged register *)
+        val regTemp : reg = chooseTempReg cvec;
+        val U : unit = genList (cvec, loadImmed (c, regTemp));
+      in
+        genBlock (cvec, [COMB (cond, true, r, regTemp, lab)])
+      end
       in
         [lab]
       end
@@ -3608,16 +3608,16 @@ Calling conventions:
         val c : int = tagged (toInt (toShort cnstnt));
         val lab : label = Label (ref None);
         val U : unit =
-	  if is5Bit c
-	  then genBlock (cvec, [ARBCOMIB (swapArgs cond, int5 c, r,  lab)])
-	    
-	  else let
-	    (* It's safe to load a tagged SHORT into an untagged register *)
-	    val regTemp : reg = chooseTempReg cvec;
-	    val U : unit = genList (cvec, loadImmed (c, regTemp));
-	  in
-	    genBlock (cvec, [ARBCOMBAUX (swapArgs cond, regTemp, r, lab)])
-	  end
+      if is5Bit c
+      then genBlock (cvec, [ARBCOMIB (swapArgs cond, int5 c, r,  lab)])
+        
+      else let
+        (* It's safe to load a tagged SHORT into an untagged register *)
+        val regTemp : reg = chooseTempReg cvec;
+        val U : unit = genList (cvec, loadImmed (c, regTemp));
+      in
+        genBlock (cvec, [ARBCOMBAUX (swapArgs cond, regTemp, r, lab)])
+      end
       in
         [lab]
       end
@@ -3627,7 +3627,7 @@ Calling conventions:
       let
         val lab : label = Label (ref None);
         val U : unit =
-	   genBlock (cvec, [COMB (if b then OD else EV, true, r, regZero, lab)])
+       genBlock (cvec, [COMB (if b then OD else EV, true, r, regZero, lab)])
      in
        [lab]
      end; (* compareAndBranchRI *)
@@ -3646,40 +3646,40 @@ Calling conventions:
     fun fixRef refFrom =
       case ! (resultSeg refFrom) of
         Unset =>
-	let (* The "refFrom" code hasn't allocated its code segment yet. *)
-	  fun replaceNonLocalConst (constEntry as (num : int, const : const)) : int * const =
-	    case const of
-	      CVal c => if c is refTo then (num, WVal value) else constEntry
-	    | _      => constEntry;
-	in
-	  constVec refFrom := map replaceNonLocalConst (! (constVec refFrom))
-	end
+    let (* The "refFrom" code hasn't allocated its code segment yet. *)
+      fun replaceNonLocalConst (constEntry as (num : int, const : const)) : int * const =
+        case const of
+          CVal c => if c is refTo then (num, WVal value) else constEntry
+        | _      => constEntry;
+    in
+      constVec refFrom := map replaceNonLocalConst (! (constVec refFrom))
+    end
       
       | Set (seg : cseg, constStartAddr : addrs) =>
-	let (* The "refFrom" code has already allocated its code segment. *)
-	  val noc = numOfConsts refFrom;
-	  
-	  fun putNonLocalConst (num : int, const : const) : unit =
-	    case const of
-	      CVal c =>
-		if c is refTo
-		then let (* A reference to this one. *)
-		  (* Fix up the forward reference. *)
-		  val U : unit = setConst (seg, constStartAddr, num, value);
-		in
-		  (* decrement the "pending references" count *)
-		  noc := !noc - 1
-		end
-		else ()
-	    | _ => ();
+    let (* The "refFrom" code has already allocated its code segment. *)
+      val noc = numOfConsts refFrom;
+      
+      fun putNonLocalConst (num : int, const : const) : unit =
+        case const of
+          CVal c =>
+        if c is refTo
+        then let (* A reference to this one. *)
+          (* Fix up the forward reference. *)
+          val U : unit = setConst (seg, constStartAddr, num, value);
+        in
+          (* decrement the "pending references" count *)
+          noc := !noc - 1
+        end
+        else ()
+        | _ => ();
     
-	  (* look down its list of forward references until we find ourselves. *)
-	  val U : unit =
-	    applyList (putNonLocalConst, !(constVec refFrom))
-	in
-	 (* If there are no more references, we can lock it. *)
-	  if !noc = 0 then csegLock seg else ()
-	end (* fixRef *);
+      (* look down its list of forward references until we find ourselves. *)
+      val U : unit =
+        applyList (putNonLocalConst, !(constVec refFrom))
+    in
+     (* If there are no more references, we can lock it. *)
+      if !noc = 0 then csegLock seg else ()
+    end (* fixRef *);
   in
     (* For each `code' which needs a forward reference
        to `refTo' fixing up. *)
@@ -3732,7 +3732,7 @@ Calling conventions:
            
         (* Leaf or tail-call-only function - no stack check required. *)
         else 
-	  []; 
+      []; 
     in
       (* code segment size minimised (iteratively!) SPF 12/8/94 *)
       fun getPreludeCode (preludeSize : int) : int * int * instruction list * int * addrs =
@@ -3751,25 +3751,25 @@ Calling conventions:
       
        (* What's going on here?
          
-	  We want to be able to address the constants using regCode.
-	  If we have a short segment, that's no problem. However,
-	  if we have a long code segment, the 14-bit offset in a
-	  LDW instruction isn't large enough to reach the constants section
-	  unless we adjust regCode first. If we need to do this,
-	  regCode will be pointing into the middle of the code
-	  segment, so we must tag it as a code pointer, and ensure
-	  that it address real code (before the zero word) rather
-	  than data.
+      We want to be able to address the constants using regCode.
+      If we have a short segment, that's no problem. However,
+      if we have a long code segment, the 14-bit offset in a
+      LDW instruction isn't large enough to reach the constants section
+      unless we adjust regCode first. If we need to do this,
+      regCode will be pointing into the middle of the code
+      segment, so we must tag it as a code pointer, and ensure
+      that it address real code (before the zero word) rather
+      than data.
        
-	  Subtracting 16 would skip the 3 "overhead" words:
-	      end-of-code marker word
-	      byte offset of start of code segment
-	      profiling word
-	   and make regCode point at the last real code word. We then
-	   subtract another 2 to get the tagging right. (We could add 2
-	   instead, but I'm happier doing the subtraction, in case I've
-	   got an off-by-one somewhere.) 
-	   SPF 21/2/97.
+      Subtracting 16 would skip the 3 "overhead" words:
+          end-of-code marker word
+          byte offset of start of code segment
+          profiling word
+       and make regCode point at the last real code word. We then
+       subtract another 2 to get the tagging right. (We could add 2
+       instead, but I'm happier doing the subtraction, in case I've
+       got an off-by-one somewhere.) 
+       SPF 21/2/97.
        *)
     
        val (constByteOffset : int, loadConstSegCode : instruction list) =
@@ -3888,33 +3888,33 @@ Calling conventions:
     (* Copy the objects (including the name string) from the constant list. *)
     fun putLocalConst (num : int, const : const) : unit =
       case const of
-	WVal w => (* an ordinary (non-short) constant *)
-	let
-	  val U : unit = setConst (seg, constStartAddr, num, w);
-	in
-	  numOfConsts cvec := ! (numOfConsts cvec) - 1
-	end
-	
+    WVal w => (* an ordinary (non-short) constant *)
+    let
+      val U : unit = setConst (seg, constStartAddr, num, w);
+    in
+      numOfConsts cvec := ! (numOfConsts cvec) - 1
+    end
+    
       (* a handler *)
       | HVal (Label (ref None)) =>
           raise InternalError "putLocalConst: handler not fixed-up"
       
       | HVal (Label (ref (Some targetAddr))) =>
-	let 
-	  (* The following comment applies to offsetAddr *)
-	  (* Special function to add to an address.
-	     This only works if the resulting value is 
-	     in a code segment and is on a word  + 2 byte boundary. *)
-	  val handlerByteOffset : int = targetAddr byteAddrMinus segStartAddr;
-	  val handlerAddr : handler = 
-	    offsetAddr (csegAddr seg, toShort (handlerByteOffset + 2));
-	  val U :unit = setConst (seg, constStartAddr, num, toWord handlerAddr);
-	in
-	  numOfConsts cvec := ! (numOfConsts cvec) - 1
-	end
+    let 
+      (* The following comment applies to offsetAddr *)
+      (* Special function to add to an address.
+         This only works if the resulting value is 
+         in a code segment and is on a word  + 2 byte boundary. *)
+      val handlerByteOffset : int = targetAddr byteAddrMinus segStartAddr;
+      val handlerAddr : handler = 
+        offsetAddr (csegAddr seg, toShort (handlerByteOffset + 2));
+      val U :unit = setConst (seg, constStartAddr, num, toWord handlerAddr);
+    in
+      numOfConsts cvec := ! (numOfConsts cvec) - 1
+    end
       
       (* forward-reference - fix up later when we compile
-	 the referenced code *) 
+     the referenced code *) 
       | CVal _ => ();
 
     val U : unit = applyList (putLocalConst, (! (constVec cvec)));
@@ -3931,16 +3931,16 @@ Calling conventions:
       if noClosure cvec
       then csegAddr seg
       else let
-	val addr : address = alloc (short1, F_words, toWord (csegAddr seg));
-	
-	(* Logically unnecessary; however the RTS currently allocates everything
-	   as mutable because Dave's code assumed that things were done this
-	   way and I'm not completely sure that everything that needs a mutable
-	   allocation actually asks for it yet. SPF 19/2/97
-	*)
-	val U : unit = lock addr;
+    val addr : address = alloc (short1, F_words, toWord (csegAddr seg));
+    
+    (* Logically unnecessary; however the RTS currently allocates everything
+       as mutable because Dave's code assumed that things were done this
+       way and I'm not completely sure that everything that needs a mutable
+       allocation actually asks for it yet. SPF 19/2/97
+    *)
+    val U : unit = lock addr;
       in
-	addr
+    addr
       end
 
     (* Now we know the address of this object we can fix up
@@ -4039,59 +4039,59 @@ Calling conventions:
       val taggedMax : int = tagged max;
   
       val rangeCheck : unit =
-	if exhaustive then ()
-	else let
-	  (* Is it long? If so, jump to the default. We need this because we might be 
-	     doing case-analysis on integers. For other types this is a waste of
-	     time - we know the tag must be a short - and we should change GCODE
-	     so we can eliminate this test.
-	     SPF 23/11/1997
-	     
-	     We have to be *very* careful here, though. For optimised data-types,
-	     we might be comparing a pointer with a (short) integer. This means
-	     that we're not really testing long/short, we're testing pointer/short
-	     so we need to keep the test even if we know we're dealing with datatype
-	     tags (for some kinds of datatypes). This requires more work in the
-	     high-level code generator to distinguish these cases properly.
-	     SPF 11/12/1997
-	  *)
-	  val U : unit = genBlock (cvec, [COMB (EV, true, valReg, regZero, defaultLabel)]);
+    if exhaustive then ()
+    else let
+      (* Is it long? If so, jump to the default. We need this because we might be 
+         doing case-analysis on integers. For other types this is a waste of
+         time - we know the tag must be a short - and we should change GCODE
+         so we can eliminate this test.
+         SPF 23/11/1997
+         
+         We have to be *very* careful here, though. For optimised data-types,
+         we might be comparing a pointer with a (short) integer. This means
+         that we're not really testing long/short, we're testing pointer/short
+         so we need to keep the test even if we know we're dealing with datatype
+         tags (for some kinds of datatypes). This requires more work in the
+         high-level code generator to distinguish these cases properly.
+         SPF 11/12/1997
+      *)
+      val U : unit = genBlock (cvec, [COMB (EV, true, valReg, regZero, defaultLabel)]);
      
-	  (* Is it less than the minimum? If so, jump to the default. *)
-	  val U : unit =
-	    if is5Bit taggedMin
-	    then
-	      genBlock (cvec, [COMIB (GT, true, int5 taggedMin, valReg, defaultLabel)])
-	    else let
-	      val regTemp : reg = chooseTempReg cvec;
-	      val U : unit = genList (cvec, loadImmed (taggedMin, regTemp));
-	    in
-	      genBlock (cvec, [COMB (LT, true, valReg, regTemp, defaultLabel)])
-	    end;
-	 
-	  (* Is it greater than the maximum? If so, jump to the default. *)
-	  val U : unit =
-	    if is5Bit taggedMax
-	    then
-	      genBlock (cvec, [COMIB (LT, true, int5 taggedMax, valReg, defaultLabel)])
-	    else let
-	      val regTemp : reg = chooseTempReg cvec;
-	      val U : unit = genList (cvec, loadImmed (taggedMax, regTemp));
-	    in
-	      genBlock (cvec, [COMB (GT, true, valReg, regTemp, defaultLabel)])
-	    end;
-	in
-	  ()
-	end;
-	
+      (* Is it less than the minimum? If so, jump to the default. *)
+      val U : unit =
+        if is5Bit taggedMin
+        then
+          genBlock (cvec, [COMIB (GT, true, int5 taggedMin, valReg, defaultLabel)])
+        else let
+          val regTemp : reg = chooseTempReg cvec;
+          val U : unit = genList (cvec, loadImmed (taggedMin, regTemp));
+        in
+          genBlock (cvec, [COMB (LT, true, valReg, regTemp, defaultLabel)])
+        end;
+     
+      (* Is it greater than the maximum? If so, jump to the default. *)
+      val U : unit =
+        if is5Bit taggedMax
+        then
+          genBlock (cvec, [COMIB (LT, true, int5 taggedMax, valReg, defaultLabel)])
+        else let
+          val regTemp : reg = chooseTempReg cvec;
+          val U : unit = genList (cvec, loadImmed (taggedMax, regTemp));
+        in
+          genBlock (cvec, [COMB (GT, true, valReg, regTemp, defaultLabel)])
+        end;
+    in
+      ()
+    end;
+    
       val indexReg : reg = chooseTempReg cvec;
       val baseReg  : reg = chooseTempReg cvec;
       
       val U : unit =
-	if indexReg regEq baseReg
-	then raise InternalError "indexedCase: run out of temporary registers"
-	else ();
-	
+    if indexReg regEq baseReg
+    then raise InternalError "indexedCase: run out of temporary registers"
+    else ();
+    
       val entryCount : int = max - min + 1;
 
 
@@ -4110,33 +4110,33 @@ Calling conventions:
       val offset : int = min - jumpTableOffset;
 
       val U : unit =
-	genBlock (cvec, 
-	  addImmed (~ (tagged offset), valReg, indexReg) @
-	  (* indexReg now contains a value in the range 4 .. max - min + 4, but shifted *)
-	  [
-	    LOADCODEADDR baseReg,
-	    ASHR (nat5_TAGSHIFT, indexReg, indexReg), (* in DELAY slot *)
-	    (* indexReg now contains an untagged value in the range 3 .. max - min + 3;
-	       baseReg now contains the address of the base of the table, which is HERE;
-	       except that its lower 2 bits contain unknown values, so we have
-	       to mask these out. Were using a temporary register for "baseReg", so
-	       it doesn't matter that this isn't a legal code-pointer.
-	       SPF 11/12/1997
-	    *)
+    genBlock (cvec, 
+      addImmed (~ (tagged offset), valReg, indexReg) @
+      (* indexReg now contains a value in the range 4 .. max - min + 4, but shifted *)
+      [
+        LOADCODEADDR baseReg,
+        ASHR (nat5_TAGSHIFT, indexReg, indexReg), (* in DELAY slot *)
+        (* indexReg now contains an untagged value in the range 3 .. max - min + 3;
+           baseReg now contains the address of the base of the table, which is HERE;
+           except that its lower 2 bits contain unknown values, so we have
+           to mask these out. Were using a temporary register for "baseReg", so
+           it doesn't matter that this isn't a legal code-pointer.
+           SPF 11/12/1997
+        *)
             TAGCODEREG (int5_0, baseReg),
             LDWXSH (indexReg, baseReg, indexReg),
-	    ADDL   (indexReg, baseReg, baseReg),
-	    JUMPREG (true, baseReg),
-	    
-	    JUMPTABLE (entryCount, entryList)
-	  ]);
+        ADDL   (indexReg, baseReg, baseReg),
+        JUMPREG (true, baseReg),
+        
+        JUMPTABLE (entryCount, entryList)
+      ]);
   
       (* We don't fall through the JUMPTABLE instruction *)
       val U : unit = exited cvec := true;
       
       (* The default cases come here *)
       val U : unit = 
-	if exhaustive then () else fixupSpecialLabel (defaultLabel, cvec);
+    if exhaustive then () else fixupSpecialLabel (defaultLabel, cvec);
     in
       jumptable
     end (* we need to generate code *)
@@ -4163,13 +4163,13 @@ Calling conventions:
     fun createLabList (i, cl, labList) =
       if max < i then labList
       else
-	case cl of
-	  [] => createLabList (i + 1, cl, defaultLabel :: labList)
-	 
-	| ((j,caseLabel) :: t) =>
-	    if i < j 
-	    then createLabList (i + 1, cl, defaultLabel :: labList)
-	    else createLabList (i + 1, t,  caseLabel :: labList)
+    case cl of
+      [] => createLabList (i + 1, cl, defaultLabel :: labList)
+     
+    | ((j,caseLabel) :: t) =>
+        if i < j 
+        then createLabList (i + 1, cl, defaultLabel :: labList)
+        else createLabList (i + 1, t,  caseLabel :: labList)
   in
     entryList := createLabList (min, sortedList, [])
   end;

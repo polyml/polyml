@@ -1,25 +1,25 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
-    Title: 	Code vector operations.
-    Author: 	Dave Matthews, Cambridge University Computer Laboratory
+    Title:  Code vector operations.
+    Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright   Cambridge University 1985
 *)
 
@@ -65,7 +65,7 @@ sig
   val csegPutWord:       cseg * int * machineWord -> unit;
   val csegCopySeg:       cseg * cseg * int * int -> unit;
   val csegAddr:          cseg -> address;
-  val csegPutConstant:	 cseg * int * machineWord * 'a -> unit;
+  val csegPutConstant:   cseg * int * machineWord * 'a -> unit;
 end = 
 
 (*****************************************************************************)
@@ -278,8 +278,8 @@ struct
     if wordIndex < 0 orelse lengthWords <= wordIndex
     then let
       val msg = 
-	concat
-	  [
+    concat
+      [
             "csegPutWord: Index ",
              Int.toString wordIndex,
              " out of range 0..", 
@@ -303,8 +303,8 @@ struct
     else if wordIndex < 0 orelse lengthWords <= wordIndex
     then let
       val msg = 
-	concat
-	  [
+    concat
+      [
             "csegGetWord: Index ",
              Int.toString wordIndex,
              " out of range 0..", 
@@ -318,11 +318,11 @@ struct
 
   (* csegPutConstant: store a constant into the code.  Exactly how this is
      done is architecture dependent: on the i386 it's simply a store, on
-	 other architectures the constant may have to be split between instructions.
-	 This means that it has to be done by the RTS so as to be certain that
-	 we don't have a garbage collection with an invalid address.  DCJM 2/1/01. *)
+     other architectures the constant may have to be split between instructions.
+     This means that it has to be done by the RTS so as to be certain that
+     we don't have a garbage collection with an invalid address.  DCJM 2/1/01. *)
   fun csegPutConstant (ref (UnlockedCode, addr), byteIndex:int,
-  					   value:machineWord, data: 'a) : unit =
+                       value:machineWord, data: 'a) : unit =
   let
     val lengthWords : int = objLength addr;
     val lengthBytes : int = wordSize * lengthWords;
@@ -330,8 +330,8 @@ struct
     if byteIndex < 0 orelse lengthBytes <= byteIndex
     then let
       val msg = 
-		concat
-		  [
+        concat
+          [
             "csegPutConstant: Index ", Int.toString byteIndex,
              " out of range 0..",  Int.toString lengthWords
           ]
@@ -339,7 +339,7 @@ struct
       raise InternalError msg
     end
     else RunCall.run_call4 RuntimeCalls.POLY_SYS_set_code_constant
-			(addr, toShort byteIndex, value, data)
+            (addr, toShort byteIndex, value, data)
   end
     | csegPutConstant _ =
         raise InternalError "csegPutConstant: not an unlocked code segment"

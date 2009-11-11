@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (***************************************************************************
@@ -96,9 +96,9 @@ local
 in
     fun hex str =
       case explode str of
-	  "0"::"x"::digs => let val increasingDigs = rev (map intOfHexDigit digs)
-	    		  in  calc increasingDigs
-			    end 
+      "0"::"x"::digs => let val increasingDigs = rev (map intOfHexDigit digs)
+                  in  calc increasingDigs
+                end 
         | _ => raise HexFailed
 
     val natOr  = extend (fn (a,b) => a orelse b)
@@ -127,12 +127,12 @@ fun GetRValue(rgb)        = natAnd (rgb,hex "0xFF")
 
 fun GetGValue(rgb)        = natAnd (natAnd(rgb,hex"0xFFFF") div 256,hex "0xFF")   
 
-(* ((BYTE)(((WORD)(rgb)) >> 8))	*)
+(* ((BYTE)(((WORD)(rgb)) >> 8)) *)
 
 
 fun GetBValue(rgb)        = natAnd (rgb div 65536,hex "0xFF") 
 
-(* ((BYTE)((rgb)>>16))	*)
+(* ((BYTE)((rgb)>>16))  *)
 
 
 fun HIBYTE(w)             = natAnd ( natAnd (w,hex "0xFFFF")  div  256 , hex "0xFF")
@@ -144,10 +144,10 @@ fun HIWORD(l)             = natAnd ( l div 65536, hex "0xFFFF")
 
 (* ((WORD)(((DWORD)(l) >> 16) & 0xFFFF)) *)
 
-							
+                            
 fun LANGIDFROMLCID(lcid)  = natAnd ( lcid , hex "0xFFFF" )
 
-(* ((WORD  )(lcid))	*)
+(* ((WORD  )(lcid)) *)
 
 
 fun LOBYTE(w)             = natAnd (w,hex "0xFF")
@@ -187,7 +187,7 @@ end
 
 fun MAKEINTATOM(i)        = natAnd (i,hex "0xFFFF")
 
-(* (LPTSTR)((DWORD)((WORD)(i)))	*)
+(* (LPTSTR)((DWORD)((WORD)(i))) *)
 
 
 fun MAKEINTRESOURCEA(i)   = natAnd (i,hex "0xFFFF")
@@ -230,7 +230,7 @@ fun MAKEPOINTS (l)         = 0 (* Not implemented *)
 
 fun MAKEWORD(a, b)        = natAnd ( natOr( natAnd(a,hex"0xFF"),
                                      natAnd(natAnd(b,hex"0xFF")*256,hex"0xFFFF") ),
-									 hex"0xFFFF" )
+                                     hex"0xFFFF" )
 
 (* ((WORD)(((BYTE)(a)) | ((WORD)((BYTE)(b))) << 8)) *)
 
@@ -268,9 +268,9 @@ fun PRIMARYLANGID(lgid)   = natAnd ( natAnd(lgid,hex"0xFFFF"), hex"0x3FF")
 
 
 fun RGB(r,g,b)            = hexOR ([natAnd(r,hex"0xFF"),
-									        natAnd(natAnd(g,hex"0xFF")*256,hex"0xFFFF"),
-									        natAnd(natAnd(b,hex"0xFF")*65536,hex"0xFFFFFFFF")] 
-							      )
+                                            natAnd(natAnd(g,hex"0xFF")*256,hex"0xFFFF"),
+                                            natAnd(natAnd(b,hex"0xFF")*65536,hex"0xFFFFFFFF")] 
+                                  )
 
 (* ((COLORREF)  (((BYTE)(r) | ((WORD)((BYTE)(g))<<8)) | (((DWORD)(BYTE)(b))<<16))) *)
 
@@ -290,7 +290,7 @@ val NLS_VALID_LOCALE_MASK = hex ("0x000FFFFF")
 
 fun SORTIDFROMLCID(lcid)  =  natAnd( natAnd (lcid,
                                              NLS_VALID_LOCALE_MASK )  div  65536,
-								     hex"0xFFFF" )
+                                     hex"0xFFFF" )
 
 (* ((WORD  )((((DWORD)(lcid)) & NLS_VALID_LOCALE_MASK) >> 16)) *)
 

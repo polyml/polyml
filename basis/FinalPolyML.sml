@@ -246,7 +246,7 @@ local
 
     fun exceptionLocation(exn: exn): PolyML.location option =
     let
-    	open RuntimeCalls
+        open RuntimeCalls
         datatype RuntimeLocation =
             NoLocation
         |   SomeLocation of
@@ -365,7 +365,7 @@ local
                 (
                     TextIO.output(TextIO.stdErr,
                         concat["Exception ", exnName exn,
-                      	       " raised while writing to stdOut.\n"]);
+                               " raised while writing to stdOut.\n"]);
                     TextIO.flushOut TextIO.stdErr (* probably unnecessary. *)
                 ) handle _ => ();
                 (* Get out without trying to do anything else. *)
@@ -571,8 +571,8 @@ local
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             local
-    			(* Default is to filter the parse tree argument. *)
-    			fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
+                (* Default is to filter the parse tree argument. *)
+                fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
                 |   defaultCompilerResultFun (_, SOME code) = fn () => resultFun(code()) 
             in
                 val compilerResultFun = find (fn CPCompilerResultFun f => SOME f | _ => NONE)
@@ -618,7 +618,7 @@ local
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds)
                     ])
         in
-		    compilerResultFun treeAndCode
+            compilerResultFun treeAndCode
         end
  
         (* Top-level read-eval-print loop.  This is the normal top-level loop but is

@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 signature importTypeSig =
@@ -41,13 +41,13 @@ end;
 
 functor MsgTypeFct ( structure Type : importTypeSig
                      structure ConstType : importConstTypeSig
-				   ) =
+                   ) =
 struct
 
 open ConstType
 open Type
 
-					                       
+                                           
 datatype System     = SYS_ACTIVATE of { w : MLHWND, 
                                        active   : int,
                                        minimize : bool }
@@ -80,7 +80,7 @@ activated and to the application whose window is being deactivated.
  ------------------------------------------------------------------------------*)
 
                     | SYS_ASKCBFORMATNAME of { w : MLHWND, 
-                                               formatname : string  }	
+                                               formatname : string  }   
 
                       (* Retrieves the name of the clipboard format *)
 (*------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ The WM_ASKCBFORMATNAME message is sent to the clipboard owner by a clipboard vie
 request the name of a CF_OWNERDISPLAY clipboard format. 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CANCELJOURNAL	
+                    | SYS_CANCELJOURNAL 
 
                       (* Notifies application when user cancels journaling *)
 (*------------------------------------------------------------------------------
@@ -105,7 +105,7 @@ application's journaling activities. The message is posted with a NULL window ha
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CANCELMODE of { w : MLHWND }	
+                    | SYS_CANCELMODE of { w : MLHWND }  
 
                       (* Notifies a Window to cancel internal modes *)
 (*------------------------------------------------------------------------------
@@ -118,7 +118,7 @@ displayed, enabling the focus window to cancel modes such as mouse capture.
 
                     | SYS_CHANGECBCHAIN of { w : MLHWND, 
                                             removed : MLHWND,
-                                            next    : MLHWND  }	
+                                            next    : MLHWND  } 
 
                       (* Notifies clipboard viewer of removal from chain *)
 (*------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ window is being removed from the chain.
 
                     | SYS_CHAR of { w : MLHWND, 
                                    ch : string,
-                                   data : int  }                   	
+                                   data : int  }                    
 
                       (* Indicates the user pressed a character key *)
 (*------------------------------------------------------------------------------
@@ -164,7 +164,7 @@ its owner in response to a WM_CHAR message.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CHILDACTIVATE of { w : MLHWND }	
+                    | SYS_CHILDACTIVATE of { w : MLHWND }   
 
                       (* Notifies a child Window of activation *)
 (*------------------------------------------------------------------------------
@@ -204,7 +204,7 @@ the ChooseFont function to retrieve the current LOGFONT structure.
  ------------------------------------------------------------------------------*)
 
                     | SYS_CLEAR of { w : MLHWND }
-                    	
+                        
                       (* Clears an edit control *)
 (*------------------------------------------------------------------------------
 WM_CLEAR
@@ -217,7 +217,7 @@ selection, if any, from the edit control.
  ------------------------------------------------------------------------------*)
 
                     | SYS_CLOSE of { w : MLHWND }
-                    	
+                        
                       (* System Close menu command was chosen *)
 (*------------------------------------------------------------------------------
 WM_CLOSE
@@ -244,7 +244,7 @@ translated.
 
  ------------------------------------------------------------------------------*)
                        
-                    | SYS_COMPACTING	of { w : MLHWND, 
+                    | SYS_COMPACTING    of { w : MLHWND, 
                                          compactratio : int }
 
                       (* Indicates a low memory condition *)
@@ -259,15 +259,15 @@ that system memory is low.
  ------------------------------------------------------------------------------*)
 
                     | SYS_COMPAREITEM of { w : MLHWND,
-					                       controlid : int,
-				                           CtlType : int,
+                                           controlid : int,
+                                           CtlType : int,
                                            CtlID : int,
                                            hItem : MLHWND,
                                            itemID1 : int,
                                            itemData1 : int,
                                            itemID2 : int,
-                                           itemData2 : int 				                          
-				                           }
+                                           itemData2 : int                                        
+                                           }
 
                       (* Determines position of combo- or list-box item *)
 (*------------------------------------------------------------------------------
@@ -283,7 +283,7 @@ LBS_SORT style.
  ------------------------------------------------------------------------------*)
 
                     | SYS_COPY of { w : MLHWND }
-                    	
+                        
                       (* Copies a selection to the clipboard *)
 (*------------------------------------------------------------------------------
 WM_COPY
@@ -309,7 +309,7 @@ The WM_COPYDATA message is sent when an application passes data to another appli
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CREATE	of { w : MLHWND,
+                    | SYS_CREATE    of { w : MLHWND,
                                      menu : MLHMENU,
                                      parent : MLHWND,
                                      cy : int,
@@ -385,7 +385,7 @@ set the text and background colors of the edit control.
                     | SYS_CTLCOLORLISTBOX of { w : MLHWND, 
                                               displaycontext : MLHDC,
                                               listbox        : MLHWND   }
-                                              	
+                                                
                       (* List box is about to be drawn *)
 (*------------------------------------------------------------------------------
 WM_CTLCOLORLISTBOX
@@ -398,7 +398,7 @@ list box by using the given display device context handle.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CTLCOLORMSGBOX	of { w : MLHWND, 
+                    | SYS_CTLCOLORMSGBOX    of { w : MLHWND, 
                                                  displaycontext : MLHDC,
                                                  messagebox     : MLHWND  }
 
@@ -430,7 +430,7 @@ context handle to set the background color of the scroll bar control.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_CTLCOLORSTATIC	of { w : MLHWND, 
+                    | SYS_CTLCOLORSTATIC    of { w : MLHWND, 
                                              displaycontext : MLHDC,
                                              staticcontrol  : MLHWND  }
 
@@ -447,7 +447,7 @@ about to be drawn. By responding to this message, the parent window can use the 
  ------------------------------------------------------------------------------*)
 
                     | SYS_CUT of { w : MLHWND }
-                    	
+                        
                       (* Deletes a selection and copies it to the clipboard *)
 (*------------------------------------------------------------------------------
 WM_CUT
@@ -483,7 +483,7 @@ of a WM_DDE_REQUEST message.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DDE_ADVISE	
+                    | SYS_DDE_ADVISE    
 
                       (* Requests a DDE data-change update *)
 (*------------------------------------------------------------------------------
@@ -497,7 +497,7 @@ server application to request the server to supply an update for a data item whe
  ------------------------------------------------------------------------------*)
 
                     | SYS_DDE_DATA
-                    	
+                        
                       (* Sends data to a DDE client *)
 (*------------------------------------------------------------------------------
 WM_DDE_DATA
@@ -510,7 +510,7 @@ application to pass a data item to the client or to notify the client of the ava
  ------------------------------------------------------------------------------*)
                        
                     | SYS_DDE_EXECUTE
-                    	
+                        
                       (* Sends a string to a DDE server *)
 (*------------------------------------------------------------------------------
 WM_DDE_EXECUTE
@@ -523,7 +523,7 @@ application is expected to post a WM_DDE_ACK message in response.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DDE_INITIATE	
+                    | SYS_DDE_INITIATE  
 
                       (* Initiates a DDE conversation *)
 (*------------------------------------------------------------------------------
@@ -539,7 +539,7 @@ WM_DDE_ACK message.)
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DDE_POKE	
+                    | SYS_DDE_POKE  
 
                       (* Send unsolicited data to a server *)
 (*------------------------------------------------------------------------------
@@ -554,7 +554,7 @@ item.
 
  ------------------------------------------------------------------------------*)
                        
-                    | SYS_DDE_REQUEST	
+                    | SYS_DDE_REQUEST   
 
                       (* Requests data from a DDE server *)
 (*------------------------------------------------------------------------------
@@ -567,7 +567,7 @@ server application to request the value of a data item.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DDE_TERMINATE	
+                    | SYS_DDE_TERMINATE 
 
                       (* Ends a DDE conversation *)
 (*------------------------------------------------------------------------------
@@ -581,7 +581,7 @@ terminate a conversation.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DDE_UNADVISE	
+                    | SYS_DDE_UNADVISE  
 
                       (* Stops a DDE data-update request *)
 (*------------------------------------------------------------------------------
@@ -614,7 +614,7 @@ O key.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DELETEITEM	of { w : MLHWND, 
+                    | SYS_DELETEITEM    of { w : MLHWND, 
                                              controlid : int,
                                              CtlType : int,
                                              CtlID : int,
@@ -635,7 +635,7 @@ LB_RESETCONTENT, CB_DELETESTRING, or CB_RESETCONTENT message.
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DESTROY of { w : MLHWND }	
+                    | SYS_DESTROY of { w : MLHWND } 
 
                       (* Indicates Window is about to be destroyed *)
 (*------------------------------------------------------------------------------
@@ -648,7 +648,7 @@ destroyed. During the processing of the message, it can be assumed that all chil
 
  ------------------------------------------------------------------------------*)
 
-                    | SYS_DESTROYCLIPBOARD of { w : MLHWND }	
+                    | SYS_DESTROYCLIPBOARD of { w : MLHWND }    
 
                       (* Notifies owner that the clipboard was emptied *)
 (*------------------------------------------------------------------------------
@@ -660,7 +660,7 @@ by a call to the EmptyClipboard function.
  ------------------------------------------------------------------------------*)
                      
                     | SYS_DEVMODECHANGE of { w : MLHWND, 
-                                             devicename : string }	
+                                             devicename : string }  
 
                       (* Indicates the device-mode settings have changed *)
 (*------------------------------------------------------------------------------
@@ -672,7 +672,7 @@ device-mode settings.
 
  ------------------------------------------------------------------------------*)
                      
-                    | SYS_DRAWCLIPBOARD of { w : MLHWND }	
+                    | SYS_DRAWCLIPBOARD of { w : MLHWND }   
 
                       (* Indicates the clipboard's contents have changed *) 
 (*------------------------------------------------------------------------------
@@ -695,7 +695,7 @@ the clipboard.
                                        hDC : MLHDC,
                                        rcItem : Rectangle,
                                        itemData : int
-                                        }	
+                                        }   
 
                       (* Indicates owner-draw control/menu needs redrawing *) 
 (*------------------------------------------------------------------------------
@@ -709,7 +709,7 @@ or menu when a visual aspect of the button, combo box, list box, or menu has cha
  ------------------------------------------------------------------------------*)
                      
                     | SYS_DROPFILES of { w : MLHWND,
-                                         hDrop : MLHANDLE }	
+                                         hDrop : MLHANDLE } 
 
                       (* Indicates that a file has been dropped *)
 (*------------------------------------------------------------------------------
@@ -721,7 +721,7 @@ the window of an application that has registered itself as a recipient of droppe
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_ENABLE	of { w : MLHWND, 
+                    | SYS_ENABLE    of { w : MLHWND, 
                                      enabled : bool }
 
                       (* Indicates a Window's enable state is changing *)
@@ -735,7 +735,7 @@ returns, but after the enabled state (WS_DISABLE style bit) of the window has ch
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_ENDSESSION	of { w : MLHWND, 
+                    | SYS_ENDSESSION    of { w : MLHWND, 
                                              endsession : bool }
 
                       (* Indicates whether the Windows session is ending *)
@@ -794,7 +794,7 @@ modal loop has been exited.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_ERASEBKGND	of { w : MLHWND, 
+                    | SYS_ERASEBKGND    of { w : MLHWND, 
                                          devicecontext : MLHDC }
 
                       (* Indicates a Window's background need erasing *)
@@ -808,7 +808,7 @@ painting.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_FONTCHANGE	of { w : MLHWND }
+                    | SYS_FONTCHANGE    of { w : MLHWND }
 
                       (* Indicates a change in the font-resource pool *)
 (*------------------------------------------------------------------------------
@@ -821,7 +821,7 @@ changing the pool of font resources.
 
  ------------------------------------------------------------------------------*)
                      
-                    | SYS_GETDLGCODE	of { w : MLHWND }
+                    | SYS_GETDLGCODE    of { w : MLHWND }
 
                       (* Allows dialog procedure to process control input *)
 (*------------------------------------------------------------------------------
@@ -834,7 +834,7 @@ the input itself.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_GETFONT of { w : MLHWND }	
+                    | SYS_GETFONT of { w : MLHWND } 
 
                       (* Retrieves the font that a control is using *)
 (*------------------------------------------------------------------------------
@@ -847,7 +847,7 @@ currently drawing its text.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_GETHOTKEY of { w : MLHWND }	
+                    | SYS_GETHOTKEY of { w : MLHWND }   
 
                       (* Gets the virtual-key code of a Window's hot key *) 
 (*------------------------------------------------------------------------------
@@ -861,11 +861,11 @@ An application sends a WM_GETHOTKEY message to determine the hot key associated 
                     
                     | SYS_GETMINMAXINFO of { w : MLHWND,
                                             MaxSizex      : int,
-	                                        MaxSizey      : int,
+                                            MaxSizey      : int,
                                             MaxPositionx  : int,
-	                                        MaxPositiony  : int,
+                                            MaxPositiony  : int,
                                             MinTrackSizex : int,
-	                                        MinTrackSizey : int,
+                                            MinTrackSizey : int,
                                             MaxTrackSizex : int,
                                             MaxTrackSizey : int                                            
                                              }
@@ -882,7 +882,7 @@ position, or its default minimum or maximum tracking size.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_GETTEXT of { w : MLHWND, 
-                                       text : string  }	
+                                       text : string  } 
 
                       (* Gets the text that corresponds to a Window *)
 (*------------------------------------------------------------------------------
@@ -895,7 +895,7 @@ buffer provided by the caller.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_GETTEXTLENGTH of { w : MLHWND }	
+                    | SYS_GETTEXTLENGTH of { w : MLHWND }   
 
                       (* Gets length of text associated with a Window *)
 (*------------------------------------------------------------------------------
@@ -908,7 +908,7 @@ associated with a window. The length does not include the terminating null chara
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_HOTKEY	of { w : MLHWND, 
+                    | SYS_HOTKEY    of { w : MLHWND, 
                                      id : int }
 
                       (* Hot key has been detected *)
@@ -925,7 +925,7 @@ key.
                     | SYS_HSCROLL of { w : MLHWND, 
                                        value    : int,
                                        position : int,
-                                       scrollbar   : MLHWND  }	
+                                       scrollbar   : MLHWND  }  
 
                       (* Indicates a click in a horizontal scroll bar *)
 (*------------------------------------------------------------------------------
@@ -943,7 +943,7 @@ scroll event occurs in the control.
                     | SYS_HSCROLLCLIPBOARD of { w : MLHWND, 
                                                viewer   : MLHWND,
                                                code     : int,
-                                               position : int  }	
+                                               position : int  }    
 
                       (* Prompts owner to scroll clipboard contents *)
 (*------------------------------------------------------------------------------
@@ -959,7 +959,7 @@ scroll bar values.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_ICONERASEBKGND	of { w : MLHWND, 
+                    | SYS_ICONERASEBKGND    of { w : MLHWND, 
                                              devicecontext : MLHDC }
 
                       (* Notifies minimized Window to fill icon background *)
@@ -973,10 +973,10 @@ window; otherwise, WM_ERASEBKGND is sent.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_INITDIALOG	of { w  : MLHWND, 
+                    | SYS_INITDIALOG    of { w  : MLHWND, 
                                          dialog   : MLHWND,
-					                     initdata : int  
-					                     }
+                                         initdata : int  
+                                         }
 
                       (* Initializes a dialog box *)
 (*------------------------------------------------------------------------------
@@ -991,7 +991,7 @@ initialization tasks that affect the appearance of the dialog box.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_INITMENU of { w : MLHWND, 
-                                        menu : MLHMENU }	
+                                        menu : MLHMENU }    
 
                       (* Indicates a menu is about to become active *)
 (*------------------------------------------------------------------------------
@@ -1007,7 +1007,7 @@ before it is displayed.
                     | SYS_INITMENUPOPUP of { w : MLHWND, 
                                             menupopup  : MLHMENU,
                                             itemposition : int,
-					                        issystemmenu : bool  }
+                                            issystemmenu : bool  }
 
                       (* Indicates a pop-up menu is being created *)
 (*------------------------------------------------------------------------------
@@ -1023,7 +1023,7 @@ an application to modify the pop-up menu before it is displayed, without changin
                     
                     | SYS_KEYDOWN of { w : MLHWND, 
                                       virtualkey : int,
-                                      data       : int  }	
+                                      data       : int  }   
 
                       (* Indicates a nonsystem key was pressed *)
 (*------------------------------------------------------------------------------
@@ -1038,7 +1038,7 @@ is pressed. A nonsystem key is a key that is pressed when the ALT key is not pre
                     
                     | SYS_KEYUP of { w : MLHWND, 
                                     virtualkey : int,
-                                    data       : int  }	
+                                    data       : int  } 
 
                       (* Indicates a nonsystem key was released *)
 (*------------------------------------------------------------------------------
@@ -1176,7 +1176,7 @@ beneath the cursor. Otherwise, the message is posted to the window that has capt
  ------------------------------------------------------------------------------*)
                           
                     | SYS_MDICASCADE of { w : MLHWND, 
-                                         flag : int  }	
+                                         flag : int  }  
 
                       (* Arranges MDI child Windows in cascade format *)
 (*------------------------------------------------------------------------------
@@ -1197,7 +1197,7 @@ window to arrange all its child windows in a cascade format.
                                          cx : int,
                                          cy : int,
                                          style : int,
-                                         cdata : int }	
+                                         cdata : int }  
 
                       (* Prompts MDI client to create a child Window *) 
 (*------------------------------------------------------------------------------
@@ -1211,7 +1211,7 @@ window to create an MDI child window.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_MDIDESTROY of { w : MLHWND, 
-                                         childtoclose : MLHWND  }	
+                                         childtoclose : MLHWND  }   
 
                       (* Closes an MDI child Window *) 
 (*------------------------------------------------------------------------------
@@ -1225,7 +1225,7 @@ window to close an MDI child window.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_MDIGETACTIVE of { w : MLHWND, 
-                                            stateflag : bool  }	
+                                            stateflag : bool  } 
 
                       (* Retrieves data about the active MDI child Window *) 
 (*------------------------------------------------------------------------------
@@ -1238,7 +1238,7 @@ window to retrieve the handle of the active MDI child window.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_MDIICONARRANGE of { w : MLHWND }	
+                    | SYS_MDIICONARRANGE of { w : MLHWND }  
 
                       (* Arranges minimized MDI child Windows *) 
 (*------------------------------------------------------------------------------
@@ -1252,7 +1252,7 @@ window to arrange all minimized MDI child windows. It does not affect child wind
  ------------------------------------------------------------------------------*)
                     
                     | SYS_MDIMAXIMIZE of { w : MLHWND,
-                                          childtomaximise : MLHWND  }	
+                                          childtomaximise : MLHWND  }   
 
                       (* Maximizes an MDI child Window *) 
 (*------------------------------------------------------------------------------
@@ -1270,7 +1270,7 @@ appends the title bar text of the child window to that of the frame window.
                     
                     | SYS_MDINEXT of { w : MLHWND, 
                                       child    : MLHWND,
-					                  flagnext : bool  }
+                                      flagnext : bool  }
 
                       (* Activates the next MDI child Window *) 
 (*------------------------------------------------------------------------------
@@ -1296,7 +1296,7 @@ window to refresh the Window menu of the MDI frame window.
 
  ------------------------------------------------------------------------------*)
                      
-                    | SYS_MDIRESTORE	of { w : MLHWND, 
+                    | SYS_MDIRESTORE    of { w : MLHWND, 
                                          childtorestore : MLHWND  }
 
                       (* Prompts MDI client to restore a child Window *) 
@@ -1313,7 +1313,7 @@ window to restore an MDI child window from maximized or minimized size.
                     
                     | SYS_MDISETMENU  of { w : MLHWND, 
                                           framemenu  : MLHMENU,
-					                      Windowmenu : MLHMENU  } 
+                                          Windowmenu : MLHMENU  } 
 
                       (* Replaces an MDI frame Window's menu *) 
 (*------------------------------------------------------------------------------
@@ -1349,7 +1349,7 @@ arrange all of its MDI child windows in a tile format.
                                           itemWidth  : int,
                                           itemHeight : int,
                                           itemData   : int
-                                         }	
+                                         }  
 
                       (* Requests dimensions of owner-draw control or item *)
 (*------------------------------------------------------------------------------
@@ -1365,7 +1365,7 @@ list box, or menu item when the control or menu is created.
                     | SYS_MENUCHAR of { w : MLHWND, 
                                        ch       : string,
                                        menuflag : int,
-                                       menu     : MLHMENU }	
+                                       menu     : MLHMENU } 
 
                       (* Indicates an unknown menu mnemonic was pressed *)
 (*------------------------------------------------------------------------------
@@ -1380,10 +1380,10 @@ menu.
 
  ------------------------------------------------------------------------------*)
                      
-                    | SYS_MENUSELECT	of { w : MLHWND, 
+                    | SYS_MENUSELECT    of { w : MLHWND, 
                                          menuitem  : int,
-					                     menuflags : int,
-									     menu      : MLHMENU  }
+                                         menuflags : int,
+                                         menu      : MLHMENU  }
 
                       (* Indicates that the user selected a menu item *)
 (*------------------------------------------------------------------------------
@@ -1400,7 +1400,7 @@ item.
                     | SYS_MOUSEACTIVATE of { w : MLHWND, 
                                             parent   : MLHWND,
                                             hit_test : int,
-                                            message  : int  }	
+                                            message  : int  }   
 
                       (* Indicates a mouse click in an inactive Window *) 
 (*------------------------------------------------------------------------------
@@ -1418,7 +1418,7 @@ the DefWindowProc function.
                     | SYS_MOUSEMOVE of { w : MLHWND, 
                                         keyflags : int,
                                         xpos     : int,
-                                        ypos     : int  }	
+                                        ypos     : int  }   
 
                       (* Indicates mouse-cursor movement *)
 (*------------------------------------------------------------------------------
@@ -1435,7 +1435,7 @@ posted to the window that has captured the mouse.
                     
                     | SYS_MOVE of { w : MLHWND,
                                    xpos : int,
-                                   ypos : int  }	
+                                   ypos : int  }    
 
                       (* Indicates a Window's position has changed *)
 (*------------------------------------------------------------------------------
@@ -1460,18 +1460,18 @@ indicate an active or inactive state.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_NCCALCSIZE	of { w : MLHWND, 
+                    | SYS_NCCALCSIZE    of { w : MLHWND, 
                                              validarea     : bool,
-										     newrect       : Rectangle,
-										     oldrect       : Rectangle,
-										     oldclientarea : Rectangle,
-										     InsertAfter   : MLHWND,
+                                             newrect       : Rectangle,
+                                             oldrect       : Rectangle,
+                                             oldclientarea : Rectangle,
+                                             InsertAfter   : MLHWND,
                                              x     : int,
                                              y     : int,
                                              cx    : int,
                                              cy    : int,
                                              flags : int
-					                       }
+                                           }
 
                       (* Calculates the size of a Window's client area *)
 (*------------------------------------------------------------------------------
@@ -1496,7 +1496,7 @@ area when the size or position of the window changes.
                                        name : string,
                                        classname : string,
                                        exstyle : int                      
-                                      }	
+                                      } 
 
                       (* Indicates a Window's nonclient area being created *)
 (*------------------------------------------------------------------------------
@@ -1508,7 +1508,7 @@ created.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_NCDESTROY of { w : MLHWND }	
+                    | SYS_NCDESTROY of { w : MLHWND }   
 
                       (* Indicates Window's nonclient area being destroyed *)
 (*------------------------------------------------------------------------------
@@ -1523,7 +1523,7 @@ the window.
                     
                     | SYS_NCHITTEST of { w : MLHWND, 
                                         xpos : int,
-                                        ypos : int  }	
+                                        ypos : int  }   
 
                       (* Indicates mouse-cursor movement *)
 (*------------------------------------------------------------------------------
@@ -1540,7 +1540,7 @@ Otherwise, the message is posted to the window that has captured the mouse.
                     | SYS_NCLBUTTONDBLCLK of { w : MLHWND, 
                                               hit_test : int,
                                               xpos     : int,
-                                              ypos     : int  }	
+                                              ypos     : int  } 
 
                       (* Indicates nonclient left button double-click *)
 (*------------------------------------------------------------------------------
@@ -1554,10 +1554,10 @@ contains the cursor. If a window has captured the mouse, this message is not pos
 
  ------------------------------------------------------------------------------*)
                      
-                    | SYS_NCLBUTTONDOWN	of { w : MLHWND, 
+                    | SYS_NCLBUTTONDOWN of { w : MLHWND, 
                                              hit_test : int,
                                              xpos     : int,
-                                             ypos     : int  }	
+                                             ypos     : int  }  
 
                       (* Indicates left button pressed in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1574,7 +1574,7 @@ the cursor. If a window has captured the mouse, this message is not posted.
                     | SYS_NCLBUTTONUP of { w : MLHWND,
                                           hit_test : int,
                                           xpos     : int,
-                                          ypos     : int  }	
+                                          ypos     : int  } 
 
                       (* Indicates left button released in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1591,7 +1591,7 @@ cursor. If a window has captured the mouse, this message is not posted.
                     | SYS_NCMBUTTONDBLCLK of { w : MLHWND, 
                                               hit_test : int,
                                               xpos     : int,
-                                              ypos     : int  }	
+                                              ypos     : int  } 
 
                       (* Indicates nonclient middle button double-click *)
 (*------------------------------------------------------------------------------
@@ -1608,7 +1608,7 @@ contains the cursor. If a window has captured the mouse, this message is not pos
                     | SYS_NCMBUTTONDOWN of { w : MLHWND, 
                                             hit_test : int,
                                             xpos     : int,
-                                            ypos     : int  }	
+                                            ypos     : int  }   
 
                       (* Indicates middle button pressed in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1625,7 +1625,7 @@ cursor. If a window has captured the mouse, this message is not posted.
                     | SYS_NCMBUTTONUP of { w : MLHWND, 
                                           hit_test : int,
                                           xpos     : int,
-                                          ypos     : int  }	
+                                          ypos     : int  } 
 
                       (* Indicates middle button released in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1642,7 +1642,7 @@ cursor. If a window has captured the mouse, this message is not posted.
                     | SYS_NCMOUSEMOVE of { w : MLHWND, 
                                           hit_test : int,
                                           xpos     : int,
-                                          ypos     : int  }	
+                                          ypos     : int  } 
 
                       (* Indicates mouse-cursor movement in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1657,7 +1657,7 @@ the mouse, this message is not posted.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_NCPAINT of { w : MLHWND, 
-                                      region : MLHRGN  }	
+                                      region : MLHRGN  }    
 
                       (* Indicates a Window's frame needs painting *)
 (*------------------------------------------------------------------------------
@@ -1671,7 +1671,7 @@ An application sends the WM_NCPAINT message to a window when its frame must be p
                     | SYS_NCRBUTTONDBLCLK of { w : MLHWND, 
                                               hit_test : int,
                                               xpos     : int,
-                                              ypos     : int  }	
+                                              ypos     : int  } 
 
                       (* Indicates nonclient right button double-click *)
 (*------------------------------------------------------------------------------
@@ -1688,7 +1688,7 @@ contains the cursor. If a window has captured the mouse, this message is not pos
                     | SYS_NCRBUTTONDOWN of { w : MLHWND, 
                                             hit_test : int,
                                             xpos     : int,
-                                            ypos     : int  }	
+                                            ypos     : int  }   
 
                       (* Indicates right button pressed in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1705,7 +1705,7 @@ cursor. If a window has captured the mouse, this message is not posted.
                     | SYS_NCRBUTTONUP of { w : MLHWND, 
                                           hit_test : int,
                                           xpos     : int,
-                                          ypos     : int  }	
+                                          ypos     : int  } 
 
                       (* Indicates right button released in nonclient area *)
 (*------------------------------------------------------------------------------
@@ -1719,9 +1719,9 @@ cursor. If a window has captured the mouse, this message is not posted.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_NEXTDLGCTL	of { w : MLHWND, 
+                    | SYS_NEXTDLGCTL    of { w : MLHWND, 
                                          control    : int,
-					                     handleflag : bool  } 
+                                         handleflag : bool  } 
 
                       (* Sets focus to different dialog box control *) 
 (*------------------------------------------------------------------------------
@@ -1734,7 +1734,7 @@ different control in the dialog box.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_PAINT of { w : MLHWND  }	
+                    | SYS_PAINT of { w : MLHWND  }  
 
                       (* Indicates a Window's client area need painting *)
 (*------------------------------------------------------------------------------
@@ -1762,7 +1762,7 @@ needs repainting.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_PAINTICON of { w : MLHWND	}
+                    | SYS_PAINTICON of { w : MLHWND }
 
                       (* Icon is about to be painted *) 
 
@@ -1776,7 +1776,7 @@ instead.
  ------------------------------------------------------------------------------*)                    
 
                     | SYS_PALETTECHANGED of { w : MLHWND, 
-                                             changedpalette : MLHWND  }	
+                                             changedpalette : MLHWND  } 
 
                       (* Indicates the focus-Window realized its palette *)
 (*------------------------------------------------------------------------------
@@ -1791,7 +1791,7 @@ update its client area.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_PALETTEISCHANGING of { w : MLHWND, 
-                                                changingpalette : MLHWND  }	
+                                                changingpalette : MLHWND  } 
 
                       (* Informs Windows that palette is changing *) 
 (*------------------------------------------------------------------------------
@@ -1806,8 +1806,8 @@ logical palette.
                     | SYS_PARENTNOTIFY of { w : MLHWND, 
                                            eventflag : int,
                                            idchild   : int,
-										   value     : int
-                                          }	
+                                           value     : int
+                                          } 
 
                       (* Notifies parent of child-Window activity *) 
 (*------------------------------------------------------------------------------
@@ -1825,7 +1825,7 @@ place.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_PASTE of { w : MLHWND }	
+                    | SYS_PASTE of { w : MLHWND }   
 
                       (* Inserts clipboard data into an edit control *)
 (*------------------------------------------------------------------------------
@@ -1840,7 +1840,7 @@ data in CF_TEXT format.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_POWER of { w : MLHWND, 
-                                    powerevent : int  }	
+                                    powerevent : int  } 
 
                       (* Indicates the system is entering suspended mode *)
 (*------------------------------------------------------------------------------
@@ -1852,7 +1852,7 @@ about to enter the suspended mode.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_QUERYDRAGICON of { w : MLHWND }	
+                    | SYS_QUERYDRAGICON of { w : MLHWND }   
 
                       (* Requests a cursor handle for a minimized Window *)
 (*------------------------------------------------------------------------------
@@ -1918,7 +1918,7 @@ procedure.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_QUIT of { w : MLHWND, 
-                                   exitcode : int  }	
+                                   exitcode : int  }    
 
                       (* Requests that an application be terminated *)
 (*------------------------------------------------------------------------------
@@ -1933,7 +1933,7 @@ application calls the PostQuitMessage function. It causes the GetMessage functio
                     | SYS_RBUTTONDBLCLK of { w : MLHWND, 
                                             keyflags : int,
                                             xpos    : int,
-                                            ypos    : int  }	
+                                            ypos    : int  }    
 
                       (* Indicates double-click of right mouse button *)
 (*------------------------------------------------------------------------------
@@ -1952,7 +1952,7 @@ mouse.
                     | SYS_RBUTTONDOWN of { w : MLHWND, 
                                           keyflags : int,
                                           xpos    : int,
-                                          ypos    : int  }	
+                                          ypos    : int  }  
 
                       (* Indicates when right mouse button is pressed *) 
 (*------------------------------------------------------------------------------
@@ -1985,7 +1985,7 @@ beneath the cursor. Otherwise, the message is posted to the window that has capt
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_RENDERALLFORMATS of { w : MLHWND }	
+                    | SYS_RENDERALLFORMATS of { w : MLHWND }    
 
                       (* Notifies owner to render all clipboard formats *) 
 (*------------------------------------------------------------------------------
@@ -1999,7 +1999,7 @@ of generating, and place the data on the clipboard by calling the SetClipboardDa
  ------------------------------------------------------------------------------*)
                     
                     | SYS_RENDERFORMAT of { w : MLHWND, 
-                                           format : int  }	
+                                           format : int  }  
 
                       (* Notifies owner to render clipboard data *) 
 (*------------------------------------------------------------------------------
@@ -2015,7 +2015,7 @@ data in the specified format and place it on the clipboard by calling the SetCli
                     | SYS_SETCURSOR of { w : MLHWND, 
                                         cursorwindow : MLHWND,
                                         hittest      : int,
-                                        mousemessage : int  }	
+                                        mousemessage : int  }   
 
                       (* Prompts a Window to set the cursor shape *) 
 (*------------------------------------------------------------------------------
@@ -2043,7 +2043,7 @@ The WM_SETFOCUS message is sent to a window after it has gained the keyboard foc
                     
                     | SYS_SETFONT of { w : MLHWND, 
                                       font       : MLHFONT,
-                                      redrawflag : int  }	
+                                      redrawflag : int  }   
 
                       (* Sets the font for a control *) 
 (*------------------------------------------------------------------------------
@@ -2057,7 +2057,7 @@ text.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_SETHOTKEY of { w : MLHWND, 
-                                        virtualkey : int  }	
+                                        virtualkey : int  } 
 
                       (* Associates a hot key with a Window *) 
 (*------------------------------------------------------------------------------
@@ -2085,7 +2085,7 @@ redrawn or to prevent changes in that window from being redrawn.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_SETTEXT of { w : MLHWND, 
-                                       Windowtext : string  }	
+                                       Windowtext : string  }   
 
                       (* Sets the text of a Window *) 
 (*------------------------------------------------------------------------------
@@ -2097,7 +2097,7 @@ An application sends a WM_SETTEXT message to set the text of a window.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_SHOWWINDOW	of { w : MLHWND, 
+                    | SYS_SHOWWINDOW    of { w : MLHWND, 
                                              showflag   : bool,
                                              statusflag : int  } 
 
@@ -2115,7 +2115,7 @@ shown.
                     | SYS_SIZE of { w : MLHWND, 
                                    resizeflag : int,
                                    width      : int,
-                                   height     : int  }	
+                                   height     : int  }  
 
                       (* Indicates a change in a Window's size *)
 (*------------------------------------------------------------------------------
@@ -2145,7 +2145,7 @@ has changed size.
                     
                     | SYS_SPOOLERSTATUS of { w : MLHWND, 
                                             jobstatus : int,
-                                            jobsleft  : int  }	
+                                            jobsleft  : int  }  
 
                       (* Indicates a print job was added or removed *) 
 (*------------------------------------------------------------------------------
@@ -2242,7 +2242,7 @@ the lKeyData parameter.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_TIMECHANGE of { w : MLHWND }	
+                    | SYS_TIMECHANGE of { w : MLHWND }  
 
                       (* Indicates the system time has been set *)
 (*------------------------------------------------------------------------------
@@ -2269,7 +2269,7 @@ TimerProc callback function after each interval specified in the SetTimer functi
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_UNDO of { w : MLHWND }	
+                    | SYS_UNDO of { w : MLHWND }    
 
                       (* Undoes the last operation in an edit control *)
 (*------------------------------------------------------------------------------
@@ -2288,15 +2288,15 @@ deleted.
 (*------------------------------------------------------------------------------
 
  ------------------------------------------------------------------------------*)                    
-                      0 through WM_USER - 1	  Messages reserved for use by Windows 
+                      0 through WM_USER - 1   Messages reserved for use by Windows 
                       WM_USER through 0x7FFF  Integer messages for use by private 
                                               Window classes 
-                      0x8000 through 0xBFFF	  Messages reserved for future use by Windows 
-                      0xC000 through 0xFFFF	  String messages for use by applications 
-                      Greater than 0xFFFF	  Reserved by Windows for future use      *)
+                      0x8000 through 0xBFFF   Messages reserved for future use by Windows 
+                      0xC000 through 0xFFFF   String messages for use by applications 
+                      Greater than 0xFFFF     Reserved by Windows for future use      *)
                     
 
-                    | SYS_VKEYTOITEM	of { w : MLHWND, 
+                    | SYS_VKEYTOITEM    of { w : MLHWND, 
                                          virtualkey : int,
                                          caretpos   : int,
                                          listbox    : MLHWND  }
@@ -2304,7 +2304,7 @@ deleted.
                       (* Provides list-box keystrokes to owner Window *)
 (*------------------------------------------------------------------------------
 WM_VKEYTOITEM
-vkey = LOWORD(wParam);      -o- virtual-key code   -o-	
+vkey = LOWORD(wParam);      -o- virtual-key code   -o-  
 nCaretPos = HIWORD(wParam); -o- caret position     -o-
 MLHWNDLB = lParam;          -o- handle of list box -o-
 
@@ -2350,7 +2350,7 @@ bar values.
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_WINDOWPOSCHANGED of { w : MLHWND,	
+                    | SYS_WINDOWPOSCHANGED of { w : MLHWND, 
                                                front  : MLHWND,
                                                xpos   : int,
                                                ypos   : int,
@@ -2368,13 +2368,13 @@ order has changed as a result of a call to SetWindowPos or another window-manage
 
  ------------------------------------------------------------------------------*)
                     
-                    | SYS_WINDOWPOSCHANGING of { w : MLHWND,	
+                    | SYS_WINDOWPOSCHANGING of { w : MLHWND,    
                                                 front  : MLHWND,
                                                 xpos   : int,
                                                 ypos   : int,
                                                 width  : int,
                                                 height : int,
-                                                flags  : SetWindowPositionStyle  }	
+                                                flags  : SetWindowPositionStyle  }  
 
                       (* Notifies Window of new size or position *) 
 (*------------------------------------------------------------------------------
@@ -2388,7 +2388,7 @@ function.
  ------------------------------------------------------------------------------*)
                     
                     | SYS_WININICHANGE of { w : MLHWND,
-                                           section_name : string  }	
+                                           section_name : string  } 
 
                       (* Notifies applications that WIN.INI has changed *)
 (*------------------------------------------------------------------------------
@@ -2402,12 +2402,12 @@ after an application uses the function to change a setting in WIN.INI.
 
  ------------------------------------------------------------------------------*)
 
-					| SYS_UNKNOWN of { w : MLHWND } 
+                    | SYS_UNKNOWN of { w : MLHWND } 
 (*------------------------------------------------------------------------------
   UNKNOWN MESSAGE
- ------------------------------------------------------------------------------*)					 
+ ------------------------------------------------------------------------------*)                    
 
-					| SYS_NULL;
+                    | SYS_NULL;
 
 (*------------------------------------------------------------------------------
   NO MESSAGE

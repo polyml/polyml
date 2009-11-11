@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -35,7 +35,7 @@ sig
     val MF_CHECKED : MenuFlag
     val MF_GRAYED  :MenuFlag
     val MF_MENUBREAK :MenuFlag
-    val MF_MENUBARBREAK	 : MenuFlag
+    val MF_MENUBARBREAK  : MenuFlag
     val MF_SEPARATOR : MenuFlag
     val MF_POPUP : MenuFlag
 
@@ -48,16 +48,16 @@ sig
     type WindowStyleExtended
     type ButtonStyle
     type ScrollBarStyle
-	type ScrollBarType
+    type ScrollBarType
     type StaticStyle
-	type EditStyle
-	type ListBoxStyle
-	type ComboBoxStyle
-    val CW_USEDEFAULT : int	
+    type EditStyle
+    type ListBoxStyle
+    type ComboBoxStyle
+    val CW_USEDEFAULT : int 
     type IconIdentifier
     val IDI_APPLICATION : IconIdentifier 
     type CursorIdentifier 
-    val IDC_ARROW : CursorIdentifier	
+    val IDC_ARROW : CursorIdentifier    
     val WindowStyleExtendedE : WindowStyleExtended encoding
     val MenuFlagE : MenuFlag encoding
     val ClassStyleE : ClassStyle encoding
@@ -65,26 +65,26 @@ sig
     val ButtonStyleE : ButtonStyle encoding
     val StaticStyleE : StaticStyle encoding
     val ScrollBarStyleE : ScrollBarStyle encoding
-	val EditStyleE : EditStyle encoding
-	val ListBoxStyleE :	ListBoxStyle encoding
-	val ComboBoxStyleE : ComboBoxStyle encoding
+    val EditStyleE : EditStyle encoding
+    val ListBoxStyleE : ListBoxStyle encoding
+    val ComboBoxStyleE : ComboBoxStyle encoding
 
-	val SBS_HORZ : ScrollBarStyle
-	val SBS_CHILD : ScrollBarStyle
-	val SBS_VERT : ScrollBarStyle
-	val SB_CTL : ScrollBarType
-	val CBS_SIMPLE : ComboBoxStyle
-	val CBS_CHILD : ComboBoxStyle
-	val ES_LEFT : EditStyle
-	val ES_AUTOHSCROLL : EditStyle
-	val ES_BORDER : EditStyle
-	val ES_CHILD : EditStyle 
-	val LBS_STANDARD : ListBoxStyle
-	val LBS_CHILD : ListBoxStyle
-	val SS_SIMPLE : StaticStyle
-	val SS_CHILD : StaticStyle
-	val BS_CHILD : ButtonStyle
-	val BS_PUSHBUTTON : ButtonStyle    
+    val SBS_HORZ : ScrollBarStyle
+    val SBS_CHILD : ScrollBarStyle
+    val SBS_VERT : ScrollBarStyle
+    val SB_CTL : ScrollBarType
+    val CBS_SIMPLE : ComboBoxStyle
+    val CBS_CHILD : ComboBoxStyle
+    val ES_LEFT : EditStyle
+    val ES_AUTOHSCROLL : EditStyle
+    val ES_BORDER : EditStyle
+    val ES_CHILD : EditStyle 
+    val LBS_STANDARD : ListBoxStyle
+    val LBS_CHILD : ListBoxStyle
+    val SS_SIMPLE : StaticStyle
+    val SS_CHILD : StaticStyle
+    val BS_CHILD : ButtonStyle
+    val BS_PUSHBUTTON : ButtonStyle    
 end;
 
 signature importTypeSig =
@@ -157,32 +157,32 @@ sig
    val otherMessageOf : System -> OtherMessage
 
  datatype callbacktype = MouseCB 
-			           | ControlCB of Id
-					   | TimerCB of Id
-			           | KeyCB
-			           | ScrollCB 
-			           | RefreshCB
-					   | DestroyCB
-			           | OtherCB
-					   
+                       | ControlCB of Id
+                       | TimerCB of Id
+                       | KeyCB
+                       | ScrollCB 
+                       | RefreshCB
+                       | DestroyCB
+                       | OtherCB
+                       
    val getcallbacktype : System -> callbacktype
 end;
 
 signature importUserFnSig =
 sig
-	type MLHMENU
-	type MLHWND
-	type MenuFlag
-	type ScrollBarType
+    type MLHMENU
+    type MLHWND
+    type MenuFlag
+    type ScrollBarType
         type Rectangle
 
-	val CreatePopupMenu : unit -> MLHMENU
+    val CreatePopupMenu : unit -> MLHMENU
     val CreateMenu : unit -> MLHMENU
     val SetMenu : MLHWND * MLHMENU -> bool
     val AppendMenu : MLHMENU * MenuFlag * int * string -> bool
     val AppendSubMenu : MLHMENU * MenuFlag * MLHMENU * string -> bool
-	val UpdateWindow : MLHWND -> bool
-	val SetScrollRange : MLHWND * ScrollBarType * int * int * bool -> bool 
+    val UpdateWindow : MLHWND -> bool
+    val SetScrollRange : MLHWND * ScrollBarType * int * int * bool -> bool 
     val SetScrollPos : MLHWND * ScrollBarType * int * bool -> int
     val EnableWindow : MLHWND * bool -> bool
     val GetParent : MLHWND -> MLHWND
@@ -207,7 +207,7 @@ sig
    type IconIdentifier
    type CursorIdentifier
    datatype MLHICON = MLHICON of vol
-   datatype MLHCURSOR =	MLHCURSOR of vol
+   datatype MLHCURSOR = MLHCURSOR of vol
    type MLHMENU
 
    val CreateSolidBrush : Color -> MLHBRUSH
@@ -220,7 +220,7 @@ sig
    val mkEdit : string * EditStyle * int * int * int * int * int * MLHWND -> MLHWND
    val mkListBox : string * ListBoxStyle * int * int * int * int * int * MLHWND -> MLHWND
    val mkScrollBar : string * ScrollBarStyle * int * int * int * int * int * MLHWND -> MLHWND
-   val mkStatic	: string * StaticStyle * int * int * int * int * MLHWND -> MLHWND
+   val mkStatic : string * StaticStyle * int * int * int * int * MLHWND -> MLHWND
 
    val SetTimer : MLHWND * int * int -> bool
    val KillTimer : MLHWND * int -> bool
@@ -247,50 +247,50 @@ functor GadgetFct ( structure CInterface : importCInterfaceSig
                     structure ConstType : importConstTypeSig
                     structure Type : importTypeSig
                     structure Handler : importHandlerSig
-					structure MsgFn : importMsgFnSig
-			        structure UserFn : importUserFnSig
+                    structure MsgFn : importMsgFnSig
+                    structure UserFn : importUserFnSig
                     structure UserFn2 : importUserFn2Sig
                     structure GdiFn : importGdiFnSig 
                   
-                  	sharing type MsgFn.Id = Type.Id
-				    sharing type ConstType.MenuFlag =
-							     UserFn.MenuFlag
-					sharing type ConstType.ScrollBarType =
-							     UserFn.ScrollBarType
-				    sharing type ConstType.ScrollBarStyle =
-							     UserFn2.ScrollBarStyle
-				    sharing type ConstType.ClassStyle =
-								 UserFn2.ClassStyle
-					sharing type ConstType.ComboBoxStyle =
-								 UserFn2.ComboBoxStyle
-					sharing type ConstType.ListBoxStyle =
-								 UserFn2.ListBoxStyle
-					sharing type ConstType.StaticStyle =
-								 UserFn2.StaticStyle
-				    sharing type ConstType.EditStyle =
-								 UserFn2.EditStyle
-				    sharing type ConstType.WindowStyleExtended =
-				      			 UserFn2.WindowStyleExtended
-					sharing type CInterface.vol =
-					             Type.vol =
-					             UserFn2.vol
-					sharing type ConstType.WindowStyle =
-								 UserFn2.WindowStyle
-					sharing type Handler.MLHMENU =
-					             UserFn.MLHMENU =
-					             UserFn2.MLHMENU
-					sharing type ConstType.ButtonStyle =
-								 UserFn2.ButtonStyle
-					sharing type Handler.window = 
-					             UserFn.MLHWND = 
-					             UserFn2.MLHWND =
-								 Type.MLHWND
-					sharing type Handler.System =
-					             MsgFn.System
-				    sharing type ConstType.IconIdentifier =
-					             UserFn2.IconIdentifier
-					sharing type ConstType.CursorIdentifier =
-					             UserFn2.CursorIdentifier
+                    sharing type MsgFn.Id = Type.Id
+                    sharing type ConstType.MenuFlag =
+                                 UserFn.MenuFlag
+                    sharing type ConstType.ScrollBarType =
+                                 UserFn.ScrollBarType
+                    sharing type ConstType.ScrollBarStyle =
+                                 UserFn2.ScrollBarStyle
+                    sharing type ConstType.ClassStyle =
+                                 UserFn2.ClassStyle
+                    sharing type ConstType.ComboBoxStyle =
+                                 UserFn2.ComboBoxStyle
+                    sharing type ConstType.ListBoxStyle =
+                                 UserFn2.ListBoxStyle
+                    sharing type ConstType.StaticStyle =
+                                 UserFn2.StaticStyle
+                    sharing type ConstType.EditStyle =
+                                 UserFn2.EditStyle
+                    sharing type ConstType.WindowStyleExtended =
+                                 UserFn2.WindowStyleExtended
+                    sharing type CInterface.vol =
+                                 Type.vol =
+                                 UserFn2.vol
+                    sharing type ConstType.WindowStyle =
+                                 UserFn2.WindowStyle
+                    sharing type Handler.MLHMENU =
+                                 UserFn.MLHMENU =
+                                 UserFn2.MLHMENU
+                    sharing type ConstType.ButtonStyle =
+                                 UserFn2.ButtonStyle
+                    sharing type Handler.window = 
+                                 UserFn.MLHWND = 
+                                 UserFn2.MLHWND =
+                                 Type.MLHWND
+                    sharing type Handler.System =
+                                 MsgFn.System
+                    sharing type ConstType.IconIdentifier =
+                                 UserFn2.IconIdentifier
+                    sharing type ConstType.CursorIdentifier =
+                                 UserFn2.CursorIdentifier
                   ) =
 struct
 
@@ -335,8 +335,8 @@ with
   fun mkWindowCommand (DrawCommand f) w = 
                 Command ( fn () => (if HasValidDeviceContextRTS(w) 
                                          then f (GetDeviceContextRTS w)
-								         else raise (Windows "Attempt to draw to no Drawable window") )
-						)
+                                         else raise (Windows "Attempt to draw to no Drawable window") )
+                        )
 
   fun execute (Command f) = f()
   infixr thenC seqC thenDC seqDC;
@@ -345,10 +345,10 @@ with
 
 
   fun (DrawCommand f) thenDC G = DrawCommand( fn dc => let val fres = f dc
-					                                     val DrawCommand g = G fres
-				                                         in  g dc
-				                                       end)
-				                           
+                                                         val DrawCommand g = G fres
+                                                         in  g dc
+                                                       end)
+                                           
   fun (DrawCommand f) seqDC (DrawCommand g) = DrawCommand (fn dc => (f dc ; g dc))  
 
   fun returnC a = Command(fn() => a)
@@ -418,13 +418,13 @@ fun assoc [] f a = f a
 fun callbackwith cbs system
     = assoc cbs (fn _ => fn _ => ()) (getcallbacktype system) system
 
-    (* 	callbackwith : callbackcase list -> System -> unit
-	Explanation:-
- 	assoc cbs default 	converts the callbackcase list cbs to a mapping
-				callbacktype -> (System->unit)
-				using default on unmatched callbacktypes
-	this mapping is applied to (messagetype system) to get the appropriate
-	(System->unit) function which is finally applied to system
+    (*  callbackwith : callbackcase list -> System -> unit
+    Explanation:-
+    assoc cbs default   converts the callbackcase list cbs to a mapping
+                callbacktype -> (System->unit)
+                using default on unmatched callbacktypes
+    this mapping is applied to (messagetype system) to get the appropriate
+    (System->unit) function which is finally applied to system
     *)
 
 
@@ -439,11 +439,11 @@ datatype 's menuItem = MenuItem of label * ('s menuAttrib list)
 
 and      's menuAttrib = MenuFunction of window * 's -> 's * action
                      (*  | ItemAccelerator of string *) 
-		       | ItemId of Id
+               | ItemId of Id
                        | ItemChecked
-		       | ItemDisabled
-		       | ItemBreak
-		       | ItemBarBreak
+               | ItemDisabled
+               | ItemBreak
+               | ItemBarBreak
 
 fun getMenuFun [] = None
 |   getMenuFun (MenuFunction f::_) = Some f
@@ -465,52 +465,52 @@ fun makeItemFlag atts = orLE MenuFlagE (getItemFlags atts)
 
 fun addMenuItems hmenu [] = []
 |   addMenuItems hmenu (Separator::more) 
-	= let val u = AppendMenu(hmenu, MF_SEPARATOR, 0, "")
-	  in addMenuItems hmenu more end
+    = let val u = AppendMenu(hmenu, MF_SEPARATOR, 0, "")
+      in addMenuItems hmenu more end
 |   addMenuItems hmenu (MenuItem(s,atts)::more)
-	= let val id = getItemId atts
+    = let val id = getItemId atts
               val state = makeItemFlag atts 
-	      val u = AppendMenu(hmenu, state, intOfId id, s)
+          val u = AppendMenu(hmenu, state, intOfId id, s)
               val menufun = getMenuFun atts
           in
-	      case menufun of None => addMenuItems hmenu more
+          case menufun of None => addMenuItems hmenu more
                             | Some f => (id,f)::addMenuItems hmenu more
           end
 |   addMenuItems hmenu (Popup(s,items)::more)
-	= let val submenu = CreatePopupMenu ()
+    = let val submenu = CreatePopupMenu ()
               val label = s
               val u = AppendSubMenu(hmenu, MF_POPUP, submenu, label)
               val funs = addMenuItems submenu items 
           in
-	      funs @ addMenuItems hmenu more
+          funs @ addMenuItems hmenu more
           end
 
 fun createMenu(items)
          = let val hmenu = CreateMenu ()
            in
-		(hmenu, addMenuItems hmenu items)
+        (hmenu, addMenuItems hmenu items)
            end
 
 (* WINDOWS *)
 
 datatype 's winAttrib
-		  = WinMouse of MouseMessage * window * 's -> 's * action
+          = WinMouse of MouseMessage * window * 's -> 's * action
           | WinKey of KeyMessage * window * 's -> 's * action
-		  | WinRefresh of RefreshMessage * window * 's -> 's * action
-		  | WinMenuBar of 's menuItem list
-		  | WinScroll of ScrollMessage * window * 's -> 's * action
-		  | WinIcon of IconIdentifier
-		  | WinBackground of Color
-		  | WinDrawable
-		  | WinSize of int * int
-		  | WinName of string
-		  | WinStyle of WindowStyle list
-		  | WinExStyle of WindowStyleExtended list
-		  | WinClassStyle of ClassStyle list
-		  | WinCursor of CursorIdentifier
-		  | WinDestroy of DestroyMessage * window * 's -> 's * action
-		  | WinMessage of OtherMessage * window * 's -> 's * action
-	
+          | WinRefresh of RefreshMessage * window * 's -> 's * action
+          | WinMenuBar of 's menuItem list
+          | WinScroll of ScrollMessage * window * 's -> 's * action
+          | WinIcon of IconIdentifier
+          | WinBackground of Color
+          | WinDrawable
+          | WinSize of int * int
+          | WinName of string
+          | WinStyle of WindowStyle list
+          | WinExStyle of WindowStyleExtended list
+          | WinClassStyle of ClassStyle list
+          | WinCursor of CursorIdentifier
+          | WinDestroy of DestroyMessage * window * 's -> 's * action
+          | WinMessage of OtherMessage * window * 's -> 's * action
+    
 fun getWinDestroy [] = None
 |   getWinDestroy (WinDestroy b :: more) = Some b
 |   getWinDestroy (_ :: more) = getWinDestroy more
@@ -577,27 +577,27 @@ fun getWinCursor [] = IDC_ARROW
 
 fun winMake parent (x,y) attribs (* doesn't deal with menu or scroll bars *)
        = let
-	     val exstyle = orLE WindowStyleExtendedE (getWinExStyle attribs)
-	     val cstyle = orLE ClassStyleE (getWinClassStyle attribs)
-	     val icon = LoadIcon (getWinIcon attribs)
-	     val cursor = LoadCursor (getWinCursor attribs)
-	     val background = CreateSolidBrush(getWinBackground attribs)
-	     val label = getWinName attribs
-	     val style = orLE WindowStyleE (getWinStyle attribs)
-	     val (w,h) = getWinSize attribs
-	 in
-		mkWindow(exstyle, cstyle, icon, cursor, background,
+         val exstyle = orLE WindowStyleExtendedE (getWinExStyle attribs)
+         val cstyle = orLE ClassStyleE (getWinClassStyle attribs)
+         val icon = LoadIcon (getWinIcon attribs)
+         val cursor = LoadCursor (getWinCursor attribs)
+         val background = CreateSolidBrush(getWinBackground attribs)
+         val label = getWinName attribs
+         val style = orLE WindowStyleE (getWinStyle attribs)
+         val (w,h) = getWinSize attribs
+     in
+        mkWindow(exstyle, cstyle, icon, cursor, background,
                           label, style, x,y,w,h,parent, nullMenu() )
-	 end
+     end
 
 (* BUTTONS *)
 
 datatype 's buttonAttrib
-		= ButtonLabel of string
-		| ButtonSize of int * int
-		| ButtonId of Id
-		| ButtonFunction of ControlMessage * window * 's -> 's * action
-		| ButtonStyle of ButtonStyle list
+        = ButtonLabel of string
+        | ButtonSize of int * int
+        | ButtonId of Id
+        | ButtonFunction of ControlMessage * window * 's -> 's * action
+        | ButtonStyle of ButtonStyle list
 
 fun getButtonId [] = newId()
 |   getButtonId (ButtonId id::more) = id
@@ -621,25 +621,25 @@ fun getButtonSize [] = (CW_USEDEFAULT, CW_USEDEFAULT)
 
 fun buttonMake parent (x,y) attribs
        = let val (w,h) = getButtonSize attribs
-	     val label = getButtonLabel attribs
-	     val style = orLE  ButtonStyleE (getButtonStyle attribs)
-		 val buttonId = getButtonId attribs
-	 in
+         val label = getButtonLabel attribs
+         val style = orLE  ButtonStyleE (getButtonStyle attribs)
+         val buttonId = getButtonId attribs
+     in
          (mkButton( label, style, x,y,w,h,intOfId buttonId,parent),buttonId)
-	 end
+     end
 
 (* SCROLLBARS *)
 
 datatype Orientation = OVertical | OHorizontal
 
 datatype 's scrollBarAttrib
-		= ScrollOrientation of Orientation
-		| ScrollSize of int * int
-		| ScrollId of Id
-		| ScrollFunction of window * 's -> 's * action
-		| ScrollStyle of ScrollBarStyle list
-		| ScrollRange of int * int
-		| ScrollInitVal of int
+        = ScrollOrientation of Orientation
+        | ScrollSize of int * int
+        | ScrollId of Id
+        | ScrollFunction of window * 's -> 's * action
+        | ScrollStyle of ScrollBarStyle list
+        | ScrollRange of int * int
+        | ScrollInitVal of int
 
 fun getScrollOrientation [] = OHorizontal
 |   getScrollOrientation (ScrollOrientation b::more) = b
@@ -670,35 +670,35 @@ fun getScrollInitVal [] = 1
 |   getScrollInitVal (_::more) = getScrollInitVal more
 
 fun scrollbarMake parent (x,y) attribs 
-	   = let val (w,h) = getScrollSize attribs
-	         val label = ""
-	         val style = orLE ScrollBarStyleE (getScrollStyle attribs)
+       = let val (w,h) = getScrollSize attribs
+             val label = ""
+             val style = orLE ScrollBarStyleE (getScrollStyle attribs)
 
-			 val (v1,v2) = getScrollRange attribs
-			 val v = getScrollInitVal attribs
-			  
-			 val orient = (case (getScrollOrientation attribs) of
-			                  OHorizontal => SBS_HORZ
-			                | OVertical   => SBS_VERT )
+             val (v1,v2) = getScrollRange attribs
+             val v = getScrollInitVal attribs
+              
+             val orient = (case (getScrollOrientation attribs) of
+                              OHorizontal => SBS_HORZ
+                            | OVertical   => SBS_VERT )
 
-             val scrollId = getScrollId	attribs
+             val scrollId = getScrollId attribs
 
-			 val w = mkScrollBar(label,orLE ScrollBarStyleE [style,orient], 
-			                     x,y,w,h,intOfId scrollId,parent)
+             val w = mkScrollBar(label,orLE ScrollBarStyleE [style,orient], 
+                                 x,y,w,h,intOfId scrollId,parent)
              val u = SetScrollRange (w, SB_CTL, v1, v2, false)
              val u = SetScrollPos   (w, SB_CTL, v, false) 
-	 in
+     in
         (w,scrollId)
-	 end
+     end
 
 (* COMBOBOXES *)
 
 datatype 's comboBoxAttrib
         = ComboBoxStyle of ComboBoxStyle list
-		| ComboBoxLabel of string
-		| ComboBoxSize of int * int
+        | ComboBoxLabel of string
+        | ComboBoxSize of int * int
         | ComboBoxId of Id
-		| ComboBoxFunction of ControlMessage * window * 's -> 's * action
+        | ComboBoxFunction of ControlMessage * window * 's -> 's * action
 
 fun getComboBoxStyle [] = [CBS_SIMPLE,CBS_CHILD]
 |   getComboBoxStyle (ComboBoxStyle b::more) = b
@@ -722,21 +722,21 @@ fun getComboBoxFunction [] = None
 
 fun comboBoxMake parent (x,y) attribs
        = let val (w,h) = getComboBoxSize attribs
-	     val label = getComboBoxLabel attribs
-	     val style = orLE  ComboBoxStyleE (getComboBoxStyle attribs)
-		 val comboboxId = getComboBoxId attribs
-	 in
+         val label = getComboBoxLabel attribs
+         val style = orLE  ComboBoxStyleE (getComboBoxStyle attribs)
+         val comboboxId = getComboBoxId attribs
+     in
         (mkComboBox( label, style, x,y,w,h,intOfId comboboxId,parent),comboboxId)
-	 end
+     end
 
 (* EDITS *)
 
 datatype 's editAttrib
         = EditStyle of EditStyle list
-		| EditLabel of string
-		| EditSize of int * int
+        | EditLabel of string
+        | EditSize of int * int
         | EditId of Id
-		| EditFunction of ControlMessage * window * 's -> 's * action
+        | EditFunction of ControlMessage * window * 's -> 's * action
 
 fun getEditStyle [] = [ES_AUTOHSCROLL,ES_BORDER,ES_CHILD]
 |   getEditStyle (EditStyle b::more) = b
@@ -760,21 +760,21 @@ fun getEditFunction [] = None
 
 fun editMake parent (x,y) attribs
        = let val (w,h) = getEditSize attribs
-	     val label = getEditLabel attribs
-	     val style = orLE  EditStyleE (getEditStyle attribs)
-		 val editId = getEditId attribs
-	 in
+         val label = getEditLabel attribs
+         val style = orLE  EditStyleE (getEditStyle attribs)
+         val editId = getEditId attribs
+     in
          (mkEdit(label,style,x,y,w,h,intOfId editId,parent),editId)
-	 end
+     end
 
 (* LISTBOXES *)
 
 datatype 's listBoxAttrib
         = ListBoxStyle of ListBoxStyle list
-		| ListBoxLabel of string
-		| ListBoxSize of int * int
+        | ListBoxLabel of string
+        | ListBoxSize of int * int
         | ListBoxId of Id
-		| ListBoxFunction of ControlMessage * window * 's -> 's * action
+        | ListBoxFunction of ControlMessage * window * 's -> 's * action
 
 fun getListBoxStyle [] = [LBS_STANDARD,LBS_CHILD]
 |   getListBoxStyle (ListBoxStyle b::more) = b
@@ -798,19 +798,19 @@ fun getListBoxFunction [] = None
 
 fun listBoxMake parent (x,y) attribs
        = let val (w,h) = getListBoxSize attribs
-	     val label = getListBoxLabel attribs
-	     val style = orLE ListBoxStyleE (getListBoxStyle attribs)
-		 val listboxId = getListBoxId attribs  
-	 in
+         val label = getListBoxLabel attribs
+         val style = orLE ListBoxStyleE (getListBoxStyle attribs)
+         val listboxId = getListBoxId attribs  
+     in
         (mkListBox (label,style,x,y,w,h,intOfId listboxId,parent),listboxId)
-	 end
+     end
 
 (* STATICS *)
 
 datatype 's staticAttrib
         = StaticStyle of StaticStyle list
-		| StaticLabel of string
-		| StaticSize of int * int
+        | StaticLabel of string
+        | StaticSize of int * int
 
 fun getStaticStyle [] = [SS_SIMPLE,SS_CHILD]
 |   getStaticStyle (StaticStyle b::more) = b
@@ -826,11 +826,11 @@ fun getStaticSize [] = (CW_USEDEFAULT,CW_USEDEFAULT)
 
 fun staticMake parent (x,y) attribs
        = let val (w,h) = getStaticSize attribs
-	     val label = getStaticLabel attribs
-	     val style = orLE StaticStyleE (getStaticStyle attribs)
-	 in
+         val label = getStaticLabel attribs
+         val style = orLE StaticStyleE (getStaticStyle attribs)
+     in
          mkStatic (label,style,x,y,w,h,parent)
-	 end
+     end
 
 
 (**********************************************************
@@ -840,12 +840,12 @@ fun staticMake parent (x,y) attribs
 
 datatype gadgetresult 
      = GR of {
-              wins: window list,	        (* [] for Abstract gadgets, more than one for groups *)
-              show: action,			(* shows window and any children windows *)
-              kill: action,			(* Only used to terminate top level, closes then killsprocess *)
-              close: action,			(* Closesdown window and children, bottom up *)
-              callbacks: callbackcase list,	(* Any callbacks which need to be handled by parent *)
-              children: gadgetresult list	(* Results of starting children gadgets *)
+              wins: window list,            (* [] for Abstract gadgets, more than one for groups *)
+              show: action,         (* shows window and any children windows *)
+              kill: action,         (* Only used to terminate top level, closes then killsprocess *)
+              close: action,            (* Closesdown window and children, bottom up *)
+              callbacks: callbackcase list, (* Any callbacks which need to be handled by parent *)
+              children: gadgetresult list   (* Results of starting children gadgets *)
              }
 
 fun getwinsGR(GR{wins = wins,...}) = wins
@@ -877,9 +877,9 @@ fun startGadget (Gadget g) args   (** should be made local -- only runGadget exp
 
 fun forkedGadget G 
        = Gadget(fn (pid0,parent,position) =>
-		let val pid = newProcessID()
+        let val pid = newProcessID()
                     val u = RunProcess pid
-		    val GR{wins,show,kill,close,callbacks,children} = startGadget G (pid,parent,position)
+            val GR{wins,show,kill,close,callbacks,children} = startGadget G (pid,parent,position)
                     val killboth = actions[mkAction(fn () => killprocess pid0), kill]
                 in
                     (* closing a forked gadget requires the forked process to be killed as well.
@@ -892,7 +892,7 @@ fun forkedGadget G
                       callbacks = callbacks,
                       children = children
                      }
-		end);
+        end);
 
 (*
    runGadget : gadget -> (int*int) -> gadgetresult
@@ -904,9 +904,9 @@ fun forkedGadget G
 fun runGadget g position
       = let val pid = newProcessID()
             val shell = MLHWND (toCint 0)
-	    val gr = startGadget g (pid,shell,position)
+        val gr = startGadget g (pid,shell,position)
         in 
-	    (execute(getshowGR gr) ; RunProcess pid; gr ) 
+        (execute(getshowGR gr) ; RunProcess pid; gr ) 
         end;
 
 (*
@@ -966,11 +966,11 @@ fun simpleGroupGadget children (* gadgets paired with an offset *)
    and we need Nothing for abstract gadgets
 
    imports needed:  GetWindowRect
-   					type Rectangle
-					datatype Section = 	Nothing | Section of Rectangle
-					val Union: Rectangle -> Rectangle -> Rectangle
-					val RightR: Rectangle -> int
-					val BottomR: Rectangle -> int
+                    type Rectangle
+                    datatype Section =  Nothing | Section of Rectangle
+                    val Union: Rectangle -> Rectangle -> Rectangle
+                    val RightR: Rectangle -> int
+                    val BottomR: Rectangle -> int
 *)
 fun bigUnion [] = error "union of no rectangles"
 |   bigUnion [r] = r
@@ -979,15 +979,15 @@ fun bigUnion [] = error "union of no rectangles"
 fun rectofGR gr
      = (case getwinsGR gr
         of [] => Nothing
-	    |  somewins => Section(bigUnion(map GetWindowRect somewins))
-	   )
+        |  somewins => Section(bigUnion(map GetWindowRect somewins))
+       )
 
 (* Simple Layout:  (rows with tops aligned & columns left aligned)
    does not require adjustment after creation of windows (other alignments do)
 *)
 
 datatype 'a layout = PositionAt of ((int*int) * 'a layout)
-                   | Row of int * 'a list					(* int for spacing *)
+                   | Row of int * 'a list                   (* int for spacing *)
                    | Column of int * 'a list
 
 
@@ -1020,14 +1020,14 @@ in a b (inport (newport ()))
 end;
 
 (*
-    winGadget :	's winAttrib list				attributes
-		-> 's						start state
-		-> child list					positions and gadgets
-		-> (window -> ('a * 's) -> ('s * action))	high level behav'r
-		-> 'a inport					for high level messages
-		-> gadget
+    winGadget : 's winAttrib list               attributes
+        -> 's                       start state
+        -> child list                   positions and gadgets
+        -> (window -> ('a * 's) -> ('s * action))   high level behav'r
+        -> 'a inport                    for high level messages
+        -> gadget
 
-	winGadget winAttribs startstate children b inport
+    winGadget winAttribs startstate children b inport
 
    This creates a parent window gadget with high level behavior determined
    by b and startstate (and connected to inport) along with options/attributes
@@ -1042,68 +1042,68 @@ end;
 fun winGadget winAttribs startstate child b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create win using parent, position and other info from winDef
-	   null menu handle for main win.  Register window on RTS *)
-		val window = winMake parent position winAttribs
-		val u = AddWindowRTS(window,pid,getWinDrawable winAttribs)
+    (* create win using parent, position and other info from winDef
+       null menu handle for main win.  Register window on RTS *)
+        val window = winMake parent position winAttribs
+        val u = AddWindowRTS(window,pid,getWinDrawable winAttribs)
 
-	(* set up shared state *)
-		val winstate = ref startstate
+    (* set up shared state *)
+        val winstate = ref startstate
 
-	(* set up abstract behaviour: DELETE NEXT 3 LINES for winGadget0 *)
+    (* set up abstract behaviour: DELETE NEXT 3 LINES for winGadget0 *)
         val handlefun = sharedstate winstate (b window)
         fun high a = ( delegate pid (fn() => handlefun a) ; () )
         val u = connectIn inport high
 
-	(* Create menu if defined in windef and return callbackcases *)
-		val menuCB : callbackcase list
-		     = case getWinMenu winAttribs
-			 of None =>  []
-			 |  Some m => 	let val (hmenu, behaviours) = createMenu m
+    (* Create menu if defined in windef and return callbackcases *)
+        val menuCB : callbackcase list
+             = case getWinMenu winAttribs
+             of None =>  []
+             |  Some m =>   let val (hmenu, behaviours) = createMenu m
                                  (* behaviours :  (Id * (window * 's -> 's * action)) list *)
                             fun makeCB itm = makeMenuCB itm window winstate
-				        in (SetMenu(window, hmenu); map makeCB behaviours) end
+                        in (SetMenu(window, hmenu); map makeCB behaviours) end
 
-	(* ScrollBar callbackcase *)
-		val scrollCB = case getWinScroll winAttribs
-				of None =>  []
-				|  Some b => [makeScrollCB b window winstate]
+    (* ScrollBar callbackcase *)
+        val scrollCB = case getWinScroll winAttribs
+                of None =>  []
+                |  Some b => [makeScrollCB b window winstate]
 
-	(* Mouse callbackcase *)
-		val mouseCB = case getWinMouse winAttribs
-				of None =>  []
-				|  Some b => [makeMouseCB b window winstate]
-	(* Key callbackcase *)
-		val keyCB = case getWinKey winAttribs
-				of None =>  []
-				|  Some b => [makeKeyCB b window winstate]
+    (* Mouse callbackcase *)
+        val mouseCB = case getWinMouse winAttribs
+                of None =>  []
+                |  Some b => [makeMouseCB b window winstate]
+    (* Key callbackcase *)
+        val keyCB = case getWinKey winAttribs
+                of None =>  []
+                |  Some b => [makeKeyCB b window winstate]
 
-	(* Refresh callbackcase *)
-		val refreshCB = case getWinRefresh winAttribs
-				of None =>  []
-				|  Some b => [makeRefreshCB b window winstate]
+    (* Refresh callbackcase *)
+        val refreshCB = case getWinRefresh winAttribs
+                of None =>  []
+                |  Some b => [makeRefreshCB b window winstate]
 
-	(* Destroy callbackcase *)
-		val destroyCB = case getWinDestroy winAttribs
-				of None =>  []
-				|  Some b => [makeDestroyCB b window winstate]
+    (* Destroy callbackcase *)
+        val destroyCB = case getWinDestroy winAttribs
+                of None =>  []
+                |  Some b => [makeDestroyCB b window winstate]
 
-	(* Other callbackcase *)
-		val otherCB = case getWinOther winAttribs
-				of None =>  []
-				|  Some b => [makeOtherCB b window winstate]
+    (* Other callbackcase *)
+        val otherCB = case getWinOther winAttribs
+                of None =>  []
+                |  Some b => [makeOtherCB b window winstate]
 
-	(* Create children and get result callbacks *)
-		val childGR = startGadget child (pid,window,(0,0))
+    (* Create children and get result callbacks *)
+        val childGR = startGadget child (pid,window,(0,0))
                 val childcallbacks = getcbsGR childGR
-	(* Collect All callbacks and deal with them *)
+    (* Collect All callbacks and deal with them *)
                 val callbacks = concat[menuCB,mouseCB,keyCB,refreshCB,
                                        otherCB,scrollCB,destroyCB,childcallbacks]
 
                 val u = AddCallbackML(window,callbackwith callbacks)
-		val parentcallbacks = [] (* None for Parent *)
+        val parentcallbacks = [] (* None for Parent *)
                 val show = actions[mkAction (fn() => (ShowWindow window; UpdateWindow window;())),
-				   getshowGR childGR
+                   getshowGR childGR
                                   ]
                 val close = actions[getcloseGR childGR, mkAction(fn() => closeDownWin window)]
                 val kill = actions[mkAction(fn() => killprocess pid),close]
@@ -1124,7 +1124,7 @@ fun winGadgetBasic winAttribs startstate children =
 fun abstractGadget startstate b inport (* No window *)
    = Gadget(fn (pid, parent, _) =>
        let val stateref = ref startstate
-	   val handlefun = sharedstate stateref b
+       val handlefun = sharedstate stateref b
            fun high a = ( delegate pid (fn () => handlefun a) ; ())
            val u = connectIn inport high
            val dummywin = nullWindow()
@@ -1143,62 +1143,62 @@ fun abstractGadget startstate b inport (* No window *)
 
 datatype repeaterControl = RepeaterStart
                          | RepeaterStop
-						 | RepeaterInterval of int
+                         | RepeaterInterval of int
 
 
 fun repeaterGadget action startspeed inport(* No window *)
    = Gadget(fn (pid, parent, _) =>
        let datatype runningState = running of int
-	                             | stopped of int
-	   
-	       (* timers should not be called with negative delays
-		      the function v (validate) forces speed to 0 
-			  if a negative value is specified *)
+                                 | stopped of int
+       
+           (* timers should not be called with negative delays
+              the function v (validate) forces speed to 0 
+              if a negative value is specified *)
  
            fun mkValid speed = if speed >= 0 then speed else 0
 
-	       val timerId = newId()
-	       val stateref = ref (stopped (mkValid startspeed)) 
+           val timerId = newId()
+           val stateref = ref (stopped (mkValid startspeed)) 
 
 
            fun stopgo (RepeaterStart,stopped speed) = 
-		            (running speed,
-					 mkAction(fn () => 
-					           ( SetTimer(parent,intOfId timerId, speed);
+                    (running speed,
+                     mkAction(fn () => 
+                               ( SetTimer(parent,intOfId timerId, speed);
                                  () ) ))
 
-		   |   stopgo (RepeaterStop,stopped speed)  = 
-		            (stopped speed,noAction)
+           |   stopgo (RepeaterStop,stopped speed)  = 
+                    (stopped speed,noAction)
 
-		   |   stopgo (RepeaterInterval newspeed,stopped speed) = 
-		            (stopped (mkValid newspeed),noAction)
-		   
-		   |   stopgo (RepeaterStart,running speed) = 
-		            (running speed,noAction)
+           |   stopgo (RepeaterInterval newspeed,stopped speed) = 
+                    (stopped (mkValid newspeed),noAction)
+           
+           |   stopgo (RepeaterStart,running speed) = 
+                    (running speed,noAction)
 
-		   |   stopgo (RepeaterStop,running speed)  = 
-		            (stopped speed,
-					 mkAction(fn () => 
-					           ( KillTimer(parent, intOfId timerId);
-		                         () ) ))
+           |   stopgo (RepeaterStop,running speed)  = 
+                    (stopped speed,
+                     mkAction(fn () => 
+                               ( KillTimer(parent, intOfId timerId);
+                                 () ) ))
 
-		   |   stopgo (RepeaterInterval newspeed,running speed) = 
-		            (running (mkValid newspeed),
-					 mkAction(fn () => 
-					           ( KillTimer(parent, intOfId timerId);
-							     SetTimer(parent,intOfId timerId, (mkValid newspeed));
+           |   stopgo (RepeaterInterval newspeed,running speed) = 
+                    (running (mkValid newspeed),
+                     mkAction(fn () => 
+                               ( KillTimer(parent, intOfId timerId);
+                                 SetTimer(parent,intOfId timerId, (mkValid newspeed));
                                  () ) ))
 
            val handlefun = sharedstate stateref stopgo
            fun high a = ( delegate pid (fn () => handlefun a) ; () )
            val u = connectIn inport high
 
-		   fun stopgoresult m =
-		   let val (newstate,act) = stopgo (m,running 0)
-		   in mkAction(fn () => ())
-		   end
+           fun stopgoresult m =
+           let val (newstate,act) = stopgo (m,running 0)
+           in mkAction(fn () => ())
+           end
 
-	   val cbs = [makeTimerCB timerId action]
+       val cbs = [makeTimerCB timerId action]
 
        in
             GR{wins = [],
@@ -1214,23 +1214,23 @@ fun repeaterGadget action startspeed inport(* No window *)
 fun buttonGadget buttonAttribs startstate b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create button using parent, position and other info from buttonDef *)
-		val (window,buttonId) = buttonMake parent position buttonAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create button using parent, position and other info from buttonDef *)
+        val (window,buttonId) = buttonMake parent position buttonAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	(* set up shared state *)
-		val winstate = ref startstate
-	(* set up abstract behaviour *)
+    (* set up shared state *)
+        val winstate = ref startstate
+    (* set up abstract behaviour *)
                 val handlefun = sharedstate winstate (b window)
                 fun high a = ( delegate pid (fn() => handlefun a) ; () )
                 val u = connectIn inport high
 
-	(* Click callbackcase *)
-		val buttonCB = case getButtonFunction buttonAttribs
-				of None =>  []
-				|  Some b => [makeControlCB (buttonId,b) window winstate]
+    (* Click callbackcase *)
+        val buttonCB = case getButtonFunction buttonAttribs
+                of None =>  []
+                |  Some b => [makeControlCB (buttonId,b) window winstate]
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = mkAction(fn() => closeDownWin window)
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1252,23 +1252,23 @@ fun buttonGadgetBasic buttonAttribs startstate =
 fun scrollGadget scrollAttribs startstate b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create scrollbar using parent, position and other info from scrollAttribs *)
-		val (window,scrollId) = scrollbarMake parent position scrollAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create scrollbar using parent, position and other info from scrollAttribs *)
+        val (window,scrollId) = scrollbarMake parent position scrollAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	(* set up shared state *)
-		val winstate = ref startstate
-	(* set up abstract behaviour *)
+    (* set up shared state *)
+        val winstate = ref startstate
+    (* set up abstract behaviour *)
         val handlefun = sharedstate winstate (b window)
         fun high a = ( delegate pid (fn() => handlefun a) ; () )
         val u = connectIn inport high
 
-	(* Click callbackcase *)
-		val scrollCB = case getScrollFunction scrollAttribs
-				of None =>  []
-				|  Some b => [makeMenuCB (scrollId,b) window winstate]
+    (* Click callbackcase *)
+        val scrollCB = case getScrollFunction scrollAttribs
+                of None =>  []
+                |  Some b => [makeMenuCB (scrollId,b) window winstate]
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = mkAction(fn() => closeDownWin window)
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1288,23 +1288,23 @@ fun scrollGadgetBasic scrollAttribs startstate =
 fun comboboxGadget comboboxAttribs startstate b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create combobox using parent, position and other info from comboboxAttribs *)
-		val (window,comboboxId) = comboBoxMake parent position comboboxAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create combobox using parent, position and other info from comboboxAttribs *)
+        val (window,comboboxId) = comboBoxMake parent position comboboxAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	(* set up shared state *)
-		val winstate = ref startstate
-	(* set up abstract behaviour *)
+    (* set up shared state *)
+        val winstate = ref startstate
+    (* set up abstract behaviour *)
         val handlefun = sharedstate winstate (b window)
         fun high a = ( delegate pid (fn() => handlefun a) ; () )
         val u = connectIn inport high
 
-	(* Click callbackcase *)
-		val comboboxCB = case getComboBoxFunction comboboxAttribs
-				of None =>  []
-				|  Some b => [makeControlCB (comboboxId,b) window winstate]
+    (* Click callbackcase *)
+        val comboboxCB = case getComboBoxFunction comboboxAttribs
+                of None =>  []
+                |  Some b => [makeControlCB (comboboxId,b) window winstate]
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = mkAction(fn() => closeDownWin window)
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1324,23 +1324,23 @@ fun comboboxGadgetBasic comboboxAttribs startstate =
 fun editGadget editAttribs startstate b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create edit using parent, position and other info from editAttribs *)
-		val (window,editId) = editMake parent position editAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create edit using parent, position and other info from editAttribs *)
+        val (window,editId) = editMake parent position editAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	(* set up shared state *)
-		val winstate = ref startstate
-	(* set up abstract behaviour *)
+    (* set up shared state *)
+        val winstate = ref startstate
+    (* set up abstract behaviour *)
         val handlefun = sharedstate winstate (b window)
         fun high a = ( delegate pid (fn() => handlefun a) ; () )
         val u = connectIn inport high
 
-	(* Click callbackcase *)
-		val editCB = case getEditFunction editAttribs
-				of None =>  []
-				|  Some b => [makeControlCB (editId,b) window winstate]
+    (* Click callbackcase *)
+        val editCB = case getEditFunction editAttribs
+                of None =>  []
+                |  Some b => [makeControlCB (editId,b) window winstate]
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = mkAction(fn() => closeDownWin window)
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1360,23 +1360,23 @@ fun editGadgetBasic editAttribs startstate =
 fun listboxGadget listboxAttribs startstate b inport
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create listbox using parent, position and other info from listboxAttribs *)
-		val (window,listboxId) = listBoxMake parent position listboxAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create listbox using parent, position and other info from listboxAttribs *)
+        val (window,listboxId) = listBoxMake parent position listboxAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	(* set up shared state *)
-		val winstate = ref startstate
-	(* set up abstract behaviour *)
+    (* set up shared state *)
+        val winstate = ref startstate
+    (* set up abstract behaviour *)
         val handlefun = sharedstate winstate (b window)
         fun high a = ( delegate pid (fn() => handlefun a) ; () )
         val u = connectIn inport high
 
-	(* Click callbackcase *)
-		val listboxCB = case getListBoxFunction listboxAttribs
-				of None =>  []
-				|  Some b => [makeControlCB (listboxId,b) window winstate]
+    (* Click callbackcase *)
+        val listboxCB = case getListBoxFunction listboxAttribs
+                of None =>  []
+                |  Some b => [makeControlCB (listboxId,b) window winstate]
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = mkAction(fn() => closeDownWin window)
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1396,11 +1396,11 @@ fun listboxGadgetBasic listboxAttribs startstate =
 fun staticGadget staticAttribs
       = Gadget(fn (pid, parent, position) =>
             let
-	(* create static using parent, position and other info from staticAttribs *)
-		val window = staticMake parent position staticAttribs
-		val u = AddWindowRTS(window,pid,false)
+    (* create static using parent, position and other info from staticAttribs *)
+        val window = staticMake parent position staticAttribs
+        val u = AddWindowRTS(window,pid,false)
 
-	        val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
+            val show = mkAction (fn() => (ShowWindow window; UpdateWindow window;()))
                 val close = noAction
                 val kill = actions[mkAction(fn() => killprocess pid),close]
                 val wins = [window]
@@ -1416,19 +1416,19 @@ fun staticGadget staticAttribs
 
 
 (**** Running Dialogs ****)
-        			
+                    
 local
   open Process
 
   fun runGadgetDialog parentpid g position
       = let val pid = newProcessID()
             val shell = MLHWND (toCint 0)
-	        val gr = startGadget g (pid,shell,position)
+            val gr = startGadget g (pid,shell,position)
         in 
-	    (execute(getshowGR gr) ; 
-	     RunProcess pid; 
-	     SetProcessRunStateRTS (parentpid,1);
-	     gr ) 
+        (execute(getshowGR gr) ; 
+         RunProcess pid; 
+         SetProcessRunStateRTS (parentpid,1);
+         gr ) 
         end
 
   val ConsoleWindow = MLHWND (toCint 0)
@@ -1439,7 +1439,7 @@ fun modalDialogCmd w ( d : ('_a -> action) -> gadget ) position =
    let val c = channel()
      fun result a = mkAction (fn () => send (c,a))
 
- 	 val parentpid = GetpidRTS w
+     val parentpid = GetpidRTS w
 
      val b = EnableProcessWindowsRTS (parentpid,false)
 
@@ -1471,9 +1471,9 @@ fun modaldialogGadget winAttribs startstate children b inport =
  winGadget ((WinStyle [WS_POPUPWINDOW]):: winAttribs)
            startstate
            children
-		   b
-		   inport
-		   
+           b
+           inport
+           
 fun modaldialogGadgetBasic winAttribs startstate children = 
     nobehaveGadget (modaldialogGadget winAttribs startstate children)
 

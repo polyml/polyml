@@ -2,5 +2,5 @@
 datatype t0 = C;
 structure A: sig type t val C: t end =
 struct
-	datatype t = datatype t0
+    datatype t = datatype t0
 end;

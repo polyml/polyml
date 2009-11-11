@@ -1,22 +1,22 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
     Updated David C.J. Matthews 2008-9
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -85,10 +85,10 @@ sig
 
     val compiler :
         nameSpace * (unit->char option) * Universal.universal list ->
-		exportTree option * ( unit ->
-	       { fixes: (string * fixStatus) list, values: (string * values) list,
-	         structures: (string * structVals) list, signatures: (string * signatures) list,
-	         functors: (string * functors) list, types: (string * typeConstrs) list }) option
+        exportTree option * ( unit ->
+           { fixes: (string * fixStatus) list, values: (string * values) list,
+             structures: (string * structVals) list, signatures: (string * signatures) list,
+             functors: (string * functors) list, types: (string * typeConstrs) list }) option
 end;
 
 structure ADDRESS :
@@ -116,7 +116,7 @@ sig
   val traceCompilerTag       : bool Universal.tag;
   val inlineFunctorsTag      : bool Universal.tag;
   val maxInlineSizeTag       : int Universal.tag;
-  val debugTag				  : bool Universal.tag;
+  val debugTag                : bool Universal.tag;
   val reportUnreferencedIdsTag: bool Universal.tag;
 end;
 
@@ -477,19 +477,19 @@ struct
             fun makeRunCallTupled (width:int) : codetree =
             let 
               (* These declarations should really be read in the reverse order.
-            	 We are trying to build the codetree for something like the
-            	 following:
-            	 
-            	    val run_call3 = 
-            	      fn (n:int) => 
-            	      let
-            		val f = ioOp n
-            	      in
-            		fn (x,y,z) => f <x,y,z>
-            	      end;
-            	      
-            	 where "f <x,y,z>" designates Poly-style (values in registers)
-            	 uncurried parameter passing.
+                 We are trying to build the codetree for something like the
+                 following:
+                 
+                    val run_call3 = 
+                      fn (n:int) => 
+                      let
+                    val f = ioOp n
+                      in
+                    fn (x,y,z) => f <x,y,z>
+                      end;
+                      
+                 where "f <x,y,z>" designates Poly-style (values in registers)
+                 uncurried parameter passing.
                  *)
           
                 val name = "run_call" ^ Int.toString width;
@@ -621,39 +621,39 @@ struct
         local
             fun addVal (name : string, value : 'a, typ : types) : unit =
                 enterBootstrap (name, mkConst (toMachineWord value), typ)
-	  
-        	(* These are only used during the bootstrap phase.  Replacements are installed once
-        	   the appropriate modules of the basis library are compiled. *)
-        	fun intOfString s =
-        		let
-        		val radix =
-        			if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
-        			   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
-        			then StringCvt.HEX else StringCvt.DEC
-        		in
-        			case StringCvt.scanString (Int.scan radix) s of
-        				NONE => raise Conversion "Invalid integer constant"
-        			  | SOME res => res
-        		end
+      
+            (* These are only used during the bootstrap phase.  Replacements are installed once
+               the appropriate modules of the basis library are compiled. *)
+            fun intOfString s =
+                let
+                val radix =
+                    if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
+                       orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
+                    then StringCvt.HEX else StringCvt.DEC
+                in
+                    case StringCvt.scanString (Int.scan radix) s of
+                        NONE => raise Conversion "Invalid integer constant"
+                      | SOME res => res
+                end
         
-        	fun wordOfString s =
-        		let
-        		val radix =
-        			if String.size s > 2 andalso String.sub(s, 2) = #"x"
-        			then StringCvt.HEX else StringCvt.DEC
-        		in
-        			case StringCvt.scanString (Word.scan radix) s of
-        				NONE => raise Conversion "Invalid word constant"
-        			  | SOME res => res
-        		end
+            fun wordOfString s =
+                let
+                val radix =
+                    if String.size s > 2 andalso String.sub(s, 2) = #"x"
+                    then StringCvt.HEX else StringCvt.DEC
+                in
+                    case StringCvt.scanString (Word.scan radix) s of
+                        NONE => raise Conversion "Invalid word constant"
+                      | SOME res => res
+                end
         in
-        	(* When we start the compiler we don't have any conversion functions.
-        	   We can't even use a literal string until we have installed a
-        	   basic converter. *)
+            (* When we start the compiler we don't have any conversion functions.
+               We can't even use a literal string until we have installed a
+               basic converter. *)
             val () = addVal ("convStringName", "convString", String);
             val () = addVal ("convInt", intOfString, String ->> Int);
             val () = addVal ("convWord", wordOfString, String ->> Word);
-        	(* Convert a string, recognising and converting the escape codes. *)
+            (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString, String ->> String);
 
         end;
@@ -861,12 +861,12 @@ struct
             end
             val typeconstr =
                 buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
-		in
+        in
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
                         (tcConstructors typeconstr)
             val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
-		end
+        end
 
 
 (*****************************************************************************)
@@ -982,27 +982,27 @@ struct
          in
             val Tag = Tag and Universal = Universal
         end
-		
+        
 (*****************************************************************************)
 (*                  parseTree type                                           *)
 (*****************************************************************************)
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
-			val propConstr =
+            val propConstr =
                 makeDatatypeConstr("ptProperties", [],
                     makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties", ([], EmptyType)), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
-			val parseTreeConstr =
+            val parseTreeConstr =
                 makeTypeAbbreviation("parseTree", [], Location ** List PtProperties, declInBasis);    
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", parseTreeConstr);
 
             (* Representation of the type of a value. *)
-			val typesConstr =
+            val typesConstr =
                 makeFrozenTypeConstrs("typeExpression", [],
                     makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression", ([], EmptyType)), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
@@ -1029,11 +1029,11 @@ struct
                         (constrs, chooseConstrRepr constrs)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
-			val () = tcSetConstructors (propConstr, constructors);
+            val () = tcSetConstructors (propConstr, constructors);
 
-		in
+        in
             val ParseTree = ParseTree and Types = Types
-		end
+        end
 
 (*****************************************************************************)
 (*        PolyML.compiler etc                                                *)
@@ -1044,7 +1044,7 @@ struct
  
             val compilerType : types =
                 mkProductType[nameSpaceType, Unit ->> Option Char, List Universal] ->>
-				    mkProductType[Option ParseTree, Option (Unit ->> execResult)];
+                    mkProductType[Option ParseTree, Option (Unit ->> execResult)];
         in
             val () = enterBootstrap ("use", mkConst (toMachineWord (useIntoEnv globalTable)), String ->> Unit)            
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler), declInBasis));
@@ -1124,7 +1124,7 @@ struct
                 ("codetreeAfterOptTag",    toMachineWord codetreeAfterOptTag,    Tag Bool),
                 ("traceCompilerTag",       toMachineWord traceCompilerTag,       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord inlineFunctorsTag,      Tag Bool),
-                ("debugTag",               toMachineWord debugTag,        		 Tag Bool),
+                ("debugTag",               toMachineWord debugTag,               Tag Bool),
                 ("profilingTag",           toMachineWord DEBUG.profilingTag,     Tag Int),
                 ("timingTag",              toMachineWord DEBUG.timingTag,        Tag Bool),
                 ("printDepthFunTag",       toMachineWord DEBUG.printDepthFunTag, Tag (Unit->>Int)),

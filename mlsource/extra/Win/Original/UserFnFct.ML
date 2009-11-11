@@ -1,29 +1,29 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 signature importConstTypeSig = 
 sig
     type 'a Conversion
 
-	type TextAlign
-	type EnumObject
-	type DeviceItem
+    type TextAlign
+    type EnumObject
+    type DeviceItem
     type DeviceContextFlag
     type DrawTextMode
     type SetWindowPositionStyle
@@ -53,11 +53,11 @@ sig
     type IconIdentifier
     type RedrawWindowFlag
     type BkMode
-	type MessageBoxValue
-	type MessageBoxIdentifier
+    type MessageBoxValue
+    type MessageBoxIdentifier
 
   structure UpperCaseConversions :
-	sig
+    sig
     val TEXTALIGN : TextAlign Conversion
     val ENUMOBJECT : EnumObject Conversion
     val DEVICEITEM : DeviceItem Conversion
@@ -88,9 +88,9 @@ sig
     val RASTEROPCODE : RasterOpCode Conversion
     val ICONIDENTIFIER : IconIdentifier Conversion
     val REDRAWWINDOWFLAG : RedrawWindowFlag Conversion
-	val BKMODE : BkMode Conversion
-	val MESSAGEBOXVALUE : MessageBoxValue Conversion
-	val MESSAGEBOXIDENTIFIER : MessageBoxIdentifier Conversion 
+    val BKMODE : BkMode Conversion
+    val MESSAGEBOXVALUE : MessageBoxValue Conversion
+    val MESSAGEBOXIDENTIFIER : MessageBoxIdentifier Conversion 
   end
 
 end;
@@ -99,10 +99,10 @@ end;
 signature importCInterfaceSig =
 sig
     type vol
-	type Ctype
-	type 'a Conversion
-	type sym
-	type dylib
+    type Ctype
+    type 'a Conversion
+    type sym
+    type dylib
 
     val alloc       : int -> Ctype -> vol
     val address     : vol -> vol
@@ -110,15 +110,15 @@ sig
     val offset      : int -> Ctype -> vol -> vol
     val assign      : Ctype -> vol -> vol -> unit
 
-	val Cpointer    : Ctype -> Ctype
-	val Cvoid       : Ctype
+    val Cpointer    : Ctype -> Ctype
+    val Cvoid       : Ctype
 
-	val breakConversion : 'a Conversion -> (vol -> 'a) * ('a -> vol) * Ctype
+    val breakConversion : 'a Conversion -> (vol -> 'a) * ('a -> vol) * Ctype
     val call_sym     : sym -> (Ctype * vol) list -> Ctype -> vol
-	val load_lib     : string -> dylib
+    val load_lib     : string -> dylib
     val load_sym     : dylib -> string -> sym
 
-    val CHAR	: string Conversion
+    val CHAR    : string Conversion
     val DOUBLE  : real Conversion
     val FLOAT   : real Conversion
     val INT     : int Conversion
@@ -132,7 +132,7 @@ end;
 
 
 signature importTypeSig =
-sig	
+sig 
     type 'a Conversion
     type ForceBackground
     type ClassName
@@ -157,13 +157,13 @@ sig
     type MLHPALETTE
     type MLHICON
     type MLHMENU
-	type MLHDWP
-	type Fmf
-	type ListBox
+    type MLHDWP
+    type Fmf
+    type ListBox
     type StaticControl
-	type MenuItem
+    type MenuItem
 
-	val HWND : MLHWND Conversion
+    val HWND : MLHWND Conversion
     val HDC : MLHDC Conversion
     val HGDIOBJ : MLHGDIOBJ Conversion
     val HBITMAP : MLHBITMAP Conversion
@@ -172,9 +172,9 @@ sig
     val HPALETTE : MLHPALETTE Conversion
     val HICON : MLHICON Conversion
     val HMENU : MLHMENU Conversion
-	val HDWP : MLHDWP Conversion
+    val HDWP : MLHDWP Conversion
 
-	type Point
+    type Point
     type Size
     type XForm
 
@@ -190,14 +190,14 @@ sig
     val HEIGHT : Height Conversion
     val INDEX : Index Conversion
 
-	val RWPERMISSION : RWpermission Conversion
-	val FONTMAPPERFLAG : Fmf Conversion
-	val SUCCESSSTATE : SuccessState Conversion
-	val DCINSTANCE : DCinstance Conversion
-	val FORCEBACKGROUND : ForceBackground Conversion
-	val LISTBOX : ListBox Conversion
-	val STATICCONTROL : StaticControl Conversion
-	val MENUITEM : int Conversion
+    val RWPERMISSION : RWpermission Conversion
+    val FONTMAPPERFLAG : Fmf Conversion
+    val SUCCESSSTATE : SuccessState Conversion
+    val DCINSTANCE : DCinstance Conversion
+    val FORCEBACKGROUND : ForceBackground Conversion
+    val LISTBOX : ListBox Conversion
+    val STATICCONTROL : StaticControl Conversion
+    val MENUITEM : int Conversion
 
 end;
 
@@ -220,8 +220,8 @@ functor UserFnFct ( structure Dir : importDirSig
 struct
     local
 
-	    open CInterface
-		open Dir
+        open CInterface
+        open Dir
 
         fun call name = call_sym (load_sym (load_lib userlibname) name)
         fun rcall_IIIII name CR (C1,C2,C3,C4,C5) (a1,a2,a3,a4,a5) =
@@ -579,12 +579,12 @@ struct
             in  (fromR res,from6 (deref va6))
             end
     in
-		open ConstType
-		open UpperCaseConversions 
-		open Type
+        open ConstType
+        open UpperCaseConversions 
+        open Type
 
         val LoadBitmap             = rcall_II "LoadBitmapA" HBITMAP (BITMAPOPTION,STRING)
-	    val CheckDlgButton         = rcall_III "CheckDlgButton" SUCCESSSTATE (HWND,INT,INT)
+        val CheckDlgButton         = rcall_III "CheckDlgButton" SUCCESSSTATE (HWND,INT,INT)
         val CheckRadioButton       = rcall_IIII "CheckRadioButton" SUCCESSSTATE (HWND,INT,INT,INT)
         val IsDlgButtonChecked     = rcall_II "IsDlgButtonChecked" INT (HWND,INT)
         val DlgDirListComboBox     = rcall_IIIII "DlgDirListComboBox" SUCCESSSTATE (HWND,STRING,INT,INT,DIALOGBOXFLAG)
@@ -597,7 +597,7 @@ struct
         val OpenIcon               = rcall_I "OpenIcon" SUCCESSSTATE (HWND)
         val EnableWindow           = rcall_II "EnableWindow" SUCCESSSTATE (HWND,BOOL)
         val GetDC                  = rcall_I "GetDC" HDC (HWND)
-		val ReleaseDC              = rcall_II "ReleaseDC" BOOL (HWND,HDC)
+        val ReleaseDC              = rcall_II "ReleaseDC" BOOL (HWND,HDC)
         val GetActiveWindow        = rcall_O "GetActiveWindow" HWND (VOID)
         val GetFocus               = rcall_O "GetFocus" HWND (VOID)
         val IsWindowEnabled        = rcall_I "IsWindowEnabled" BOOL (HWND)
@@ -605,7 +605,7 @@ struct
         val SetActiveWindow        = rcall_I "SetActiveWindow" HWND (HWND)
         val SetFocus               = rcall_I "SetFocus" HWND (HWND)
         val AppendMenu             = rcall_IIII "AppendMenuA" SUCCESSSTATE (HMENU,MENUFLAG,INT,STRING)
-		val AppendSubMenu          = rcall_IIII "AppendMenuA" SUCCESSSTATE (HMENU,MENUFLAG,HMENU,STRING)
+        val AppendSubMenu          = rcall_IIII "AppendMenuA" SUCCESSSTATE (HMENU,MENUFLAG,HMENU,STRING)
         val CheckMenuItem          = rcall_III "CheckMenuItem" MENUFLAG (HMENU,INT,MENUFLAG)
         val CreateMenu             = rcall_O "CreateMenu" HMENU (VOID)
         val CreatePopupMenu        = rcall_O "CreatePopupMenu" HMENU (VOID)
@@ -655,7 +655,7 @@ struct
         val WindowFromDC           = rcall_I "WindowFromDC" HWND (HDC)
         val EnableScrollBar        = rcall_III "EnableScrollBar" SUCCESSSTATE (HWND,SCROLLBARTYPE,ENABLESCROLLBARFLAG)
         val GetScrollPos           = rcall_II "GetScrollPos" INT (HWND,SCROLLBARTYPE)
-		val SetScrollRange         = rcall_IIIII "SetScrollRange" BOOL (HWND,SCROLLBARTYPE,INT,INT,BOOL) 
+        val SetScrollRange         = rcall_IIIII "SetScrollRange" BOOL (HWND,SCROLLBARTYPE,INT,INT,BOOL) 
         val SetScrollPos           = rcall_IIII "SetScrollPos" INT (HWND,SCROLLBARTYPE,INT,BOOL)
         val ShowScrollBar          = rcall_III "ShowScrollBar" SUCCESSSTATE (HWND,SCROLLBARTYPE,BOOL)
         val ScrollDC               = rcall_IIIRRIW "ScrollDC" SUCCESSSTATE (HDC,INT,INT,RECTANGLE,RECTANGLE,HRGN,RECTANGLE)
@@ -712,6 +712,6 @@ struct
 
         val GetWindowRect          = rcall_IW "GetWindowRect" BOOL (HWND,RECTANGLE)
 
-		val MessageBox             = rcall_IIII "MessageBoxA" MESSAGEBOXIDENTIFIER (HWND,STRING,STRING,MESSAGEBOXVALUE) 
+        val MessageBox             = rcall_IIII "MessageBoxA" MESSAGEBOXIDENTIFIER (HWND,STRING,STRING,MESSAGEBOXVALUE) 
     end
 end

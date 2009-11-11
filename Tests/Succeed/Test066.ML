@@ -2,6 +2,6 @@
 datatype t = C | D;
 signature SIG =
 sig
-	datatype t = datatype t
-	val f : t -> t
+    datatype t = datatype t
+    val f : t -> t
 end;

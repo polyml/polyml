@@ -4,7 +4,7 @@ aren't known when we compile the functor.
 *)
 functor F(S: sig eqtype t datatype s = X | Y of t end) =
 struct
-	fun eq(x: S.s, y) = if x = y then () else raise Fail "FAIL"
+    fun eq(x: S.s, y) = if x = y then () else raise Fail "FAIL"
 end;
 
 datatype s = X | Y of int;

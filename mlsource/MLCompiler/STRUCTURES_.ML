@@ -1,22 +1,22 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
         
     Modified D.C.J. Matthews 2001-2009
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (*
@@ -105,7 +105,7 @@ struct
   (* Union of the various kinds of core language declaration.  Structures are included
      because they can be declared by opening a structure with substructures. *)
   datatype coreDeclaration =
-  	CoreValue       of values
+    CoreValue       of values
   | CoreType        of typeConstrs
   | CoreFix         of string*fixStatus (* Include the name because it isn't part of fixStatus. *)
   | CoreStruct      of structVals
@@ -138,12 +138,12 @@ struct
   | SigConstraint  of                    (* Constraint of str to match sig. *)
        {
           str: structs,  (* Structure to constain *)
-		  csig: sigs, (* Constraining signature *)
+          csig: sigs, (* Constraining signature *)
           opaque: bool,   (* True if opaque, false if transparent. *)
           sigLoc: location,
           opaqueIds: { source : typeId, dest: typeId } list ref,
           resultSig: signatures ref
-	   }
+       }
   | EmptyStruct                          (* Error cases. *)
 
   withtype structBind =
@@ -249,7 +249,7 @@ struct
            line     = line
          };
 
-	fun mkSigConstraint(str, csig, opaque, sigLoc) =
+    fun mkSigConstraint(str, csig, opaque, sigLoc) =
         SigConstraint
         {
             str=str, csig=csig, opaque=opaque, sigLoc=sigLoc,
@@ -308,7 +308,7 @@ struct
             name:      string, (* The name of the signature *)
             nameLoc:   location,
             sigStruct: sigs,(* Its value *)
-    		sigRef:    signatures ref, (* The "value" of the signature. *)
+            sigRef:    signatures ref, (* The "value" of the signature. *)
             line:      location
         }
 
@@ -343,7 +343,7 @@ struct
           nameLoc  = nameLoc,
           sigStruct = sg,
           line      = ln,
-		  sigRef   = ref undefinedSignature
+          sigRef   = ref undefinedSignature
         }
 
     type program = topdec list * location
@@ -383,9 +383,9 @@ struct
         else
         case str of
             StructureDec (structList : structBind list, _) =>
-		    let
-			    fun displayStructBind (
-					    {name, haveSig, value, ...}: structBind, depth) =
+            let
+                fun displayStructBind (
+                        {name, haveSig, value, ...}: structBind, depth) =
                 let
                     (* If we desugared this before, return it to its original form. *)
                     val (sigStruct, value) =
@@ -394,26 +394,26 @@ struct
                                 (SOME(csig, opaque, sigLoc), str)
                         |   _ => (NONE, value)
                 in
-		            PrettyBlock (3, false, [],
-		                PrettyString name ::
+                    PrettyBlock (3, false, [],
+                        PrettyString name ::
                         (
                             case sigStruct of (* Signature is optional *)
                                 NONE => []
                             |   SOME (sigStruct, opaque, _) =>
                                 [
-    		                        PrettyString (if opaque then " :>" else " :"),
-    		                        PrettyBreak (1, 0),
-    		                        displaySigs (sigStruct, depth - 1)
+                                    PrettyString (if opaque then " :>" else " :"),
+                                    PrettyBreak (1, 0),
+                                    displaySigs (sigStruct, depth - 1)
                                 ]
                         ) @
                             [
-		                        PrettyString " =",
-		                        PrettyBreak (1, 0),
-		                        displayStruct (value, depth - 1)
+                                PrettyString " =",
+                                PrettyBreak (1, 0),
+                                displayStruct (value, depth - 1)
                             ]
-		            )
+                    )
                 end
-    		in
+            in
                 PrettyBlock (3, false, [],
                     PrettyString "structure" ::
                     PrettyBreak (1, 0) ::
@@ -480,15 +480,15 @@ struct
 
         |   SignatureDec (structList : sigBind list, _) =>
             let
-    			fun displaySigBind ({name, sigStruct, ...}: sigBind, depth) =
-    		        PrettyBlock (3, false, [],
+                fun displaySigBind ({name, sigStruct, ...}: sigBind, depth) =
+                    PrettyBlock (3, false, [],
                         [
-    		                PrettyString (name ^ " ="),
-    		                PrettyBreak (1, 0),
-    		                displaySigs (sigStruct, depth - 1)
+                            PrettyString (name ^ " ="),
+                            PrettyBreak (1, 0),
+                            displaySigs (sigStruct, depth - 1)
                         ]
                     )
-    		in 
+            in 
                 PrettyBlock (3, false, [],
                     PrettyString "signature" ::
                     PrettyBreak (1, 0) ::
@@ -498,8 +498,8 @@ struct
 
         |   FunctorDec (structList : functorBind list, _) =>
             let
-    			fun displayFunctBind (
-    					{name, arg={name=argName, sigStruct=argStruct, ...}, haveSig, body, ...}, depth) =
+                fun displayFunctBind (
+                        {name, arg={name=argName, sigStruct=argStruct, ...}, haveSig, body, ...}, depth) =
                 let
                     val (sigStruct, body) =
                         case (haveSig, body) of
@@ -507,36 +507,36 @@ struct
                                 (SOME(csig, opaque, sigLoc), str)
                         |   _ => (NONE, body)
                 in
-    		        PrettyBlock (3, false, [],
+                    PrettyBlock (3, false, [],
                         PrettyString (name ^ "(") ::
-    		            PrettyBreak (1, 0) ::
-    		            PrettyBlock (1, false, [],
+                        PrettyBreak (1, 0) ::
+                        PrettyBlock (1, false, [],
                             (
                                 if argName = "" then []
                                 else [ PrettyString (argName ^ " :"), PrettyBreak (1, 2)]
                             ) @
                             [displaySigs (argStruct, depth - 1)]
                         ) ::
-    		            PrettyString ")" ::
+                        PrettyString ")" ::
                         (
-    		                case sigStruct of
+                            case sigStruct of
                                 NONE  => [] (* Signature is optional *)
                             |   SOME (sigStruct, opaque, _) =>
                                 [
                                     PrettyString(if opaque then " :>" else " :"),
-        		                    PrettyBreak (1, 0),
-        		                    displaySigs (sigStruct, depth - 1)
+                                    PrettyBreak (1, 0),
+                                    displaySigs (sigStruct, depth - 1)
                                 ]
-    		            ) @
-    		            [
+                        ) @
+                        [
                             PrettyBreak (1, 0),
-    		                PrettyString "=",
-    		                PrettyBreak (1, 0),
-    		                displayStruct (body, depth - 1)
+                            PrettyString "=",
+                            PrettyBreak (1, 0),
+                            displayStruct (body, depth - 1)
                         ]
                     )
                 end
-    		in 
+            in 
                 PrettyBlock (3, false, [],
                     PrettyString "functor" ::
                     PrettyBreak (1, 0) ::
@@ -962,7 +962,7 @@ struct
         end
 
         (* Match typeIDs for types. This is slightly more
-	       complicated than simply assigning the stamps. *)
+           complicated than simply assigning the stamps. *)
         fun matchNames (candidate, target, structPath) : unit =
         if isUndefinedSignature candidate
         then () (* Suppress unnecessary messages. *)
@@ -1351,9 +1351,9 @@ struct
                 lookupSig    = #lookupSig   env, (* Global *)
                 lookupFunct  = #lookupFunct env, (* Global *)
                 lookupFix    = #lookupFix   env,
-			    (* Fixity declarations are dealt with in the parsing process.  They
-			       are only processed again in this pass in order to get declarations
-				   in the right order. *)
+                (* Fixity declarations are dealt with in the parsing process.  They
+                   are only processed again in this pass in order to get declarations
+                   in the right order. *)
                 enterFix     = fn _ => ()
             }
 
@@ -1432,9 +1432,9 @@ struct
               lookupFunct   = #lookupFunct  env,  (* Sigs and functs are global *)
               enterVal      = #enterVal     newEnv,
               enterType     = #enterType    newEnv,
-			  (* Fixity declarations are dealt with in the parsing process.  At
-			     this stage we simply need to make sure that local declarations
-				 aren't entered into the global environment. *)
+              (* Fixity declarations are dealt with in the parsing process.  At
+                 this stage we simply need to make sure that local declarations
+                 aren't entered into the global environment. *)
               enterFix      = fn _ => (),
               enterStruct   = #enterStruct  newEnv,
               enterSig      = #enterSig     newEnv,
@@ -1449,7 +1449,7 @@ struct
             (* There should just be one entry in the "body" list. *)
             structValue(localStr, newTypeId, currentTypeCount, newTypeIdEnv, Env localEnv, lex, line, structPath)
           end
-		  
+          
         | SigConstraint { str, csig, opaque, sigLoc, opaqueIds, resultSig, ... } =>
             let
                 val bodyIds = ref []
@@ -1556,7 +1556,7 @@ struct
             fun pass2StructureBind ({name, value, valRef, line, ...}) : unit=
             let (* Each element in the list is a structure binding. *)
                 val resSig =
-    				structValue(value, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv,
+                    structValue(value, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv,
                                 Env env, lex, line, structPath ^ name ^ ".");
                 (* Any values in the signature are counted as exported. *)
                 val () = markValsAsExported resSig;
@@ -1796,30 +1796,30 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-		fun checkValueForFreeTypeVariables(name: string, v: values) =
-			checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
+        fun checkValueForFreeTypeVariables(name: string, v: values) =
+            checkForFreeTypeVariables(name, valTypeOf v, lex, codeForUniqueId)
 
-		(* Find all the values in the structure. *)
-		fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
-		let
-			fun checkEntry(dName: string, dVal: universal, ()) =
-				if tagIs structVar dVal
-				then checkStructSigForFreeTypeVariables(name ^ dName ^ ".",
-						structSignat((tagProject structVar) dVal))
-				else if tagIs valueVar dVal
-				then checkValueForFreeTypeVariables(name ^ dName, (tagProject valueVar) dVal)
-				else ()
-		in
-			univFold(sigTab s, checkEntry, ())
-		end
+        (* Find all the values in the structure. *)
+        fun checkStructSigForFreeTypeVariables(name: string, s: signatures) =
+        let
+            fun checkEntry(dName: string, dVal: universal, ()) =
+                if tagIs structVar dVal
+                then checkStructSigForFreeTypeVariables(name ^ dName ^ ".",
+                        structSignat((tagProject structVar) dVal))
+                else if tagIs valueVar dVal
+                then checkValueForFreeTypeVariables(name ^ dName, (tagProject valueVar) dVal)
+                else ()
+        in
+            univFold(sigTab s, checkEntry, ())
+        end
 
         fun checkVariables (newValEnv, newStrEnv) =
         (
-    		#apply newValEnv
+            #apply newValEnv
                 (fn (s: string, v: values) => checkValueForFreeTypeVariables(s, v));
-    		#apply newStrEnv (
-    			fn (n: string, s: structVals) =>
-    				checkStructSigForFreeTypeVariables(n^".", structSignat s))
+            #apply newStrEnv (
+                fn (n: string, s: structVals) =>
+                    checkStructSigForFreeTypeVariables(n^".", structSignat s))
         )
             
         fun pass2TopDec ([], envs) = List.app checkVariables envs
@@ -1846,8 +1846,8 @@ struct
                 val () = List.app checkVariables envs (* Check previous variables. *)
 
                 (* There is a restriction that the same name may not be bound twice.
-        		   As with other bindings functor bindings happen in parallel.
-        		   DCJM 6/1/00. *)
+                   As with other bindings functor bindings happen in parallel.
+                   DCJM 6/1/00. *)
                 val sEnv =  (* The new names. *)
                   noDuplicates 
                     (fn (name, _, _) =>
@@ -2005,7 +2005,7 @@ struct
                                         Env envWithArgs, lex, line, "")                        
                         val () =
                             if errorOccurred lex then ()
-		  	                else checkStructSigForFreeTypeVariables(name^"().", resSig)
+                            else checkStructSigForFreeTypeVariables(name^"().", resSig)
                         (* This counts as a reference. *)
                         val () = markValsAsExported resSig
                     end;
@@ -2061,7 +2061,7 @@ struct
                 List.app pass2FunctorBind structList;
                 (* Put them into the enclosing env. *)
                 #apply sEnv (#enterFunct env);
-                pass2TopDec(rest, [])		
+                pass2TopDec(rest, [])       
             end (* FunctorDec *)
 
         |   pass2TopDec((topdec as SignatureDec (structList : sigBind list, lno)) :: rest, envs) =
@@ -2069,8 +2069,8 @@ struct
                 val () = List.app checkVariables envs (* Check previous variables. *)
 
                 (* There is a restriction that the same name may not be bound twice.
-    		       As with other bindings functor bindings happen in parallel.
-    		       DCJM 6/1/00. *)
+                   As with other bindings functor bindings happen in parallel.
+                   DCJM 6/1/00. *)
                 val sEnv =  (* The new names. *)
                     noDuplicates 
                     (fn (name, _, _) => 
@@ -2088,19 +2088,19 @@ struct
                     val namedSig = (* Put in the signature name. *)
                         makeSignature(name, tab, minTypes, maxTypes, line, typeIdMap, boundIds)
                 in
-		            sigRef := namedSig; (* Remember for pass4. *)
+                    sigRef := namedSig; (* Remember for pass4. *)
                     #enter sEnv (name, namedSig)
                 end
             in
                 List.app pass2SignatureBind structList;
                 (* Put them into the enclosing env. *)
-                #apply sEnv (#enterSig env)	;
+                #apply sEnv (#enterSig env) ;
                 pass2TopDec(rest, [])
             end
     in 
         pass2TopDec(strs, []);
         (* Mark any exported values as referenced. *)
-		#apply newValEnv
+        #apply newValEnv
             (fn (s: string, _: values) =>
                 (
                     (* If we have exported the value we need to mark it as a
@@ -2119,9 +2119,9 @@ struct
     
 
 
-  (*							*
-   *     Code-generation phase.	*
-   *							*)
+  (*                            *
+   *     Code-generation phase. *
+   *                            *)
 
   (* Generate code from the expressions and arrange to return the results
       so that "pass4" can find them. *)
@@ -2142,15 +2142,15 @@ struct
     val level = ref 0; (* Only non-zero inside a functor body *)
     
     (* Apply a function which returns a pair of codelists to a list of structs.
-	   This now threads the debugging environment through the functions so
-	   the name is no longer really appropriate.  DCJM 23/2/01. *)
+       This now threads the debugging environment through the functions so
+       the name is no longer really appropriate.  DCJM 23/2/01. *)
     fun mapPair
-		(_: 'a * debugenv -> {code: codetree list, load: codetree list, debug: debugenv})
-		[] debug =
+        (_: 'a * debugenv -> {code: codetree list, load: codetree list, debug: debugenv})
+        [] debug =
           {
             code = [],
             load = [],
-			debug = debug
+            debug = debug
           }
           
       | mapPair f (h::t) debug =
@@ -2163,7 +2163,7 @@ struct
        { 
          code = #code this @ #code rest,
          load = #load this @ #load rest,
-		 debug = #debug rest
+         debug = #debug rest
        }
      end;
 
@@ -2436,9 +2436,9 @@ struct
     |   Localdec {decs, body = [localStr], ...} =>
         let (* let strdec in strexp end *)
             (* Generate the declarations but throw away the loads. *)
-		    (* TODO: Get the debug environment correct here. *)
+            (* TODO: Get the debug environment correct here. *)
             val coded = 
-		  	    mapPair (fn (str, debug) => codeStrdecs (strName, str, debug)) decs debugEnv;
+                mapPair (fn (str, debug) => codeStrdecs (strName, str, debug)) decs debugEnv;
             val {code = bodyCode, load = bodyLoad, ressig = bodySig} =
                 structureCode (localStr, strName, #debug coded)
         in
@@ -2467,7 +2467,7 @@ struct
 
     |   SigConstraint { str, opaqueIds=ref opaqueIds, resultSig = ref resultSig, ... } =>
         let
-		    val {code = strCode, load = strLoad, ressig = strSig} = structureCode (str, strName, debugEnv)
+            val {code = strCode, load = strLoad, ressig = strSig} = structureCode (str, strName, debugEnv)
             val tempDecs = multipleUses (strLoad, mkAddr, !level);
             val ids = loadOpaqueIds opaqueIds
         in
@@ -2485,14 +2485,14 @@ struct
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
     and codeStrdecs (strName, str, debugEnv: debugenv):
-		{ code: codetree list, load: codetree list, debug: debugenv} =
+        { code: codetree list, load: codetree list, debug: debugenv} =
         case str of
             StructureDec (structList : structBind list, _) =>
             let
                 fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
                 let
-    			    val sName = strName ^ name ^ "."
-     			    val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug)
+                    val sName = strName ^ name ^ "."
+                    val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug)
                     val addr = mkAddr(); 
                     val var  = vaLocal (structAccess (!valRef));
                     val () = #addr var  := addr; 
@@ -2502,7 +2502,7 @@ struct
                         code = strCode @ [mkDec (addr, strLoad)],
                         (* Load the variable. *)
                         load = [mkLoad (addr, 0)],
-    				    debug = debug (* We don't do structures at the moment. *)
+                        debug = debug (* We don't do structures at the moment. *)
                     }
                 end
             in
@@ -2513,14 +2513,14 @@ struct
       | Localdec {decs, body, ...} =>
         let (* Accumulate the code from the declarations,
                and the code to load the results. *)
-		  (* TODO: Get the environment right here. *)
+          (* TODO: Get the environment right here. *)
           val codeDecs = mapStrdecs decs strName debugEnv;
           val codeBody = mapStrdecs body strName (#debug codeDecs);
         in  (* Combine the lists. *)
           { 
             code = #code codeDecs @ #code codeBody,
             load = #load codeBody, (* Result is the body. *)
-			debug = #debug codeBody (* TODO: This isn't correct. *)
+            debug = #debug codeBody (* TODO: This isn't correct. *)
           }
         end
  
@@ -2528,22 +2528,22 @@ struct
         let
             (* Code generate the declaration.  This also assigns addresses so must be
                done before we load the results. *)
-		    val (code, newDebug) =
-		  	    gencode (dec, lex, debugEnv, !level, addresses, strName)
+            val (code, newDebug) =
+                gencode (dec, lex, debugEnv, !level, addresses, strName)
 
           (* Load each variable, exception and type ID (i.e. equality & print function)
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-		    fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, badType, nullLex, location nullLex))
+            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, badType, nullLex, location nullLex))
             |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
-		    |   filterVals _              = NONE
+            |   filterVals _              = NONE
             val loadVals = List.mapPartial filterVals vars
         in
             { 
                 code = code,
                 load = loadVals,
-			    debug = newDebug
+                debug = newDebug
             }
         end
         
@@ -2551,13 +2551,13 @@ struct
         { 
           code = [],
           load = [],
-		  debug = debugEnv
+          debug = debugEnv
         }
     (* end codeStrdecs *)
 
     and mapStrdecs strs strName debugEnv =
           mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
-		  	strs debugEnv;
+            strs debugEnv;
 
     fun codeTopdecs (StrDec(str, ref typeIds), debugEnv) =
         let
@@ -2651,7 +2651,7 @@ struct
                 {
                     code = [mkDec (addr, functorCode)],
                     load = [mkLoad (addr, 0)], (* Load the variable. *)
-				    debug = debugEnv
+                    debug = debugEnv
                 }
             end
         in
@@ -2662,7 +2662,7 @@ struct
     
     val coded = (* Process top level list. *)
         mapPair (fn (str, debug) => codeTopdecs (str, debug))
-		  	strs ([], fn _ => CodeZero)
+            strs ([], fn _ => CodeZero)
   in 
     (* The result is code for a vector containing the results of the
        declarations which pass4 can use to pull out the values after
@@ -2678,7 +2678,7 @@ struct
      at the same time as their types but are dumped out by enterGlobals. *)
   (* This previously only processed declarations which required some code-generation and
      evaluation (structures, values and functors).  It now includes types, signatures and
-	 fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
+     fixity so that all declarations can be printed in the order of declaration.  DCJM 6/6/02. *)
     fun pass4Structs (results, (strs: topdec list, _)) =
     let
         fun extractStruct(str, mapTypeIds, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
@@ -2687,7 +2687,7 @@ struct
             let
                 fun extractStructureBind ({name, valRef, line, ...}: structBind, (addr, structures)) =
                 let
-			        val structCode = mkInd (addr, results);
+                    val structCode = mkInd (addr, results);
                     (* We need to replace type IDs with their Global versions. *)
                     
                     local
@@ -2723,7 +2723,7 @@ struct
                 copyType(t, fn tv=>tv, replaceTypeConstrs)
             end
 
-		    fun makeDecs (CoreValue(Value{class, name, typeOf, locations, access, ...}),
+            fun makeDecs (CoreValue(Value{class, name, typeOf, locations, access, ...}),
                           (addr, { fixes, values, structures, signatures, functors, types } )) =
                 let
                     (* Extract the value from the result vector except if we have a type-dependent
@@ -2741,8 +2741,8 @@ struct
                                signatures=signatures, functors=functors, types=types } )
                 end
 
-		    |   makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
-	            (* If we open a structure we've created in the same "program" we may have a non-global
+            |   makeDecs (CoreStruct dec, (addr, {fixes, values, structures, signatures, functors, types})) =
+                (* If we open a structure we've created in the same "program" we may have a non-global
                    substructure.  We have to process any structures and also map any type IDs. *)
                 let
                     local
@@ -2760,11 +2760,11 @@ struct
                           signatures=signatures, functors=functors, types=types } )
                 end
 
-		    |   makeDecs (CoreFix pair, (addr, {fixes, values, structures, signatures, functors, types})) =
+            |   makeDecs (CoreFix pair, (addr, {fixes, values, structures, signatures, functors, types})) =
                  (addr, { fixes=pair :: fixes, values=values, structures=structures,
                           signatures=signatures, functors=functors, types=types } )
 
-		    |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
+            |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
                     val copiedTC = fullCopyDatatype(tc, mapTypeIds, "")
                     val newName = #second(splitString(tcName tc))
@@ -2866,7 +2866,7 @@ struct
         end
 
      | SignatureDec (structList : sigBind list, _) =>
-		let
+        let
             (* We need to convert any references to typeIDs created in strdecs in the same "program". *)
             fun copySignature fnSig =
             let
@@ -2879,10 +2879,10 @@ struct
                 makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, mapIDs), boundIds)
             end
             val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, copySignature s)) structList
-		in
+        in
            (addr, { fixes=fixes, values=values, structures=structures,
                     signatures=newSigs @ signatures, functors=functors, types=types }, nIds, mapPrevTypIds)
-		end
+        end
     
     val empty = { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] }
 

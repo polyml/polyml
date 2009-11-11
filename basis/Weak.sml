@@ -3,19 +3,19 @@
     Author:     David Matthews
     Copyright   David Matthews 2008
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* A weak reference or array contains option values.  The SOME variant of
@@ -53,7 +53,7 @@ struct
            the length. *)
         val System_alloc =
             RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store
-    	val System_setw = RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word;
+        val System_setw = RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word;
         val arr = System_alloc(n+1, 0wx60, v)
     in
        System_setw(arr, 0, n);

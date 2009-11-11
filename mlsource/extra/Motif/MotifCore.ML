@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* Note that this module depends on the compiler's *representation* of
@@ -360,11 +360,11 @@ struct
     |   toXWMStateHint _ = InactiveState;
 
     (* When this datatype changes the runtime system must change as well. *)
-	(* I've removed this and replaced it simply by a tuple but making the tuple
-	   represent the values in the same way.  That makes the interface independent
-	   of the way datatypes are represented. Note: the old representation of
-	   datatypes put the tag in the second word. DCJM 27/3/01. *)
-	(*
+    (* I've removed this and replaced it simply by a tuple but making the tuple
+       represent the values in the same way.  That makes the interface independent
+       of the way datatypes are represented. Note: the old representation of
+       datatypes put the tag in the second word. DCJM 27/3/01. *)
+    (*
     datatype CType = 
       CAccelerators  of XtAccelerators
     | CBool          of bool                       (* typedef char Boolean *)
@@ -387,10 +387,10 @@ struct
     | CWidgetList    of Widget list
     | CXmString      of string
     | CXmStringTable of string list;
-	*)
-	val cAccelerators  = 1
-	and cBool          = 2
-	and cColormap      = 3
+    *)
+    val cAccelerators  = 1
+    and cBool          = 2
+    and cColormap      = 3
     and cCursor        = 4
     and cDimension     = 5
     and cFontList      = 6
@@ -415,7 +415,7 @@ struct
     (* This version can be inlined for greater efficiency. SPF 1/6/95 *)
     val Cast : 'a -> 'b = RunCall.unsafeCast;
 
-	val toInt : 'a -> int = Cast (* we could make this any type. *)
+    val toInt : 'a -> int = Cast (* we could make this any type. *)
 
     fun CType (XmRAcceleratorTable       a) = (toInt a,                       cAccelerators)
     |   CType (XmRAlignment              a) = (fromAlignment a,               cUnsignedChar)
@@ -582,8 +582,8 @@ struct
     |   RName (XmRXmString               _) = "XmString"
     |   RName (XmRXmStringTable          _) = "XmStringTable";
 
-	(* Added this function to remove the dependency on datatype representation.
-	   DCJM 28/3/01. *)
+    (* Added this function to remove the dependency on datatype representation.
+       DCJM 28/3/01. *)
     fun insertValue (XmRAcceleratorTable       _) v = XmRAcceleratorTable (Cast v)
       | insertValue (XmRAlignment              _) v = XmRAlignment (Cast v)
       | insertValue (XmRArrowDirection         _) v = XmRArrowDirection (Cast v)
@@ -649,7 +649,7 @@ struct
     fun ArgName (e:Arg) =
     let
       (* open System; *)
-	  fun substring s i n = String.substring(s, i-1, n)
+      fun substring s i n = String.substring(s, i-1, n)
       
       val EXN (_,s,_) = Exn e;
       
@@ -666,10 +666,10 @@ struct
     let
       val EXN (r1,n,value) = Exn e;
 
-	  (* This bit of code assumes that XmRType values are pairs with the
-	     tag in the second word and the value in the first.  That's no
-		 longer correct.  I've replaced it with the insertValue function
-		 above. DCJM 28/3/01. *)
+      (* This bit of code assumes that XmRType values are pairs with the
+         tag in the second word and the value in the first.  That's no
+         longer correct.  I've replaced it with the insertValue function
+         above. DCJM 28/3/01. *)
       (*fun InsertValue (r:XmRType) =
       let
         val (_,tag) = Cast r;
@@ -677,7 +677,7 @@ struct
         Cast (value,tag):XmRType
       end;*)
 
-	  fun InsertValue (r:XmRType) = insertValue r value
+      fun InsertValue (r:XmRType) = insertValue r value
 
       fun Find []     = raise XWindows (n ^ " has not been registered")
       |   Find (H::T) =
@@ -760,7 +760,7 @@ struct
       Arg (EXN (u,n,Convert r (xcall (XCALL_GetValue,w,(s,CType r)))))
     end;
 
-	local
+    local
       fun GetExns []           R C = (R,C)
       |   GetExns ((s,c,d)::T) R C =
       let
@@ -777,71 +777,71 @@ struct
       |   Zip _      []     acc = acc
       |   Zip (v::V) (c::C) acc = Zip V C (c v :: acc)
 
-	in
-	    fun XtGetSubresources (w:Widget) (name:string) (class:string) (L:(string * string * XmRType) list):Arg list =
-	    let
-	      
-	      val (R,C) = GetExns L [] [];
-	      
-	      val V = xcall (XCALL_GetSubresources,w,name,class,R)
-	      
-	    in
-	      Zip V C []
-	    end;    
-	  
-	    fun XtGetApplicationResources (w:Widget) (L:(string * string * XmRType) list):Arg list =
-	    let
-	      val (R,C) = GetExns L [] [] ;
-	      val V = xcall (XCALL_XtGetApplicationResources,w,R)
-	    in
-	      Zip V C []
-	    end ;
+    in
+        fun XtGetSubresources (w:Widget) (name:string) (class:string) (L:(string * string * XmRType) list):Arg list =
+        let
+          
+          val (R,C) = GetExns L [] [];
+          
+          val V = xcall (XCALL_GetSubresources,w,name,class,R)
+          
+        in
+          Zip V C []
+        end;    
+      
+        fun XtGetApplicationResources (w:Widget) (L:(string * string * XmRType) list):Arg list =
+        let
+          val (R,C) = GetExns L [] [] ;
+          val V = xcall (XCALL_XtGetApplicationResources,w,R)
+        in
+          Zip V C []
+        end ;
 
-	end;
+    end;
 
-	local
-	    (* These have been copied over from the XWindows module. *)
-	    infix 9 Or;
-	    fun a Or  b = xcall (12,a:int,b:int):int ;
-	    fun fromEventMask list =
-	    let
-	      fun MaskBit KeyPressMask             = 1
-	      |   MaskBit KeyReleaseMask           = 2
-	      |   MaskBit ButtonPressMask          = 4
-	      |   MaskBit ButtonReleaseMask        = 8
-	      |   MaskBit EnterWindowMask          = 16
-	      |   MaskBit LeaveWindowMask          = 32
-	      |   MaskBit PointerMotionMask        = 64
-	      |   MaskBit PointerMotionHintMask    = 128
-	      |   MaskBit Button1MotionMask        = 256
-	      |   MaskBit Button2MotionMask        = 512
-	      |   MaskBit Button3MotionMask        = 1024
-	      |   MaskBit Button4MotionMask        = 2048
-	      |   MaskBit Button5MotionMask        = 4096
-	      |   MaskBit ButtonMotionMask         = 8192
-	      |   MaskBit KeymapStateMask          = 16384
-	      |   MaskBit ExposureMask             = 32768
-	      |   MaskBit VisibilityChangeMask     = 65536
-	      |   MaskBit StructureNotifyMask      = 131072
-	      |   MaskBit ResizeRedirectMask       = 262144
-	      |   MaskBit SubstructureNotifyMask   = 524288
-	      |   MaskBit SubstructureRedirectMask = 1048576
-	      |   MaskBit FocusChangeMask          = 2097152
-	      |   MaskBit PropertyChangeMask       = 4194304
-	      |   MaskBit ColormapChangeMask       = 8388608
-	      |   MaskBit OwnerGrabButtonMask      = 16777216
-	      |   MaskBit ButtonClickMask          = 2147483648 Or MaskBit ButtonPressMask Or MaskBit ButtonReleaseMask   (* extra event mask *) ;
-	  
-	      fun OrTogether []     acc = acc
-	      |   OrTogether (H::T) acc = OrTogether T (MaskBit H Or acc) ;
-	    in
-	      OrTogether list 0
-	    end
-	in
-	    fun XtAddEventHandler (w: Widget) (ev: EventMask list) (nonmaskable: bool)
-		  (handler: Widget * 'a XEvent -> unit) : unit =
-		  xcall(XCALL_XtAddEventHandler, w, fromEventMask ev, nonmaskable, handler)
-	end
+    local
+        (* These have been copied over from the XWindows module. *)
+        infix 9 Or;
+        fun a Or  b = xcall (12,a:int,b:int):int ;
+        fun fromEventMask list =
+        let
+          fun MaskBit KeyPressMask             = 1
+          |   MaskBit KeyReleaseMask           = 2
+          |   MaskBit ButtonPressMask          = 4
+          |   MaskBit ButtonReleaseMask        = 8
+          |   MaskBit EnterWindowMask          = 16
+          |   MaskBit LeaveWindowMask          = 32
+          |   MaskBit PointerMotionMask        = 64
+          |   MaskBit PointerMotionHintMask    = 128
+          |   MaskBit Button1MotionMask        = 256
+          |   MaskBit Button2MotionMask        = 512
+          |   MaskBit Button3MotionMask        = 1024
+          |   MaskBit Button4MotionMask        = 2048
+          |   MaskBit Button5MotionMask        = 4096
+          |   MaskBit ButtonMotionMask         = 8192
+          |   MaskBit KeymapStateMask          = 16384
+          |   MaskBit ExposureMask             = 32768
+          |   MaskBit VisibilityChangeMask     = 65536
+          |   MaskBit StructureNotifyMask      = 131072
+          |   MaskBit ResizeRedirectMask       = 262144
+          |   MaskBit SubstructureNotifyMask   = 524288
+          |   MaskBit SubstructureRedirectMask = 1048576
+          |   MaskBit FocusChangeMask          = 2097152
+          |   MaskBit PropertyChangeMask       = 4194304
+          |   MaskBit ColormapChangeMask       = 8388608
+          |   MaskBit OwnerGrabButtonMask      = 16777216
+          |   MaskBit ButtonClickMask          = 2147483648 Or MaskBit ButtonPressMask Or MaskBit ButtonReleaseMask   (* extra event mask *) ;
+      
+          fun OrTogether []     acc = acc
+          |   OrTogether (H::T) acc = OrTogether T (MaskBit H Or acc) ;
+        in
+          OrTogether list 0
+        end
+    in
+        fun XtAddEventHandler (w: Widget) (ev: EventMask list) (nonmaskable: bool)
+          (handler: Widget * 'a XEvent -> unit) : unit =
+          xcall(XCALL_XtAddEventHandler, w, fromEventMask ev, nonmaskable, handler)
+    end
 
   end (* local *);
 

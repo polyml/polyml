@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (***
@@ -30,7 +30,7 @@ signature VOLATILE_SIG =
 sig
     type vol
     type Ctype
-	
+    
     val load_lib     : string -> vol
     val load_sym     : vol -> string -> vol
     val call_sym     : vol -> (Ctype * vol) list -> Ctype -> vol
@@ -64,7 +64,7 @@ signature DISPATCH_SIG =
 sig
     type rawvol
     type RawCtype
-	
+    
     val load_lib     : string -> rawvol
     val load_sym     : rawvol -> string -> rawvol
     val call_sym     : rawvol -> (RawCtype * rawvol) list -> RawCtype -> rawvol
@@ -94,14 +94,14 @@ end;
 signature RAW_CTYPE_SIG =
 sig
     datatype RawCtype =
-	Cchar | Cdouble | Cfloat | Cint | Clong | Cpointer | Cshort | Cuint
+    Cchar | Cdouble | Cfloat | Cint | Clong | Cpointer | Cshort | Cuint
       | Cstruct of int
 end;    
 
 signature CTYPE_SIG =
 sig
     datatype Ctype =
-	Cchar
+    Cchar
       | Cdouble
       | Cfloat
       | Cint
@@ -133,7 +133,7 @@ functor VOLATILE
      structure RawCtype : RAW_CTYPE_SIG
      structure Ctype : CTYPE_SIG
      structure ForeignException : FOREIGN_EXCEPTION_SIG
-	 sharing type Dispatch.RawCtype = RawCtype.RawCtype
+     sharing type Dispatch.RawCtype = RawCtype.RawCtype
 ) : VOLATILE_SIG  =
 struct    
 
@@ -141,7 +141,7 @@ struct
 (***  Make just type rawvol visible ***)    
 local structure Rawvol :
     sig
-	type rawvol
+    type rawvol
     end = Dispatch
 in open Rawvol
 end
@@ -149,7 +149,7 @@ open Ctype
 open ForeignException
 
 (*.....
-datatype owner	= Owner of rawvol * dependancy ref list
+datatype owner  = Owner of rawvol * dependancy ref list
 and vol = Vol of rawvol * dependancy
 where type dependancy = (int * owner) option
 .....*)
@@ -158,12 +158,12 @@ where type dependancy = (int * owner) option
 datatype 'a option = Some of 'a | None;
 
 
-datatype owner	= Owner of rawvol * (int * owner) option ref list
-abstype vol	= Vol of rawvol * (int * owner) option
+datatype owner  = Owner of rawvol * (int * owner) option ref list
+abstype vol = Vol of rawvol * (int * owner) option
 with
     fun thevol  (Vol (v,_)) = v
     fun depends (Vol (_,x)) = x
-    val vol 	    	    = Vol    
+    val vol                 = Vol    
 end
 
     local
@@ -182,9 +182,9 @@ fun copy n x =
      * Make a list containing n elements all equal to x.
      ******)
     let fun copy' 0 acc = acc
-	  | copy' n acc = copy' (n-1) (x::acc)
+      | copy' n acc = copy' (n-1) (x::acc)
     in
-	if n <= 0 then [] else copy' n []
+    if n <= 0 then [] else copy' n []
     end
 
     
@@ -195,11 +195,11 @@ fun drop 0 xs = xs
    
 fun dependencies g =
     case depends g of
-	None => []
+    None => []
       | Some(i,Owner(_,refs)) =>
-	    if i mod PointerSize = 0
-	    then drop (i div PointerSize) refs
-	    else []
+        if i mod PointerSize = 0
+        then drop (i div PointerSize) refs
+        else []
 
 
 fun selfOwner v deps =
@@ -207,7 +207,7 @@ fun selfOwner v deps =
      * Create a vol that `owns' itself, with depndancies "deps".
      ******)
     vol (v,Some(0,Owner(v,deps)))
-	
+    
 
 (***********************************************************************
 a = alloc(n)
@@ -215,9 +215,9 @@ a = alloc(n)
 
 fun alloc n ctype =
     let val m = n * sizeof ctype
-	val v = Dispatch.alloc m
+    val v = Dispatch.alloc m
     in
-	selfOwner v (map ref (copy (m div PointerSize) None))
+    selfOwner v (map ref (copy (m div PointerSize) None))
     end
 
 (***********************************************************************
@@ -235,10 +235,10 @@ a = *b
 
 fun deref g =
     vol (Dispatch.deref (thevol g),
-	 case (dependencies g) of
-	     [] => None
-	   | (r::_) => !r)
-		 
+     case (dependencies g) of
+         [] => None
+       | (r::_) => !r)
+         
 
 (***********************************************************************
 a = b.X (offset n objects of type ctype)    [*a = ( char* )&b + n]
@@ -247,10 +247,10 @@ a = b.X (offset n objects of type ctype)    [*a = ( char* )&b + n]
 fun offset n ctype g =
     let val m = n * sizeof ctype
     in
-	vol (Dispatch.offset (thevol g) m,
-	     case depends g of
-		 None => None
-	       | Some (i,x) => Some (i+m, x))
+    vol (Dispatch.offset (thevol g) m,
+         case depends g of
+         None => None
+           | Some (i,x) => Some (i+m, x))
     end
 
 (***********************************************************************
@@ -265,8 +265,8 @@ fun copyRefs 0 _ _              = ()
 fun assign ctype g h =
     let val n = sizeof ctype
     in
-	(copyRefs (n div 4) (dependencies g) (dependencies h);
-	 Dispatch.assign (thevol g) (thevol h) n)
+    (copyRefs (n div 4) (dependencies g) (dependencies h);
+     Dispatch.assign (thevol g) (thevol h) n)
     end
 
 
@@ -276,7 +276,7 @@ fun assign ctype g h =
  **********************************************************************)
 
 
-fun makeVol v	=  selfOwner v []
+fun makeVol v   =  selfOwner v []
 
     
 fun load_lib s =
@@ -288,7 +288,7 @@ fun load_sym g s =
     makeVol (Dispatch.load_sym (thevol g) s)
     handle Foreign mes => raise (Foreign ("load_sym "^s^": "^mes))
 
-	
+    
     
 fun convertRawCtype Cchar             = RawCtype.Cchar 
   | convertRawCtype Cdouble           = RawCtype.Cdouble
@@ -305,10 +305,10 @@ fun convertRawCtype Cchar             = RawCtype.Cchar
 
 fun call_sym g args rt =
     makeVol (Dispatch.call_sym
-	     (thevol g)
-	     (map (fn (t,g) => (convertRawCtype t,thevol g)) args)
-	     (convertRawCtype rt))
-	
+         (thevol g)
+         (map (fn (t,g) => (convertRawCtype t,thevol g)) args)
+         (convertRawCtype rt))
+    
 
 val toCchar     = makeVol o Dispatch.toCchar  
 val toCdouble   = makeVol o Dispatch.toCdouble
@@ -322,10 +322,10 @@ val toCuint     = makeVol o Dispatch.toCuint
 val fromCchar   = Dispatch.fromCchar      o thevol
 val fromCdouble = Dispatch.fromCdouble    o thevol
 val fromCfloat  = Dispatch.fromCfloat     o thevol
-val fromCint    = Dispatch.fromCint  	    o thevol
-val fromClong   = Dispatch.fromClong 	    o thevol
+val fromCint    = Dispatch.fromCint         o thevol
+val fromClong   = Dispatch.fromClong        o thevol
 val fromCshort  = Dispatch.fromCshort     o thevol
-val fromCuint   = Dispatch.fromCuint  	    o thevol
+val fromCuint   = Dispatch.fromCuint        o thevol
 
 
 end (* struct *)

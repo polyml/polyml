@@ -9,20 +9,20 @@ type q = {a: string, b: string};
 datatype s = A | B of q t | C of int;
 
 let
-	val x = B(T{a="O", b="K"})
-	val B(T{a,b}) = x
+    val x = B(T{a="O", b="K"})
+    val B(T{a,b}) = x
 in
-	a^b
+    a^b
 end;
 
 datatype s = A | B of q ref | C of int;
 
 let
-	val x = B(ref{a="WRO", b="NG"})
-	val B r = x
-	val _ = r := {a="O", b="K"}
-	val B(ref{a,b}) = x
+    val x = B(ref{a="WRO", b="NG"})
+    val B r = x
+    val _ = r := {a="O", b="K"}
+    val B(ref{a,b}) = x
 in
-	if a^b = "OK" then () else raise Fail "Wrong"
+    if a^b = "OK" then () else raise Fail "Wrong"
 end;
 

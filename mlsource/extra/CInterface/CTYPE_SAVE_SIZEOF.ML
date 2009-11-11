@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (***
@@ -30,11 +30,11 @@ struct
     
     abstype Ctype = ctype of Underlying.Ctype * int * int
     with
-	fun wrap ct =
-	    ctype (ct, Underlying.sizeof ct, Underlying.alignment ct)
+    fun wrap ct =
+        ctype (ct, Underlying.sizeof ct, Underlying.alignment ct)
 
-	val Cvoid       = ctype (Underlying.Cvoid, 0, 0);
-	    
+    val Cvoid       = ctype (Underlying.Cvoid, 0, 0);
+        
         fun unpack      (ctype (ct,_,_))         = ct;
         fun sizeof      (ctype (_,size,_))       = size;
         fun alignment   (ctype (_,_,alignment))  = alignment;
@@ -55,8 +55,8 @@ struct
     fun Cfunction(ts,t) = wrap (Underlying.Cfunction (map unpack ts, unpack t));
     fun Cstruct ts      = wrap (Underlying.Cstruct   (map unpack ts));
 
-    fun align n t   	= Underlying.align n (unpack t);
-    fun makeRaw t   	= Underlying.makeRaw (unpack t);
-				     
-				
+    fun align n t       = Underlying.align n (unpack t);
+    fun makeRaw t       = Underlying.makeRaw (unpack t);
+                     
+                
 end;

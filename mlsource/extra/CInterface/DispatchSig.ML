@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -23,7 +23,7 @@ sig
     type rawvol
  
     type RawCtype
-	
+    
     val Cchar     : RawCtype
     val Cdouble   : RawCtype
     val Cfloat    : RawCtype
@@ -33,7 +33,7 @@ sig
     val Cshort    : RawCtype
     val Cstruct   : int -> RawCtype
     val Cuint     : RawCtype
-	
+    
     val get_foreign_debug  : unit -> int
     val set_foreign_debug  : int -> unit
         
@@ -41,10 +41,10 @@ sig
     val load_sym     : rawvol -> string -> rawvol
 
     structure Union : UnionSig
-	
-	val call_sym_and_convert
-	    : rawvol -> (RawCtype, rawvol) Union.directedArg list -> RawCtype Union.unionChoice
-	    -> (rawvol Union.union * rawvol Union.union list)
+    
+    val call_sym_and_convert
+        : rawvol -> (RawCtype, rawvol) Union.directedArg list -> RawCtype Union.unionChoice
+        -> (rawvol Union.union * rawvol Union.union list)
     
     val alloc        : int -> rawvol
     val address      : rawvol -> rawvol
@@ -75,10 +75,10 @@ sig
     val fromCstring  : rawvol -> string
 
     val toCbytes     : Word8Vector.vector -> rawvol
-	val fromCbytes   : rawvol * int -> Word8Vector.vector
-	
-	val toCfunction	 : RawCtype list -> RawCtype -> (rawvol list -> rawvol) -> rawvol
-	val toPascalfunction : RawCtype list -> RawCtype -> (rawvol list -> rawvol) -> rawvol
+    val fromCbytes   : rawvol * int -> Word8Vector.vector
+    
+    val toCfunction  : RawCtype list -> RawCtype -> (rawvol list -> rawvol) -> rawvol
+    val toPascalfunction : RawCtype list -> RawCtype -> (rawvol list -> rawvol) -> rawvol
     
     val setFinal     : rawvol -> rawvol -> unit
 

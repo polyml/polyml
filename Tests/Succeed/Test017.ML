@@ -4,13 +4,13 @@ fun verify true = ()
 |   verify false = raise Fail "wrong";
 
 structure S = PrimIO(
-	structure Vector = CharVector
-	and Array = CharArray
-	and VectorSlice = CharVectorSlice
-	and ArraySlice = CharArraySlice
-	val someElem = #" "
-	type pos = int
-	val compare = Int.compare);
+    structure Vector = CharVector
+    and Array = CharArray
+    and VectorSlice = CharVectorSlice
+    and ArraySlice = CharArraySlice
+    val someElem = #" "
+    type pos = int
+    val compare = Int.compare);
 
 val S.RD r = S.openVector "abcdefghijk";
 verify(valOf(#readVec r) 2 = "ab");

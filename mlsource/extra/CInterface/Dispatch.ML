@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 
@@ -100,33 +100,33 @@ struct
          (* unionChoice is the type information used when we want to indicate the type of a result. *)
          type 'a unionChoice = machineWord;
     
-    	 local
-    	 (* DCJM 25/3/00.  This is a more complicated in ML97 than the
-    	    original ML90. *)
-    		 val w1: machineWord = toWord 1
-    		 and w2: machineWord = toWord 2
-    		 and w3: machineWord = toWord 3
-    		 and w4: machineWord = toWord 4
-    		 and w5: machineWord = toWord 5
-    		 and w6: machineWord = toWord 6
-    		 and w7: machineWord = toWord 7
-    		 and w9: machineWord = toWord 9
-    	 in
-    	     val chooseChar   : 'a unionChoice = w1;
-    	     val chooseDouble : 'a unionChoice = w2;
-    	     val chooseFloat  : 'a unionChoice = w3;
-    	     val chooseInt    : 'a unionChoice = w4;
-    	     val chooseLong   : 'a unionChoice = w5;
-    	     val chooseShort  : 'a unionChoice = w6;
-    	     val chooseString : 'a unionChoice = w7;
-    	     val chooseUint   : 'a unionChoice = w9;
-    	 end;
+         local
+         (* DCJM 25/3/00.  This is a more complicated in ML97 than the
+            original ML90. *)
+             val w1: machineWord = toWord 1
+             and w2: machineWord = toWord 2
+             and w3: machineWord = toWord 3
+             and w4: machineWord = toWord 4
+             and w5: machineWord = toWord 5
+             and w6: machineWord = toWord 6
+             and w7: machineWord = toWord 7
+             and w9: machineWord = toWord 9
+         in
+             val chooseChar   : 'a unionChoice = w1;
+             val chooseDouble : 'a unionChoice = w2;
+             val chooseFloat  : 'a unionChoice = w3;
+             val chooseInt    : 'a unionChoice = w4;
+             val chooseLong   : 'a unionChoice = w5;
+             val chooseShort  : 'a unionChoice = w6;
+             val chooseString : 'a unionChoice = w7;
+             val chooseUint   : 'a unionChoice = w9;
+         end;
     
-    	 (* DCJM 8/10/99.  This originally said simply {1=x} presumably
-    	   with the intention of creating a single boxed object. That
-    	   doesn't work any longer.  Add an extra field to ensure that
-    	   it's boxed.  (We may be able to get the effect we want using
-    	   datatype 'a t = A | B of 'a ) *)
+         (* DCJM 8/10/99.  This originally said simply {1=x} presumably
+           with the intention of creating a single boxed object. That
+           doesn't work any longer.  Add an extra field to ensure that
+           it's boxed.  (We may be able to get the effect we want using
+           datatype 'a t = A | B of 'a ) *)
          val chooseVol    : 'a -> 'a unionChoice = fn x => toWord {1 = x, 2 = 99};
      
          fun isChooseChar   (x : 'a unionChoice) : bool = 
@@ -157,13 +157,13 @@ struct
            not (isShortInt x);
      
          (* needed? *)
-    	 (* DCJM 8/10/99.  This original simply said { 1=y } but that no longer
-    	    works.  Changed so that it definitely indirects. *)
+         (* DCJM 8/10/99.  This original simply said { 1=y } but that no longer
+            works.  Changed so that it definitely indirects. *)
          fun deChooseVol (x : 'a unionChoice) : 'a =
            if not (isShortInt x) then (case unsafeCast x of {1 = y, ...}:'a * 'a => y)
-    	   else never "deChooseVol";
-    	   
-    	 (* directedArg is used to encode either an "in" parameter or an "out" parameter. *)
+           else never "deChooseVol";
+           
+         (* directedArg is used to encode either an "in" parameter or an "out" parameter. *)
      
      (* ...
          datatype ('a, 'b) directedArg =
@@ -227,10 +227,10 @@ struct
 
 (* Don't use datatype because representation may change ...
     datatype RawCtype =
-	Cchar | Cdouble | Cfloat | Cint | Clong | Cpointer | Cshort | Cstruct of int
+    Cchar | Cdouble | Cfloat | Cint | Clong | Cpointer | Cshort | Cstruct of int
 ... *)
     (* DCJM 23/3/04.  This provides the interface to foreign.c in the run-time system.
-	   The representation is shared with that code.  *)
+       The representation is shared with that code.  *)
     type RawCtype = machineWord;
     val Cchar     = toWord 1;
     val Cdouble   = toWord 2;
@@ -239,14 +239,14 @@ struct
     val Clong     = toWord 5;
     val Cpointer  = toWord 6;
     val Cshort    = toWord 7;
-	(* 8 was previously "struct". *)
+    (* 8 was previously "struct". *)
     val Cuint     = toWord 9;
-	(* DCJM 8/10/99.  This originally said simply {1=n} presumably
-	   with the intention of creating a single boxed object. That
-	   doesn't work any longer.  Add an extra field to ensure that
-	   it's boxed.  (We may be able to get the effect we want using
-	   datatype 'a t = A | B of 'a ) *)
-	(* For a structure "n" is the size.  *)
+    (* DCJM 8/10/99.  This originally said simply {1=n} presumably
+       with the intention of creating a single boxed object. That
+       doesn't work any longer.  Add an extra field to ensure that
+       it's boxed.  (We may be able to get the effect we want using
+       datatype 'a t = A | B of 'a ) *)
+    (* For a structure "n" is the size.  *)
     val Cstruct   = fn (n : int) => toWord {1 = n, 2=999};
     
     abstype rawvol = rawvol with end; (* Purely abstract type. *)
@@ -261,7 +261,7 @@ struct
         fun next currier =
         let val f = currier (foreign (!dispatch_index))
         in  dispatch_index := 1 + !dispatch_index;
-    	f
+        f
         end
     end
     
@@ -335,8 +335,8 @@ struct
     val fromCbytes          = next(one); (* Added DCJM 29/6/01 *)
     (* Note: fromCbytes takes a pair. *)
     
-    val toCfunction		    = next(three);(* Added DCJM 7/4/04 *)
-    val toPascalfunction	= next(three);(* Added DCJM 7/4/04 *)
+    val toCfunction         = next(three);(* Added DCJM 7/4/04 *)
+    val toPascalfunction    = next(three);(* Added DCJM 7/4/04 *)
     
     val setFinal            = next(two);  (* Added DCJM 2/8/09. *)
 

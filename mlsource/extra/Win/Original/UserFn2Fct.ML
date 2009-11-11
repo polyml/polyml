@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 signature importCInterfaceSig =
@@ -64,7 +64,7 @@ sig
   val break_struct  : Ctype list -> vol -> vol list
   val make_struct   : (Ctype * vol) list -> vol
 
-  val CHAR	: string Conversion
+  val CHAR  : string Conversion
   val DOUBLE  : real Conversion
   val FLOAT   : real Conversion
   val INT     : int Conversion
@@ -80,67 +80,67 @@ sig
     val call2   : sym -> 'a Conversion * 'b Conversion -> 'c Conversion -> 'a * 'b -> 'c
     
    val call3 : sym ->
-	  'a Conversion
-	* 'b Conversion
-	* 'c Conversion -> 'd Conversion
-	-> 'a * 'b * 'c -> 'd
-	
+      'a Conversion
+    * 'b Conversion
+    * 'c Conversion -> 'd Conversion
+    -> 'a * 'b * 'c -> 'd
+    
     val call4 : sym ->
-	  'a Conversion
-	* 'b Conversion
-	* 'c Conversion
-	* 'd Conversion -> 'e Conversion
-	-> 'a * 'b * 'c * 'd -> 'e
+      'a Conversion
+    * 'b Conversion
+    * 'c Conversion
+    * 'd Conversion -> 'e Conversion
+    -> 'a * 'b * 'c * 'd -> 'e
 
     val call5 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion -> 'f Conversion
-	-> 'a * 'b * 'c * 'd * 'e -> 'f
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion -> 'f Conversion
+    -> 'a * 'b * 'c * 'd * 'e -> 'f
 
     val call6 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion 
-	* 'f Conversion -> 'g Conversion
-	-> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion 
+    * 'f Conversion -> 'g Conversion
+    -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
 
     val call7 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion 
-	* 'f Conversion 
-	* 'g Conversion -> 'h Conversion
-	-> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion 
+    * 'f Conversion 
+    * 'g Conversion -> 'h Conversion
+    -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
 
     val call8 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion 
-	* 'f Conversion 
-	* 'g Conversion 
-	* 'h Conversion -> 'i Conversion
-	-> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion 
+    * 'f Conversion 
+    * 'g Conversion 
+    * 'h Conversion -> 'i Conversion
+    -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
 
     val call9 : sym ->
-	  'a Conversion 
-	* 'b Conversion 
-	* 'c Conversion 
-	* 'd Conversion 
-	* 'e Conversion 
-	* 'f Conversion 
-	* 'g Conversion 
-	* 'h Conversion 
-	* 'i Conversion -> 'j Conversion
-	-> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+      'a Conversion 
+    * 'b Conversion 
+    * 'c Conversion 
+    * 'd Conversion 
+    * 'e Conversion 
+    * 'f Conversion 
+    * 'g Conversion 
+    * 'h Conversion 
+    * 'i Conversion -> 'j Conversion
+    -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
 
 end;
 
@@ -169,7 +169,7 @@ sig
    val repE : 'a encoding -> 'a -> int
 
    type WindowStyleExtended
-   type	WindowStyle
+   type WindowStyle
    type ClassStyle
    type ButtonStyle
    type ComboBoxStyle
@@ -197,7 +197,7 @@ sig
    val ShowWindowModeE : ShowWindowMode encoding
    val WindowStyleExtendedE : WindowStyleExtended encoding
    val WindowStyleE : WindowStyle encoding
-   val ClassStyleE : ClassStyle	encoding
+   val ClassStyleE : ClassStyle encoding
    val ButtonStyleE : ButtonStyle encoding
    val ComboBoxStyleE : ComboBoxStyle encoding
    val EditStyleE : EditStyle encoding  
@@ -240,9 +240,9 @@ sig
   val HANDLE : MLHANDLE Conversion
   datatype MLHWND = MLHWND of vol
   val HWND : MLHWND Conversion
-  datatype MLHDC =	MLHDC of vol
+  datatype MLHDC =  MLHDC of vol
   val HDC : MLHDC Conversion
-  datatype MLHMENU	= MLHMENU of vol
+  datatype MLHMENU  = MLHMENU of vol
   val HMENU : MLHMENU Conversion
   datatype MLHRGN = MLHRGN of vol
   val HRGN : MLHRGN Conversion
@@ -297,18 +297,18 @@ sig
 
   datatype ABC = ABC of { Aspacing:int,
                           Bspacing:int,
-						  Cspacing:int }
+                          Cspacing:int }
 
   datatype ABCfloat = ABCfloat of { Aspacing:real,
                                      Bspacing:real,
-						             Cspacing:real }
+                                     Cspacing:real }
 
  datatype ShiftState = Shift | Ctrl | Alt | Comb of ShiftState list
  datatype VirtualKeyData = VK of int list
 
  datatype MenuItemData = MID of {option:MenuFlag,
                                  id:MenuItem,
-   								 display:string}
+                                 display:string}
 
 end;
 
@@ -322,18 +322,18 @@ end;
 functor UserFn2Fct ( structure Dir : importDirSig
                      structure CInterface : importCInterfaceSig
                      structure Macro      : importMacroSig
-				     structure ConstType  :	importConstTypeSig
-					 structure Type       : importTypeSig
+                     structure ConstType  : importConstTypeSig
+                     structure Type       : importTypeSig
 
-					 sharing type CInterface.Conversion =
-					              Type.Conversion =
-								  ConstType.Conversion
-					 sharing type CInterface.vol =
-					              Type.vol
-					 sharing type Type.PaletteEntryFlag =
-					              ConstType.PaletteEntryFlag
-					 sharing type Type.MenuFlag =
-					              ConstType.MenuFlag              
+                     sharing type CInterface.Conversion =
+                                  Type.Conversion =
+                                  ConstType.Conversion
+                     sharing type CInterface.vol =
+                                  Type.vol
+                     sharing type Type.PaletteEntryFlag =
+                                  ConstType.PaletteEntryFlag
+                     sharing type Type.MenuFlag =
+                                  ConstType.MenuFlag              
 
                    ) = 
 
@@ -495,7 +495,7 @@ in
 end
 
 (*
-   mkEdit :	string * 
+   mkEdit : string * 
             EditStyle * 
             Xcoord * Ycoord * Width * Height * int * 
             HWND -> HWND
@@ -622,12 +622,12 @@ fun ExtFloodFill (h,x,y,Rgb(r,g,b),f) =
 fun GetPixel (h,x,y) = 
 let val r = call3 (getgdi "GetPixel")
                   (HDC,XCOORD,YCOORD) (LONG)
-				  (h,x,y)
+                  (h,x,y)
 in Rgb(GetRValue r,GetGValue r,GetBValue r)
 end
 
 fun SetPixel (h,x,y,Rgb(r,g,b)) = 
-	 call4 (getgdi "SetPixel") 
+     call4 (getgdi "SetPixel") 
            (HDC,XCOORD,YCOORD,LONG) (BOOL) 
            (h,x,y,PALETTERGB(r,g,b))
 
@@ -643,35 +643,35 @@ in call1 (getuser "CreateBrushIndirect")
 end
 
 fun CreateHatchBrush (h,Rgb(r,g,b)) =
-	  call2 (getgdi "CreateHatchBrush")
-	        (HBRUSH,LONG) (LONG)
-			(h,PALETTERGB(r,g,b))
+      call2 (getgdi "CreateHatchBrush")
+            (HBRUSH,LONG) (LONG)
+            (h,PALETTERGB(r,g,b))
 
 fun CreateSolidBrush (Rgb(r,g,b)) =
       call1 (getgdi "CreateSolidBrush")
-			(LONG) (HBRUSH)
+            (LONG) (HBRUSH)
             (PALETTERGB(r,g,b)) 
 
 (* CLIPPING *)
 
-fun	ExcludeClipRect (h,rect) =
+fun ExcludeClipRect (h,rect) =
 let
   val  {left,top,right,bottom} = breakRect rect
 in
-	  absE ResultRegionE 
-	   ( call5 (getgdi "ExcludeClipRect")
-	           (HDC,LONG,LONG,LONG,LONG) (INT)
-			   (h,left,top,right,bottom) )
+      absE ResultRegionE 
+       ( call5 (getgdi "ExcludeClipRect")
+               (HDC,LONG,LONG,LONG,LONG) (INT)
+               (h,left,top,right,bottom) )
 end
  
 fun IntersectClipRect (h,rect) =
 let
   val  {left,top,right,bottom} = breakRect rect
 in
-	  absE ResultRegionE 
-	   ( call5 (getgdi "IntersectClipRect")
-	           (HDC,LONG,LONG,LONG,LONG) (INT)
-			   (h,left,top,right,bottom) )
+      absE ResultRegionE 
+       ( call5 (getgdi "IntersectClipRect")
+               (HDC,LONG,LONG,LONG,LONG) (INT)
+               (h,left,top,right,bottom) )
 end
 
 (* COLORS *)
@@ -683,51 +683,51 @@ let val rgb = call2 (getgdi "GetNearestColor")
 in Rgb(GetRValue rgb,GetGValue rgb,GetBValue rgb)
 end 
 
-fun	GetNearestPaletteIndex (h,Rgb(r,g,b)) = 
+fun GetNearestPaletteIndex (h,Rgb(r,g,b)) = 
      call2 (getgdi "GetNearestPaletteIndex")
-	       (HPALETTE,LONG) (INT)
-		   (h,PALETTERGB(r,g,b))
+           (HPALETTE,LONG) (INT)
+           (h,PALETTERGB(r,g,b))
 
-fun	AnimatePalette (h,start,pl) =
+fun AnimatePalette (h,start,pl) =
 let val count = List.length pl
     val pal = alloc count Clong
 
     fun pl2a v n [] = () 
-	|   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
-	let
-	   val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
-	in
-	  ( assign Clong (offset n Clong v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
+    let
+       val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
+    in
+      ( assign Clong (offset n Clong v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a pal 0 pl
 
 in call4 (getgdi "AnimatePalette")
          (HPALETTE,INT,INT,POINTER) (BOOL)
-		 (h,start,count,address pal)
+         (h,start,count,address pal)
 end 
 
 fun CreatePalette (pl) =
 let val count = List.length pl
     
-	fun pl2a v n [] = () 
-	|   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
-	let
-	   val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
-	in
-	  ( assign Clong (offset n Clong v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    fun pl2a v n [] = () 
+    |   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
+    let
+       val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
+    in
+      ( assign Clong (offset n Clong v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val logpal = alloc (count+1) Clong
 
-	val u = assign Cshort (offset 1 Cshort logpal) (toCshort count)
-	val u = pl2a (offset 1 Clong logpal) 0 pl
+    val u = assign Cshort (offset 1 Cshort logpal) (toCshort count)
+    val u = pl2a (offset 1 Clong logpal) 0 pl
 in
    call1 (getgdi "CreatePalette")
          (POINTER) (HPALETTE)
-		 (address logpal)
+         (address logpal)
 end 
 
 fun GetPaletteEntries (h,start,no) = 
@@ -736,7 +736,7 @@ let
 
   val res = call4 (getgdi "GetPaletteEntries")
             (HPALETTE,INT,INT,POINTER) (INT)
-		    (h,start,no,address palarr)
+            (h,start,no,address palarr)
 
   fun v2l v 0 = []
   |   v2l v i = 
@@ -753,7 +753,7 @@ let
 
   val res = call4 (getgdi "GetSystemPaletteEntries")
             (HPALETTE,INT,INT,POINTER) (INT)
-		    (h,start,no,address palarr)
+            (h,start,no,address palarr)
 
   fun v2l v 0 = []
   |   v2l v i = 
@@ -769,19 +769,19 @@ let val count = List.length pl
     val pal = alloc count Clong
 
     fun pl2a v n [] = () 
-	|   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
-	let
-	   val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
-	in
-	  ( assign Clong (offset n Clong v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (PE {red=r,green=g,blue=b,flag=f} :: rest) = 
+    let
+       val item = toClong (BYTE2LONG (r,g,b,repE PaletteEntryFlagE f))
+    in
+      ( assign Clong (offset n Clong v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a pal 0 pl
 
 in call4 (getgdi "SetPaletteEntries")
          (HPALETTE,INT,INT,POINTER) (BOOL)
-		 (h,start,count,address pal)
+         (h,start,count,address pal)
 end
 
 (* COORDINATE SPACES AND TRANSFORMATIONS *)
@@ -790,7 +790,7 @@ fun ScaleViewportExtEx (h,Fraction{num=n1,denom=d1},Fraction{num=n2,denom=d2}) =
 let val sv = alloc 1 (Cstruct [Clong,Clong])
     val res = call6 (getgdi "ScaleViewportExtEx")
                     (HWND,INT,INT,INT,INT,POINTER) (BOOL)
-		            (h,n1,d1,n2,d2,address sv) 
+                    (h,n1,d1,n2,d2,address sv) 
 
     val (wv,hv) = break_struct2 [Clong,Clong] sv
 in
@@ -801,7 +801,7 @@ fun ScaleWindowExtEx (h,Fraction{num=n1,denom=d1},Fraction{num=n2,denom=d2}) =
 let val sv = alloc 1 (Cstruct [Clong,Clong])
     val res = call6 (getgdi "ScaleWindowExtEx")
                     (HWND,INT,INT,INT,INT,POINTER) (BOOL)
-		            (h,n1,d1,n2,d2,address sv) 
+                    (h,n1,d1,n2,d2,address sv) 
 
     val (wv,hv) = break_struct2 [Clong,Clong] sv
 in
@@ -814,20 +814,20 @@ let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
    
-	val res = call3 (getgdi "DPtoLP")
-	          (HDC,POINTER,INT) (BOOL)
-	          (h, address ptarr,count) 
+    val res = call3 (getgdi "DPtoLP")
+              (HDC,POINTER,INT) (BOOL)
+              (h, address ptarr,count) 
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -845,20 +845,20 @@ let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
    
-	val res = call3 (getgdi "LPtoDP")
-	          (HDC,POINTER,INT) (BOOL)
-	          (h, address ptarr,count) 
+    val res = call3 (getgdi "LPtoDP")
+              (HDC,POINTER,INT) (BOOL)
+              (h, address ptarr,count) 
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -877,20 +877,20 @@ let
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 
     val res = call4 (getuser "MapWindowPoints")
-	                (HWND,HWND,POINTER,INT) (INT)
-	                (h1,h2,address ptarr,count)
+                    (HWND,HWND,POINTER,INT) (INT)
+                    (h1,h2,address ptarr,count)
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -916,16 +916,16 @@ let
 in
    call9 (getgdi "Chord")
          (HDC,LONG,LONG,LONG,LONG,LONG,LONG,LONG,LONG) (BOOL)
-	     (h,left,top,right,bottom,x1,y1,x2,y2)
+         (h,left,top,right,bottom,x1,y1,x2,y2)
 end
 
-fun Ellipse	(h,rect) =
+fun Ellipse (h,rect) =
 let
   val  {left,top,right,bottom} = breakRect rect
 in 
-  	call5 (getgdi "Ellipse")
+    call5 (getgdi "Ellipse")
          (HDC,LONG,LONG,LONG,LONG) (BOOL)
-	     (h,left,top,right,bottom)
+         (h,left,top,right,bottom)
 end
 
 fun Pie (h,rect,p1,p2) =
@@ -936,25 +936,25 @@ let
 in 
    call9 (getgdi "Pie")
          (HDC,LONG,LONG,LONG,LONG,LONG,LONG,LONG,LONG) (BOOL)
-	     (h,left,top,right,bottom,x1,y1,x2,y2)
+         (h,left,top,right,bottom,x1,y1,x2,y2)
 end
 
 fun DrawRectangle(h,rect) =
 let
   val {left,top,right,bottom} = breakRect rect
 in 
-	call5 (getgdi "Rectangle")
+    call5 (getgdi "Rectangle")
           (HDC,LONG,LONG,LONG,LONG) (BOOL)
-	      (h,left,top,right,bottom)
+          (h,left,top,right,bottom)
 end
 
 fun DrawRoundRect(h,rect,w,ht) =
 let
   val  {left,top,right,bottom} = breakRect rect
 in 
-	call7 (getgdi "RoundRect")
+    call7 (getgdi "RoundRect")
           (HDC,LONG,LONG,LONG,LONG,WIDTH,HEIGHT) (BOOL)
-	      (h,left,top,right,bottom,w,ht)
+          (h,left,top,right,bottom,w,ht)
 end
 
 fun Polygon (h,pts) = 
@@ -963,20 +963,20 @@ let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 
 in call3 (getgdi "Polygon")
           (HDC,POINTER,INT) (BOOL)
-	      (h,address ptarr,count)
+          (h,address ptarr,count)
 end
 
 (* FONTS AND TEXT *) 
@@ -995,28 +995,28 @@ fun ExtTextOut (h,p,option,rect1,text,gapl) =
 let val  {left,top,right,bottom} = breakRect rect1
     val rect = alloc 4 Clong 
     val u = (assign Clong (offset 0 Clong rect) (toClong left);
-			 assign Clong (offset 1 Clong rect) (toClong top);
-			 assign Clong (offset 2 Clong rect) (toClong right);
-			 assign Clong (offset 3 Clong rect) (toClong bottom) )
+             assign Clong (offset 1 Clong rect) (toClong top);
+             assign Clong (offset 2 Clong rect) (toClong right);
+             assign Clong (offset 3 Clong rect) (toClong bottom) )
 
-	val slen = String.size text
+    val slen = String.size text
 
-	val gapno = List.length gapl  
+    val gapno = List.length gapl  
     val gaps = alloc gapno Cint
 
     fun pl2a v n [] = () 
-	|   pl2a v n (x :: rest) = 
-	let val item = toCint x 
-	in ( assign Cint (offset n Cint v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (x :: rest) = 
+    let val item = toCint x 
+    in ( assign Cint (offset n Cint v) item ;
+        pl2a v (n+1) rest ) 
+    end
     val u = pl2a gaps 0 gapl
 
-	val {x,y} = breakPoint p 
+    val {x,y} = breakPoint p 
 
 in call8 (getgdi "ExtTextOutA")
          (HDC,LONG,LONG,EXTENDEDTEXTOUT,POINTER,STRING,INT,POINTER) (BOOL)
-		 (h,x,y,option,address rect,text,slen,address gaps)
+         (h,x,y,option,address rect,text,slen,address gaps)
 end
 
 fun GetCharABCWidths (h,c1,c2) = 
@@ -1025,7 +1025,7 @@ let val count = c2-c1
 
     val res = call4 (getgdi "GetCharABCWidthsA")
                     (HDC,INT,INT,POINTER) (BOOL)
-		            (h,c1,c2,address abcarr)
+                    (h,c1,c2,address abcarr)
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -1033,7 +1033,7 @@ let val count = c2-c1
         val (va,vb,vc) = break_struct3 [Cint,Cint,Cint] vp
     in (v2l v (i-1)) @ [ ABC { Aspacing = fromClong va,
                                Bspacing = fromClong vb,
-						       Cspacing = fromClong vc } ] 
+                               Cspacing = fromClong vc } ] 
     end
 
 in v2l abcarr count
@@ -1045,7 +1045,7 @@ let val count = c2-c1
 
     val res = call4 (getgdi "GetCharABCWidthsFloatA")
                     (HDC,INT,INT,POINTER) (BOOL)
-		            (h,c1,c2,address abcarr)
+                    (h,c1,c2,address abcarr)
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -1053,7 +1053,7 @@ let val count = c2-c1
         val (va,vb,vc) = break_struct3 [Cfloat,Cfloat,Cfloat] vp
     in (v2l v (i-1)) @ [ ABCfloat { Aspacing = fromCfloat va,
                                     Bspacing = fromCfloat vb,
-						            Cspacing = fromCfloat vc } ] 
+                                    Cspacing = fromCfloat vc } ] 
     end
 
 in v2l abcarr count
@@ -1065,7 +1065,7 @@ let val count = c2-c1
 
     val res = call4 (getgdi "GetCharWidth32A")
                     (HDC,INT,INT,POINTER) (BOOL)
-		            (h,c1,c2,address abcarr)
+                    (h,c1,c2,address abcarr)
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -1082,7 +1082,7 @@ let val count = c2-c1
 
     val res = call4 (getgdi "GetCharWidthFloatA")
                     (HDC,INT,INT,POINTER) (BOOL)
-		            (h,c1,c2,address abcarr)
+                    (h,c1,c2,address abcarr)
 
     fun v2l v 0 = []
     |   v2l v i = 
@@ -1094,13 +1094,13 @@ in v2l abcarr count
 end
 
 fun GetTextExtentPoint32 (h,s) = 
-let	val sz = alloc 1 (Cstruct [Clong,Clong])
-	val slen = String.size s
+let val sz = alloc 1 (Cstruct [Clong,Clong])
+    val slen = String.size s
     val res = call4 (getgdi "GetTextExtentPoint32A")
-	 		        (HDC,STRING,INT,POINTER) (BOOL)
-					(h,s,slen,address sz)
+                    (HDC,STRING,INT,POINTER) (BOOL)
+                    (h,s,slen,address sz)
 
-	val (x,y) = break_struct2 [Clong,Clong] sz
+    val (x,y) = break_struct2 [Clong,Clong] sz
 in
    mkSize {width=fromClong x, height=fromClong y}
 end
@@ -1117,7 +1117,7 @@ end
 (* LINES AND CURVES *)
 
 fun LineTo (h,p) =
-let	val {x,y} = breakPoint p
+let val {x,y} = breakPoint p
 in call3 (getgdi "LineTo") (HDC,INT,INT) (BOOL) (h,x,y)
 end
 
@@ -1126,20 +1126,20 @@ let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 in
    call3 (getgdi "PolyBezier")
-	     (HDC,POINTER,INT) (INT)
-	     (h,address ptarr,count)
+         (HDC,POINTER,INT) (INT)
+         (h,address ptarr,count)
 end  
 
 fun PolyBezierTo (h,pts) =
@@ -1147,104 +1147,104 @@ let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 in
    call3 (getgdi "PolyBezierTo")
-	     (HDC,POINTER,INT) (INT)
-	     (h,address ptarr,count)
+         (HDC,POINTER,INT) (INT)
+         (h,address ptarr,count)
 end  
 
 fun PolyDraw (h,ptlist) = 
-let	val count = List.length ptlist
+let val count = List.length ptlist
     val ptarr = alloc count (Cstruct [Clong,Clong])
-	val farr =  alloc count Cchar
+    val farr =  alloc count Cchar
 
     fun pl2a v n [] = () 
-	|   pl2a v n ((p,f) :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n ((p,f) :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 ptlist
 
     fun f2a v n [] = () 
-	|   f2a v n ((_,f) :: rest) = 
-	let
-	   val item = toCchar (SML90.chr (repE PointTypeE f)) 
-	in
-	  ( assign Cchar (offset n Cchar v) item ;
-	    f2a v (n+1) rest ) 
-	end
+    |   f2a v n ((_,f) :: rest) = 
+    let
+       val item = toCchar (SML90.chr (repE PointTypeE f)) 
+    in
+      ( assign Cchar (offset n Cchar v) item ;
+        f2a v (n+1) rest ) 
+    end
 
     val u = f2a ptarr 0 ptlist
 in
    call4 (getgdi "PolyDraw")
-	     (HDC,POINTER,POINTER,INT) (INT)
-	     (h,address ptarr,address farr,count)
+         (HDC,POINTER,POINTER,INT) (INT)
+         (h,address ptarr,address farr,count)
 end
 
-fun	Polyline (h,pts) = 
-let	val count = List.length pts
+fun Polyline (h,pts) = 
+let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 in
    call3 (getgdi "Polyline")
-	     (HDC,POINTER,INT) (BOOL)
-	     (h,address ptarr,count)
+         (HDC,POINTER,INT) (BOOL)
+         (h,address ptarr,count)
 end 
 
 
-fun	PolylineTo (h,pts) = 
-let	val count = List.length pts
+fun PolylineTo (h,pts) = 
+let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                            (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                                (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 in
    call3 (getgdi "PolylineTo")
-	     (HDC,POINTER,INT) (BOOL)
-	     (h,address ptarr,count)
+         (HDC,POINTER,INT) (BOOL)
+         (h,address ptarr,count)
 end
 
 (* PENS *)
 
 fun CreatePen (s,w,Rgb(r,g,b)) =
    call3 (getgdi "CreatePen")
-	     (PENSTYLE,INT,LONG) (HPEN)
-	     (s,w,PALETTERGB(r,g,b))
+         (PENSTYLE,INT,LONG) (HPEN)
+         (s,w,PALETTERGB(r,g,b))
  
 fun ExtCreatePen (ps,w,bs,Rgb(r,g,b),hs,intpairl) = 
 let val len = List.length intpairl
@@ -1256,20 +1256,20 @@ let val len = List.length intpairl
     val custom = alloc len Clong
 
     fun pl2a v n [] = () 
-	|   pl2a v n ((l1,l2) :: rest) = 
-	let
-	   val item = toClong (MAKELONG(l1,l2))
-	in
-	  ( assign Clong (offset n Clong v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n ((l1,l2) :: rest) = 
+    let
+       val item = toClong (MAKELONG(l1,l2))
+    in
+      ( assign Clong (offset n Clong v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a custom 0 intpairl
 
 in
    call5 (getgdi "ExtCreatePen")
-	     (PENSTYLE,LONG,POINTER,LONG,POINTER) (HPEN)
-	     (ps,w,address log,len,address custom)
+         (PENSTYLE,LONG,POINTER,LONG,POINTER) (HPEN)
+         (ps,w,address log,len,address custom)
 end
 
 (* PATHS *)
@@ -1277,34 +1277,34 @@ end
 fun GetPath (h,ptlist) = 
 let val count = List.length ptlist
     val ptarr = alloc count (Cstruct [Clong,Clong])
-	val farr =  alloc count Cchar
+    val farr =  alloc count Cchar
 
     fun pl2a v n [] = () 
-	|   pl2a v n ((p,f) :: rest) = 
-	let	val {x,y} = breakPoint p
-	   val item = make_struct [(Clong,toClong x),
-	                           (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n ((p,f) :: rest) = 
+    let val {x,y} = breakPoint p
+       val item = make_struct [(Clong,toClong x),
+                               (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 ptlist
 
     fun f2a v n [] = () 
-	|   f2a v n ((_,f) :: rest) = 
-	let
-	   val item = toCchar (SML90.chr (repE PointTypeE f)) 
-	in
-	  ( assign Cchar (offset n Cchar v) item ;
-	    f2a v (n+1) rest ) 
-	end
+    |   f2a v n ((_,f) :: rest) = 
+    let
+       val item = toCchar (SML90.chr (repE PointTypeE f)) 
+    in
+      ( assign Cchar (offset n Cchar v) item ;
+        f2a v (n+1) rest ) 
+    end
 
     val u = f2a ptarr 0 ptlist
 in
    call4 (getgdi "GetPath")
-	     (HDC,POINTER,POINTER,INT) (INT)
-	     (h,address ptarr,address farr,count)
+         (HDC,POINTER,POINTER,INT) (INT)
+         (h,address ptarr,address farr,count)
 end
 
 (* REGIONS *)
@@ -1314,8 +1314,8 @@ let
   val  {left,top,right,bottom} = breakRect rect
 in  
     call4 (getgdi "CreateEllipticRgn")
-	      (LONG,LONG,LONG,LONG) (HRGN)
-	      (left,top,right,bottom)
+          (LONG,LONG,LONG,LONG) (HRGN)
+          (left,top,right,bottom)
 end
 
 fun CreateRectRgn (rect) = 
@@ -1323,8 +1323,8 @@ let
   val  {left,top,right,bottom} = breakRect rect
 in
     call4 (getgdi "CreateRectRgn")
-	      (LONG,LONG,LONG,LONG) (HRGN)
-	      (left,top,right,bottom)
+          (LONG,LONG,LONG,LONG) (HRGN)
+          (left,top,right,bottom)
 end
 
 fun CreateRoundRectRgn (rect,w,h) =
@@ -1332,29 +1332,29 @@ let
   val  {left,top,right,bottom} = breakRect rect
 in 
     call6 (getgdi "CreateRoundRectRgn")
-	      (LONG,LONG,LONG,LONG,WIDTH,HEIGHT) (HRGN)
-	      (left,top,right,bottom,w,h)
+          (LONG,LONG,LONG,LONG,WIDTH,HEIGHT) (HRGN)
+          (left,top,right,bottom,w,h)
 end
 
 fun CreatePolygonRgn (pts,fmode) = 
-let	val count = List.length pts
+let val count = List.length pts
     val ptarr = alloc count (Cstruct [Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (p :: rest) = 
-	let	val {x,y} = breakPoint p
-	    val item = make_struct [(Clong,toClong x),
-	                           (Clong,toClong y)] 
-	in
-	  ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (p :: rest) = 
+    let val {x,y} = breakPoint p
+        val item = make_struct [(Clong,toClong x),
+                               (Clong,toClong y)] 
+    in
+      ( assign (Cstruct [Clong,Clong]) (offset n (Cstruct [Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a ptarr 0 pts
 in
    call3 (getgdi "CreatePolygonRgn")
-	     (POINTER,INT,POLYFILLMODE) (HPEN)
-	     (address ptarr,count,fmode)
+         (POINTER,INT,POLYFILLMODE) (HPEN)
+         (address ptarr,count,fmode)
 end
 
 fun ExtCreateRegion (x,rects,rectmain) =                        
@@ -1367,56 +1367,56 @@ let val {r11,r12,r21,r22,tx,ty} = breakXForm x
                     (Cfloat,toCfloat tx),
                     (Cfloat,toCfloat ty) ]
 
-	val count = List.length rects
+    val count = List.length rects
 
     val rectarr = alloc count (Cstruct [Clong,Clong,Clong,Clong])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (rect :: rest) = 
-	let val {left,top,right,bottom} = breakRect rect
-	    val item = make_struct [(Clong,toClong left),
-	                            (Clong,toClong top),
-	                            (Clong,toClong right),
-	                            (Clong,toClong bottom)] 
-	in
-	  ( assign (Cstruct [Clong,Clong,Clong,Clong]) 
-	           (offset n (Cstruct [Clong,Clong,Clong,Clong]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+    |   pl2a v n (rect :: rest) = 
+    let val {left,top,right,bottom} = breakRect rect
+        val item = make_struct [(Clong,toClong left),
+                                (Clong,toClong top),
+                                (Clong,toClong right),
+                                (Clong,toClong bottom)] 
+    in
+      ( assign (Cstruct [Clong,Clong,Clong,Clong]) 
+               (offset n (Cstruct [Clong,Clong,Clong,Clong]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a rectarr 0 rects
     val {left,top,right,bottom} = breakRect rectmain 
 
-	val rgndata = make_struct
-	                [ (Clong,toClong 32),
-					  (Clong,toClong 1),
-					  (Clong,toClong count),
-					  (Clong,toClong 0  ),
-					  (Clong,toClong left),
-					  (Clong,toClong top),
-					  (Clong,toClong right),
-					  (Clong,toClong bottom),
-					  (Cvoid,rectarr) ]
+    val rgndata = make_struct
+                    [ (Clong,toClong 32),
+                      (Clong,toClong 1),
+                      (Clong,toClong count),
+                      (Clong,toClong 0  ),
+                      (Clong,toClong left),
+                      (Clong,toClong top),
+                      (Clong,toClong right),
+                      (Clong,toClong bottom),
+                      (Cvoid,rectarr) ]
 
-	val struct_size = 64 + 16 * count
+    val struct_size = 64 + 16 * count
 in
   call3 (getgdi "ExtCreateRegion")
-	     (POINTER,INT,POINTER) (HRGN)
-	     (address xform,struct_size,address rgndata)
+         (POINTER,INT,POINTER) (HRGN)
+         (address xform,struct_size,address rgndata)
 end
 
-fun	GetRegionData h =
+fun GetRegionData h =
 let
   val bufsize = call3 (getgdi "GetRegionData")
-	                (HRGN,LONG,POINTER) (LONG)
-	                (h,0,toCint 0)
+                    (HRGN,LONG,POINTER) (LONG)
+                    (h,0,toCint 0)
 
   val rgndata = alloc 1 (Cstruct [Clong,Clong,Clong,Clong,
                                   Clong,Clong,Clong,Clong,Cvoid])
 
   val res =  call3 (getgdi "GetRegionData")
-	                (HRGN,LONG,POINTER) (LONG)
-	                (h,bufsize,address rgndata)
+                    (HRGN,LONG,POINTER) (LONG)
+                    (h,bufsize,address rgndata)
 in
   "not implemented"
 end 
@@ -1432,27 +1432,27 @@ end
 
 fun GetKeyboardState () = 
 let val barr = alloc 256 Cchar
- 	val res =  call1 (getuser "GetKeyboardState")
-	                 (POINTER) (BOOL)
-	                 (address barr)
+    val res =  call1 (getuser "GetKeyboardState")
+                     (POINTER) (BOOL)
+                     (address barr)
 
     fun v2l v 0 = []
     |   v2l v i = 
     let val vp = offset (i-1) Cchar v
     in (v2l v (i-1)) @ [SML90.ord (fromCchar vp) ] 
-    end	                  
+    end                   
 
 in 
    (res,VK (v2l barr 256)) 
 end  
-			
+            
 fun VkKeyScan ch =
 let val res = call1 (getuser "VkKeyScanA")
-	                (SHORT) (SHORT)
-	                (SML90.ord ch)
+                    (SHORT) (SHORT)
+                    (SML90.ord ch)
 
-	val keycode = LOBYTE res
-	val vkcode = HIBYTE res
+    val keycode = LOBYTE res
+    val vkcode = HIBYTE res
 
     val r = ref [] : (ShiftState list) ref
     val u = ( if natAnd (1,vkcode) = 1 then r := (Shift :: (!r)) else ();
@@ -1475,8 +1475,8 @@ end
 fun GetMenuString (h,i,f) = 
 let val s = alloc 100 Cchar
     val res = call5 (getuser "GetMenuString")
-	          (HMENU,INT,POINTER,INT,MENUFLAG) (INT)
-			  (h,i,address s,100,f)
+              (HMENU,INT,POINTER,INT,MENUFLAG) (INT)
+              (h,i,address s,100,f)
 in
   fromCstring s
 end
@@ -1487,25 +1487,25 @@ let val count = List.length mlist
     val menu = alloc count (Cstruct [Cshort,Cshort,Cpointer Cchar])
 
     fun pl2a v n [] = () 
-	|   pl2a v n (MID {option=flag,
+    |   pl2a v n (MID {option=flag,
                        id= MenuID id,
-					   display=s} :: rest) = 
-	let
-	   val item = make_struct [(Cshort,toCshort (repE MenuFlagE flag)),
-	                           (Cshort,toCshort id ),
-	                           (Cpointer Cchar,toCstring s) ] 
-	in
-	  ( assign  (Cstruct [Cshort,Cshort,Cpointer Cchar]) 
-	  (offset n (Cstruct [Cshort,Cshort,Cpointer Cchar]) v) item ;
-	    pl2a v (n+1) rest ) 
-	end
+                       display=s} :: rest) = 
+    let
+       val item = make_struct [(Cshort,toCshort (repE MenuFlagE flag)),
+                               (Cshort,toCshort id ),
+                               (Cpointer Cchar,toCstring s) ] 
+    in
+      ( assign  (Cstruct [Cshort,Cshort,Cpointer Cchar]) 
+      (offset n (Cstruct [Cshort,Cshort,Cpointer Cchar]) v) item ;
+        pl2a v (n+1) rest ) 
+    end
 
     val u = pl2a menu 0 mlist
 
 in
   call1 (getuser "LoadMenuIndirectA")
         (POINTER) (HMENU)
-		(address menu)
+        (address menu)
 end 
  
 
@@ -1515,9 +1515,9 @@ end
 
 fun BeginPaint h =
 let val space = alloc 14 Clong
-	val res = call2 (getuser "BeginPaint")
+    val res = call2 (getuser "BeginPaint")
                     (HWND,POINTER) (HDC)
-		            (h,address space)
+                    (h,address space)
 in
    (MLPAINT space,res)
 end 
@@ -1530,7 +1530,7 @@ fun EndPaint(h,MLPAINT space) =
 fun GetBkColor h = 
 let val r = call1 (getgdi "GetBkColor")
                   (HDC) (LONG)
-				  h
+                  h
 in Rgb(GetRValue r,GetGValue r,GetBValue r)
 end
 
@@ -1548,7 +1548,7 @@ let
 in
    call5 (getgdi "SetRectRgn")
          (HRGN,LONG,LONG,LONG,LONG) (BOOL)
-		 (h,left,top,right,bottom)
+         (h,left,top,right,bottom)
 end
 
 (* SCROLL BARS *)
@@ -1784,22 +1784,22 @@ in
 end
   
 fun p LeftROf  rect =
-let	val {x,y} = breakPoint p
+let val {x,y} = breakPoint p
 in (x <  LeftR   rect)
 end
 
 fun p RightROf  rect =
-let	val {x,y} = breakPoint p
+let val {x,y} = breakPoint p
 in (x >= RightR   rect)
 end
 
 fun p AboveOf  rect =
-let	val {x,y} = breakPoint p
+let val {x,y} = breakPoint p
 in (y <  TopR   rect)
 end
 
 fun p BelowOf  rect =
-let	val {x,y} = breakPoint p
+let val {x,y} = breakPoint p
 in (y >= BottomR   rect)
 end
 
@@ -1866,7 +1866,7 @@ let val p = alloc 1 (Cstruct [Cint,Cint,Cint,
                   (h,address p)
 
     val (le,f,sh,minx,miny,maxx,maxy,l,t,r,b) = 
-	      break_struct11 [Cint,Cint,Cint,
+          break_struct11 [Cint,Cint,Cint,
                         Clong,Clong,Clong,Clong,
                         Clong,Clong,Clong,Clong] p
 
@@ -1884,7 +1884,7 @@ end
 fun SetWindowPlacement (h,f,sh,p1,p2,rect) = 
 let val {left,top,right,bottom} = breakRect rect
     val {x=x1,y=y1} = breakPoint p1
-	val {x=x2,y=y2} = breakPoint p2
+    val {x=x2,y=y2} = breakPoint p2
 
     val p = make_struct ([(Cint,toCint 48 ),
                           (Cint,toCint (repE WindowPlacementFlagE f) ),

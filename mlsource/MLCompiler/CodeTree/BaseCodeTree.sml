@@ -1,22 +1,22 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
     Modified David C. J. Matthews 2008
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 (* Basic code-tree data structure.  This was previously partly in GCODE.ML
@@ -151,7 +151,7 @@ struct
         isInline      : inlineStatus,
         name          : string,
         closure       : codetree list,
-        numArgs  	 : int,
+        numArgs      : int,
         level         : int,
         closureRefs   : int,
         makeClosure   : bool
@@ -165,28 +165,28 @@ struct
     if isShort w
     then Word.toString (toShort w)
     else if isIoAddress(toAddress w)
-	then (* RTS call - print the number. *)
-		let
-			fun matchIo n =
-				if n = 256 then raise Misc.InternalError "Unknown RTS entry"
-				else if wordEq (w, ioOp n)
-				then " RTS" ^ Int.toString n
-				else matchIo (n+1)
-		in
-			matchIo 0
-		end
-	else if isWords(toAddress w) andalso Word.toInt(Address.length(toAddress w)) >= 1
-	then (* If it's the closure of a function try to print that. *)
-		let
-			val firstWord = loadWord(toAddress w, toShort 0)
-			val doCall: int*machineWord -> string
-				= RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-		in
-			if not (isShort firstWord) andalso isCode(toAddress firstWord)
-			then " (" ^ doCall(105, firstWord) ^ ")" (* Get the function name. *)
-			else "<long>"
-		end
-	else "<long>";
+    then (* RTS call - print the number. *)
+        let
+            fun matchIo n =
+                if n = 256 then raise Misc.InternalError "Unknown RTS entry"
+                else if wordEq (w, ioOp n)
+                then " RTS" ^ Int.toString n
+                else matchIo (n+1)
+        in
+            matchIo 0
+        end
+    else if isWords(toAddress w) andalso Word.toInt(Address.length(toAddress w)) >= 1
+    then (* If it's the closure of a function try to print that. *)
+        let
+            val firstWord = loadWord(toAddress w, toShort 0)
+            val doCall: int*machineWord -> string
+                = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+        in
+            if not (isShort firstWord) andalso isCode(toAddress firstWord)
+            then " (" ^ doCall(105, firstWord) ^ ")" (* Get the function name. *)
+            else "<long>"
+        end
+    else "<long>";
   
     fun pretty (pt : codetree) : pretty =
     let
@@ -482,7 +482,7 @@ struct
             | Constnt w                       => if isShort w then 0 else 1
             | Extract _                       => 1  (* optimistic *)
             | Indirect {base,...}             => size base + 1
-            | Lambda {body,numArgs,...}		  => size body + numArgs
+            | Lambda {body,numArgs,...}       => size body + numArgs
             | Eval {function,argList,...}     => size function + sizeList argList + 2
             | MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
             | Cond (i,t,e)                    => size i + size t + size e + 2
@@ -494,7 +494,7 @@ struct
             | Recconstr cl                    => sizeList cl + 2 (* optimistic *)
             | Container _                     => 1 (* optimistic *)
             | SetContainer{container, tuple = Recconstr cl, ...} =>
-            				(* We can optimise this. *) sizeList cl + size container
+                            (* We can optimise this. *) sizeList cl + size container
             | SetContainer{container, tuple, size=len} => size container + size tuple + len
             | TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
             | Global glob                     => sizeOptVal glob

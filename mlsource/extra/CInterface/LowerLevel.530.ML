@@ -1,20 +1,20 @@
 (*
-	Copyright (c) 2000
-		Cambridge University Technical Services Limited
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
-	This library is free software; you can redistribute it and/or
-	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
-	
-	This library is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-	Lesser General Public License for more details.
-	
-	You should have received a copy of the GNU Lesser General Public
-	License along with this library; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
 structure LowerLevel =
@@ -47,11 +47,11 @@ struct
         fun makePromise thunk = Promise (ref (This thunk));
     
         fun forcePromise (Promise thingref) =
-    	case (!thingref) of
-    	    This thunk => let val res = thunk()
-    			  in (thingref := That res; res)
-    			  end
-    	  | That res => res;
+        case (!thingref) of
+            This thunk => let val res = thunk()
+                  in (thingref := That res; res)
+                  end
+          | That res => res;
     
     (**********************************************************************
     An 'a inert represents a re-creatable value of type 'a.  Recreation is
@@ -74,17 +74,17 @@ struct
     **********************************************************************)
     
         datatype 'a inert =
-    	Inert of 'a ref * (unit -> 'a) * (exn -> bool)
+        Inert of 'a ref * (unit -> 'a) * (exn -> bool)
     
         fun makeInert catch build =
-    	Inert(ref(build()),
-    	      build,
-    	      catch);
+        Inert(ref(build()),
+              build,
+              catch);
     
         fun withInert (Inert(value,build,catch)) f =
-    	f (!value)
-    	handle e => if catch e then (value := build(); f (!value))
-    			       else raise e;
+        f (!value)
+        handle e => if catch e then (value := build(); f (!value))
+                       else raise e;
     
     (**********************************************************************
      * Debugging...
@@ -110,10 +110,10 @@ struct
     datatype dylib = Dylib of string ref * vol inert promise;
     datatype sym = Sym of vol inert promise;
         
-    fun withDylib (Dylib(_,ip)) f	= withIP ip f;
-    fun withSym (Sym ip) f	    	= withIP ip f;
+    fun withDylib (Dylib(_,ip)) f   = withIP ip f;
+    fun withSym (Sym ip) f          = withIP ip f;
     
-    fun get_libPath (Dylib(pathRef,_))  	= !pathRef;
+    fun get_libPath (Dylib(pathRef,_))      = !pathRef;
     fun set_libPath (Dylib(pathRef,_)) path =  pathRef := path;
     
         
@@ -135,9 +135,9 @@ struct
          ******)
         let val pathRef = ref path
         in Dylib(pathRef,
-    	     makeIP catchIV (fn () =>
-    	     (inform ("Loading library: "^(!pathRef)^"\n");
-    	      Volatile.load_lib (!pathRef))))
+             makeIP catchIV (fn () =>
+             (inform ("Loading library: "^(!pathRef)^"\n");
+              Volatile.load_lib (!pathRef))))
         end;
     
        
@@ -149,9 +149,9 @@ struct
          * The symbol will be reloaded in subsequent PolyML sessions.
          ******)
         Sym(makeIP catchIV (fn () =>
-        	withDylib dylib (fn dylibVol =>
-    	(inform ("Loading symbol: "^symName^"\n");
-    	 Volatile.load_sym dylibVol symName))));
+            withDylib dylib (fn dylibVol =>
+        (inform ("Loading symbol: "^symName^"\n");
+         Volatile.load_sym dylibVol symName))));
     
     
     fun call_sym_and_convert sym args retType =
@@ -176,7 +176,7 @@ struct
          * of the vol which will raise an exception if the vol is invalid.
          ******)
         withSym sym (fn symVol => (Volatile.address symVol;
-    			       symVol));
+                       symVol));
         
     
     fun mapSym f sym =
@@ -202,8 +202,8 @@ struct
     ... *)
     
     fun never string = raise Never string;
-	
-	(* Define call_sym in terms of call_sym_and_convert *)
+    
+    (* Define call_sym in terms of call_sym_and_convert *)
 
     fun call_sym sym args retCtype =
     let
