@@ -22,7 +22,7 @@
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
 use "mlsource/MLCompiler/Boot/Address.ML";
-use "mlsource/MLCompiler/Boot/Misc.530.ML";
+use "mlsource/MLCompiler/Boot/Misc.ML";
 use "mlsource/MLCompiler/Boot/HashTable.ML";
 use "mlsource/MLCompiler/Boot/UniversalTable.ML";
 use "mlsource/MLCompiler/Boot/StretchArray.ML";
