@@ -69,15 +69,18 @@ structure PRETTY : PRETTYSIG
 (*                  PRINTTABLE export signature                              *)
 (*****************************************************************************)
 sig
-  type machineWord
-  type typeId;
-  type typeConstrs
-  type codetree
-  type pretty
+    type typeConstrs
+    type codetree
   
-  val addOverload: string * typeConstrs * codetree -> unit
-  val getOverloads: string -> (typeConstrs * codetree) list
-  val getOverload: string * typeConstrs * (unit->codetree) -> codetree
+    val addOverload: string * typeConstrs * codetree -> unit
+    val getOverloads: string -> (typeConstrs * codetree) list
+    val getOverload: string * typeConstrs * (unit->codetree) -> codetree
+  
+    structure Sharing:
+    sig
+        type typeConstrs = typeConstrs
+        type codetree = codetree
+    end
 end =
 
 (*****************************************************************************)
@@ -129,6 +132,12 @@ struct
   in
       searchList (! overloadTable) 
   end;
+  
+    structure Sharing =
+    struct
+        type codetree = codetree
+        and  typeConstrs = typeConstrs
+    end
   
 end;
 
