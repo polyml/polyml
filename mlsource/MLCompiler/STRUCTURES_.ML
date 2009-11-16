@@ -875,7 +875,7 @@ struct
            we will not map it properly if it occurs again (we call "eventual"
            and get the second tv before calling the map function so we get a
            second copy and not the first copy). *)
-        val copiedCandidate : types = generalise candidate;
+        val (copiedCandidate : types, _) = generalise candidate;
     in
         unifyTypes (copiedCandidate, copiedTarget)
     end;
@@ -2183,7 +2183,6 @@ struct
         fun matchSubStructure (code, source, sourceIds, dest) =
         let
             val decs = multipleUses (code, mkAddr, !level);
-            val load = #load decs (!level); (* All local *)
           
             (* To save taking apart a structure and then rebuilding it, if the
                structure has not changed we just copy it. *)
@@ -2228,7 +2227,7 @@ struct
                                 then useOriginal := false
                                 else ()
                         in
-                            mkInd (vaFormal access, load)
+                            mkInd (vaFormal access, #load decs (!level))
                         end
                         else
                         (
@@ -2252,9 +2251,9 @@ struct
                     val dval = tagProject valueVar dVal;
                 in
                     case dval of
-                        Value{access=Formal addr, ...} =>
+                        Value{access=Formal addr, typeOf=destTypeOf, ...} =>
                         let
-                            val sourceVal =
+                            val sourceVal as Value{typeOf=sourceTypeOf, ...} =
                                 valOf(univLookup (source, valueVar, dName));
            
                             (* If we have an exception matching a value we have to
@@ -2271,7 +2270,21 @@ struct
                                     (Value{class=SimpleValue, ...}, Value{class=Constructor _, ...}) =>
                                         true
                                 |    _ => false
-           
+
+                            (* This may have a different level of polymorphism in which case we
+                               have to apply it to the arguments and if necessary add a function in there. *)
+                            val (_, destPolyVars) = generalise destTypeOf
+                            val destPolymorphism = List.length destPolyVars
+                            val (_, sourcePolyVars) = generalise sourceTypeOf
+                            val sourcePolymorphism = List.length sourcePolyVars
+
+                            (* If we have to generate a function then the level will be higher.*)
+                            val oldLevel = !level
+                            val () =
+                                if destPolymorphism = sourcePolymorphism orelse destPolymorphism = 0
+                                then ()
+                                else level := !level+1;
+                                
                             (* If the entry is from a signature select from the code. *)
                             val code =
                                 case sourceVal of
@@ -2284,7 +2297,7 @@ struct
                                         then (* Have to make a packet or a function returning a packet. *)
                                             if not (isSome(getFnArgType (valTypeOf dval)))
                                         then 
-                                            mkTuple [mkInd (svAddr, load), mkStr (valName dval), CodeZero]
+                                            mkTuple [mkInd (svAddr, #load decs (!level)), mkStr (valName dval), CodeZero]
                                         else
                                             mkProc 
                                             (mkTuple
@@ -2293,27 +2306,50 @@ struct
                                                 mkLoad (~1, 0)],
                                             1, 1, "")
                                         else if constrBecomesVal
-                                        then mkInd(1, mkInd (svAddr, load))
-                                        else mkInd (svAddr, load)
+                                        then mkInd(1, mkInd (svAddr, #load decs (!level)))
+                                        else mkInd (svAddr, #load decs (!level))
                                     )
 
                                 | _ =>
                                     (
                                         useOriginal := false;
                                         if excBecomesVal
-                                        then codeExFunction(sourceVal, !level, valTypeOf dval, lex, location nullLex)
+                                        then codeExFunction(sourceVal, !level, [], lex, location nullLex)
                                         else
                                         let
                                             val valu =
-                                                codeVal (sourceVal, !level, valTypeOf dval, lex, location nullLex)
+                                                codeVal (sourceVal, !level, [], lex, location nullLex)
                                         in
                                             if constrBecomesVal
                                             then mkInd(1, valu)
                                             else valu
                                         end
-                                    );
+                                    )
+
+                            val () = level := oldLevel;
+
+                            fun applyToInstance([], code) = code
+                            |   applyToInstance(polyVars, code) = mkEval(code, List.map(fn _ => CodeZero) polyVars, true)
+
+                            val polyCode =
+                                if destPolymorphism = sourcePolymorphism
+                                then code (* Nothing to do. *)
+                                else if destPolymorphism = 0
+                                then (* Destination is monomorphic. *)
+                                (
+                                    useOriginal := false;
+                                    applyToInstance(sourcePolyVars, code)
+                                )
+                                else (* Destination is polymorphic. *)
+                                (
+                                    useOriginal := false;
+                                    (* N.B.  Normally we remove polymorphism by matching a polymorphic value
+                                       to a monomorphic signature item but we CAN add polymorphism through
+                                       type abbreviations e.g. type 'a t = int. *)
+                                    mkProc(applyToInstance(sourcePolyVars, code), !level+1, destPolymorphism, dName^"(P)")
+                                )
                         in
-                            addToList code addr
+                            addToList polyCode addr
                         end
                     |   _ => ()
                 end
@@ -2535,7 +2571,7 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, badType, nullLex, location nullLex))
+            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, [], nullLex, location nullLex))
             |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
             |   filterVals _              = NONE
             val loadVals = List.mapPartial filterVals vars

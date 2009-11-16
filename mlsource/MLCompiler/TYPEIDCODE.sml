@@ -150,33 +150,43 @@ struct
 
     and printCodeForType(ty, valToPrint, depth, depthCode, baseLevel, argTypes) =
     let
-        fun printCode(TypeVar tyVar, valToPrint, depth, depthCode, level) =
-            if not (isEmpty(tvValue tyVar))
-            then printCode(tvValue tyVar, valToPrint, depth, depthCode, level) (* Just a bound type variable. *)
-            else (* It should be an argument. *)
-            let
-                fun findPos(_, []) = ~1 (* Not there. *)
-                |   findPos(n, (hd::tl)) =
-                        if sameTv(hd, tyVar)
-                        then n
-                        else findPos(n+1, tl)
-                val position = findPos(0, argTypes)
-            in
-                if position < 0 (* Not there: must be in a polymorphic function. *)
-                then codePrettyString "?"
-                else (* Call the appropriate parameter function with a tuple containing
-                        the value and the corrected depth. *)
-                let
-                    (* If this is a unary type the "argument" is the function itself,
-                       otherwise it's a tuple. *)
-                    val argCode =
-                        case argTypes of
-                            [_] => mkLoad(~1, level-baseLevel+1)
-                    |   _ => mkInd(position, mkLoad(~1, level-baseLevel+1))
-                in
-                    mkEval(argCode, [mkTuple[valToPrint, adjustDepth(depthCode, depth)]], false)
-                end
-            end
+        fun printCode(typ as TypeVar tyVar, valToPrint, depth, depthCode, level) =
+            (
+                case tvValue tyVar of
+                    EmptyType =>(* It should be an argument. *)
+                    let
+                        fun findPos(_, []) = ~1 (* Not there. *)
+                        |   findPos(n, (hd::tl)) =
+                                if sameTv(hd, tyVar)
+                                then n
+                                else findPos(n+1, tl)
+                        val position = findPos(0, argTypes)
+                    in
+                        if position < 0 (* Not there: must be in a polymorphic function. *)
+                        then codePrettyString "?"
+                        else (* Call the appropriate parameter function with a tuple containing
+                                the value and the corrected depth. *)
+                        let
+                            (* If this is a unary type the "argument" is the function itself,
+                               otherwise it's a tuple. *)
+                            val argCode =
+                                case argTypes of
+                                    [_] => mkLoad(~1, level-baseLevel+1)
+                            |   _ => mkInd(position, mkLoad(~1, level-baseLevel+1))
+                        in
+                            mkEval(argCode, [mkTuple[valToPrint, adjustDepth(depthCode, depth)]], false)
+                        end
+                    end
+
+                |   OverloadSet _ =>
+                    let
+                        val constr = typeConstrFromOverload(typ, false)
+                    in
+                        printCode(mkTypeConstruction(tcName constr, constr, [], []), valToPrint, depth, depthCode, level)
+                    end
+
+                |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, valToPrint, depth, depthCode, level)
+            )
 
         |   printCode(TypeConstruction { value, args, ...}, valToPrint, depth, depthCode, level) =
             let
@@ -188,11 +198,6 @@ struct
                 else
                 let
                     val codedId = codeId(tcIdentifier typConstr, level)
-                        handle exn =>
-                        (
-                            print(concat["codedId: ", tcName typConstr, "\n"]);
-                            raise exn
-                        )
                     val printForConstructor =
                         mkEval(mkConst(ioOp POLY_SYS_load_word),
                             [mkInd(1, codedId), CodeZero], false)
@@ -273,7 +278,7 @@ struct
             end
 
         |   printCode(FunctionType _, _, _, _, _) = codePrettyString "fn"
-
+ 
         |   printCode _ = codePrettyString "<empty>"
     in
         printCode(ty, valToPrint, depth, depthCode, baseLevel)
@@ -531,7 +536,7 @@ struct
                the nullary constructors simply by testing whether
                the two arguments are the same.  We don't have to
                discriminate the individual cases. *)
-            fun isEnum(Value{class=Constructor{nullary=true, ...}, access=Global code, ...}) =
+            fun (*isEnum(Value{class=Constructor{nullary=true, ...}, access=Global code, ...}) =
             let
                 open ADDRESS
             in
@@ -539,7 +544,7 @@ struct
                    for equality using pointer equality. *)
                 isShort(loadWord(toAddress(evalue code), 0w1))
             end
-            | isEnum _ = false
+            | *)isEnum _ = false
 
             fun processConstrs [] =
                 (* The last of the alternatives is false *) CodeZero
@@ -548,10 +553,13 @@ struct
                 if isEnum vConstr then processConstrs rest
                 else
                 let
+                    fun addPolymorphism c =
+                        if nTypeVars = 0 then c
+                        else mkEval(c, List.map (fn _ => CodeZero) argTypes, true)
                     val newLevel = baseLevel+2 (* We have two enclosing functions. *)
                     val base = codeAccess(access, newLevel)
                     fun matches arg =
-                        mkEval(mkInd(0, base) (* Test function. *), [arg], true)
+                        mkEval(addPolymorphism(mkInd(0, base)) (* Test function. *), [arg], true)
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
@@ -567,7 +575,7 @@ struct
 
                             (* Code to extract the value. *)
                             fun destruct argNo l =
-                                mkEval(mkInd(2, codeAccess(access, l)) (* projection function. *),
+                                mkEval(addPolymorphism(mkInd(2, codeAccess(access, l))) (* projection function. *),
                                     [mkLoad(argNo, l-newLevel)], true)
 
                             (* Test whether the values match. *)
@@ -637,6 +645,10 @@ struct
                    the test code, the injection and the projection functions. *)
                 val constructorCode =
                     codeAccess(access, innerLevel)
+
+                fun addPolymorphism c =
+                    if null argTypes then c
+                    else mkEval(c, List.map (fn _ => CodeZero) argTypes, true)
                 
                 val printCode =
                     if nullary
@@ -647,7 +659,7 @@ struct
                             case typeOf of
                                 FunctionType{arg, ...} => arg
                             |   _ => raise InternalError "contructor not a function"
-                        val getValue = mkEval(mkInd(2, constructorCode), [argCode], true)
+                        val getValue = mkEval(addPolymorphism(mkInd(2, constructorCode)), [argCode], true)
                     in
                         codePrettyBlock(1, false, [],
                             codeList(
@@ -668,7 +680,7 @@ struct
                     then printCode
                     else
                     let
-                        val testValue = mkEval(mkInd(0, constructorCode), [argCode], true)
+                        val testValue = mkEval(addPolymorphism(mkInd(0, constructorCode)), [argCode], true)
                     in
                         mkIf(testValue, printCode, printerForConstructors(rest, depth+1))
                     end,

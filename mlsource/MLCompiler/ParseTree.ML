@@ -35,4 +35,5 @@ structure ParseTree =
     structure EXPORTTREE = ExportTreeStruct
     structure COPIER     = CopierStruct
     structure TYPEIDCODE = TypeIDCodeStruct
+    structure PRINTTABLE = PrintTable
   ) ;

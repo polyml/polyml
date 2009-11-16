@@ -72,6 +72,20 @@ sig
   val univFold: univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
+structure PRINTTABLE :
+sig
+    type typeConstrs
+    type codetree
+
+    val getOverloads: string -> (typeConstrs * codetree) list
+
+    structure Sharing:
+    sig
+        type codetree = codetree
+        and  typeConstrs = typeConstrs
+    end
+end;
+
 structure DEBUG :
 sig
     val debugTag: bool Universal.tag
@@ -108,7 +122,7 @@ end;
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = EXPORTTREE.Sharing = UTILITIES.Sharing
        = DEBUGGER.Sharing = PRETTY.Sharing = TYPEIDCODE.Sharing
-       = ADDRESS = CODETREE.Sharing
+       = ADDRESS = CODETREE.Sharing = PRINTTABLE.Sharing
 
 ) : PARSETREESIG =
    
@@ -130,6 +144,7 @@ struct
   open ADDRESS;
   open EXPORTTREE
   open TYPEIDCODE
+  open PRINTTABLE
   open RuntimeCalls; (* for POLY_SYS numbers *)
           
   infix 9 sub;
@@ -323,7 +338,7 @@ struct
                apply: (string * typeVarForm -> unit) -> unit },
        implicit: {lookup: string -> typeVarForm option,
                apply: (string * typeVarForm -> unit) -> unit },
-       variables: values list ref, (* list of variables declared *)
+       variables: values list ref, (* list of variables declared and their poly vars *)
        location: location
      } 
 
@@ -2093,14 +2108,20 @@ struct
                 lex);
 
         (* Makes a type for an instance of an identifier. *)
-        fun instanceType (v as Value{access=Overloaded _, ...}) =
+
+        (* Get the current overload set for the function and return a new
+           instance of the type containing the overload set. *)
+        fun overloadType(Value{typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
+            #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
+        |  overloadType(Value{typeOf, ...}, _) =  #1(generalise typeOf)
+
+        fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
           (* Look up the current overloading for this function. *)
                 overloadType(v, false)
 
-        | instanceType v =
+        |   instanceType(Value{typeOf, ...}) = #1 (generalise typeOf)
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
-              generalise (valTypeOf v);
 
         fun processPattern(pat, enterResult, level, notConst, isRec) =
         let
@@ -3088,18 +3109,20 @@ struct
 
                 |   mapProcess ((ValBind {dec, ...}) :: ptl, isRec) =
                     let
-                        fun enterVals pair =
+                        val vars = ref nil
+                        fun enterVals(pair as (_, var)) =
                         (
                             #enter newEnv pair;
-                            if isRec then #enter recEnv pair else ()
+                            if isRec then #enter recEnv pair else ();
+                            vars := var :: !vars
                         );
                                    
                         val patType = processPattern(dec, enterVals, newLevel, false, isRec);
                     in
-                        patType :: mapProcess(ptl, isRec)
+                        (patType, !vars) :: mapProcess(ptl, isRec)
                     end;
             in
-                val decs = mapProcess(valdecs, false)
+                val typesAndVars = mapProcess(valdecs, false)
             end
 
             (* Now the bodies. *)
@@ -3171,7 +3194,7 @@ struct
           
                     |   checkTypes _ = ()
             in
-                val () = checkTypes(decs, valdecs, false)
+                val () = checkTypes(#1 (ListPair.unzip typesAndVars), valdecs, false)
             end;
 
             (* Variables, constructors and fn are non-expansive.
@@ -3218,26 +3241,36 @@ struct
                expression is expansive. *)
             fun allowGen (_, []) = ()
             |   allowGen (decs, RecValBind :: tlist) = allowGen(decs, tlist)
-            |   allowGen (d::dl, (ValBind {exp, line,...}) :: ptl) =
-                (
-                    allowGeneralisation 
-                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
+            |   allowGen ((d: types, vars: values list)::dl, (ValBind {exp, line,...}) :: ptl) =
+                let
                     (* Check the type to make sure that a local datatype is
                        not escaping.  Checking here is really only needed in the
                        recursive case (where a recursive call inside the body
                        sets the type of the function) because the result will be
                        checked elsewhere. *)
-                    checkForLocalDatatypes(d, letDepth, giveError (v, lex, line));
+                    val () = checkForLocalDatatypes(d, letDepth, giveError (v, lex, line));
+                    fun declVar(var as Value { typeOf, name, ...}) =
+                    (
+                        (* Generalise the types.  This side-effects the typeOf field of the
+                           variables to be the generalised version which is necessary to this is
+                           recognised as polymorphic, if it is, in subsequent use but also in the
+                           next pass in a pattern and in any recursive use.  *)
+                        allowGeneralisation 
+                                (typeOf, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
+                        #enterVal env (name, var);
+                        variables := var :: !variables
+                    )
+                    val () = List.app declVar vars
+                in
                     allowGen(dl, ptl)
-                ) (* allowGen *)
+                end (* allowGen *)
         
             | allowGen _ =
                 raise InternalError "allowGen: badly-formed parse-tree";
         
         in
-            allowGen(decs, valdecs);
-            (* And declare the new names into the surrounding environment. *)
-            #apply newEnv (fn nv as (_, var) => (#enterVal env nv; variables := var :: !variables))
+            allowGen(typesAndVars, valdecs);
+            ()
         end (* assValDeclaration *)
 
         and assFunDeclaration (tlist: fvalbind list, explicit, implicit) =
@@ -3446,23 +3479,29 @@ struct
             in
                 val () = List.app processBinding tlist
             end;
-      
-        in
+
+        val () =
             (* Now declare the new names into the surrounding environment,
                releasing the copy flags on the type variables. All fun
                bindings are non-expansive. *)
-            #apply newEnv 
-                (fn (pair as (_, Value{typeOf, locations, ...})) =>
-                let
-                    val () =
-                        allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
+            List.app
+                (fn(FValBind{
+                    functVar as ref(var as Value{typeOf, locations, name, ...}), ...}) =>
+                (
+                    (* Generalise the types.  This side-effects the typeOf field of the
+                       variables to be the generalised version which is necessary to this is
+                       recognised as polymorphic, if it is, in subsequent use but also in the
+                       next pass in any recursive use.  *)
+                    allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
                     (* Check the type to make sure that a local datatype is
                        not escaping as a result of a recursive application of
                        the function to a local datatype. *)
-                    val () = checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations))
-                in
-                    #enterVal env pair
-                end)
+                    checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations));
+                    #enterVal env (name, var);
+                    functVar := var
+                )) tlist
+        in
+            ()
         end (* assFunDeclaration *)
 
         and assAbsData(isAbs, {typelist=typeList, withtypes, declist, equalityStatus, ...}) =
@@ -3557,9 +3596,10 @@ struct
             fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, ...}, typ) =
             let
                 val numOfConstrs = length constrs;
+                val typeVarsAsTypes = List.map TypeVar typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
-                val resultType = mkTypeConstruction (name, typ, List.map TypeVar typeVars, [DeclaredAt nameLoc]);
+                val resultType = mkTypeConstruction (name, typ, typeVarsAsTypes, [DeclaredAt nameLoc]);
 
                 (* Sort the constructors by name.  This simplifies matching with
                    datatypes in signatures. *)
@@ -3600,7 +3640,7 @@ struct
                     val constrTypes = List.map checkValConstr cs
 
                     (* Choose the representation for the constructors. *)
-                    val reprs = chooseConstrRepr constrTypes
+                    val reprs = chooseConstrRepr(constrTypes, typeVarsAsTypes)
                 in
                     ListPair.map processConstr (cs,reprs)
                 end; (* decCons*)
@@ -3733,18 +3773,10 @@ struct
         then mkLoad (~ from, 0)
         else mkTuple (mkArgList from)
       end;
-   
-      (* Load args by selecting from a tuple. *)
-      fun loadArgs size arg =
-      let  (* Makes arguments by taking apart the tuple. *)
-        fun mkargs num =
-          if num = size then []
-          else mkInd (num, arg) :: mkargs (num + 1);
-      in
-        if size = 1  (* "tuple" is a singleton (SPF) *)
-        then [arg]
-        else mkargs 0
-      end;
+
+        (* Load args by selecting from a tuple. *)
+        fun loadArgsFromTuple(1, arg) = [arg](* "tuple" is a singleton *)
+        |   loadArgsFromTuple(size, arg) = List.tabulate(size, fn num => mkInd (num, arg))
 
      (* tupleWidth returns the width of a tuple or record or 1 if it
         isn't one.  It is used to detect both argument tuples and results.
@@ -3816,18 +3848,10 @@ struct
          current address for top-level declarations. It has to be a parameter
          to `gencode' to handle structure declarations containing applications
          of functors. *)
-      fun gencode (pt : parsetree, lex: lexan, debugEnv: debugenv, level, 
-                   addresses, structName: string) : codetree list * debugenv =
+      fun gencode (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
+                   outerAddresses, structName: string) : codetree list * debugenv =
       let
-        fun mkAddr () = 
-          let
-            val addr = !addresses;
-          in
-            addresses := addr + 1;
-            addr
-          end;
 
-        val level = ref level;  (* Incremented by one for each nested proc. *)
         val lastLine = ref 0 (* The last line for which we produced debug info. *)
 
         (* Report unreferenced identifiers. *)
@@ -3857,7 +3881,7 @@ struct
             |   NONE => DEBUGGER.nullDebug
 
         (* Add a call to the debugger. *)
-        fun addDebugCall (decName: string, (ctEnv, rtEnv), location) : codetree =
+        fun addDebugCall (decName: string, (ctEnv, rtEnv), level, location) : codetree =
             let
                 open DEBUGGER
                 val currLine = #startLine location
@@ -3865,24 +3889,24 @@ struct
                     debugFunction(debuggerFun, DebugStep, decName, location) ctEnv
             in
                 lastLine := currLine;
-                mkEval(mkConst(toMachineWord debugger), [rtEnv(!level)], false)
+                mkEval(mkConst(toMachineWord debugger), [rtEnv level], false)
             end
 
         (* Add a debug call if line has changed.  This is used between
            declarations and expression sequences to avoid more than one
            call on a line. *)
-        fun changeLine (decName, env, loc) =
+        fun changeLine (decName, env, level, loc) =
             if not debugging orelse #startLine loc = !lastLine then []
-            else [addDebugCall(decName, env, loc)]
+            else [addDebugCall(decName, env, level, loc)]
 
-        fun createDebugEntry (v: values, (ctEnv, rtEnv), loadVal) =
+        fun createDebugEntry (v: values, (ctEnv, rtEnv), loadVal, mkAddr, level) =
             if not debugging
             then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
             else let
                     val newEnv =
                     (* Create a new entry in the environment. *)
-                          mkTuple [ loadVal (* Value. *), rtEnv(!level) ]
-                    val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                          mkTuple [ loadVal (* Value. *), rtEnv level ]
+                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry =
                         case v of
                             Value{class=Exception, name, typeOf, locations, ...} =>
@@ -3900,16 +3924,16 @@ struct
            environment. *)
         fun newDebugLevel (ctEnv, rtEnv) = (EnvStaticLevel :: ctEnv, rtEnv)
 
-        fun makeDebugEntries (vars: values list, debugEnv: debugenv) =
+        fun makeDebugEntries (vars: values list, debugEnv: debugenv, mkAddr, level) =
              if debugging
             then
                 let
                     fun loadVar (var, (decs, env)) =
                         let
                             val loadVal =
-                                codeVal (var, !level, valTypeOf var, lex, nullLocation)
+                                codeVal (var, level, [], lex, nullLocation)
                             val {dec, rtEnv, ctEnv} =
-                                createDebugEntry(var, env, loadVal)
+                                createDebugEntry(var, env, loadVal, mkAddr, level)
                         in
                             (decs @ dec, (ctEnv, rtEnv))
                         end
@@ -3923,7 +3947,8 @@ struct
            in a debug function (i.e. loop the call through the debugger) but that
            would prevent us from using certain call optimisations. *)
         fun wrapFunctionInDebug(body: codetree, name: string, argCode: codetree,
-                                argType: types, restype: types, location, (ctEnv, rtEnv)): codetree =
+                                argType: types, restype: types, location, (ctEnv, rtEnv),
+                                mkAddr: int->int, level): codetree =
             if not debugging then body (* Return it unchanged. *)
             else
             let
@@ -3939,28 +3964,52 @@ struct
                 val entryCode = toMachineWord enterFunction
                 and exitCode = toMachineWord leaveFunction
                 and exceptionCode = toMachineWord exceptionFunction
-                val ldexAddr = mkAddr ()
+                val ldexAddr = mkAddr 1
             in
                 mkEnv [
                     (* Call the enter code. *)
-                    mkEval(mkConst entryCode, [mkTuple[rtEnv(!level), argCode]], false),
+                    mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]], false),
                     (* Call the exit code with the function result. The
                        function is wrapped in a handler that catches all
                        exceptions and calls the exception code. *)
                     mkEval(mkConst exitCode,
-                        [mkTuple[rtEnv(!level), mkHandle (body, [CodeZero (* all exceptions *)],
+                        [mkTuple[rtEnv level, mkHandle (body, [CodeZero (* all exceptions *)],
                             mkEnv
                                 [
                                     (* Must save the exception packet first. *)
                                     mkDec(ldexAddr, Ldexc),
                                     mkEval(mkConst exceptionCode,
-                                        [mkTuple[rtEnv(!level), mkLoad(ldexAddr, 0)]], false)])
+                                        [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]], false)])
                                 ]
                         ], false)
                 ]
             end
-         
-        (* datatype 'a option = SOME of 'a | NONE *)
+
+        fun getPolymorphism (Value{ name, typeOf, access, ...}, expType, location) =
+        let
+            (* Work out the polymorphism and the mapping between the formal
+               type variables and the actual types.  Because flexible records
+               may introduce extra polymorphism we can only do this once we've
+               frozen them.  e.g. fun f x = #1 x + #2 x may be monomorphic or
+               polymorphic depending on what it's subsequently applied to. *)
+            val (t, polyVars) =
+                case access of
+                    Overloaded TypeDep =>
+                        generaliseOverload(typeOf, List.map #1 (getOverloads name), false)
+                | _ => generalise typeOf
+            val () = 
+                case unifyTypes(t, expType) of
+                    NONE => ()
+                |   SOME report => (
+                        reportError lex { location = location, hard = true,
+                            message = unifyTypesErrorReport(lex, emptyTypeEnv, emptyTypeEnv, "unify") report,
+                            context = NONE};
+                        print("Match error for " ^ name ^ "\n");
+                        raise InternalError "unifyTypes failed in pass 3"
+                    )
+        in
+            polyVars
+        end
 
         (* Convert a literal constant. We can only do this once any overloading
            has been resolved. *)
@@ -4105,7 +4154,8 @@ struct
             {
               constructor: values, (* The constructor itself. *)
               patts: patSet,       (* Patterns that use this constructor *)
-              appliedTo: aot       (* Patterns this constructor was applied to. *)
+              appliedTo: aot,      (* Patterns this constructor was applied to. *)
+              polyVars: types list (* If this was polymorphic, the matched types. *)
             } 
        
         and sconsrec =
@@ -4125,22 +4175,20 @@ struct
               vars     = vars
             };
                                                     
-        fun makeConsrec constructor patts appliedTo = 
+        fun makeConsrec(constructor, patts, appliedTo, polyVars): consrec = 
             {
               constructor = constructor,
               patts       = patts, 
-              appliedTo   = appliedTo
+              appliedTo   = appliedTo,
+              polyVars    = polyVars
             };
                                                               
-        fun makeSconsrec eqFun specVal patts : sconsrec =
+        fun makeSconsrec(eqFun, specVal, patts) : sconsrec =
             {
               eqFun    = eqFun,
               specVal  = specVal,
               patts    = patts
             };
-
-                   
-        fun aVars        (Aot         {vars,...})        = vars;
         
         (* An empty wild card - can be expanded as required. *)
         val aotEmpty = makeAot Wild empty 0 [];
@@ -4148,14 +4196,15 @@ struct
         (* A new wild card entry with the same defaults as a previous entry. *)
         fun wild (Aot {defaults, ...}) = makeAot Wild defaults 0 [];
             
-          (* Take a pattern and merge it into an andOrTree. *)
-          fun buildAot vars (tree as Aot {patts = treePatts, 
-                  defaults = treeDefaults, vars = treeVars, ...}) patNo line =
-          let (* Add a default (wild card or variable) to every node in the tree. *)
+        (* Take a pattern and merge it into an andOrTree. *)
+        fun buildAot (vars,
+                      tree as Aot {patts = treePatts, defaults = treeDefaults, vars = treeVars, ...},
+                      patNo, line, level: int) =
+        let (* Add a default (wild card or variable) to every node in the tree. *)
             fun addDefault (Aot {patts, defaults, width, vars}) patNo =
             let
-              fun addDefaultToConsrec {constructor, patts, appliedTo} =
-                makeConsrec constructor patts (addDefault appliedTo patNo)
+              fun addDefaultToConsrec {constructor, patts, appliedTo, polyVars} =
+                makeConsrec(constructor, patts, addDefault appliedTo patNo, polyVars)
             
               val newPatts =
                 case patts of
@@ -4179,7 +4228,7 @@ struct
     
             (* Add a constructor to the tree.  It can only be added to a
                cons node or a wild card. *)
-            fun addConstr(cons, noOfConstrs, doArg, tree as Aot {patts, defaults, width, vars}, patNo) =
+            fun addConstr(cons, noOfConstrs, doArg, tree as Aot {patts, defaults, width, vars}, patNo, polyVars) =
             let
               val consName = valName cons;
             in
@@ -4187,7 +4236,7 @@ struct
                 Wild =>
                 let (* Expand out the wildCard into a constructor node. *)          
                   val cr = 
-                    makeConsrec cons (singleton patNo) (* Expand the argument *) (doArg (wild tree));
+                    makeConsrec(cons, singleton patNo, (* Expand the argument *) doArg (wild tree), polyVars);
                 in
                   makeAot (Cons [cr]) defaults noOfConstrs vars
                 end
@@ -4196,15 +4245,12 @@ struct
               let
                 (* Merge this constructor with other occurences. *)
                 fun addClist [] = (* Not there - add this on the end. *)
-                      [makeConsrec cons (singleton patNo) (doArg (wild tree))]
+                      [makeConsrec(cons, singleton patNo, doArg (wild tree), polyVars)]
                       
                   | addClist (ccl::ccls) =
                     if valName (#constructor ccl) = consName
                     then (* Merge in. *)
-                      makeConsrec 
-                        cons 
-                        (singleton patNo plus #patts ccl) 
-                        (doArg (#appliedTo ccl))
+                      makeConsrec(cons, singleton patNo plus #patts ccl, doArg (#appliedTo ccl), polyVars)
                       :: ccls
                     else (* Carry on looking. *) ccl :: addClist ccls;
               in
@@ -4217,18 +4263,18 @@ struct
             end (* addConstr *);
   
                 (* Add a special constructor to the tree.  Very similar to preceding. *)
-            fun addSconstr eqFun cval (Aot {patts, defaults, vars, ...}) patNo =
+            fun addSconstr(eqFun, cval, Aot {patts, defaults, vars, ...}, patNo) =
               case patts of
                  Wild =>  (* Expand out the wildCard into a constructor node. *)
                    makeAot
-                    (Scons [makeSconsrec eqFun cval (singleton patNo)])
+                    (Scons [makeSconsrec(eqFun, cval, singleton patNo)])
                     defaults 0 vars
                     
               | Scons pl =>
                 let (* Must be scons *)
                     (* Merge this constructor with other occurrences. *)
                     fun addClist [] = (* Not there - add this on the end. *)
-                        [makeSconsrec eqFun cval (singleton patNo)]
+                        [makeSconsrec(eqFun, cval, singleton patNo)]
                     | addClist (ccl :: ccls) =
                         if (case (cval, #specVal ccl) of
                             (SOME a, SOME b) => structureEq(a, b)
@@ -4238,7 +4284,7 @@ struct
                            machineWord*machineWord->bool version.  The constants could be pointers
                            to strings or long integers. *)
                     then (* Merge in. *)
-                        makeSconsrec eqFun cval (singleton patNo plus #patts ccl) :: ccls
+                        makeSconsrec(eqFun, cval, singleton patNo plus #patts ccl) :: ccls
                     else (* Carry on looking. *) ccl :: addClist ccls;
                 in
                     makeAot (Scons (addClist pl)) defaults 0 vars
@@ -4250,17 +4296,15 @@ struct
   
             (* Add an exception constructor to the tree.  Similar to the above
                except that exception constructors must be kept in order. *)
-            fun addExconstr cons arg (Aot {patts, defaults, vars, ...}) patNo =
+            fun addExconstr(cons, arg, Aot {patts, defaults, vars, ...}, patNo) =
             let
             in
               case patts of
                 Wild => (* Expand out the wildCard into a constructor node. *)
                 let
                   val cr =
-                    makeConsrec 
-                      cons 
-                      (singleton patNo)
-                      (buildAot arg (wild tree) patNo line)
+                    makeConsrec (cons, singleton patNo,
+                        buildAot(arg, wild tree, patNo, line, level), [])
                 in
                   makeAot (Excons [cr]) defaults 0 vars
                 end
@@ -4280,11 +4324,11 @@ struct
                 val newList = 
                   if isTheSameException (#constructor h, cons)
                   then 
-                     makeConsrec cons ((singleton patNo) plus (#patts h))
-                       (buildAot arg (#appliedTo h) patNo line) :: t
+                     makeConsrec(cons, (singleton patNo) plus (#patts h),
+                        buildAot(arg, #appliedTo h, patNo, line, level), []) :: t
                   else
-                     makeConsrec cons (singleton patNo)
-                       (buildAot arg (wild tree) patNo line) :: cl;
+                     makeConsrec(cons, singleton patNo,
+                        buildAot(arg, wild tree, patNo, line, level), []) :: cl;
               in
                 makeAot (Excons newList) defaults 0 vars
               end
@@ -4295,26 +4339,28 @@ struct
             end (* addExconstr *);
           in (* body of buildAot *)
             case vars of 
-              Ident {value=ref ident, ... } =>
-                  (
+              Ident {value=ref ident, expType=ref expType, location, ... } =>
+                let
+                    val polyVars = getPolymorphism (ident, expType, location)
+                in
                     case ident of
                         Value{class=Constructor {ofConstrs, ...}, ...} =>
                           (* Only nullary constructors. Constructors with arguments
                              will be dealt with by ``isApplic'. *)
                             addConstr(ident, ofConstrs,
-                                fn a => buildAot (wildCard nullLocation) a patNo line, tree, patNo)
+                                fn a => buildAot(wildCard nullLocation, a, patNo, line, level), tree, patNo, polyVars)
                     |    Value{class=Exception, ...} =>
-                              addExconstr ident (wildCard nullLocation) tree patNo
+                              addExconstr(ident, wildCard nullLocation, tree, patNo)
                     |   _ => (* variable - matches everything. Defaults here and pushes a var. *)
                               addVar (addDefault tree patNo) ident
-                )
+                end
     
             | TupleTree(ptl, location) => (* Tree must be a wild card or a tuple. *)
              (case treePatts of
                  Wild =>
                  let
                    val tlist =
-                     map (fn el => buildAot el (wild tree) patNo location) ptl;
+                     map (fn el => buildAot(el, wild tree, patNo, location, level)) ptl;
                  in
                   makeAot (TupleField tlist) treeDefaults 0 treeVars 
                  end
@@ -4324,7 +4370,7 @@ struct
                 (* Merge each field of the tuple in with the corresponding
                    field of the existing tree. *)
                 fun mergel []       []     = [] (* Should both finish together *)
-                  | mergel (t::tl) (a::al) = buildAot t a patNo line :: mergel tl al
+                  | mergel (t::tl) (a::al) = buildAot(t, a, patNo, line, level) :: mergel tl al
                   | mergel _       _       = raise InternalError "mergel";
                 val tlist = mergel ptl pl;
               in
@@ -4374,20 +4420,22 @@ struct
                 val tupleList = List.foldl enterLabel wilds recList;
               in
                  (* And process it as a tuple. *)
-                 buildAot (TupleTree(tupleList, location)) tree patNo location
+                 buildAot (TupleTree(tupleList, location), tree, patNo, location, level)
               end
   
-            | Applic{f = Ident{value = ref applVal, ...}, arg, location, ...} =>
-                (
+            | Applic{f = Ident{value = ref applVal, expType = ref expType, ...}, arg, location, ...} =>
+                let
+                    val polyVars = getPolymorphism (applVal, expType, location)
+                in
                     case applVal of
                          Value{class=Constructor{ofConstrs, ...}, ...} =>
                             addConstr(applVal, ofConstrs,
-                                fn atree => buildAot arg atree patNo location, tree, patNo)
+                                fn atree => buildAot(arg, atree, patNo, location, level), tree, patNo, polyVars)
     
-                    |    Value{class=Exception, ...} => addExconstr applVal arg tree patNo
+                    |    Value{class=Exception, ...} => addExconstr(applVal, arg, tree, patNo)
 
                     |    _ => tree (* Only if error *)
-                )
+                end
     
             | Applic _ => tree (* Only if error *)
 
@@ -4398,20 +4446,25 @@ struct
             | WildCard _ =>
                 addDefault tree patNo (* matches everything *)
               
-            | List{elements, location, ...} =>
+            | List{elements, location, expType=ref expType, ...} =>
                 let (* Generate suitable combinations of cons and nil.
                     e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
-                    
+                    (* Get the base type. *)
+                    val elementType = mkTypeVar (generalisable, false, false)
+                    val listType = mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+                    val _ = unifyTypes(listType, expType)
+                    val polyVars = [elementType]
+
                     fun processList [] tree = 
                         (* At the end put in a nil constructor. *)
                         addConstr(nilConstructor, 2,
-                            fn a => buildAot (wildCard nullLocation) a patNo location, tree, patNo)
+                            fn a => buildAot (wildCard nullLocation, a, patNo, location, level), tree, patNo, polyVars)
                     | processList (h :: t) tree = (* Cons node. *)
                         let
                             fun mkConsPat (Aot {patts = TupleField [hPat, tPat], defaults, vars, ...}) =  
                                 let   (* The argument is a pair consisting of the
                                          list element and the rest of the list. *)
-                                    val tlist = [buildAot h hPat patNo location, processList t tPat];
+                                    val tlist = [buildAot(h, hPat, patNo, location, level), processList t tPat];
                                 in
                                     makeAot (TupleField tlist) defaults 0 vars
                                 end
@@ -4419,14 +4472,14 @@ struct
                                 let
                                     val hPat  = wild tree;
                                     val tPat  = wild tree;
-                                    val tlist = [buildAot h hPat patNo location, processList t tPat];
+                                    val tlist = [buildAot(h, hPat, patNo, location, level), processList t tPat];
                                 in
                                     makeAot (TupleField tlist) defaults 0 vars
                                 end
                             | mkConsPat _ = 
                                 raise InternalError "mkConsPat: badly-formed parse-tree"
                         in
-                            addConstr(consConstructor, 2, mkConsPat, tree, patNo)
+                            addConstr(consConstructor, 2, mkConsPat, tree, patNo, polyVars)
                         end
                     (* end processList *);
                 in
@@ -4441,15 +4494,15 @@ struct
                        preferred type. *)
                     val constr = typeConstrFromOverload(expType, true)
                     val equality =
-                        equalityForType(mkTypeConstruction(tcName constr, constr, [], []), !level)
+                        equalityForType(mkTypeConstruction(tcName constr, constr, [], []), level)
                     val litValue: machineWord option =
                         getLiteralValue(converter, literal, expType, location, vars)
                 in
-                    addSconstr equality litValue tree patNo
+                    addSconstr(equality, litValue, tree, patNo)
                 end
             
             | Constraint {value, location, ...} => (* process the pattern *)
-                buildAot value tree patNo location
+                buildAot(value, tree, patNo, location, level)
               
             | Layered {var, pattern, location} =>  (* process the pattern *)
               let  
@@ -4461,23 +4514,23 @@ struct
                   | Constraint {value, ...} => getVar value
                   | _                       => undefinedValue (* error *);
               in
-                addVar (buildAot pattern tree patNo location) (getVar var)
+                addVar (buildAot(pattern, tree, patNo, location, level)) (getVar var)
               end
 
-            | Parenthesised(p, location) => buildAot p tree patNo location
+            | Parenthesised(p, location) => buildAot(p, tree, patNo, location, level)
     
             | _ =>
                tree (* error cases *)
           end; (* buildAot *)
   
-          fun buildTree (patts: matchtree list) =
-          let   (* Merge together all the patterns into a single tree. *)
-            fun maket []     _ tree = tree
-              | maket ((MatchTree{vars, location, ...})::t) patNo tree =
-                     maket t (patNo + 1) (buildAot vars tree patNo location)
-          in
-            maket patts 1 aotEmpty 
-          end;
+            fun buildTree (patts: matchtree list, level) =
+            let   (* Merge together all the patterns into a single tree. *)
+                fun maket []     _ tree = tree
+                |   maket ((MatchTree{vars, location, ...})::t) patNo tree =
+                     maket t (patNo + 1) (buildAot(vars, tree, patNo, location, level))
+            in
+                maket patts 1 aotEmpty 
+            end;
     
               (* Find all the variables declared by each pattern. *)
           fun findVars vars varl =
@@ -4521,36 +4574,6 @@ struct
   
           val findAllVars =
               map (fn (MatchTree{vars, ...}) => findVars vars []);
-  
-          (* Put the arg into a local declaration and set the address of any
-             variables to it. We declare all the variables that can be
-             declared at this point, even though they may not be in different
-             patterns. *)
-          fun declareVars (tree : aot, arg : codetree, env: debugenv) 
-              : {load: codetree, decs: codetree list, env: debugenv} =
-          let
-            val addressOfVar = mkAddr ();
-            val dec = mkDec (addressOfVar, arg)
-            and load = mkLoad (addressOfVar, 0)
-            
-            fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, (oldDec, oldEnv) ) =
-            let (* Set the address of the variable to this and create
-                   debug environment entries if required. *)
-              val {dec=nextDec, ctEnv, rtEnv} = createDebugEntry(v, oldEnv, load)
-            in
-              lvAddr  := addressOfVar;
-              lvLevel := !level;
-              (oldDec @ nextDec, (ctEnv, rtEnv))
-            end
-
-            | setAddr _ = raise InternalError "setAddr"
-
-            val (envDec, newEnv) = List.foldl setAddr ([], env) (aVars tree)
-
-          in 
-            {decs = dec :: envDec, load = load, env = newEnv}
-          end;
-  
          (* The code and the pattern from which it came, 0 if the default,
              ~1 if more than one pattern. This is used to remove redundant
              tests that are sometimes put in where we have a wild card above
@@ -4600,18 +4623,61 @@ struct
              the fact that the constructor matches X does not imply that it
              cannot also match Y.  *)
           fun codePatt 
-               (tree as Aot {patts, defaults, width, ...})
-               (arg : codetree)
-               (active : patSet)
-               (othermatches : (patSet * (unit->patcode) * debugenv) -> patcode)
-               (default : unit -> patcode)
-               (isBind : bool)
-               (debugEnv: debugenv)
+               (Aot {patts, defaults, width, vars, ...},
+               arg : codetree,
+               active : patSet,
+               othermatches : (patSet * (unit->patcode) * debugenv) -> patcode,
+               default : unit -> patcode,
+               isBind : bool,
+               debugEnv: debugenv,
+               mkAddr: int -> int, level: int
+               )
                : patcode =
           let
-            val decl : {load: codetree, decs: codetree list, env: debugenv} =
-                declareVars (tree, arg, debugEnv);
-            val load : codetree = #load decl;
+            (* Put the arg into a local declaration and set the address of any
+               variables to it. We declare all the variables that can be
+               declared at this point, even though they may not be in different
+               patterns. *)
+            local
+                val addressOfVar = mkAddr 1;
+                val dec = mkDec (addressOfVar, arg)
+                and load = mkLoad (addressOfVar, 0)
+        
+                fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, typeOf, name, ...}, (oldDec, oldEnv) ) =
+                let
+                    val (_, polyVars) = generalise typeOf (* Is this polymorphic? *)
+                in
+                    case polyVars of
+                        [] => (* Monomorphic. *)
+                        let (* Set the address of the variable to this and create
+                               debug environment entries if required. *)
+                            val {dec=nextDec, ctEnv, rtEnv} = createDebugEntry(v, oldEnv, load, mkAddr, level)
+                        in
+                            lvAddr  := addressOfVar;
+                            lvLevel := level;
+                            (oldDec @ nextDec, (ctEnv, rtEnv))
+                        end
+                 |  _ => (* Polymorphic.  Have to add a wrapper function to it. *)
+                        let
+                            val fnAddr = mkAddr 1
+                            val fnDec =
+                                mkDec (fnAddr, mkInlproc(mkLoad(addressOfVar, 1), level+1, List.length polyVars, name^"(P)"))
+                            val {dec=nextDec, ctEnv, rtEnv} = createDebugEntry(v, oldEnv, mkLoad (fnAddr, 0), mkAddr, level)
+                        in
+                            lvAddr  := fnAddr;
+                            lvLevel := level;
+                            (oldDec @ (fnDec :: nextDec), (ctEnv, rtEnv))
+                        end
+                end
+
+                | setAddr _ = raise InternalError "setAddr"
+
+                val (envDec, newEnv) = List.foldl setAddr ([], debugEnv) vars
+             in
+                val declDecs = dec :: envDec and declLoad = load
+                and declEnv = newEnv
+            end
+
             (* In several cases below we used "arg".  "arg" is the code used to
                create the value to be taken apart and may well involve several
                indirections.  I've changed them to use "load" since that avoids
@@ -4627,162 +4693,164 @@ struct
                we have dealt with all the rest. *)
             fun genConstrs ([]:consrec list) _ = 
                  (* Come to the end without exhausting the datatype. *)
-                  othermatches(activeDefaults, default, #env decl)
+                  othermatches(activeDefaults, default, declEnv)
                   
-              | genConstrs (p :: ps) constrsLeft =
-              let
-                (* If this is not in the active set we skip it. *)
-                val newActive = (#patts p) intersect active;
-              in
-                (* If the set is empty we don't bother with this constructor. *)
-                if newActive eq empty
-                  then genConstrs ps constrsLeft (* N.B. NOT "(constrsLeft - 1)", since we haven't matched! *)
-                else if constrsLeft = 1
-                  then 
-                   (* We have put all the other constructors in this
-                      datatype out so there is no need to test for this case. *)
-                    codePatt (#appliedTo p) (makeInverse (#constructor p, load, !level))
-                       (newActive plus activeDefaults) othermatches default isBind (#env decl)
-                else let (* Code generate the choice. *)
-                  val testCode = makeGuard (#constructor p, load, !level);
-                  
-                  (* If it succeeds we have to take apart the argument of the
-                     constructor. *)
-                  val thenCode : patcode = 
-                    codePatt (#appliedTo p) (makeInverse (#constructor p, load, !level))
-                       (newActive plus activeDefaults)
-                       othermatches default isBind (#env decl);
-                       
-                  (* Otherwise we look at the next constructor in the list. *)
-                  val elseCode : patcode = genConstrs ps (constrsLeft - 1);
+              | genConstrs (({patts, constructor, appliedTo, polyVars, ...}):: ps) constrsLeft =
+                let
+                    (* If this is not in the active set we skip it. *)
+                    val newActive = patts intersect active;
                 in
-                  (* 
-                     If we are binding a pattern to an expression we have to
-                     ensure that the variable bindings remain after the test
-                     has returned.  To do this we change the test round so
-                     that the else-part, which just raises an exception, is
-                     done first, and the then-part is done after the test.
-                     e.g. val (a::b) = e  generates code similar to if not
-                     (e is ::) then raise Bind; val a = e.0; val b = e.1 
+                    (* If the set is empty we don't bother with this constructor. *)
+                    if newActive eq empty
+                    then genConstrs ps constrsLeft (* N.B. NOT "(constrsLeft - 1)", since we haven't matched! *)
+                    else if constrsLeft = 1
+                    then 
+                        (* We have put all the other constructors in this
+                           datatype out so there is no need to test for this case. *)
+                        codePatt(appliedTo, makeInverse (constructor, polyVars, declLoad, level),
+                            newActive plus activeDefaults, othermatches, default, isBind,
+                            declEnv, mkAddr, level)
+                    else
+                    let (* Code generate the choice. *)
+                        val testCode = makeGuard (constructor, polyVars, declLoad, level);
+                  
+                        (* If it succeeds we have to take apart the argument of the
+                           constructor. *)
+                        val thenCode : patcode = 
+                            codePatt(appliedTo, makeInverse (constructor, polyVars, declLoad, level),
+                                newActive plus activeDefaults,
+                                othermatches, default, isBind, declEnv, mkAddr, level);
+                       
+                        (* Otherwise we look at the next constructor in the list. *)
+                        val elseCode : patcode = genConstrs ps (constrsLeft - 1);
+                    in
+                      (* 
+                         If we are binding a pattern to an expression we have to
+                         ensure that the variable bindings remain after the test
+                         has returned.  To do this we change the test round so
+                         that the else-part, which just raises an exception, is
+                         done first, and the then-part is done after the test.
+                         e.g. val (a::b) = e  generates code similar to if not
+                         (e is ::) then raise Bind; val a = e.0; val b = e.1 
                      
-                     Note: the reason bindings are treated differently is
-                     that the then-part contains ONLY the matching code,
-                     whereas for function-argument and exception-handler
-                     matches, the then-part contains ALL the relevant code,
-                     including the uses of any matched variables. This means
-                     that we have to retain the bindings. The point about the
-                     structure of an "if", is that merging the two paths through
-                     the if-expression destroys any binding that were only made
-                     in one half.
+                         Note: the reason bindings are treated differently is
+                         that the then-part contains ONLY the matching code,
+                         whereas for function-argument and exception-handler
+                         matches, the then-part contains ALL the relevant code,
+                         including the uses of any matched variables. This means
+                         that we have to retain the bindings. The point about the
+                         structure of an "if", is that merging the two paths through
+                         the if-expression destroys any binding that were only made
+                         in one half.
                      
-                     SPF  25/11/96
-                  *) 
-                  if isBind
-                    then makePatcode (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil) :: 
+                         SPF  25/11/96
+                      *) 
+                        if isBind
+                        then makePatcode (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil) :: 
                                               #code thenCode) ~1
-                  else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
-                    then elseCode (* This didn't actually do any discrimination,
+                        else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
+                        then elseCode (* This didn't actually do any discrimination,
                                       probably because a default was above a constructor. *)
-                  else makePatcode [mkIf (testCode, mkblock (#code thenCode),
+                        else makePatcode [mkIf (testCode, mkblock (#code thenCode),
                                             mkblock (#code elseCode))] ~1
-                end
-              end (* genConstrs *);
+                    end
+                end (* genConstrs *);
               
               
-              fun genExnConstrs ([]:consrec list)= 
+            fun genExnConstrs ([]:consrec list)= 
                  (* Process the feualt matches, if any. *)
-                  othermatches(activeDefaults, default, #env decl)
+                othermatches(activeDefaults, default, declEnv)
                   
-              | genExnConstrs (p :: ps) =
-              let
-                (* If this is not in the active set we skip it. *)
-                val newActive = (#patts p) intersect active;
-              in
-                (* If the set is empty we don't bother with this constructor. *)
-                if newActive eq empty
-                  then genExnConstrs ps
-                else let (* Code generate the choice. *)
-           (* Called if this exception constructor matches, but
-              none of the active patterns match, either because
-              the values in the datatype do not match (e.g. value
-              is A 2, but pattern is A 1), or because of other
-              fields in the tuple (e.g. value is (A, 2) but
-              pattern is (A, 1)). If this were an ordinary
-              constructor we would go straight to the default,
-              because if it matches this constructor it could not
-              match any of the others, but with exceptions it can
-              match other exceptions, so we have to test them.
-              
-              We do this by generating MatchFail, which jumps
-              to the "handler" of the enclosing AltMatch construct.
-           *)
-                  (* This doesn't work properly for bindings since the values we bind have to
-                     be retained after this match.  However, this isn't really a problem.
-                     The reason for using AltMatch is to avoid the code blow-up that used
-                     to occur with complex matches.  That doesn't happen with bindings
-                     because the elseCode simply raises a Bind exception.  DCJM 27/3/01. *)
-
-                  (* If the match fails we look at the next constructor in the list. *)
-                  val elseCode : patcode = genExnConstrs ps;
-
-                  fun codeDefault () = 
-                        if isBind then elseCode else matchFailCode;
-                      
-                  val testCode = makeGuard (#constructor p, load, !level);
-                  
-                  (* If it succeeds we have to take apart the argument of the
-                     constructor. *)
-                  val thenCode : patcode = 
-                    codePatt (#appliedTo p) (makeInverse (#constructor p, load, !level))
-                       newActive
-                       othermatches codeDefault isBind (#env decl)
-                       
+            |   genExnConstrs ({patts, constructor, appliedTo, ...}:: ps) =
+                let
+                    (* If this is not in the active set we skip it. *)
+                    val newActive = patts intersect active;
                 in
-                  (* If we are binding a pattern to an expression we have to
-                     ensure that the variable bindings remain after the test
-                     has returned.  To do this we change the test round so
-                     that the else-part, which just raises an exception, is
-                     done first, and the then-part is done after the test.
-                     e.g. val (a::b) = e  generates code similar to if not
-                     (e is ::) then raise Bind; val a = e.0; val b = e.1 *) 
-                   (* There was a bug here because the code used an AltMatch which
-                      doesn't work properly if the elseCode makes bindings which
-                      have to be retained after the AltMatch.  Since a binding can
-                      only have a single pattern we don't need to use an AltMatch
-                      here.  DCJM 27/3/01. *)
-                  if isBind
-                  then   
-                     makePatcode
-                       (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil):: #code thenCode)
-                       ~1
+                    (* If the set is empty we don't bother with this constructor. *)
+                    if newActive eq empty
+                    then genExnConstrs ps
+                    else
+                    let (* Code generate the choice. *)
+                       (* Called if this exception constructor matches, but
+                          none of the active patterns match, either because
+                          the values in the datatype do not match (e.g. value
+                          is A 2, but pattern is A 1), or because of other
+                          fields in the tuple (e.g. value is (A, 2) but
+                          pattern is (A, 1)). If this were an ordinary
+                          constructor we would go straight to the default,
+                          because if it matches this constructor it could not
+                          match any of the others, but with exceptions it can
+                          match other exceptions, so we have to test them.
+              
+                          We do this by generating MatchFail, which jumps
+                          to the "handler" of the enclosing AltMatch construct.
+                       *)
+                      (* This doesn't work properly for bindings since the values we bind have to
+                         be retained after this match.  However, this isn't really a problem.
+                         The reason for using AltMatch is to avoid the code blow-up that used
+                         to occur with complex matches.  That doesn't happen with bindings
+                         because the elseCode simply raises a Bind exception.  DCJM 27/3/01. *)
+
+                        (* If the match fails we look at the next constructor in the list. *)
+                        val elseCode : patcode = genExnConstrs ps;
+
+                        fun codeDefault () = 
+                            if isBind then elseCode else matchFailCode;
+                      
+                        val testCode = makeGuard (constructor, [], declLoad, level);
+                  
+                        (* If it succeeds we have to take apart the argument of the
+                           constructor. *)
+                        val thenCode : patcode = 
+                            codePatt (appliedTo, makeInverse (constructor, [], declLoad, level),
+                                newActive, othermatches, codeDefault, isBind, declEnv,
+                                mkAddr, level)
+                       
+                    in
+                      (* If we are binding a pattern to an expression we have to
+                         ensure that the variable bindings remain after the test
+                         has returned.  To do this we change the test round so
+                         that the else-part, which just raises an exception, is
+                         done first, and the then-part is done after the test.
+                         e.g. val (a::b) = e  generates code similar to if not
+                         (e is ::) then raise Bind; val a = e.0; val b = e.1 *) 
+                       (* There was a bug here because the code used an AltMatch which
+                          doesn't work properly if the elseCode makes bindings which
+                          have to be retained after the AltMatch.  Since a binding can
+                          only have a single pattern we don't need to use an AltMatch
+                          here.  DCJM 27/3/01. *)
+                        if isBind
+                        then   
+                            makePatcode
+                                (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil):: #code thenCode)
+                                ~1
             
-                  (* Needed? *)
-                  else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
-                    then elseCode
+                        (* Needed? *)
+                        else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
+                        then elseCode
                     
-                  else
-                     makePatcode
-                      [
-                         mkAltMatch
-                         (
-                            mkIf (testCode, mkblock (#code thenCode), MatchFail),
-                            mkblock (#code elseCode)
-                         )
-                      ]
-                      ~1
-                end
-              end (* genExnConstrs *);
+                        else
+                            makePatcode
+                            [
+                                mkAltMatch
+                                (
+                                    mkIf (testCode, mkblock (#code thenCode), MatchFail),
+                                    mkblock (#code elseCode)
+                                )
+                            ] ~1
+                    end
+                end (* genExnConstrs *);
           
             (* Look at the kinds of pattern. - If there is nothing left
                (match is not exhaustive) or if all the active patterns will
                default, we can skip any checks. *)
             val pattCode = 
               if active eq empty orelse active eq activeDefaults
-              then othermatches(active, default, #env decl)
+              then othermatches(active, default, declEnv)
               else case patts of
                 TupleField [patt] =>
-                    codePatt patt load (* optimise unary tuples - no indirection! *)
-                      active othermatches default isBind (#env decl)
+                    codePatt(patt, declLoad, (* optimise unary tuples - no indirection! *)
+                      active, othermatches, default, isBind, declEnv, mkAddr, level)
               
               | TupleField asTuples =>
                 let
@@ -4844,13 +4912,13 @@ struct
                     else let
                       val bestcol = findDeepest 0 0 0;
                     in
-                      codePatt (List.nth(asTuples, bestcol)) (mkInd (bestcol, load)) active
-                           (despatch (colsToDo diff (singleton bestcol)))
-                           def isBind env
+                      codePatt(List.nth(asTuples, bestcol), mkInd (bestcol, declLoad), active,
+                           despatch (colsToDo diff (singleton bestcol)),
+                           def, isBind, env, mkAddr, level)
                     end
                   end (* despatch *);
                 in
-                  despatch (from 0 (noOfCols-1)) (active, default, #env decl)
+                  despatch (from 0 (noOfCols-1)) (active, default, declEnv)
                 end (* TupleField. *)
 
               | Cons cl =>
@@ -4867,7 +4935,7 @@ struct
                 
                   (* Generate if..then..else for each of the choices. *)
                   fun foldConstrs ([]: sconsrec list) =
-                         othermatches(activeDefaults, default, #env decl)
+                         othermatches(activeDefaults, default, declEnv)
                     | foldConstrs (v :: vs) =
                     let 
                      (* If this pattern is in the active set
@@ -4882,12 +4950,12 @@ struct
                         case #specVal v of NONE => CodeZero | SOME w => mkConst w
                     val testCode =
                         mkEval(#eqFun v,
-                               [mkTuple[constVal, load]], true)
+                               [mkTuple[constVal, declLoad]], true)
                            
                     (* If it is a binding we turn the test round - see
                         comment in genConstrs. *)
                     val rest = 
-                      othermatches(newActive plus activeDefaults, default, #env decl);
+                      othermatches(newActive plus activeDefaults, default, declEnv);
                     
                        (* If we have a handler of the form
                              handle e as Io "abc" => <E1> we will
@@ -4916,9 +4984,9 @@ struct
                   foldConstrs sl
                 end
               | _ =>  (* wild - no choices to make here. *)
-                    othermatches(activeDefaults, default, #env decl)
+                    othermatches(activeDefaults, default, declEnv)
           in 
-            makePatcode (#decs decl @ #code pattCode) (#pat pattCode)
+            makePatcode (declDecs @ #code pattCode) (#pat pattCode)
           end; (* codePatt *)
   
           (* Make an argument list from the variables bound in the pattern. *)
@@ -4930,9 +4998,10 @@ struct
   
           (* Generate variable-bindings (declarations) for each of the
               expressions as functions. *)
-          fun cgExps []  _    _ _ _ _ _ _ _ _ = []
-            | cgExps (MatchTree {exp, location, ...} ::al) (vl::vll)
-                    base patNo uses decName debugEnv cgExpression lex near =
+          fun cgExps([],  _,    _, _, _, _, _, _, _, _, _, _) = []
+            | cgExps (MatchTree {exp, location, ...} ::al, vl::vll,
+                    base, patNo, uses, decName, debugEnv, cgExpression, lex, near,
+                    mkAddr, level) =
               let
                 val noOfArgs = length vl;
                 val patNoIndex = patNo - 1;
@@ -4945,39 +5014,43 @@ struct
                           "Pattern " ^ Int.toString patNo ^ " is redundant.")
                    else ();
                 
-                val () = level := !level + 1; (* For the function. *)
+                val functionLevel = level + 1; (* For the function. *)
+                local
+                    val addresses = ref 1
+                in
+                    fun fnMkAddrs n = ! addresses before (addresses := !addresses + n)
+                end
 
                 (* Set the addresses to be suitable for arguments.  At the
                    same time create a debugging environment if required. *)
                 fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
                             (argno, oldDec, oldEnv)) =
-                  let
+                let
                     val load = mkLoad (~argno, 0)
-                    val {dec=nextDec, ctEnv, rtEnv} = createDebugEntry(v, oldEnv, load)
-                  in
+                    val {dec=nextDec, ctEnv, rtEnv} =
+                        createDebugEntry(v, oldEnv, load, fnMkAddrs, functionLevel)
+                in
                     lvAddr  := ~argno;
-                    lvLevel := !level;
+                    lvLevel := functionLevel;
                     (argno - 1, oldDec @ nextDec, (ctEnv, rtEnv))
-                  end
-                  | setAddr _ = raise InternalError "setAddr"
+                end
+               | setAddr _ = raise InternalError "setAddr"
                   
                 val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
                 
                 val functionBody =
-                    mkEnv(envDec @ [cgExpression (exp, newEnv, decName)]);
-
-                val () = level := !level - 1; (* Back to the surroundings. *)
+                    mkEnv(envDec @ [cgExpression (exp, newEnv, decName, fnMkAddrs, functionLevel)]);
                 
                 (* Make it an inline function if it only used once. *)
                 val theCode = 
                   (if pattUses = 1 then mkInlproc else mkProc)
-                  (functionBody, !level, noOfArgs, decName ^ "/" ^ Int.toString patNo);
+                  (functionBody, level, noOfArgs, decName ^ "/" ^ Int.toString patNo);
               in
                 mkDec (base + patNoIndex, theCode) ::
-                  cgExps al vll base (patNo + 1) uses decName debugEnv cgExpression lex near
+                  cgExps(al, vll, base, patNo + 1, uses, decName, debugEnv, cgExpression,
+                    lex, near, mkAddr, level)
               end
-            | cgExps _ _ _ _ _ _ _ _ _ _ = 
-                raise InternalError "cgExps";
+            | cgExps _ = raise InternalError "cgExps";
     
             fun codeMatch 
                (near : parsetree,
@@ -4986,12 +5059,13 @@ struct
                 lex : lexan,
                 decName : string,
                 debugEnv : debugenv,
-                cgExpression : parsetree * debugenv * string -> codetree,
-                isHandlerMatch : bool)
+                cgExpression : parsetree * debugenv * string * (int->int) * int -> codetree,
+                isHandlerMatch : bool,
+                mkAddr: int->int, level: int)
                : codetree =
             let
               val noOfPats  = length alt;
-              val andortree = buildTree alt;
+              val andortree = buildTree(alt, level);
               val allVars   = findAllVars alt;
               (* Check for unreferenced variables. *)
               val () = List.app (fn l => List.app reportUnreferencedValue l) allVars
@@ -5002,14 +5076,13 @@ struct
                   | _ => raise Match
               
              (* Save the argument in a variable. *)
-             val decCode   = multipleUses (arg, mkAddr, !level);
+             val decCode   = multipleUses (arg, fn () => mkAddr 1, level);
              
              (* Generate code to load it. *)
-             val loadExpCode = #load decCode (!level);
+             val loadExpCode = #load decCode level;
              
              (* Generate a range of addresses for the expressions. *)  
-             val baseAddr  = !addresses;  
-             val ()         = addresses := baseAddr + noOfPats;
+             val baseAddr  = mkAddr noOfPats;
               
              (* Make an array to count the number of references to a pattern.
                 This is used to decide whether to use a function for certain
@@ -5025,56 +5098,56 @@ struct
                then (fn () => makePatcode [makeRaise loadExpCode] 0)
                else (fn () => (exhaustive := false; raiseMatchCode lineNo));
          
-             (* Generate the code and also check for redundancy
-                and exhaustiveness. *)
-             val code : patcode = 
-                codePatt andortree loadExpCode (from 1 noOfPats)
-                  (fn (pattsLeft, default, env) => 
-                    (* This function is called when we done all the discrimination
-                       we can. We fire off the first pattern in the set. *)
-                    if pattsLeft eq empty
+                (* Generate the code and also check for redundancy
+                   and exhaustiveness. *)
+                (* This function is called when we done all the discrimination
+                   we can. We fire off the first pattern in the set. *)
+                fun firePatt(pattsLeft, default, env) =
+                if pattsLeft eq empty
                       then default ()
-                    else let
-                      val pattChosen = first pattsLeft;
-                      val pattChosenIndex = pattChosen - 1; 
-                    in
-                      (* Increment the count for this pattern. *)
-                      Array.update (uses, pattChosenIndex,(Array.sub(uses, pattChosenIndex)) + 1);
+                else
+                let
+                    val pattChosen = first pattsLeft;
+                    val pattChosenIndex = pattChosen - 1; 
+                in
+                    (* Increment the count for this pattern. *)
+                    Array.update (uses, pattChosenIndex,(Array.sub(uses, pattChosenIndex)) + 1);
                       
-                     (* If we have a single pattern it cannot be duplicated
+                    (* If we have a single pattern it cannot be duplicated
                         so we can put the code in immediately, other cases
                         are made into inline functions and inserted later. *)
-                     (* The idea is to avoid the code size blowing up if we
+                    (* The idea is to avoid the code size blowing up if we
                         have a large expression which occurs multiple times in
                         the resulting code
                         e.g. case x of [1,2,3,4] => exp1 | _ => exp2
                         Here exp2 will be called at several points in the
                         code.  DCJM 13/2/01. *)
-                      if noOfPats = 1
-                      then
-                      (
+                    if noOfPats = 1
+                    then
+                    (
                           case alt of
                             MatchTree {exp, ... } :: _ =>
-                               makePatcode [cgExpression (exp, env, decName)] pattChosen
+                               makePatcode [cgExpression (exp, env, decName, mkAddr, level)] pattChosen
                           | _ => raise InternalError "codeMatch - badly formed parsetree"
-                      )
-                      else let
+                    )
+                    else
+                    let
                         val thisVars    = List.nth(allVars, pattChosenIndex);
                         val noOfArgs    = length thisVars;
                         val argsForCall = makeArglist thisVars noOfArgs;
-                      in
+                    in
                         (* Call the appropriate expression function. *)
                         makePatcode 
                           [mkEval 
                             (mkLoad (baseAddr + pattChosenIndex, 0),
                              argsForCall, false)]
                           pattChosen
-                      end
                     end
-                    )
-                   codeDefault
-                   false
-                   debugEnv;
+                end
+
+             val code : patcode = 
+                codePatt(andortree, loadExpCode, from 1 noOfPats, firePatt,
+                         codeDefault, false, debugEnv, mkAddr, level);
               (* Report inexhaustiveness if necessary. *)
               val () = 
                 if not (!exhaustive)
@@ -5091,55 +5164,14 @@ struct
                 (* Now generate the expressions as functions, inline
                    if only used once. Also checks for redundancy. *)
                 val expressionFuns =
-                    cgExps alt allVars baseAddr 1 uses decName debugEnv cgExpression lex near;
+                    cgExps(alt, allVars, baseAddr, 1, uses, decName, debugEnv,
+                        cgExpression, lex, near, mkAddr, level);
               in
                 (* Return the code in a block. *)
                 mkblock (#dec decCode @ (expressionFuns @ #code code))
               end
             end (* codeMatch *);
-            
-  
-            (* Part of a val-binding. *)
-            fun codeBind near decl exp lex line debugEnv =
-            let
-              (* Build a single pattern tree. *)
-              val andortree = buildAot decl aotEmpty 1 line;
 
-              (* Check for unreferenced variables. *)
-              val () = List.app reportUnreferencedValue(findVars decl [])
-              
-              (* Save the argument in a variable. *)
-              val decCode   = multipleUses (exp, mkAddr, !level);
-              
-              (* Generate code to load it. *)
-              val loadExpCode = #load decCode (!level);
-              
-              val exhaustive  = ref true;
-              (* Set to false if we find it is not exhaustive. *)
-
-              (* Make some code to insert at defaults. *)
-              fun codeDefault () = (exhaustive := false; raiseBindCode line);
-              
-              (* Generate the code and also check for redundancy and exhaustiveness. *)
-              val code : patcode =
-                codePatt andortree loadExpCode (singleton 1)
-                   (fn (pattsLeft, default, _) =>
-                       if pattsLeft eq empty then (default ())
-                       else makePatcode [] ~1
-                    )
-                   codeDefault
-                   true
-                   debugEnv;
-              (* Report inexhaustiveness if necessary. *)
-              val () =
-                if not (!exhaustive) andalso (!level) > 0
-                then errorNear (lex, false, near, line, "Pattern is not exhaustive.")
-                else ();
-            in
-              #dec decCode @ #code code  (* Return the code *)
-            end (* codeBind *);
-  
-  
         (* Code-generates a sequence of declarations. "decName" is a string
            which is used to identify functions in profiles. "otherdecs" is
            a continuation for the rest of the block. It is needed to deal
@@ -5148,7 +5180,7 @@ struct
            declarations and the body if the test for "x" being a cons-cell
            is true. *)
            
-        fun codeSequence (dlist: parsetree list, debugEnv: debugenv, decName: string)
+        fun codeSequence (dlist: parsetree list, debugEnv: debugenv, decName: string, mkAddr, level)
              : codetree list * debugenv =
         let
           (* Makes a block from a series of alternatives in a match.
@@ -5158,61 +5190,66 @@ struct
               alt : matchtree list,
               arg : codetree,
               decName : string,
-              debugEnv : debugenv)
+              debugEnv : debugenv,
+              mkAddr, level)
               : codetree =
               let
                    (* Insert a call to the debugger in each arm of the match after
                     the variables have been bound but before the body. *)
-                   fun cgExp (c: parsetree, debugEnv: debugenv, decName: string) =
+                   fun cgExp (c: parsetree, debugEnv: debugenv, decName: string, mkAddr, level) =
                    let
-                        val code = codegen(c, debugEnv, decName)
+                        val code = codegen(c, debugEnv, decName, mkAddr, level)
                    in
                         if not debugging
                         then code
-                        else mkEnv[addDebugCall(decName, debugEnv, getLocation c), code]
+                        else mkEnv[addDebugCall(decName, debugEnv, level, getLocation c), code]
                    end
               in
-                codeMatch (near, alt, arg, lex, decName, debugEnv, cgExp, false)
+                codeMatch (near, alt, arg, lex, decName, debugEnv, cgExp, false, mkAddr, level)
               end
 
           (* Code-generates a piece of tree. *)
-        and codegen (c: parsetree, debugEnv: debugenv, decName: string) : codetree =
+        and codegen (c: parsetree, debugEnv: debugenv, decName: string, mkAddr, level) : codetree =
         let
             fun codeList _ [] = []
              |  codeList debugEnv (x::tl) =
                  (* Generate any line change code first, then this entry, then the rest. *)
                 let
-                    val lineChange = changeLine(decName, debugEnv, getLocation x)
-                    val code = codegen (x, debugEnv, decName)
+                    val lineChange = changeLine(decName, debugEnv, level, getLocation x)
+                    val code = codegen (x, debugEnv, decName, mkAddr, level)
                 in
                     lineChange @ code :: codeList debugEnv tl
                 end
         in
             case c of 
-              Ident {value, expType=ref expType, location, ...} =>
-                  let
-                    val v : values = !value;
+                Ident {value = ref (v as Value{class, ...}), expType=ref expType, location, ...} =>
+                let
                     (* The instance type is not necessarily the same as the type
                        of the value of the identifier. e.g. in the expression
                        1 :: nil, "::" has an instance type of
                        int * list int -> list int but the type of "::" is
                        'a * 'a list -> 'a list. *)
-                  in
-                      case v of
-                        Value{class=Exception, ...} =>
-                            codeExFunction (v, !level, expType, lex, location)
-                    |    Value{class=Constructor _, ...} =>
+                    val polyVars = getPolymorphism (v, expType, location)
+                in
+                    case class of
+                        Exception =>
+                            codeExFunction (v, level, polyVars, lex, location)
+                    |   Constructor _ =>
                         let
                             (* When using the constructor as a value we just want
-                               then second word. *)
-                            val constrTuple = codeVal (v, !level, expType, lex, location)
+                               then second word.  Must pass [] as the polyVars otherwise
+                               this will be applied BEFORE extracting the construction
+                               function not afterwards. *)
+                            val constrTuple = codeVal (v, level, [], lex, location)
+                            fun applyToInstance([], code) = code
+                            |   applyToInstance(polyVars, code) = mkEval(code, List.map(fn _ => CodeZero) polyVars, true)
                         in
-                            mkInd(1, constrTuple)
+                            applyToInstance(polyVars, mkInd(1, constrTuple))
                         end
-                    |    _ => codeVal (v, !level, expType, lex, location)
-                  end
+                    |    _ => codeVal (v, level, polyVars, lex, location)
+                end
           
-              | Literal{converter, literal, expType=ref expType, location} =>
+            |   Literal{converter, literal, expType=ref expType, location} =>
                 (
                     case getLiteralValue(converter, literal, expType, location, c) of
                         SOME w => mkConst w
@@ -5220,40 +5257,43 @@ struct
                 )
 
             | Applic {f, arg, location, ...} =>
-              let
-                (* The overloaded functions of more than one argument are
-                   applied to their arguments rather than to a tuple. *)
-                (* The only other optimisation we make is to remove applications
-                   of constructors such as ``::'' which are no-ops. *)
-                val argument : codetree = codegen (arg, debugEnv, decName);
-              in
-                (* If the function is an identifier then see if it is a global
-                   constructor. If it is not then we must code-generate the
-                   whole identifier, not the value it is bound to. *)
-                case f of
-                  Ident {value = ref function, expType=ref expType, ...} =>
-                      applyFunction (function, argument, !level, expType, lex, location)
-                | _ => 
-                  mkEval (codegen (f, debugEnv, decName), [argument], false) (* not early *)
+                let
+                    (* The overloaded functions of more than one argument are
+                       applied to their arguments rather than to a tuple. *)
+                    (* The only other optimisation we make is to remove applications
+                       of constructors such as ``::'' which are no-ops. *)
+                    val argument : codetree = codegen (arg, debugEnv, decName, mkAddr, level);
+                in
+                    (* Some functions are special e.g. overloaded and type-specific functions.
+                       These need to picked out and processed by applyFunction. *)
+                    case f of
+                        Ident {value = ref function, expType=ref expType, ...} =>
+                        let
+                            val polyVars = getPolymorphism (function, expType, location)
+                        in
+                            applyFunction (function, argument, level, polyVars, lex, location)
+                        end
+                    |   _ =>
+                        mkEval (codegen (f, debugEnv, decName, mkAddr, level), [argument], false) (* not early *)
               end
   
             | Cond {test, thenpt, elsept, ...} =>
-                mkIf (codegen (test,   debugEnv, decName),
-                      codegen (thenpt, debugEnv, decName),
-                      codegen (elsept, debugEnv, decName))
+                mkIf (codegen (test,   debugEnv, decName, mkAddr, level),
+                      codegen (thenpt, debugEnv, decName, mkAddr, level),
+                      codegen (elsept, debugEnv, decName, mkAddr, level))
   
             | TupleTree([pt], _) => (* can this occur? *)
-                codegen (pt, debugEnv, decName) (* optimise unary tuples *)
+                codegen (pt, debugEnv, decName, mkAddr, level) (* optimise unary tuples *)
   
             | TupleTree(ptl, _) =>
               let  (* Construct a vector of objects. *)
-                val args = map (fn x => codegen (x, debugEnv, decName)) ptl;
+                val args = map (fn x => codegen (x, debugEnv, decName, mkAddr, level)) ptl;
               in
                 mkTuple args : codetree
               end
   
             | Labelled {recList = [{valOrPat, ...}], ...} =>
-                codegen (valOrPat, debugEnv, decName) (* optimise unary tuples *)
+                codegen (valOrPat, debugEnv, decName, mkAddr, level) (* optimise unary tuples *)
   
             | Labelled {recList, expType=ref expType, ...} =>
               let
@@ -5276,13 +5316,13 @@ struct
                   | declist ({name, valOrPat, ...} :: t) look =
                   let
                     val thisDec = 
-                      multipleUses (codegen (valOrPat, debugEnv, decName), mkAddr, !level);
+                      multipleUses (codegen (valOrPat, debugEnv, decName, mkAddr, level), fn () => mkAddr 1, level);
                     
                     val myPosition = entryNumber (name, expType);
                     
                     fun lookFn i =
                       if i = myPosition
-                      then #load thisDec (!level)
+                      then #load thisDec level
                       else look i
                   in
                     #dec thisDec @ declist t lookFn
@@ -5293,24 +5333,25 @@ struct
               end
   
             | Selector {name, labType, location, ...} =>
-              let
-                (* Check that the type is frozen. *)
-                val () =
-                   if recordNotFrozen labType
-                   then errorNear (lex, true, c, location, "Can't find a fixed record type.")
-                   else ();
+                let
+                    (* Check that the type is frozen. *)
+                    val () =
+                        if recordNotFrozen labType
+                        then errorNear (lex, true, c, location, "Can't find a fixed record type.")
+                        else ();
 
-                val selectorBody : codetree =
-                  if recordWidth labType = 1
-                  then singleArg (* optimise unary tuples - no indirection! *)
-                  else let
-                    val offset : int = entryNumber (name, labType);
-                  in
-                    mkInd (offset, singleArg)
-                  end
-              in    (* Make an inline function. *)
-                mkInlproc (selectorBody, !level + 1, 1, decName ^ "#" ^ name) : codetree
-              end
+                    val selectorBody : codetree =
+                        if recordWidth labType = 1
+                        then singleArg (* optimise unary tuples - no indirection! *)
+                        else
+                        let
+                            val offset : int = entryNumber (name, labType);
+                        in
+                            mkInd (offset, singleArg)
+                        end
+                in    (* Make an inline function. *)
+                    mkInlproc (selectorBody, level + 1, 1, decName ^ "#" ^ name) : codetree
+                end
   
             | Unit _ => (* Use zero.  It is possible to have () = (). *)
                 CodeZero : codetree
@@ -5321,7 +5362,7 @@ struct
                 fun consList []       = CodeZero
                   | consList (h :: t) =
                   let
-                    val H = codegen (h, debugEnv, decName);
+                    val H = codegen (h, debugEnv, decName, mkAddr, level);
                     val T = consList t;
                   in
                     mkTuple [H,T]
@@ -5332,17 +5373,17 @@ struct
     
             | Constraint {value, ...} =>
                 (* code gen. the value *)
-                codegen (value, debugEnv, decName) : codetree
+                codegen (value, debugEnv, decName, mkAddr, level) : codetree
   
             | Fn { location, ... } =>
                 (* Function *)
-                mkblock (codeProc(c, decName, false, ref 0, location)) : codetree
+                mkblock (codeProc(c, decName, false, ref 0, location, mkAddr, level)) : codetree
    
             | Localdec {decs, body, ...} =>
               (* Local expressions only. Local declarations will be handled
                  by codeSequence.*)
               let 
-                val (decs, newDebug) = codeSequence (decs, debugEnv, decName);
+                val (decs, newDebug) = codeSequence (decs, debugEnv, decName, mkAddr, level);
                 val exps = codeList newDebug body;
               in
                 mkblock (decs @ exps) : codetree
@@ -5359,8 +5400,8 @@ struct
             | Raise (pt, location) =>
                 let
                     val {dec, load} = 
-                        multipleUses (codegen (pt, debugEnv, decName), mkAddr, !level);
-                    val load = load(!level)
+                        multipleUses (codegen (pt, debugEnv, decName, mkAddr, level), fn () => mkAddr 1, level);
+                    val load = load level
                 in
                     (* Copy the identifier, name and argument from the packet and add this location. *)
                     makeRaise (
@@ -5371,7 +5412,7 @@ struct
             | HandleTree {exp, hrules, location, ...} =>
               (* Execute an expression in the scope of a handler *)
               let
-                val handleExp : codetree = codegen (exp, debugEnv, decName);
+                val handleExp : codetree = codegen (exp, debugEnv, decName, mkAddr, level);
                 
                 (* 
                    We only bother with matchTags because they allow
@@ -5390,46 +5431,46 @@ struct
                    SPF 25/11/96.
                 *)
                 val matchTagList : codetree list =
-                  case (buildTree hrules) of
+                  case (buildTree(hrules, level)) of
                     Aot { patts = Excons exList, defaults, ...} =>
                       if defaults eq empty
                       then map (fn cons : consrec => 
-                                   codeVal (#constructor cons, !level, emptyType, lex, location))
+                                   codeVal (#constructor cons, level, [], lex, location))
                              exList
                       else [CodeZero]
                   | _ => [CodeZero]
                   
                 val handlerCode : codetree = 
-                  codeMatch (c, hrules, Ldexc, lex, decName, debugEnv, codegen, true)
+                  codeMatch (c, hrules, Ldexc, lex, decName, debugEnv, codegen, true, mkAddr, level)
               in
                 mkHandle (handleExp, matchTagList, handlerCode)
               end
 
             | While {test, body, ...} =>
                 makeWhile 
-                  (codegen (test, debugEnv, decName),
-                   codegen (body, debugEnv, decName)) : codetree
+                  (codegen (test, debugEnv, decName, mkAddr, level),
+                   codegen (body, debugEnv, decName, mkAddr, level)) : codetree
   
             | Case {test, match, ...} =>
               (* The matches are made into a series of tests and
                  applied to the test expression. *)
               let
-                val testCode = codegen (test, debugEnv, decName)
+                val testCode = codegen (test, debugEnv, decName, mkAddr, level)
               in
-                codeMatch (c, match, testCode, lex, decName, debugEnv, codegen, false) : codetree
+                codeMatch (c, match, testCode, lex, decName, debugEnv, codegen, false, mkAddr, level) : codetree
               end
     
             | Andalso {first, second, ...} =>
               (* Equivalent to  if first then second else false *)
-                mkCand (codegen (first,  debugEnv, decName),
-                        codegen (second, debugEnv, decName)) : codetree
+                mkCand (codegen (first,  debugEnv, decName, mkAddr, level),
+                        codegen (second, debugEnv, decName, mkAddr, level)) : codetree
   
             | Orelse {first, second, ...} =>
               (* Equivalent to  if first then true else second *)
-                mkCor (codegen (first,  debugEnv, decName),
-                       codegen (second, debugEnv, decName)) : codetree
+                mkCor (codegen (first,  debugEnv, decName, mkAddr, level),
+                       codegen (second, debugEnv, decName, mkAddr, level)) : codetree
     
-            | Parenthesised(p, _) => codegen (p, debugEnv, decName)
+            | Parenthesised(p, _) => codegen (p, debugEnv, decName, mkAddr, level)
  
             | _ => (* empty and any others *)
                CodeNil : codetree
@@ -5438,7 +5479,7 @@ struct
   
            (* Generate a function either as a free standing lambda expression
                or as a declaration. *)
-          and codeProc(c, decName, isRecursive, varAddr, location) =
+          and codeProc(c, decName, isRecursive, varAddr, location, originalmkAddr, originalLevel) =
           let
             fun getFnBody (Constraint {value, ...}) = getFnBody value
             |   getFnBody (Fn{matches, ...})  = matches
@@ -5446,9 +5487,14 @@ struct
             |   getFnBody _ = raise InternalError "getFnBody: not a constrained fn-expression";
           
             val f        = getFnBody c;
-            val ()        = level := !level + 1; (* This function comprises a new declaration level*)
-            val oldAddr  = !addresses;
-            val ()        = addresses := 1;
+            val fnLevel  = originalLevel+1 (* This function comprises a new declaration level*)
+
+            local
+                val addresses = ref 1
+            in
+                fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
+            end
+
             val (firstPat, resType, argType) = 
               case f of 
                 MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
@@ -5471,29 +5517,23 @@ struct
               val mainProc =
                  mkProc
                      (wrapFunctionInDebug
-                       (codeAlt (c, f, argumentCode, newDecName, newDebugEnv),
-                        newDecName, argumentCode, argType, resType, location, newDebugEnv), 
-                    !level, tupleSize, newDecName);
-                     
-              (* Reset level and addresses *)
-              val () = level := !level - 1;
-              val () = addresses := oldAddr;
-              
+                       (codeAlt (c, f, argumentCode, newDecName, newDebugEnv, fnMkAddr, fnLevel),
+                        newDecName, argumentCode, argType, resType, location, newDebugEnv,
+                        fnMkAddr, fnLevel), 
+                    fnLevel, tupleSize, newDecName);
+            
               (* Now make a block containing the procedure which expects
                  multiple arguments and an inline procedure which expects
                  a single tuple argument and calls the main procedure after
                  taking the tuple apart. *)
-              val thisDec = multipleUses (mainProc, mkAddr, !level);
+              val thisDec = multipleUses (mainProc, fn () => originalmkAddr 1, originalLevel);
   
               val resProc = 
               let   (* Result procedure. *)
                 val pr =
                   mkInlproc 
-                   (mkEval
-                      (#load thisDec (!level + 1),
-                       loadArgs tupleSize singleArg, 
-                       false),
-                   !level + 1, 1, decName ^ "(1)");
+                   (mkEval(#load thisDec fnLevel, loadArgsFromTuple(tupleSize, singleArg), false),
+                   fnLevel, 1, decName ^ "(1)");
               in
                 if isRecursive then mkDec (!varAddr, pr) else pr
               end;
@@ -5508,16 +5548,15 @@ struct
               val ()    = varAddr := 0; 
               val newDecName : string  = decName ^ "(1)";
               val newDebug = newDebugLevel debugEnv
-              val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug);
+              val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug, fnMkAddr, fnLevel);
               (* If we're debugging add the debug info before resetting the level. *)
               val wrapped =
-                  wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType, location, newDebug)
+                  wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
+                    location, newDebug, mkAddr, fnLevel)
             in
               varAddr   := addr;        (* Reset the address *)
-              level     := !level - 1;  (* Reset level and addresses *)
-              addresses := oldAddr;
               let
-                val pr = mkProc (wrapped, !level + 1, 1, newDecName);
+                val pr = mkProc (wrapped, fnLevel, 1, newDecName);
               in
                 [if isRecursive then mkDec (addr, pr) else pr]
               end
@@ -5551,11 +5590,10 @@ struct
                    fun setAddr (FValBind{
                                    functVar = ref (Value{access=Local{addr=lvAddr, level=lvLevel}, ...}), ...}) = 
                    let (* Set the addresses of the variables. *)
-                     val addr  = mkAddr ();
-                     val _ = mkAddr (); (* We need this second address. *)
+                        val addr  = mkAddr 2; (* We need two addresses. *)
                    in
-                     lvAddr  := addr;
-                     lvLevel := !level
+                        lvAddr  := addr;
+                        lvLevel := level
                    end
                    |   setAddr _ = raise InternalError "setAddr"
 
@@ -5565,76 +5603,71 @@ struct
 
                      (* Now we can process the function bindings. *)
                  fun loadFunDecs []               = []
-                   | loadFunDecs ((FValBind{numOfPatts = ref numOfPats,
-                                            functVar = ref var, clauses, argType = ref aType,
+                 |  loadFunDecs ((FValBind{numOfPatts = ref numOfPats,
+                                            functVar = ref(Value{name, typeOf, access, ...}),
+                                            clauses, argType = ref aType,
                                             resultType = ref resType, location, ...})::otherDecs) =
-                   let
-                     (* Make up the function, and if there are several mutually
-                        recursive functions, put it in the vector. *)
-                     val address   =
-                         case var of
-                            Value{access=Local{addr, ...}, ...} => addr
-                        |    _ => raise InternalError "lvAddr"
-                     val addr      = !address;
-                     val procName  = decName ^ valName var;
-                    (* Produce a list of the size of any tuples or labelled records
-                       in the first clause. Tuples in the first clause are passed as
-                       separate arguments. We could look at the other clauses and only
-                       pass them as separate arguments if each clause contains a tuple.
+                    let
+                        (* Make up the function, and if there are several mutually
+                           recursive functions, put it in the vector. *)
+                        val address   =
+                            case access of
+                                Local{addr, ...} => addr
+                            |    _ => raise InternalError "lvAddr"
+                        val addr      = !address;
+                        val procName  = decName ^ name;
+                        val (_, polyVars) = generalise typeOf (* Is this polymorphic? *)
+                     
+                        (* Produce a list of the size of any tuples or labelled records
+                           in the first clause. Tuples in the first clause are passed as
+                           separate arguments. We could look at the other clauses and only
+                           pass them as separate arguments if each clause contains a tuple.
                        
-                       We can treat labelled records exactly like tuples here - we only
-                       need to worry about the mapping from labels to tuple offsets
-                       when we create the record (getting the order of evaluation right)
-                       and in the pattern-matching code (extracting the right fields).
-                       We don't have to worry about that here, because all we're doing
-                       is untupling and retupling, taking care always to put the values
-                       back at exactly the same offset we got them from.
-                       SPF 19/12/96
-                     *)
-                     val tupleSeq : int list =
-                         case clauses of
-                             (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
-                         | _ => raise InternalError "badly formed parse tree";
+                           We can treat labelled records exactly like tuples here - we only
+                           need to worry about the mapping from labels to tuple offsets
+                           when we create the record (getting the order of evaluation right)
+                           and in the pattern-matching code (extracting the right fields).
+                           We don't have to worry about that here, because all we're doing
+                           is untupling and retupling, taking care always to put the values
+                           back at exactly the same offset we got them from. *)
+                        val tupleSeq : int list =
+                            case clauses of
+                                (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
+                            |   _ => raise InternalError "badly formed parse tree";
 
-                     fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
+                        fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
     
-                     val resultTuples =
-                         List.foldl(fn(t, 1) => getResultTuple t  | (_, s) => s) 1 clauses
+                        val resultTuples =
+                            List.foldl(fn(t, 1) => getResultTuple t  | (_, s) => s) 1 clauses
 
-                     (* If we're debugging we want the result of the
-                        function so we don't do this optimisation. *)
-                     val resultTuple = if debugging then 1 else resultTuples
+                        (* If we're debugging we want the result of the
+                           function so we don't do this optimisation. *)
+                        val resultTuple = if debugging then 1 else resultTuples
 
-                     val extraArg = if resultTuple = 1 then 0 else 1
+                        val extraArg = if resultTuple = 1 then 0 else 1
 
-                     (* Count the total number of arguments needed. *)
-                     val totalArgs = List.foldl (op +) extraArg tupleSeq 
+                        (* Count the total number of arguments needed. *)
+                        val totalArgs = List.foldl (op +) extraArg tupleSeq 
 
-                     (* The old test was "totalArgs = 1", but that's not really
-                        right, because we could have one genuine arg plus a
-                        lot of "()" patterns. We now use the normal inlining
-                        mechanism to optimise this (unusual) case too.
-                        SPF 19/12/96
-                     *)
-                     val noInlineFunction = numOfPats = 1 andalso totalArgs = 1
+                        (* The old test was "totalArgs = 1", but that's not really
+                           right, because we could have one genuine arg plus a
+                           lot of "()" patterns. We now use the normal inlining
+                           mechanism to optimise this (unusual) case too. *)
+                        val noInlineFunction =
+                            numOfPats = 1 andalso totalArgs = 1 andalso null polyVars
                    
-                     (* If there is only one pattern and it is not a tuple we
-                         generate only one function so we recurse directly. *)
-                     val () = if noInlineFunction then address := 0  else (); (* Marks a recursive call. *)
+                        (* If there is only one pattern and it is not a tuple we
+                           generate only one function so we recurse directly. *)
+                        val () = if noInlineFunction then address := 0  else (); (* Marks a recursive call. *)
+ 
+                        (* Turn the list of clauses into a match. *)
+                        val matches = 
+                            map (fn FValClause {dec={ args, ...}, exp, line, ...} =>
+                                mkMatchTree(if numOfPats = 1 then hd args else TupleTree(args, line), exp, line)
+                                )
+                            clauses;
                      
-                     (* This function comprises a new declaration level *)
-                     val () = level := !level + 1;
-                     val oldAddr  = !addresses;
-                     val () = addresses := 1;
-                     
-                    (* Turn the list of clauses into a match. *)
-                     val matches = 
-                       map (fn FValClause {dec={ args, ...}, exp, line, ...} =>
-                            mkMatchTree(if numOfPats = 1 then hd args else TupleTree(args, line), exp, line)
-                            )
-                        clauses;
-                     
-                     (* We arrange for the inner function to be called with
+                        (* We arrange for the inner function to be called with
                         the curried arguments in reverse order, but the tupled
                         arguments in the normal order. For example, the
                         ML declaration:
@@ -5665,111 +5698,120 @@ struct
                        SPF 19/12/96
                      *)
                        
-                     fun makeArgs []     _ = []
-                       | makeArgs (h::t) n = 
-                          mkArgTuple (n + h) (n + 1) :: makeArgs t (n + h);
+                        fun makeArgs []     _ = []
+                        |   makeArgs (h::t) n = 
+                                mkArgTuple (n + h) (n + 1) :: makeArgs t (n + h);
 
-                     val argList : codetree =
-                       if numOfPats = 1
-                       then mkArgTuple totalArgs (extraArg+1)
-                       else mkTuple (makeArgs tupleSeq extraArg);
+                        val argList : codetree =
+                            if numOfPats = 1
+                            then mkArgTuple totalArgs (extraArg+1)
+                            else mkTuple (makeArgs tupleSeq extraArg);
+                        local
+                    
+                            (* This function comprises a new declaration level *)
+                            val fnLevel = level + 1
+ 
+                            local
+                                val addresses = ref 1
+                            in
+                                fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
+                            end
+                     
+                            val innerProcName : string = 
+                                concat ([procName,  "(" , Int.toString totalArgs, ")"]);
 
-                     val innerProcName : string = 
-                       concat ([procName,  "(" , Int.toString totalArgs, ")"]);
+                            val codeMatches : codetree =
+                                codeAlt (c, matches, argList, innerProcName,
+                                    newDebugLevel debugEnv, fnMkAddr, fnLevel);
 
-                     val codeMatches : codetree =
-                       codeAlt (c, matches, argList, innerProcName, newDebugLevel debugEnv);
+                            (* If the result is a tuple we try to avoid creating it by adding
+                               an extra argument to the inline function and setting this to
+                               the result. *)
+                            val bodyCode =
+                            if resultTuple = 1
+                            then codeMatches
+                            else
+                                (* The function sets the extra argument to the result
+                                   of the body of the function.  We use the last
+                                   argument (addr = ~1) for the container so that
+                                   other arguments will be passed in registers in
+                                   preference.  Since the container is used for the
+                                   result this argument is more likely to have to be
+                                   pushed onto the stack within the function than an
+                                   argument which may have its last use early on. *)
+                                mkSetContainer(mkLoad(~1, 0), codeMatches, resultTuple)
 
-                     (* If the result is a tuple we try to avoid creating it by adding
-                        an extra argument to the inline function and setting this to
-                        the result. *)
-                     val bodyCode =
-                         if resultTuple = 1
-                        then codeMatches
-                        else
-                            (* The function sets the extra argument to the result
-                               of the body of the function.  We use the last
-                               argument (addr = ~1) for the container so that
-                               other arguments will be passed in registers in
-                               preference.  Since the container is used for the
-                               result this argument is more likely to have to be
-                               pushed onto the stack within the function than an
-                               argument which may have its last use early on. *)
-                            mkSetContainer(mkLoad(~1, 0), codeMatches, resultTuple)
-
-                     (* If we're debugging add the debug info before resetting the level. *)
-                     val wrapped =
-                         wrapFunctionInDebug(bodyCode, procName, argList,
-                                             aType, resType, location, newDebugLevel debugEnv)
-                     (* Reset level and addresses *)
-                     val () = level := !level - 1;
-                     val () = addresses := oldAddr;
-        
-                     val innerFun : codetree = mkProc (wrapped, !level + 1, totalArgs, innerProcName);
+                            (* If we're debugging add the debug info before resetting the level. *)
+                            val wrapped =
+                                wrapFunctionInDebug(bodyCode, procName, argList,
+                                                 aType, resType, location, newDebugLevel debugEnv,
+                                                 fnMkAddr, fnLevel)
+                        in      
+                            val innerFun : codetree = mkProc (wrapped, fnLevel, totalArgs, innerProcName)
+                        end;
                           
-                     (* We now have a function which can be applied to the
-                        arguments once we have them. If the function is curried 
-                        we must make a set of nested inline procedures which
-                        will take one of the parameters at a time. If all the
-                         parameters are provided at once they will be
-                         optimised away. *)
+                        (* We now have a function which can be applied to the
+                           arguments once we have them. If the function is curried 
+                           we must make a set of nested inline procedures which
+                           will take one of the parameters at a time. If all the
+                           parameters are provided at once they will be
+                           optimised away. *)
   
-                     (* Make into curried functions *)
-                     fun makeFuns _ _ parms [] _ =
-                      (* Got to the bottom. - put in a call to the procedure. *)
-                        if resultTuple = 1
-                        then mkEval (mkLoad (addr + 1, numOfPats), parms, false)
-                        else (* Create a container for the result, side-effect
-                                     it in the function, then create a tuple from it.
-                                     Most of the time this will be optimised away. *)
+                        (* Make into curried functions *)
+                        fun makeFuns(_, _, parms, [], _) =
+                            (* Got to the bottom. - put in a call to the procedure. *)
+                            if resultTuple = 1
+                            then mkEval (mkLoad (addr + 1, numOfPats + (if null polyVars then 0 else 1)), parms, false)
+                            else (* Create a container for the result, side-effect
+                                    it in the function, then create a tuple from it.
+                                    Most of the time this will be optimised away. *)
                             let
+                                val localAddrs = ref 1
+                                fun newAddr () = (! localAddrs) before (localAddrs := !localAddrs+1)
                                 val {load, dec} =
-                                    multipleUses(mkContainer resultTuple, mkAddr, !level)
-                                val ld = load(!level)
+                                    multipleUses(mkContainer resultTuple, newAddr, level+numOfPats)
+                                val ld = load(level+numOfPats)
                             in
                                 mkEnv(dec @
-                                   [mkEval (mkLoad (addr + 1, numOfPats),
+                                   [mkEval (mkLoad (addr + 1, numOfPats + (if null polyVars then 0 else 1)),
                                                parms @ [ld], false),
                                     mkTupleFromContainer(ld, resultTuple)])
                             end
                          
-                       | makeFuns depth decName parms (t::ts) argCount =
-                       let (* Make a function. *)
-                         (* This function comprises a new declaration level *)
-                         val ()       = level := !level + 1;
-                         val oldAddr = !addresses;
-                         val ()       = addresses := 1;
+                       |    makeFuns(depth, decName, parms, t::ts, argCount) =
+                            let (* Make a function. *)
+                                val newDecName : string = decName ^ "(1)";
                          
-                         val newDecName : string = decName ^ "(1)";
-                         
-                         (* Arguments from this tuple precede older arguments,
-                            but order of arguments within the tuple is preserved.
-                            SPF 19/12/96
-                         *) 
-                         val nextParms = loadArgs t (mkLoad (~1, depth)) @ parms;
+                                (* Arguments from this tuple precede older arguments,
+                                   but order of arguments within the tuple is preserved. *) 
+                                val nextParms = loadArgsFromTuple(t, mkLoad (~1, depth)) @ parms;
                             
-                         val body =
-                            makeFuns (depth - 1) newDecName nextParms ts (argCount + t);
-                       in
-                         (* Reset level and addresses *)
-                         level := !level - 1;
-                         addresses := oldAddr;
-                         mkInlproc (body, !level + 1, 1, newDecName)
-                       end (* end makeFuns *);
+                                val body =
+                                    makeFuns (depth - 1, newDecName, nextParms, ts, argCount + t);
+                            in
+                                mkInlproc (body, level + numOfPats - depth + (if null polyVars then 0 else 1), 1, newDecName)
+                            end (* end makeFuns *);
 
-                     (* Reset the address of the variable. *)
-                     val () = address := addr;
+                        (* Reset the address of the variable. *)
+                        val () = address := addr;
                    in
-                     if noInlineFunction
-                       then mkDec (addr, innerFun) :: loadFunDecs otherDecs
-                     else 
-                       (* Return the `inner' procedure and the inline
-                          functions as a mutually recursive pair. Try putting
-                          the inner function first to see if the optimiser
-                          does better this way. *)
-                       mkDec (addr + 1, innerFun) :: 
-                       mkDec (addr, makeFuns (numOfPats - 1) procName [] tupleSeq 0) ::
-                         loadFunDecs otherDecs
+                        if noInlineFunction
+                        then mkDec (addr, innerFun) :: loadFunDecs otherDecs
+                        else
+                        let
+                            val baseFun = makeFuns (numOfPats - 1, procName, [], tupleSeq, 0)
+                            val polyFun =
+                                case polyVars of
+                                    [] => baseFun
+                                |   _ => mkInlproc(baseFun, level+1, List.length polyVars, procName ^ "(P)")
+                        in
+                            (* Return the `inner' procedure and the inline
+                              functions as a mutually recursive pair. Try putting
+                              the inner function first to see if the optimiser
+                              does better this way. *)
+                            mkDec (addr + 1, innerFun) :: 
+                                mkDec (addr, polyFun) :: loadFunDecs otherDecs
+                        end
                    end (* loadFunDecs *);
              val loaded = loadFunDecs tlist;
 
@@ -5777,7 +5819,7 @@ struct
                 This won't be available recursively in the
                 functions but it will be in the rest of the scope. *)
              val vars = map (fn(FValBind{functVar, ...}) => !functVar) tlist
-             val (decEnv, newDebugEnv) = makeDebugEntries(vars, debugEnv)
+             val (decEnv, newDebugEnv) = makeDebugEntries(vars, debugEnv, mkAddr, level)
              (* Check whether any of the functions were unreferenced. *)
              val _ = List.app reportUnreferencedValue vars
            in
@@ -5788,141 +5830,166 @@ struct
            end (* FunDeclaration *)
   
            | ValDeclaration {dec = valDec, variables = ref vars, ...} =>
-           let
-             (* Recursive val declarations. *)
-             fun codeRecursive []      = []
-               | codeRecursive (RecValBind :: ds) =
-                 (* e.g. val rec a = ... and rec b = ... *)
-                     codeRecursive ds
-               | codeRecursive ((ValBind{dec=vbDec, exp=vbExp, line, ...})::ds) =
-               let
-                 local
-                   (* The pattern being declared may be a variable or a
-                      constraint or (perversely) 
-                      a layered pattern or a wild-card. *)
-                   fun getVars (Constraint{value, ...}) = getVars value
-                    |  getVars (Layered{var, pattern, ...}) =
-                          getVars var @ getVars pattern
-                    |  getVars (pat as (Ident _)) = [pat]
-                    |  getVars (Parenthesised(p, _)) = getVars p
-                    |  getVars _ = (* wild-card *) [];
-                 in
-                   val vars = getVars vbDec;
-                 end
+            let
+                (* Recursive val declarations. *)
+                fun codeRecursive []      = []
+                |   codeRecursive (RecValBind :: ds) = (* e.g. val rec a = ... and rec b = ... *)
+                        codeRecursive ds
+                |   codeRecursive ((ValBind{dec=vbDec, exp=vbExp, line, ...})::ds) =
+                    let
+                        local
+                            (* The pattern being declared may be a variable or a
+                               constraint or (perversely) 
+                               a layered pattern or a wild-card. *)
+                            fun getVars (Constraint{value, ...}) = getVars value
+                            |   getVars (Layered{var, pattern, ...}) = getVars var @ getVars pattern
+                            |   getVars (pat as (Ident _)) = [pat]
+                            |   getVars (Parenthesised(p, _)) = getVars p
+                            |   getVars _ = (* wild-card *) [];
+                        in
+                            val vars = getVars vbDec;
+                        end
   
-                 local
-                   (* Set the addresses of the variables. *)
-                   val addr = mkAddr ();
+                        local
+                            (* Set the addresses of the variables. *)
+                            val addr = mkAddr 1;
                  
-                   (* Set all the variables for this declaration to the same
-                      address, since they all refer to the same function.
-                      There will normally be precisely one variable. *)
-                   fun setAddress (
-                           Ident{value = ref(var as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}),...}) =
-                       (
-                         lvAddr  := addr;
-                         lvLevel := !level;
-                         (* Non-recursive declarations are checked as part of the pattern
-                            checking. *)
-                         reportUnreferencedValue var
-                       )
-                       | setAddress _ =
-                        raise InternalError "setAddress  - badly formed parsetree"
-                 in
-                   val () = List.app setAddress vars
-                 end;
+                            (* Set all the variables for this declaration to the same
+                               address, since they all refer to the same function.
+                               There will normally be precisely one variable. *)
+                            fun setAddress (
+                                Ident{value = ref(var as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}),...}) =
+                                (
+                                    lvAddr  := addr;
+                                    lvLevel := level;
+                                    (* Non-recursive declarations are checked as part of the pattern
+                                       checking. *)
+                                    reportUnreferencedValue var
+                                )
+                            |   setAddress _ =
+                                    raise InternalError "setAddress  - badly formed parsetree"
+                        in
+                            val () = List.app setAddress vars
+                        end;
                  
-                 val rest = codeRecursive ds
-               in 
-                 (* Recursive declarations must be of the form var = fn ...
-                    so the declaration part of the binding must be an
-                    identifier pointing to a variable. *)
-                    case vars of
-                        [] => rest (* ignore it *)
-                            (* Perverse but legal:  val rec _ = fn ... *)
-                     |  (Ident{name = idname, value=ref idval, ...} :: _) =>
-                         let
-                        (* Normally precisely one identifier, but may be more
-                             if layered. Just create  one - all the others have
-                           the same address. *)
-                            val lvAddr =
-                                case idval of
-                                    Value{access=Local{addr, ...}, ...} => addr
-                                |    _ => raise InternalError "lvAddr";
-                         in
-                           (* Must be a function. This returns either a single
-                              declaration or possibly a pair of mutually recursive
-                              functions. *)
-                           (codeProc(vbExp, idname, true, lvAddr, line)) @ rest
-                         end
-                     | _ => raise InternalError "ValDeclaration - not a variable"
-               end
+                        val rest = codeRecursive ds
+                    in 
+                        (* Recursive declarations must be of the form var = fn ...
+                           so the declaration part of the binding must be an
+                           identifier pointing to a variable. *)
+                        case vars of
+                            [] => rest (* ignore it *)
+                                (* Perverse but legal:  val rec _ = fn ... *)
+                        |   (Ident{name = idname, value=ref idval, ...} :: _) =>
+                            let
+                                (* Normally precisely one identifier, but may be more
+                                   if layered. Just create  one - all the others have
+                                   the same address. *)
+                                val lvAddr =
+                                    case idval of
+                                        Value{access=Local{addr, ...}, ...} => addr
+                                    |    _ => raise InternalError "lvAddr"
+                            in
+                                (* Must be a function. This returns either a single
+                                   declaration or possibly a pair of mutually recursive
+                                   functions. *)
+                                (codeProc(vbExp, idname, true, lvAddr, line, mkAddr, level)) @ rest
+                            end
+                        | _ => raise InternalError "ValDeclaration - not a variable"
+                    end
    
-             (* Non-recursive val bindings.  Always called initially but will
-                call codeRecursive as soon as it finds a "rec" to deal with
-                the rest of the bindings. *)
-             fun codeDecs []              = []
-               | codeDecs (RecValBind :: otherDecs) =
-                  let
-                   (* Recursive - all the rest must be recursive. *)
-                   val loaded = codeRecursive otherDecs;
-                 in
-                   (* If there is just one (may conceivably be none) *)
-                   if null loaded orelse null (tl loaded)
-                   then loaded (* Return the declarations (as a list) *)
-                   else (* Put the declarations into a package of mutual decs. *)
-                     [mkMutualDecs loaded]
-                 end
+                (* Non-recursive val bindings.  Always called initially but will
+                   call codeRecursive as soon as it finds a "rec" to deal with
+                   the rest of the bindings. *)
+                fun codeDecs []              = []
+                |   codeDecs (RecValBind :: otherDecs) =
+                    let
+                        (* Recursive - all the rest must be recursive. *)
+                        val loaded = codeRecursive otherDecs;
+                    in
+                        case loaded of
+                            [] => []
+                        |   [_] => loaded (* If there is just one (may conceivably be none) *)
+                        |   _ => [mkMutualDecs loaded] (* Put the declarations into a package of mutual decs. *)
+                    end
                
-               | codeDecs ((ValBind{dec=vbDec, exp=vbExp, line, ...})::otherDecs) =
-               let (* A binding. *)
-                 (* Codegen and push the declarations. For non-recursive
-                    declarations, where a declaration may involve a pattern
-                    with more than one variable, we need to process the
-                    patterns to get the variables. *)
-                     (* First the result of the expression is bound to a
-                       variable. *)
+                |   codeDecs ((ValBind{dec=vbDec, exp=vbExp, line, ...})::otherDecs) =
+                    let (* A binding. *)
+                        (* Codegen and push the declarations. For non-recursive
+                           declarations, where a declaration may involve a pattern
+                           with more than one variable, we need to process the
+                           patterns to get the variables. *)
+                        (* First the result of the expression is bound to a variable. *)
                    
-                 (* added to improve name generation SPF 18/10/94 *)    
-                 fun getName (Ident {name, ...}) = name
-                   | getName (Constraint {value, ...}) = getName value
-                   | getName (Parenthesised(p, _)) = getName p
-                   | getName (Layered {var=vbl, pattern, ...}) =
-                     (
-                         case vbl of
-                            Ident {name, ...} =>
-                                name (* could (perversely) be "_" *)
-                          | _ => getName pattern
-                     )
-                   | getName _ = "<pattern>" (* give up *)
+                        (* added to improve name generation *)    
+                        fun getName (Ident {name, ...}) = name
+                        |   getName (Constraint {value, ...}) = getName value
+                        |   getName (Parenthesised(p, _)) = getName p
+                        |   getName (Layered {var=vbl, pattern, ...}) =
+                            (
+                                case vbl of
+                                    Ident {name, ...} => name (* could (perversely) be "_" *)
+                                |   _ => getName pattern
+                            )
+                        |   getName _ = "<pattern>" (* give up *)
                        
-                 val name =
-                   (* Get the name of this declaration. *)
-                   decName ^ getName vbDec ^ "-";
+                        val name = (* Get the name of this declaration. *)
+                            decName ^ getName vbDec ^ "-";
 
-                 val decCode =
-                     codeBind c vbDec (codegen (vbExp, debugEnv, name)) lex line debugEnv
-               in
-                  decCode @ codeDecs otherDecs
-               end
-             val decCode = codeDecs valDec
+                        (* Build a single pattern tree. *)
+                        val andortree = buildAot(vbDec, aotEmpty, 1, line, level);
 
-             (* Construct the debugging environment by loading all variables. *)
-             val (decEnv, env) = makeDebugEntries (vars, debugEnv)
-           in
-              (decCode @ decEnv, env)
-           end (* ValDeclaration *)
+                        (* Check for unreferenced variables. *)
+                        val () = List.app reportUnreferencedValue(findVars vbDec [])
+              
+                        val exp = codegen (vbExp, debugEnv, name, mkAddr, level)
+                        (* Save the argument in a variable. *)
+                        val decCode   = multipleUses (exp, fn () => mkAddr 1, level);
+              
+                        (* Generate code to load it. *)
+                        val loadExpCode = #load decCode level;
+              
+                        val exhaustive  = ref true;
+                        (* Set to false if we find it is not exhaustive. *)
+
+                        (* Make some code to insert at defaults. *)
+                        fun codeDefault () = (exhaustive := false; raiseBindCode line);
+              
+                        (* Generate the code and also check for redundancy and exhaustiveness. *)
+                        val code : patcode =
+                            codePatt(andortree, loadExpCode, singleton 1,
+                                fn (pattsLeft, default, _) =>
+                                    if pattsLeft eq empty then (default ()) else makePatcode [] ~1,
+                                codeDefault, true, debugEnv, mkAddr, level);
+                        (* Report inexhaustiveness if necessary. *)
+                        val () =
+                            if not (!exhaustive) andalso level > 0
+                            then errorNear (lex, false, c, line, "Pattern is not exhaustive.")
+                            else ();
+
+                        val decCode = #dec decCode @ #code code  (* Return the code *)
+                    in
+                        decCode @ codeDecs otherDecs
+                    end
+
+                val decCode = codeDecs valDec
+
+                (* Construct the debugging environment by loading all variables. *)
+                val (decEnv, env) = makeDebugEntries (vars, debugEnv, mkAddr, level)
+            in
+                (decCode @ decEnv, env)
+            end (* ValDeclaration *)
   
            | Localdec {decs, body, varsInBody=ref vars, ...} => (* Local declarations only *)
                let
                 (* Simply process the declarations in sequence. *)
-                val (decCode, decEnv) = codeSequence (decs, debugEnv, decName)
-                val (bodyCode, _) = codeSequence (body, decEnv, decName)
+                val (decCode, decEnv) = codeSequence (decs, debugEnv, decName, mkAddr, level)
+                val (bodyCode, _) = codeSequence (body, decEnv, decName, mkAddr, level)
                 (* We can't simply pass through the environment because it
                    would include the declarations in the local part.  Instead
                    we create a new environment here containing only the variables
                    in the in...dec part. *)
-                val (decEnv, resEnv) = makeDebugEntries (vars, debugEnv)
+                val (decEnv, resEnv) = makeDebugEntries (vars, debugEnv, mkAddr, level)
             in
                (decCode @ bodyCode @ decEnv, resEnv)
             end
@@ -5943,8 +6010,8 @@ struct
                           Value{access=Local{addr, level}, typeOf, ...} => (addr, level, typeOf)
                        | _ => raise InternalError "lvAddr"
                  in
-                   lvAddr  := mkAddr ();
-                   lvLevel := !level;
+                   lvAddr  := mkAddr 1;
+                   lvLevel := level;
                    
                    mkDec 
                      (! lvAddr,
@@ -5956,11 +6023,11 @@ struct
                                copy of it. It contains a function to print values
                                of the type so when we raise the exception we can print
                                the exception packet without knowing the type. *)
-                            mkExIden (exType, !level)
+                            mkExIden (exType, level)
                       | Ident{value=ref prevVal, location, ...} =>
                               (* Copy the previous value. N.B. We want the exception
                                identifier here so we can't call codegen. *)
-                            codeVal (prevVal, !level, emptyType, lex, location)
+                            codeVal (prevVal, level, [], lex, location)
                       | _ => raise InternalError "codeEx"
                      )
                  end  (* codeEx *);
@@ -5969,7 +6036,7 @@ struct
 
                  fun getValue(ExBind{value=ref exval, ...}) = exval
                  val (debugDecs, newDebugEnv) =
-                     makeDebugEntries(map getValue tlist, debugEnv)
+                     makeDebugEntries(map getValue tlist, debugEnv, mkAddr, level)
                in 
                  (exdecs @ debugDecs, newDebugEnv)
                end (* ExDeclaration *)
@@ -5983,7 +6050,7 @@ struct
                     (* Add the type ids to the debug environment. *)
                     val typeCons =
                         List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-                    val typeFunctions = createDatatypeFunctions(typeCons, eqStatus, mkAddr, !level)
+                    val typeFunctions = createDatatypeFunctions(typeCons, eqStatus, fn () => mkAddr 1, level)
                     val (typeDebugDecs, typeDebugEnv) =
                         if not debugging then ([], debugEnv)
                         else
@@ -5994,9 +6061,9 @@ struct
                                        associated with the type Id as the hd and the rest of the run-time
                                        environment as the tl. *)
                                     val id = tcIdentifier tc
-                                    val loadTypeId = codeId(id, !level)
-                                    val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
-                                    val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                                    val loadTypeId = codeId(id, level)
+                                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                                     val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
                                 in
                                     (dec @ decs, newEnv)
@@ -6005,7 +6072,7 @@ struct
                         in
                             foldIds(typeCons, debugEnv)
                         end
-                    val (code, newDebug) = codeSequence (declist, typeDebugEnv, decName);
+                    val (code, newDebug) = codeSequence (declist, typeDebugEnv, decName, mkAddr, level);
                 in
                     (typeFunctions @ typeDebugDecs @ code, newDebug)
                 end
@@ -6019,7 +6086,7 @@ struct
                     (* Datatypes don't lose equality unlike abstypes so we can evaluate
                        this here. *)
                     val areEqTypes = List.map tcEquality typeCons
-                    val codeIds = createDatatypeFunctions(typeCons, areEqTypes, mkAddr, !level)
+                    val codeIds = createDatatypeFunctions(typeCons, areEqTypes, fn () => mkAddr 1, level)
                     val (typeDebugDecs, typeDebugEnv) =
                         if not debugging then ([], debugEnv)
                         else
@@ -6030,9 +6097,9 @@ struct
                                        associated with the type Id as the hd and the rest of the run-time
                                        environment as the tl. *)
                                     val id = tcIdentifier tc
-                                    val loadTypeId = codeId(id, !level)
-                                    val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
-                                    val { dec, load } = multipleUses (newEnv, mkAddr, !level)
+                                    val loadTypeId = codeId(id, level)
+                                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                                     val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
                                 in
                                     (dec @ decs, newEnv)
@@ -6044,7 +6111,7 @@ struct
 
                     fun getConstrs(DatatypeBind {tcon = ref tc, ...}, (decs, debugEnv)) =
                     let
-                        val (newDecs, newDebug) = makeDebugEntries(tcConstructors tc, debugEnv)
+                        val (newDecs, newDebug) = makeDebugEntries(tcConstructors tc, debugEnv, mkAddr, level)
                     in
                         (decs @ newDecs, newDebug)
                     end
@@ -6057,18 +6124,19 @@ struct
 
            | OpenDec {variables=ref vars, ...} =>
                    (* All we need to do here is make debugging entries. *)
-              makeDebugEntries(vars, debugEnv)
+              makeDebugEntries(vars, debugEnv, mkAddr, level)
 
            | _ => (* c is Directive or TypeDeclaration*)
               ([], debugEnv); 
 
-            val (decRest, finalEnv) = codeSequence (tl dlist, firstEnv, decName)
+            val (decRest, finalEnv) = codeSequence (tl dlist, firstEnv, decName, mkAddr, level)
          in    (* Append the remaining declarations. *)
            (firstDec @ decRest, finalEnv)
          end
        end (* codeSequence *);
      in
-       codeSequence ([pt], debugEnv, structName)
+       codeSequence ([pt], debugEnv, structName,
+            fn n => !outerAddresses before (outerAddresses := !outerAddresses+n), outerLevel)
      end (* gencode *)
    end (* type *)
 

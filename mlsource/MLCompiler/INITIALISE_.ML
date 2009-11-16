@@ -220,6 +220,8 @@ struct
             val mkTypeConstruction = mkTypeConstruction;
         end;
 
+        fun makePolymorphic(tvs, c) = mkInlproc(c, 0, List.length tvs, "")
+
         (* Function to make a type identifier with a pretty printer that just prints "?"
            and the structural equality function.  Most of the types we use this for
            don't admit equality but it's simpler  to have a single function here. *)
@@ -282,10 +284,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm 0, "false"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm 0, [], "false"), true, 2, declInBasis);
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm 1, "true"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm 1, [], "true"), true, 2, declInBasis);
         in
             val () = enterGlobalType  ("bool",  boolType);
             val () = enterGlobalValue ("true",  trueCons);
@@ -352,7 +354,7 @@ struct
                     val a : types = makeTV ();
                 in
                     mkGconstr ("ref", a ->> Ref a,
-                        createUnaryConstructor(RefForm, "ref"), false, 1, declInBasis)
+                        createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
                 end
         in
             val () = enterGlobalType  ("ref", refType);
@@ -369,9 +371,9 @@ struct
                 mkInlproc
                     (mkEval (mkConst (ioOp POLY_SYS_load_word), [(loadArg 1), CodeZero],
                         false) (* NOT early *), 0, 1, "!(1)");
-
-            val plingType = let val a = makeTV () in Ref a ->> a end;
-            val plingVal  = mkGvar ("!", plingType, plingCode, declInBasis);
+            val a = makeTV ()
+            val plingType = Ref a ->> a
+            val plingVal  = mkGvar ("!", plingType, makePolymorphic([a], plingCode), declInBasis);
         in
             val () = enterGlobalValue ("!", plingVal);
         end;        
@@ -425,7 +427,7 @@ struct
             end;
         in
             val () =
-                enterRunCall ("unsafeCast", unsafeCastEntry, unsafeCastType);
+                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), unsafeCastType);
         end;
         
 
@@ -471,7 +473,7 @@ struct
                 val n     = mkLoad (~1, 0)                 (* the outer parameter *)
                 val body  = mkEval (ioOpEntry, [n], true); (* early! *)
             in
-                mkInlproc (body, level, args, name)
+                makePolymorphic([a, b], mkInlproc (body, level, args, name))
             end;
     
             fun makeRunCallTupled (width:int) : codetree =
@@ -535,11 +537,11 @@ struct
                 outerLambda
             end;
             
-            val runCall0Entry = makeRunCallTupled 0;
-            val runCall2Entry = makeRunCallTupled 2;
-            val runCall3Entry = makeRunCallTupled 3;
-            val runCall4Entry = makeRunCallTupled 4;
-            val runCall5Entry = makeRunCallTupled 5;
+            val runCall0Entry = makePolymorphic([a], makeRunCallTupled 0);
+            val runCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2);
+            val runCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled 3);
+            val runCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled 4);
+            val runCall5Entry = makePolymorphic([a, b, c, d, e, f], makeRunCallTupled 5);
         in
             val () = enterRunCall ("run_call0", runCall0Entry, runCall0Type);
             val () = enterRunCall ("run_call1", runCall1Entry, runCall1Type);
@@ -828,7 +830,7 @@ struct
             in
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> contextType, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr constrs)
+                        (constrs, chooseConstrRepr(constrs, []))
             end
             val typeconstr =
                 buildBasisDatatype("context", "PolyML.context", [], false, makeConstructors)
@@ -857,7 +859,7 @@ struct
             in
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> prettyType, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr constrs)
+                        (constrs, chooseConstrRepr(constrs, []))
             end
             val typeconstr =
                 buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
@@ -970,15 +972,16 @@ struct
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
             val Universal = mkTypeConstruction ("universal", univConstr, [], declInBasis)
 
+            val a = makeTV()
             (* val tagInject  : 'a tag -> 'a -> universal *)
-            val injectType = let val a = makeTV() in Tag a ->> a ->> Universal end
-            val () = enterUniversal ("tagInject", mkConst (toMachineWord Universal.tagInject), injectType)
+            val injectType = Tag a ->> a ->> Universal
+            val () = enterUniversal ("tagInject", makePolymorphic([a], mkConst (toMachineWord Universal.tagInject)), injectType)
             (* We don't actually need tagIs and tagProject since this is only used for
                the compiler.  Universal is redefined in the basis library. *)          
-            val projectType = let val a = makeTV() in Tag a ->> Universal ->> a end
-            val () = enterUniversal ("tagProject", mkConst (toMachineWord Universal.tagProject), projectType)
-            val testType = let val a = makeTV() in Tag a ->> Universal ->> Bool end
-            val () = enterUniversal ("tagIs", mkConst (toMachineWord Universal.tagIs), testType)
+            val projectType = Tag a ->> Universal ->> a 
+            val () = enterUniversal ("tagProject", makePolymorphic([a], mkConst (toMachineWord Universal.tagProject)), projectType)
+            val testType = Tag a ->> Universal ->> Bool
+            val () = enterUniversal ("tagIs", makePolymorphic([a], mkConst (toMachineWord Universal.tagIs)), testType)
          in
             val Tag = Tag and Universal = Universal
         end
@@ -1026,7 +1029,7 @@ struct
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr constrs)
+                        (constrs, chooseConstrRepr(constrs, []))
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
             val () = tcSetConstructors (propConstr, constructors);
@@ -1205,8 +1208,7 @@ struct
                  (* This is used to get the actual value out of a global "value".
                     It's currently used only in the debugger to get the exception
                     packet out of a global exception value. *)
-                 ("getValue",               toMachineWord getValue,
-                    valueVal ->> mkTypeVar (generalisable, false,  false))]
+                 ("getValue",               toMachineWord getValue, valueVal ->> TYPETREE.exnType)]
         end;
 
     in

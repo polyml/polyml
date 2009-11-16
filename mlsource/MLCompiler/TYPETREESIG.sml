@@ -100,9 +100,6 @@ sig
     (* A list of type variables. *)
     val displayTypeVariables: typeVarForm list * int -> pretty list;
 
-    (* Create an instance of an overloaded type. *)
-    val generaliseOverload: types * typeConstrs list * bool -> types;
-
     (* Returns the preferred type constructor from an overload. *)
     val typeConstrFromOverload: types * bool -> typeConstrs;
 
@@ -123,9 +120,12 @@ sig
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-    val generalise: types -> types;
+    val generalise: types -> types * types list;
+    (* Create an instance of an overloaded type. *)
+    val generaliseOverload: types * typeConstrs list * bool -> types * types list;
 
-    (* Release type variables at this nesting level. *)
+    (* Release type variables at this nesting level.  Updates the type to the
+       generalised version. *)
     val allowGeneralisation: types * int * bool *
                              lexan * location * (unit -> pretty) * printTypeEnv -> unit;
 

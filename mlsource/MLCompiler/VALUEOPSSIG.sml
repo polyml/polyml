@@ -43,9 +43,7 @@ sig
     type typeId
     type typeVarForm
 
-    val overloadType:      values * bool -> types
-
-    val chooseConstrRepr : (string*types) list -> codetree list
+    val chooseConstrRepr : (string*types) list * types list -> codetree list
 
     (* Construction functions. *)
     val mkGvar:        string * types * codetree * locationProp list -> values
@@ -106,13 +104,13 @@ sig
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
     val mkExIden:       types * int -> codetree
-    val codeVal:        values * int * types * lexan * location -> codetree
-    val codeExFunction: values * int * types * lexan * location -> codetree
-    val applyFunction:  values * codetree * int * types * lexan * location -> codetree
+    val codeVal:        values * int * types list * lexan * location -> codetree
+    val codeExFunction: values * int * types list * lexan * location -> codetree
+    val applyFunction:  values * codetree * int * types list * lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
-    val makeGuard:      values * codetree * int -> codetree 
-    val makeInverse:    values * codetree * int -> codetree
+    val makeGuard:      values * types list * codetree * int -> codetree 
+    val makeInverse:    values * types list * codetree * int -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals
@@ -132,8 +130,8 @@ sig
     val BoxedForm: representations;
     val EnumForm:  int -> representations;
 
-    val createNullaryConstructor: representations * string -> codetree
-    val createUnaryConstructor: representations * string -> codetree
+    val createNullaryConstructor: representations * types list * string -> codetree
+    val createUnaryConstructor: representations * types list * string -> codetree
 
     val codeLocation: location -> codetree
 

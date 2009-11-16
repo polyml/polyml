@@ -38,7 +38,6 @@ sig
   type codetree
   
   val addOverload: string * typeConstrs * codetree -> unit
-  val getOverloads: string -> (typeConstrs * codetree) list
   val getOverload: string * typeConstrs * (unit->codetree) -> codetree
 end;
 
@@ -490,31 +489,22 @@ struct
         This actually costs very little at run-time because functor are inlined
         so the constructor functions become inserted inline.  DCJM 18/5/01. *)
 
-      fun createNullaryConstructor (test: representations, name: string): codetree =
-      let
-          val code =
-              mkTuple[mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
+        fun createNullaryConstructor (test, [], name) =
+                mkTuple[mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
                     constrMake test name (* Value. *)]
-      in
-        (* Code generate the tuple now.  This saves us having multiple occurrences of
-           the code but more importantly allows us to be able to print values of
-           this datatype (printstruct uses evalue and that only works if we have
-           a constant). *)
-          genCode (code, [] (* No debugging output *)) ()
-      end
+        |   createNullaryConstructor (test, tvs, name): codetree =
+                mkTuple[mkInlproc(mkInlproc(constrMatch test arg1, 1, 1, name), 0, List.length tvs, name),
+                    mkInlproc(constrMake test name, 0, List.length tvs, name)]
     
-      fun createUnaryConstructor(test: representations, name: string): codetree =
-      let
-          val code =
-          mkTuple[mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
-                mkInlproc(constrApply test arg1, 0, 1, name), (* Injection function. *)
-                mkInlproc(constrDestruct test arg1, 0, 1, name) (* Projection function. *)]
-      in
-        (* Code generate the tuple now. *)
-          genCode (code, [] (* No debugging output *)) ()
-      end
-
-  end;
+        fun createUnaryConstructor(test: representations, [], name: string): codetree =
+                mkTuple[mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
+                    mkInlproc(constrApply test arg1, 0, 1, name), (* Injection function. *)
+                    mkInlproc(constrDestruct test arg1, 0, 1, name) (* Projection function. *)]
+        |   createUnaryConstructor(test: representations, tvs, name: string): codetree =
+                mkTuple[mkInlproc(mkInlproc(constrMatch test arg1, 1, 1, name), 0, List.length tvs, name),
+                    mkInlproc(mkInlproc(constrApply test arg1, 1, 1, name), 0, List.length tvs, name),
+                    mkInlproc(mkInlproc(constrDestruct test arg1, 1, 1, name), 0, List.length tvs, name)]
+    end;
 
 (* 
      RefForm is used for "ref" (only). We use various representations
@@ -590,38 +580,36 @@ struct
   (* Note that "UnaryTupled 0" (which would arise as a result of a declaration of the
      form  datatype t = A of () | ... ) can't be represented as "UnboxedForm"
      because "{}" is represented as a short (unboxed) integer. *)
-  fun chooseOptimisedRepr1 _ [] = []
-    | chooseOptimisedRepr1 n (h :: t) = 
-       case h of
-         (Nullary,       name) =>
-             createNullaryConstructor(EnumForm n, name) :: chooseOptimisedRepr1 (nextTag n) t
-       | (UnaryGeneric,  name) =>
-               createUnaryConstructor(BoxedForm, name) :: chooseOptimisedRepr1 n t
-       | (UnaryFunction, name) =>
-               createUnaryConstructor(UnboxedForm, name)  :: chooseOptimisedRepr1 n t
-       | (UnaryTupled 0, name) =>
-               createUnaryConstructor(BoxedForm, name)    :: chooseOptimisedRepr1 n t
-       | (UnaryTupled _, name) =>
-               createUnaryConstructor(UnboxedForm, name)  :: chooseOptimisedRepr1 n t
+    fun chooseOptimisedRepr1(_, _, []) = []
+    |   chooseOptimisedRepr1(n, tvs, (Nullary, name) :: t) =
+             createNullaryConstructor(EnumForm n, tvs, name) :: chooseOptimisedRepr1 (nextTag n, tvs, t)
+    |   chooseOptimisedRepr1(n, tvs, (UnaryGeneric, name) :: t) =
+               createUnaryConstructor(BoxedForm, tvs, name) :: chooseOptimisedRepr1(n, tvs, t)
+    |   chooseOptimisedRepr1(n, tvs, (UnaryFunction, name) :: t) =
+               createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
+    |   chooseOptimisedRepr1(n, tvs, (UnaryTupled 0, name) :: t) =
+               createUnaryConstructor(BoxedForm, tvs, name)    :: chooseOptimisedRepr1(n, tvs, t)
+    |   chooseOptimisedRepr1(n, tvs, (UnaryTupled _, name) :: t) = 
+               createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
 
-  (* We use this version there's more than 1 unary constructor. *)
-  (* With this representation constructors of small tuples make tuples of
+    (* We use this version there's more than 1 unary constructor. *)
+    (* With this representation constructors of small tuples make tuples of
      size n+1 whose first word is the tag.  Nullary constructors are represented
      by single word objects containing the tag. *)
-  fun chooseOptimisedRepr2 _ [] = []
-    | chooseOptimisedRepr2 n (h :: t) = 
-  let
-    val repr = 
-      case h of
-        (Nullary,       name) => createNullaryConstructor(genConstForm n, name)
-      | (UnaryGeneric,  name) => createUnaryConstructor(TaggedBox n, name)
-      | (UnaryFunction, name) => createUnaryConstructor(TaggedBox n, name)
-      | (UnaryTupled i, name) =>
-            createUnaryConstructor(
-                  if i <= 4 (*!maxPacking*) then TaggedTuple (n, i) else TaggedBox n, name)
-  in
-    repr :: chooseOptimisedRepr2 (nextTag n) t
-  end;
+    fun chooseOptimisedRepr2(_, _, []) = []
+    |   chooseOptimisedRepr2(n, tvs, h :: t) = 
+        let
+            val repr = 
+                case h of
+                    (Nullary,       name) => createNullaryConstructor(genConstForm n, tvs, name)
+                |   (UnaryGeneric,  name) => createUnaryConstructor(TaggedBox n, tvs, name)
+                |   (UnaryFunction, name) => createUnaryConstructor(TaggedBox n, tvs, name)
+                |   (UnaryTupled i, name) =>
+                        createUnaryConstructor(
+                            if i <= 4 (*!maxPacking*) then TaggedTuple (n, i) else TaggedBox n, tvs, name)
+        in
+            repr :: chooseOptimisedRepr2(nextTag n, tvs, t)
+        end;
 
     fun getTupleKind t =
       case t of
@@ -663,25 +651,25 @@ struct
       | _ =>
           UnaryGeneric
 
-  (* This now creates the functions as well as choosing the representation. *)
-    fun chooseConstrRepr cs =
+    (* This now creates the functions as well as choosing the representation. *)
+    fun chooseConstrRepr(cs, tvs) =
     let
         fun checkArgKind (name, EmptyType) = (Nullary, name)
          |  checkArgKind (name, argType) = (getTupleKind argType, name)
         val kinds = map checkArgKind cs;
 
-        fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, name)]
-        | chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, name)]
-        | chooseRepr [(UnaryFunction, name)] = [createUnaryConstructor(OnlyOne, name)]
-        | chooseRepr [(UnaryTupled _, name)] = [createUnaryConstructor(OnlyOne, name)]
+        fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, tvs, name)]
+        | chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, tvs, name)]
+        | chooseRepr [(UnaryFunction, name)] = [createUnaryConstructor(OnlyOne, tvs, name)]
+        | chooseRepr [(UnaryTupled _, name)] = [createUnaryConstructor(OnlyOne, tvs, name)]
         | chooseRepr l =
         let
           val unaryCount = List.foldl(fn((Nullary, _), n) => n | (_,n) => n+1) 0 l
         in
           (* tags now allocated from 0 (SPF 22/10/94) *)
           if unaryCount <= 1
-          then chooseOptimisedRepr1 0 l (* can save the box *)
-          else chooseOptimisedRepr2 0 l (* can use tagged tuples *)
+          then chooseOptimisedRepr1(0, tvs, l) (* can save the box *)
+          else chooseOptimisedRepr2(0, tvs, l) (* can use tagged tuples *)
         end;
 
        in
@@ -735,9 +723,9 @@ struct
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
             val nilConstructor  =
-                mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, "nil"),  true, 2, [DeclaredAt inBasis]);
+                mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, [alpha], "nil"),  true, 2, [DeclaredAt inBasis]);
             val consConstructor =
-                mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, "::"), false, 2, [DeclaredAt inBasis]);
+                mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, [alpha], "::"), false, 2, [DeclaredAt inBasis]);
         in
             [nilConstructor, consConstructor]
         end
@@ -760,10 +748,10 @@ struct
             val someType      = mkFunctionType (alpha, alphaOption);
             val noneConstructor  =
                 mkGconstr ("NONE", alphaOption,
-                    createNullaryConstructor(EnumForm 0, "NONE"),  true, 2, [DeclaredAt inBasis]);
+                    createNullaryConstructor(EnumForm 0, [alpha], "NONE"),  true, 2, [DeclaredAt inBasis]);
             val someConstructor =
                 mkGconstr ("SOME",  someType,
-                    createUnaryConstructor(BoxedForm, "SOME"), false, 2, [DeclaredAt inBasis]);
+                    createUnaryConstructor(BoxedForm, [alpha], "SOME"), false, 2, [DeclaredAt inBasis]);
         in
             [noneConstructor, someConstructor]
         end
@@ -1400,32 +1388,59 @@ struct
                }
             end;
 
+    fun applyToInstance([], code) = code
+    |   applyToInstance(polyVars, code) = mkEval(code, List.map(fn _ => CodeZero) polyVars, true)
+
  (* Code-generate an identifier matched to a value.  N.B. If the value is a
     constructor it returns the pair or triple representing the functions on the
     constructor. *)
- fun codeVal (Value{access = Global code, ...}, _, _, _, _) = code
+ fun codeVal (Value{access = Global code, ...}, _, instance, _, _) = applyToInstance(instance, code)
 
-  |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, ...}, level, _, _, _) =
+  |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, ...}, level, instance, _, _) =
      let
        (* Load the variable. *)
        val levelDiff = level - locLevel;
      in
-       if locAddr = 0
-       then mkRecLoad (levelDiff - 1)   (* Recursive *)
-       else mkLoad (locAddr, levelDiff) (* Argument or local *)
+        applyToInstance(instance,
+            if locAddr = 0
+            then mkRecLoad (levelDiff - 1)   (* Recursive *)
+            else mkLoad (locAddr, levelDiff) (* Argument or local *))
      end
 
-  |  codeVal (Value{access = Selected{addr, base}, ...}, level, _, _, _) =
+  |  codeVal (Value{access = Selected{addr, base}, ...}, level, instance, _, _) =
        (* Select from a structure. *)
-       mkInd (addr, codeStruct (base, level))
+       applyToInstance(instance, mkInd (addr, codeStruct (base, level)))
 
   |  codeVal (Value{access = Formal _, ...}, _, _, _, _) =
           raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, instance, lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, [], lex, _) =
+        (* If this appears in a structure return a null printer function.
+           It has to have the polymorphic form with an extra lambda outside. *)
+        let
+            (* We should have a single entry for the type. *)
+            open DEBUG
+            (* The parameter is the reference used to control the print depth
+               when the value is actually printed. *)
+            val prettyOut = getPrintOutput (LEX.debugParams lex)
+        in
+            mkProc(
+                mkProc(
+                    CODETREE.mkEnv
+                    [
+                        mkEval(
+                            mkConst(toMachineWord prettyOut),
+                            [ mkConst(toMachineWord(PrettyString "?")) ],
+                            false),
+                        arg1 (* Returns its argument. *)
+                    ],
+                    level+1, 1, "print()"),
+                level, 1, "print(P)")
+        end
+
+  |  codeVal (Value{access = Overloaded Print, ...}, level, [argType], lex, _) =
         let 
-            (* "instance" should be 'a -> 'a. We need to get the 'a. *)
-            val argType = case getFnArgType instance of NONE => badType | SOME t => t;
+            (* We should have a single entry for the type. *)
             open DEBUG
             (* The parameter is the reference used to control the print depth
                when the value is actually printed. *)
@@ -1452,41 +1467,55 @@ struct
                     arg1 (* Returns its argument. *)
                 ],
                 level, 1, "print()")
-        end 
-
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, instance, _, _) =
-        let 
-            (* "instance" should be 'a -> string. We need to get the 'a. *)
-            val argType = case getFnArgType instance of NONE => badType | SOME t => t;
-        in
-            (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
-            mkProc(
-                mkEval(
-                    mkConst(toMachineWord uglyPrint),
-                    [
-                        mkEval(
-                            printerForType(argType, level+1),
-                            [
-                                mkTuple[arg1, mkConst(toMachineWord 10000)]
-                            ],
-                            false)
-                    ],
-                    false),
-                level, 1, "makestring()")
         end
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, instance, _, _) =
-       let (* Get the pretty code for the specified argument. *)
-         (* "instance" should be 'a * int -> pretty. We need to get the 'a.  *)
-         val argType =
-            case getFnArgType instance of
-                SOME(LabelledType{recList=({typeof, ...} :: _), ...}) => typeof
-            |   _ => badType
-       in
-            printerForType(argType, level)
-       end
+  |  codeVal (Value{access = Overloaded Print, ...}, _, _, _, _) =
+        raise InternalError "Overloaded Print - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, instance, lex, loc) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, [], _, _) =
+        (* If this appears in a structure produce a default version. *)
+            mkInlproc(
+                mkProc(mkConst(toMachineWord "?"), level+1, 1, "makestring()"),
+                level, 1, "makestring(P)")
+
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, [argType], _, _) =
+        (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
+        mkProc(
+            mkEval(
+                mkConst(toMachineWord uglyPrint),
+                [
+                    mkEval(
+                        printerForType(argType, level+1),
+                        [
+                            mkTuple[arg1, mkConst(toMachineWord 10000)]
+                        ],
+                        false)
+                ],
+                false),
+            level, 1, "makestring()")
+
+  |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _) =
+        raise InternalError "Overloaded MakeString - wrong instance type"
+
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, [], _, _) =
+        (* If this appears in a structure return a default function. *)
+        mkProc(printerForType(badType, level+1), level, 1, "getPretty")
+
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, [argType], _, _) =
+       (* Get the pretty code for the specified argument. *)
+            printerForType(argType, level)
+
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _) =
+        raise InternalError "Overloaded GetPretty - wrong instance type"
+
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, [], _, _) =
+        (* If this appears in a structure create a function that raises an exception if run. *)
+        mkProc(
+            mkConst (toMachineWord
+                        (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
+            level, 1, "AddPretty(P)")
+
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, [installType, argPrints], lex, loc) =
         let 
          (* "instance" should be (int-> 'a -> 'b -> pretty) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -1501,18 +1530,7 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val argPrints  = mkTypeVar (generalisable, false, false);
-            val installType   = mkTypeVar (generalisable, false, false);
-            val pretty = mkTypeVar (generalisable, false, false);
-            (* Build a pattern type and unify it to get the type variables.
-               Unification should not fail here because type checking has already
-               been done by the time we get here. *)
-            val addPPType =
-                mkFunctionType(
-                    mkFunctionType (TYPESTRUCT.intType,
-                        mkFunctionType(argPrints, mkFunctionType(installType, pretty))),
-                    TYPESTRUCT.unitType);
-            val () = checkPPType(instance, addPPType, "addPrettyPrinter", lex, loc, fn () => PrettyString "");
+            val pretty = mkTypeVar (generalisable, false, false); (* Temporary hack. *)
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -1578,14 +1596,23 @@ struct
                         mkEval(
                             mkConst (ioOp POLY_SYS_assign_word),
                             [mkInd(1, codeAccess(idAccess typeId, level+1)), CodeZero, arg1],
-                            false), 1, 1, "addPP")
-                  (*mkConst (toMachineWord (fn _ => ()))*)
+                            false), level, 1, "addPP")
+                    
             |   NONE =>
                     mkConst (toMachineWord
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
         end
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, instance, lex, loc) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _) =
+        raise InternalError "Overloaded AddPretty - wrong instance type"
+
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, [], _, _) =
+        mkProc(
+            mkConst (toMachineWord
+                        (fn _ => raise Fail "installPP: The argument type was not a simple type construction")),
+            level, 1, "InstallPP(P)")
+
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, [installType, argPrints], lex, loc) =
         let
          (* This is the old function to install a pretty printer.  It has
             been retained for backwards compatibility.
@@ -1604,21 +1631,6 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val argPrints  = mkTypeVar (generalisable, false, false);
-            val installType   = mkTypeVar (generalisable, false, false);
-            (* Build a pattern type and unify it to get the type variables.
-               Unification should not fail here because type checking has already
-               been done by the time we get here. *)
-            (* The first type variable matches the set of pretty-printer functions
-               we pass in and isn't needed for type info. *)
-            val installPPType =
-                mkFunctionType(
-                    mkFunctionType(mkTypeVar (generalisable, false, false),
-                        mkFunctionType (TYPESTRUCT.intType,
-                            mkFunctionType(argPrints,
-                                mkFunctionType(installType, TYPESTRUCT.unitType)))),
-                    TYPESTRUCT.unitType);
-            val () = checkPPType(instance, installPPType, "install_pp", lex, loc, fn () => PrettyString "");
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -1760,6 +1772,9 @@ struct
             mkConst (toMachineWord installPp)
         end
 
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, _, _) =
+        raise InternalError "Overloaded InstallPP - wrong instance type"
+
   |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _) =
         (* This can't be used a value: It must be called immediately. *)
         let
@@ -1789,20 +1804,25 @@ struct
      end
 
   | applyFunction(value as Value{class=Constructor _, ...},
-                    argument, level, instance, lex, lineno) =
-     let
+                    argument, level, polyVars, lex, lineno) =
+    let
         (* If this is a value constructor we need to get the construction
            function and use that. *)
-         val constrTriple = codeVal (value, level, instance, lex, lineno);
-     in
+        val constrTriple = codeVal (value, level, [], lex, lineno);
+        val constructor = mkInd(1, constrTriple)
+        val polyConstr = (* If it's polymorphic apply it to the constructor args. *)
+            case polyVars of
+                [] => constructor
+            |   _ => mkEval(constructor, List.map (fn _ => CodeZero) polyVars, true)
+    in
          (* Don't apply this "early".  It might be the ref constructor and that
            must not be applied until run-time.  The optimiser should take care
            of any other cases. *)
-        mkEval (mkInd(1, constrTriple), [argument], false)
-     end
+        mkEval (polyConstr, [argument], false)
+    end
 
   | applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
-                     argument, level, instance, lex, lineno) =
+                     argument, level, instance: types list, lex, lineno) =
      (
        case oper of
              Equal =>
@@ -1820,16 +1840,26 @@ struct
                in the prelude and set it as an overload with some special
                type so that getOverload would return it as the default. *)
             let
+                (* We should have a single entry for the type. *)
+                val argType =
+                    case instance of
+                        [t] => t
+                    |   _ => raise InternalError "Overload Equal"
                 (* The instance type is a function so we have to get the first argument. *)
-                val code = equalityForType(firstArg instance, level)
+                val code = equalityForType(argType, level)
             in
                 mkEval (code, [argument], true) (* evaluate early *)
             end
         
         | NotEqual =>
             let
+                (* We should have a single entry for the type. *)
+                val argType =
+                    case instance of
+                        [t] => t
+                    |   _ => raise InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
-                val code = equalityForType(firstArg instance, level)
+                val code = equalityForType(argType, level)
                 val isEqual =
                     mkEval (code, [argument], true) (* evaluate early *)
             in
@@ -1838,7 +1868,11 @@ struct
        
         | TypeDep =>
            let
-             val (code, _) = getOverloadInstance(valName, instance, false)
+                val argType =
+                    case instance of
+                        [t] => t
+                    |   _ => raise InternalError "Overload TypeDep"
+             val (code, _) = getOverloadInstance(valName, argType, false)
            in
              mkEval (code, [argument], true) (* evaluate early *)
            end
@@ -1847,12 +1881,16 @@ struct
            (* AddOverload is only intended for use by writers of library modules.
            It only does limited checking and should be regarded as "unsafe". *)
            let
-        (* instance should be ('a->'b) -> string -> unit.  For overloadings
-           on most functions (e.g. abs and +) we are looking for the 'a, which
-           may be a pair, but in the case of conversion functions we want the 'b. *)
-           (* rmvars removes type variables put on by unification. *)
+
             fun rmvars (TypeVar tv) = rmvars(tvValue tv)
-             | rmvars t = t
+            |   rmvars t = t
+            (* instance should be ('a->'b) -> string -> unit.  For overloadings
+               on most functions (e.g. abs and +) we are looking for the 'a, which
+               may be a pair, but in the case of conversion functions we want the 'b. *)
+            val (resultType, argType) =
+                case instance of
+                    [alpha, beta] => (rmvars alpha, rmvars beta)
+                |   _ => (badType, badType)
 
             fun followTypes(TypeConstruction{value, args, ...}):typeConstrs =
                 let
@@ -1864,47 +1902,21 @@ struct
                    else constr
                    else followTypes (makeEquivalent (constr, args))
                 end
-             | followTypes _ =
-                     raise Fail "Invalid type (not a type construction) (addOverload)"
-
-           (* In normal use the instance type would be a function and
-              everything would be fine.  It is possible though that we
-              might have something of the form val a = addOverload in
-              which case we want to leave the error until runtime.  This
-              particular case seems to happen as a result of open PolyML
-              when PolyML contains addOverload. *)
-           val (argType, resultType) =
-               case rmvars instance of
-                FunctionType{arg,...} =>
-                (
-                case arg of
-                    (* We could do some checking of the type of the
-                       function such as checking that we either have
-                       something of the form t->t, t*t->t or t*t->bool
-                       or string->t in the case of conversion functions.
-                       It's probably not worth it since adding overloads
-                       is only intended to be done by writers of libraries. *)
-                    FunctionType{arg, result} =>
-                        (
-                        case (rmvars arg) of
-                            LabelledType{recList=[{typeof, ...}, _], ...} =>
-                                (rmvars typeof, rmvars result)
-                          | t => (rmvars t, rmvars result)
-                        )
-                  | _ => (badType, badType)
-                )
-              | _ => (badType, badType)
+             | followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
 
             fun addOverloading (argCode: codetree) (name: string) =
                 let
                     val typeToUse =
                         if size name > 4 andalso
                             String.substring(name, 0, 4) = "conv"
-                        (* For conversion functions it's the result
-                           type we're interested in. For everything
-                           else it's the argument type. *)
+                        (* For conversion functions it's the result type we're interested in.
+                           For everything else it's the argument type.  This will be a pair
+                           for functions such as "+" and a single argument for "abs". *)
                         then resultType
-                        else argType
+                        else case argType of
+                            LabelledType{recList=[{typeof, ...}, _], ...} => rmvars typeof
+                        |   argType => argType
+                            
                     val tcons = followTypes typeToUse
                 in
                     addOverload(name, tcons, argCode)
@@ -1941,15 +1953,14 @@ struct
      ) (* overloaded *)
      
   | applyFunction (value, argument, level, instance, lex, lineno) =
-   (* Just call as functions. *)
-       mkEval (codeVal (value, level, instance, lex ,lineno), [argument], false)
-   (* end applyFunction *)
+        mkEval (codeVal (value, level, instance, lex, lineno), [argument], false)
+    (* end applyFunction *)
 
   (* If the exception is being used as a value we want an exception packet
      or a function to make a packet. If it is a nullary constructor make
      an exception packet now, otherwise generate a function to construct
      an exception packet. *)
- fun codeExFunction (value, level, instance, lex, lineno) =
+    fun codeExFunction (value, level, instance, lex, lineno) =
     case getFnArgType(valTypeOf value) of (* N.B. Not "instance" *)
         NONE => applyFunction (value, CodeZero, level, instance, lex, lineno)
     |   SOME _ =>
@@ -1959,46 +1970,46 @@ struct
 
     (* Operations to compile code from the representation of a constructor. *)
     (* Code to test whether a value matches a constructor. *)
-    fun makeGuard (value as Value{class=Constructor _, ...}, testing, level) =
-        mkEval(mkInd(0, codeVal (value, level, emptyType, nullLex, location nullLex)),
-            [testing], true)
+    fun makeGuard (value as Value{class=Constructor _, ...}, polyVars, testing, level) =
+        let
+            val tester = mkInd(0, codeVal (value, level, [], nullLex, location nullLex))
+            val polyVal =
+                case polyVars of
+                    [] => tester
+                |   _ => mkEval(tester, List.map (fn _ => CodeZero) polyVars, true)
+        in
+            mkEval(polyVal, [testing], true)
+        end
 
-    |   makeGuard (value as Value{class=Exception, ...}, testing, level) =
-     (* Should only be an exception. Get the value of the exception identifier 
-        and compare with the identifier in the exception packet. *)
-     mkTestptreq 
-        (mkInd (0, testing),
-         codeVal (value, level, emptyType, nullLex, location nullLex))
+    |   makeGuard (value as Value{class=Exception, ...}, _, testing, level) =
+        (* Should only be an exception. Get the value of the exception identifier 
+           and compare with the identifier in the exception packet. *)
+        mkTestptreq 
+            (mkInd (0, testing),
+                codeVal (value, level, [], nullLex, location nullLex))
 
     |   makeGuard _ = raise InternalError "makeGuard"
 
-    (* Code to invert a constructor. i.e. return the value originally
-    used as the argument. *)
-    fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...}, arg, level): codetree =
-        mkEval(mkInd(2, codeVal (value, level, emptyType, nullLex, location nullLex)),
-            [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
+    (* Code to invert a constructor. i.e. return the value originally used as the argument. *)
+    fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...}, polyVars, arg, level): codetree =
+        let
+            val inverse = mkInd(2, codeVal (value, level, [], nullLex, location nullLex))
+            val polyVal =
+                case polyVars of
+                    [] => inverse
+                |   _ => mkEval(inverse, List.map (fn _ => CodeZero) polyVars, true)
+        in
+            mkEval(polyVal, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
+        end
 
-    |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _): codetree =
+    |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _, _): codetree =
         (* makeInverse is called even on nullary constructors.  Return zero to keep the
            optimiser happy. *) CodeZero
 
-    |   makeInverse (Value{class=Exception, ...}, arg, _) =
+    |   makeInverse (Value{class=Exception, ...}, _, arg, _) =
       (* Exceptions. - Get the parameter from third word *) mkInd (2,arg)
 
     |   makeInverse _ = raise InternalError "makeInverse"
-
- (* Get the current overload set for the function and return a new
-    instance of the type containing the overload set. *)
- fun overloadType(Value{typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
-     let
-        fun getTypes [] = []
-         |  getTypes ((t, _) :: l) = t :: getTypes l
-
-    in
-        generaliseOverload(typeOf, getTypes(getOverloads name), isConv)
-    end
-
- |  overloadType(Value{typeOf, ...}, _) =  generalise typeOf
 
   (* True if the arguments are definitely the same exception.  Used in the
      match compiler to see if we can merge adjacent exception patterns.
