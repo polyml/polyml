@@ -135,6 +135,9 @@ sig
     val traceCompilerTag: bool Universal.tag
     val fileNameTag: string Universal.tag
     val reportUnreferencedIdsTag: bool Universal.tag
+    val codetreeTag: bool Universal.tag
+    val codetreeAfterOptTag: bool Universal.tag
+    val printDepthFunTag: (unit->int) Universal.tag
 end
 
 structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
@@ -403,7 +406,7 @@ struct
                             (useEnv, getChar,
                               [
                                  tagInject traceCompilerTag true,
-                                 tagInject PRETTY.compilerOutputTag (print o PRETTY.uglyPrint),
+                                 tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70)),
                                  tagInject lineNumberTag (fn () => !lineNo),
                                  tagInject fileNameTag fileName,
                                  tagInject LEX.errorMessageProcTag errorProc,
@@ -411,7 +414,12 @@ struct
                                     sure that String.foldr can be expanded inline which reduces the
                                     garbage in the hashValue function. *)
                                  tagInject maxInlineSizeTag 50,
-                                 tagInject reportUnreferencedIdsTag true
+                                 tagInject reportUnreferencedIdsTag true,
+                                 (* These are only needed for debugging. *)
+                                 tagInject PRETTY.printOutputTag (PRETTY.prettyPrint(print, 70)),
+                                 tagInject printDepthFunTag(fn () => 20),
+                                 tagInject codetreeTag false,
+                                 tagInject codetreeAfterOptTag false
                               ] ) of
                         (_, NONE) => raise Fail "Static Errors"
                      |  (_, SOME c) => c

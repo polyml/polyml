@@ -33,6 +33,9 @@ sig
     (* A simple "pretty printer" that just accumulates strings. *)
     val uglyPrint: pretty -> string
 
+    (* A proper pretty printer. *)
+    val prettyPrint: (string -> unit) * int -> pretty -> unit
+
     (* Tag for pretty printed out from PolyML.print. *)
     val printOutputTag : (pretty -> unit) Universal.tag
     (* Compiler output.  Used for timing information and compiler debug output. *)
