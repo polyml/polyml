@@ -69,26 +69,17 @@ struct
 
   (* These are handled in the compiler *)
   (* Conversion may be also raised by run-time Conversion routines *)
-  local
-    structure Conversion =
-      RunCall.Run_exception1
-        (
-          type ex_type = string;
-          val ex_iden  = EXC_conversion
-        );
-  in
-    exception Conversion = Conversion.ex;
-  end;
+  exception Conversion = RunCall.Conversion
 
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
-  fun filter f [] = []
+  fun filter _ [] = []
     | filter f (h::t) = 
        if f h then h :: filter f t else filter f t;
 
-  fun quickSort (leq:'a -> 'a -> bool) ([]:'a list)      = []
-    | quickSort (leq:'a -> 'a -> bool) ([h]:'a list)     = [h]
+  fun quickSort (_  :'a -> 'a -> bool) ([]:'a list)      = []
+    | quickSort (_  :'a -> 'a -> bool) ([h]:'a list)     = [h]
     | quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
   let
      val (after, befor) = List.partition (leq h) t

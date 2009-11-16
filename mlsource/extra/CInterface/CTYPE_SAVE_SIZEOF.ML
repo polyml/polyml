@@ -58,5 +58,11 @@ struct
     fun align n t       = Underlying.align n (unpack t);
     fun makeRaw t       = Underlying.makeRaw (unpack t);
                      
+
+    local
+        fun prettyCtype _ _ (_: Ctype) = PolyML.PrettyString "?"
+    in
+        val () = PolyML.addPrettyPrinter prettyCtype
+    end
                 
 end;

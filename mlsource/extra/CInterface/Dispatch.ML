@@ -28,6 +28,12 @@ struct
         val unsafeCast  : machineWord -> 'a   = RunCall.unsafeCast; (* used for data values *)
     end
 
+    local
+        fun prettyWord _ _ (_: machineWord) = PolyML.PrettyString "?"
+    in
+        val () = PolyML.addPrettyPrinter prettyWord
+    end
+
     structure Union : UnionSig =
     struct
     (***
@@ -64,15 +70,15 @@ struct
          fun Vol    (x:'a)     : 'a union = (toWord x,8);
          fun Uint   (x:int)    : 'a union = (toWord x,9);
          
-         fun isChar   ((x,1) : 'a union) : bool   = true | isChar _   = false;
-         fun isDouble ((x,2) : 'a union) : bool   = true | isDouble _ = false;
-         fun isFloat  ((x,3) : 'a union) : bool   = true | isFloat _  = false;
-         fun isInt    ((x,4) : 'a union) : bool   = true | isInt _    = false;
-         fun isLong   ((x,5) : 'a union) : bool   = true | isLong _   = false;
-         fun isShort  ((x,6) : 'a union) : bool   = true | isShort _  = false;
-         fun isString ((x,7) : 'a union) : bool   = true | isString _ = false;
-         fun isVol    ((x,8) : 'a union) : bool   = true | isVol _    = false;
-         fun isUint   ((x,9) : 'a union) : bool   = true | isUint _   = false;
+         fun isChar   ((_,1) : 'a union) : bool   = true | isChar _   = false;
+         fun isDouble ((_,2) : 'a union) : bool   = true | isDouble _ = false;
+         fun isFloat  ((_,3) : 'a union) : bool   = true | isFloat _  = false;
+         fun isInt    ((_,4) : 'a union) : bool   = true | isInt _    = false;
+         fun isLong   ((_,5) : 'a union) : bool   = true | isLong _   = false;
+         fun isShort  ((_,6) : 'a union) : bool   = true | isShort _  = false;
+         fun isString ((_,7) : 'a union) : bool   = true | isString _ = false;
+         fun isVol    ((_,8) : 'a union) : bool   = true | isVol _    = false;
+         fun isUint   ((_,9) : 'a union) : bool   = true | isUint _   = false;
            
          fun deChar   ((x,1) : 'a union) : char   = unsafeCast x | deChar _   = never "deChar";
          fun deDouble ((x,2) : 'a union) : real   = unsafeCast x | deDouble _ = never "deDouble";
@@ -176,8 +182,8 @@ struct
         val In  : ('a * 'b) union -> ('a,'b) directedArg = fn x => (toWord x,1);
         val Out : 'a unionChoice  -> ('a,'b) directedArg = fn x => (toWord x,2);
              
-        val isIn  : ('a,'b) directedArg -> bool = fn (x,1) => true | _ => false
-        val isOut : ('a,'b) directedArg -> bool = fn (x,2) => true | _ => false
+        val isIn  : ('a,'b) directedArg -> bool = fn (_,1) => true | _ => false
+        val isOut : ('a,'b) directedArg -> bool = fn (_,2) => true | _ => false
              
         val deIn  : ('a,'b) directedArg -> ('a * 'b) union = fn (x,1) => unsafeCast x | _ => never "deIn"
         val deOut : ('a,'b) directedArg -> 'a unionChoice  = fn (x,2) => unsafeCast x | _ => never "deOut"
@@ -250,7 +256,13 @@ struct
     val Cstruct   = fn (n : int) => toWord {1 = n, 2=999};
     
     abstype rawvol = rawvol with end; (* Purely abstract type. *)
-    
+
+    local
+        fun prettyVol _ _ (_: rawvol) = PolyML.PrettyString "?"
+    in
+        val () = PolyML.addPrettyPrinter prettyVol
+    end
+
         
     fun foreign code args =
         RunCall.run_call2 RuntimeCalls.POLY_SYS_foreign_dispatch (code:int,args);

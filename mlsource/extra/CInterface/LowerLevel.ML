@@ -218,4 +218,14 @@ struct
       | _      => never "call_sym"
     end
 
+
+    local
+        fun prettyDylib _ _ (_: dylib) = PolyML.PrettyString "?"
+        fun prettySym _ _ (_: sym) = PolyML.PrettyString "?"
+    in
+        val () = PolyML.addPrettyPrinter prettyDylib
+        and () = PolyML.addPrettyPrinter prettySym
+    end
+
+
 end;

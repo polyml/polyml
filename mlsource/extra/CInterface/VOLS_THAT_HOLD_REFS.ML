@@ -67,11 +67,11 @@ where type dependancy = (int * owner) option
 datatype owner = Owner of Underlying.vol * ownerOpt Array.array ref
 and ownerOpt = None | Some of int * owner (* This is more storage efficient than using "option". *)
 
-type vol = {thevol: Underlying.vol, depends: ownerOpt}
+datatype vol = Vol of {thevol: Underlying.vol, depends: ownerOpt}
 
-fun vol(thevol, depends) = {thevol = thevol, depends = depends}
-val thevol: vol -> Underlying.vol = #thevol
-and depends: vol -> ownerOpt = #depends
+fun vol(thevol, depends) = Vol{thevol = thevol, depends = depends}
+fun thevol(Vol{thevol, ...}) = thevol
+and depends(Vol{depends, ...}) = depends
  
 
 val PointerSize = sizeof (Ctype.Cpointer Ctype.Cvoid)
@@ -107,7 +107,7 @@ a = &b
 
 (* "address" creates a new vol containing the address of an existing one.
    We create a single element array to hold the dependencies.  *)
-fun address ({thevol, depends}: vol) =
+fun address (Vol{thevol, depends}) =
     let val v = Underlying.address thevol
     in selfOwner v (Array.array (1, depends))
     end
@@ -121,7 +121,7 @@ a = *b
    this if, for example, we have created a list in the C space.  If
    we extract the tail of a cell we need to hang on to the rest of
    the list.) *)
-fun deref({thevol, depends}: vol) =
+fun deref(Vol{thevol, depends}) =
     vol (Underlying.deref thevol,
         case depends of
             None => None
@@ -148,7 +148,7 @@ a = b.X (offset n objects of type ctype)    [*a = ( char* )&b + n]
    select the dependency at this offset yet.
    This is where the self-owner comes in.  Although we're creating a
    new vol here we need to retain the original vol in the event of a GC. *)
-fun offset n ctype ({thevol, depends}: vol) =
+fun offset n ctype (Vol{thevol, depends}) =
     let val m = n * sizeof ctype
     in
     vol (Underlying.offset n ctype thevol,
@@ -228,7 +228,7 @@ fun load_lib s =
     makeVol (Underlying.load_lib s)
 
     
-fun load_sym ({thevol, ...}: vol) s =
+fun load_sym (Vol{thevol, ...}) s =
     makeVol (Underlying.load_sym thevol s)
 
 
@@ -297,5 +297,13 @@ fun toPascalfunction argType resType (f: vol list -> vol) =
 
 
 fun setFinal f v = Underlying.setFinal (thevol f) (thevol v)
+
+
+    local
+        fun prettyVol _ _ (_: vol) = PolyML.PrettyString "?"
+    in
+        val () = PolyML.addPrettyPrinter prettyVol
+    end
+
 
 end (* struct *)
