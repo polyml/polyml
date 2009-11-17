@@ -2166,7 +2166,7 @@ struct
             (* Be careful if this is a non-unifiable type variable being matched to
                the special case of the identity type-construction. *)
         (
-            if tvNonUnifiable typeAVar
+            if tvNonUnifiable typeAVar orelse (case tvValue typeAVar of OverloadSet _ => true | _ => false)
             then
                 (
                 case tB of
@@ -2198,7 +2198,7 @@ struct
       | (_, TypeVar typeBVar) => (* and typeA is not *)
         (
             (* We have to check for the special case of the identity type-construction. *)
-            if tvNonUnifiable typeBVar
+            if tvNonUnifiable typeBVar orelse (case tvValue typeBVar of OverloadSet _ => true | _ => false)
             then
                 (
                 case tA of
@@ -2346,7 +2346,8 @@ struct
                         tA, mkTypeConstruction (tcName prefType, prefType,[], []),
                         tACons, prefType))
         end
-        
+
+      |  (OverloadSet _ , OverloadSet _) => raise InternalError "Unification: OverloadSet/OverloadSet"
       (* (OverloadSet , OverloadSet) should not occur because that should be
          handled in the (TypeVar, TypeVar) case. *)
         
@@ -2403,7 +2404,7 @@ struct
             
       | _ => cantMatch (tA, tB, "(Incompatible types)")
 
-    end; (* match *)
+    end (* match *)
 
     in
         match (Atype, Btype);
@@ -2575,8 +2576,8 @@ struct
      it is possible that another declaration may "freeze" the type variable
      before the composite expression reaches the top level. *)
   fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
-    let
-        fun giveError(s1: string, s2: string) =
+	let
+		fun giveError(s1: string, s2: string) =
         let
             (* Use a single sequence. *)
             val vars : typeVarForm -> string = varNameSequence ();
@@ -2602,88 +2603,61 @@ struct
             }
         end
 
-        val madeList = ref [] (* List of tyVars. *);
-        val reported = ref false
+		fun general (TypeVar tvar) showError =
+			if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
+                andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
+			then let
+			    (* Is this an overload set ? *)
+				val isOverloadSet = 
+					case tvValue tvar of
+						OverloadSet _ => true
+					|	_ => false
 
-        fun copyTypeVar (atyp as TypeVar tvar) =
-        (
-            if tvLevel tvar = generalisable
-            then raise InternalError "Already general"
-            else if tvLevel tvar < level
-            then atyp (* Not yet generalisable or already done. *)
-            else case List.find (fn Matched {old, ...} => sameTv (old, tvar)) (!madeList) of
-                SOME(Matched{new, ...}) => new (* Already done: return the existing one. *)
-            |   NONE => (* Not yet done. *)
-                let
-                    (* Is this an overload set ? *)
-                    val isOverloadSet = 
-                        case tvValue tvar of
-                            OverloadSet _ => true
-                        |   _ => false
+	            (* Make a new generisable type variable, except that type
+	               variables in an expansive context cannot be generalised.
+				   We also don't generalise if this is an overload set.
+				   The reason for that is that it allows us to get overloading
+				   information from the surrounding context.
+				   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
+				   would be take the default type (in this case int).
+				   DCJM 1/9/00. *)
+	            val nonCopiable = not nonExpansive orelse isOverloadSet;
+	            val newLevel =
+	               if nonCopiable then level-1 else generalisable (* copiable *);
 
-                    (* Make a new generisable type variable, except that type
-                       variables in an expansive context cannot be generalised.
-                       We also don't generalise if this is an overload set.
-                       The reason for that is that it allows us to get overloading
-                       information from the surrounding context.
-                       e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-                       would be take the default type (in this case int).
-                       DCJM 1/9/00. *)
-                    val nonCopiable = not nonExpansive orelse isOverloadSet;
-                    val newLevel =
-                       if nonCopiable then level-1 else generalisable (* copiable *);
-
-                    val () =
-                        (* If the type variable has top-level scope then we have
-                           a free type variable.  We only want to generate this
-                           message once even if we have multiple type variables.*)
-                        (* If the type variable is non-unifiable and the expression is
-                           expansive then we have an error since this will have to
-                           be a monotype.  *)
-                        if tvNonUnifiable tvar andalso nonCopiable andalso ! reported
-                        then
-                            (
-                            giveError("Type", "includes a free type variable");
-                            reported := false
-                            )
-                        else ();
-                    val newVal =
-                         mkTypeVar 
-                           (newLevel, tvEquality tvar,
-                            if nonCopiable then (tvNonUnifiable tvar) else false)
-                in
-                    (* If an explicit type variable is going out of scope we can
-                       generalise it, except if it is nonunifiable. *)
-                    tvSetValue (typesTypeVar newVal, tvValue tvar);
-                    (* It may be a flexible record so we have to transfer the
-                       record to the new variable.   We also have to link it up with
-                       the original type variable so that if we use the generic version
-                       on a fixed record type somewhere we feed this back to the original. *)
-                    case tvValue tvar of
-                        valu as LabelledType{genericInstance, ...} =>
-                        (
-                            case copyType (valu, copyTypeVar, fn t => t)  of
-                                LabelledType{recList, frozen, ... } =>
-                                    tvSetValue (typesTypeVar newVal,
-                                        LabelledType{recList = recList, frozen = frozen,
-                                            genericInstance = tvar :: genericInstance})
-                            |   _ => raise InternalError "Copy of labelled record is not a labelled record"
-                        )
-                        |   _ => ();
-                    madeList := Matched{old = tvar, new = newVal} :: ! madeList;
-                    newVal
-                end
-        )
-        |   copyTypeVar t = t
-
-    in
-        case t of
-            t as TypeVar tyVar =>
-                (* Replace the existing type with the generalised version. *)
-                tvSetValue(tyVar, copyType (t, copyTypeVar, fn t => t))
-        |   _ => raise InternalError "allowGeneralisation: Not a type variable"
-    end (*  end allowGeneralisation *);
-
+				val isOk =
+					(* If the type variable has top-level scope then we have
+	                   a free type variable.  We only want to generate this
+					   message once even if we have multiple type variables.*)
+					(* If the type variable is non-unifiable and the expression is
+					   expansive then we have an error since this will have to
+					   be a monotype.  *)
+					if tvNonUnifiable tvar andalso nonCopiable andalso showError
+					then
+						(
+						giveError("Type", "includes a free type variable");
+						false
+						)
+		            else showError;
+	            val newVal =
+	                 mkTypeVar 
+	                   (newLevel, tvEquality tvar,
+	                    if nonCopiable then (tvNonUnifiable tvar) else false)
+			in
+	            (* If an explicit type variable is going out of scope we can
+	               generalise it, except if it is nonunifiable. *)
+	            (* It may be a flexible record so we have to transfer the
+	               record to the new variable. *)
+	            tvSetValue (typesTypeVar newVal, tvValue tvar);
+				tvSetValue (tvar, newVal);
+				isOk
+			end
+			else showError
+		| general _ isOk = isOk
+	in
+		foldType general t true;
+		()
+	end (*  end allowGeneralisation *);
 
   (* Check for free type variables.  Added for ML97.  This replaces the
      test in allowGeneralisation above and is applied to all top-level

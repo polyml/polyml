@@ -2260,14 +2260,14 @@ struct
                                generate a packet or a function yielding a packet. *)
                             val excBecomesVal =
                                 case (dval, sourceVal) of
-                                    (Value{class=SimpleValue, ...}, Value{class=Exception, ...}) =>
+                                    (Value{class=ValBound, ...}, Value{class=Exception, ...}) =>
                                         true
                                 |    _ => false
                             (* Similarly, if we have a constructor which becomes a value we
                                have to extract the injection function or the value. *)
                             val constrBecomesVal =
                                 case (dval, sourceVal) of
-                                    (Value{class=SimpleValue, ...}, Value{class=Constructor _, ...}) =>
+                                    (Value{class=ValBound, ...}, Value{class=Constructor _, ...}) =>
                                         true
                                 |    _ => false
 

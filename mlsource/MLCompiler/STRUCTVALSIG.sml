@@ -145,7 +145,8 @@ sig
 
     (* Classes of values. *)
     and valueClass =
-        SimpleValue
+        ValBound
+    |   PattBound
     |   Exception
     |   Constructor of { nullary: bool, ofConstrs: int }
 
@@ -290,14 +291,10 @@ sig
       val isUndefinedValue: values -> bool;
       val isConstructor: values -> bool;
       val isValueConstructor: values -> bool
-  
-      val makeGlobalV: string * types * codetree * locationProp list -> values;
-      val makeLocalV: string * types * int ref * int ref * locationProp list -> values;
-      val makeFormalV: string * types * int * locationProp list -> values;  
-      val makeFormalEx: string * types * int * locationProp list -> values;  
+
       val makeOverloaded: string * types * typeDependent -> values;
       val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values;
-  
+
     (* Infix status *)
 
     datatype fixStatus = 

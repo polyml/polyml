@@ -1156,7 +1156,7 @@ struct
                     [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
             end
             
-            fun getValue (Value{access = Global code, class = SimpleValue, ...}) = evalue code
+            fun getValue (Value{access = Global code, class = ValBound, ...}) = evalue code
             |   getValue _ = raise Fail "Not a global value"
 
             (* The exported versions expect full name spaces as arguments.  Because we convert

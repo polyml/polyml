@@ -203,7 +203,8 @@ struct
 
     (* Classes of values. *)
     and valueClass =
-        SimpleValue
+        ValBound
+    |   PattBound
     |   Exception
     |   Constructor of
         {
@@ -691,27 +692,14 @@ struct
     fun makeFormalStruct (name, signat, addr, location) =
       makeStruct (name, signat, makeFormal addr, location);
      
-  (* Values. *)
-  
-  fun makeGlobalV (name, typeOf, code, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Global code, class = SimpleValue,
-           locations = locations, references = NONE };
-  
-  fun makeLocalV (name, typeOf, addr, level, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Local {addr = addr, level = level},
-            class = SimpleValue, locations = locations, references = makeRef() };
-  
-  fun makeFormalV (name, typeOf, addr, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = SimpleValue, locations = locations, references = NONE };
-
-  fun makeFormalEx (name, typeOf, addr, locations) : values =
-    Value{ name = name, typeOf = typeOf, access = Formal addr, class = Exception, locations = locations, references = NONE };
-  
+  (* Values. *)  
   fun makeOverloaded (name, typeOf, operation) : values =
-    Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = SimpleValue,
+    Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE};
 
-  val undefinedValue    = makeGlobalV("<undefined>", BadType, CodeZero, [DeclaredAt inBasis]);
+  val undefinedValue    =
+    Value{ name = "<undefined>", typeOf = BadType, access = Global CodeZero, class = ValBound,
+           locations = [DeclaredAt inBasis], references = NONE };
 
   fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 

@@ -1076,7 +1076,7 @@ struct
                      This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
                   #enterVal structEnv (name,
-                    mkFormal (name, SimpleValue,
+                    mkFormal (name, ValBound,
                         copyType (typeof, fn x => x, fn x => x), offset, [DeclaredAt nameLoc]));
                   (offset + 1)
                 end

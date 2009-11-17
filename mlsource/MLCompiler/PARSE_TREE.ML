@@ -2112,8 +2112,8 @@ struct
         (* Get the current overload set for the function and return a new
            instance of the type containing the overload set. *)
         fun overloadType(Value{typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
-            #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
-        |  overloadType(Value{typeOf, ...}, _) =  #1(generalise typeOf)
+                #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
+        |   overloadType(Value{typeOf, ...}, _) =  #1 (generalise typeOf)
 
         fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
           (* Look up the current overloading for this function. *)
@@ -2123,10 +2123,10 @@ struct
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
-        fun processPattern(pat, enterResult, level, notConst, isRec) =
+        fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
         let
             val mapProcessPattern =
-                map (fn x => processPattern(x, enterResult, level, notConst, isRec));
+                map (fn x => processPattern(x, enterResult, level, notConst, mkVar, isRec));
         in
             case pat of
                 Ident {name, value, expType, location, ...} => (* Variable or nullary constructor. *)
@@ -2188,7 +2188,7 @@ struct
                         else
                         let
                             val var = 
-                                mkVar (name, mkTypeVar (level, false, false), [DeclaredAt location]);
+                                mkVar(name, mkTypeVar (level, false, false), [DeclaredAt location]);
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -2255,7 +2255,7 @@ struct
                                 badType
                             )
     
-                    val patType = processPattern(arg, enterResult, level, notConst, isRec);
+                    val patType = processPattern(arg, enterResult, level, notConst, mkVar, isRec);
                     (* Apply to the pattern type. *)
                     val resultType = apply (conType, patType, lex, location, foundNear pat, typeEnv)
                 in
@@ -2276,7 +2276,7 @@ struct
                         (* Type is a label entry with the label name
                            and the type of the pattern. *)
                         let
-                            val ty = processPattern(valOrPat, enterResult, level, notConst, isRec)
+                            val ty = processPattern(valOrPat, enterResult, level, notConst, mkVar, isRec)
                         in
                             expType := ty;
                             mkLabelEntry(name, ty) :: mapLabels T
@@ -2293,7 +2293,7 @@ struct
                        unifies the types. Returns a type variable if the list
                        is empty *)
                     fun processElement elem =
-                        processPattern(elem, enterResult, level, notConst, isRec)
+                        processPattern(elem, enterResult, level, notConst, mkVar, isRec)
                     val elementType =
                         assignList (processElement, ptDisplay, valTypeMessage)
                             ("Elements in a list have different types.", "Item", ",", location, aList) elements
@@ -2308,7 +2308,7 @@ struct
 
             |   aConstraint as Constraint {value, given, location} =>
                 let
-                    val valType  = processPattern(value, enterResult, level, notConst, isRec);
+                    val valType  = processPattern(value, enterResult, level, notConst, mkVar, isRec);
                     val theType = typeFromTypeParse given
                     val () = ptAssignTypes theType pat;
                 in
@@ -2338,8 +2338,8 @@ struct
               
                     (* The "variable" must be either id or id: ty but we have to
                      check that the id is not a constructor. *)
-                    val varType = processPattern(var,     enterResult, level, true, isRec);
-                    val patType = processPattern(pattern, enterResult, level, notConst, isRec)
+                    val varType = processPattern(var,     enterResult, level, true, mkVar, isRec);
+                    val patType = processPattern(pattern, enterResult, level, notConst, mkVar, isRec)
                     val () = unify (varType, patType, lex, location, foundNear pat, typeEnv);
                 in
                     varType
@@ -2350,7 +2350,7 @@ struct
             |   WildCard _ => mkTypeVar (generalisable, false, false)
 
             |   Parenthesised(p, _) =>
-                    processPattern(p, enterResult, level, notConst, isRec)
+                    processPattern(p, enterResult, level, notConst, mkVar, isRec)
 
             |   _ => (* not a legal pattern *)
                     badType
@@ -2360,7 +2360,7 @@ struct
         (* val assValues = assignValues level line env; *)
         and assValues near v =
           case v of
-            Ident {name, value, expType, location} =>
+            Ident {name, value, expType, location, ...} =>
             let
                 val expValue =
                     lookupValue 
@@ -3024,7 +3024,7 @@ struct
               
               val newEnv   = noDuplicates messFn;
               val newLevel = level + 1;
-              val decs     = processPattern(vars, #enter newEnv, newLevel, false, false)
+              val decs     = processPattern(vars, #enter newEnv, newLevel, false, mkPattVar, false)
         
               (* The identifiers declared in the pattern are available in the
                  body of the function. *)
@@ -3109,20 +3109,18 @@ struct
 
                 |   mapProcess ((ValBind {dec, ...}) :: ptl, isRec) =
                     let
-                        val vars = ref nil
-                        fun enterVals(pair as (_, var)) =
+                        fun enterVals pair =
                         (
                             #enter newEnv pair;
-                            if isRec then #enter recEnv pair else ();
-                            vars := var :: !vars
+                            if isRec then #enter recEnv pair else ()
                         );
                                    
-                        val patType = processPattern(dec, enterVals, newLevel, false, isRec);
+                        val patType = processPattern(dec, enterVals, newLevel, false, mkValVar, isRec);
                     in
-                        (patType, !vars) :: mapProcess(ptl, isRec)
+                        patType :: mapProcess(ptl, isRec)
                     end;
             in
-                val typesAndVars = mapProcess(valdecs, false)
+                val decs = mapProcess(valdecs, false)
             end
 
             (* Now the bodies. *)
@@ -3194,7 +3192,7 @@ struct
           
                     |   checkTypes _ = ()
             in
-                val () = checkTypes(#1 (ListPair.unzip typesAndVars), valdecs, false)
+                val () = checkTypes(decs, valdecs, false)
             end;
 
             (* Variables, constructors and fn are non-expansive.
@@ -3241,36 +3239,25 @@ struct
                expression is expansive. *)
             fun allowGen (_, []) = ()
             |   allowGen (decs, RecValBind :: tlist) = allowGen(decs, tlist)
-            |   allowGen ((d: types, vars: values list)::dl, (ValBind {exp, line,...}) :: ptl) =
-                let
+            |   allowGen (d::dl, (ValBind {exp, line,...}) :: ptl) =
+                (
+                    allowGeneralisation 
+                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
                     (* Check the type to make sure that a local datatype is
                        not escaping.  Checking here is really only needed in the
                        recursive case (where a recursive call inside the body
                        sets the type of the function) because the result will be
                        checked elsewhere. *)
-                    val () = checkForLocalDatatypes(d, letDepth, giveError (v, lex, line));
-                    fun declVar(var as Value { typeOf, name, ...}) =
-                    (
-                        (* Generalise the types.  This side-effects the typeOf field of the
-                           variables to be the generalised version which is necessary to this is
-                           recognised as polymorphic, if it is, in subsequent use but also in the
-                           next pass in a pattern and in any recursive use.  *)
-                        allowGeneralisation 
-                                (typeOf, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
-                        #enterVal env (name, var);
-                        variables := var :: !variables
-                    )
-                    val () = List.app declVar vars
-                in
+                    checkForLocalDatatypes(d, letDepth, giveError (v, lex, line));
                     allowGen(dl, ptl)
-                end (* allowGen *)
+                ) (* allowGen *)
         
             | allowGen _ =
-                raise InternalError "allowGen: badly-formed parse-tree";
-        
+                raise InternalError "allowGen: badly-formed parse-tree"        
         in
-            allowGen(typesAndVars, valdecs);
-            ()
+            allowGen(decs, valdecs);
+            (* And declare the new names into the surrounding environment. *)
+            #apply newEnv (fn nv as (_, var) => (#enterVal env nv; variables := var :: !variables))
         end (* assValDeclaration *)
 
         and assFunDeclaration (tlist: fvalbind list, explicit, implicit) =
@@ -3314,7 +3301,7 @@ struct
                     val { ident = { name, location, ... }, ... } = dec;
                     (* Declare a new identifier with this name. *)
                     val funVar =
-                        mkVar (name, mkTypeVar (funLevel, false, false), [DeclaredAt location])
+                        mkValVar (name, mkTypeVar (funLevel, false, false), [DeclaredAt location])
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -3374,7 +3361,8 @@ struct
 
                         (* Process the patterns. *)
                         val argTypeList =
-                            List.map (fn arg => processPattern(arg, #enter varEnv, varLevel, false, false))
+                            List.map (fn arg =>
+                                        processPattern(arg, #enter varEnv, varLevel, false, mkPattVar, false))
                                 args
                         (* This list is used for the type of the helper function. *)
                         val () = argType :=
@@ -4004,7 +3992,6 @@ struct
                         reportError lex { location = location, hard = true,
                             message = unifyTypesErrorReport(lex, emptyTypeEnv, emptyTypeEnv, "unify") report,
                             context = NONE};
-                        print("Match error for " ^ name ^ "\n");
                         raise InternalError "unifyTypes failed in pass 3"
                     )
         in
@@ -4643,9 +4630,12 @@ struct
                 val dec = mkDec (addressOfVar, arg)
                 and load = mkLoad (addressOfVar, 0)
         
-                fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, typeOf, name, ...}, (oldDec, oldEnv) ) =
+                fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, typeOf, name, class, ...}, (oldDec, oldEnv) ) =
                 let
-                    val (_, polyVars) = generalise typeOf (* Is this polymorphic? *)
+                    val polyVars =
+                        case class of
+                            PattBound => []
+                        |   _ => #2(generalise typeOf) (* Is this polymorphic? *)
                 in
                     case polyVars of
                         [] => (* Monomorphic. *)
@@ -5232,8 +5222,7 @@ struct
                     val polyVars = getPolymorphism (v, expType, location)
                 in
                     case class of
-                        Exception =>
-                            codeExFunction (v, level, polyVars, lex, location)
+                        Exception => codeExFunction (v, level, [], lex, location)
                     |   Constructor _ =>
                         let
                             (* When using the constructor as a value we just want
@@ -5246,7 +5235,8 @@ struct
                         in
                             applyToInstance(polyVars, mkInd(1, constrTuple))
                         end
-                    |    _ => codeVal (v, level, polyVars, lex, location)
+
+                    |   _ => codeVal (v, level, polyVars, lex, location)
                 end
           
             |   Literal{converter, literal, expType=ref expType, location} =>
