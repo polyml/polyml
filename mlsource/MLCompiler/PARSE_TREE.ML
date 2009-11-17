@@ -5377,7 +5377,7 @@ struct
   
             | Fn { location, ... } =>
                 (* Function *)
-                mkblock (codeProc(c, decName, false, ref 0, location, mkAddr, level)) : codetree
+                mkblock (codeProc(c, decName, false, ref 0, location, [], mkAddr, level)) : codetree
    
             | Localdec {decs, body, ...} =>
               (* Local expressions only. Local declarations will be handled
@@ -5477,17 +5477,18 @@ struct
   
           end (* codegen *)
   
-           (* Generate a function either as a free standing lambda expression
-               or as a declaration. *)
-          and codeProc(c, decName, isRecursive, varAddr, location, originalmkAddr, originalLevel) =
-          let
+        (* Generate a function either as a free standing lambda expression or as
+           a val rec declaration. *)
+        and codeProc(c, decName, isRecursive, varAddr, location, polyVars, originalmkAddr, originalLevel) =
+        let
             fun getFnBody (Constraint {value, ...}) = getFnBody value
             |   getFnBody (Fn{matches, ...})  = matches
             |   getFnBody (Parenthesised(p, _)) = getFnBody p
             |   getFnBody _ = raise InternalError "getFnBody: not a constrained fn-expression";
-          
+
             val f        = getFnBody c;
-            val fnLevel  = originalLevel+1 (* This function comprises a new declaration level*)
+            (* This function comprises a new declaration level *)
+            val fnLevel  = originalLevel + (if null polyVars then 1 else 2)
 
             local
                 val addresses = ref 1
@@ -5496,72 +5497,69 @@ struct
             end
 
             val (firstPat, resType, argType) = 
-              case f of 
-                MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
-              | _ => raise InternalError "codeProc: body of fn is not a clause list";
+                case f of 
+                    MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
+                |   _ => raise InternalError "codeProc: body of fn is not a clause list";
 
             val tupleSize = tupleWidth firstPat
-          in
-              if tupleSize <> 1
+        in
+            if tupleSize <> 1 andalso null polyVars
             then
             let
-              (* If the first pattern is a tuple we make a tuple from the
-                 arguments and pass that in. Could possibly treat labelled 
-                 records in the same way but we have the problem of
-                 finding the size of the record. *) 
-   
-              val newDecName : string = decName ^ "(" ^ Int.toString tupleSize ^ ")";
-              val newDebugEnv = newDebugLevel debugEnv
+                (* If the first pattern is a tuple we make a tuple from the
+                   arguments and pass that in. Could possibly treat labelled 
+                   records in the same way but we have the problem of
+                   finding the size of the record.
+                   Currently, we don't apply this optimisation if the function is
+                   polymorphic. *)
+                val newDecName : string = decName ^ "(" ^ Int.toString tupleSize ^ ")";
+                val newDebugEnv = newDebugLevel debugEnv
 
-              val argumentCode = mkArgTuple tupleSize 1
-              val mainProc =
-                 mkProc
-                     (wrapFunctionInDebug
-                       (codeAlt (c, f, argumentCode, newDecName, newDebugEnv, fnMkAddr, fnLevel),
-                        newDecName, argumentCode, argType, resType, location, newDebugEnv,
-                        fnMkAddr, fnLevel), 
-                    fnLevel, tupleSize, newDecName);
+                val argumentCode = mkArgTuple tupleSize 1
+                val mainProc =
+                    mkProc
+                        (wrapFunctionInDebug
+                            (codeAlt (c, f, argumentCode, newDecName, newDebugEnv, fnMkAddr, fnLevel),
+                            newDecName, argumentCode, argType, resType, location, newDebugEnv,
+                            fnMkAddr, fnLevel), 
+                        fnLevel, tupleSize, newDecName);
             
-              (* Now make a block containing the procedure which expects
-                 multiple arguments and an inline procedure which expects
-                 a single tuple argument and calls the main procedure after
-                 taking the tuple apart. *)
-              val thisDec = multipleUses (mainProc, fn () => originalmkAddr 1, originalLevel);
+                (* Now make a block containing the procedure which expects
+                   multiple arguments and an inline procedure which expects
+                   a single tuple argument and calls the main procedure after
+                   taking the tuple apart. *)
+                val thisDec = multipleUses (mainProc, fn () => originalmkAddr 1, originalLevel);
   
-              val resProc = 
-              let   (* Result procedure. *)
-                val pr =
-                  mkInlproc 
-                   (mkEval(#load thisDec fnLevel, loadArgsFromTuple(tupleSize, singleArg), false),
-                   fnLevel, 1, decName ^ "(1)");
-              in
-                if isRecursive then mkDec (!varAddr, pr) else pr
-              end;
+                val resProc =  (* Result procedure. *)
+                    mkInlproc 
+                        (mkEval(#load thisDec fnLevel, loadArgsFromTuple(tupleSize, singleArg), false),
+                        fnLevel, 1, decName ^ "(1)");
             in
-              #dec thisDec @ [resProc]
+                #dec thisDec @ [if isRecursive then mkDec (!varAddr, resProc) else resProc]
             end
             
             else
-             let (* Ordinary function. *)
-              (* Must set the address to zero to get recursive references right. *)
-              val addr = !varAddr;
-              val ()    = varAddr := 0; 
-              val newDecName : string  = decName ^ "(1)";
-              val newDebug = newDebugLevel debugEnv
-              val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug, fnMkAddr, fnLevel);
-              (* If we're debugging add the debug info before resetting the level. *)
-              val wrapped =
-                  wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
-                    location, newDebug, mkAddr, fnLevel)
-            in
-              varAddr   := addr;        (* Reset the address *)
-              let
+            let (* No tuple or polymorphic. *)
+                (* Must set the address to zero to get recursive references right. *)
+                val addr = !varAddr;
+                val ()    = varAddr := 0; 
+                val newDecName : string  = decName ^ "(1)";
+                val newDebug = newDebugLevel debugEnv
+                val alt  = codeAlt (c, f, mkLoad (~1, 0), newDecName, newDebug, fnMkAddr, fnLevel);
+                (* If we're debugging add the debug info before resetting the level. *)
+                val wrapped =
+                    wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
+                        location, newDebug, mkAddr, fnLevel)
+                val () = varAddr   := addr;        (* Reset the address *)
                 val pr = mkProc (wrapped, fnLevel, 1, newDecName);
-              in
-                [if isRecursive then mkDec (addr, pr) else pr]
-              end
+                val polyPr =
+                    case polyVars of
+                        [] => pr
+                    |   _ => mkProc(pr, fnLevel-1, List.length polyVars, newDecName^"(P)")
+            in
+                [if isRecursive then mkDec (addr, polyPr) else polyPr]
             end
-          end (* codeProc *);
+        end (* codeProc *);
 
          in      (* codeSequence *)
            if null dlist then ([], debugEnv)
@@ -5838,17 +5836,24 @@ struct
                 |   codeRecursive ((ValBind{dec=vbDec, exp=vbExp, line, ...})::ds) =
                     let
                         local
-                            (* The pattern being declared may be a variable or a
-                               constraint or (perversely) 
-                               a layered pattern or a wild-card. *)
+                            (* The expression after a val rec is required to be a fn => ... but
+                               there's no restriction on the pattern.  It must, though, be
+                               something that can have the appropriate type. *)
                             fun getVars (Constraint{value, ...}) = getVars value
                             |   getVars (Layered{var, pattern, ...}) = getVars var @ getVars pattern
                             |   getVars (pat as (Ident _)) = [pat]
                             |   getVars (Parenthesised(p, _)) = getVars p
-                            |   getVars _ = (* wild-card *) [];
+                            |   getVars (WildCard _) = (* wild-card *) []
+                            |   getVars _ = raise InternalError "ValBind: Unknown pattern in val rec";
                         in
                             val vars = getVars vbDec;
                         end
+                        (* Get the polymorphic variables.  If there's more than one variable they
+                           should all have the same type.  *)
+                        val polyVars =
+                            case vars of
+                                Ident{value = ref(Value{typeOf, ...}), ...} :: _ => #2(generalise typeOf)
+                            |   _ => []
   
                         local
                             (* Set the addresses of the variables. *)
@@ -5893,7 +5898,7 @@ struct
                                 (* Must be a function. This returns either a single
                                    declaration or possibly a pair of mutually recursive
                                    functions. *)
-                                (codeProc(vbExp, idname, true, lvAddr, line, mkAddr, level)) @ rest
+                                (codeProc(vbExp, idname, true, lvAddr, line, polyVars, mkAddr, level)) @ rest
                             end
                         | _ => raise InternalError "ValDeclaration - not a variable"
                     end
