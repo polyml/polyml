@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=163
+NFiles=166
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -166,3 +166,6 @@ File159=basis\Unix.sml
 File160=basis\UnixSock.sml
 File161=basis\VectorOperations.sml
 File162=basis\Weak.sml
+File163=mlsource\MLCompiler\DatatypeRep.ML
+File164=mlsource\MLCompiler\DATATYPEREPSIG.sml
+File165=mlsource\MLCompiler\DATATYPE_REP.ML

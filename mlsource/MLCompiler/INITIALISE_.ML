@@ -33,6 +33,7 @@ structure STRUCTVALS : STRUCTVALSIG;
 structure VALUEOPS : VALUEOPSSIG;
 structure CODETREE : CODETREESIG
 structure EXPORTTREE: EXPORTTREESIG
+structure DATATYPEREP: DATATYPEREPSIG
 
 (*****************************************************************************)
 (*                  MAKE                                                     *)
@@ -139,7 +140,7 @@ sig
 end;
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
-        = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS
+        = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS = DATATYPEREP.Sharing
 
 ) : 
 
@@ -164,6 +165,7 @@ struct
     open MISC;
     open RuntimeCalls; (* for POLY_SYS calls *)
     open EXPORTTREE
+    open DATATYPEREP
     
     val declInBasis = [DeclaredAt inBasis]
 
@@ -796,16 +798,7 @@ struct
          end
          
         local
-            open TYPETREE
-            
-            val fields =
-                [
-                    mkLabelEntry("file", String), mkLabelEntry("startLine", Int),
-                    mkLabelEntry("startPosition", Int), mkLabelEntry("endLine", Int),
-                    mkLabelEntry("endPosition", Int)
-                ]
-            val typeconstr =
-                makeTypeAbbreviation("location", [], mkLabelled(sortLabels fields, true), declInBasis);
+            val typeconstr = locationConstr
             val () = #enterType polyMLEnv ("location", typeconstr);
         in
             val Location = mkTypeConstruction ("location", typeconstr, [], declInBasis)
@@ -815,54 +808,18 @@ struct
 (*                  context type                                           *)
 (*****************************************************************************)
         local
-            open TYPETREE
-            (* Pretty print context information. *)
-            fun makeConstructors typeconstr =
-            let
-                val contextType = mkTypeConstruction ("context", typeconstr, [], declInBasis)
-                val constrs =
-                   [ ("ContextLocation", Location),
-                     ("ContextParentStructure", String ** List contextType),
-                     ("ContextProperty", String ** String)];
-                (* We rely on chooseConstrRepr giving us the same representation for the
-                   constructors as when context was compiled by the previous compiler. *)
-                val numConstrs = List.length constrs
-            in
-                ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> contextType, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr(constrs, []))
-            end
-            val typeconstr =
-                buildBasisDatatype("context", "PolyML.context", [], false, makeConstructors)
+            val typeconstr = contextConstr
         in
             val () = #enterType polyMLEnv ("context", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
                         (tcConstructors typeconstr)
-            val Context = mkTypeConstruction ("context", typeconstr, [], declInBasis)
         end
 
 (*****************************************************************************)
 (*                  pretty datatype (for printing)                           *)
 (*****************************************************************************)
         local
-            open TYPETREE
-            fun makeConstructors typeconstr =
-            let
-                val prettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
-                val constrs =
-                   [ ("PrettyBlock", mkProductType[Int, Bool, List Context, List prettyType]),
-                     ("PrettyBreak", Int ** Int),
-                     ("PrettyString", String)];
-                (* We rely on chooseConstrRepr giving us the same representation for the
-                   constructors as when PrettyPrint was compiled by the previous compiler. *)
-                val numConstrs = List.length constrs
-            in
-                ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, t ->> prettyType, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr(constrs, []))
-            end
-            val typeconstr =
-                buildBasisDatatype("pretty", "PolyML.pretty", [], false, makeConstructors)
+            val typeconstr = prettyConstr
         in
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))

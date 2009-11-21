@@ -33,4 +33,5 @@ structure ValueOps =
     structure UTILITIES     = Utilities
     structure COPIER     = CopierStruct
     structure TYPEIDCODE = TypeIDCodeStruct
+    structure DATATYPEREP = DatatypeRep
   ) ;

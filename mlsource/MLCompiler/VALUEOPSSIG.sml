@@ -24,7 +24,6 @@
 (*****************************************************************************)
 signature VALUEOPSSIG =
 sig
-    type machineWord
     type lexan
     type codetree
     type types
@@ -43,8 +42,6 @@ sig
     type typeId
     type typeVarForm
 
-    val chooseConstrRepr : (string*types) list * types list -> codetree list
-
     (* Construction functions. *)
     val mkGvar:        string * types * codetree * locationProp list -> values
     val mkValVar:      string * types * locationProp list -> values
@@ -55,14 +52,6 @@ sig
     val mkEx:          string * types * locationProp list -> values
   
     val mkSelectedType: typeConstrs * string * structVals option * locationProp list -> typeConstrs
-
-    (* Standard values *)
-    val listType: typeConstrs
-    val nilConstructor:  values;
-    val consConstructor: values;
-    val optionType: typeConstrs
-    val buildBasisDatatype:
-        string * string * typeVarForm list * bool * (typeConstrs -> values list) -> typeConstrs
 
     type nameSpace =
     { 
@@ -104,7 +93,6 @@ sig
 
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
-    val mkExIden:       types * int -> codetree
     val codeVal:        values * int * types list * lexan * location -> codetree
     val codeExFunction: values * int * types list * lexan * location -> codetree
     val applyFunction:  values * codetree * int * types list * lexan * location -> codetree
@@ -126,20 +114,11 @@ sig
                       lookupStruct: string -> structVals option} * 
                         string * (string -> unit) -> typeConstrs
 
-    type representations
-    val RefForm:   representations;
-    val BoxedForm: representations;
-    val EnumForm:  int -> representations;
-
-    val createNullaryConstructor: representations * types list * string -> codetree
-    val createUnaryConstructor: representations * types list * string -> codetree
-
     val codeLocation: location -> codetree
 
     (* Types that can be shared. *)
     structure Sharing:
     sig
-        type machineWord    = machineWord
         type lexan          = lexan
         type codetree       = codetree
         type types          = types

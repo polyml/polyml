@@ -38,6 +38,7 @@ structure PRETTY : PRETTYSIG
 structure DEBUGGER : DEBUGGERSIG
 structure COPIER: COPIERSIG
 structure TYPEIDCODE: TYPEIDCODESIG
+structure DATATYPEREP: DATATYPEREPSIG
 
 structure UTILITIES :
 sig
@@ -122,7 +123,7 @@ end;
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = EXPORTTREE.Sharing = UTILITIES.Sharing
        = DEBUGGER.Sharing = PRETTY.Sharing = TYPEIDCODE.Sharing
-       = ADDRESS = CODETREE.Sharing = PRINTTABLE.Sharing
+       = ADDRESS = CODETREE.Sharing = PRINTTABLE.Sharing = DATATYPEREP.Sharing
 
 ) : PARSETREESIG =
    
@@ -145,6 +146,7 @@ struct
   open EXPORTTREE
   open TYPEIDCODE
   open PRINTTABLE
+  open DATATYPEREP
   open RuntimeCalls; (* for POLY_SYS numbers *)
           
   infix 9 sub;

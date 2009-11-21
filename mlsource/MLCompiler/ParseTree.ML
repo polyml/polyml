@@ -36,4 +36,5 @@ structure ParseTree =
     structure COPIER     = CopierStruct
     structure TYPEIDCODE = TypeIDCodeStruct
     structure PRINTTABLE = PrintTable
+    structure DATATYPEREP = DatatypeRep
   ) ;
