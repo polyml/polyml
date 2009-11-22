@@ -113,11 +113,15 @@ struct
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
         ValueMatch of
-            { sourceValue: values, destAddr: int, sourcePolyVars: types list, destPolyVars: types list, coercion: valueCoercions }
+            { sourceValue: values, sourcePolyVars: types list, destPolyVars: types list, coercion: valueCoercions }
     |   StructureMatch of
-            { sourceStructure: structVals, destAddr: int, contentsMatch: valueMatching list}
+            { sourceStructure: structVals, contentsMatch: structureMatch}
     |   TypeIdMatch of
-            { sourceIdNo: int, destAddr: int, isEquality: bool }
+            { sourceIdNo: int, isEquality: bool }
+
+    and structureMatch =
+        JustCopy
+    |   FilterMatch of valueMatching list
  
     and valueCoercions = (* The coercions that may apply to a value. *)
         NoCoercion
@@ -139,7 +143,7 @@ struct
         {
             alist: structs list, (* List of items in it. *)
             location: location,
-            matchToResult: valueMatching list ref
+            matchToResult: structureMatch ref
         }
 
     |   FunctorAppl    of (* Application of a functor. *)
@@ -151,7 +155,7 @@ struct
             fullLoc: location,      (* The location of the full application. *)
             argIds:  { source: typeId, dest: typeId } list ref, (* The IDs that are required in the arguments. *)
             resIds:  { source: typeId, dest: typeId } list ref, (* Generative IDs in the result. *)
-            matchToArgument: valueMatching list ref
+            matchToArgument: structureMatch ref
         }
 
     |   CoreLang      of (* Any other decln. *)
@@ -176,7 +180,7 @@ struct
             opaque: bool,   (* True if opaque, false if transparent. *)
             sigLoc: location,
             opaqueIds: { source : typeId, dest: typeId } list ref,
-            matchToConstraint: valueMatching list ref
+            matchToConstraint: structureMatch ref
        }
 
   | EmptyStruct                          (* Error cases. *)
@@ -211,7 +215,7 @@ struct
         {
           alist = alist,
           location = location,
-          matchToResult = ref nil
+          matchToResult = ref JustCopy
         };
   
   
@@ -233,7 +237,7 @@ struct
             fullLoc = fullLoc,
             argIds  = ref nil,
             resIds  = ref nil,
-            matchToArgument = ref nil
+            matchToArgument = ref JustCopy
         };
   
     fun mkFormalArg (name, signat) =
@@ -256,7 +260,7 @@ struct
         SigConstraint
         {
             str=str, csig=csig, opaque=opaque, sigLoc=sigLoc,
-            opaqueIds=ref nil, matchToConstraint = ref nil
+            opaqueIds=ref nil, matchToConstraint = ref JustCopy
         }
 
     val mkStructureDec = StructureDec
@@ -304,7 +308,7 @@ struct
             valRef:    functors ref,    (* The functor variable declared. *)
             resIds:    { source: typeId, dest: typeId } list ref,
             line:      location,
-            matchToResult: valueMatching list ref
+            matchToResult: structureMatch ref
         } 
 
     and sigBind =
@@ -338,7 +342,7 @@ struct
           valRef    = ref undefinedFunctor,
           resIds    = ref nil,
           line      = line,
-          matchToResult = ref nil
+          matchToResult = ref JustCopy
         }
     end
 
@@ -762,6 +766,46 @@ struct
         exportTree trees
     end
 
+    (* A structure is represented at run-time by a tuple containing the values and sub-structures.
+       When a structure is matched to a signature we have to produce a new tuple with layout
+       determined by the signature.  This function takes a set of match instructions as pairs of
+       destination address and source and reorders it into a set of instructions to create the
+       result tuple, eliminating the destination addresses.  Frequently, the source structure
+       already has the desired form so we check for that and return a JustCopy entry that
+       avoids the need for constructing a new tuple.  *)
+    fun processMatchActions(actions: (int * valueMatching) list)  =
+    let
+        (* First sort by the address in the destination vector. *)
+        fun leq (i, _) (j, _) = i <= j
+        val sortedActions = quickSort leq actions
+
+        (* See if we're just copying the structure and can use the original. *)
+        fun checkItem(_, false) = false (* Check failed earlier. *)
+
+        |   checkItem((dAddr, StructureMatch { sourceStructure, contentsMatch=JustCopy}), _) =
+            (
+                (* The sub-structure is a direct copy. *)
+                case structAccess sourceStructure of
+                    Formal sAddr => dAddr = sAddr
+                |   _ => false
+            )
+
+        |   checkItem((dAddr, ValueMatch { sourceValue=Value{access=Formal sAddr, ...}, coercion = NoCoercion,
+                                           sourcePolyVars, destPolyVars }), _) =
+                dAddr = sAddr andalso List.length destPolyVars = List.length sourcePolyVars
+            
+        |   checkItem _ = false (* Includes TypeIdMatch *)
+
+        val isCopy = List.foldl checkItem true sortedActions
+ 
+        val (offsets, sorted) = ListPair.unzip (quickSort leq actions)
+        (* Check that these are in ascending order.  This check can probably be removed. *)
+        val _ =
+            List.foldl (fn (offset, i) => if offset = i then i+1 else raise InternalError "Out of order") 0 offsets
+    in
+        if isCopy then JustCopy else FilterMatch sorted
+    end
+
     (* Puts out an error message and then prints the piece of tree. *)
     fun errorMsgNear (lex, hard, near, lno, message) : unit =
     let
@@ -919,7 +963,7 @@ struct
        and that is returned as the result.
        N.B. the map function takes an argument between minTarget and maxTarget. *)
     fun matchSigs(originalCandidate, originalTarget, near, lno, lex, typeIdEnv, typeEnv)
-                        :(int -> typeId) * valueMatching list =
+                        :(int -> typeId) * (int * valueMatching) list =
     let
         val candidate = (* The structure. *)
         let
@@ -1043,7 +1087,7 @@ struct
        
         (* Match the values and exceptions in the signatures.
            This actually does the checking of types. *)
-        fun matchVals (candidate, target, structPath) : valueMatching list =
+        fun matchVals (candidate, target, structPath) =
         if isUndefinedSignature candidate
         then [] (* Suppress unnecessary messages. *)
         else (* Map the identifiers first, returning the originals if they are
@@ -1083,8 +1127,9 @@ struct
                                Global entries in some circumstances. *)
                             case target of
                                 Struct{access=Formal addr, ...} =>
-                                    StructureMatch{ sourceStructure=candid, destAddr = addr,
-                                                    contentsMatch = substructMatch} :: matches
+                                    (addr,
+                                        StructureMatch{ sourceStructure=candid,
+                                                        contentsMatch = processMatchActions substructMatch}) :: matches
                             |   _ => matches
                         end
                     |   NONE => matches (* Ignore the error - we've already reported it in matchNames *)
@@ -1128,7 +1173,7 @@ struct
             end
 
             local
-                fun matchLocalValues(dName, dVal, matches: valueMatching list): valueMatching list =
+                fun matchLocalValues(dName, dVal, matches) =
                 if tagIs valueVar dVal
                 then
                 let
@@ -1177,9 +1222,9 @@ struct
                                                     Value { references=SOME{exportedRef, ...}, ...} => exportedRef := true
                                                 |   _ => ();
                                                 (* Return this in the match list. *)
-                                                ValueMatch { sourceValue = candid, destAddr = destAddr, coercion = coercion,
+                                                (destAddr, ValueMatch { sourceValue = candid, coercion = coercion,
                                                              sourcePolyVars = sourcePolyVars,
-                                                             destPolyVars = destPolyVars } :: matches 
+                                                             destPolyVars = destPolyVars }) :: matches 
                                             end
                                         |   _ => matches (* This could be global. *)
                                     )
@@ -1196,7 +1241,7 @@ struct
                 val matchedValues = univFold(sigTab target, matchLocalValues, structureMatches)
             end
         in
-            matchedValues: valueMatching list
+            matchedValues
         end (* matchVals *);
         
         val doMatch = matchVals (candidate, target, ""); (* Do the match. *)
@@ -1227,7 +1272,7 @@ struct
     (* Construct a set of actions for matching a structure to itself.  This is only
        really needed to ensure that type IDs are passed through correctly but we
        don't actually do them here yet. *)
-    fun makeCopyActions signat : valueMatching list =
+    fun makeCopyActions signat : (int * valueMatching) list =
     let
         fun matchEntry(_, dVal, matches) =
         if tagIs structVar dVal
@@ -1237,8 +1282,8 @@ struct
         in
             case str of
                 Struct{access=Formal addr, ...} =>
-                    StructureMatch{
-                        sourceStructure=str, destAddr=addr, contentsMatch = makeCopyActions(structSignat str)} :: matches
+                    (addr, StructureMatch{
+                        sourceStructure=str, contentsMatch = processMatchActions(makeCopyActions(structSignat str))}) :: matches
             |   _ => matches
         end
         else if tagIs valueVar dVal
@@ -1248,8 +1293,8 @@ struct
         in
             case v of
                 Value { access=Formal addr, ...} =>
-                    ValueMatch { sourceValue = v, destAddr = addr, coercion = NoCoercion,
-                                 sourcePolyVars = [], destPolyVars = [] } :: matches
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion,
+                                 sourcePolyVars = [], destPolyVars = [] }) :: matches
             |   _ => matches
         end
         else matches
@@ -1261,7 +1306,7 @@ struct
     local
         fun matchTypeIds(_, []) = []
         |   matchTypeIds(n, (typeId as TypeId{ access = Formal addr, ...}) :: rest) =
-                TypeIdMatch{ sourceIdNo=n, destAddr=addr, isEquality=isEquality typeId } ::
+                (addr, TypeIdMatch{ sourceIdNo=n, isEquality=isEquality typeId }) ::
                     matchTypeIds(n+1, rest)
         |   matchTypeIds(_, _) = raise InternalError "matchTypeIds: Not Formal"
     in
@@ -1348,7 +1393,7 @@ struct
                             matchSigs (actualArgSig, formalArgSig,
                                 fn n => displayStruct(str, n), fullLoc, lex, newTypeIdEnv(), typeEnv);
                         (* Record the code to match to this and include instructions to load the typeIDs. *)
-                        val () = matchToArgument := matchActions @ makeMatchTypeIds(sigBoundIds formalArgSig)
+                        val () = matchToArgument := processMatchActions(matchActions @ makeMatchTypeIds(sigBoundIds formalArgSig))
                     in
                         val matchResults = matchResults
                     end
@@ -1472,12 +1517,12 @@ struct
                     val strVal = tagProject structVar dVal
                     val locations = structLocations strVal
                     val strSig = structSignat strVal
-                    val matchSubStructure = makeCopyActions strSig
+                    val matchSubStructure = processMatchActions(makeCopyActions strSig)
                 in
                     #enterStruct finalEnv (dName, makeFormalStruct (dName, strSig, addrs, locations));
                     (addrs + 1,
-                        StructureMatch
-                            { sourceStructure=strVal, destAddr=addrs, contentsMatch = matchSubStructure} :: matches)
+                        (addrs, StructureMatch
+                            { sourceStructure=strVal, contentsMatch = matchSubStructure}) :: matches)
                 end
                 else if tagIs valueVar dVal
                 then
@@ -1500,13 +1545,13 @@ struct
                                       locations=locations, references=references}
                         in
                             #enterVal finalEnv (dName, formalValue);
-                            (addrs + 1, ValueMatch { sourceValue = valVal, destAddr = addrs, coercion = NoCoercion,
-                                                     sourcePolyVars = [], destPolyVars = [] } :: matches)
+                            (addrs + 1, (addrs, ValueMatch { sourceValue = valVal, coercion = NoCoercion,
+                                                     sourcePolyVars = [], destPolyVars = [] }) :: matches)
                         end
                 end
                 else (addrs, matches)
             
-            val () = matchToResult := #2(univFold(structTable, enterItem, (0, [])))
+            val () = matchToResult := processMatchActions(#2(univFold(structTable, enterItem, (0, []))))
             val resSig =
                 makeSignature("", finalTable, currentTypeCount(), currentTypeCount(), location, newTypeIdEnv(), [])
           in
@@ -1576,7 +1621,7 @@ struct
                 (* Match the signature.  This instantiates entries in typeMap. *)
                 val (matchResults, matchActions) =
                     matchSigs (resSig, explicitSig, fn n => displayStruct(str, n), sigLoc, lex, startTypeEnv, typeEnv);
-                val () = matchToConstraint := matchActions
+                val () = matchToConstraint := processMatchActions matchActions
 
                 val rSig =
                     if opaque
@@ -1961,9 +2006,9 @@ struct
 
                 (* Put the new names into this environment. *)
                 fun pass2FunctorBind
-                    {name,
+                    ({name,
                      arg = {name = argName, sigStruct = argSig, valRef = argVal},
-                     body, valRef, resIds, line, matchToResult, ...} =
+                     body, valRef, resIds, line, matchToResult, ...}: functorBind) =
                 let
                     (* When we apply a functor we share type IDs with the argument if they
                        have an ID less than sigMinTypes for the result signature and treat
@@ -2143,7 +2188,8 @@ struct
                         val functorSig =
                             makeSignature(name, tab, startBodyIDs, startBodyIDs+Vector.length bodyVec,
                                 declaredAt, composeMaps(typeIdMap, resTypeMap), newBoundIds)
-                        val () = matchToResult := makeCopyActions functorSig @ makeMatchTypeIds newBoundIds
+                        val () = matchToResult :=
+                                    processMatchActions(makeCopyActions functorSig @ makeMatchTypeIds newBoundIds)
                     end
 
                      (* Now make a local functor variable and put it in the
@@ -2269,7 +2315,7 @@ struct
        }
      end;
 
-    fun applyMatchActions (code : codetree, actions: valueMatching list, sourceIds: int*bool->valAccess) =
+    fun applyMatchActions (code : codetree, actions, sourceIds: int*bool->valAccess) =
     let
         (* Generate a new structure which will match the given signature.
            A structure is represented by a vector of entries, and its
@@ -2282,27 +2328,13 @@ struct
            a general mechanism.  Nevertheless, we check for the case when
            we are building a structure which is a direct copy of the original
            and use the original code if possible. *)
-        fun matchSubStructure (code, actions) =
+        fun matchSubStructure (code, JustCopy) = code
+
+        |   matchSubStructure (code, FilterMatch actions) =
         let
             val decs = multipleUses (code, mkAddr, !level);
-          
-            (* To save taking apart a structure and then rebuilding it, if the
-               structure has not changed we just copy it. *)
-            val useOriginal = ref true;
-          
-            (* We put the entries into this vector and then flatten it. *)
-            val resVec   = StretchArray.stretchArray (10 (* Guess *), NONE);
-            val maxEntry = ref 0;
-          
-            fun addToList code addr =
-            (
-                case StretchArray.sub(resVec, addr) of
-                    NONE => StretchArray.update (resVec, addr, SOME code)
-                |   SOME _ => raise InternalError ("addToList: Duplicate entry " ^ Int.toString addr ^ "\n");
-                if addr >= !maxEntry then maxEntry := addr + 1 else ()
-            );
             
-            fun applyAction (StructureMatch { sourceStructure, destAddr, contentsMatch }) =
+            fun applyAction (StructureMatch { sourceStructure, contentsMatch }) =
                 let
                     val access = structAccess sourceStructure;
                     (* Since these have come from a signature we might expect all
@@ -2310,30 +2342,14 @@ struct
                        global the entries in the signature may be global, and if
                        the structure is in a "struct .. end" it may be local. *)
                     val code = 
-                    if isFormal access
-                    then
-                    let (* select from the code. *)
-                        val () = 
-                            if vaFormal access <> destAddr
-                            then useOriginal := false
-                            else ()
-                    in
-                        mkInd (vaFormal access, #load decs (!level))
-                    end
-                    else
-                    (
-                        useOriginal := false;
-                        codeStruct (sourceStructure, !level)
-                    );
-                    val (matched, unchanged) =
-                        matchSubStructure (code, contentsMatch);
-        
-                    val () = if not unchanged then useOriginal := false else ();
+                        if isFormal access
+                        then mkInd (vaFormal access, #load decs (!level))
+                        else codeStruct (sourceStructure, !level)
                 in
-                    addToList matched destAddr
+                    matchSubStructure (code, contentsMatch)
                 end
 
-            |   applyAction (ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, destAddr, coercion,
+            |   applyAction (ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion,
                                           sourcePolyVars, destPolyVars }) =
                 let
                     (* This may have a different level of polymorphism in which case we
@@ -2354,37 +2370,29 @@ struct
                         case sourceValue of
                             Value{access=Formal svAddr, ...} =>
                             (
-                                if svAddr <> destAddr then useOriginal := false else ();
-
                                 case coercion of
                                     NoCoercion => mkInd (svAddr, #load decs (!level))
 
                                 |   ExceptionToValue =>
                                     let
+                                        fun loadEx l = mkInd (svAddr, #load decs l)
                                     in
-                                        useOriginal := false;
-                                        if not (isSome(getFnArgType sourceTypeOf))
-                                        then 
-                                            mkTuple [mkInd (svAddr, #load decs (!level)), mkStr name,
+                                        case getFnArgType sourceTypeOf of
+                                            NONE => mkTuple [loadEx(!level), mkStr name,
                                                      CodeZero, codeLocation nullLocation]
-                                        else
-                                            mkProc 
-                                            (mkTuple
-                                               [mkInd (svAddr, #load decs (!level + 1)), mkStr name,
-                                                mkLoad (~1, 0), codeLocation nullLocation],
-                                            1, 1, "")
+                                        |   SOME _ =>
+                                                mkProc 
+                                                    (mkTuple[loadEx (!level + 1), mkStr name,
+                                                        mkLoad (~1, 0), codeLocation nullLocation],
+                                                    1, 1, "")
                                     end
 
                                 |   ConstructorToValue =>
-                                    (
-                                        useOriginal := false;
                                         mkInd(1, mkInd (svAddr, #load decs (!level)))
-                                    )
                            )
 
                         | _ =>
                             (
-                                useOriginal := false;
                                 case coercion of
                                     NoCoercion =>
                                         codeVal (sourceValue, !level, [], lex, location nullLex)
@@ -2405,48 +2413,29 @@ struct
                         else if destPolymorphism = 0
                         then (* Destination is monomorphic. *)
                         (
-                            useOriginal := false;
                             applyToInstance(sourcePolyVars, code)
                         )
                         else (* Destination is polymorphic. *)
                         (
-                            useOriginal := false;
                             (* N.B.  Normally we remove polymorphism by matching a polymorphic value
                                to a monomorphic signature item but we CAN add polymorphism through
                                type abbreviations e.g. type 'a t = int. *)
                             mkProc(applyToInstance(sourcePolyVars, code), !level+1, destPolymorphism, name^"(P)")
                         )
                 in
-                    addToList polyCode destAddr
+                    polyCode
                 end
 
-            |   applyAction (TypeIdMatch { sourceIdNo, destAddr, isEquality }) =
-                let
-                    (* Get the corresponding source ID. *)
-                    val codedId = codeAccess(sourceIds(sourceIdNo, isEquality), !level)
-                in
-                    useOriginal := false;
-                    addToList codedId destAddr
-                end
+            |   applyAction (TypeIdMatch { sourceIdNo, isEquality }) =
+                     (* Get the corresponding source ID. *)
+                    codeAccess(sourceIds(sourceIdNo, isEquality), !level)
 
+            val codeList = List.map applyAction actions
         in  
-            List.app applyAction actions;
-
-            (* If we have copied the original we can use it unchanged. *)
-            if !useOriginal
-            then (code, true)
-            else (* Put the entries into a list for the vector. *)
-            let
-                val codeList =
-                      List.tabulate (!maxEntry,
-                        fn i => getOpt(StretchArray.sub (resVec,i), CodeZero))
-            in
-                (mkEnv (#dec decs @ [mkTuple codeList]), false)
-            end
+            mkEnv (#dec decs @ [mkTuple codeList])
         end
-
     in
-        #1 (matchSubStructure (code, actions))
+        matchSubStructure (code, actions)
     end (* applyMatchActions *)
 
     (* If we are declaring a structure with an opaque signature we need to create
@@ -2652,7 +2641,7 @@ struct
     |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv) =
         let
             fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, resIds=ref resIds,
-                                  matchToResult=ref matchToResult, ...}, debugEnv) =
+                                  matchToResult=ref matchToResult, ...}: functorBind, debugEnv) =
             let
                 (* Go up one level. *)
                 val () = level := !level + 1;
