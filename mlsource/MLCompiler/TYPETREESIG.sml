@@ -124,10 +124,16 @@ sig
     (* Create an instance of an overloaded type. *)
     val generaliseOverload: types * typeConstrs list * bool -> types * types list;
 
+    (* The same as generalise but with a function that looks up types. *)
+    val generaliseWithMap: types * (typeVarForm -> types option) -> types * types list;
+
+    (* Return the type variables that would be generalised at this point. *)
+    val getPolyTypeVars: types * (typeVarForm -> types option) -> typeVarForm list
+
     (* Release type variables at this nesting level.  Updates the type to the
        generalised version. *)
     val allowGeneralisation: types * int * bool *
-                             lexan * location * (unit -> pretty) * printTypeEnv -> unit;
+                             lexan * location * (unit -> pretty) * printTypeEnv -> unit
 
     (* Check for a local datatype "escaping".  Added for ML97. *)
     val checkForLocalDatatypes: types * int * (string -> unit) -> unit;

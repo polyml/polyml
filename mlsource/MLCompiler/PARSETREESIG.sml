@@ -100,8 +100,7 @@ sig
     
   val mkOpenTree : structureIdentForm list * location -> parsetree;
   val mkStructureIdent : string * location -> structureIdentForm;
-  val mkValBinding : parsetree * parsetree * location -> valbind; 
-  val recValbind: valbind;
+  val mkValBinding : parsetree * parsetree * bool * location -> valbind;
   val mkClausal : fvalclause list * location -> fvalbind;
   val mkClause : funpattern * parsetree * location -> fvalclause;
   val mkFunPattern: parsetree * lexan -> funpattern * string * int

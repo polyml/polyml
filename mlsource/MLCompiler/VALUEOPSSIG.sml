@@ -41,6 +41,7 @@ sig
     type locationProp
     type typeId
     type typeVarForm
+    type typeVarMap
 
     (* Construction functions. *)
     val mkGvar:        string * types * codetree * locationProp list -> values
@@ -93,13 +94,13 @@ sig
 
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
-    val codeVal:        values * int * types list * lexan * location -> codetree
-    val codeExFunction: values * int * types list * lexan * location -> codetree
-    val applyFunction:  values * codetree * int * types list * lexan * location -> codetree
+    val codeVal:        values * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
+    val codeExFunction: values * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
+    val applyFunction:  values * codetree * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
-    val makeGuard:      values * types list * codetree * int -> codetree 
-    val makeInverse:    values * types list * codetree * int -> codetree
+    val makeGuard:      values * (types list * typeVarForm list) * codetree * int * typeVarMap -> codetree 
+    val makeInverse:    values * (types list * typeVarForm list) * codetree * int * typeVarMap -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals
@@ -115,6 +116,8 @@ sig
                         string * (string -> unit) -> typeConstrs
 
     val codeLocation: location -> codetree
+
+    val getPolymorphism: values * types * typeVarMap -> types list * typeVarForm list
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -134,5 +137,6 @@ sig
         type locationProp   = locationProp
         type typeId         = typeId
         type typeVarForm    = typeVarForm
+        type typeVarMap     = typeVarMap
     end
 end;

@@ -113,7 +113,7 @@ struct
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
         ValueMatch of
-            { sourceValue: values, sourcePolyVars: types list, destPolyVars: types list, coercion: valueCoercions }
+            { sourceValue: values, polyMatch: (types list * typeVarForm list) option, coercion: valueCoercions }
     |   StructureMatch of
             { sourceStructure: structVals, contentsMatch: structureMatch}
     |   TypeIdMatch of
@@ -791,8 +791,8 @@ struct
             )
 
         |   checkItem((dAddr, ValueMatch { sourceValue=Value{access=Formal sAddr, ...}, coercion = NoCoercion,
-                                           sourcePolyVars, destPolyVars }), _) =
-                dAddr = sAddr andalso List.length destPolyVars = List.length sourcePolyVars
+                                           polyMatch = NONE }), _) =
+                dAddr = sAddr
             
         |   checkItem _ = false (* Includes TypeIdMatch *)
 
@@ -908,13 +908,18 @@ struct
     fun matchErrorReport(lex, structTypeEnv, sigTypeEnv) =
         unifyTypesErrorReport(lex, structTypeEnv, sigTypeEnv, "match")
 
-    (* Check that two types match. *)
+    datatype matchTypeResult =
+        MatchError of matchResult
+    |   MatchSuccess of { sourceTypes: types list, destVars: typeVarForm list }
+
+    (* Check that two types match.  Returns either an error result or the set
+       of polymorphic variables for the source and the target. *)
     fun matchTypes (candidate, target, targMap: int -> typeId option) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
         fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
-        fun copyTarget t = (* Don't bother with type variables. *)
+        fun copyTarget t = (* Leave type variables. *)
             copyType (t, fn x => x, copyATypeConstr);
         val copiedTarget = copyTarget target
         (* Do the match to a version of the candidate with copies of the
@@ -926,7 +931,28 @@ struct
            second copy and not the first copy). *)
         val (copiedCandidate : types, _) = generalise candidate;
     in
-        unifyTypes (copiedCandidate, copiedTarget)
+        case unifyTypes (copiedCandidate, copiedTarget) of
+            NONE =>
+                (* Succeeded.  Get the polymorphic variable lists for the source and
+                   destination.  *)
+                let
+                    (* This is complicated because of flexible records.  If the candidate
+                       contains a flexible record (the target cannot) this means that the
+                       polymorphism is indeterminate until it has been matched.
+                       e.g. fun f {x, ...} = x+1 matches val f: {x: int}->int and also
+                       val f: {x: int, y: int}->int.  In the second case f actually has type
+                       { x: int, y: 'a } i.e. is polymorphic.
+                       The call to unifyTypes above will have frozen the record.  We now do
+                       a second unification. *)
+                    val (copiedCandidateAgain, sourceVars) = generalise candidate
+                    val () = 
+                        case unifyTypes(copiedCandidateAgain, copiedTarget) of
+                            NONE => ()
+                        |   SOME _ => raise InternalError "unifyTypes failed after first succeeding"
+                in
+                    MatchSuccess{sourceTypes=sourceVars, destVars=getPolyTypeVars(copiedTarget, fn _ => NONE)}
+                end
+        |   SOME error => MatchError error
     end;
 
     (* Check that a matching has succeeded, and check the value
@@ -948,12 +974,14 @@ struct
         case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
                          mkTypeConstruction (targetName, target, tvars, []), 
                          targTypeMap) of
-                SOME error => errorInDatatype(candid, target, matchErrorReport(lex, typeEnv, typeEnv) error) (* Report the error. *)
-            |   NONE => () (* We have already checked for matching a type in the structure to a datatype in the signature.
-                              In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
-                              must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
-                              So we can check the constructors when we check the values. *)
-    end (* checkTypeConstrs *);
+                MatchError error => (* Report the error. *)
+                    errorInDatatype(candid, target, matchErrorReport(lex, typeEnv, typeEnv) error)
+            |   MatchSuccess _ => ()
+                (* We have already checked for matching a type in the structure to a datatype in the signature.
+                   In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
+                   must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
+                   So we can check the constructors when we check the values. *)
+    end
 
     (* Check that a candidate signature (actually the environment part of
        a structure) matches a target signature. The direction is important
@@ -1206,15 +1234,24 @@ struct
                                     )
                             |   IsOK coercion =>
                                 case matchTypes (sourceTypeOf, destTypeOf, lookupType) of
-                                    NONE =>
+                                    MatchSuccess { sourceTypes, destVars } =>
                                     (
                                         case destAccess of
                                             Formal destAddr =>
                                             let
-                                                (* This may have a different level of polymorphism in which case we
-                                                   have to apply it to the arguments and if necessary add a function in there. *)
-                                                val (_, destPolyVars) = generalise destTypeOf
-                                                val (_, sourcePolyVars) = generalise sourceTypeOf
+                                                (* If we have the same polymorphic variables in the source
+                                                   and destination we don't need to apply a coercion.
+                                                   N.B. We may have the same number of polymorphic variables
+                                                   but still have to apply it if we have, for example,
+                                                   fun f x => x   matching  val f: 'a list -> 'a list. *)
+                                                fun equalEntry(source, destTv) =
+                                                    case eventual source of
+                                                        TypeVar sourceTv => sameTv(sourceTv, destTv)
+                                                    |   _ => false
+                                                val polyMatch =
+                                                    if ListPair.allEq equalEntry (sourceTypes, destVars)
+                                                    then NONE
+                                                    else SOME(sourceTypes, destVars)
                                             in
                                                 (* If it matches an entry in the signature it counts as being exported
                                                    and therefore referenced. *)
@@ -1223,12 +1260,11 @@ struct
                                                 |   _ => ();
                                                 (* Return this in the match list. *)
                                                 (destAddr, ValueMatch { sourceValue = candid, coercion = coercion,
-                                                             sourcePolyVars = sourcePolyVars,
-                                                             destPolyVars = destPolyVars }) :: matches 
+                                                                        polyMatch = polyMatch }) :: matches 
                                             end
                                         |   _ => matches (* This could be global. *)
                                     )
-                                |   SOME error =>
+                                |   MatchError error =>
                                     (
                                         sigStructMatchMsg(lex, near, lno, structPath)
                                             displayValue (candid, destVal, matchErrorReport(lex, typeEnv, typeEnv) error);
@@ -1293,8 +1329,7 @@ struct
         in
             case v of
                 Value { access=Formal addr, ...} =>
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion,
-                                 sourcePolyVars = [], destPolyVars = [] }) :: matches
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, polyMatch = NONE }) :: matches
             |   _ => matches
         end
         else matches
@@ -1545,8 +1580,9 @@ struct
                                       locations=locations, references=references}
                         in
                             #enterVal finalEnv (dName, formalValue);
-                            (addrs + 1, (addrs, ValueMatch { sourceValue = valVal, coercion = NoCoercion,
-                                                     sourcePolyVars = [], destPolyVars = [] }) :: matches)
+                            (addrs + 1,
+                                (addrs,
+                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, polyMatch = NONE}) :: matches)
                         end
                 end
                 else (addrs, matches)
@@ -2349,79 +2385,53 @@ struct
                     matchSubStructure (code, contentsMatch)
                 end
 
-            |   applyAction (ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion,
-                                          sourcePolyVars, destPolyVars }) =
-                let
-                    (* This may have a different level of polymorphism in which case we
-                       have to apply it to the arguments and if necessary add a function in there. *)
-                    val destPolymorphism = List.length destPolyVars
-                    val sourcePolymorphism = List.length sourcePolyVars
-
-                    (* If we have to generate a function then the level will be higher.*)
-                    val oldLevel = !level
-
-                    val () =
-                        if destPolymorphism = sourcePolymorphism orelse destPolymorphism = 0
-                        then ()
-                        else level := !level+1;
-                        
-                    (* If the entry is from a signature select from the code. *)
-                    val code =
+            |   applyAction
+                (ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion, polyMatch }) =
+                let                        
+                    (* If the entry is from a signature select from the code.  Apply any coercion from
+                       constructors to values. *)
+                    fun loadCode localLevel =
                         case sourceValue of
                             Value{access=Formal svAddr, ...} =>
                             (
                                 case coercion of
-                                    NoCoercion => mkInd (svAddr, #load decs (!level))
+                                    NoCoercion => mkInd (svAddr, #load decs localLevel)
 
                                 |   ExceptionToValue =>
                                     let
                                         fun loadEx l = mkInd (svAddr, #load decs l)
                                     in
                                         case getFnArgType sourceTypeOf of
-                                            NONE => mkTuple [loadEx(!level), mkStr name,
+                                            NONE => mkTuple [loadEx localLevel, mkStr name,
                                                      CodeZero, codeLocation nullLocation]
                                         |   SOME _ =>
                                                 mkProc 
-                                                    (mkTuple[loadEx (!level + 1), mkStr name,
+                                                    (mkTuple[loadEx (localLevel + 1), mkStr name,
                                                         mkLoad (~1, 0), codeLocation nullLocation],
                                                     1, 1, "")
                                     end
 
                                 |   ConstructorToValue =>
-                                        mkInd(1, mkInd (svAddr, #load decs (!level)))
+                                        mkInd(1, mkInd (svAddr, #load decs localLevel))
                            )
 
                         | _ =>
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, !level, [], lex, location nullLex)
+                                        codeVal (sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex)
                                 |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, !level, [], lex, location nullLex)
+                                        codeExFunction(sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, !level, [], lex, location nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex))
                             )
 
-                    val () = level := oldLevel;
-
-                    fun applyToInstance([], code) = code
-                    |   applyToInstance(polyVars, code) = mkEval(code, List.map(fn _ => CodeZero) polyVars, true)
-
                     val polyCode =
-                        if destPolymorphism = sourcePolymorphism
-                        then code (* Nothing to do. *)
-                        else if destPolymorphism = 0
-                        then (* Destination is monomorphic. *)
-                        (
-                            applyToInstance(sourcePolyVars, code)
-                        )
-                        else (* Destination is polymorphic. *)
-                        (
-                            (* N.B.  Normally we remove polymorphism by matching a polymorphic value
-                               to a monomorphic signature item but we CAN add polymorphism through
-                               type abbreviations e.g. type 'a t = int. *)
-                            mkProc(applyToInstance(sourcePolyVars, code), !level+1, destPolymorphism, name^"(P)")
-                        )
+                        case polyMatch of
+                            NONE => loadCode(!level) (* Nothing to do. *)
+
+                        |   SOME(sourcePolyTypes, destPolyVars) => (* Destination is monomorphic. *)
+                                applyToInstance((sourcePolyTypes, destPolyVars), !level, defaultTypeVarMap, loadCode)
                 in
                     polyCode
                 end
@@ -2605,7 +2615,7 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, [], nullLex, location nullLex))
+            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, defaultTypeVarMap, ([], []), nullLex, location nullLex))
             |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
             |   filterVals _              = NONE
             val loadVals = List.mapPartial filterVals vars

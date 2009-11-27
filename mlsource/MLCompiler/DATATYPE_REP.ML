@@ -727,12 +727,12 @@ struct
         val makeNone =
             applyToInstance([exnPrinter], mkInd(1, case noneConstructor of Value { access, ...} => vaGlobal access))
     in
-        fun mkExIden(ty, level) =
+        fun mkExIden(ty, level, tvMap) =
         let
             val printerCode =
                 case ty of
                     FunctionType { arg, ...} =>
-                        mkEval(makeSome, [printerForType(arg, level)], true)
+                        mkEval(makeSome, [printerForType(arg, level, tvMap)], true)
                 |   _ => makeNone
         in
             refApplyCode printerCode
@@ -748,6 +748,7 @@ struct
         type typeConstrs    = typeConstrs
         type typeId         = typeId
         type typeVarForm    = typeVarForm
+        type typeVarMap     = typeVarMap
     end
 
 end;

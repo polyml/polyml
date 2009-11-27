@@ -23,6 +23,8 @@ sig
     type types
     type typeConstrs
     type typeVarForm
+    type typeVarMap
+
     val codeId: typeId * int -> codetree
     val codeGenerativeId: typeId * bool * int -> codetree
     
@@ -31,9 +33,21 @@ sig
     val codeForUniqueId: unit->codetree
 
     (* Generate a function of the form t*int->pretty for values of type t. *)
-    val printerForType: types * int -> codetree
+    val printerForType: types * int * typeVarMap -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
-    val equalityForType: types * int -> codetree
+    val equalityForType: types * int * typeVarMap -> codetree
+
+    val applyToInstance: (types list * typeVarForm list) * int * typeVarMap * (int -> codetree) -> codetree
+
+    val extendTypeVarMap:
+        (typeVarForm * (int -> codetree)) list * typeVarMap -> typeVarMap
+
+    (* Default map. *)
+    val defaultTypeVarMap: typeVarMap
+    
+    val mapTypeVars: typeVarMap -> typeVarForm -> types option
+    
+    val defaultTypeCode: codetree
 
     structure Sharing:
     sig
@@ -42,5 +56,6 @@ sig
         type types      = types
         type typeConstrs= typeConstrs
         type typeVarForm=typeVarForm
+        type typeVarMap = typeVarMap
     end
 end;

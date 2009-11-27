@@ -140,9 +140,6 @@ struct
   fun typesTypeVar          (TypeVar          x) = x 
     | typesTypeVar          _ = raise Match;
     
-  fun typesTypeConstruction (TypeConstruction x) = x 
-    | typesTypeConstruction _ = raise Match;
-    
   fun typesFunctionType     (FunctionType     x) = x
      | typesFunctionType     _ = raise Match;
 
@@ -1342,45 +1339,43 @@ struct
     end
 
 
-  (* When we have finished processing a list of patterns we need to check
-     that the record is now frozen. *)
-
-  fun recordNotFrozen (TypeVar t) : bool = 
-        (* Follow the chain *)
-        recordNotFrozen (tvValue t)
-    | recordNotFrozen (LabelledType { frozen, ... }) = not frozen
-    | recordNotFrozen _ = false (* record or type alias *);
+    (* When we have finished processing a list of patterns we need to check
+       that the record is now frozen. *)
+    fun recordNotFrozen (TypeVar t) : bool = (* Follow the chain *) recordNotFrozen (tvValue t)
+    |   recordNotFrozen (LabelledType { frozen, ... }) = not frozen
+    |   recordNotFrozen _ = false (* record or type alias *);
 
     datatype generalMatch = Matched of {old: typeVarForm, new: types};
 
-    fun generaliseTypes (atyp : types, matched : generalMatch list) : types * types list = 
+    fun generaliseTypes (atyp : types, checkTv: typeVarForm->types option) = 
     let
-        val madeList = ref matched (* List of tyVars. *);
+        val madeList = ref [] (* List of tyVars. *);
 
         fun tvs atyp =
         let
             val tyVar = typesTypeVar atyp;
-      
-            (* See if we have already made a type variable for it. *)
-            fun pTypeVar [] =
-                let  (* Not on the list - make a new name *)
-                    (* Make a unifiable type variable even if the original
-                       is nonunifiable. *)
-                    val n : types = 
-                        mkTypeVar (generalisable, tvEquality tyVar, false)
-                in
-                    (* Set the new variable to have the same value as the
-                       existing.  That is only really needed if we have an
-                       overload set. *)
-                    tvSetValue (typesTypeVar n, tvValue tyVar);
-                    madeList := Matched {old = tyVar, new = n} :: !madeList;
-                    n
-                end
-
-            |   pTypeVar (Matched {old, new} :: rest) =
-                if sameTv (old, tyVar) then new else pTypeVar rest;
         in
-            pTypeVar (!madeList)
+            case List.find(fn Matched{old, ...} => sameTv (old, tyVar)) (!madeList) of
+                SOME(Matched{new, ...}) => new
+            |   NONE =>
+                (
+                case checkTv tyVar of
+                    SOME found => found
+                |   NONE =>
+                    let  (* Not on the list - make a new name *)
+                        (* Make a unifiable type variable even if the original
+                           is nonunifiable. *)
+                        val n : types = 
+                            mkTypeVar (generalisable, tvEquality tyVar, false)
+                    in
+                        (* Set the new variable to have the same value as the
+                           existing.  That is only really needed if we have an
+                           overload set. *)
+                        tvSetValue (typesTypeVar n, tvValue tyVar);
+                        madeList := Matched {old = tyVar, new = n} :: !madeList;
+                        n
+                    end
+                )
         end
 
         fun copyTypeVar (atyp as TypeVar tyVar) =
@@ -1414,12 +1409,31 @@ struct
             (* Only process type variables. Return type constructors unchanged. *)
             copyType (atyp, copyTypeVar, fn t => t (*copyTCons*))
     in
-        (copied, List.map (fn(Matched{new, ...}) => new) (! madeList))
+        (copied, ! madeList)
     end (* generaliseTypes *);
 
-
     (* Exported wrapper for generaliseTypes. *)
-    fun generalise atyp = generaliseTypes (atyp, []);
+    fun generalise atyp =
+    let
+        val (t, newMatch) = generaliseTypes (atyp, fn _ => NONE)
+    in
+        (t, List.map (fn(Matched{new, ...}) => new) newMatch)
+    end;
+
+    (* Return the original polymorphic type variables. *)
+    fun getPolyTypeVars(atyp, map) =
+    let
+        val (_, newMatch) = generaliseTypes (atyp, map)
+    in
+        List.map (fn(Matched{old, ...}) => old) newMatch
+    end;
+    
+    fun generaliseWithMap(atyp, map) =
+    let
+        val (t, newMatch) = generaliseTypes (atyp, map)
+    in
+        (t, List.map (fn(Matched{new, ...}) => new) newMatch)
+    end;
     
   (* Make a match list from a list of type variables and types. *)
   
@@ -1436,14 +1450,17 @@ struct
       comparing the type of "::" ('a * 'a list -> 'a list) to find the
       argument of the constructor (int * int list) and hence how to print it.
      (Actually "list" is treated specially). *)
-    fun constructorResult (constrType : types, typeArgs : types list) : types =
-    let
-        val constrFun = typesFunctionType constrType;
-    in
-        #1 (generaliseTypes
-          (#arg constrFun, 
-           copyVars (List.map typesTypeVar (#args (typesTypeConstruction (#result constrFun))), typeArgs)))
-    end;
+    fun constructorResult (FunctionType{arg, result=TypeConstruction{args, ...}}, typeArgs) =
+        let
+            val matches = ListPair.zip(List.map typesTypeVar args, typeArgs)
+            fun getArg tv =
+                case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
+                    SOME (_, ty) => SOME ty
+                |   NONE => NONE
+        in
+            #1 (generaliseTypes(arg, getArg))
+        end
+    | constructorResult _ = raise InternalError "Not a function type"
 
     (* If we have a type construction which is an alias for another type
        we construct the alias by first instantiating all the type variables
@@ -1452,7 +1469,15 @@ struct
         case tcIdentifier atyp of
             TypeId{typeFn=(_, EmptyType), ...} => raise InternalError "makeEquivalent: Not a type function"
         |   TypeId{typeFn=(typeArgs, typeResult), ...} =>
-                #1 (generaliseTypes(typeResult, copyVars (typeArgs, args)))
+            let
+                val matches = ListPair.zip(typeArgs, args)
+                fun getArg tv =
+                    case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
+                        SOME (_, ty) => SOME ty
+                    |   NONE => NONE
+            in
+                #1 (generaliseTypes(typeResult, getArg))
+            end
 
     (* Look for the occurrence of locally declared datatypes in the type of a value. *)
     fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
@@ -2506,10 +2531,15 @@ struct
     in
         case arg of
             TypeVar tv =>
+            let
                 (* The argument should be a type variable, possibly set to
                    an empty overload set.  This should be replaced by
                    the current overload set in the copied function type. *)
-                generaliseTypes(t, [Matched{old=tv, new=mkOverloadSet constrs}])
+                val newSet = mkOverloadSet constrs
+                val (t, _) = generaliseTypes(t, fn old => if sameTv(old, tv) then SOME newSet else NONE)
+            in
+                (t, [newSet])
+            end
           | _ => raise InternalError "generaliseOverload - arg is not a type var"
     end
 
@@ -2576,8 +2606,8 @@ struct
      it is possible that another declaration may "freeze" the type variable
      before the composite expression reaches the top level. *)
   fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
-	let
-		fun giveError(s1: string, s2: string) =
+    let
+        fun giveError(s1: string, s2: string) =
         let
             (* Use a single sequence. *)
             val vars : typeVarForm -> string = varNameSequence ();
@@ -2603,63 +2633,63 @@ struct
             }
         end
 
-		fun general (TypeVar tvar) showError =
-			if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
+        fun general (TypeVar tvar) showError =
+            if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
                 andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
-			then let
-			    (* Is this an overload set ? *)
-				val isOverloadSet = 
-					case tvValue tvar of
-						OverloadSet _ => true
-					|	_ => false
+            then let
+                (* Is this an overload set ? *)
+                val isOverloadSet = 
+                    case tvValue tvar of
+                        OverloadSet _ => true
+                    |    _ => false
 
-	            (* Make a new generisable type variable, except that type
-	               variables in an expansive context cannot be generalised.
-				   We also don't generalise if this is an overload set.
-				   The reason for that is that it allows us to get overloading
-				   information from the surrounding context.
-				   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-				   would be take the default type (in this case int).
-				   DCJM 1/9/00. *)
-	            val nonCopiable = not nonExpansive orelse isOverloadSet;
-	            val newLevel =
-	               if nonCopiable then level-1 else generalisable (* copiable *);
+                (* Make a new generisable type variable, except that type
+                   variables in an expansive context cannot be generalised.
+                   We also don't generalise if this is an overload set.
+                   The reason for that is that it allows us to get overloading
+                   information from the surrounding context.
+                   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
+                   would be take the default type (in this case int).
+                   DCJM 1/9/00. *)
+                val nonCopiable = not nonExpansive orelse isOverloadSet;
+                val newLevel =
+                   if nonCopiable then level-1 else generalisable (* copiable *);
 
-				val isOk =
-					(* If the type variable has top-level scope then we have
-	                   a free type variable.  We only want to generate this
-					   message once even if we have multiple type variables.*)
-					(* If the type variable is non-unifiable and the expression is
-					   expansive then we have an error since this will have to
-					   be a monotype.  *)
-					if tvNonUnifiable tvar andalso nonCopiable andalso showError
-					then
-						(
-						giveError("Type", "includes a free type variable");
-						false
-						)
-		            else showError;
-	            val newVal =
-	                 mkTypeVar 
-	                   (newLevel, tvEquality tvar,
-	                    if nonCopiable then (tvNonUnifiable tvar) else false)
-			in
-	            (* If an explicit type variable is going out of scope we can
-	               generalise it, except if it is nonunifiable. *)
-	            (* It may be a flexible record so we have to transfer the
-	               record to the new variable. *)
-	            tvSetValue (typesTypeVar newVal, tvValue tvar);
-				tvSetValue (tvar, newVal);
-				isOk
-			end
-			else showError
-		| general _ isOk = isOk
-	in
-		foldType general t true;
-		()
-	end (*  end allowGeneralisation *);
+                val isOk =
+                    (* If the type variable has top-level scope then we have
+                       a free type variable.  We only want to generate this
+                       message once even if we have multiple type variables.*)
+                    (* If the type variable is non-unifiable and the expression is
+                       expansive then we have an error since this will have to
+                       be a monotype.  *)
+                    if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                    then
+                        (
+                        giveError("Type", "includes a free type variable");
+                        false
+                        )
+                    else showError;
+                val newVal =
+                     mkTypeVar 
+                       (newLevel, tvEquality tvar,
+                        if nonCopiable then (tvNonUnifiable tvar) else false)
+            in
+                (* If an explicit type variable is going out of scope we can
+                   generalise it, except if it is nonunifiable. *)
+                (* It may be a flexible record so we have to transfer the
+                   record to the new variable. *)
+                tvSetValue (typesTypeVar newVal, tvValue tvar);
+                tvSetValue (tvar, newVal);
+                isOk
+            end
+            else showError
+        | general _ isOk = isOk
+    in
+        foldType general t true;
+        ()
+    end (*  end allowGeneralisation *);
 
-  (* Check for free type variables.  Added for ML97.  This replaces the
+  (* Check for free type variables at the top level.  Added for ML97.  This replaces the
      test in allowGeneralisation above and is applied to all top-level
      values including those in structures and functors.  *)
   (* I've changed this from giving an error message, which prevented the

@@ -1432,38 +1432,27 @@ struct
 
                 (* Processes a value binding. *)
                 (* We check for qualified names in the second pass *)
-                fun valB fsys =
+                fun valB(fsys, isRec) =
+                if (sy lex) eq SYMBOLS.recSy
+                then (insymbol lex; valB(fsys, true))
+                else
                 let
-                    val recursive = (sy lex) eq SYMBOLS.recSy
+                    (* Pattern *)
+                    val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv;
+                    (* = *)
+                    val () = getsym (SYMBOLS.equalsSign, lex);
+                    (* expression *)
+                    val (exp, expLoc) = expression fsys newEnv;
+                    (* Other declarations. *)
+                    val (tail, tailLocn) =
+                        if testfor (SYMBOLS.andSy, empty, lex)
+                        then valB(fsys, isRec)
+                        else ([], expLoc)
                 in
-                    while (sy lex) eq SYMBOLS.recSy
-                    do insymbol lex; (* Could be more than one *)
-                    if recursive
-                    then
-                    let
-                        val (valb, valbLocn) = valB fsys
-                    in
-                        (recValbind :: valb, valbLocn)
-                    end
-                    else
-                        let
-                            (* Pattern *)
-                            val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv;
-                            (* = *)
-                            val () = getsym (SYMBOLS.equalsSign, lex);
-                            (* expression *)
-                            val (exp, expLoc) = expression fsys newEnv;
-                            (* Other declarations. *)
-                            val (tail, tailLocn) =
-                                if testfor (SYMBOLS.andSy, empty, lex)
-                                then valB fsys
-                                else ([], expLoc)
-                         in
-                             (mkValBinding (vars, exp, locSpan(varLoc, expLoc)) :: tail, tailLocn)
-                         end
-                end;
+                     (mkValBinding (vars, exp, isRec, locSpan(varLoc, expLoc)) :: tail, tailLocn)
+                end
 
-                val (bindings, bindLocns) = valB (fsys ++ andSy)
+                val (bindings, bindLocns) = valB (fsys ++ andSy, false)
                 val fullLocn = locSpan(startLocn, bindLocns)
             in
                 (mkValDeclaration (bindings,
@@ -1746,7 +1735,7 @@ struct
                             lookupTvar = #lookupTvar newTvars};
             val (exp, expLoc) = expression fsys newEnv
         in
-            (mkValDeclaration ([mkValBinding (mkIdent ("it", nullLocation), exp, expLoc)],
+            (mkValDeclaration ([mkValBinding (mkIdent ("it", nullLocation), exp, false, expLoc)],
                 {lookup= #lookup explicitTvars,apply= #apply explicitTvars},
                 {lookup= #lookup newTvars,apply= #apply newTvars},
                 expLoc), expLoc)

@@ -24,6 +24,7 @@ sig
     type typeConstrs
     type typeId
     type typeVarForm
+    type typeVarMap
 
     val chooseConstrRepr : (string*types) list * types list -> codetree list
 
@@ -49,7 +50,7 @@ sig
     and contextConstr: typeConstrs
     and prettyConstr: typeConstrs
 
-    val mkExIden:       types * int -> codetree
+    val mkExIden:       types * int * typeVarMap -> codetree
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -60,5 +61,6 @@ sig
         type typeConstrs    = typeConstrs
         type typeId         = typeId
         type typeVarForm    = typeVarForm
+        type typeVarMap     = typeVarMap
     end
 end;

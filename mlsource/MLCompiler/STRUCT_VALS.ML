@@ -496,27 +496,22 @@ struct
         open Address PRETTY RuntimeCalls
         fun defaultPrinter _ _ _ = PrettyString "?"
 
-        fun eqAndPrintCode eqFun =
+        fun eqAndPrintCode (eqFun, isMonotype) =
         let
-            (* The structure equality function takes a pair of arguments.  We need a
-               function that takes two Poly-style arguments. *)
-            val defaultEqCode =
-                mkInlproc(
-                    mkConst (toMachineWord(RunCall.run_call1 POLY_SYS_io_operation eqFun)),
-                    0, 0, "eq-helper()")
+            val eqCode =
+                mkConst (toMachineWord(RunCall.run_call1 POLY_SYS_io_operation eqFun))
             val code =
                 mkTuple[
-                    defaultEqCode,
+                    if isMonotype then eqCode else mkInlproc(eqCode, 0, 0, "eq-helper()"),
                     mkConst (toMachineWord (ref defaultPrinter))
                 ]
         in
             Global (genCode(code, []) ())
         end
-        
 
         fun makeType(name, eqFun) =
             makeFrozenTypeConstrs (name, [],
-                makeFreeId(eqAndPrintCode eqFun, true, basisDescription name, ([], EmptyType)),
+                makeFreeId(eqAndPrintCode(eqFun, true), true, basisDescription name, ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
     in
         val intType    = makeType("int",    POLY_SYS_equala) (* Need arbitrary precision equality *)
@@ -530,22 +525,22 @@ struct
         val refType =
             makeDatatypeConstr 
                 ("ref", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "ref", ([], EmptyType)),
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "ref", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         val arrayType =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array.array", ([], EmptyType)),
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "Array.array", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         val array2Type =
             makeFrozenTypeConstrs 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode POLY_SYS_word_eq, true, basisDescription "Array2.array", ([], EmptyType)),
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "Array2.array", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolType =
             makeDatatypeConstr 
-                ("bool", [], makeFreeId(eqAndPrintCode POLY_SYS_int_eq, true, basisDescription "bool", ([], EmptyType)),
+                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_int_eq, true), true, basisDescription "bool", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
     end
 
