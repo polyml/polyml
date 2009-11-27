@@ -178,11 +178,11 @@ struct
                         case argTypes tyVar of
                             NONE => (* Not there: must be in a polymorphic function. *)
                             (
-                                print(concat[
+                                (*print(concat[
                                     "Missing type variable ", "Level=", Int.toString(tvLevel tyVar),
                                     if tvNonUnifiable tyVar then " Nonunifiable " else " Unifiable ",
                                     if tvEquality tyVar  then " Equality " else "",
-                                    "\n"]);
+                                    "\n"]);*)
                                 codePrettyString "?"
                             )
                         |   SOME argCode =>
@@ -862,54 +862,31 @@ struct
        because a type variable has escaped to the top level.
        The equality code always returns true and the printer prints "?". *)
     fun codeForUniqueId() =
-        mkConst(ADDRESS.toMachineWord((fn _ => fn _ => true, ref(fn _ => fn _ => fn _ => PrettyString "?"))))
+        mkConst(ADDRESS.toMachineWord((fn _ => true, ref(fn _ => fn _ => fn _ => PrettyString "?"))))
 
-    (* If we have a polymorphic function we may have to apply it to the instance.  The result
-       may also be polymorphic and if it differs we have to construct a function.  *)
-    fun applyToInstance((sourceTypes, destVars), level, polyVarMap, code) =
+    (* If this is a polymorphic value apply it to the type instance. *)
+    fun applyToInstance([], level, _, code) = code level (* Monomorphic. *)
+
+    |   applyToInstance(sourceTypes, level, polyVarMap, code) =
     let
-        fun equalEntry(source, destTv) =
-            case eventual source of
-                TypeVar sourceTv => sameTv(sourceTv, destTv)
-            |   _ => false
+        fun createTypeArg t =
+            let
+                val eqCode =
+                    if typePermitsEquality t then equalityForType(t, level, polyVarMap) else CodeZero
+            in
+                mkTuple[eqCode, printerForType(t, level, polyVarMap)]
+            end
+        (* See if we have this on the list and if so use it.  Otherwise create a new pair of
+           equality and print functions. *)
+        fun makePolyParameter(t as TypeVar tv) =
+        (
+            case findCodeFromTypeVar(polyVarMap, tv) of
+                SOME code => code level
+            |   NONE => createTypeArg t
+        )
+        |   makePolyParameter t = createTypeArg t
     in
-        if ListPair.allEq equalEntry (sourceTypes, destVars)
-        then code level (* No polymorphism or just copying. *)
-        else
-        let
-            fun makeParameters(newTypeVarMap, level) =
-            let
-                fun makePolyParameter t =
-                let
-                    val eqCode =
-                        if typePermitsEquality t then equalityForType(t, level, polyVarMap) else CodeZero
-                in
-                    mkTuple[eqCode, printerForType(t, level, newTypeVarMap)]
-                end
-            in
-                List.map makePolyParameter sourceTypes
-            end
-        in
-            if null destVars
-            then mkEval(code level, makeParameters(polyVarMap, level), true)
-            else
-            let
-                val destPolymorphism = List.length destVars
-                val sList = List.filter(fn t => case eventual t of TypeVar _ => true | _ => false) sourceTypes
-                
-                val () = if List.length sList = destPolymorphism andalso not (ListPair.allEq equalEntry (sList, destVars))
-                    then raise InternalError "Same polymorphism/different vars\n" else ()
-                val args =
-                    List.tabulate(destPolymorphism,
-                        fn n => fn lvl => mkLoad(n-destPolymorphism, lvl - (level+1)))
-                val argMap = ListPair.zipEq(destVars, args)
-                val newTypeVarMap = extendTypeVarMap(argMap, polyVarMap)
-            in
-                mkProc(
-                    mkEval(code (level+1), makeParameters (newTypeVarMap, level+1), true),
-                    level+1, List.length destVars, "(P)")
-            end
-        end
+        mkEval(code level, List.map makePolyParameter sourceTypes, true)
     end
 
     (* Default map.  This needs to be extended. *)

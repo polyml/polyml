@@ -3902,7 +3902,7 @@ struct
             fun loadVar (var, (decs, env)) =
                 let
                     val loadVal =
-                        codeVal (var, level, typeVarMap, ([], []), lex, nullLocation)
+                        codeVal (var, level, typeVarMap, [], lex, nullLocation)
                     val {dec, rtEnv, ctEnv} =
                         createDebugEntry(var, loadVal, context |> repDebugEnv env)
                 in
@@ -4100,7 +4100,7 @@ struct
           constructor: values, (* The constructor itself. *)
           patts: patSet,       (* Patterns that use this constructor *)
           appliedTo: aot,      (* Patterns this constructor was applied to. *)
-          polyVars: types list * typeVarForm list (* If this was polymorphic, the matched types. *)
+          polyVars: types list (* If this was polymorphic, the matched types. *)
         } 
 
     and sconsrec =
@@ -4249,7 +4249,7 @@ struct
             let
               val cr =
                 makeConsrec (cons, singleton patNo,
-                    buildAot(arg, wild tree, patNo, line, context), ([], []))
+                    buildAot(arg, wild tree, patNo, line, context), [])
             in
               makeAot (Excons [cr]) defaults 0 vars
             end
@@ -4270,10 +4270,10 @@ struct
               if isTheSameException (#constructor h, cons)
               then 
                  makeConsrec(cons, (singleton patNo) plus (#patts h),
-                    buildAot(arg, #appliedTo h, patNo, line, context), ([], [])) :: t
+                    buildAot(arg, #appliedTo h, patNo, line, context), []) :: t
               else
                  makeConsrec(cons, singleton patNo,
-                    buildAot(arg, wild tree, patNo, line, context), ([], [])) :: cl;
+                    buildAot(arg, wild tree, patNo, line, context), []) :: cl;
           in
             makeAot (Excons newList) defaults 0 vars
           end
@@ -4398,7 +4398,7 @@ struct
                 val elementType = mkTypeVar (generalisable, false, false)
                 val listType = mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)
-                val polyVars = ([elementType], getPolyTypeVars(elementType, mapTypeVars typeVarMap))
+                val polyVars = [elementType]
 
                 fun processList [] tree = 
                     (* At the end put in a nil constructor. *)
@@ -4728,12 +4728,12 @@ struct
                     fun codeDefault () = 
                         if isBind then elseCode else matchFailCode;
               
-                    val testCode = makeGuard (constructor, ([], []), declLoad, level, typeVarMap);
+                    val testCode = makeGuard (constructor, [], declLoad, level, typeVarMap);
           
                     (* If it succeeds we have to take apart the argument of the
                        constructor. *)
                     val thenCode : patcode = 
-                        codePatt (appliedTo, makeInverse (constructor, ([], []), declLoad, level, typeVarMap),
+                        codePatt (appliedTo, makeInverse (constructor, [], declLoad, level, typeVarMap),
                             newActive, othermatches, codeDefault, isBind, declEnv,
                             context)
                
@@ -5144,7 +5144,7 @@ struct
                             Int.toString(List.length(#2 polyVars)), "\n"]);*)
             in
                 case class of
-                    Exception => codeExFunction (v, level, typeVarMap, ([], []), lex, location)
+                    Exception => codeExFunction (v, level, typeVarMap, [], lex, location)
                 |   Constructor _ =>
                     let
                         (* When using the constructor as a value we just want
@@ -5152,7 +5152,7 @@ struct
                            this will be applied BEFORE extracting the construction
                            function not afterwards. *)
                         fun getConstr level =
-                            mkInd(1, codeVal (v, level, typeVarMap, ([], []), lex, location))
+                            mkInd(1, codeVal (v, level, typeVarMap, [], lex, location))
                     in
                         applyToInstance(polyVars, level, typeVarMap, getConstr)
                     end
@@ -5363,7 +5363,7 @@ struct
                 Aot { patts = Excons exList, defaults, ...} =>
                   if defaults eq empty
                   then map (fn cons : consrec => 
-                               codeVal (#constructor cons, level, typeVarMap, ([], []), lex, location))
+                               codeVal (#constructor cons, level, typeVarMap, [], lex, location))
                          exList
                   else [CodeZero]
               | _ => [CodeZero]
@@ -5509,7 +5509,7 @@ struct
                         List.partition(fn ValBind{isRecursive, ...} => isRecursive) dec
 
                     val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, codeSeqContext)
-                    and recCode = codeRecValBindings(recBindings, codeSeqContext)
+                    val (recCode, _) = codeRecValBindings(recBindings, firstEntry, codeSeqContext)
                     (* Construct the debugging environment by loading all variables. *)
                     val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
                     val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
@@ -5564,7 +5564,7 @@ struct
                           | Ident{value=ref prevVal, location, ...} =>
                                   (* Copy the previous value. N.B. We want the exception
                                    identifier here so we can't call codegen. *)
-                                codeVal (prevVal, level, typeVarMap, ([], []), lex, location)
+                                codeVal (prevVal, level, typeVarMap, [], lex, location)
                           | _ => raise InternalError "codeEx"
                          )
                     end  (* codeEx *);
@@ -6026,72 +6026,48 @@ struct
                     (mkMutualDecs loaded :: decEnv, newDebugEnv)
         end (* codeFunBindings *)
 
-    (* Recursive val declarations. *)
-    and codeRecValBindings(valDecs, context as {mkAddr, level, typeVarMap, lex, ...}) =
+    (* Recursive val declarations.  Turn them into fun-bindings.  This avoids duplicating a lot
+       of code and codeFunBindings does a lot of optimisation. *)
+    and codeRecValBindings(valDecs, near, context) =
         let
-            fun codeRecursive ((ValBind{exp=vbExp, line, variables=ref vars, ...}), rest) =
+            (* Turn this into a fun binding. *)
+            fun valBindToFvalBind(ValBind{ exp, line, variables=ref vars, ...}, fVals) =
+            let
+                fun getMatches (Fn { matches: matchtree list, ... })  = matches
+                |   getMatches (Constraint {value, ...}) = getMatches value
+                |   getMatches (Parenthesised(p, _)) = getMatches p
+                |   getMatches _       = raise InternalError "getMatches"
+
+                fun matchTreeToClause(MatchTree{vars, exp, location, ...}) =
                 let
-                    (* Get the polymorphic variables.  If there's more than one variable they
-                       should all have the same type.  *)
-                    val polyVars =
-                        case vars of
-                            Value{typeOf, ...} :: _ =>
-                                getPolyTypeVars(typeOf, mapTypeVars typeVarMap)
-                        |   _ => []
-
-                    local
-                        (* Set the addresses of the variables. *)
-                        val addr = mkAddr 1;
-
-                        (* Set all the variables for this declaration to the same
-                           address, since they all refer to the same function.
-                           There will normally be precisely one variable. *)
-                        fun setAddress (var as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}) =
-                            (
-                                lvAddr  := addr;
-                                lvLevel := level;
-                                (* Non-recursive declarations are checked as part of the pattern
-                                   checking. *)
-                                if getParameter reportUnreferencedIdsTag (debugParams lex)
-                                then reportUnreferencedValue lex var
-                                else ()
-                            )
-                        |   setAddress _ =
-                                raise InternalError "setAddress  - badly formed parsetree"
-                    in
-                        val () = List.app setAddress vars
-                    end
-                in 
-                    (* Recursive declarations must be of the form var = fn ...
-                       so the declaration part of the binding must be an
-                       identifier pointing to a variable. *)
-                    case vars of
-                        [] => rest (* ignore it *)
-                            (* Perverse but legal:  val rec _ = fn ... *)
-                    |   ((idval as Value{name, ...}) :: _) =>
-                        let
-                            (* Normally precisely one identifier, but may be more
-                               if layered. Just create  one - all the others have
-                               the same address. *)
-                            val lvAddr =
-                                case idval of
-                                    Value{access=Local{addr, ...}, ...} => addr
-                                |    _ => raise InternalError "lvAddr"
-                        in
-                            (* Must be a function. This returns either a single
-                               declaration or possibly a pair of mutually recursive
-                               functions. *)
-                            (codeProc(vbExp, true, lvAddr, line, polyVars,
-                                context |> repDecName name)) @ rest
-                        end
+                    val dec =
+                        { ident = { name="", expType=ref EmptyType, location=location},
+                            isInfix = false, args=[vars], constraint=NONE}
+                in
+                    FValClause{dec = dec, exp=exp, line=location }
                 end
+                
+                val clauses = List.map matchTreeToClause (getMatches exp)
+ 
+                fun mkFValBind(var as Value{typeOf, ...}) =
+                let
+                    val argType = mkTypeVar(generalisable, false, false)
+                    and resultType = mkTypeVar(generalisable, false, false)
+                    val () =
+                        if isSome(unifyTypes(typeOf, mkFunctionType(argType, resultType)))
+                        then raise InternalError "mkFValBind"
+                        else ()
+                in
+                    FValBind { clauses=clauses, numOfPatts=ref 1, functVar=ref var,
+                               argType=ref argType, resultType=ref resultType, location=line }
+                end
+            in
+                fVals @ List.map mkFValBind vars
+            end
 
-            val loaded = List.foldl codeRecursive [] valDecs
+            val converted = List.foldl valBindToFvalBind [] valDecs
         in
-            case loaded of
-                [] => []
-            |   [_] => loaded (* If there is just one (may conceivably be none) *)
-            |   _ => [mkMutualDecs loaded] (* Put the declarations into a package of mutual decs. *)
+            codeFunBindings(converted, near, context)
         end (* codeRecValBindings *)
 
     (* Non-recursive val bindings. *)

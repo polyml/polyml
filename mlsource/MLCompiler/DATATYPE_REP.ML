@@ -717,18 +717,18 @@ struct
                     )
                 ],
                 [DeclaredAt inBasis])
- 
-        fun applyToInstance([], code) = code
-        |   applyToInstance(polyVars, code) = mkEval(code, List.map(fn _ => CodeZero) polyVars, true)
-
-        (* Get the constructor tuple, select the constructor operation, apply it to the type. *)
-        val makeSome =
-            applyToInstance([exnPrinter], mkInd(1, case someConstructor of Value { access, ...} => vaGlobal access))
-        val makeNone =
-            applyToInstance([exnPrinter], mkInd(1, case noneConstructor of Value { access, ...} => vaGlobal access))
     in
         fun mkExIden(ty, level, tvMap) =
         let
+            (* Get the constructor tuple, select the constructor operation, apply it to the type. *)
+            val makeSome =
+                applyToInstance(
+                    [exnPrinter], level, tvMap,
+                        fn _ => mkInd(1, case someConstructor of Value { access, ...} => vaGlobal access))
+            val makeNone =
+                applyToInstance(
+                    [exnPrinter], level, tvMap,
+                        fn _ => mkInd(1, case noneConstructor of Value { access, ...} => vaGlobal access))
             val printerCode =
                 case ty of
                     FunctionType { arg, ...} =>

@@ -37,7 +37,7 @@ sig
     (* Generate a function of the form (t,t) -> bool. *)
     val equalityForType: types * int * typeVarMap -> codetree
 
-    val applyToInstance: (types list * typeVarForm list) * int * typeVarMap * (int -> codetree) -> codetree
+    val applyToInstance: types list * int * typeVarMap * (int -> codetree) -> codetree
 
     val extendTypeVarMap:
         (typeVarForm * (int -> codetree)) list * typeVarMap -> typeVarMap

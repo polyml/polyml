@@ -94,13 +94,13 @@ sig
 
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
-    val codeVal:        values * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
-    val codeExFunction: values * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
-    val applyFunction:  values * codetree * int * typeVarMap * (types list * typeVarForm list) * lexan * location -> codetree
+    val codeVal:        values * int * typeVarMap * types list * lexan * location -> codetree
+    val codeExFunction: values * int * typeVarMap * types list * lexan * location -> codetree
+    val applyFunction:  values * codetree * int * typeVarMap * types list * lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
-    val makeGuard:      values * (types list * typeVarForm list) * codetree * int * typeVarMap -> codetree 
-    val makeInverse:    values * (types list * typeVarForm list) * codetree * int * typeVarMap -> codetree
+    val makeGuard:      values * types list * codetree * int * typeVarMap -> codetree 
+    val makeInverse:    values * types list * codetree * int * typeVarMap -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals
@@ -117,7 +117,7 @@ sig
 
     val codeLocation: location -> codetree
 
-    val getPolymorphism: values * types * typeVarMap -> types list * typeVarForm list
+    val getPolymorphism: values * types * typeVarMap -> types list
 
     (* Types that can be shared. *)
     structure Sharing:

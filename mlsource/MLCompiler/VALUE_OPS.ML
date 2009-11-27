@@ -473,7 +473,7 @@ struct
            This may happen if we have val it = NONE at the top level. *)
         val typeVarMap = defaultTypeVarMap
         val dummyTypes = List.map(fn _ => TYPESTRUCT.unitType) (getPolyTypeVars(types, fn _ => NONE))
-        val polyCode = applyToInstance((dummyTypes, []), 0, typeVarMap, fn _ => mkConst value)
+        val polyCode = applyToInstance(dummyTypes, 0, typeVarMap, fn _ => mkConst value)
         val printerCode =
             mkEval(
                 printerForType(types, 0, typeVarMap),
@@ -854,8 +854,10 @@ struct
 
     (* This is applied to the instance variables if it is polymorphic and bound by
        a val or fun binding or is a datatype constructor. *)
-    fun applyToInstanceType(polyVars, ValBound, level, typeVarMap, code) = applyToInstance(polyVars, level, typeVarMap, code)
-    |   applyToInstanceType(polyVars, Constructor _, level, typeVarMap, code) = applyToInstance(polyVars, level, typeVarMap, code)
+    fun applyToInstanceType(polyVars, ValBound, level, typeVarMap, code) =
+            applyToInstance(polyVars, level, typeVarMap, code)
+    |   applyToInstanceType(polyVars, Constructor _, level, typeVarMap, code) =
+            applyToInstance(polyVars, level, typeVarMap, code)
     |   applyToInstanceType(_, PattBound, level, _, code) = code level
     |   applyToInstanceType(_, Exception, level, _, code) = code level
 
@@ -889,7 +891,7 @@ struct
   |  codeVal (Value{access = Formal _, ...}, _, _, _, _, _) =
           raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, _, ([], []), lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, _, [], lex, _) =
         (* If this appears in a structure return a null printer function.
            It has to have the polymorphic form with an extra lambda outside. *)
         let
@@ -913,7 +915,7 @@ struct
                 level, 1, "print(P)")
         end
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, typeVarMap, ([argType], []), lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, typeVarMap, [argType], lex, _) =
         let 
             (* We should have a single entry for the type. *)
             open DEBUG
@@ -947,13 +949,13 @@ struct
   |  codeVal (Value{access = Overloaded Print, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded Print - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, _, ([], []), _, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, _, [], _, _) =
         (* If this appears in a structure produce a default version. *)
             mkInlproc(
                 mkProc(mkConst(toMachineWord "?"), level+1, 1, "makestring()"),
                 level, 1, "makestring(P)")
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, typeVarMap, ([argType], []), _, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, typeVarMap, [argType], _, _) =
         (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
         mkProc(
             mkEval(
@@ -972,25 +974,25 @@ struct
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded MakeString - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, ([], []), _, _) =
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [], _, _) =
         (* If this appears in a structure return a default function. *)
         mkProc(printerForType(badType, level+1, typeVarMap), level, 1, "getPretty")
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, ([argType], []), _, _) =
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [argType], _, _) =
        (* Get the pretty code for the specified argument. *)
             printerForType(argType, level, typeVarMap)
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded GetPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, ([], []), _, _) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [], _, _) =
         (* If this appears in a structure create a function that raises an exception if run. *)
         mkProc(
             mkConst (toMachineWord
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
             level, 1, "AddPretty(P)")
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, ([installType, argPrints], []), lex, loc) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [installType, argPrints], lex, loc) =
         let 
          (* "instance" should be (int-> 'a -> 'b -> pretty) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -1081,13 +1083,13 @@ struct
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded AddPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, _, ([], []), _, _) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, _, [], _, _) =
         mkProc(
             mkConst (toMachineWord
                         (fn _ => raise Fail "installPP: The argument type was not a simple type construction")),
             level, 1, "InstallPP(P)")
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, ([installType, argPrints], []), lex, loc) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, [installType, argPrints], lex, loc) =
         let
          (* This is the old function to install a pretty printer.  It has
             been retained for backwards compatibility.
@@ -1279,14 +1281,12 @@ struct
      end
 
   | applyFunction(value as Value{class=Constructor _, ...},
-                    argument, level, typeVarMap, (argVars, destVars), lex, lineno) =
+                    argument, level, typeVarMap, argVars, lex, lineno) =
     let
         (* If this is a value constructor we need to get the construction
            function and use that. *)
-        fun getConstr level = mkInd(1, codeVal (value, level, typeVarMap, ([], []), lex, lineno))
-        val polyConstr = applyToInstance((argVars, []), level, typeVarMap, getConstr)
-        val () =
-            if null destVars then () else raise InternalError "codeVal constructor: TODO: Not yet implemented"
+        fun getConstr level = mkInd(1, codeVal (value, level, typeVarMap, [], lex, lineno))
+        val polyConstr = applyToInstance(argVars, level, typeVarMap, getConstr)
     in
          (* Don't apply this "early".  It might be the ref constructor and that
            must not be applied until run-time.  The optimiser should take care
@@ -1295,7 +1295,7 @@ struct
     end
 
   | applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
-                     argument, level, typeVarMap, instance as (argVars, _), lex, lineno) =
+                     argument, level, typeVarMap, instance, lex, lineno) =
      (
        case oper of
              Equal =>
@@ -1315,7 +1315,7 @@ struct
             let
                 (* We should have a single entry for the type. *)
                 val argType =
-                    case argVars of
+                    case instance of
                         [t] => t
                     |   _ => raise InternalError "Overload Equal"
                 (* The instance type is a function so we have to get the first argument. *)
@@ -1328,7 +1328,7 @@ struct
             let
                 (* We should have a single entry for the type. *)
                 val argType =
-                    case argVars of
+                    case instance of
                         [t] => t
                     |   _ => raise InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
@@ -1342,7 +1342,7 @@ struct
         | TypeDep =>
            let
                 val argType =
-                    case argVars of
+                    case instance of
                         [t] => t
                     |   _ => raise InternalError "Overload TypeDep"
              val (code, _) = getOverloadInstance(valName, argType, false)
@@ -1361,7 +1361,7 @@ struct
                on most functions (e.g. abs and +) we are looking for the 'a, which
                may be a pair, but in the case of conversion functions we want the 'b. *)
             val (resultType, argType) =
-                case argVars of
+                case instance of
                     [alpha, beta] => (rmvars alpha, rmvars beta)
                 |   _ => (badType, badType)
 
@@ -1450,11 +1450,11 @@ struct
        (N.B. that's different from having a parametric type) if we have a val binding.
         e.g. val SOME x = SOME nil.  In that case we can choose an arbitrary type
         for the test and have to parameterise the result.     *)
-    fun makeGuard (value as Value{class=Constructor _, ...}, (argVars, _), testing, level, typeVarMap) =
+    fun makeGuard (value as Value{class=Constructor _, ...}, argVars, testing, level, typeVarMap) =
         let
             fun tester level =
-                mkInd(0, codeVal (value, level, typeVarMap, ([], []), nullLex, location nullLex))
-            val testCode = applyToInstance((argVars, []), level, typeVarMap, tester)
+                mkInd(0, codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+            val testCode = applyToInstance(argVars, level, typeVarMap, tester)
         in
             mkEval(testCode, [testing], true)
         end
@@ -1464,20 +1464,18 @@ struct
            and compare with the identifier in the exception packet. *)
         mkTestptreq 
             (mkInd (0, testing),
-                codeVal (value, level, typeVarMap, ([], []), nullLex, location nullLex))
+                codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
 
     |   makeGuard _ = raise InternalError "makeGuard"
 
     (* Code to invert a constructor. i.e. return the value originally used as the argument.
        Apply to any polymorphic variables and construct a result. *)
     fun makeInverse(value as Value{class=Constructor{nullary=false, ...}, ...},
-                    (argVars, destVars), arg, level, typeVarMap): codetree =
+                    argVars, arg, level, typeVarMap): codetree =
         let
             fun getInverse level =
-                mkInd(2, codeVal (value, level, typeVarMap, ([], []), nullLex, location nullLex))
-            val loadCode = applyToInstance((argVars, []), level, typeVarMap, getInverse)
-            val () =
-                if null destVars then () else raise InternalError "makeInverse: TODO: Not yet implemented"
+                mkInd(2, codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+            val loadCode = applyToInstance(argVars, level, typeVarMap, getInverse)
         in
             mkEval(loadCode, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
         end
@@ -1525,7 +1523,7 @@ struct
                 NONE => ()
             |   SOME report => (PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
     in
-        (polyVars, getPolyTypeVars(expType, mapTypeVars typeVarMap))
+        polyVars
     end
 
     (* Types that can be shared. *)

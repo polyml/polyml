@@ -798,10 +798,9 @@ struct
 
         val isCopy = List.foldl checkItem true sortedActions
  
-        val (offsets, sorted) = ListPair.unzip (quickSort leq actions)
-        (* Check that these are in ascending order.  This check can probably be removed. *)
-        val _ =
-            List.foldl (fn (offset, i) => if offset = i then i+1 else raise InternalError "Out of order") 0 offsets
+        val (_, sorted) = ListPair.unzip (quickSort leq actions)
+        (* These should be ascending order but if we've had an error and there are
+           missing entries in the signature they may not be. *)
     in
         if isCopy then JustCopy else FilterMatch sorted
     end
@@ -2419,19 +2418,37 @@ struct
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex)
+                                        codeVal (sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex)
                                 |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex)
+                                        codeExFunction(sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, localLevel, defaultTypeVarMap, ([], []), lex, location nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex))
                             )
 
                     val polyCode =
                         case polyMatch of
                             NONE => loadCode(!level) (* Nothing to do. *)
 
-                        |   SOME(sourcePolyTypes, destPolyVars) => (* Destination is monomorphic. *)
-                                applyToInstance((sourcePolyTypes, destPolyVars), !level, defaultTypeVarMap, loadCode)
+                        |   SOME(sourcePolyTypes, []) => (* Destination is monomorphic. *)
+                                applyToInstance(sourcePolyTypes, !level, defaultTypeVarMap, loadCode)
+
+                        |   SOME(sourcePolyTypes, destPolyVars) =>
+                            let
+                                val destPolymorphism = List.length destPolyVars
+                                val localLevel = !level + 1
+                                val args =
+                                    List.tabulate(destPolymorphism,
+                                        fn n => fn lvl => mkLoad(n-destPolymorphism, lvl - localLevel))
+                                val argMap = ListPair.zipEq(destPolyVars, args)
+                                val newTypeVarMap = extendTypeVarMap(argMap, defaultTypeVarMap)
+                                (* Apply the source to the parameters provided by the destination.  In almost
+                                   all cases we will be removing polymorphism here but it is possible to
+                                   add polymorphism through type definitions of the form type 'a t = int. *)
+                                val application =
+                                    applyToInstance(sourcePolyTypes, localLevel, newTypeVarMap, loadCode)
+                            in
+                                mkProc(application, localLevel, List.length destPolyVars, name ^ "(P)")
+                            end
                 in
                     polyCode
                 end
@@ -2615,7 +2632,7 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, defaultTypeVarMap, ([], []), nullLex, location nullLex))
+            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex))
             |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
             |   filterVals _              = NONE
             val loadVals = List.mapPartial filterVals vars
