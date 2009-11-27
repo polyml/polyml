@@ -135,8 +135,11 @@ sig
     val traceCompilerTag: bool Universal.tag
     val fileNameTag: string Universal.tag
     val reportUnreferencedIdsTag: bool Universal.tag
+    val parsetreeTag: bool Universal.tag
     val codetreeTag: bool Universal.tag
     val codetreeAfterOptTag: bool Universal.tag
+    val pstackTraceTag: bool Universal.tag
+    val assemblyCodeTag: bool Universal.tag
     val printDepthFunTag: (unit->int) Universal.tag
 end
 
@@ -418,8 +421,11 @@ struct
                                  (* These are only needed for debugging. *)
                                  tagInject PRETTY.printOutputTag (PRETTY.prettyPrint(print, 70)),
                                  tagInject printDepthFunTag(fn () => 20),
+                                 tagInject parsetreeTag false,
                                  tagInject codetreeTag false,
-                                 tagInject codetreeAfterOptTag false
+                                 tagInject codetreeAfterOptTag false,
+                                 tagInject pstackTraceTag false,
+                                 tagInject assemblyCodeTag false
                               ] ) of
                         (_, NONE) => raise Fail "Static Errors"
                      |  (_, SOME c) => c
