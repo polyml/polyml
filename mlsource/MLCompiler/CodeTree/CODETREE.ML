@@ -2179,9 +2179,6 @@ DCJM 2000.
 
 (************************************************************************)
 
-  fun getSome (SOME v) = v
-    | getSome NONE     = raise InternalError "getSome";
-
   val initTrans = 10; (* Initial size of arrays. *)
 
 (*****************************************************************************)
@@ -2573,13 +2570,13 @@ DCJM 2000.
                        non-locals. *)
                     fun lookupDec ({ addr=0, ...}, _, 0) =
                        (* Recursive reference - shouldn't happen. *)
-                       raise InternalError "lookupDec: Inline function recurses"
+                       raise InternalError ("lookupDec: Inline function recurses " ^ lambdaName)
                     |   lookupDec ({ addr=index, ...}, depth, 0) =
                          let (* On this level. *)
                            val optVal =
                              if index > 0
-                             then getSome (localVec sub index) (* locals *)
-                             else getSome (Vector.sub(frozenParams, ~index)) (* parameters *)
+                             then valOf (localVec sub index) (* locals *)
+                             else valOf (Vector.sub(frozenParams, ~index)) (* parameters *)
                          in
                            changeLevel optVal (depth - nestingOfThisProcedure)
                          end
@@ -2656,7 +2653,7 @@ DCJM 2000.
                           | filterArgs' n (arg :: rest) =
                             let
                                 (* Is this simply passing the original argument value?  *)
-                                val original = getSome (Vector.sub(frozenParams, n))
+                                val original = valOf (Vector.sub(frozenParams, n))
                                 val unChanged =
                                     case (arg, optGeneral original) of
                                         (Constnt w, Constnt w') =>
@@ -2736,7 +2733,7 @@ DCJM 2000.
                                 }
                         |   prev ({ addr=index, ...}, depth, 0) =
                              if index > 0  (* locals *)
-                             then changeLevel(getSome (localVec sub index)) (depth - nesting)
+                             then changeLevel(valOf (localVec sub index)) (depth - nesting)
                              else (* index < 0 - parameters *)
                                 if argModificationVec sub ~index
                              then (* This argument has changed - find the corresponding
@@ -2744,7 +2741,7 @@ DCJM 2000.
                                 simpleOptVal(mkLoad(getParamNo index, depth-nesting))
                              else (* Unchanged - get the entry from the table, converting
                                      the level because it's in the surrounding scope. *)
-                                changeLevel (getSome (Vector.sub(frozenParams, ~index))) (depth-nesting+1)
+                                changeLevel (valOf (Vector.sub(frozenParams, ~index))) (depth-nesting+1)
                         |  prev (ptr, depth, levels) =
                                 (optEnviron funct) (ptr, depth, levels - 1);
 
@@ -2828,12 +2825,12 @@ DCJM 2000.
                                 it can be sorted out later. *)
                              then stripDecs funct
                              else if index > 0
-                             then getSome (localVec sub index)  (* locals *)
+                             then valOf (localVec sub index)  (* locals *)
                              else (* index < 0 *) if argModificationVec sub ~index
                              then (* This argument changes - must use a variable even if
                                      the original argument was a constant. *)
                                 simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
-                             else getSome (Vector.sub(frozenParams, ~index)) (* parameters *)
+                             else valOf (Vector.sub(frozenParams, ~index)) (* parameters *)
                          in
                            changeLevel optVal (depth - nestingOfThisProcedure)
                          end
@@ -2882,7 +2879,7 @@ DCJM 2000.
                             then makeDecs (n-1) isCall
                             else
                             let
-                                val argVal = getGeneral(getSome (Vector.sub(frozenParams, n)))
+                                val argVal = getGeneral(valOf (Vector.sub(frozenParams, n)))
                                 val argDec =
                                 (* If we are calling a function we just put the
                                    argument values in. *)
@@ -2951,11 +2948,16 @@ DCJM 2000.
           val oldAddrTab = stretchArray (initTrans, NONE);
           val newAddrTab = stretchArray (initTrans, NONE);
           
-          fun localOldAddr ({ addr=index, ...}, depth, 0) =
+          fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
               (* local declaration or argument. *)
               if index > 0 
               (* Local declaration. *)
-              then changeLevel (getSome (oldAddrTab sub index)) (depth - nesting) 
+              then
+                case  oldAddrTab sub index of
+                    SOME v => changeLevel v (depth - nesting)
+                |   NONE => raise InternalError(
+                                    concat["localOldAddr: Not found. Addr=", Int.toString index,
+                                           " Level=", Int.toString level])
               (* Argument or closure. *)
               else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
             | localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1);
@@ -3734,7 +3736,7 @@ DCJM 2000.
             (* Declare this value. If it is anything but a constant
               there will be some code. *)
             val newDecs = newDecl (setTab, optimise(h, NONE), addr, true);
-            val thisArg = getSome (newTab sub addr); (* Get the value back. *)
+            val thisArg = valOf (newTab sub addr); (* Get the value back. *)
             val rest    = makeDecs t (addr + 1);
             val gen     = optGeneral thisArg;
             val spec    = optSpecial thisArg;
@@ -3761,7 +3763,7 @@ DCJM 2000.
         
         fun env ({addr, ...}:loadForm, depth, _) : optVal =
           changeLevel
-            (getSome (Vector.sub(vec, addr)))
+            (valOf (Vector.sub(vec, addr)))
             (depth - nestingOfThisProcedure)
       
       in
@@ -4026,8 +4028,15 @@ DCJM 2000.
         case pt of Declar{value, ...} => value | _ => pt;
         
       fun lookupOldAddr ({addr, ...}: loadForm, depth, 0) =
-            changeLevel (getSome (oldAddrTab sub addr)) depth
-      |   lookupOldAddr _ = raise InternalError "outer level reached in lookupOldAddr";
+            changeLevel (valOf (oldAddrTab sub addr)) depth
+      |   lookupOldAddr ({addr, level, fpRel, ...}, _, _) =
+            let
+                val msg =
+                    concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
+                        " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
+            in
+                raise InternalError msg
+            end;
 
       fun lookupNewAddr ({addr, ...}: loadForm, depth, 0) =
         (
