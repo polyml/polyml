@@ -48,6 +48,22 @@ sig
     val mapTypeVars: typeVarMap -> typeVarForm -> types option
     
     val defaultTypeCode: codetree
+    
+    structure TypeConstructorValue:
+    sig
+        val extractEquality: codetree -> codetree
+        and extractPrinterRef: codetree -> codetree
+        
+        val createTypeValue: {eqCode: codetree, printRefCode: codetree} -> codetree
+    end
+
+    structure TypeValue:
+    sig
+        val extractEquality: codetree -> codetree
+        and extractPrinter: codetree -> codetree
+        
+        val createTypeValue: {eqCode: codetree, printCode: codetree} -> codetree
+    end
 
     structure Sharing:
     sig

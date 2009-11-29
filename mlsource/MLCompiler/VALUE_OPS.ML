@@ -1066,15 +1066,60 @@ struct
                by this version. *)
         in
             case constrId of
-                SOME (typeId, _, _) =>
-                    (* Generate a function that will set the "print" ref for the type to
-                       the argument function. *)
-                    mkProc(
-                        mkEval(
-                            mkConst (ioOp POLY_SYS_assign_word),
-                            [mkInd(1, codeAccess(idAccess typeId, level+1)), CodeZero, arg1],
-                            false), level, 1, "addPP")
-                    
+                SOME (typeId, _, arity) =>
+                    let
+                        (* We need to transform the user-supplied function into the form required for
+                           the reference.   The user function has type int -> 'b -> 'a -> pretty
+                           where 'b is either "don't care" if this is a monotype, the print function
+                           for the base type if it takes a single type argument or a tuple of base type
+                           functions if it takes more than one.  The reference expects to contain a
+                           function of type 'a * int -> pretty for a monotype or a function of the
+                           form <'b1, 'b2...> -> 'a * int -> pretty if this is polytype where
+                           <...> represents poly-style multiple arguments.  *)
+                        val printFunction =
+                            case arity of
+                                0 => 
+                                    mkProc(
+                                        mkEval(
+                                            mkEval(
+                                                mkEval(
+                                                    mkLoad(~1, 1) (* The user-supplied fn *),
+                                                    [mkInd(1, arg1)] (* The depth *), false),
+                                                [CodeZero], (* Ignored args. *) false),
+                                            [mkInd(0, arg1)] (* Value to print *), false),
+                                        level+1, 1, "addPP-1")
+
+                            |   arity =>
+                                let
+                                    open TypeValue
+                                    val args =
+                                        if arity = 1
+                                        then [extractPrinter(mkLoad(~1, 1))]
+                                        else List.tabulate(arity, fn n => extractPrinter(mkInd(n, mkLoad(~1, 1))))
+                                in
+                                    mkProc(
+                                        mkProc(
+                                            mkEval(
+                                                mkEval(
+                                                    mkEval(
+                                                        mkLoad(~1, 2) (* The user-supplied fn *),
+                                                        [mkInd(1, arg1)] (* The depth *), false),
+                                                    args, (* Base fns. *) false),
+                                                [mkInd(0, arg1)] (* Value to print *), false),
+                                            level+2, arity, "addPP-2"),
+                                        level+1, 1, "addPP-1")
+                                end
+                    in
+                        (* Generate a function that will set the "print" ref for the type to
+                           the argument function. *)
+                        mkProc(
+                            mkEval(
+                                mkConst (ioOp POLY_SYS_assign_word),
+                                [TypeConstructorValue.extractPrinterRef(
+                                    codeAccess(idAccess typeId, level+1)), CodeZero, printFunction],
+                                false), level, 1, "addPP")
+                    end
+
             |   NONE =>
                     mkConst (toMachineWord
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction"))
@@ -1232,6 +1277,7 @@ struct
                                 evalue (mkTuple fns)
                             end
                     in
+                        raise Fail "not yet converted!!!!";
                         pprint (addString, beginBlock, break, endBlock) depth processElement valToPrint;
                         case ! resultStack of
                             [] => PrettyBlock(0, false, [], [])
