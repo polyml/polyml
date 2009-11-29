@@ -68,8 +68,6 @@ sig
     val evalue:    codetree -> machineWord;
     val genCode:   codetree * Universal.universal list -> (unit -> codetree);
 
-    val structureEq: machineWord * machineWord -> bool;
-
     structure Sharing:
     sig
         type machineWord = machineWord

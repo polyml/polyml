@@ -22,7 +22,6 @@ structure CodeTree =
     structure PRETTY        = Pretty
     structure GCODE         = GCode
     structure DEBUG         = Debug
-    structure STRUCTUREEQ   = StructureEquality
     structure BASECODETREE  = BaseCodeTree
   );
 

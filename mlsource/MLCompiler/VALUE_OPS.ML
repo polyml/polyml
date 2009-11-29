@@ -1344,20 +1344,7 @@ struct
                      argument, level, typeVarMap, instance, lex, lineno) =
      (
        case oper of
-             Equal =>
-            (* See if we have a special implementation for equality on
-               this type.  If not we have to fall back to the default
-               structure equality. *)
-            (* Note: the overloadings will normally be inline functions
-               which will unwrap the argument tuple and so elide it away.
-               structureEq, though, is passed here as a pointer to
-               the code so no such optimisation is possible and we will
-               always make a tuple which will then be unwrapped inside
-               structureEq. Two solutions are possible: we could build
-               structureEq into the RTS in which case it would take an
-               argument pair (usually in registers) or we could write it
-               in the prelude and set it as an overload with some special
-               type so that getOverload would return it as the default. *)
+            Equal => (* Get the equality function for the type. *)
             let
                 (* We should have a single entry for the type. *)
                 val argType =

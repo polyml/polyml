@@ -34,6 +34,7 @@ structure VALUEOPS : VALUEOPSSIG;
 structure CODETREE : CODETREESIG
 structure EXPORTTREE: EXPORTTREESIG
 structure DATATYPEREP: DATATYPEREPSIG
+structure TYPEIDCODE: TYPEIDCODESIG
 
 (*****************************************************************************)
 (*                  MAKE                                                     *)
@@ -141,6 +142,7 @@ end;
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
         = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS = DATATYPEREP.Sharing
+        = TYPEIDCODE.Sharing
 
 ) : 
 
@@ -186,7 +188,7 @@ struct
 (*                  Utilities                                                *)
 (*****************************************************************************)
         (* shouldn't these be imported from somewhere? *)
-        fun ioOp (x: int) : 'a = RunCall.run_call1 POLY_SYS_io_operation x;
+        fun ioOp (x: int) : machineWord = RunCall.run_call1 POLY_SYS_io_operation x;
         
         fun loadArg n  = mkLoad (~ n, 0);
         fun mkEntry n  = mkConst (ioOp n);
@@ -224,36 +226,17 @@ struct
 
         fun makePolymorphic(tvs, c) = mkInlproc(c, 0, List.length tvs, "")
 
-        (* Function to make a type identifier with a pretty printer that just prints "?"
-           and the structural equality function.  Most of the types we use this for
-           don't admit equality but it's simpler  to have a single function here. *)
+        (* Function to make a type identifier with a pretty printer that just prints "?".
+           None of the types are equality types so the equality function is empty. *)
         local
             fun monotypePrinter _ = PRETTY.PrettyString "?"
-            and polyTypePrinter _ _ = PRETTY.PrettyString "?"
-                (* The structure equality function takes a pair of arguments.  We need a
-                   function that takes two Poly-style arguments. *)
-            val monotypeEqCode =
-                    mkInlproc(
-                        mkEval(mkConst(toMachineWord structureEq),
-                            [mkTuple[mkLoad(~1, 0), mkLoad(~2, 0)]], true), 1, 2, "eq-helper")
-            val polyTypeEqCode = mkInlproc(monotypeEqCode, 0, 0, "eq-helper()")
         in
-            fun defaultEqAndPrintCode [] = (* Monotype *)
+            fun defaultEqAndPrintCode () =
                 let
                     val code =
                         mkTuple[
-                            monotypeEqCode,
+                            CodeZero,
                             mkConst (toMachineWord (ref monotypePrinter))
-                        ]
-                in
-                    Global (genCode(code, []) ())
-                end
-            |   defaultEqAndPrintCode _ = (* Polytype *)
-                let
-                    val code =
-                        mkTuple[
-                            polyTypeEqCode,
-                            mkConst (toMachineWord (ref polyTypePrinter))
                         ]
                 in
                     Global (genCode(code, []) ())
@@ -676,13 +659,65 @@ struct
 (*                  eqtypes                                                  *)
 (*****************************************************************************)
     (* The only reason we have vector here is to get equality right.  We need
-       vector to be an equality type and to use structure equality. *)
+       vector to be an equality type and to have a specific equality function. *)
         local
-            val typeArgs = [makeTypeVariable()]
+            fun polyTypePrinter _ _ = PRETTY.PrettyString "?"
+            (* The equality function takes the base equality type as an argument.
+               The inner function takes two arguments which are the two vectors to
+               compare, checks the lengths and if they're equal applies the
+               base equality to each field. *)
+            val eqCode =
+                mkInlproc(
+                    mkProc(
+                        mkEnv[
+                            (* Length of the items. *)
+                            mkDec(1, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~2, 0)], false)),
+                            mkDec(2, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~1, 0)], false)),
+                            mkDec(3, (* Loop function. *)
+                                mkProc(
+                                    mkIf(
+                                        (* Finished? *)
+                                        mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 1), mkLoad(~1, 0)], false),
+                                        CodeTrue, (* Yes, all equal. *)
+                                        mkIf(
+                                            mkEval(
+                                                TYPEIDCODE.TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
+                                                [
+                                                    mkEval(mkConst (ioOp POLY_SYS_load_word),
+                                                        [mkLoad(~2, 1), mkLoad(~1, 0)], false),
+                                                    mkEval(mkConst (ioOp POLY_SYS_load_word),
+                                                        [mkLoad(~1, 1), mkLoad(~1, 0)], false)
+                                                ], false),
+                                            mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
+                                                [
+                                                    mkEval(mkConst(ioOp POLY_SYS_plus_word),
+                                                        [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
+                                                ], false),
+                                            CodeFalse (* Not equal elements - result false *)
+                                        )
+                                    ),
+                                2, 1, "vector-loop")),
+                            mkIf(
+                                (* Test the lengths. *)
+                                mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 0), mkLoad(2, 0)], false),
+                                (* Equal - test the contents. *)
+                                mkEval(mkLoad(3, 0), [CodeZero], false),
+                                CodeFalse (* Not same length- result false *)
+                            )
+                        ],
+                        1, 2, "vector-eq"),
+                    0, 1, "vector-eq()")
+
+            val idCode = (* Polytype *)
+                let
+                    val code = mkTuple[eqCode, mkConst (toMachineWord (ref polyTypePrinter))]
+                in
+                    Global (genCode(code, []) ())
+                end
         in
             val vectorType =
-                makeFrozenTypeConstrs("vector", typeArgs,
-                    makeFreeId(defaultEqAndPrintCode typeArgs, true, basisDescription "vector", ([], EmptyType)), 0, declInBasis);
+                makeFrozenTypeConstrs("vector", [makeTypeVariable()],
+                    makeFreeId(idCode, true, basisDescription "vector", ([], EmptyType)), 0, declInBasis);
             val () = enterGlobalType  ("vector", vectorType);
         end
         
@@ -748,7 +783,7 @@ struct
             let
                 val typeconstr =
                     makeFrozenTypeConstrs(typeName, [],
-                        makeFreeId(defaultEqAndPrintCode[], false, basisDescription("PolyML.NameSpace." ^ typeName), ([], EmptyType)),
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName), ([], EmptyType)),
                         0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
@@ -926,19 +961,27 @@ struct
             end;
 
             local
-                val typeVar = [makeTypeVariable()]
+                fun polyTypePrinter _ _ = PRETTY.PrettyString "?"
+                val idCode =
+                let
+                    val code =
+                        mkTuple[CodeZero, (* Not an equality type *)
+                                mkConst (toMachineWord (ref polyTypePrinter))]
+                in
+                    Global (genCode(code, []) ())
+                end
             in
                 (* type 'a tag *)
                 val tagConstr =
-                    makeFrozenTypeConstrs("tag", typeVar,
-                        makeFreeId(defaultEqAndPrintCode typeVar, false, basisDescription "tag", ([], EmptyType)), 0, declInBasis);
+                    makeFrozenTypeConstrs("tag", [makeTypeVariable()],
+                        makeFreeId(idCode, false, basisDescription "tag", ([], EmptyType)), 0, declInBasis);
                 val () = #enterType uniStructEnv ("tag", tagConstr)
             end
 
             (* type universal *)
             val univConstr =
                 makeFrozenTypeConstrs("universal", [],
-                        makeFreeId(defaultEqAndPrintCode[], false, basisDescription "universal", ([], EmptyType)), 0, declInBasis);
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal", ([], EmptyType)), 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -966,7 +1009,7 @@ struct
             (* Parsetree properties datatype. *)
             val propConstr =
                 makeDatatypeConstr("ptProperties", [],
-                    makeFreeId(defaultEqAndPrintCode[], false, basisDescription "PolyML.ptProperties", ([], EmptyType)), 0, declInBasis);
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties", ([], EmptyType)), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
@@ -979,7 +1022,7 @@ struct
             (* Representation of the type of a value. *)
             val typesConstr =
                 makeFrozenTypeConstrs("typeExpression", [],
-                    makeFreeId(defaultEqAndPrintCode[], false, basisDescription "PolyML.typeExpression", ([], EmptyType)), 0, declInBasis);    
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression", ([], EmptyType)), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 

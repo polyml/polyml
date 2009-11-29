@@ -56,12 +56,6 @@ end (* DEBUG *);
 (*****************************************************************************)
 structure PRETTY : PRETTYSIG
 
-structure STRUCTUREEQ:
-sig
-    type machineWord = Address.machineWord
-    val structureEq: machineWord * machineWord -> bool;
-end
-
 structure BASECODETREE: BaseCodeTreeSig
 
 (*****************************************************************************)
@@ -88,8 +82,6 @@ struct
   open PRETTY;
   
   val InternalError = Misc.InternalError
-  
-  val structureEq = STRUCTUREEQ.structureEq
   
   infix 9 sub;
 

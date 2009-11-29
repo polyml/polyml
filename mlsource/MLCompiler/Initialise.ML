@@ -33,4 +33,5 @@ structure Initialise =
   structure PRETTY     = Pretty
     structure EXPORTTREE = ExportTreeStruct
     structure DATATYPEREP = DatatypeRep
+    structure TYPEIDCODE = TypeIDCodeStruct
 );

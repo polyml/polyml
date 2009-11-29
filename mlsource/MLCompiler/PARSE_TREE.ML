@@ -4218,19 +4218,25 @@ struct
           | Scons pl =>
             let (* Must be scons *)
                 (* Merge this constructor with other occurrences. *)
+                (* Special constants may be overloaded so we don't have a fixed set of types
+                   here.  We need to use the type-specific equality function to test.
+                   Since only the basis library overloads constants we can assume that
+                   eqFun is a constant. *)
+                fun equalSpecials(SOME a, SOME b) =
+                    let
+                        val eqCode = mkEval(eqFun, [mkTuple[mkConst a, mkConst b]], false)
+                    in
+                        RunCall.unsafeCast(evalue(genCode(eqCode, debugParams lex)()))
+                    end
+                |   equalSpecials _ = false
+
                 fun addClist [] = (* Not there - add this on the end. *)
-                    [makeSconsrec(eqFun, cval, singleton patNo)]
-                | addClist (ccl :: ccls) =
-                    if (case (cval, #specVal ccl) of
-                        (SOME a, SOME b) => structureEq(a, b)
-                      | _ => false)
-                    (* N.B. It is essential that this equality is done using
-                       the general structure equality and NOT using an optimised
-                       machineWord*machineWord->bool version.  The constants could be pointers
-                       to strings or long integers. *)
-                then (* Merge in. *)
-                    makeSconsrec(eqFun, cval, singleton patNo plus #patts ccl) :: ccls
-                else (* Carry on looking. *) ccl :: addClist ccls;
+                        [makeSconsrec(eqFun, cval, singleton patNo)]
+                |   addClist (ccl :: ccls) =
+                        if equalSpecials(cval, #specVal ccl)
+                        then (* Merge in. *)
+                            makeSconsrec(eqFun, cval, singleton patNo plus #patts ccl) :: ccls
+                        else (* Carry on looking. *) ccl :: addClist ccls;
             in
                 makeAot (Scons (addClist pl)) defaults 0 vars
             end

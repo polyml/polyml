@@ -46,7 +46,6 @@ sig
   val mkEval:             codetree * codetree list * bool -> codetree;
   val mkInlproc:          codetree * int * int * string -> codetree;
   val mkLoad:             int * int -> codetree;
-  val structureEq: machineWord * machineWord -> bool;
   val genCode:   codetree * Universal.universal list -> (unit -> codetree);
 end;
 
