@@ -43,8 +43,6 @@ sig
     val noneConstructor: values
     val someConstructor: values
     val optionType: typeConstrs
-    val buildBasisDatatype:
-        string * string * typeVarForm list * bool * (typeConstrs -> values list) -> typeConstrs
 
     val locationConstr: typeConstrs
     and contextConstr: typeConstrs

@@ -92,10 +92,6 @@ struct
 
   val orb = Word8.orb
   infix 7 orb;
-     (* Functions to construct the values. *)
-
-    fun mkGconstr (name, typeof, code, nullary, constrs, location) =
-       makeValueConstr (name, typeof, nullary, constrs, Global code, location);
 
 (*****************************************************************************)
 (*             Representation of Datatype Constructors                       *)
@@ -551,7 +547,7 @@ struct
 
     (* Build a datatype within the basis. *)
     fun buildBasisDatatype(tcName, tIdPath, tyVars, isEqType: bool,
-            mkValConstrs: typeConstrs -> values list) =
+            mkValConstrs: typeConstrs -> (values * codetree) list) =
     let
         (* Create a temporary datatype.  The "name" we put in here is usually the
            same as the type constructor name except for datatypes in the PolyML structure
@@ -562,18 +558,39 @@ struct
                 isEqType, true, description, ([], EmptyType))
         val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
         (* Build the constructors. *)
-        val valConstrs = mkValConstrs dtype
+        val valConstrsAndDecs = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
-        fun leq (Value{name=xname, ...}) (Value{name=yname, ...}) = xname < yname;
-        val sortedConstrs = quickSort leq valConstrs;
-        val () = tcSetConstructors(dtype, sortedConstrs)
+        fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
+        val sortedConstrs = quickSort leq valConstrsAndDecs;
+        val () = tcSetConstructors(dtype, (List.map #1 valConstrsAndDecs))
         val addrs = ref 0
         fun mkAddrs() = ! addrs before (addrs := !addrs+1)
+
+        fun declConstr(Value{access=Local{addr, level}, ...}, repr) =
+            let
+                val newAddr = mkAddrs()
+            in
+                addr := newAddr;
+                level := 0;
+                (mkDec(newAddr, repr), mkLoad(newAddr, 0))
+            end
+        |   declConstr _ = raise InternalError "declConstr: not local"
+        val (declConstrs, loadConstrs) = ListPair.unzip(List.map declConstr sortedConstrs)
+
         (* Create the datatype.  Sets the address of the local in "id". *)
         val dtCode = createDatatypeFunctions([dtype], [isEqType], mkAddrs, 0)
+
         (* Compile and execute the code to build the functions and extract the result. *)
-        val globalCode = genCode(mkEnv(dtCode @ [codeId(id, 0)]), [])()
-        val newId = makeFreeId(Global globalCode, isEqType, description, ([], EmptyType))
+        val globalCode = genCode(mkEnv(declConstrs @ dtCode @ [mkTuple(codeId(id, 0) :: loadConstrs)]), [])()
+        val newId = makeFreeId(Global(mkInd(0, globalCode)), isEqType, description, ([], EmptyType))
+        
+        (* Get the value constructors out as globals. *)
+        fun mkGlobal((Value{name, typeOf, class, locations,  ...}, _), (decs, offset)) =
+            (decs @ [Value{name=name, typeOf=typeOf, class=class, locations=locations, references=NONE,
+                     access=Global(mkInd(offset, globalCode))}], offset+1)
+        val (gConstrs, _) = List.foldl mkGlobal ([], 1 (* Offset 0 is the type ID *)) sortedConstrs
+        val () = tcSetConstructors(dtype, gConstrs)
+
         (* Finally copy the datatype to put in the code. *)
     in
         fullCopyDatatype(dtype, fn 0 => newId | _ => raise Subscript, "")
@@ -589,11 +606,13 @@ struct
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
             val nilConstructor  =
-                mkGconstr ("nil", alphaList, createNullaryConstructor(NilForm, [alpha], "nil"),  true, 2, [DeclaredAt inBasis]);
+                makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
             val consConstructor =
-                mkGconstr ("::",  consType,  createUnaryConstructor(ConsForm, [alpha], "::"), false, 2, [DeclaredAt inBasis]);
+                makeValueConstr ("::",  consType,  false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
+            val nilRepresentation = createNullaryConstructor(NilForm, [alpha], "nil")
+            val consRepresentation = createUnaryConstructor(ConsForm, [alpha], "::")
         in
-            [nilConstructor, consConstructor]
+            [(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)]
         end
     in
         val listType =
@@ -613,13 +632,13 @@ struct
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption);
             val noneConstructor  =
-                mkGconstr ("NONE", alphaOption,
-                    createNullaryConstructor(EnumForm 0, [alpha], "NONE"),  true, 2, [DeclaredAt inBasis]);
+                makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
             val someConstructor =
-                mkGconstr ("SOME",  someType,
-                    createUnaryConstructor(BoxedForm, [alpha], "SOME"), false, 2, [DeclaredAt inBasis]);
+                makeValueConstr ("SOME", someType, false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
+            val noneRepresentation = createNullaryConstructor(EnumForm 0, [alpha], "NONE")
+            and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
-            [noneConstructor, someConstructor]
+            [(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)]
         end
     in
         val optionType =
@@ -669,10 +688,11 @@ struct
                 (* We rely on chooseConstrRepr giving us the same representation for the
                    constructors as when context was compiled by the previous compiler. *)
                 val numConstrs = List.length constrs
+                fun makeCons(s,t) =
+                    makeValueConstr(s, mkFunctionType(t, contextType), false, numConstrs,
+                        Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
             in
-                ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, mkFunctionType(t, contextType), code, false, numConstrs, [DeclaredAt inBasis]))
-                        (constrs, chooseConstrRepr(constrs, []))
+                ListPair.zipEq(List.map makeCons constrs, chooseConstrRepr(constrs, []))
             end
         in
             val contextConstr =
@@ -693,10 +713,11 @@ struct
                 (* We rely on chooseConstrRepr giving us the same representation for the
                    constructors as when PrettyPrint was compiled by the previous compiler. *)
                 val numConstrs = List.length constrs
+                fun makeCons(s,t) =
+                    makeValueConstr(s, mkFunctionType(t, prettyType), false, numConstrs,
+                        Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
             in
-                ListPair.map (fn ((s,t), code) =>
-                    mkGconstr(s, mkFunctionType(t, prettyType), code, false, numConstrs, [DeclaredAt inBasis]))
-                        (constrs, chooseConstrRepr(constrs, []))
+                ListPair.zipEq(List.map makeCons constrs, chooseConstrRepr(constrs, []))
             end
         in
             val prettyConstr =

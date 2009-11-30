@@ -2632,10 +2632,19 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            fun filterVals (CoreValue v)  = SOME(codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex))
-            |   filterVals (CoreStruct s) = SOME(codeStruct (s, !level))
-            |   filterVals _              = NONE
-            val loadVals = List.mapPartial filterVals vars
+            fun loadVals (CoreValue v, rest)  = codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex) :: rest
+            |   loadVals (CoreStruct s, rest) = codeStruct (s, !level) :: rest
+            |   loadVals (CoreType t, rest) =
+                    (* Type IDs are handled separately but we need to load the value constructors if
+                       this is a datatype.  This is really only because of datatype replication where
+                       we need to be able to get the value constructors from the datatype. *)
+                    List.map(
+                        fn v => codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex))
+                            (tcConstructors t)
+                        @ rest
+            |   loadVals (_, rest)              = rest
+            
+            val loadVals = List.foldr loadVals [] vars
         in
             { 
                 code = code,
@@ -2864,10 +2873,24 @@ struct
 
             |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
+                    val constrs = tcConstructors tc
+                    fun loadConstr(Value{class, name, typeOf, locations, ...}, (addr, others)) =
+                    let
+                        val newAccess = Global(mkInd (addr, results))
+                        (* Don't bother replacing the type ID here.  fullCopyDatatype will do it. *)
+                        val newConstr =
+                            Value{class=class, name=name, typeOf=typeOf, access=newAccess,
+                                  locations=locations, references = NONE}
+                    in
+                        (addr+1, others @ [newConstr])
+                    end
+                    val (nextAddr, newConstrs) = List.foldl loadConstr (addr, []) constrs
+                    val () = (* Don't do this if it hasn't got any: it may be locked. *)
+                        if null constrs then () else tcSetConstructors(tc, newConstrs)
                     val copiedTC = fullCopyDatatype(tc, mapTypeIds, "")
                     val newName = #second(splitString(tcName tc))
                 in
-                    (addr, { fixes=fixes, values=values, structures=structures,
+                    (nextAddr, { fixes=fixes, values=values, structures=structures,
                              signatures=signatures, functors=functors, types=(newName, copiedTC) :: types } )
                 end
         in
