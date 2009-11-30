@@ -220,6 +220,7 @@ sig
     val refType:    typeConstrs;
     val arrayType:  typeConstrs;
     val array2Type: typeConstrs;
+    val byteArrayType: typeConstrs;
     val unitType:   typeConstrs;
     val exnType:    typeConstrs;
     val undefType:  typeConstrs;

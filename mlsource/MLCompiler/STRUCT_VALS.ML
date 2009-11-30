@@ -536,6 +536,11 @@ struct
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
                 makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "Array2.array", ([], EmptyType)),
                 0, [DeclaredAt inBasis]);
+        val byteArrayType =
+            makeFrozenTypeConstrs 
+                ("byteArray", [],
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, true), true, basisDescription "byteArray", ([], EmptyType)),
+                0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolType =
             makeDatatypeConstr 
@@ -547,7 +552,8 @@ struct
     fun isPointerEqType id =
         sameTypeId (id, tcIdentifier refType) orelse
         sameTypeId (id, tcIdentifier arrayType) orelse
-        sameTypeId (id, tcIdentifier array2Type)
+        sameTypeId (id, tcIdentifier array2Type) orelse
+        sameTypeId (id, tcIdentifier byteArrayType)
 
     (* Non-eqtypes *)
     local

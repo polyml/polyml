@@ -720,13 +720,83 @@ struct
                     makeFreeId(idCode, true, basisDescription "vector", ([], EmptyType)), 0, declInBasis);
             val () = enterGlobalType  ("vector", vectorType);
         end
-        
-        
+
+        (* We also need a type with byte-wise equality. *)
+        local
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+            (* This is a monotype equality function that takes two byte vectors and compares them
+               byte-by-byte for equality.  Because they are vectors of bytes it's unsafe to load
+               the whole words which could look like addresses if the bottom bit happens to be zero. *)
+            val eqCode =
+                mkProc(
+                    mkEnv[
+                        (* Length of the items. *)
+                        mkDec(1, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~2, 0)], false)),
+                        mkDec(2, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~1, 0)], false)),
+                        mkIf(
+                            (* Test the lengths. *)
+                            mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 0), mkLoad(2, 0)], false),
+                            (* Equal - test the contents. *)
+                            mkEnv
+                            [
+                                (* Compute the number of bytes.  This is the limit of the loop. *)
+                                mkDec(3,
+                                    mkEval(mkConst (ioOp POLY_SYS_mul_word),
+                                        [
+                                            mkLoad(1, 0), (* One of the length words.  They're equal. *)
+                                            mkEval(mkConst (ioOp POLY_SYS_bytes_per_word), [CodeZero], true)
+                                        ], false)
+                                ),
+                                mkDec(4, (* Loop function. *)
+                                    mkProc(
+                                        mkIf(
+                                            (* Finished? *)
+                                            mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(3, 1), mkLoad(~1, 0)], false),
+                                            CodeTrue, (* Yes, all equal. *)
+                                            mkIf(
+                                                mkEval(
+                                                    mkConst (ioOp POLY_SYS_word_eq), (* Word equality *)
+                                                    [
+                                                        mkEval(mkConst (ioOp POLY_SYS_load_byte),
+                                                            [mkLoad(~2, 1), mkLoad(~1, 0)], false),
+                                                        mkEval(mkConst (ioOp POLY_SYS_load_byte),
+                                                            [mkLoad(~1, 1), mkLoad(~1, 0)], false)
+                                                    ], false),
+                                                mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
+                                                    [
+                                                        mkEval(mkConst(ioOp POLY_SYS_plus_word),
+                                                            [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
+                                                    ], false),
+                                                CodeFalse (* Not equal elements - result false *)
+                                            )
+                                        ),
+                                    2, 1, "byteVector-loop")),
+                                mkEval(mkLoad(4, 0), [CodeZero], false)
+                            ],
+                            CodeFalse (* Not same length- result false *)
+                        )
+                    ],
+                    1, 2, "byteVector-eq")
+
+            val idCode = (* Polytype *)
+                let
+                    val code = mkTuple[eqCode, mkConst (toMachineWord (ref monoTypePrinter))]
+                in
+                    Global (genCode(code, []) ())
+                end
+        in
+            val byteVectorType =
+                makeFrozenTypeConstrs("byteVector", [],
+                    makeFreeId(idCode, true, basisDescription "byteVector", ([], EmptyType)), 0, declInBasis);
+            val () = #enterType bootstrapEnv ("byteVector", byteVectorType);
+        end
+
     (* We also need array and Array2.array to be passed through here so that
        they have the special property of being eqtypes even if their argument
        is not.   "array" is defined to be in the global environment. *)
         val () = enterGlobalType  ("array", arrayType);
         val () = #enterType bootstrapEnv ("array", array2Type)
+        val () = #enterType bootstrapEnv ("byteArray", byteArrayType);
 
 (*****************************************************************************)
 (*                  Polymorphic functions                                    *)

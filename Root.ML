@@ -46,7 +46,6 @@ use "mlsource/MLCompiler/CodeTree/TRANS_TAB.ML";
 use "mlsource/MLCompiler/CodeTree/TransTab.ML";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";
 use "mlsource/MLCompiler/CodeTree/GCode.ML";
-use "mlsource/MLCompiler/CodeTree/StructureEquality.sml";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";
 use "mlsource/MLCompiler/StructVals.ML";
 use "mlsource/MLCompiler/LEX_.ML";

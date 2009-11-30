@@ -23,17 +23,18 @@ local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
-    datatype address = Address of int Vector.vector (* Abstract but using structure equality. *)
-    
-    (* TODO: Use a single word for vectors of size <= 31 (30 on Sparc). *)
-    datatype vector = Vector of int*address
-    and array = Array of int*address
-    
-    val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_loadb: address*word->word = RunCall.run_call2 POLY_SYS_load_byte;
-    val System_setb: address * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
+    (* TODO: Use a single word for vectors of size <= number of bits in a word. *)
+    (* We use int here for the length rather than word because the number of bits
+       could be more than the maximum value of Word.word. *)
+    datatype vector = Vector of int * Bootstrap.byteVector (* This has a byte-wise equality. *)
+    and array = Array of int * Bootstrap.byteArray (* This has pointer equality. *)
 
     val wordSize : word = LibrarySupport.wordSize;
+
+    val System_loadbV: Bootstrap.byteVector*word->word = RunCall.run_call2 POLY_SYS_load_byte;
+    val System_setbV: Bootstrap.byteVector * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
+    val System_loadbA: Bootstrap.byteArray*word->word = RunCall.run_call2 POLY_SYS_load_byte;
+    val System_setbA: Bootstrap.byteArray * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
 
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
@@ -47,15 +48,15 @@ local
     val maxLen = IntInf.pow(2, Word.wordSize) - 1
 
     local
-        val System_alloc  = RunCall.run_call3 POLY_SYS_alloc_store
         val F_mutable_bytes : int = 65;
     in
         (* All the arrays and vectors are initially created containing zeros
            and then initialised. If the length is zero a one-word object
            is created.  In the case of vectors this will remain all zeros
            and will be locked so that two zero-sized vectors will be equal. *)
-        fun alloc bits : address =
+        fun alloc bits =
             let
+                val System_alloc  = RunCall.run_call3 POLY_SYS_alloc_store
                 val words : word =
                     if bits = 0
                     then 0w1 (* Zero-sized objects are not allowed. *)
@@ -80,6 +81,7 @@ local
        Array.fromList and Vector.fromList. *)
     fun fromList' (l : bool list) =
         let
+            val System_setb = RunCall.run_call3 POLY_SYS_assign_byte
             val length = List.length l
             (* Make a array initialised to zero. *)
             val vec = alloc length;
@@ -107,6 +109,7 @@ local
 
     fun tabulate' (length: int, f : int->bool) =
     let
+        val System_setb = RunCall.run_call3 POLY_SYS_assign_byte
         val vec =
             if length >= 0 then alloc length else raise General.Size;
 
@@ -132,8 +135,9 @@ local
 
     (* Internal function which subscripts the vector assuming that
        the index has already been checked for validity. *)
-    fun uncheckedSub (v: address, i: int): bool =
+    fun uncheckedSub (v, i: int): bool =
         let
+            val System_loadb = RunCall.run_call2 POLY_SYS_load_byte
             val (byteOffset, bitOffset) = IntInf.quotRem(i, 8)
             val byte = System_loadb(v, intAsWord byteOffset);
             val mask = 0w1 << intAsWord bitOffset
@@ -149,7 +153,7 @@ local
     (* TODO: This only handles the case where the source starts at the beginning
        of the vector.  It is easy to modify it for the case where the source
        offset is a multiple of 8 but more difficult to handle the other cases. *)
-    fun move_bits(src: address, dest: address, dest_off, len, last_bits) =
+    fun move_bits(src: Bootstrap.byteVector, dest: Bootstrap.byteVector, dest_off, len, last_bits) =
     let
         val dest_byte = intAsWord(Int.quot(dest_off, 8)) (* Byte offset *)
         val dest_bit = intAsWord dest_off - dest_byte*0w8 (* Bit offset *)
@@ -158,10 +162,10 @@ local
             if len >= 8
             then let
                 (* Get the next byte and shift it up *)
-                val newbyte = last orb (System_loadb(src, byte) << dest_bit)
+                val newbyte = last orb (System_loadbV(src, byte) << dest_bit)
             in
                 (* Store the low-order 8 bits into the destination. *)
-                System_setb(dest, dest_byte+byte, newbyte);
+                System_setbV(dest, dest_byte+byte, newbyte);
                 (* Shift the accumulator down by 8 bits and get ready for
                    the next byte. *)
                 do_move (newbyte >> 0w8) (byte+0w1) (len-8)
@@ -171,7 +175,7 @@ local
             else (* 0 < len < 8 *)
             let
                 (* Get the next byte and shift it up *)
-                val nextsrc = System_loadb(src, byte);
+                val nextsrc = System_loadbV(src, byte);
                 val newbyte: word = last orb (nextsrc << dest_bit)
                 (* This assumes that any extra bits of the source are
                    zero. *)
@@ -180,7 +184,7 @@ local
                 then
                     (
                     (* Store the low-order 8 bits into the destination. *)
-                    System_setb(dest, dest_byte+byte, newbyte);
+                    System_setbV(dest, dest_byte+byte, newbyte);
                     (* Shift the accumulator down by 8 bits and get ready for
                        the next byte. *)
                     do_move (newbyte >> 0w8) (byte+0w1) (len-8)
@@ -196,6 +200,8 @@ local
 in
     structure BoolVector: MONO_VECTOR =
     struct
+        val System_lock: Bootstrap.byteVector -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+
         type vector = vector
         type elem = bool
         val maxLen = maxLen
@@ -262,14 +268,14 @@ in
                 fun copy b l =
                     if l <= 0 then ()
                     else let
-                        val byte = System_loadb(vec, b)
+                        val byte = System_loadbV(vec, b)
                         val res =
                             (* Map each byte to get the result.  Must not
                                apply the function beyond the last bit. *)
                             if l >= 8 then mapbyte byte 0w1 0w0 0wx100 l
                             else mapbyte byte 0w1 0w0 (0w1 << Word.fromInt l) l
                     in
-                        System_setb(new_vec, b, res);
+                        System_setbV(new_vec, b, res);
                         copy (b+0w1) (l-8)
                     end
             in
@@ -309,7 +315,7 @@ in
                  |  copy_list [] dest_off bits =
                     (* At the end of the lists store any extra in the last byte. *)
                     if bits = 0w0 then ()
-                    else System_setb(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
+                    else System_setbV(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
             in
                 copy_list l 0 0w0;
                 System_lock new_vec;
@@ -373,13 +379,13 @@ in
         let
             val (byteOffset, bitOffset) = IntInf.quotRem(i, 8)
             val byteOffsetW = intAsWord byteOffset
-            val byte = System_loadb(v, byteOffsetW);
+            val byte = System_loadbA(v, byteOffsetW);
             val mask = 0w1 << intAsWord bitOffset
             val newByte =
                 if new then byte orb mask
                 else byte andb (notb mask)
         in
-            System_setb(v, byteOffsetW, newByte)
+            System_setbA(v, byteOffsetW, newByte)
         end
 
         fun array (len, ini) =
@@ -395,7 +401,7 @@ in
                could give the wrong answer. *)
             fun setTrue i b =
                 if len <= i then ()
-                else (System_setb(vec, b, 0wxff); setTrue (i+8) (b+0w1))
+                else (System_setbA(vec, b, 0wxff); setTrue (i+8) (b+0w1))
         in
             if ini then setTrue 0 0w0 else ();
             Array(len, vec)

@@ -55,12 +55,12 @@ end
 =
 struct
     (* An address is the address of a vector in memory. *)
-    datatype address = Address of int array (* This forces pointer equality. *)
+    type address = Bootstrap.byteArray (* This forces pointer equality. *)
 
     local
         (* Add a pretty printer to avoid crashes during debugging. *)
         open PolyML
-        fun prettyAddress _ _ (Address _) = PolyML.PrettyString "address"
+        fun prettyAddress _ _ (_: address) = PolyML.PrettyString "byteArray"
     in
         val () = addPrettyPrinter prettyAddress
     end
