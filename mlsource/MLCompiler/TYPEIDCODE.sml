@@ -415,7 +415,7 @@ struct
                         |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, level)
                     )
 
-                |   TypeConstruction { value, args, ...} =>
+                |   TypeConstruction { value, args, name, ...} =>
                     let
                         val typConstr = pling value
                     in
@@ -424,21 +424,29 @@ struct
                         else
                         let
                             (* Get the type Id and put in code to extract the printer ref. *)
-                            val codedId = codeId(tcIdentifier typConstr, level)
+                            val codedId = codeId(tcIdentifier typConstr, level+1)
                             val printerRefAddress = TypeConstructorValue.extractPrinterRef codedId
-                            val printForConstructor =
-                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false)
+                            val argList =
+                                map (fn t => TypeValue.createTypeValue{eqCode=CodeZero, printCode=printCode(t, level+1)}) args
                         in
                             case args of
-                                [] => printForConstructor
-                            |   args =>
-                                let
-                                    (* Create printer functions for the args and apply the constructor
-                                       function to them. *)
-                                    val argList = map (fn t => TypeValue.createTypeValue{eqCode=CodeZero, printCode=printCode(t, level)}) args
-                                in
-                                    mkEval(printForConstructor, argList, true (* maybe early *))
-                                end
+                                [] => (* Create a function that, when called, will extract the function from
+                                         the reference and apply it the pair of the value and the depth. *)
+                                    mkProc(
+                                        mkEval(
+                                            mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
+                                            [arg1], false),
+                                        level+1, 1, "print-"^name)
+                            |   _ =>  (* Construct a function, that when called, will extract the
+                                         function from the reference and apply it first to the
+                                         base printer functions and then to the pair of the value and depth. *)
+                                    mkProc(
+                                        mkEval(
+                                            mkEval(
+                                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
+                                                argList, false),
+                                            [arg1], false),
+                                        level+1, 1, "print-"^name)
                         end
                     end
 
