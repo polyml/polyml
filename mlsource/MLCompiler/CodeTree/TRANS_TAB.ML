@@ -507,14 +507,15 @@ local
   val initTrans = 5; (* Initial size of tables. *)
   val initStack = 10;
 
-  fun indDownto startInd finishInd =
-  let
-    fun prev n = Iter { continue = n indexGeq finishInd,
-                        next     = fn () => prev (n indexMinus 1),
-                        value    = fn () => n };
-  in
-    prev startInd
-  end;
+    fun forIndDownTo(i, finishInd, perform: stackIndex->unit) =
+        if i indexGeq finishInd
+        then (perform i; forIndDownTo (i indexMinus 1, finishInd, perform))
+        else ()
+
+    fun revfoldIndDownTo(f, x, i, finishInd) =
+        if i indexGeq finishInd
+        then revfoldIndDownTo(f, f i x, i indexMinus 1, finishInd)
+        else x
 
   (* The set of available registers. A register is free if its use-count
      is zero. A register has a reference for each occurence in an entry
@@ -1433,8 +1434,7 @@ in (* local definitions *)
                 StackEntry {destStack, ...} => Int.max(destStack+1, i)
             |   _ => i
         val newAddr =
-            revfoldIterator minReserved (realstackVal table)
-                (indDownto ((pstackVal table) indexMinus 1) first)
+            revfoldIndDownTo(minReserved, realstackVal table, (pstackVal table) indexMinus 1, first)
      in
         alignStack (table, cvec, newAddr)
      end
@@ -1652,8 +1652,7 @@ in (* local definitions *)
     printStream " rsp=";
     printStream(Int.toString realStackPtr);
     printStream "\n";
-    for (indDownto pStackPtr first)
-        (fn entry => printEntry printStream (pStackEntry save entry) entry)
+    forIndDownTo(pStackPtr, first, fn i => printEntry printStream (pStackEntry save i) i)
   );
 
   (* Returns the real entry from a chain of "copy" entries. 
@@ -2633,8 +2632,7 @@ in (* local definitions *)
         This will remove the result register if there is one. *)
     (* TODO: I don't like this.  I think we should explicitly remove it.
        DCJM 30/11/99. *)
-    for (indDownto (pstackVal table indexMinus 1) mark)
-      (fn s => removeEntry table s true);
+    forIndDownTo(pstackVal table indexMinus 1, mark, fn s => removeEntry table s true);
       
     let
       (* Set up the saved state. Need to set the register set.
@@ -2892,8 +2890,7 @@ in (* local definitions *)
           local to the block since the split and so are no longer required.
           They should normally have been removed as soon as they were no
           longer required.  *)
-       for (indDownto (pstackVal table indexMinus 1) (newMark mark))
-         (fn s => removeEntry table s true);
+       forIndDownTo (pstackVal table indexMinus 1, newMark mark, fn s => removeEntry table s true);
          
        (* First pass: get rid of entries which are no longer required.
           Also propagate stack destination info.  That probably isn't
@@ -2906,8 +2903,8 @@ in (* local definitions *)
          from the merged state. The common entries may differ if we
          have had to push some values that were in registers onto the
          real stack. *)
-       for (indDownto (pstackVal table indexMinus 1) first)
-         (fn s =>
+       forIndDownTo (pstackVal table indexMinus 1, first,
+         fn s =>
             case (pstackEntry table s, pStackEntry save s) of
                 (NoStackEntry, _) => () (* No entry in table. *)
 
@@ -2990,8 +2987,7 @@ in (* local definitions *)
          (* This is the highest used stack location, but we may have a
             handler above it so we can't necessarily reset the stack
             to here. *)
-            revfoldIterator getInUse 0
-                (indDownto ((pstackVal table) indexMinus 1) first)
+            revfoldIndDownTo(getInUse, 0, (pstackVal table) indexMinus 1, first)
 
          (* Examine the saved stack to see those entries which have
             been pushed in the saved state but not in the current
@@ -3017,8 +3013,7 @@ in (* local definitions *)
                     end
             |   _ => i;
          val minStack =
-            revfoldIterator getMinStack (realStackPtr save)
-                (indDownto ((pstackVal table) indexMinus 1) first)
+            revfoldIndDownTo(getMinStack, realStackPtr save, (pstackVal table) indexMinus 1, first)
 
          (* We can reset the stack to the maximum of the entries
             currently in use and those which need to be pushed or
@@ -3155,7 +3150,7 @@ in (* local definitions *)
              |  _ => ()
  
        in
-          for (indDownto (pstackVal table indexMinus 1) first) loadEntries
+          forIndDownTo (pstackVal table indexMinus 1, first, loadEntries)
        end;
 
        (* Final pass: Check to see if we need to do a "reverse merge" i.e.
@@ -3246,7 +3241,7 @@ in (* local definitions *)
                     end
               | _ => ()
        in
-          for (indDownto (pstackVal table indexMinus 1) first) checkEntries
+          forIndDownTo (pstackVal table indexMinus 1, first, checkEntries)
        end;
 
        (* Last of all, try to align the stack. If the current stack pointer
@@ -3393,8 +3388,8 @@ in (* local definitions *)
    (* Remove any entries above the old pstack pointer. If the expression
       whose exceptions we are handling contained static-link functions
       there may be entries whose use-counts have not gone to zero. *)
-   for (indDownto (pstackVal table indexMinus 1) oldps)
-      (fn (s: stackIndex) => removeEntry table s false);
+   forIndDownTo (pstackVal table indexMinus 1, oldps,
+      fn (s: stackIndex) => removeEntry table s false);
 
     cFixupH (lab, cvec)
   );
