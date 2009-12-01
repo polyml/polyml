@@ -67,6 +67,8 @@ sig
     val pretty:    codetree -> pretty;
     val evalue:    codetree -> machineWord;
     val genCode:   codetree * Universal.universal list -> (unit -> codetree);
+    
+    val rtsFunction:        int -> codetree
 
     structure Sharing:
     sig

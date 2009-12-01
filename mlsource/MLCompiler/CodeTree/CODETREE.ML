@@ -139,9 +139,9 @@ struct
   type casePair = codetree * int list;
   
   val codegen = gencode;
-  
+
   (* gets a value from the run-time system *)
-  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation; 
+  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
   fun apply _ [] = () | apply f (h::t) = (f h; apply f t);
 
@@ -157,6 +157,7 @@ struct
   val CodeFalse = mkConst False;
   val CodeTrue  = mkConst True;
   val CodeZero  = mkConst word0;
+  val rtsFunction = mkConst o ioOp
   
   val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable);
 
@@ -298,11 +299,11 @@ struct
   fun mkEval (ct, clist, bl)   =
     Eval {function = ct, argList = clist, earlyEval = bl};
 
-  fun mkNot arg = mkEval (mkConst (ioOp POLY_SYS_not_bool), [arg], true);
+  fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg], true);
 
 
-  val testptreqFunction    = mkConst (ioOp POLY_SYS_word_eq);
-  val testptrneqFunction   = mkConst (ioOp POLY_SYS_word_neq);
+  val testptreqFunction    = rtsFunction POLY_SYS_word_eq
+  val testptrneqFunction   = rtsFunction POLY_SYS_word_neq
   
   fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2], true);
   fun mkTestptrneq (xp1, xp2) = mkEval (testptrneqFunction, [xp1,xp2], true);
@@ -326,7 +327,7 @@ struct
 
   (* N.B. int equality is SHORT integer equality *)
   fun mkTestinteq (xp1, xp2) = 
-    mkEval (mkConst (ioOp POLY_SYS_int_eq), [xp1,xp2], true);
+    mkEval (rtsFunction POLY_SYS_int_eq, [xp1,xp2], true);
 
   fun mkHandle (exp, taglist, handler) = Handle {exp = exp, taglist = taglist, handler = handler};
   

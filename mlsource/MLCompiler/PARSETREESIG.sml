@@ -31,6 +31,7 @@ sig
     type lexan;
     type pretty;
     type typeId;
+    type typeVarMap
     type codetree;
     type env;
     type typeConstrs;
@@ -145,7 +146,7 @@ sig
 
     type debugenv = environEntry list * (int->codetree)
 
-    val gencode: parsetree * lexan * debugenv * int * int ref * string -> codetree list * debugenv;
+    val gencode: parsetree * lexan * debugenv * int * (int->int) * typeVarMap * string -> codetree list * debugenv;
 
     (* only used for debugging and error messages! *)
     val ptDisplay: parsetree * int -> pretty;
@@ -180,5 +181,6 @@ sig
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
+        and  typeVarMap = typeVarMap
     end
 end (* PARSETREE export signature *);

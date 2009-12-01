@@ -2311,18 +2311,6 @@ struct
     fun gencodeStructs ((strs, _), lex) =
     let
         val debugging = getParameter debugTag (debugParams lex)
-
-    (* Each top level declaration is assigned a distinct address. *)
-    val addresses = ref 1;
-    fun mkAddr ()  = 
-      let
-        val addr = !addresses
-      in
-        addresses := addr + 1;
-        addr
-      end;
-      
-    val level = ref 0; (* Only non-zero inside a functor body *)
     
     (* Apply a function which returns a pair of codelists to a list of structs.
        This now threads the debugging environment through the functions so
@@ -2350,7 +2338,7 @@ struct
        }
      end;
 
-    fun applyMatchActions (code : codetree, actions, sourceIds: int*bool->valAccess) =
+    fun applyMatchActions (code : codetree, actions, sourceIds, mkAddr, level) =
     let
         (* Generate a new structure which will match the given signature.
            A structure is represented by a vector of entries, and its
@@ -2367,7 +2355,7 @@ struct
 
         |   matchSubStructure (code, FilterMatch actions) =
         let
-            val decs = multipleUses (code, mkAddr, !level);
+            val decs = multipleUses (code, fn () => mkAddr 1, level);
             
             fun applyAction (StructureMatch { sourceStructure, contentsMatch }) =
                 let
@@ -2378,15 +2366,18 @@ struct
                        the structure is in a "struct .. end" it may be local. *)
                     val code = 
                         if isFormal access
-                        then mkInd (vaFormal access, #load decs (!level))
-                        else codeStruct (sourceStructure, !level)
+                        then mkInd (vaFormal access, #load decs (level))
+                        else codeStruct (sourceStructure, level)
                 in
                     matchSubStructure (code, contentsMatch)
                 end
 
             |   applyAction
                 (ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion, polyMatch }) =
-                let                        
+                let
+                    (* Set up a new type variable environment in case this needs to create type
+                       values to match a polymorphic source value to a monomorphic context. *)
+                    val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                     (* If the entry is from a signature select from the code.  Apply any coercion from
                        constructors to values. *)
                     fun loadCode localLevel =
@@ -2418,44 +2409,47 @@ struct
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex)
+                                        codeVal (sourceValue, localLevel, typeVarMap, [], lex, location nullLex)
                                 |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex)
+                                        codeExFunction(sourceValue, localLevel, typeVarMap, [], lex, location nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, localLevel, defaultTypeVarMap, [], lex, location nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, location nullLex))
                             )
 
                     val polyCode =
                         case polyMatch of
-                            NONE => loadCode(!level) (* Nothing to do. *)
+                            NONE => loadCode(level) (* Nothing to do. *)
 
                         |   SOME(sourcePolyTypes, []) => (* Destination is monomorphic. *)
-                                applyToInstance(sourcePolyTypes, !level, defaultTypeVarMap, loadCode)
+                                applyToInstance(sourcePolyTypes, level, typeVarMap, loadCode)
 
                         |   SOME(sourcePolyTypes, destPolyVars) =>
                             let
+                                open TypeVarMap
                                 val destPolymorphism = List.length destPolyVars
-                                val localLevel = !level + 1
-                                val args =
-                                    List.tabulate(destPolymorphism,
-                                        fn n => fn lvl => mkLoad(n-destPolymorphism, lvl - localLevel))
-                                val argMap = ListPair.zipEq(destPolyVars, args)
-                                val newTypeVarMap = extendTypeVarMap(argMap, defaultTypeVarMap)
+                                val localLevel = level + 1
+                                val argAddrs = List.tabulate(destPolymorphism, fn n => n-destPolymorphism)
+                                val argMap = ListPair.zipEq(destPolyVars, argAddrs)
+                                val addrs = ref 0
+                                fun mkAddrs n = ! addrs before (addrs := !addrs+n)
+                                val newTypeVarMap = extendTypeVarMap(argMap, mkAddrs, localLevel, typeVarMap)
                                 (* Apply the source to the parameters provided by the destination.  In almost
                                    all cases we will be removing polymorphism here but it is possible to
                                    add polymorphism through type definitions of the form type 'a t = int. *)
                                 val application =
                                     applyToInstance(sourcePolyTypes, localLevel, newTypeVarMap, loadCode)
                             in
-                                mkProc(application, localLevel, List.length destPolyVars, name ^ "(P)")
+                                mkProc(
+                                    mkEnv(getCachedTypeValues newTypeVarMap @ [application]), localLevel,
+                                    List.length destPolyVars, name ^ "(P)")
                             end
                 in
-                    polyCode
+                    mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [polyCode])
                 end
 
             |   applyAction (TypeIdMatch { sourceIdNo, isEquality }) =
                      (* Get the corresponding source ID. *)
-                    codeAccess(sourceIds(sourceIdNo, isEquality), !level)
+                    codeAccess(sourceIds(sourceIdNo, isEquality), level)
 
             val codeList = List.map applyAction actions
         in  
@@ -2467,14 +2461,14 @@ struct
 
     (* If we are declaring a structure with an opaque signature we need to create
        the run-time IDs for newly generated IDs. *)
-    fun loadOpaqueIds opaqueIds =
+    fun loadOpaqueIds (opaqueIds, mkAddr, level) =
     let
         fun decId { dest, source } =
         let
             val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
-            val addr = mkAddr();
-            val () = idAddr := addr and () = idLevel := ! level;
-            val idCode = codeGenerativeId(source, isEquality dest, !level)
+            val addr = mkAddr 1;
+            val () = idAddr := addr and () = idLevel := level;
+            val idCode = codeGenerativeId(source, isEquality dest, mkAddr, level)
         in
             mkDec(addr, idCode)
         end
@@ -2483,13 +2477,14 @@ struct
     end
 
     (* Code-generate a structure value. *)
-    fun structureCode (str, strName, debugEnv): { code: codetree list, load: codetree } =
+    fun structureCode (str, strName, debugEnv, mkAddr, level):
+                { code: codetree list, load: codetree } =
     case str of
         FunctorAppl {arg, valRef = ref functs, argIds=ref argIds, resIds=ref resIds,
                      matchToArgument=ref matchToArgument, ...} =>
         let
             val {code = argCodeSource, load = argLoadSource, ...} =
-                structureCode (arg, strName, debugEnv)
+                structureCode (arg, strName, debugEnv, mkAddr, level)
             (* Match the actual argument to the required arguments. *)
             fun getMatchedId(n, isEq) =
             let
@@ -2498,19 +2493,19 @@ struct
                 case id of
                     TypeId{typeFn=(_, EmptyType), ...} => idAccess id
                 |   _ => (* Have to generate a function here. *)
-                        Global(codeGenerativeId(id, isEq, !level))
+                        Global(codeGenerativeId(id, isEq, mkAddr, level))
             end
-            val argCode = applyMatchActions(argLoadSource, matchToArgument, getMatchedId)
+            val argCode = applyMatchActions(argLoadSource, matchToArgument, getMatchedId, mkAddr, level)
 
             (* To produce the generative type IDs we need to save the result vector returned by the
                functor application and then generate the new type IDs from the IDs in it.  To make valid
                source IDs we have to turn the Formal entries in the signature into Selected entries. *)
-            val resAddr = mkAddr()
+            val resAddr = mkAddr 1
             local 
                 val dummyResStruct = makeLocalStruct("", undefinedSignature, []) (* Dummy structure. *)
                 val resl = vaLocal (structAccess dummyResStruct);
                 val () = #addr  resl := resAddr; 
-                val () = #level resl := !level
+                val () = #level resl := level
                 fun mkSelected {
                         source = TypeId{idKind, access = Formal addr, description, typeFn}, dest } =
                     { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description, typeFn=typeFn },
@@ -2518,29 +2513,29 @@ struct
                 |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
                 val resultIds = List.map mkSelected resIds
             in
-                val loadIds = loadOpaqueIds resultIds
+                val loadIds = loadOpaqueIds(resultIds, mkAddr, level)
             end
         in
             (* Evaluate the functor. *)
             {
                 code =
                     argCodeSource @
-                    (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, !level), [argCode], false)) ::
+                    (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, level), [argCode], false)) ::
                      loadIds),
                 load = mkLoad(resAddr, 0)
             }
         end
 
-    |   StructureIdent {valRef = ref v, ...} => { code = [], load = codeStruct (v, !level) }
+    |   StructureIdent {valRef = ref v, ...} => { code = [], load = codeStruct (v, level) }
 
     |   Localdec {decs, body = [localStr], ...} =>
         let (* let strdec in strexp end *)
             (* Generate the declarations but throw away the loads. *)
             (* TODO: Get the debug environment correct here. *)
             val coded = 
-                mapPair (fn (str, debug) => codeStrdecs (strName, str, debug)) decs debugEnv;
+                mapPair (fn (str, debug) => codeStrdecs (strName, str, debug, mkAddr, level)) decs debugEnv;
             val {code = bodyCode, load = bodyLoad } =
-                structureCode (localStr, strName, #debug coded)
+                structureCode (localStr, strName, #debug coded, mkAddr, level)
         in
             {
                 code = #code coded @ bodyCode,
@@ -2550,7 +2545,7 @@ struct
 
       | StructDec {alist, matchToResult=ref matchToResult, ...} =>
         let
-            val coded = mapStrdecs alist strName debugEnv;
+            val coded = mapStrdecs(alist, strName, debugEnv, mkAddr, level);
             (* We match to the dummy signature here.  If there is a signature outside
                we will match again.  This results in double copying but that should
                all be sorted out by the optimiser. *)
@@ -2559,19 +2554,19 @@ struct
              code to load the results. *)
             {
                 code = #code coded,
-                load = applyMatchActions (mkTuple (#load coded), matchToResult, fn _ => raise Subscript)
+                load = applyMatchActions (mkTuple (#load coded), matchToResult, fn _ => raise Subscript, mkAddr, level)
             }
         end
 
     |   SigConstraint { str, opaqueIds=ref opaqueIds, matchToConstraint = ref matchToConstraint,... } =>
         let
-            val {code = strCode, load = strLoad, ...} = structureCode (str, strName, debugEnv)
-            val tempDecs = multipleUses (strLoad, mkAddr, !level);
-            val ids = loadOpaqueIds opaqueIds
+            val {code = strCode, load = strLoad, ...} = structureCode (str, strName, debugEnv, mkAddr, level)
+            val tempDecs = multipleUses (strLoad, fn () => mkAddr 1, level);
+            val ids = loadOpaqueIds(opaqueIds, mkAddr, level)
         in
             {
                 code = strCode @ #dec tempDecs @ ids,
-                load = applyMatchActions (#load tempDecs (!level), matchToConstraint, fn _ => raise Subscript)
+                load = applyMatchActions (#load tempDecs level, matchToConstraint, fn _ => raise Subscript, mkAddr, level)
             }
         end
 
@@ -2581,7 +2576,7 @@ struct
 
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
-    and codeStrdecs (strName, str, debugEnv: debugenv):
+    and codeStrdecs (strName, str, debugEnv, mkAddr, level):
         { code: codetree list, load: codetree list, debug: debugenv} =
         case str of
             StructureDec (structList : structBind list, _) =>
@@ -2589,11 +2584,11 @@ struct
                 fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
                 let
                     val sName = strName ^ name ^ "."
-                    val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug)
-                    val addr = mkAddr(); 
+                    val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug, mkAddr, level)
+                    val addr = mkAddr 1; 
                     val var  = vaLocal (structAccess (!valRef));
                     val () = #addr var  := addr; 
-                    val () = #level var := !level;
+                    val () = #level var := level;
                 in (* Get the code and save the result in the variable. *)
                     {
                         code = strCode @ [mkDec (addr, strLoad)],
@@ -2611,8 +2606,8 @@ struct
         let (* Accumulate the code from the declarations,
                and the code to load the results. *)
           (* TODO: Get the environment right here. *)
-          val codeDecs = mapStrdecs decs strName debugEnv;
-          val codeBody = mapStrdecs body strName (#debug codeDecs);
+          val codeDecs = mapStrdecs(decs, strName, debugEnv, mkAddr, level);
+          val codeBody = mapStrdecs(body, strName, #debug codeDecs, mkAddr, level);
         in  (* Combine the lists. *)
           { 
             code = #code codeDecs @ #code codeBody,
@@ -2623,23 +2618,24 @@ struct
  
       | CoreLang {dec, vars=ref vars, ...} =>
         let
+            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             (* Code generate the declaration.  This also assigns addresses so must be
                done before we load the results. *)
             val (code, newDebug) =
-                gencode (dec, lex, debugEnv, !level, addresses, strName)
+                gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName)
 
           (* Load each variable, exception and type ID (i.e. equality & print function)
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            fun loadVals (CoreValue v, rest)  = codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex) :: rest
-            |   loadVals (CoreStruct s, rest) = codeStruct (s, !level) :: rest
+            fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], nullLex, location nullLex) :: rest
+            |   loadVals (CoreStruct s, rest) = codeStruct (s, level) :: rest
             |   loadVals (CoreType t, rest) =
                     (* Type IDs are handled separately but we need to load the value constructors if
                        this is a datatype.  This is really only because of datatype replication where
                        we need to be able to get the value constructors from the datatype. *)
                     List.map(
-                        fn v => codeVal (v, !level, defaultTypeVarMap, [], nullLex, location nullLex))
+                        fn v => codeVal (v, level, typeVarMap, [], nullLex, location nullLex))
                             (tcConstructors t)
                         @ rest
             |   loadVals (_, rest)              = rest
@@ -2647,7 +2643,7 @@ struct
             val loadVals = List.foldr loadVals [] vars
         in
             { 
-                code = code,
+                code = TypeVarMap.getCachedTypeValues typeVarMap @ code,
                 load = loadVals,
                 debug = newDebug
             }
@@ -2661,121 +2657,128 @@ struct
         }
     (* end codeStrdecs *)
 
-    and mapStrdecs strs strName debugEnv =
-          mapPair (fn (str, debug) => codeStrdecs (strName, str, debug))
-            strs debugEnv;
+        and mapStrdecs(strs, strName, debugEnv, mkAddr, level) =
+                mapPair (fn (str, debug) => codeStrdecs (strName, str, debug, mkAddr, level))
+                    strs debugEnv;
 
-    fun codeTopdecs (StrDec(str, ref typeIds), debugEnv) =
-        let
-            val { code, load, debug } = codeStrdecs("", str, debugEnv)
-            (* Load all the IDs created in this topdec even if they're not directly referenced. *)
-            fun loadIds id = codeId(id, !level)
-        in
-            { code = code, load = List.map loadIds typeIds @ load, debug = debug }
-        end
-
-    |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv) =
-        let
-            fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, resIds=ref resIds,
-                                  matchToResult=ref matchToResult, ...}: functorBind, debugEnv) =
+        fun codeTopdecs (StrDec(str, ref typeIds), debugEnv, mkAddr) =
             let
-                (* Go up one level. *)
-                val () = level := !level + 1;
-              
-                (* Save the value and set to 1 *)
-                val addr = !addresses;
-                val () = addresses := 1;
-                val arg = vaLocal (structAccess argVal);
-                val () = #addr  arg := ~1; 
-                val () = #level arg := !level;
-                val func = !valRef;
-
-                (* The debug environment has to contain at a minimum the type IDs from the arguments. *)
-                val (fBindDebugDecs, fBindDebugEnv) =
-                    if not debugging then ([], debugEnv)
-                    else
-                    let
-                        val argIds = sigBoundIds (structSignat argVal)
-
-                        fun loadTypeId(id as TypeId { access = Formal addr, ... }, (ctEnv, rtEnv)) =
-                        let
-                            (* This code will build a cons cell containing the run-time value
-                               associated with the type Id as the hd and the rest of the run-time
-                               environment as the tl. *)
-                            val loadTypeId = mkInd(addr, mkLoad (~1, 0))
-                            val newEnv = mkTuple [ loadTypeId, rtEnv(!level) ]
-                            val { dec, load } = multipleUses (newEnv, mkAddr, !level)
-                        in
-                            (dec, (envTypeId id :: ctEnv, load))
-                        end
-                        |   loadTypeId _ = raise InternalError "loadTypeId: Not bound"
-
-                        fun foldIds(id::ids, inEnv) =
-                            let
-                                val (dec, outEnv) = loadTypeId(id, inEnv)
-                                val (decs, newEnv) = foldIds(ids, outEnv)
-                            in
-                                (dec @ decs, newEnv)
-                            end
-                        |   foldIds([], debugEnv) = ([], debugEnv)
-                    in
-                        foldIds(argIds, debugEnv)
-                    end
-
-                (* Process the body and make a procedure out of it. *)
-                local
-                    val {code = strCode, load = strLoad, ...} = structureCode (body, name ^ "().", fBindDebugEnv)
-                    fun getIds(n, isEq) =
-                    let
-                        val id = #source(List.nth(resIds, n))
-                    in
-                        case id of
-                            TypeId{typeFn=(_, EmptyType), ...} => idAccess id
-                        |   _ => (* Have to generate a function here. *)
-                                Global(codeGenerativeId(id, isEq, !level))
-                    end
-                    val matchedCode = applyMatchActions(strLoad, matchToResult, getIds)
-                in
-                    val functorCode = (* The function that implements the functor. *)
-                        (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                            (mkEnv(fBindDebugDecs @ strCode @ [matchedCode]), !level, 1, name);
-                end
-
-                (* Go back down a level and add 1 to address. *)
-                val () = level := !level - 1; 
-                val () = addresses := addr + 1;
-
-                (* Set the address of this variable. Because functors can only
-                   be declared at the top level the only way it can be used is
-                   if we have 
-                    functor F(..) = ... functor G() = ..F..
-                   with no semicolon between them. They will then be taken as
-                   a single declaration and F will be picked up as a local. *)
-                val var = vaLocal (functorAccess func);
-                val ()  = #addr  var := addr;
-                val ()  = #level var := !level;
+                open TypeVarMap
+                val level = 0
+                val { code, load, debug } = codeStrdecs("", str, debugEnv, mkAddr, level)
+                (* Load all the IDs created in this topdec even if they're not directly referenced. *)
+                fun loadIds id = codeId(id, level)
             in
-                {
-                    code = [mkDec (addr, functorCode)],
-                    load = [mkLoad (addr, 0)], (* Load the variable. *)
-                    debug = debugEnv
-                }
+                { code = code, load = List.map loadIds typeIds @ load, debug = debug }
             end
-        in
-          mapPair codeFunctorBind structList debugEnv
-        end
 
-    |   codeTopdecs(SignatureDec _, debugEnv) = { code = [], load = [], debug = debugEnv }
-    
-    val coded = (* Process top level list. *)
-        mapPair (fn (str, debug) => codeTopdecs (str, debug))
-            strs ([], fn _ => CodeZero)
-  in 
-    (* The result is code for a vector containing the results of the
-       declarations which pass4 can use to pull out the values after
-       the code has been run. *)
-    mkEnv (#code coded @ [mkTuple (#load coded)])
-  end (* gencodeStructs *);
+        |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv, mkOuterAddr) =
+            let
+                fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, resIds=ref resIds,
+                                      matchToResult=ref matchToResult, ...}: functorBind, debugEnv) =
+                let
+                    local (* Separate context for each functor binding. *)
+                        val address = ref 1
+                    in
+                        fun mkAddr n = !address before (address := ! address+n)
+                        val level = 1 (* Inside the functor *)
+                    end
+                    val arg = vaLocal (structAccess argVal);
+                    val () = #addr  arg := ~1; 
+                    val () = #level arg := level;
+                    val func = !valRef;
+
+                    (* The debug environment has to contain at a minimum the type IDs from the arguments. *)
+                    val (fBindDebugDecs, fBindDebugEnv) =
+                        if not debugging then ([], debugEnv)
+                        else
+                        let
+                            val argIds = sigBoundIds (structSignat argVal)
+
+                            fun loadTypeId(id as TypeId { access = Formal addr, ... }, (ctEnv, rtEnv)) =
+                            let
+                                (* This code will build a cons cell containing the run-time value
+                                   associated with the type Id as the hd and the rest of the run-time
+                                   environment as the tl. *)
+                                val loadTypeId = mkInd(addr, mkLoad (~1, 0))
+                                val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                            in
+                                (dec, (envTypeId id :: ctEnv, load))
+                            end
+                            |   loadTypeId _ = raise InternalError "loadTypeId: Not bound"
+
+                            fun foldIds(id::ids, inEnv) =
+                                let
+                                    val (dec, outEnv) = loadTypeId(id, inEnv)
+                                    val (decs, newEnv) = foldIds(ids, outEnv)
+                                in
+                                    (dec @ decs, newEnv)
+                                end
+                            |   foldIds([], debugEnv) = ([], debugEnv)
+                        in
+                            foldIds(argIds, debugEnv)
+                        end
+
+                    (* Process the body and make a procedure out of it. *)
+                    local
+                        val {code = strCode, load = strLoad, ...} =
+                            structureCode (body, name ^ "().", fBindDebugEnv, mkAddr, level)
+                        fun getIds(n, isEq) =
+                        let
+                            val id = #source(List.nth(resIds, n))
+                        in
+                            case id of
+                                TypeId{typeFn=(_, EmptyType), ...} => idAccess id
+                            |   _ => (* Have to generate a function here. *)
+                                    Global(codeGenerativeId(id, isEq, mkAddr, level))
+                        end
+                        val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)
+                    in
+                        val functorCode = (* The function that implements the functor. *)
+                            (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
+                                (mkEnv(fBindDebugDecs @ strCode @ [matchedCode]),
+                                level, 1, name);
+                    end
+
+                    (* Set the address of this variable. Because functors can only
+                       be declared at the top level the only way it can be used is
+                       if we have 
+                        functor F(..) = ... functor G() = ..F..
+                       with no semicolon between them. They will then be taken as
+                       a single declaration and F will be picked up as a local. *)
+                    val addr = mkOuterAddr 1
+                    val var = vaLocal (functorAccess func);
+                    val ()  = #addr  var := addr;
+                    val ()  = #level var := 0 (* Top level *);
+                in
+                    {
+                        code = [mkDec (addr, functorCode)],
+                        load = [mkLoad (addr, 0)], (* Load the variable. *)
+                        debug = debugEnv
+                    }
+                end
+            in
+              mapPair codeFunctorBind structList debugEnv
+            end
+
+        |   codeTopdecs(SignatureDec _, debugEnv, _) = { code = [], load = [], debug = debugEnv }
+
+            local (* Separate context for each functor binding. *)
+                val address = ref 1
+            in
+                fun mkAddr n = !address before (address := ! address+n)
+            end
+   
+        val coded = (* Process top level list. *)
+            mapPair (fn (str, debug) => codeTopdecs (str, debug, mkAddr))
+                strs ([], fn _ => CodeZero)
+    in 
+        (* The result is code for a vector containing the results of the
+           declarations which pass4 can use to pull out the values after
+           the code has been run. *)
+        mkEnv (#code coded @ [mkTuple (#load coded)])
+    end (* gencodeStructs *);
 
   (* Once the code has been executed the declarations must be added to
      the global scope. The type and infix status environments have already

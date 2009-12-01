@@ -31,23 +31,7 @@
   
 functor STRUCT_VALS (
 
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
-structure CODETREE :
-sig
-  type codetree
-  val CodeZero : codetree
-  
-  (* Temporary additions. *)
-  type machineWord = Address.machineWord
-  val mkTuple:            codetree list -> codetree;
-  val mkConst:            machineWord -> codetree;
-  val mkEval:             codetree * codetree list * bool -> codetree;
-  val mkInlproc:          codetree * int * int * string -> codetree;
-  val mkLoad:             int * int -> codetree;
-  val genCode:   codetree * Universal.universal list -> (unit -> codetree);
-end;
+structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
 
 (*****************************************************************************)
 (*                  UNIVERSALTABLE                                           *)
@@ -497,8 +481,7 @@ struct
 
         fun eqAndPrintCode (eqFun, isMonotype) =
         let
-            val eqCode =
-                mkConst (toMachineWord(RunCall.run_call1 POLY_SYS_io_operation eqFun))
+            val eqCode = CODETREE.rtsFunction eqFun
             val code =
                 mkTuple[
                     if isMonotype then eqCode else mkInlproc(eqCode, 0, 0, "eq-helper()"),

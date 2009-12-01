@@ -85,10 +85,6 @@ struct
   open COPIER
   
   val length   = List.length;
-  
-  (* gets a value from the run-time system; 
-    usually this is a closure, but sometimes it's an int.  *)
-  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
   val orb = Word8.orb
   infix 7 orb;
@@ -147,7 +143,7 @@ struct
     (* allocate 1 mutable word, initialise to "v"; do not evaluate "early" *)
     fun refApplyCode (v: codetree) =
       mkEval
-        (mkConst (ioOp POLY_SYS_alloc_store),
+        (rtsFunction POLY_SYS_alloc_store,
         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
         false);
 
@@ -228,19 +224,13 @@ struct
 
     (* Use loadWord not indirect because the optimiser reorders indirections. *)
     fun refDestructCode (v : codetree) : codetree =
-       mkEval 
-         (mkConst (ioOp POLY_SYS_load_word),
-         [v, CodeZero],
-         false) (* NOT early *)
+       mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero], false) (* NOT early *)
        
     fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
-      mkEval
-        (mkConst (ioOp POLY_SYS_not_bool),
-        [mkEval (mkConst (ioOp POLY_SYS_is_short), [v], true)],
-        true);
+      mkEval (rtsFunction POLY_SYS_not_bool,
+            [mkEval (rtsFunction POLY_SYS_is_short, [v], true)], true);
         
-    fun boxedDestructCode (box : codetree) : codetree =
-      mkInd (0, box);
+    fun boxedDestructCode (box : codetree) : codetree = mkInd (0, box);
 
   (* The run-time representation of the constructor's value *)
   fun constrMake (test: representations) (name: string) : codetree =
@@ -564,11 +554,11 @@ struct
         val sortedConstrs = quickSort leq valConstrsAndDecs;
         val () = tcSetConstructors(dtype, (List.map #1 valConstrsAndDecs))
         val addrs = ref 0
-        fun mkAddrs() = ! addrs before (addrs := !addrs+1)
+        fun mkAddrs n = ! addrs before (addrs := !addrs+n)
 
         fun declConstr(Value{access=Local{addr, level}, ...}, repr) =
             let
-                val newAddr = mkAddrs()
+                val newAddr = mkAddrs 1
             in
                 addr := newAddr;
                 level := 0;
@@ -577,11 +567,17 @@ struct
         |   declConstr _ = raise InternalError "declConstr: not local"
         val (declConstrs, loadConstrs) = ListPair.unzip(List.map declConstr sortedConstrs)
 
+        val defMap = TypeVarMap.defaultTypeVarMap(mkAddrs, 0)
+
         (* Create the datatype.  Sets the address of the local in "id". *)
-        val dtCode = createDatatypeFunctions([dtype], [isEqType], mkAddrs, 0)
+        val dtCode = createDatatypeFunctions([dtype], [isEqType], mkAddrs, 0, defMap)
 
         (* Compile and execute the code to build the functions and extract the result. *)
-        val globalCode = genCode(mkEnv(declConstrs @ dtCode @ [mkTuple(codeId(id, 0) :: loadConstrs)]), [])()
+        val globalCode =
+            genCode(
+                mkEnv(
+                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode @ [mkTuple(codeId(id, 0) :: loadConstrs)]),
+                [])()
         val newId = makeFreeId(Global(mkInd(0, globalCode)), isEqType, description, ([], EmptyType))
         
         (* Get the value constructors out as globals. *)

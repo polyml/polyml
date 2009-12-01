@@ -26,9 +26,10 @@ sig
     type typeVarMap
 
     val codeId: typeId * int -> codetree
-    val codeGenerativeId: typeId * bool * int -> codetree
+    val codeGenerativeId: typeId * bool * (int->int) * int -> codetree
     
-    val createDatatypeFunctions: typeConstrs list * bool list * (unit->int) * int -> codetree list
+    val createDatatypeFunctions:
+        typeConstrs list * bool list * (int->int) * int * typeVarMap -> codetree list
     
     val codeForUniqueId: unit->codetree
 
@@ -38,15 +39,22 @@ sig
     val equalityForType: types * int * typeVarMap -> codetree
 
     val applyToInstance: types list * int * typeVarMap * (int -> codetree) -> codetree
-
-    val extendTypeVarMap:
-        (typeVarForm * (int -> codetree)) list * typeVarMap -> typeVarMap
-
-    (* Default map. *)
-    val defaultTypeVarMap: typeVarMap
     
-    val mapTypeVars: typeVarMap -> typeVarForm -> types option
-    
+    structure TypeVarMap:
+    sig
+        (* Cache of type values and map of type variables. *)
+        type typeVarMap = typeVarMap
+        val defaultTypeVarMap: (int->int) * int -> typeVarMap (* The end of the chain. *)
+        (* Add a set of type variables to the map. *)
+        val extendTypeVarMap: (typeVarForm * int) list * (int->int) * int * typeVarMap -> typeVarMap
+        (* Look up a type variable and return the type it's mapped to. *)
+        val mapTypeVars: typeVarMap -> typeVarForm -> types option
+        (* Mark in the cache chain that some type constructors are new. *)
+        val markTypeConstructors: typeConstrs list * (int->int) * int * typeVarMap -> typeVarMap
+        (* Get the set of cached type values that have been created after this entry. *)
+        val getCachedTypeValues: typeVarMap -> codetree list
+    end
+
     val defaultTypeCode: codetree
     
     structure TypeConstructorValue:

@@ -187,11 +187,7 @@ struct
 (*****************************************************************************)
 (*                  Utilities                                                *)
 (*****************************************************************************)
-        (* shouldn't these be imported from somewhere? *)
-        fun ioOp (x: int) : machineWord = RunCall.run_call1 POLY_SYS_io_operation x;
-        
         fun loadArg n  = mkLoad (~ n, 0);
-        fun mkEntry n  = mkConst (ioOp n);
         
         val enterGlobalValue  = #enterVal  globalEnv;
         val enterGlobalType   = #enterType globalEnv;
@@ -364,7 +360,7 @@ struct
         local
             val plingCode = (* we load the zero'th word from the parameter *)
                 mkInlproc
-                    (mkEval (mkConst (ioOp POLY_SYS_load_word), [(loadArg 1), CodeZero],
+                    (mkEval (rtsFunction POLY_SYS_load_word, [(loadArg 1), CodeZero],
                         false) (* NOT early *), 0, 1, "!(1)");
             val a = makeTV ()
             val plingType = Ref a ->> a
@@ -462,7 +458,7 @@ struct
             val runCall1Entry : codetree =
             let 
                 val name = "run_call1(1)";
-                val ioOpEntry = mkEntry POLY_SYS_io_operation;
+                val ioOpEntry = rtsFunction POLY_SYS_io_operation;
                 val level = 1;
                 val args  = 1;
                 val n     = mkLoad (~1, 0)                 (* the outer parameter *)
@@ -490,7 +486,7 @@ struct
                  *)
           
                 val name = "run_call" ^ Int.toString width;
-                val ioOpEntry = mkEntry POLY_SYS_io_operation;
+                val ioOpEntry = rtsFunction POLY_SYS_io_operation;
                 
                 val innerBody : codetree =
                 let
@@ -671,26 +667,26 @@ struct
                     mkProc(
                         mkEnv[
                             (* Length of the items. *)
-                            mkDec(1, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~2, 0)], false)),
-                            mkDec(2, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~1, 0)], false)),
+                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
+                            mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
                             mkDec(3, (* Loop function. *)
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 1), mkLoad(~1, 0)], false),
+                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 1), mkLoad(~1, 0)], false),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
                                                 TYPEIDCODE.TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
                                                 [
-                                                    mkEval(mkConst (ioOp POLY_SYS_load_word),
+                                                    mkEval(rtsFunction POLY_SYS_load_word,
                                                         [mkLoad(~2, 1), mkLoad(~1, 0)], false),
-                                                    mkEval(mkConst (ioOp POLY_SYS_load_word),
+                                                    mkEval(rtsFunction POLY_SYS_load_word,
                                                         [mkLoad(~1, 1), mkLoad(~1, 0)], false)
                                                 ], false),
                                             mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
                                                 [
-                                                    mkEval(mkConst(ioOp POLY_SYS_plus_word),
+                                                    mkEval(rtsFunction POLY_SYS_plus_word,
                                                         [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
                                                 ], false),
                                             CodeFalse (* Not equal elements - result false *)
@@ -699,7 +695,7 @@ struct
                                 2, 1, "vector-loop")),
                             mkIf(
                                 (* Test the lengths. *)
-                                mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 0), mkLoad(2, 0)], false),
+                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
                                 (* Equal - test the contents. *)
                                 mkEval(mkLoad(3, 0), [CodeZero], false),
                                 CodeFalse (* Not same length- result false *)
@@ -731,40 +727,40 @@ struct
                 mkProc(
                     mkEnv[
                         (* Length of the items. *)
-                        mkDec(1, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~2, 0)], false)),
-                        mkDec(2, mkEval(mkConst (ioOp POLY_SYS_get_length), [mkLoad(~1, 0)], false)),
+                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
+                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
                         mkIf(
                             (* Test the lengths. *)
-                            mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(1, 0), mkLoad(2, 0)], false),
+                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
                             (* Equal - test the contents. *)
                             mkEnv
                             [
                                 (* Compute the number of bytes.  This is the limit of the loop. *)
                                 mkDec(3,
-                                    mkEval(mkConst (ioOp POLY_SYS_mul_word),
+                                    mkEval(rtsFunction POLY_SYS_mul_word,
                                         [
                                             mkLoad(1, 0), (* One of the length words.  They're equal. *)
-                                            mkEval(mkConst (ioOp POLY_SYS_bytes_per_word), [CodeZero], true)
+                                            mkEval(rtsFunction POLY_SYS_bytes_per_word, [CodeZero], true)
                                         ], false)
                                 ),
                                 mkDec(4, (* Loop function. *)
                                     mkProc(
                                         mkIf(
                                             (* Finished? *)
-                                            mkEval(mkConst (ioOp POLY_SYS_word_eq), [mkLoad(3, 1), mkLoad(~1, 0)], false),
+                                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(3, 1), mkLoad(~1, 0)], false),
                                             CodeTrue, (* Yes, all equal. *)
                                             mkIf(
                                                 mkEval(
-                                                    mkConst (ioOp POLY_SYS_word_eq), (* Word equality *)
+                                                    rtsFunction POLY_SYS_word_eq, (* Word equality *)
                                                     [
-                                                        mkEval(mkConst (ioOp POLY_SYS_load_byte),
+                                                        mkEval(rtsFunction POLY_SYS_load_byte,
                                                             [mkLoad(~2, 1), mkLoad(~1, 0)], false),
-                                                        mkEval(mkConst (ioOp POLY_SYS_load_byte),
+                                                        mkEval(rtsFunction POLY_SYS_load_byte,
                                                             [mkLoad(~1, 1), mkLoad(~1, 0)], false)
                                                     ], false),
                                                 mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
                                                     [
-                                                        mkEval(mkConst(ioOp POLY_SYS_plus_word),
+                                                        mkEval(rtsFunction POLY_SYS_plus_word,
                                                             [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
                                                     ], false),
                                                 CodeFalse (* Not equal elements - result false *)

@@ -148,6 +148,7 @@ struct
   open PRINTTABLE
   open DATATYPEREP
   open RuntimeCalls; (* for POLY_SYS numbers *)
+  open TypeVarMap
           
   infix 9 sub;
   
@@ -4434,7 +4435,7 @@ struct
                 val equality =
                     equalityForType(
                         mkTypeConstruction(tcName constr, constr, [], []), #level context,
-                        defaultTypeVarMap (* Should never be used. *))
+                        typeVarMap (* Should never be used. *))
                 val litValue: machineWord option =
                     getLiteralValue(converter, literal, expType, location, vars, lex)
             in
@@ -5279,25 +5280,33 @@ struct
             (* Function *)
             mkblock (codeProc(c, false, ref 0, location, getPolyTypeVars(expType, mapTypeVars typeVarMap), context))
 
-        | Localdec {decs, body, ...} =>
-          (* Local expressions only. Local declarations will be handled
-             by codeSequence.*)
-          let
-            val (decs, newDebug) = codeSequence (decs, context);
-            val newContext = context |> repDebugEnv newDebug
-            fun codeList [] = []
-             |  codeList (x::tl) =
-                 (* Generate any line change code first, then this entry, then the rest. *)
+        |   Localdec {decs, body, ...} =>
+            (* Local expressions only. Local declarations will be handled
+                by codeSequence.*)
+            let
+                (* This is the continuation called when the declarations have been
+                   processed.  We need to ensure that if there are local datatypes
+                   we make new entries in the type value cache after them. *)
+                fun processBody (previousDecs, newContext as {debugEnv, ...}) =
                 let
-                    val lineChange = changeLine(getLocation x, newContext)
-                    val code = codegen (x, newContext)
+                    fun codeList [] = []
+                     |  codeList (x::tl) =
+                         (* Generate any line change code first, then this entry, then the rest. *)
+                        let
+                            val lineChange = changeLine(getLocation x, newContext)
+                            val code = codegen (x, newContext)
+                        in
+                            lineChange @ code :: codeList tl
+                        end
+                    val exps = codeList body;
                 in
-                    lineChange @ code :: codeList tl
+                    (previousDecs @ exps, debugEnv)
                 end
-            val exps = codeList body;
-          in
-            mkblock (decs @ exps) : codetree
-          end
+
+                val (decs, _) = codeSequence (decs, [], context, processBody);
+            in
+                mkblock decs
+            end
 
         | ExpSeq(ptl, _) =>
           (* Sequence of expressions. Discard results of all except the
@@ -5485,245 +5494,279 @@ struct
 
 
     (* Code-generates a sequence of declarations. *)
-    and codeSequence ([]: parsetree list, {debugEnv, ...}) : codetree list * debugenv = ([], debugEnv)
+    and codeSequence ([]: parsetree list, leading, codeSeqContext, processBody) =
+            processBody(leading, codeSeqContext) (* Do the continuation. *)
 
-    |   codeSequence (firstEntry :: pTail,
-                      codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}) =
+    |   codeSequence ((firstEntry as FunDeclaration {dec, ...}) :: pTail, leading, codeSeqContext, processBody) =
         let
-            val (firstDec, firstEnv) = 
-            case firstEntry of 
-                FunDeclaration {dec, ...} => codeFunBindings(dec, firstEntry, codeSeqContext)
+            val (firstDec, firstEnv) = codeFunBindings(dec, firstEntry, codeSeqContext)
+        in
+            codeSequence (pTail, leading @ firstDec, codeSeqContext |> repDebugEnv firstEnv, processBody)
+        end
 
-            |   ValDeclaration {dec, ...} =>
-                let
-                    (* Split the bindings into recursive and non-recursive.  These have to
-                       be processed differently. *)
-                    val (recBindings, nonrecBindings) =
-                        List.partition(fn ValBind{isRecursive, ...} => isRecursive) dec
+    |   codeSequence ((firstEntry as ValDeclaration {dec, ...}) :: pTail, leading, codeSeqContext, processBody) =
+        let
+            (* Split the bindings into recursive and non-recursive.  These have to
+               be processed differently. *)
+            val (recBindings, nonrecBindings) =
+                List.partition(fn ValBind{isRecursive, ...} => isRecursive) dec
 
-                    val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, codeSeqContext)
-                    val (recCode, _) = codeRecValBindings(recBindings, firstEntry, codeSeqContext)
-                    (* Construct the debugging environment by loading all variables. *)
-                    val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
-                    val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
-                in
-                    (nonRecCode @ recCode @ decEnv, env)
-                end
+            val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, codeSeqContext)
+            val (recCode, _) = codeRecValBindings(recBindings, firstEntry, codeSeqContext)
+            (* Construct the debugging environment by loading all variables. *)
+            val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
+            val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
+        in
+            codeSequence (pTail, leading @ nonRecCode @ recCode @ decEnv,
+                    codeSeqContext |> repDebugEnv env, processBody)
+        end
 
-            | Localdec {decs, body, varsInBody=ref vars, ...} => (* Local declarations only *)
-                let
-                    (* Simply process the declarations in sequence. *)
-                    val (decCode, decEnv) = codeSequence (decs, codeSeqContext)
-                    val (bodyCode, _) = codeSequence (body, codeSeqContext |> repDebugEnv decEnv)
-                    (* We can't simply pass through the environment because it
-                       would include the declarations in the local part.  Instead
-                       we create a new environment here containing only the variables
-                       in the in...dec part. *)
-                    val (decEnv, resEnv) = makeDebugEntries (vars, codeSeqContext)
-                in
-                    (decCode @ bodyCode @ decEnv, resEnv)
-                end
+    |   codeSequence (Localdec {decs, body, varsInBody=ref vars, ...} :: pTail, leading, codeSeqContext, processBody) =
+        let (* Local declarations only *)
+            (* The debug environment needs to reflect the local...in...end structure but if
+               there are local datatypes we need to process all subsequent declarations in the
+               scope of the "stopper" we've put onto the typeVarMap. *)
+            fun processTail(previous, newContext) =
+            let
+                (* The debug env for the tail is the original environment together with the
+                   variables in the body, excluding variables in the local...in part. *)
+                val (decEnv, resEnv) = makeDebugEntries (vars, codeSeqContext) (* Original context. *)
+            in
+                codeSequence (pTail, previous @ decEnv, newContext |> repDebugEnv resEnv, processBody)
+            end
+        in
+            (* Process the declarations then the tail. *)
+            codeSequence (decs @ body, leading, codeSeqContext, processTail)
+        end
 
-            | ExDeclaration(tlist, _) =>
-                let
-                    fun codeEx (ExBind{value=ref exval, previous, ... }) =
+    |   codeSequence (ExDeclaration(tlist, _) :: pTail, leading,
+                      codeSeqContext as {mkAddr, level, typeVarMap, lex, ...}, processBody) =
+        let
+            fun codeEx (ExBind{value=ref exval, previous, ... }) =
+            let
+                val ex     = exval;
+                (* This exception is treated in the same way as a local
+                  variable except that the value it contains is created
+                  by generating a word on the heap. The address of this word
+                  constitutes a unique identifier. Non-generative exception
+                  bindings i.e. exception ex=ex'  merely copy the word from
+                  the previous exception. *)
+                val (lvAddr, lvLevel, exType) =
+                    case ex of
+                        Value{access=Local{addr, level}, typeOf, ...} => (addr, level, typeOf)
+                    |   _ => raise InternalError "lvAddr"
+            in
+                lvAddr  := mkAddr 1;
+                lvLevel := level;
+   
+                mkDec 
+                 (! lvAddr,
+                  case previous of
+                      EmptyTree => 
+                        (* Generate a new exception. This is a single
+                           mutable word which acts as a token. It is a
+                           mutable to ensure that there is precisely one
+                           copy of it. It contains a function to print values
+                           of the type so when we raise the exception we can print
+                           the exception packet without knowing the type. *)
+                        mkExIden (exType, level, typeVarMap)
+                  | Ident{value=ref prevVal, location, ...} =>
+                          (* Copy the previous value. N.B. We want the exception
+                           identifier here so we can't call codegen. *)
+                        codeVal (prevVal, level, typeVarMap, [], lex, location)
+                  | _ => raise InternalError "codeEx"
+                 )
+            end  (* codeEx *);
+
+            val exdecs = map codeEx tlist
+
+            fun getValue(ExBind{value=ref exval, ...}) = exval
+            val (debugDecs, newDebugEnv) = makeDebugEntries(map getValue tlist, codeSeqContext)
+ 
+        in
+            codeSequence (pTail, leading @ exdecs @ debugDecs, codeSeqContext |> repDebugEnv newDebugEnv, processBody)
+        end (* ExDeclaration *)
+
+    |   codeSequence (AbstypeDeclaration {typelist, declist, equalityStatus = ref eqStatus, ...} :: pTail,
+                      leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
+        let (* Code-generate the eq and print functions for the abstype first
+               then the declarations, which may use these. *)
+            (* The debugging environment for the declarations should include
+               the constructors but the result shouldn't.  For the moment
+               ignore the constructors. *)
+            (* Add the type ids to the debug environment. *)
+            val typeCons =
+                List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+
+            (* Declare the value constructors. These are needed to produce the equality and
+               print functions for the type IDs. *)
+            fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
+            let
+                val constrs = tcConstructors tc
+
+                (* Get the argument types or EmptyType if this is nullary. *)
+                fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
+                |   getConstrType(Value{name, ...}) = (name, EmptyType)
+                val constrTypesAndNames = List.map getConstrType constrs
+
+                (* Choose the representation for the constructors. *)
+                val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
+                (* Declare the constructors as local variables. *)
+                fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
                     let
-                        val ex     = exval;
-                        (* This exception is treated in the same way as a local
-                          variable except that the value it contains is created
-                          by generating a word on the heap. The address of this word
-                          constitutes a unique identifier. Non-generative exception
-                          bindings i.e. exception ex=ex'  merely copy the word from
-                          the previous exception. *)
-                        val (lvAddr, lvLevel, exType) =
-                            case ex of
-                                Value{access=Local{addr, level}, typeOf, ...} => (addr, level, typeOf)
-                            |   _ => raise InternalError "lvAddr"
+                        val newAddr = mkAddr 1
                     in
-                        lvAddr  := mkAddr 1;
-                        lvLevel := level;
-           
-                        mkDec 
-                         (! lvAddr,
-                          case previous of
-                              EmptyTree => 
-                                (* Generate a new exception. This is a single
-                                   mutable word which acts as a token. It is a
-                                   mutable to ensure that there is precisely one
-                                   copy of it. It contains a function to print values
-                                   of the type so when we raise the exception we can print
-                                   the exception packet without knowing the type. *)
-                                mkExIden (exType, level, typeVarMap)
-                          | Ident{value=ref prevVal, location, ...} =>
-                                  (* Copy the previous value. N.B. We want the exception
-                                   identifier here so we can't call codegen. *)
-                                codeVal (prevVal, level, typeVarMap, [], lex, location)
-                          | _ => raise InternalError "codeEx"
-                         )
-                    end  (* codeEx *);
-
-                    val exdecs = map codeEx tlist
-
-                    fun getValue(ExBind{value=ref exval, ...}) = exval
-                    val (debugDecs, newDebugEnv) = makeDebugEntries(map getValue tlist, codeSeqContext)
-                in 
-                    (exdecs @ debugDecs, newDebugEnv)
-                end (* ExDeclaration *)
-
-            |   AbstypeDeclaration {typelist, declist, equalityStatus = ref eqStatus, ...} =>
-                let (* Code-generate the eq and print functions for the abstype first
-                       then the declarations, which may use these. *)
-                    (* The debugging environment for the declarations should include
-                       the constructors but the result shouldn't.  For the moment
-                       ignore the constructors. *)
-                    (* Add the type ids to the debug environment. *)
-                    val typeCons =
-                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-
-                    (* Declare the value constructors. These are needed to produce the equality and
-                       print functions for the type IDs. *)
-                    fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
-                    let
-                        val constrs = tcConstructors tc
-
-                        (* Get the argument types or EmptyType if this is nullary. *)
-                        fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
-                        |   getConstrType(Value{name, ...}) = (name, EmptyType)
-                        val constrTypesAndNames = List.map getConstrType constrs
-
-                        (* Choose the representation for the constructors. *)
-                        val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
-                        (* Declare the constructors as local variables. *)
-                        fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
-                            let
-                                val newAddr = mkAddr 1
-                            in
-                                addr := newAddr;
-                                lev := level;
-                                mkDec(newAddr, repr)
-                            end
-                        |   decCons _ = raise InternalError "decCons: Not local"
-                        val constrDecs = ListPair.map decCons (constrs, reprs)
-                        
-                        val (newDecs, newDebug) =
-                            makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
-                    in
-                        (constrDecs @ decs @ newDecs, newDebug)
+                        addr := newAddr;
+                        lev := level;
+                        mkDec(newAddr, repr)
                     end
+                |   decCons _ = raise InternalError "decCons: Not local"
+                val constrDecs = ListPair.map decCons (constrs, reprs)
+                
+                val (newDecs, newDebug) =
+                    makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
+            in
+                (constrDecs @ decs @ newDecs, newDebug)
+            end
 
-                    val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
-                        List.foldl getConstrs ([], debugEnv) typelist
+            val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
+                List.foldl getConstrs ([], debugEnv) typelist
 
-                    val typeFunctions = createDatatypeFunctions(typeCons, eqStatus, fn () => mkAddr 1, level)
-                    val (typeDebugDecs, typeDebugEnv) =
-                        if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
-                        else
-                        let
-                            fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
-                                let
-                                    (* This code will build a cons cell containing the run-time value
-                                       associated with the type Id as the hd and the rest of the run-time
-                                       environment as the tl. *)
-                                    val id = tcIdentifier tc
-                                    val loadTypeId = codeId(id, level)
-                                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                                    val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
-                                in
-                                    (dec @ decs, newEnv)
-                                end
-                            |   foldIds([], debugEnv) = ([], debugEnv)
-                        in
-                            foldIds(typeCons, constrDebugenv)
-                        end
-
-                    val (code, newDebug) =
-                        codeSequence (declist, codeSeqContext |> repDebugEnv typeDebugEnv);
-                in
-                    (valConstrDecs @ typeFunctions @ typeDebugDecs @ code, newDebug)
-                end
-
-            |   DatatypeDeclaration {typelist, ...} =>
-                (* We just need the value constructors for the debug env.
-                    Types aren't currently included although the type-ids are. *)
+            val typeFunctions =
+                createDatatypeFunctions(typeCons, eqStatus, mkAddr, level, typeVarMap)
+            val (typeDebugDecs, typeDebugEnv) =
+                if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
+                else
                 let
-                    val typeCons =
-                        List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-
-                    (* Declare the value constructors. These are needed to produce the equality and
-                       print functions for the type IDs. *)
-                    fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
-                    let
-                        val constrs = tcConstructors tc
-
-                        (* Get the argument types or EmptyType if this is nullary. *)
-                        fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
-                        |   getConstrType(Value{name, ...}) = (name, EmptyType)
-                        val constrTypesAndNames = List.map getConstrType constrs
-
-                        (* Choose the representation for the constructors. *)
-                        val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
-                        (* Declare the constructors as local variables. *)
-                        fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
-                            let
-                                val newAddr = mkAddr 1
-                            in
-                                addr := newAddr;
-                                lev := level;
-                                mkDec(newAddr, repr)
-                            end
-                        |   decCons _ = raise InternalError "decCons: Not local"
-                        val constrDecs = ListPair.map decCons (constrs, reprs)
-                        
-                        val (newDecs, newDebug) =
-                            makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
-                    in
-                        (constrDecs @ decs @ newDecs, newDebug)
-                    end
-
-                    val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
-                        List.foldl getConstrs ([], debugEnv) typelist
-
-                    (* Datatypes don't lose equality unlike abstypes so we can evaluate
-                       this here. *)
-                    val areEqTypes = List.map tcEquality typeCons
-                    val codeIds = createDatatypeFunctions(typeCons, areEqTypes, fn () => mkAddr 1, level)
-                    val (typeDebugDecs, typeDebugEnv) =
-                        if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
-                        else
+                    fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
                         let
-                            fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
-                                let
-                                    (* This code will build a cons cell containing the run-time value
-                                       associated with the type Id as the hd and the rest of the run-time
-                                       environment as the tl. *)
-                                    val id = tcIdentifier tc
-                                    val loadTypeId = codeId(id, level)
-                                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                                    val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
-                                in
-                                    (dec @ decs, newEnv)
-                                end
-                            |   foldIds([], debugEnv) = ([], debugEnv)
+                            (* This code will build a cons cell containing the run-time value
+                               associated with the type Id as the hd and the rest of the run-time
+                               environment as the tl. *)
+                            val id = tcIdentifier tc
+                            val loadTypeId = codeId(id, level)
+                            val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                            val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                            val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
                         in
-                            foldIds(typeCons, constrDebugenv)
+                            (dec @ decs, newEnv)
                         end
+                    |   foldIds([], debugEnv) = ([], debugEnv)
                 in
-                    (valConstrDecs @ codeIds @ typeDebugDecs, typeDebugEnv)
+                    foldIds(typeCons, constrDebugenv)
                 end
 
-            | OpenDec {variables=ref vars, ...} =>
+            (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
+               we must create them after this. *)
+            val newTypeVarMap = markTypeConstructors(typeCons, mkAddr, level, typeVarMap)
+            (* Process the with..end part. *)
+            val (localDecs, newDebug) =
+                codeSequence (declist, [],
+                              codeSeqContext |> repDebugEnv typeDebugEnv |> repTypeVarMap newTypeVarMap,
+                              fn (code, {debugEnv, ...}) => (code, debugEnv));
+            (* Then the subsequent declarations. *)
+            val (tailDecs, finalEnv) =
+                codeSequence (pTail, [], codeSeqContext |> repDebugEnv newDebug |> repTypeVarMap newTypeVarMap, processBody)
+        in
+            (* The code consists of previous declarations, the value constructors, the type IDs,
+               debug declarations for the types and value constructors, any type values created for
+               subsequent polymorphic calls, declarations in with...end and finally code after
+               this declaration within the same "let..in..end" block. *)
+            (leading @ valConstrDecs @ typeFunctions @ typeDebugDecs @
+              getCachedTypeValues newTypeVarMap @ localDecs @ tailDecs, finalEnv)
+        end
+
+    |   codeSequence (DatatypeDeclaration {typelist, ...} :: pTail, leading,
+                      codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
+        (* We just need the value constructors for the debug env.
+            Types aren't currently included although the type-ids are. *)
+        let
+            val typeCons =
+                List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+
+            (* Declare the value constructors. These are needed to produce the equality and
+               print functions for the type IDs. *)
+            fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
+            let
+                val constrs = tcConstructors tc
+
+                (* Get the argument types or EmptyType if this is nullary. *)
+                fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
+                |   getConstrType(Value{name, ...}) = (name, EmptyType)
+                val constrTypesAndNames = List.map getConstrType constrs
+
+                (* Choose the representation for the constructors. *)
+                val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
+                (* Declare the constructors as local variables. *)
+                fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
+                    let
+                        val newAddr = mkAddr 1
+                    in
+                        addr := newAddr;
+                        lev := level;
+                        mkDec(newAddr, repr)
+                    end
+                |   decCons _ = raise InternalError "decCons: Not local"
+                val constrDecs = ListPair.map decCons (constrs, reprs)
+                
+                val (newDecs, newDebug) =
+                    makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
+            in
+                (constrDecs @ decs @ newDecs, newDebug)
+            end
+
+            val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
+                List.foldl getConstrs ([], debugEnv) typelist
+
+            (* Datatypes don't lose equality unlike abstypes so we can evaluate
+               this here. *)
+            val areEqTypes = List.map tcEquality typeCons
+            val codeIds =
+                createDatatypeFunctions(typeCons, areEqTypes, mkAddr, level, typeVarMap)
+            val (typeDebugDecs, typeDebugEnv) =
+                if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
+                else
+                let
+                    fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
+                        let
+                            (* This code will build a cons cell containing the run-time value
+                               associated with the type Id as the hd and the rest of the run-time
+                               environment as the tl. *)
+                            val id = tcIdentifier tc
+                            val loadTypeId = codeId(id, level)
+                            val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                            val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                            val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
+                        in
+                            (dec @ decs, newEnv)
+                        end
+                    |   foldIds([], debugEnv) = ([], debugEnv)
+                in
+                    foldIds(typeCons, constrDebugenv)
+                end
+
+            (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
+               we must create them after this. *)
+            val newTypeVarMap = markTypeConstructors(typeCons, mkAddr, level, typeVarMap)
+
+            val (tailDecs, finalEnv) =
+                codeSequence (pTail, [],
+                    codeSeqContext |> repDebugEnv typeDebugEnv |> repTypeVarMap newTypeVarMap, processBody)
+        in
+            (leading @ valConstrDecs @ codeIds @ typeDebugDecs @
+              getCachedTypeValues newTypeVarMap @ tailDecs, finalEnv)
+        end
+
+    |   codeSequence (OpenDec {variables=ref vars, ...} :: pTail, leading, codeSeqContext, processBody) =
+        let
                 (* All we need to do here is make debugging entries. *)
-                makeDebugEntries(vars, codeSeqContext)
+            val (firstDec, firstEnv) = makeDebugEntries(vars, codeSeqContext)
+        in
+            codeSequence (pTail, leading @ firstDec, codeSeqContext |> repDebugEnv firstEnv, processBody)
+        end
 
-            | _ => (* c is Directive or TypeDeclaration*)
-                ([], debugEnv); 
-
-            val (decRest, finalEnv) = codeSequence (pTail, codeSeqContext |> repDebugEnv firstEnv)
-        in    (* Append the remaining declarations. *)
-            (firstDec @ decRest, finalEnv)
-        end (* codeSequence *)
+    |   codeSequence (_ :: pTail, leading, (* Directive or TypeDeclaration*) codeSeqContext, processBody) =
+            codeSequence (pTail, leading, codeSeqContext, processBody)
 
     (* Code generate a set of fun bindings.  This is used for other function creation as
        well since it handles the most general case. *)
@@ -5892,12 +5935,11 @@ struct
                         local
                             (* The poly args come after any result tuple. *)
                             val tupleOffset = if resultTuple = 1 then 0 else 1
-                            val args =
-                                List.tabulate(nPolyVars,
-                                    fn n => fn level => mkLoad(n-nPolyVars-tupleOffset, level-fnLevel))
+                            val argAddrs = List.tabulate(nPolyVars, fn n => n-nPolyVars-tupleOffset)
                         in
-                            val typevarArgMap = ListPair.zipEq(polyVars, args)
-                            val newTypeVarMap = extendTypeVarMap(typevarArgMap, typeVarMap)
+                            val typevarArgMap = ListPair.zipEq(polyVars, argAddrs)
+                            val newTypeVarMap =
+                                extendTypeVarMap(typevarArgMap, fnMkAddr, fnLevel, typeVarMap)
                         end
                     
                         val fnContext =
@@ -5928,7 +5970,7 @@ struct
                                             fun createMatches(fpVar, (otherDecs, true)) =
                                                 (
                                                     case List.find (fn(t, _) => sameTv(t, fpVar)) typevarArgMap of
-                                                        SOME (_, c) => (c fnLevel :: otherDecs, true)
+                                                        SOME (_, addr) => (mkLoad(addr, 0) :: otherDecs, true)
                                                     |   NONE => ([], false)
                                                 )
                                             |   createMatches _ = ([], false)
@@ -5983,7 +6025,10 @@ struct
                             wrapFunctionInDebug(bodyCode, procName, argList,
                                              aType, resType, location, fnContext)
                     in      
-                        val innerFun = mkProc (mkEnv(appDecs @ [wrapped]), fnLevel, totalArgs, innerProcName)
+                        val innerFun =
+                            mkProc (
+                                mkEnv(getCachedTypeValues newTypeVarMap @ appDecs @ [wrapped]),
+                                fnLevel, totalArgs, innerProcName)
                     end;
   
                     (* We now have a function which can be applied to the
@@ -6149,7 +6194,7 @@ struct
                    We build the code as a function and then apply it one or more times.
                    This is really to deal with pathological cases and pretty well all
                    of this will be optimised away. *)
-                val localContext as {level, debugEnv, mkAddr, ...} =
+                val localContext as {level, debugEnv, mkAddr, typeVarMap, ...} =
                     if nPolyVars = 0
                     then originalContext
                     else
@@ -6157,11 +6202,10 @@ struct
                         val addresses = ref 1
                         fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
                         val fnLevel = (#level originalContext +1)
-                        val args =
-                            List.tabulate(nPolyVars,
-                                fn n => fn lvl => mkLoad(n-nPolyVars, lvl-fnLevel))
-                        val argMap = ListPair.zipEq(polyVars, args)
-                        val newTypeVarMap = extendTypeVarMap(argMap, #typeVarMap originalContext)
+                        val argAddrs = List.tabulate(nPolyVars, fn n => n-nPolyVars)
+                        val argMap = ListPair.zipEq(polyVars, argAddrs)
+                        val newTypeVarMap =
+                            extendTypeVarMap(argMap, fnMkAddr, fnLevel, #typeVarMap originalContext)
                     in
                         originalContext |> repLevel fnLevel |> repMkAddr fnMkAddr |> repTypeVarMap newTypeVarMap
                     end
@@ -6209,7 +6253,8 @@ struct
                         val resFunction =
                             mkDec(fnAddr,
                                 mkInlproc(
-                                    mkEnv(#dec decCode @ #code code @ [mkTuple(List.map loadVal vars)]),
+                                    mkEnv(getCachedTypeValues typeVarMap @ #dec decCode
+                                          @ #code code @ [mkTuple(List.map loadVal vars)]),
                                     level, nPolyVars, "(P)"))
 
                         (* Apply the general function to the set of type variables using either the
@@ -6265,13 +6310,12 @@ struct
         end (* codeNonRecValBindings *)
 
     (* Code generates the parse tree. *)
-    fun gencode (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
-               outerAddresses, structName: string) : codetree list * debugenv =
-        codeSequence ([pt],
-            {decName=structName,
-             mkAddr=fn n => !outerAddresses before (outerAddresses := !outerAddresses+n),
-             level=outerLevel, typeVarMap=defaultTypeVarMap, debugEnv=debugEnv,
-             lex=lex, lastDebugLine=ref 0})
+    fun gencode
+            (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
+             mkOuterAddresses, outerTypeVarMap, structName: string) : codetree list * debugenv =
+        codeSequence ([pt], [],
+            {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
+             debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0}, fn (code, {debugEnv, ...}) => (code, debugEnv))
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -6300,6 +6344,7 @@ struct
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
+        and  typeVarMap = typeVarMap
     end
 
 end (* PARSETREE *);

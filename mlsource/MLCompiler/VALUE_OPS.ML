@@ -144,10 +144,7 @@ struct
   open COPIER
   open DATATYPEREP
   
-    (* gets a value from the run-time system; 
-       usually this is a closure, but sometimes it's an int.  *)
-    val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-     (* Functions to construct the values. *)
+    (* Functions to construct the values. *)
 
     fun mkGconstr (name, typeof, code, nullary, constrs, location) =
        makeValueConstr (name, typeof, nullary, constrs, Global code, location);
@@ -471,7 +468,12 @@ struct
            Code-generate and evaluate it. *)
         (* If this is polymorphic apply it to a dummy set of instance types.
            This may happen if we have val it = NONE at the top level. *)
-        val typeVarMap = defaultTypeVarMap
+        local
+            val addrs = ref 1 (* Make local declarations for any type values. *)
+            fun mkAddr n = !addrs before (addrs := !addrs + n)
+        in
+            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, 0)
+        end
         val dummyTypes = List.map(fn _ => TYPESTRUCT.unitType) (getPolyTypeVars(types, fn _ => NONE))
         val polyCode = applyToInstance(dummyTypes, 0, typeVarMap, fn _ => mkConst value)
         val printerCode =
@@ -479,7 +481,9 @@ struct
                 printerForType(types, 0, typeVarMap),
                 [mkTuple[polyCode, mkConst(toMachineWord depth)]],
                 false)
-        val pretty = RunCall.unsafeCast(evalue(genCode(printerCode, [])()))
+        val pretty =
+            RunCall.unsafeCast(
+                evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [printerCode]), [])()))
     in
         pretty
     end
@@ -1114,7 +1118,7 @@ struct
                            the argument function. *)
                         mkProc(
                             mkEval(
-                                mkConst (ioOp POLY_SYS_assign_word),
+                                rtsFunction POLY_SYS_assign_word,
                                 [TypeConstructorValue.extractPrinterRef(
                                     codeAccess(idAccess typeId, level+1)), CodeZero, printFunction],
                                 false), level, 1, "addPP")
@@ -1550,7 +1554,7 @@ struct
             case access of
                 Overloaded TypeDep =>
                     generaliseOverload(typeOf, List.map #1 (getOverloads name), false)
-            | _ => generaliseWithMap(typeOf, mapTypeVars typeVarMap)
+            | _ => generaliseWithMap(typeOf, TypeVarMap.mapTypeVars typeVarMap)
         val () = 
             case unifyTypes(t, expType) of
                 NONE => ()
