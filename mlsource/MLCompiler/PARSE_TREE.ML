@@ -237,9 +237,19 @@ struct
         } 
 
     |   TypeDeclaration     of typebind list * location
-    |   AbstypeDeclaration  of abstypeDeclarationForm
-    |   DatatypeDeclaration of abstypeDeclarationForm
+
+    |   AbsDatatypeDeclaration  of (* Datatype and Abstract Type declarations *)
+        {
+            isAbsType: bool,
+            typelist:  datatypebind list,
+            withtypes: typebind list,
+            declist:   parsetree list,
+            location:  location,
+            equalityStatus: bool list ref
+        }
+
     |   DatatypeReplication of datatypeReplicationForm
+
     |   ExpSeq              of parsetree list * location
 
     |   Directive           of
@@ -365,16 +375,6 @@ struct
        value:  structVals ref,
        location: location
      } 
-
-   (* Datatype and Abstract Type declarations *)
-   and abstypeDeclarationForm = 
-     {
-       typelist:  datatypebind list,
-       withtypes: typebind list,
-       declist:   parsetree list,
-       location:  location,
-       equalityStatus: bool list ref
-     }
      
    and datatypeReplicationForm =
         {
@@ -667,18 +667,20 @@ struct
     val mkTypeDeclaration : typebind list * location -> parsetree = TypeDeclaration;
 
     fun mkDatatypeDeclaration (typelist, withtypes, location) : parsetree =
-     DatatypeDeclaration
-       {
+        AbsDatatypeDeclaration
+        {
+            isAbsType = false,
             typelist  = typelist,
             withtypes = withtypes,
             declist   = [],
             location  = location,
             equalityStatus = ref []
-       };
+        };
     
     fun mkAbstypeDeclaration (typelist, withtypes, declist, location) : parsetree =
-      AbstypeDeclaration
+        AbsDatatypeDeclaration
         {
+            isAbsType = true,
             typelist  = typelist,
             withtypes = withtypes,
             declist   = declist,
@@ -705,7 +707,7 @@ struct
           name         = name,
           typeVars     = typeVars,
           constrs      = constrs,
-          tcon         = ref undefType,
+          tcon         = ref undefConstr,
           valueConstrs = ref [],
           nameLoc      = typeNameLoc,
           fullLoc = fullLoc
@@ -1148,7 +1150,7 @@ struct
             )
         end
 
-      | DatatypeDeclaration {typelist, withtypes, ...} =>
+      | AbsDatatypeDeclaration {typelist, withtypes, isAbsType=false, ...} =>
             PrettyBlock (3, true, [],
                 PrettyString "datatype" ::
                 PrettyBreak (1, 0) ::
@@ -1178,7 +1180,7 @@ struct
                 ]
             )
 
-       | AbstypeDeclaration {typelist, withtypes, declist, ...} =>
+       | AbsDatatypeDeclaration {typelist, withtypes, declist, isAbsType=true, ...} =>
             PrettyBlock (3, true, [],
                 PrettyString "abstype" ::
                 PrettyBreak (1, 0) ::
@@ -1659,18 +1661,10 @@ struct
                 (location, exportList(exportTypeBinding, SOME asParent) allItems @ commonProps)
             end
 
-        |   AbstypeDeclaration { location, typelist, withtypes, declist, ... } =>
+        |   AbsDatatypeDeclaration { location, typelist, withtypes, declist, ... } =>
             let
                 val allItems =
                     List.map DataT typelist @ List.map TypeB withtypes @ List.map Decl declist
-            in
-                (location, exportList(exportTypeBinding, SOME asParent) allItems @ commonProps)
-            end
-
-        |   DatatypeDeclaration { location, typelist, withtypes, ... } =>
-            let
-                val allItems =
-                    List.map DataT typelist @ List.map TypeB withtypes
             in
                 (location, exportList(exportTypeBinding, SOME asParent) allItems @ commonProps)
             end
@@ -2330,7 +2324,7 @@ struct
                     val resType =
                         if isBadType elementType
                         then badType
-                        else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+                        else mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
                 in
                     expType := resType;
                     resType
@@ -2692,9 +2686,7 @@ struct
                 badType (* Does not return a type *)
             end
         
-          | DatatypeDeclaration absData => assAbsData(false, absData)
-    
-          | AbstypeDeclaration absData => assAbsData(true, absData)
+          | AbsDatatypeDeclaration absData => assAbsData absData
 
           | DatatypeReplication{oldType, newType, oldLoc, newLoc, ...} =>
                   (* Adds both the type and the constructors to the
@@ -2738,7 +2730,7 @@ struct
                 val resType =
                     if isBadType elementType
                     then badType
-                    else mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+                    else mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
             in
                 expType := resType;
                 resType
@@ -3470,7 +3462,7 @@ struct
                 )) tlist
         end (* assFunDeclaration *)
 
-        and assAbsData(isAbs, {typelist=typeList, withtypes, declist, equalityStatus, ...}) =
+        and assAbsData({typelist=typeList, withtypes, declist, equalityStatus, isAbsType=isAbs, ...}) =
         let
             (* A type declaration causes a type to be entered in the type
                environment, together with some constructors. *)
@@ -3500,7 +3492,7 @@ struct
                 val newId =
                     if letDepth = 0
                     then makeTypeId(false, true, ([], EmptyType), description)
-                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description, ([], EmptyType))
+                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
                 val tc =
                     makeDatatypeConstr(name, typeVars, newId,
                                        letDepth, [DeclaredAt nameLoc])
@@ -4390,7 +4382,7 @@ struct
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                 (* Get the base type. *)
                 val elementType = mkTypeVar (generalisable, false, false)
-                val listType = mkTypeConstruction ("list", listType, [elementType], [DeclaredAt inBasis])
+                val listType = mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)
                 val polyVars = [elementType]
 
@@ -5146,7 +5138,7 @@ struct
                            this will be applied BEFORE extracting the construction
                            function not afterwards. *)
                         fun getConstr level =
-                            mkInd(1, codeVal (v, level, typeVarMap, [], lex, location))
+                            ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
                     in
                         applyToInstance(polyVars, level, typeVarMap, getConstr)
                     end
@@ -5587,53 +5579,61 @@ struct
             codeSequence (pTail, leading @ exdecs @ debugDecs, codeSeqContext |> repDebugEnv newDebugEnv, processBody)
         end (* ExDeclaration *)
 
-    |   codeSequence (AbstypeDeclaration {typelist, declist, equalityStatus = ref eqStatus, ...} :: pTail,
+    |   codeSequence (AbsDatatypeDeclaration {typelist, declist, equalityStatus = ref absEq, isAbsType, ...} :: pTail,
                       leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
         let (* Code-generate the eq and print functions for the abstype first
                then the declarations, which may use these. *)
             (* The debugging environment for the declarations should include
                the constructors but the result shouldn't.  For the moment
                ignore the constructors. *)
-            (* Add the type ids to the debug environment. *)
-            val typeCons =
-                List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+            val typeCons = List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
+            val eqStatus = if isAbsType then absEq else List.map tcEquality typeCons
 
-            (* Declare the value constructors. These are needed to produce the equality and
-               print functions for the type IDs. *)
-            fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
-            let
-                val constrs = tcConstructors tc
+            local
+                fun getConstrCode(DatatypeBind {tcon = ref tc, typeVars, ...}, eqStatus) =
+                let
+                    val constrs = tcConstructors tc
 
-                (* Get the argument types or EmptyType if this is nullary. *)
-                fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
-                |   getConstrType(Value{name, ...}) = (name, EmptyType)
-                val constrTypesAndNames = List.map getConstrType constrs
-
-                (* Choose the representation for the constructors. *)
-                val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
-                (* Declare the constructors as local variables. *)
-                fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
-                    let
-                        val newAddr = mkAddr 1
-                    in
-                        addr := newAddr;
-                        lev := level;
-                        mkDec(newAddr, repr)
-                    end
-                |   decCons _ = raise InternalError "decCons: Not local"
-                val constrDecs = ListPair.map decCons (constrs, reprs)
-                
-                val (newDecs, newDebug) =
-                    makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
+                    (* Get the argument types or EmptyType if this is nullary. *)
+                    fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
+                    |   getConstrType(Value{name, ...}) = (name, EmptyType)
+                    val constrTypesAndNames = List.map getConstrType constrs
+                    val {constrs, boxed, size} = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
+                in
+                    ({typeConstr=tc, eqStatus=eqStatus, boxedCode=boxed, sizeCode=size}, constrs)
+                end
             in
-                (constrDecs @ decs @ newDecs, newDebug)
+                val constrAndBoxSizeCode = ListPair.mapEq getConstrCode (typelist, eqStatus)
+                val (tcEqBoxSize, constrsCode) = ListPair.unzip constrAndBoxSizeCode
             end
 
-            val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
-                List.foldl getConstrs ([], debugEnv) typelist
+            local
+                fun decConstrs(DatatypeBind {tcon = ref tc, ...}, reprs, (decs, debugEnv)) =
+                let
+                    val constrs = tcConstructors tc
+                    (* Declare the constructors as local variables. *)
+                    fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
+                        let
+                            val newAddr = mkAddr 1
+                        in
+                            addr := newAddr;
+                            lev := level;
+                            mkDec(newAddr, repr)
+                        end
+                    |   decCons _ = raise InternalError "decCons: Not local"
+                    val constrDecs = ListPair.map decCons (constrs, reprs)
+                    val (newDecs, newDebug) =
+                        makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
+                in
+                    (constrDecs @ decs @ newDecs, newDebug)
+                end
+            in
+                val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
+                    ListPair.foldl decConstrs ([], debugEnv) (typelist, constrsCode)
+            end
 
             val typeFunctions =
-                createDatatypeFunctions(typeCons, eqStatus, mkAddr, level, typeVarMap)
+                createDatatypeFunctions(tcEqBoxSize, mkAddr, level, typeVarMap)
             val (typeDebugDecs, typeDebugEnv) =
                 if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
                 else
@@ -5674,87 +5674,6 @@ struct
                this declaration within the same "let..in..end" block. *)
             (leading @ valConstrDecs @ typeFunctions @ typeDebugDecs @
               getCachedTypeValues newTypeVarMap @ localDecs @ tailDecs, finalEnv)
-        end
-
-    |   codeSequence (DatatypeDeclaration {typelist, ...} :: pTail, leading,
-                      codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
-        (* We just need the value constructors for the debug env.
-            Types aren't currently included although the type-ids are. *)
-        let
-            val typeCons =
-                List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-
-            (* Declare the value constructors. These are needed to produce the equality and
-               print functions for the type IDs. *)
-            fun getConstrs(DatatypeBind {tcon = ref tc, typeVars, ...}, (decs, debugEnv)) =
-            let
-                val constrs = tcConstructors tc
-
-                (* Get the argument types or EmptyType if this is nullary. *)
-                fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
-                |   getConstrType(Value{name, ...}) = (name, EmptyType)
-                val constrTypesAndNames = List.map getConstrType constrs
-
-                (* Choose the representation for the constructors. *)
-                val reprs = chooseConstrRepr(constrTypesAndNames, List.map TypeVar typeVars)
-                (* Declare the constructors as local variables. *)
-                fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
-                    let
-                        val newAddr = mkAddr 1
-                    in
-                        addr := newAddr;
-                        lev := level;
-                        mkDec(newAddr, repr)
-                    end
-                |   decCons _ = raise InternalError "decCons: Not local"
-                val constrDecs = ListPair.map decCons (constrs, reprs)
-                
-                val (newDecs, newDebug) =
-                    makeDebugEntries(constrs, codeSeqContext |> repDebugEnv debugEnv)
-            in
-                (constrDecs @ decs @ newDecs, newDebug)
-            end
-
-            val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
-                List.foldl getConstrs ([], debugEnv) typelist
-
-            (* Datatypes don't lose equality unlike abstypes so we can evaluate
-               this here. *)
-            val areEqTypes = List.map tcEquality typeCons
-            val codeIds =
-                createDatatypeFunctions(typeCons, areEqTypes, mkAddr, level, typeVarMap)
-            val (typeDebugDecs, typeDebugEnv) =
-                if not (getParameter debugTag (debugParams lex)) then ([], constrDebugenv)
-                else
-                let
-                    fun foldIds(tc::tcs, (ctEnv, rtEnv)) =
-                        let
-                            (* This code will build a cons cell containing the run-time value
-                               associated with the type Id as the hd and the rest of the run-time
-                               environment as the tl. *)
-                            val id = tcIdentifier tc
-                            val loadTypeId = codeId(id, level)
-                            val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                            val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                            val (decs, newEnv) = foldIds(tcs, (DEBUGGER.envTypeId id :: ctEnv, load))
-                        in
-                            (dec @ decs, newEnv)
-                        end
-                    |   foldIds([], debugEnv) = ([], debugEnv)
-                in
-                    foldIds(typeCons, constrDebugenv)
-                end
-
-            (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
-               we must create them after this. *)
-            val newTypeVarMap = markTypeConstructors(typeCons, mkAddr, level, typeVarMap)
-
-            val (tailDecs, finalEnv) =
-                codeSequence (pTail, [],
-                    codeSeqContext |> repDebugEnv typeDebugEnv |> repTypeVarMap newTypeVarMap, processBody)
-        in
-            (leading @ valConstrDecs @ codeIds @ typeDebugDecs @
-              getCachedTypeValues newTypeVarMap @ tailDecs, finalEnv)
         end
 
     |   codeSequence (OpenDec {variables=ref vars, ...} :: pTail, leading, codeSeqContext, processBody) =

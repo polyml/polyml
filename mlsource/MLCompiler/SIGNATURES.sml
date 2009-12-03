@@ -486,14 +486,14 @@ struct
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
                 (if requireUpdate then makeBoundIdWithEqUpdate else makeBoundId)
-                    (Formal 0 (* Not used. *), newIdNumber, isEq, isDt, descr, ([], EmptyType) (* Always empty. *))
+                    (Formal 0 (* Not used. *), newIdNumber, isEq, isDt, descr)
             (* Enter a variable entry in the array except that if this is a type
                function use a FreeSlot entry. *)
             val arrayEntry =
                 case typeFn of
                     (_, EmptyType) => VariableSlot{ boundId=newId, descriptions = [fullName] }
                |    (typeVars, realisation) => (* Treat this just like a "where type"*)
-                        FreeSlot(makeFreeId(globalCode, false, descr, (typeVars, realisation)))
+                        FreeSlot(makeTypeFunction(descr, (typeVars, realisation)))
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
             val () = StretchArray.update(sourceArray, newIdNumber-initTypeId, SOME newId)
         in
@@ -553,7 +553,7 @@ struct
                 val isDatatype = isDatatype1 orelse isDatatype2
                 val newId =
                     makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2,
-                                isDatatype, description (* Not used *), ([], EmptyType))
+                                isDatatype, description (* Not used *))
                 val newEntry =
                     VariableSlot{ boundId=newId, descriptions = desc1 @ desc2 }
             in
@@ -939,8 +939,9 @@ struct
                                         else
                                         let
                                             val typeId =
-                                                makeFreeId(globalCode, false,
-                                                    { location = line, description = "", name = typeName }, (typeVars, realisation))
+                                                makeTypeFunction(
+                                                    { location = line, description = "", name = typeName },
+                                                    (typeVars, realisation))
                                         in
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
                                         end
@@ -1338,7 +1339,7 @@ struct
                             val description =
                                 { name = name, location = location, description = descript }
                         in
-                            makeBoundId(Formal addr, n, pling eqType, isDatatype, description, ([], EmptyType))
+                            makeBoundId(Formal addr, n, pling eqType, isDatatype, description)
                         end
                         (* Update the entry for any sharing. *)
                         val () = StretchArray.update(mapArray, n, FreeSlot newId)
@@ -1354,7 +1355,7 @@ struct
                         (distinctIds, id :: mappedIds)
                     end
 
-                |   FreeSlot (TypeId{typeFn=(args, equiv), access, description, ...}) =>
+                |   FreeSlot (TypeId{typeFn=(args, equiv), description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1374,7 +1375,7 @@ struct
                             copyType(equiv, fn x => x,
                                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
                         (* For the moment always use a Free ID here. *)
-                        val copiedId = makeFreeId(access, false, description, (args, copiedEquiv))
+                        val copiedId = makeTypeFunction(description, (args, copiedEquiv))
                         (* Update the array with this copied version.  If other subsequent type functions
                            use this entry they will then pick up the copied version.  Because "where type"
                            constraints can only refer to earlier types we have to process this from earlier

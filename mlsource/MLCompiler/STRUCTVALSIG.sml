@@ -167,10 +167,11 @@ sig
     val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
-    val makeFreeId:     valAccess * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
-    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
-    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription * (typeVarForm list * types) -> typeId;
+    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
+    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId;
+    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId;
+    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId;
+    val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId;
     
     (* Types *)
     val badType:   types;
@@ -210,22 +211,6 @@ sig
     val makeTv: types * int * bool * bool -> typeVarForm;
 
     val generalisable: int;
-
-    val boolType:   typeConstrs;
-    val intType:    typeConstrs;
-    val charType:   typeConstrs;
-    val stringType: typeConstrs;
-    val wordType:   typeConstrs;
-    val realType:   typeConstrs;
-    val refType:    typeConstrs;
-    val arrayType:  typeConstrs;
-    val array2Type: typeConstrs;
-    val byteArrayType: typeConstrs;
-    val unitType:   typeConstrs;
-    val exnType:    typeConstrs;
-    val undefType:  typeConstrs;
-    
-    val isPointerEqType: typeId -> bool
 
     (* Access to values, structures etc. *)
 
@@ -328,8 +313,6 @@ sig
     val structVar:     structVals  Universal.tag;
     val signatureVar:  signatures  Universal.tag;
     val functorVar:    functors    Universal.tag;
-
-    val globalCode: valAccess
 
     (* Types that can be shared. *)
     structure Sharing:

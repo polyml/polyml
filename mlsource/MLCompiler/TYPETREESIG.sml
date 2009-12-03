@@ -145,6 +145,20 @@ sig
 
     val identical:       types * types -> bool;
 
+    val boolConstr:   typeConstrs;
+    val intConstr:    typeConstrs;
+    val charConstr:   typeConstrs;
+    val stringConstr: typeConstrs;
+    val wordConstr:   typeConstrs;
+    val realConstr:   typeConstrs;
+    val refConstr:    typeConstrs;
+    val arrayConstr:  typeConstrs;
+    val array2Constr: typeConstrs;
+    val byteArrayConstr: typeConstrs;
+    val unitConstr:   typeConstrs;
+    val exnConstr:    typeConstrs;
+    val undefConstr:  typeConstrs;
+
     val boolType:   types;
     val intType:    types;
     val charType:   types;
@@ -155,6 +169,8 @@ sig
     val wordType:   types;
   
     val badType:    types;
+    
+    val isPointerEqType: typeId -> bool
 
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
@@ -180,6 +196,38 @@ sig
     val typeFromTypeParse: typeParsetree -> types
 
     val typeExportTree: navigation * typeParsetree -> exportTree
+
+    structure TypeValue:
+    sig
+        val extractEquality: codetree -> codetree
+        and extractPrinter: codetree -> codetree
+        and extractBoxed: codetree -> codetree
+        and extractSize: codetree -> codetree
+
+        val boxedNever: codetree
+        and boxedAlways: codetree
+        and boxedEither: codetree
+
+        val isBoxedNever: codetree
+        and isBoxedAlways: codetree
+        and isBoxedEither: codetree
+
+        val singleWord: codetree
+        
+        val createTypeValue:
+            {eqCode: codetree, printCode: codetree, boxedCode: codetree, sizeCode: codetree} -> codetree
+    end
+
+    structure ValueConstructor:
+    sig
+        val extractTest: codetree -> codetree
+        val extractInjection: codetree -> codetree
+        val extractProjection: codetree -> codetree
+        val createValueConstr:
+            { testMatch: codetree, injectValue: codetree, projectValue: codetree } -> codetree
+        val createNullaryConstr:
+            { testMatch: codetree, constrValue: codetree } -> codetree
+    end
 
     (* Types that can be shared. *)
     structure Sharing:

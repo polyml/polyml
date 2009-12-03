@@ -27,79 +27,34 @@
 *)
 
 functor TYPE_TREE (
+    structure LEX : LEXSIG
+    structure STRUCTVALS : STRUCTVALSIG;
+    structure PRETTY : PRETTYSIG
+    structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
+    structure EXPORTTREE: EXPORTTREESIG;
 
-(*****************************************************************************)
-(*                  SYSTEM                                                   *)
-(*****************************************************************************)
-structure ADDRESS :
-sig
-    val wordEq: 'a * 'a -> bool
-end;
+    structure DEBUG :
+    sig
+        val errorDepthTag: int Universal.tag
+        val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a
+    end;
+    structure UTILITIES :
+    sig
+        val mapTable: ('a * 'a -> bool) ->
+                       {enter: 'a * 'b -> unit, lookup: 'a -> 'b option}
+        val splitString:   string -> { first:string, second:string }
+    end;
 
-(*****************************************************************************)
-(*                  DEBUG                                                    *)
-(*****************************************************************************)
-structure DEBUG :
-sig
-    val errorDepthTag: int Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
-
-(*****************************************************************************)
-(*                  LEX                                                      *)
-(*****************************************************************************)
-structure LEX : LEXSIG
-    
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
-structure STRUCTVALS : STRUCTVALSIG;
-    
-(*****************************************************************************)
-(*                  UTILITIES                                                *)
-(*****************************************************************************)
-structure UTILITIES :
-sig
-  val mapTable: ('a * 'a -> bool) ->
-                   {enter: 'a * 'b -> unit, lookup: 'a -> 'b option}
-  val splitString:   string -> { first:string, second:string }
-end;
-
-(*****************************************************************************)
-(*                  PRETTY                                                   *)
-(*****************************************************************************)
-structure PRETTY : PRETTYSIG
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-sig
-  exception InternalError of string;
+    structure MISC :
+    sig
+        exception InternalError of string;
   
-  val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
-end;
+        val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
+    end;
 
-(*****************************************************************************)
-(*                  CODETREE                                                 *)
-(*****************************************************************************)
-structure CODETREE :
-sig
-  type codetree
-  
-  val CodeNil:          codetree;
-  val isCodeNil:        codetree -> bool;
-end;
-
-(*****************************************************************************)
-(*                  EXPORTTREE                                               *)
-(*****************************************************************************)
-
-structure EXPORTTREE: EXPORTTREESIG;
-
-sharing LEX.Sharing = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing
-      = CODETREE
+    sharing LEX.Sharing = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing
+          = CODETREE.Sharing
 
 ) :  TYPETREESIG =
 
@@ -218,19 +173,197 @@ struct
         {name = stripZeros name, typeof = t}
     end;
 
+    (* Functions to construct the run-time representations of type constructor values,
+       type values and value constructors.  These are all tuples and centralising the
+       code here avoids having the offsets as integers at various places.
+       Monotype constructor and type values are almost the same except that
+       type values have the printer entry as the function whereas monotype
+       constructors have the print entry as a ref pointing to the function,
+       allowing addPrettyPrint to set a printer for the type.  The entries
+       for polytypes are functions that take the type values as arguments
+       and return the corresponding values. *)
+    structure TypeValue =
+    struct
+        val equalityOffset = 0
+        and printerOffset = 1
+        and boxnessOffset = 2
+        and sizeOffset = 3
+
+        local
+            (* Values used to represent boxness. *)
+            val boxedRepNever  = 0w1   (* Never boxed, always tagged e.g. bool *)
+            and boxedRepAlways = 0w2   (* Always boxed, never tagged e.g. function types *)
+            and boxedRepEither = 0w3   (* Either boxed or tagged e.g. (arbitrary precision) int *)
+            fun make n = mkConst(Address.toMachineWord n)
+            fun isCode n =
+                mkInlproc(
+                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoad(~1, 0), make n], true),
+                    0, 1, "test-box")
+        in
+            val boxedNever  = make boxedRepNever
+            and boxedAlways = make boxedRepAlways
+            and boxedEither = make boxedRepEither
+            (* Test for boxedness.  This must be applied to the value extracted from
+               the "boxedness" field after applying to any base type arguments in
+               the case of a polytype constructor. *)
+            val isBoxedNever  = isCode boxedRepNever
+            and isBoxedAlways = isCode boxedRepAlways
+            and isBoxedEither = isCode boxedRepEither
+        end
+
+        (* Sizes are always a single word. *)
+        val singleWord = mkConst(Address.toMachineWord 0w1)
+
+        fun extractEquality idCode = mkInd(equalityOffset, idCode)
+        and extractPrinter idCode = mkInd(printerOffset, idCode)
+        and extractBoxed idCode = mkInd(boxnessOffset, idCode)
+        and extractSize idCode = mkInd(sizeOffset, idCode)
+
+        fun createTypeValue{eqCode, printCode, boxedCode, sizeCode} =
+            mkTuple[eqCode, printCode, boxedCode, sizeCode]
+    end
+
+    (* Value constructors are represented by tuples, either pairs for nullary constructors
+       or triples for constructors with arguments.  For nullary functions the "injection"
+       function is actually the value itself.  If this is a polytype all the entries are
+       functions that take the type values for the base types as arguments. *)
+    structure ValueConstructor =
+    struct
+        val testerOffset = 0
+        val injectorOffset = 1
+        val projectorOffset = 2
+
+        fun extractTest constrCode = mkInd(testerOffset, constrCode)
+        and extractInjection constrCode = mkInd(injectorOffset, constrCode)
+        and extractProjection constrCode = mkInd(projectorOffset, constrCode)
+
+        fun createValueConstr{testMatch, injectValue, projectValue} = mkTuple[testMatch, injectValue, projectValue]
+        fun createNullaryConstr{ testMatch, constrValue } = mkTuple[testMatch, constrValue]
+    end
+
+    (* Eqtypes with built-in equality functions.  The printer functions are all replaced in the basis. *)
+    local
+        open Address PRETTY RuntimeCalls TypeValue
+        fun defaultMonoTypePrinter _ = PrettyString "?"
+        fun defaultPolyTypePrinter _ _ = PrettyString "?"
+
+        fun eqAndPrintCode (eqFun, nArgs, boxed) =
+        let
+            val eqCode = CODETREE.rtsFunction eqFun
+            val code =
+                if nArgs = 0
+                then createTypeValue{
+                        eqCode=eqCode,
+                        printCode=mkConst (toMachineWord (ref defaultMonoTypePrinter)),
+                        boxedCode = boxed,
+                        sizeCode = singleWord
+                        }
+                else createTypeValue{
+                        eqCode=mkInlproc(eqCode, 0, nArgs, "eq-helper()"),
+                        printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter)),
+                        boxedCode = mkInlproc(boxed, 0, nArgs, "boxed-helper()"),
+                        sizeCode = mkInlproc(singleWord, 0, nArgs, "size-helper()")
+                        }
+        in
+            Global (genCode(code, []) ())
+        end
+
+        fun makeConstr(name, eqFun, boxed) =
+            makeFrozenTypeConstrs (name, [],
+                makeFreeId(eqAndPrintCode(eqFun, 0, boxed), true, basisDescription name),
+                0, [DeclaredAt inBasis]);
+    in
+        val intConstr    = makeConstr("int",    POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
+        val charConstr   = makeConstr("char",   POLY_SYS_int_eq, boxedNever) (* Always short *)
+        val stringConstr = makeConstr("string", POLY_SYS_teststreq, boxedEither (* Single chars are unboxed. *))
+        val wordConstr   = makeConstr("word",   POLY_SYS_word_eq, boxedNever)
+
+        (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
+           Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
+           even if the 'a is not an eqType. *)
+        val refConstr =
+            makeDatatypeConstr 
+                ("ref", [makeTv (EmptyType, generalisable, false, false)],
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "ref"),
+                0, [DeclaredAt inBasis]);
+        val arrayConstr =
+            makeFrozenTypeConstrs 
+                ("array", [makeTv (EmptyType, generalisable, false, false)],
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "Array.array"),
+                0, [DeclaredAt inBasis]);
+        val array2Constr =
+            makeFrozenTypeConstrs 
+                ("array", [makeTv (EmptyType, generalisable, false, false)],
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "Array2.array"),
+                0, [DeclaredAt inBasis]);
+        val byteArrayConstr =
+            makeFrozenTypeConstrs 
+                ("byteArray", [],
+                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 0, boxedAlways), true, basisDescription "byteArray"),
+                0, [DeclaredAt inBasis]);
+        (* Bool is a datatype.  The constructors are added in INITIALISE. *)
+        val boolConstr =
+            makeDatatypeConstr 
+                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_int_eq, 0, boxedNever), true, basisDescription "bool"),
+                0, [DeclaredAt inBasis]);
+    end
+
+    (* These polytypes allow equality even if the type argument is not an equality type. *)
+    fun isPointerEqType id =
+        sameTypeId (id, tcIdentifier refConstr) orelse
+        sameTypeId (id, tcIdentifier arrayConstr) orelse
+        sameTypeId (id, tcIdentifier array2Constr) orelse
+        sameTypeId (id, tcIdentifier byteArrayConstr)
+
+    (* Non-eqtypes *)
+    local
+        open Address PRETTY TypeValue
+
+        fun makeType(name, descr, boxed) =
+        let
+            fun defaultPrinter _ = PrettyString "?"
+            val code =
+                createTypeValue{
+                    eqCode=CodeZero (* No equality. *),
+                    printCode=mkConst (toMachineWord (ref defaultPrinter)),
+                    boxedCode=boxed,
+                    sizeCode=singleWord
+                }
+        in
+            makeFrozenTypeConstrs (
+                name, [], makeFreeId(Global (genCode(code, []) ()), false, descr),
+                0, [DeclaredAt inBasis])
+        end
+    in
+        val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)); (* Not an eqtype in ML97. *)
+        val exnConstr    = makeType("exn", basisDescription "exn", boxedAlways);
+        (* "undefConstr" is used as a place-holder during parsing for the actual type constructor.
+           If the type constructor is not found this may appear in an error message. *)
+        val undefConstr  =
+            makeType("undefined", { location = inBasis, description = "Undefined", name = "undefined" }, boxedEither);
+    end
+
+    (* The unit type is equivalent to the empty record. *)
+    val unitConstr   =
+        makeFrozenTypeConstrs ("unit", [],
+            makeTypeFunction({ location = inBasis, description = "unit", name = "unit" },
+            ([], LabelledType {recList = [], frozen = true, genericInstance = []})),
+           0, [DeclaredAt inBasis]);
+
+
   (* Type identifiers bound to standard type constructors. *)
    
-  val unitType = mkTypeConstruction ("unit", unitType, [], []);
+  val unitType = mkTypeConstruction ("unit", unitConstr, [], []);
    
-  val intType    = mkTypeConstruction ("int",     intType,    [], []);
-  val realType   = mkTypeConstruction ("real",    realType,   [], []);
-  val charType   = mkTypeConstruction ("char",    charType,   [], []);
-  val stringType = mkTypeConstruction ("string",  stringType, [], []);
-  val boolType   = mkTypeConstruction ("bool",    boolType,   [], []);
-  val exnType    = mkTypeConstruction ("exn",     exnType,    [], []);
-  val wordType   = mkTypeConstruction ("word",    wordType,   [], []);
+  val intType    = mkTypeConstruction ("int",     intConstr,    [], []);
+  val realType   = mkTypeConstruction ("real",    realConstr,   [], []);
+  val charType   = mkTypeConstruction ("char",    charConstr,   [], []);
+  val stringType = mkTypeConstruction ("string",  stringConstr, [], []);
+  val boolType   = mkTypeConstruction ("bool",    boolConstr,   [], []);
+  val exnType    = mkTypeConstruction ("exn",     exnConstr,    [], []);
+  val wordType   = mkTypeConstruction ("word",    wordConstr,   [], []);
           
-    fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefType);
+    fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefConstr);
     val isUndefinedTypeConstr = isUndefined
 
     (* Test if a type is the undefined constructor. *)
@@ -270,7 +403,6 @@ struct
      variables which pointed to the first and which cannot be found and
      redirected at the second until they themselves are examined. *)
      
-  (* rewritten using pattern-matching SPF 17/11/94 *)
   fun eventual (t as (TypeVar tv)) : types =
     let
       (* Note - don't change the level/copy information - the only type
@@ -283,7 +415,7 @@ struct
          that was that assignment to refs in the database in the old
          persistent store system was very expensive and we wanted to avoid
          unnecessary assignments.  This special case could probably be removed. *)
-      if ADDRESS.wordEq(oldVal, newVal)
+      if PolyML.pointerEq(oldVal, newVal)
       then ()
       else tvSetValue (tv, newVal); (* Put it on *)
       case newVal of
@@ -461,16 +593,16 @@ struct
 
     (* Returns the preferred overload if there is one. *)
     fun preferredOverload typeset =
-        if isInSet(STRUCTVALS.intType, typeset)
-        then SOME STRUCTVALS.intType
-        else if isInSet(STRUCTVALS.realType, typeset)
-        then SOME STRUCTVALS.realType
-        else if isInSet(STRUCTVALS.wordType, typeset)
-        then SOME STRUCTVALS.wordType
-        else if isInSet(STRUCTVALS.charType, typeset)
-        then SOME STRUCTVALS.charType
-        else if isInSet(STRUCTVALS.stringType, typeset)
-        then SOME STRUCTVALS.stringType
+        if isInSet(intConstr, typeset)
+        then SOME intConstr
+        else if isInSet(realConstr, typeset)
+        then SOME realConstr
+        else if isInSet(wordConstr, typeset)
+        then SOME wordConstr
+        else if isInSet(charConstr, typeset)
+        then SOME charConstr
+        else if isInSet(stringConstr, typeset)
+        then SOME stringConstr
         else NONE
 
 
@@ -1211,7 +1343,7 @@ struct
     let
         val argTypes = List.map typeFromTypeParse args
         val construction =
-            TypeConstruction {name = constrName, value = VariableRef (ref undefType),
+            TypeConstruction {name = constrName, value = VariableRef (ref undefConstr),
                               args = argTypes, locations = [DeclaredAt location]}
     in
         ParseTypeConstruction{
@@ -2717,7 +2849,7 @@ struct
                     { location = declLoc, name = name, description = "Constructed from a free type variable." }
                 val tCons =
                     makeFrozenTypeConstrs (name, [],
-                        makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription, ([], EmptyType)),
+                        makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription),
                         0, [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
             in

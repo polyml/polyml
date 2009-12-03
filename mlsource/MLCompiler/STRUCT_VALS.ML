@@ -251,25 +251,29 @@ struct
     }
 
     (* Identifiers *)
-    (* REF HOTSPOT - 400 *)
-    fun makeFreeId(access, eq, desc, typeFn) =
-        TypeId { access=access, description = desc, typeFn=typeFn,
+    fun makeFreeId(access, eq, desc) =
+        TypeId { access=access, description = desc, typeFn=([], EmptyType),
             idKind = Free {uid = ref eq, allowUpdate=false}};
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq, desc, typeFn) =
-        TypeId { access=access, description = desc, typeFn=typeFn,
+    fun makeFreeIdEqUpdate(access, eq, desc) =
+        TypeId { access=access, description = desc, typeFn=([], EmptyType),
             idKind = Free {uid = ref eq, allowUpdate=true}};
 
-    fun makeBoundId (access, n, eq, isdt, desc, typeFn) =
-        TypeId { access=access, description = desc, typeFn=typeFn,
+    fun makeBoundId (access, n, eq, isdt, desc) =
+        TypeId { access=access, description = desc, typeFn=([], EmptyType),
             idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt}};
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc, typeFn) =
-        TypeId { access=access, description = desc, typeFn=typeFn,
+    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc) =
+        TypeId { access=access, description = desc, typeFn=([], EmptyType),
             idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt}}
+
+    (* Type functions currently always have Free ids. *)
+    fun makeTypeFunction(desc, typeFn) =
+        TypeId { access=Global CodeZero, description = desc, typeFn=typeFn,
+            idKind = Free {uid = ref false, allowUpdate=false}};
             
     (* Unset variable. *)
     fun isFreeId     (TypeId { idKind = Free _, typeFn=([], EmptyType), ...}) = true | isFreeId _ = false;
@@ -473,124 +477,6 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
     fun basisDescription name = { location = inBasis, description = "In Basis", name = name }
-
-    (* Eqtypes with built-in equality functions. *)
-    local
-        open Address PRETTY RuntimeCalls
-        fun defaultPrinter _ _ _ = PrettyString "?"
-
-        fun eqAndPrintCode (eqFun, isMonotype) =
-        let
-            val eqCode = CODETREE.rtsFunction eqFun
-            val code =
-                mkTuple[
-                    if isMonotype then eqCode else mkInlproc(eqCode, 0, 0, "eq-helper()"),
-                    mkConst (toMachineWord (ref defaultPrinter))
-                ]
-        in
-            Global (genCode(code, []) ())
-        end
-
-        fun makeType(name, eqFun) =
-            makeFrozenTypeConstrs (name, [],
-                makeFreeId(eqAndPrintCode(eqFun, true), true, basisDescription name, ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-    in
-        val intType    = makeType("int",    POLY_SYS_equala) (* Need arbitrary precision equality *)
-        val charType   = makeType("char",   POLY_SYS_int_eq) (* Always short *)
-        val stringType = makeType("string", POLY_SYS_teststreq)
-        val wordType   = makeType("word",   POLY_SYS_word_eq)
-
-        (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
-           Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
-           even if the 'a is not an eqType. *)
-        val refType =
-            makeDatatypeConstr 
-                ("ref", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "ref", ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-        val arrayType =
-            makeFrozenTypeConstrs 
-                ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "Array.array", ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-        val array2Type =
-            makeFrozenTypeConstrs 
-                ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, false), true, basisDescription "Array2.array", ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-        val byteArrayType =
-            makeFrozenTypeConstrs 
-                ("byteArray", [],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, true), true, basisDescription "byteArray", ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-        (* Bool is a datatype.  The constructors are added in INITIALISE. *)
-        val boolType =
-            makeDatatypeConstr 
-                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_int_eq, true), true, basisDescription "bool", ([], EmptyType)),
-                0, [DeclaredAt inBasis]);
-    end
-
-    (* These polytypes allow equality even if the type argument is not an equality type. *)
-    fun isPointerEqType id =
-        sameTypeId (id, tcIdentifier refType) orelse
-        sameTypeId (id, tcIdentifier arrayType) orelse
-        sameTypeId (id, tcIdentifier array2Type) orelse
-        sameTypeId (id, tcIdentifier byteArrayType)
-
-    (* Non-eqtypes *)
-    local
-        open Address PRETTY;
-
-        fun makeType name =
-        let
-            fun defaultPrinter _ _ _ = PrettyString "?"
-            val code =
-                mkTuple[
-                    CodeZero (* No equality. *),
-                    mkConst (toMachineWord (ref defaultPrinter))
-                ]
-        in
-            makeFrozenTypeConstrs (
-                name, [], makeFreeId(Global (genCode(code, []) ()), false, basisDescription name, ([], EmptyType)),
-                0, [DeclaredAt inBasis])
-        end
-    in
-        val realType   = makeType "real"; (* Not an eqtype in ML97. *)
-        val exnType    = makeType "exn";
-    end
-
-    local
-        open Address PRETTY;
-
-        fun defaultPrinter _ _ _ = PrettyString "?"
-        val code =
-            mkTuple[
-                CodeZero (* No equality. *),
-                mkConst (toMachineWord (ref defaultPrinter))
-            ]
-    in
-        (* "undefType" is used as a place-holder during parsing for the actual type constructor.
-           If the type constructor is not found this may appear in an error message. *)
-        val undefType  =
-            makeFrozenTypeConstrs (
-                "undefined", [],
-                    makeFreeId(Global (genCode(code, []) ()), false,
-                    { location = inBasis, description = "Undefined", name = "undefined" },
-                    ([], EmptyType)),
-                0, [DeclaredAt inBasis])
-    end
-
-    val globalCode = Global CodeZero
-
-    (* The unit type is equivalent to the empty record. *)
-    val unitType   =
-        makeFrozenTypeConstrs ("unit", [],
-            TypeId { access=globalCode, description = { location = inBasis, description = "unit", name = "unit" },
-                idKind = Free {uid = ref false, allowUpdate=false},
-                typeFn=([], LabelledType {recList = [], frozen = true, genericInstance = []})},
-           0, [DeclaredAt inBasis]);
-
     (* Infix status. *) 
  
     datatype fixStatus = 

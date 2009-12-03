@@ -29,7 +29,8 @@ sig
     val codeGenerativeId: typeId * bool * (int->int) * int -> codetree
     
     val createDatatypeFunctions:
-        typeConstrs list * bool list * (int->int) * int * typeVarMap -> codetree list
+         {typeConstr: typeConstrs, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *
+            (int->int) * int * typeVarMap -> codetree list
     
     val codeForUniqueId: unit->codetree
 
@@ -56,22 +57,6 @@ sig
     end
 
     val defaultTypeCode: codetree
-    
-    structure TypeConstructorValue:
-    sig
-        val extractEquality: codetree -> codetree
-        and extractPrinterRef: codetree -> codetree
-        
-        val createTypeValue: {eqCode: codetree, printRefCode: codetree} -> codetree
-    end
-
-    structure TypeValue:
-    sig
-        val extractEquality: codetree -> codetree
-        and extractPrinter: codetree -> codetree
-        
-        val createTypeValue: {eqCode: codetree, printCode: codetree} -> codetree
-    end
 
     structure Sharing:
     sig

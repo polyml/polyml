@@ -26,7 +26,8 @@ sig
     type typeVarForm
     type typeVarMap
 
-    val chooseConstrRepr : (string*types) list * types list -> codetree list
+    val chooseConstrRepr :
+        (string*types) list * types list -> { constrs: codetree list, boxed: codetree, size: codetree }
 
     type representations
     val RefForm:   representations;
@@ -37,12 +38,12 @@ sig
     val createUnaryConstructor: representations * types list * string -> codetree
 
     (* Standard values *)
-    val listType: typeConstrs
+    val listConstr: typeConstrs
     val nilConstructor:  values;
     val consConstructor: values;
     val noneConstructor: values
     val someConstructor: values
-    val optionType: typeConstrs
+    val optionConstr: typeConstrs
 
     val locationConstr: typeConstrs
     and contextConstr: typeConstrs

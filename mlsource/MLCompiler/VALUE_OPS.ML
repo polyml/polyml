@@ -388,7 +388,7 @@ struct
         in
             (* If the structure is not there the value can't be. *)
             if isUndefinedStruct str
-            then SOME undefType
+            then SOME undefConstr
             else
             let
                 val Signatures { tab, typeIdMap, ...} = structSignat str
@@ -405,7 +405,7 @@ struct
             (
                 errorMessage ("Type constructor" ^ " (" ^ suffix ^ ") has not been declared" ^
                 (if prefix = "" then "" else " in structure " ^ prefix));
-                undefType
+                undefConstr
             )
     end 
 
@@ -1119,7 +1119,7 @@ struct
                         mkProc(
                             mkEval(
                                 rtsFunction POLY_SYS_assign_word,
-                                [TypeConstructorValue.extractPrinterRef(
+                                [TypeValue.extractPrinter(
                                     codeAccess(idAccess typeId, level+1)), CodeZero, printFunction],
                                 false), level, 1, "addPP")
                     end
@@ -1335,7 +1335,8 @@ struct
     let
         (* If this is a value constructor we need to get the construction
            function and use that. *)
-        fun getConstr level = mkInd(1, codeVal (value, level, typeVarMap, [], lex, lineno))
+        fun getConstr level =
+            ValueConstructor.extractInjection(codeVal (value, level, typeVarMap, [], lex, lineno))
         val polyConstr = applyToInstance(argVars, level, typeVarMap, getConstr)
     in
          (* Don't apply this "early".  It might be the ref constructor and that
@@ -1490,7 +1491,7 @@ struct
     fun makeGuard (value as Value{class=Constructor _, ...}, argVars, testing, level, typeVarMap) =
         let
             fun tester level =
-                mkInd(0, codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+                ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
             val testCode = applyToInstance(argVars, level, typeVarMap, tester)
         in
             mkEval(testCode, [testing], true)
@@ -1511,7 +1512,7 @@ struct
                     argVars, arg, level, typeVarMap): codetree =
         let
             fun getInverse level =
-                mkInd(2, codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
+                ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
             val loadCode = applyToInstance(argVars, level, typeVarMap, getInverse)
         in
             mkEval(loadCode, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)

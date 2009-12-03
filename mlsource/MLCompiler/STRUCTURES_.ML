@@ -1037,7 +1037,7 @@ struct
                array will be SOME but if we have had an error there may be entries that
                are still NONE.  To prevent an exception we return the undefined type in
                that case. *)
-            fun resultType n = getOpt(Array.sub(matchArray, n-minTarget), tcIdentifier undefType)
+            fun resultType n = getOpt(Array.sub(matchArray, n-minTarget), tcIdentifier undefConstr)
         end
 
         (* Match typeIDs for types. This is slightly more
@@ -1937,7 +1937,7 @@ struct
                     makeLocalTypeId(true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeFreeId(Global CodeZero, false,
+                    makeTypeFunction(
                         { location = location, name = structPath ^ name, description = description },
                         (typeVars, decType))
 
@@ -2011,7 +2011,7 @@ struct
                 val idNumber = topLevelIdNumber()
                 val newId =
                     (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                        (Local{addr = ref 0, level = ref 0}, idNumber, eq, isdt, description, ([], EmptyType))
+                        (Local{addr = ref 0, level = ref 0}, idNumber, eq, isdt, description)
             in
                 typeIds := newId :: ! typeIds;
                 newId
@@ -2221,7 +2221,7 @@ struct
                             val () = typeStamps := n + 1;
                             val newId =
                                 (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                                    (Local{addr = ref 0, level = ref 0}, n, eq, isdt, desc, ([], EmptyType))
+                                    (Local{addr = ref 0, level = ref 0}, n, eq, isdt, desc)
                         in
                             localStamps := newId :: !localStamps;
                             newId
@@ -2252,9 +2252,9 @@ struct
                     local
                         val startRunTimeOffsets = getNextRuntimeOffset resSig
 
-                        fun convertId(n, id as TypeId{idKind=Bound { offset, isDatatype, ...}, description, typeFn, ...}) =
+                        fun convertId(n, id as TypeId{idKind=Bound { offset, isDatatype, ...}, description, ...}) =
                                 (* Either inherited from the argument or a new type ID. *)
-                                makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, isDatatype, description, typeFn)
+                                makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, isDatatype, description)
                         |   convertId (_, id) = id (* Free or TypeFunction. *)
 
                         val localVector = Vector.fromList(List.rev(!localStamps))
@@ -2460,7 +2460,8 @@ struct
                                     end
 
                                 |   ConstructorToValue =>
-                                        mkInd(1, mkInd (svAddr, #load decs localLevel))
+                                        (* Extract the injection function/nullary value. *)
+                                        ValueConstructor.extractInjection(mkInd (svAddr, #load decs localLevel))
                            )
 
                         | _ =>
@@ -2965,9 +2966,9 @@ struct
         StrDec(str, ref typeIds) =>
         let
             (* Create new Free IDs for top-level IDs. *)            
-            fun loadId(TypeId{idKind=Bound{eqType, ...}, description, typeFn, ...}, (n, ids)) =
+            fun loadId(TypeId{idKind=Bound{eqType, ...}, description, ...}, (n, ids)) =
             let
-                val newId = makeFreeId(Global(mkInd(n, results)), pling eqType, description, typeFn)
+                val newId = makeFreeId(Global(mkInd(n, results)), pling eqType, description)
             in
                 (n+1, newId :: ids)
             end

@@ -158,8 +158,8 @@ end =
 (*                  INITIALISE functor body                                  *)
 (*****************************************************************************)
 struct
-    (* Don't open TYPETREE 'cos names clash with STRUCTVALS *)
     open STRUCTVALS;
+    open TYPETREE
     open VALUEOPS;
     open CODETREE;
     open ADDRESS;
@@ -229,11 +229,11 @@ struct
         in
             fun defaultEqAndPrintCode () =
                 let
+                    open TypeValue
                     val code =
-                        mkTuple[
-                            CodeZero,
-                            mkConst (toMachineWord (ref monotypePrinter))
-                        ]
+                        createTypeValue{
+                            eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
+                            boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
                 in
                     Global (genCode(code, []) ())
                 end
@@ -241,19 +241,19 @@ struct
         
        fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
             makeFrozenTypeConstrs(
-                name, typeVars, makeFreeId(Global CodeZero, false, basisDescription name, (typeVars, typeResult)),
+                name, typeVars, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
                 0, locations)
   
         (* List of something *)
         fun List (base : types) : types =
-            mkTypeConstruction ("list", listType, [base], declInBasis);
+            mkTypeConstruction ("list", listConstr, [base], declInBasis);
 
         (* ref something *)
         fun Ref (base : types) : types  =
-            mkTypeConstruction ("ref", refType, [base], declInBasis);
+            mkTypeConstruction ("ref", refConstr, [base], declInBasis);
         
         fun Option (base : types) : types  =
-            mkTypeConstruction ("option", optionType, [base], declInBasis);
+            mkTypeConstruction ("option", optionConstr, [base], declInBasis);
         
         
         (* Type-dependent functions. *)
@@ -267,7 +267,7 @@ struct
 (*****************************************************************************)
 (*                  unit                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("unit", unitType);
+        val () = enterGlobalType ("unit", unitConstr);
 
 (*****************************************************************************)
 (*                  bool                                                     *)
@@ -280,30 +280,30 @@ struct
                 mkGconstr ("true",  Bool,
                     createNullaryConstructor(EnumForm 1, [], "true"), true, 2, declInBasis);
         in
-            val () = enterGlobalType  ("bool",  boolType);
+            val () = enterGlobalType  ("bool",  boolConstr);
             val () = enterGlobalValue ("true",  trueCons);
             val () = enterGlobalValue ("false", falseCons);
             
             (* Put these constructors onto the boolean type. *)
             val () =
-                tcSetConstructors (boolType, [trueCons, falseCons]);
+                tcSetConstructors (boolConstr, [trueCons, falseCons]);
         end;
         
 
 (*****************************************************************************)
 (*                  int                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("int", intType);
+        val () = enterGlobalType ("int", intConstr);
    
 (*****************************************************************************)
 (*                  char                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("char", charType);
+        val () = enterGlobalType ("char", charConstr);
    
 (*****************************************************************************)
 (*                  string                                                   *)
 (*****************************************************************************)
-        val () = enterGlobalType ("string", stringType);
+        val () = enterGlobalType ("string", stringConstr);
 
         (* chr - define it as an identity function for now. It is redefined in
            the prelude to check that the value is a valid character. *)
@@ -318,23 +318,23 @@ struct
 (*****************************************************************************)
 (*                  real                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("real", realType);
+        val () = enterGlobalType ("real", realConstr);
 
 (*****************************************************************************)
 (*                  'a list                                                  *)
 (*****************************************************************************)
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
-                (tcConstructors listType)
-        val () = enterGlobalType  ("list", listType);
+                (tcConstructors listConstr)
+        val () = enterGlobalType  ("list", listConstr);
 
 (*****************************************************************************)
 (*                  'a option                                                  *)
 (*****************************************************************************)
         val () = (* Enter NONE and SOME. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
-                (tcConstructors optionType)
-        val () = enterGlobalType  ("option", optionType);
+                (tcConstructors optionConstr)
+        val () = enterGlobalType  ("option", optionConstr);
 
 (*****************************************************************************)
 (*                  ref                                                      *)
@@ -348,11 +348,11 @@ struct
                         createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
                 end
         in
-            val () = enterGlobalType  ("ref", refType);
+            val () = enterGlobalType  ("ref", refConstr);
             val () = enterGlobalValue ("ref", refCons);
             
             (* Put this constructor onto the ref type. *)
-            val () = tcSetConstructors (refType, [refCons]);
+            val () = tcSetConstructors (refConstr, [refCons]);
         end;
 
         (* '!' does not really have to be here but it makes it easier
@@ -372,12 +372,12 @@ struct
 (*****************************************************************************)
 (*                  exn                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("exn", exnType);
+        val () = enterGlobalType ("exn", exnConstr);
 
 (*****************************************************************************)
 (*                  word                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("word", wordType);
+        val () = enterGlobalType ("word", wordConstr);
 
 
 (*****************************************************************************)
@@ -677,7 +677,7 @@ struct
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
-                                                TYPEIDCODE.TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
+                                                TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_load_word,
                                                         [mkLoad(~2, 1), mkLoad(~1, 0)], false),
@@ -706,14 +706,19 @@ struct
 
             val idCode = (* Polytype *)
                 let
-                    val code = mkTuple[eqCode, mkConst (toMachineWord (ref polyTypePrinter))]
+                    open TypeValue
+                    val code =
+                        createTypeValue{
+                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref polyTypePrinter)),
+                            boxedCode=mkInlproc(boxedAlways, 0, 1, "boxed-vector"),
+                            sizeCode=mkInlproc(singleWord, 0, 1, "size-vector")}
                 in
                     Global (genCode(code, []) ())
                 end
         in
             val vectorType =
                 makeFrozenTypeConstrs("vector", [makeTypeVariable()],
-                    makeFreeId(idCode, true, basisDescription "vector", ([], EmptyType)), 0, declInBasis);
+                    makeFreeId(idCode, true, basisDescription "vector"), 0, declInBasis);
             val () = enterGlobalType  ("vector", vectorType);
         end
 
@@ -776,23 +781,27 @@ struct
 
             val idCode = (* Polytype *)
                 let
-                    val code = mkTuple[eqCode, mkConst (toMachineWord (ref monoTypePrinter))]
+                    open TypeValue
+                    val code =
+                        createTypeValue{
+                            eqCode=eqCode, printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode=boxedAlways, sizeCode=singleWord}
                 in
                     Global (genCode(code, []) ())
                 end
         in
             val byteVectorType =
                 makeFrozenTypeConstrs("byteVector", [],
-                    makeFreeId(idCode, true, basisDescription "byteVector", ([], EmptyType)), 0, declInBasis);
+                    makeFreeId(idCode, true, basisDescription "byteVector"), 0, declInBasis);
             val () = #enterType bootstrapEnv ("byteVector", byteVectorType);
         end
 
     (* We also need array and Array2.array to be passed through here so that
        they have the special property of being eqtypes even if their argument
        is not.   "array" is defined to be in the global environment. *)
-        val () = enterGlobalType  ("array", arrayType);
-        val () = #enterType bootstrapEnv ("array", array2Type)
-        val () = #enterType bootstrapEnv ("byteArray", byteArrayType);
+        val () = enterGlobalType  ("array", arrayConstr);
+        val () = #enterType bootstrapEnv ("array", array2Constr)
+        val () = #enterType bootstrapEnv ("byteArray", byteArrayConstr);
 
 (*****************************************************************************)
 (*                  Polymorphic functions                                    *)
@@ -849,7 +858,7 @@ struct
             let
                 val typeconstr =
                     makeFrozenTypeConstrs(typeName, [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName), ([], EmptyType)),
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
                         0, declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, typeconstr);
@@ -1028,11 +1037,15 @@ struct
 
             local
                 fun polyTypePrinter _ _ = PRETTY.PrettyString "?"
+                open TypeValue
                 val idCode =
                 let
                     val code =
-                        mkTuple[CodeZero, (* Not an equality type *)
-                                mkConst (toMachineWord (ref polyTypePrinter))]
+                        createTypeValue{
+                                eqCode=CodeZero, (* Not an equality type *)
+                                printCode=mkConst (toMachineWord (ref polyTypePrinter)),
+                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 0, 1, "boxed-tag"),
+                                sizeCode=mkInlproc(singleWord, 0, 1, "size-tag")}
                 in
                     Global (genCode(code, []) ())
                 end
@@ -1040,14 +1053,14 @@ struct
                 (* type 'a tag *)
                 val tagConstr =
                     makeFrozenTypeConstrs("tag", [makeTypeVariable()],
-                        makeFreeId(idCode, false, basisDescription "tag", ([], EmptyType)), 0, declInBasis);
+                        makeFreeId(idCode, false, basisDescription "tag"), 0, declInBasis);
                 val () = #enterType uniStructEnv ("tag", tagConstr)
             end
 
             (* type universal *)
             val univConstr =
                 makeFrozenTypeConstrs("universal", [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal", ([], EmptyType)), 0, declInBasis);
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), 0, declInBasis);
             val () = #enterType uniStructEnv ("universal", univConstr);
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -1075,7 +1088,7 @@ struct
             (* Parsetree properties datatype. *)
             val propConstr =
                 makeDatatypeConstr("ptProperties", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties", ([], EmptyType)), 0, declInBasis);
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), 0, declInBasis);
             val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
@@ -1088,7 +1101,7 @@ struct
             (* Representation of the type of a value. *)
             val typesConstr =
                 makeFrozenTypeConstrs("typeExpression", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression", ([], EmptyType)), 0, declInBasis);    
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", typesConstr);
 
@@ -1107,10 +1120,11 @@ struct
             (* We rely on chooseConstrRepr giving us the same representation for the
                constructors as when context was compiled by the previous compiler. *)
             val numConstrs = List.length constrs
+            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, t ->> PtProperties, code, false, numConstrs, declInBasis))
-                        (constrs, chooseConstrRepr(constrs, []))
+                        (constrs, constrReps)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
             val () = tcSetConstructors (propConstr, constructors);
