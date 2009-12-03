@@ -1157,17 +1157,11 @@ struct
                             (* Process value constructors with the type.  Because values can't
                                be redefined within a signature we can't have overridden this
                                with a new declaration.  We don't allocate run-time IDs to
-                               type identifiers.  That's done at the ende when we've sorted out
+                               type identifiers.  That's done at the end when we've sorted out
                                any sharing *)
                             fun copyConstructor(Value { name, typeOf, access, class, locations, ... }) =
-                            let
-                                val newConstr =
-                                    Value{name=name, typeOf = typeOf, access=newAccess access,
-                                          class=class, locations=locations, references=NONE}
-                            in
-                                #enterVal structEnv (name, newConstr);
-                                newConstr
-                            end
+                                Value{name=name, typeOf = typeOf, access=newAccess access,
+                                      class=class, locations=locations, references=NONE}
                             val newType =
                                 case tcConstructors ty of
                                     [] => ty (* Not a datatype. *)
@@ -1190,8 +1184,7 @@ struct
                                         access = newAccess(structAccess str),
                                         locations = structLocations str})
 
-                        and enterVal(_, Value { class=Constructor _, ... }) = () (* Done with types. *)
-                        |   enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
+                        and enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
                             #enterVal structEnv (dName,
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
                                       class=class, locations=locations, references=NONE})
@@ -1227,15 +1220,11 @@ struct
                    in this case it's easier to trap the value constructors at
                    this point. N.B. We may get constructors from a datatype
                    declaration or from datatype replication. *)
-                fun enterVal(name, Value{class=class, typeOf, locations, ...}) =
-                    let
-                        val addr = !addrs
-                        val _ = addrs := addr+1
-                    in
-                        (#enterVal structEnv)(name,
-                            Value{class=class, typeOf=typeOf, access=Formal addr, name=name,
-                                  locations=locations, references=NONE})
-                    end
+                fun convertValueConstr(Value{class=class, typeOf, locations, name, ...}) =
+                    Value{class=class, typeOf=typeOf, access=Formal(!addrs before (addrs := !addrs+1)), name=name,
+                        locations=locations, references=NONE}
+                    
+                fun enterVal(name, v) = (#enterVal structEnv)(name, convertValueConstr v)
 
                 (* Record all the datatypes we declare. *)
                 val datatypeList = ref []
@@ -1282,15 +1271,15 @@ struct
                     |   _ => raise InternalError "internalMap: Not bound or Free"
 
                 val _ : types = pass2 (dec, makeId, Env newEnv, lex, findEquality);
-                (* Replace the constructor list for the datatype with the modified
-                   constructors.  All the constructors should be in the set.  Is
-                   it possible that one might not be because of an error? *)
-                fun findConstr(v: values): values =
-                    getOpt((#lookupVal structEnv)(valName v), v)
+                (* Replace the constructor list for the datatype with a new set.
+                   We need to have separate addresses for the constructors in the
+                   datatype environment from those in the value environment.  This
+                   is needed for compatibility with the "signature" constructed
+                   from a struct...end block. *)
                 fun updateConstrList tyCons =
                     if null (tcConstructors tyCons)
                     then ()
-                    else tcSetConstructors(tyCons, List.map findConstr (tcConstructors tyCons))
+                    else tcSetConstructors(tyCons, List.map convertValueConstr (tcConstructors tyCons))
                 val _ = List.app updateConstrList (!datatypeList)
               in
                 ! addrs

@@ -798,9 +798,11 @@ struct
 
         val isCopy = List.foldl checkItem true sortedActions
  
-        val (_, sorted) = ListPair.unzip (quickSort leq actions)
+        val (checkItems, sorted) = ListPair.unzip (quickSort leq actions)
         (* These should be ascending order but if we've had an error and there are
            missing entries in the signature they may not be. *)
+        val _ = if ListPair.allEq (op =)(checkItems, List.tabulate(List.length sorted, fn n => n))
+                then () else raise InternalError "Missing items in structure match"
     in
         if isCopy then JustCopy else FilterMatch sorted
     end
@@ -1130,11 +1132,21 @@ struct
                     (* Find a candidate with the same name. *)
                     case univLookup (sigTab candidate, typeConstrVar, dName) of
                         SOME candid =>
-                            (* Now check that the types match. *)
-                            checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv, structPath)
-                    |   NONE => (); (* If the lookup failed ignore
+                            let
+                                (* We don't actually check the value constructors here, just load them if they
+                                   match.  Because of the no-redefinition rule value constructors in the signature
+                                   must also be present in the value environment so we check them there. *)
+                                fun matchConstructor(source, Value{access=Formal addr, ...}, matches) =
+                                        (addr,
+                                            ValueMatch { sourceValue = source, coercion = NoCoercion, polyMatch = NONE }) :: matches
+                                |   matchConstructor(_, _, matches) = matches
+                            in
+                                (* Now check that the types match. *)
+                                checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv, structPath);
+                                ListPair.foldl matchConstructor matches (tcConstructors candid, tcConstructors target)
+                            end
+                    |   NONE => matches (* If the lookup failed ignore
                                      the error - we've already reported it in matchNames *)
-                    matches
                 end
        
                 else if tagIs structVar dVal
@@ -1330,6 +1342,15 @@ struct
                 Value { access=Formal addr, ...} =>
                     (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, polyMatch = NONE }) :: matches
             |   _ => matches
+        end
+        else if tagIs typeConstrVar dVal
+        then
+        let
+            fun matchConstructor(v as Value{access=Formal addr, ...}, matches) =
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, polyMatch = NONE }) :: matches
+            |   matchConstructor(_, matches) = matches
+        in
+            List.foldl matchConstructor matches (tcConstructors(tagProject typeConstrVar dVal))
         end
         else matches
     in
@@ -1544,7 +1565,43 @@ struct
             (* Create the result signature and also build the match structure to match to it. *)
             fun enterItem(dName, dVal, (addrs, matches)) =
                 if tagIs typeConstrVar dVal
-                then (#enterType finalEnv (dName, tagProject typeConstrVar dVal); (addrs, matches))
+                then
+                let
+                    val tConstr = tagProject typeConstrVar dVal
+                    val valConstrs = tcConstructors tConstr
+                in
+                    if null valConstrs
+                    then (#enterType finalEnv (dName, tConstr); (addrs, matches))
+                    else
+                    let
+                        (* If this is a datatype constructor convert the value constructors.
+                           The "no redefinition" rule for signatures doesn't apply to a structure
+                           so the signature we create here could have some constructors that have been
+                           hidden by later declarations.  We still need the whole value environment in
+                           case of datatype replication. *)
+                        fun convertConstructor(valVal as Value{class, typeOf, locations, references, name, ...},
+                                (otherConstrs, (addrs, matches))) =
+                        let
+                            val formalValue =
+                                Value{class=class, name=name, typeOf=typeOf, access=Formal addrs,
+                                      locations=locations, references=references}
+                        in
+                            (formalValue :: otherConstrs,
+                                (addrs + 1,
+                                    (addrs,
+                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion, polyMatch = NONE}) :: matches))
+                        end
+                        val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
+                        val newConstructor =
+                            makeDatatypeConstr(
+                                tcName tConstr, tcTypeVars tConstr, tcIdentifier tConstr, 0, tcLocations tConstr)
+                        val () = tcSetConstructors(newConstructor, List.rev newConstrs)
+                    in
+                        #enterType finalEnv (dName, newConstructor);
+                        newAddrMatch
+                    end
+                end
+
                 else if tagIs structVar dVal
                 then 
                 let
@@ -1558,6 +1615,7 @@ struct
                         (addrs, StructureMatch
                             { sourceStructure=strVal, contentsMatch = matchSubStructure}) :: matches)
                 end
+
                 else if tagIs valueVar dVal
                 then
                 let

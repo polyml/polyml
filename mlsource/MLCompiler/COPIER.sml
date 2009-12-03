@@ -316,6 +316,14 @@ struct
         then case structAccess(tagProject structVar dVal) of
             Formal addr => Int.max(addr+1, m)
         |   _ => m
+        else if tagIs typeConstrVar dVal
+        then
+        let
+            fun getConstrOffset(Value { access = Formal addr, ...}, m) = Int.max(addr+1, m)
+            |   getConstrOffset(_, m) = m
+        in
+            List.foldl getConstrOffset m (tcConstructors (tagProject typeConstrVar dVal))
+        end
         else m
     in
         univFold(tab, getOffset, 0)
