@@ -2564,14 +2564,20 @@ DCJM 2000.
                     fun lookupDec ({ addr=0, ...}, _, 0) =
                        (* Recursive reference - shouldn't happen. *)
                        raise InternalError ("lookupDec: Inline function recurses " ^ lambdaName)
-                    |   lookupDec ({ addr=index, ...}, depth, 0) =
+                    |   lookupDec ({ addr=index, level, ...}, depth, 0) =
                          let (* On this level. *)
-                           val optVal =
-                             if index > 0
-                             then valOf (localVec sub index) (* locals *)
-                             else valOf (Vector.sub(frozenParams, ~index)) (* parameters *)
+                            val optVal =
+                                if index > 0
+                                then localVec sub index (* locals *)
+                                else Vector.sub(frozenParams, ~index) (* parameters *)
+                            val value =
+                                case optVal of
+                                    SOME value => value
+                                |   NONE => raise InternalError(
+                                                    concat["Missing value address=", Int.toString index,
+                                                           " level= ", Int.toString level, " while expanding ", lambdaName])
                          in
-                           changeLevel optVal (depth - nestingOfThisProcedure)
+                           changeLevel value (depth - nestingOfThisProcedure)
                          end
                     |  lookupDec (ptr, depth, levels) =
                          (optEnviron funct) (ptr, depth, levels - 1);
