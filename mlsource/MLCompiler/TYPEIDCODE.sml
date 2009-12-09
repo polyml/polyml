@@ -1145,9 +1145,24 @@ struct
                                 fun getEqFnForID(typeId, _, l) =
                                     (extractEquality(codeId(typeId, l)), NONE)
                             in
-                                makeEq(t, decLevel, getEqFnForID, polyVarMap)
+                                (*makeEq(t, decLevel, getEqFnForID, polyVarMap)*)
+                                (* As a temporary measure, wrap this in a function.  We'd like
+                                   to be able to optimise away type identifiers that aren't actually
+                                   used but if creating this equality function involved applying a
+                                   polymorphic equality function to the equality functions of the base
+                                   type and the polymorphic equality isn't inline then the optimiser
+                                   sees this as the application of a function that could have side-effects
+                                   and doesn't remove it.  Wrapping it in a function avoids it.  There
+                                   isn't the same problem with the print function because it always
+                                   generates a function around the application of the polymorphic
+                                   printer.
+                                   The right solution is to pass more information that the application
+                                   is side-effect free.  Maybe use the "early" flag?  *)
+                                mkInlproc(
+                                    mkEval(makeEq(t, decLevel+1, getEqFnForID, polyVarMap), [arg2, arg1], true),
+                                    decLevel+1, 2, "extra-equality")
                             end
-                            else mkProc(CodeZero, 0, 1, "errorCode")
+                            else mkProc(CodeZero, 0, 2, "errorCode")
                         val boxedCode =
                             boxednessForType(t, decLevel, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
                     in
