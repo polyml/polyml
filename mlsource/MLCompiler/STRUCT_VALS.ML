@@ -75,10 +75,19 @@ struct
 
     (* References to identifiers.  exportedRef is set to true if the identifier is exported to
        the global environment or to a structure.  localRef contains the list of local uses.
+       recursiveRef contains a list of (mutually) recursive references together with the name
+       of the function that refers to this.  It is used when computing whether a recursive
+       function is actually refered to from elsewhere. 
        This is an option type because this is used only within local identifiers. *)
-    type references = { exportedRef: bool ref, localRef: location list ref } option
+    type references =
+    {
+        exportedRef: bool ref,
+        localRef: location list ref,
+        recursiveRef: (location * string) list ref
+    } option
     
-    fun makeRef(): references = SOME { exportedRef = ref false, localRef = ref nil }
+    fun makeRef(): references =
+        SOME { exportedRef = ref false, localRef = ref nil, recursiveRef=ref nil }
    
   (* typeIds are used to distinguish between concrete types.  Two
      types that share will have the same identifier.  If the identifiers are

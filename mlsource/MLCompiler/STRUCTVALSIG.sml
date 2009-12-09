@@ -45,7 +45,11 @@ sig
     type uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
-    type references = { exportedRef: bool ref, localRef: location list ref } option
+    type references =
+        {
+            exportedRef: bool ref, localRef: location list ref,
+            recursiveRef: (location * string) list ref
+        } option
     val makeRef: unit -> references
 
     datatype typeId =

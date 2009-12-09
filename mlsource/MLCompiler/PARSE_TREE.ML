@@ -1479,7 +1479,8 @@ struct
                 val refProp =
                     case references of
                         NONE => []
-                    |   SOME {exportedRef=ref exp, localRef=ref locals} => [PTreferences(exp, locals)]
+                    |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
+                            [PTreferences(exp, List.map #1 recs @ locals)]
             in
                 (location, PTtype expType :: decProp @ commonProps @ refProp)
             end
@@ -1543,7 +1544,8 @@ struct
                         val refProp =
                             case refs of
                                 NONE => []
-                            |   SOME {exportedRef=ref exp, localRef=ref locals} => [PTreferences(exp, locals)]
+                            |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
+                                    [PTreferences(exp, List.map #1 recs @ locals)]
                     in
                         (location, refProp @ (PTtype expType :: PTdeclaredAt location :: exportNavigationProps navigation))
                     end
@@ -3434,6 +3436,22 @@ struct
                     end
                 in (* body of processFun *)
                     List.app processClause clauses;
+                    (* If this function makes any recursive references move those references from the
+                       local list to the recursive list.  In that way if we're looking for whether a
+                       function is actually referenced we'll only include it if it's referenced outside
+                       or from another referenced function. *)
+                    let
+                        fun moveRefs(FValBind{functVar=ref(Value{references,...}), ...}) =
+                        let
+                            val {localRef as ref locals, recursiveRef, ...} = valOf references
+                            val callerName = valName functVar (* Name of referring function. *)
+                        in
+                            recursiveRef := List.map (fn r => (r, callerName)) locals @ !recursiveRef;
+                            localRef := []
+                        end
+                    in
+                        List.app moveRefs tlist
+                    end;
                     (* Finally unify the function type with the type of the function variable.  If the
                        variable has not yet been used that will simply set its type but if it has been
                        used recursively it may have been given an incompatible type. *)
@@ -3972,7 +3990,7 @@ struct
     (* Report unreferenced identifiers. *)
 
     fun reportUnreferencedValue lex
-            (Value{name, references=SOME{exportedRef=ref false, localRef=ref nil}, locations, ...}) =
+            (Value{name, references=SOME{exportedRef=ref false, localRef=ref nil, ...}, locations, ...}) =
         let
             fun getDeclLoc (DeclaredAt loc :: _) = loc
             |   getDeclLoc (_ :: locs) = getDeclLoc locs
@@ -3982,6 +4000,40 @@ struct
                 "Value identifier ("^name^") has not been referenced.")
         end
     |   reportUnreferencedValue _ _ = ()
+
+    (* Process a list of possibly mutually recursive functions and identify those that
+       are really referenced. *)
+    fun reportUnreferencedValues(valList, lex) =
+    let
+        fun checkRefs valList =
+        let
+            fun unReferenced(Value{references=SOME{exportedRef=ref false, localRef=ref nil, ...}, ...}) = true
+            |   unReferenced _ = false
+            val (unrefed, refed) = List.partition unReferenced valList
+            fun update(Value{references=SOME{localRef, recursiveRef, ...}, ...}, changed) =
+                let
+                    (* If it is referred to by a referenced function it is referenced. *)
+                    fun inReferenced(_, refName) = List.exists (fn Value{name, ...} => name=refName) refed
+                    val (present, absent) = List.partition inReferenced (!recursiveRef)
+                in
+                    if null present
+                    then changed
+                    else
+                    (
+                        localRef := List.map #1 present @ ! localRef;
+                        recursiveRef := absent;
+                        true
+                    )
+                end
+            |   update(_, changed) = changed
+        in
+            (* Repeat until there's no change. *)
+            if List.foldl update false unrefed then checkRefs unrefed else ()
+        end
+    in
+        checkRefs valList;
+        List.app (reportUnreferencedValue lex) valList
+    end
 
 
     (* Debugging control and debug function. *)
@@ -6190,7 +6242,7 @@ struct
             (* Check whether any of the functions were unreferenced. *)
             val _ =
                 if getParameter reportUnreferencedIdsTag (debugParams lex)
-                then List.app (reportUnreferencedValue lex) vars
+                then reportUnreferencedValues(vars, lex)
                 else ()
 
             (* Set the final addresses in case they have changed. *)
