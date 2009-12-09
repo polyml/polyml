@@ -74,10 +74,6 @@ struct
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
-  fun filter _ [] = []
-    | filter f (h::t) = 
-       if f h then h :: filter f t else filter f t;
-
   fun quickSort (_  :'a -> 'a -> bool) ([]:'a list)      = []
     | quickSort (_  :'a -> 'a -> bool) ([h]:'a list)     = [h]
     | quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =

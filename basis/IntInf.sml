@@ -75,11 +75,6 @@ struct
             
     in
         fun log2 i =
-        let
-            fun getLog2(i, j, n) =
-                if j > i then n-1
-                else getLog2(i, j*2, n+1)
-        in
             if i <= 0 then raise Domain
             else if isShort i
             then log2Word(Word.fromInt i, 0w2, 1)
@@ -90,7 +85,6 @@ struct
             in
                log2Long(i, bytes-1)
             end
-        end
     end
 
     (* These are implemented in the RTS. *)

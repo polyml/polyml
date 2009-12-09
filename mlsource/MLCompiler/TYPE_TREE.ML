@@ -1566,15 +1566,6 @@ struct
     in
         (t, List.map (fn(Matched{new, ...}) => new) newMatch)
     end;
-    
-  (* Make a match list from a list of type variables and types. *)
-  
-  fun copyVars (varlist : typeVarForm list, arglist : types list) : generalMatch list =
-    case (varlist, arglist) of
-      (var::vars, arg::args) =>
-        Matched {old = var, new = arg} :: copyVars (vars, args)
-    | _  => [] (* These will normally be nil at the same time but if we have
-                  had an error they may not be. *)
   
    (* Find the argument type which gives this result when the constructor
       is applied. If we have, for example, a value of type int list and
@@ -3002,9 +2993,9 @@ struct
 
     in
         case canonical firstType of
-            typ as TypeVar tv =>
+            (*typ as *)TypeVar _(*tv*) =>
             let
-                fun sameTypeVar(TypeVar tv1) = sameTv(tv, tv1) | sameTypeVar _ = false
+                (*fun sameTypeVar(TypeVar tv1) = sameTv(tv, tv1) | sameTypeVar _ = false*)
             in
                 (* If they are all the same type variable return that otherwise return
                    a new generalisable type variable.  They may all be equal if we always

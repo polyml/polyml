@@ -1476,9 +1476,6 @@ in (* local definitions *)
   fun pushAllBut (table as Ttab{pstack, ...}, cvec, but, pushTheseRegs) : unit =
   let
     val useTab = stretchArray (initStack, 0);
-
-    fun checkReg [] _ = false
-      | checkReg (h::t) r = h regEq r orelse checkReg t r
   in
     but
      (fn addr => 
