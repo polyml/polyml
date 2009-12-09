@@ -2937,24 +2937,149 @@ struct
     (* Unify two type variables which would otherwise be non-unifiable.
        Used when we have found a local type variable with the same name
        as a global one. *)
-  fun linkTypeVars (a, b) =
-  let
-    val ta = typesTypeVar (eventual(TypeVar a)); (* Must both be type vars. *)
-    val tb = typesTypeVar (eventual(TypeVar b));
-  in  (* Set the one with the higher level to point to the one with the
+    fun linkTypeVars (a, b) =
+    let
+        val ta = typesTypeVar (eventual(TypeVar a)); (* Must both be type vars. *)
+        val tb = typesTypeVar (eventual(TypeVar b));
+    in  (* Set the one with the higher level to point to the one with the
          lower, so that the effective level is the lower. *)
-    if (tvLevel ta) > (tvLevel tb)
-    then tvSetValue (ta, TypeVar b)
-    else tvSetValue (tb, TypeVar a)
-  end;
+        if (tvLevel ta) > (tvLevel tb)
+        then tvSetValue (ta, TypeVar b)
+        else tvSetValue (tb, TypeVar a)
+    end;
 
-  (* Set its level by setting it to a new type variable. *)
-  fun setTvarLevel (typ, level) =
-  let
-    val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
-  in
-    tvSetValue (tv, mkTypeVar (level, tvEquality tv, true))
-  end;
+    (* Set its level by setting it to a new type variable. *)
+    fun setTvarLevel (typ, level) =
+    let
+        val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
+    in
+        tvSetValue (tv, mkTypeVar (level, tvEquality tv, true))
+    end;
+
+    (* Construct the least general type from a list of types.  This is used after
+       type checking to try to remove polymorphism from local values.  It takes
+       the list of actual uses of the value, usually a function, and removes
+       any unnecessary polymorphism.  This is particularly the case if the
+       function involves a flexible record, where the unspecified fields are
+       treated as polymorphic, but where the function is actually applied
+       to a records which are monomorphic. *)
+    fun leastGeneral [] = EmptyType (* Never used? *)
+
+    (* Don't use this at the moment - see the comment on TypeVar below. *)
+(*    |   leastGeneral [oneType] = oneType *)(* Just one - this is it. *)
+
+    |   leastGeneral(firstType::otherTypes): types =
+    let
+        fun canonical (typ as TypeVar tyVar) =
+            (
+                case tvValue tyVar of
+                    EmptyType => typ
+                |   OverloadSet _ =>
+                    let
+                        val constr = typeConstrFromOverload(typ, false)
+                    in
+                        mkTypeConstruction(tcName constr, constr, [], [])
+                    end
+                |   t => canonical t
+            )
+        |   canonical (typ as TypeConstruction { value, args, ...}) =
+            let
+                val typConstr = pling value
+            in
+                if tcIsAbbreviation typConstr (* Handle type abbreviations directly *)
+                then canonical(makeEquivalent (typConstr, args))
+                else typ
+            end
+        |   canonical typ = typ
+
+        (* Take the head of the each argument list and extract the least general.
+           Then process the tail.  It's an error if each element of the list
+           does not contain the same number of items. *)
+        fun leastArgs ([]::_) = []
+        |   leastArgs (args as _::_) =
+                leastGeneral(List.map hd args) :: leastArgs (List.map tl args)
+        |   leastArgs _ = raise Empty
+
+    in
+        case canonical firstType of
+            typ as TypeVar tv =>
+            let
+                fun sameTypeVar(TypeVar tv1) = sameTv(tv, tv1) | sameTypeVar _ = false
+            in
+                (* If they are all the same type variable return that otherwise return
+                   a new generalisable type variable.  They may all be equal if we always
+                   apply this function to a value whose type is a polymorphic type in the
+                   function that contains all these uses. *)
+                (* Temporarily, at least, create a new type var in this case.  If we have a polymorphic
+                   function that is only used inside another polymorphic function but isn't declared
+                   inside it, if we use the caller's type variable here the call won't be recognised
+                   as polymorphic. *)
+                (*if List.all sameTypeVar otherTypes then typ else*) mkTypeVar(generalisable, false, false)
+            end
+    
+        |   TypeConstruction{ value, args, name, locations, ...}  =>
+            let
+                val argLength = List.length args
+                val thisConstrId = tcIdentifier(pling value)
+                (* This matches if it is an application of the same type constructor. *)
+                fun getTypeConstrs(TypeConstruction{value, args, ...}) =
+                        if sameTypeId(thisConstrId, tcIdentifier(pling value)) andalso
+                                List.length args = argLength
+                        then SOME args else NONE
+                |   getTypeConstrs _ = NONE
+                val allArgs = List.mapPartial (getTypeConstrs o canonical) otherTypes
+            in
+                if List.length allArgs = List.length otherTypes
+                then TypeConstruction{value=value, name=name, locations=locations,
+                                     args = leastArgs(args :: allArgs)}
+                else (* At least one of these wasn't the same type constructor. *)
+                    mkTypeVar(generalisable, false, false)
+            end
+
+        |   FunctionType{ arg, result } =>
+            let
+                fun getFuns(FunctionType{arg, result}) = SOME(arg, result)
+                |   getFuns _ = NONE
+                val argResults = List.mapPartial (getFuns o canonical) otherTypes
+            in
+                if List.length argResults = List.length otherTypes
+                then
+                let
+                    val (args, results) = ListPair.unzip argResults
+                in
+                    FunctionType{arg=leastGeneral(arg::args), result = leastGeneral(result::results)}
+                end
+                else (* At least one of these wasn't a function. *)
+                    mkTypeVar(generalisable, false, false)
+            end
+  
+        |   LabelledType {recList=firstRec, frozen=true, ...} =>
+            let
+                (* This matches if all the field names are the same.  Extract the types. *)
+                fun nameMatch({name=name1: string, ...}, {name=name2, ...}) = name1 = name2
+                fun getRecords(LabelledType{recList, ...}) =
+                        if ListPair.allEq nameMatch (firstRec, recList) 
+                        then SOME(List.map #typeof recList) else NONE
+                |   getRecords _ = NONE
+                val argResults = List.mapPartial (getRecords o canonical) otherTypes
+            in
+                if List.length argResults = List.length otherTypes
+                then
+                let
+                    (* Use the names from the first record (they all are the same) to
+                       build a new record. *)
+                    val argTypes = leastArgs(List.map #typeof firstRec :: argResults)
+                    fun recreateRecord({name, ...}, types) = {name=name, typeof=types}
+                    val newList = ListPair.map recreateRecord(firstRec, argTypes)
+                in
+                    LabelledType{recList=newList, frozen=true, genericInstance=[] }
+                end
+                else (* At least one of these wasn't a record. *)
+                    mkTypeVar(generalisable, false, false)
+            end
+
+        |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false)
+    end
 
     structure Sharing =
     struct

@@ -2399,6 +2399,11 @@ struct
                     Value { references=SOME{localRef, ...}, ...} =>
                         localRef := location :: ! localRef
                 |   _ => ();
+                (* Include this type in the list of instance types. *)
+                case expValue of
+                    Value { instanceTypes=SOME instanceRef, ...} =>
+                        instanceRef := instanceType :: ! instanceRef
+                |   _ => ();
                 expType := instanceType;
                 value  := expValue;
                 instanceType (* Result is the instance type. *)
@@ -3231,7 +3236,15 @@ struct
         in
             ListPair.appEq allowGen (decs, valdecs);
             (* And declare the new names into the surrounding environment. *)
-            #apply newEnv (#enterVal env)
+            let
+                fun enterDec(s, v as Value{instanceTypes, ...}) =
+                (
+                    valOf instanceTypes := []; (* Remove any recursive references. *)
+                    #enterVal env (s, v)
+                )
+            in
+                #apply newEnv enterDec
+            end
         end (* assValDeclaration *)
 
         and assFunDeclaration {dec=tlist: fvalbind list, explicit, implicit, ...} =
@@ -3448,7 +3461,7 @@ struct
                bindings are non-expansive. *)
             List.app
                 (fn(FValBind{
-                    functVar as ref(var as Value{typeOf, locations, name, ...}), ...}) =>
+                    functVar as ref(var as Value{typeOf, locations, name, instanceTypes, ...}), ...}) =>
                 (
                     (* Generalise the types.  allowGeneralisation side-effects the type variables,
                        replaces any that can be generalised by general variables. *)
@@ -3457,6 +3470,8 @@ struct
                        not escaping as a result of a recursive application of
                        the function to a local datatype. *)
                     checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations));
+                    (* Remove any recursive references.  This really isn't right. *)
+                    valOf instanceTypes := [];
                     #enterVal env (name, var);
                     functVar := var
                 )) tlist
@@ -3685,7 +3700,151 @@ struct
       assignValues(1, 0, env, v, v)
     end (* pass2 *);
 
+    (* Before code-generation perform an extra pass through the tree to remove
+       unnecessary polymorphism.  The type-checking computes a most general
+       type for a value, typically a function, but it is frequently used in
+       situations where a less general type would suffice. *)
+    fun setLeastGeneralTypes(p: parsetree, _: lexan) =
+    let
+        (* Because of mutual recursion we need to process the set of variables
+           produced by a fun-declaration or a val rec declaration as a group.
+           We also process no-recursive val bindings here for simplicity.  *)
+        fun processVariableSet(variables: values list) =
+        let
+            (* Two polymorphic values that are involved in mutual recursion will have
+               the same type variable in both values.  When we produce the least
+               general type we have to consider all the types that may be used for
+               those variables. Unfortunately, because of flexible records we need
+               to repeat the unification we did in the previous pass. *)
+            local
+                fun getTypeVarsAndInstance (Value{typeOf, instanceTypes, ...}, vars) =
+                let
+                    val instances = ! (valOf instanceTypes)
+                    fun getPolyVars typ =
+                    let
+                        val (copied, tyVars) = generalise typeOf
+                    in
+                        if isSome(unifyTypes(copied, typ))
+                        then raise InternalError "getPolyVars: Unable to get type vars"
+                        else ();
+                        tyVars (* Return the type vars instantiated to the instance types. *)
+                    end
+                    (* This returns a list, one entry for each instance, of a list of the
+                       type variables for that instance. *)
+                    val instanceVarLists: types list list = List.map getPolyVars instances
+                    (* Transpose that list so we get a list, one entry for each type variable,
+                       of all the instance types that are possible. *)
+                    fun transpose ([]::_) = []
+                    |   transpose (args as _::_) = (List.map hd args) :: transpose (List.map tl args)
+                    |   transpose [] = []
+                    val instanceVars = transpose instanceVarLists
+                    (* Get the original type variables. *)
+                    val originalVars = getPolyTypeVars(typeOf, fn _ => NONE)
+                    (* Look to see if we already have some of the original vars in the list.
+                       If we have we use the same ref for each var and merge the instance types. *)
+                    fun mergeVars(ovar, iTypes) =
+                        case List.find (fn (tv, _) => sameTv(tv, ovar)) vars of
+                            NONE => (ovar, ref iTypes)
+                        |   SOME(matched as (_, otherRef)) =>
+                                ( otherRef := iTypes @ ! otherRef; matched)
+                    val mergedList = ListPair.map mergeVars (originalVars, instanceVars) @ vars
+                in
+                    mergedList
+                end
+            in
+                (* Get a list of the original type variables each with a reference containing
+                   the shared list of instance types. *)
+                val typeVarMap = List.foldl getTypeVarsAndInstance [] variables
+            end
+            local
+                fun reduceTypes(tv, ref types) =
+                    (* Although tv is a type variable it could occur as the least general type.
+                       Unify takes care of that. *)
+                    if isSome(unifyTypes(TypeVar tv, leastGeneral types))
+                    then raise InternalError "reduceTypes: Unable to set type vars"
+                    else ()
+            in
+                val () = List.app reduceTypes typeVarMap
+            end
+        in
+            ()
+        end
 
+        fun leastGenExp(ValDeclaration{dec, ...}) =
+            (
+                (* Val declarations may be recursive or non-recursive.  In the case of
+                   recursive declarations we need to handle these in the same way as
+                   fun-declarations. *)
+                (* Gather all the variables and process them as a group.  There can't be
+                   any dependencies between them except for mutual recursion. *)
+                processVariableSet
+                        (List.foldl (fn (ValBind{variables=ref variables, ...}, vars) => variables @ vars) [] dec);
+                List.app (fn ValBind{exp, ...} => leastGenExp exp) dec
+            )
+
+        |   leastGenExp(FunDeclaration{dec, ...}) =
+            (
+                (* First process the outer declarations. *)
+                processVariableSet(List.map(fn FValBind{functVar=ref var, ...} => var) dec);
+                (* Then process the inner declarations.  Setting the outer type may have set the
+                   instance types within the bodies. *)
+                let
+                    fun processClause(FValClause{exp, ...}) = leastGenExp exp
+                    fun processBind(FValBind{clauses, ...}) = List.app processClause clauses
+                in
+                    List.app processBind dec
+                end
+            )
+
+        |   leastGenExp(Localdec{decs, body, ...}) =
+            (
+                (* Process the body expressions in order but the declarations must be done in
+                   reverse order after the body. *)
+                List.app leastGenExp body;
+                List.foldr (fn (p, ()) => leastGenExp p) () decs
+            )
+
+        |   leastGenExp(AbsDatatypeDeclaration { declist, ... }) =
+                (* Declarations in reverse order *)
+                List.foldr (fn (p, ()) => leastGenExp p) () declist
+
+            (* All the rest of these just involve processing sub-expressions. *)
+        |   leastGenExp(Applic{f, arg, ...}) = (leastGenExp f; leastGenExp arg)
+
+        |   leastGenExp(Cond{test, thenpt, elsept, ...}) =
+                (leastGenExp test; leastGenExp thenpt; leastGenExp elsept)
+
+        |   leastGenExp(TupleTree(entries, _)) = List.app leastGenExp entries
+
+        |   leastGenExp(Constraint{value, ...}) = leastGenExp value
+
+        |   leastGenExp(Fn {matches, ...}) = List.app (fn MatchTree{exp, ...} => leastGenExp exp) matches
+
+        |   leastGenExp(ExpSeq(ptl, _)) = List.app leastGenExp ptl
+
+        |   leastGenExp(HandleTree{exp, hrules, ...}) =
+                (leastGenExp exp; List.app (fn MatchTree{exp, ...} => leastGenExp exp) hrules)
+
+        |   leastGenExp(While{test, body, ...}) = (leastGenExp test; leastGenExp body)
+
+        |   leastGenExp(Case{test, match, ...}) =
+                (leastGenExp test; List.app (fn MatchTree{exp, ...} => leastGenExp exp) match)
+
+        |   leastGenExp(Andalso {first, second, ...}) = (leastGenExp first; leastGenExp second)
+
+        |   leastGenExp(Orelse{first, second, ...}) = (leastGenExp first; leastGenExp second)
+
+        |   leastGenExp(Labelled{recList, ...}) = List.app (leastGenExp o #valOrPat) recList
+
+        |   leastGenExp(List{elements, ...}) = List.app leastGenExp elements
+
+        |   leastGenExp(Parenthesised(p, _)) = leastGenExp p
+
+        |   leastGenExp _ = ()
+
+    in
+        leastGenExp p
+    end
 
 (*****************************************************************************
                                 PASS 3
@@ -5713,14 +5872,14 @@ struct
                used for the most general case.  Also set the variable addresses.
                These may be changed for polymorphic functions but will eventually
                be reset. *)
-        
+
             val addressList = List.map (fn _ => mkAddr 2 (* We need two addresses. *)) tlist
             val () = ListPair.appEq (fn (t, a) => setValueAddress(t, a, level)) (tlist, addressList)
 
             (* Get the polymorphic variables for each function. *)
             local
                 fun getPoly(FValBind{functVar = ref (Value{typeOf, ...}), ...}) =
-                        getPolyTypeVars(typeOf, mapTypeVars typeVarMap)
+                    getPolyTypeVars(typeOf, mapTypeVars typeVarMap)
             in
                 val polyVarList = List.map getPoly tlist
             end

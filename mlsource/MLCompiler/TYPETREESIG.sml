@@ -196,6 +196,8 @@ sig
     val typeFromTypeParse: typeParsetree -> types
 
     val typeExportTree: navigation * typeParsetree -> exportTree
+    
+    val leastGeneral: types list -> types
 
     structure TypeValue:
     sig

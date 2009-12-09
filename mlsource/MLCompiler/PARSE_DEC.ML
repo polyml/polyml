@@ -2024,7 +2024,7 @@ struct
     end
        
     
-  fun structVal (fsys : symset) (lex : lexan) env : structs * location =
+  fun structVal (fsys : symset) (lex : lexan) env : structValue * location =
   let
       (* Series of declarations inside struct...end or (...) in functor
          application. *)
@@ -2055,12 +2055,12 @@ struct
           (* The local declaration *)
           val ins  = strDec (fsysPcolon ++ inEndSy) lex newEnv
           val () = getsym (SYMBOLS.inSy, lex)
-          val body = [#1 (structVal (fsysPcolon ++ endSy) lex newEnv)]
+          val body = #1 (structVal (fsysPcolon ++ endSy) lex newEnv)
           val endLoc = location lex
           val () = getsym (SYMBOLS.endSy, lex)
           val locs = locSpan(startLocn, endLoc)
         in
-          (mkLocaldec (ins, body, (* "let" rather than "local" *) false, locs), locs)
+          (mkLetdec (ins, body, locs), locs)
         end
     
         else
@@ -2120,7 +2120,7 @@ struct
       doConstraints strExp
   end (* structVal *)
 
-    and structureDec (fsys : symset) (lex : lexan) (env as {enterFix, ...}) : structs =
+    and structureDec (fsys : symset) (lex : lexan) (env as {enterFix, ...}) : structDec =
     let
         val startLocn = location lex
     in
@@ -2155,9 +2155,9 @@ struct
             mkStructureDec (strs, locSpan(startLocn, strLocs))
         end
 
-        else if testfor (SYMBOLS.localSy, empty, lex)
-        then
+        else 
         let
+            val () = getsym (SYMBOLS.localSy, lex)
             val startLoc = location lex
             val newEnv  = mkLocalFixEnv env
             (* The local declaration *)
@@ -2169,10 +2169,9 @@ struct
             val endLoc = location lex
             val () = getsym (SYMBOLS.endSy, lex)
         in
-            mkLocaldec (ins, body, true, locSpan(startLoc, endLoc))
+            mkLocaldec (ins, body, locSpan(startLoc, endLoc))
         end
-       
-        else emptyStruct
+
     end (* end of structureDec *)
 
     (* Functor declarations. *)
@@ -2246,10 +2245,10 @@ struct
     end (* functorDec *)
 
 
-    and strDec (fsys : symset) (lex : lexan) env : structs list =
+    and strDec (fsys : symset) (lex : lexan) env : structDec list =
     (* A sequence of declarations, optionally separated by semicolons. *)
     let
-        fun getDecs () : structs list =
+        fun getDecs () : structDec list =
         let 
             val tsys = fsys ++ semicolonStartDecStructureSy;
         in

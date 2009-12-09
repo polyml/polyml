@@ -181,7 +181,8 @@ struct
             access: valAccess,
             class: valueClass,
             locations: locationProp list, (* Location of declaration *)
-            references: references
+            references: references,
+            instanceTypes: types list ref option (* Instance types for local variables. *)
         }
 
     (* Classes of values. *)
@@ -347,7 +348,8 @@ struct
       access  = access,
       class   = Constructor { nullary = nullary, ofConstrs = constrs },
       locations = locations,
-      references = NONE
+      references = NONE,
+      instanceTypes = NONE
     };
 
   
@@ -564,11 +566,11 @@ struct
   (* Values. *)  
   fun makeOverloaded (name, typeOf, operation) : values =
     Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = ValBound,
-           locations = [DeclaredAt inBasis], references = NONE};
+           locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE};
 
   val undefinedValue    =
     Value{ name = "<undefined>", typeOf = BadType, access = Global CodeZero, class = ValBound,
-           locations = [DeclaredAt inBasis], references = NONE };
+           locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
   fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 

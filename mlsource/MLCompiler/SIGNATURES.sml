@@ -455,7 +455,8 @@ struct
 
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
-        Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations, references = NONE}
+        Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations,
+              references = NONE, instanceTypes=NONE}
 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
@@ -1162,7 +1163,8 @@ struct
                                any sharing *)
                             fun copyConstructor(Value { name, typeOf, access, class, locations, ... }) =
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE}
+                                      class=class, locations=locations, references=NONE,
+                                      instanceTypes=NONE}
                             val newType =
                                 case tcConstructors ty of
                                     [] => ty (* Not a datatype. *)
@@ -1188,7 +1190,8 @@ struct
                         and enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
                             #enterVal structEnv (dName,
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE})
+                                      class=class, locations=locations, references=NONE,
+                                      instanceTypes=NONE})
 
                         val tsvEnv =
                             { enterType = enterType, enterStruct = enterStruct, enterVal = enterVal }
@@ -1223,7 +1226,7 @@ struct
                    declaration or from datatype replication. *)
                 fun convertValueConstr(Value{class=class, typeOf, locations, name, ...}) =
                     Value{class=class, typeOf=typeOf, access=Formal(!addrs before (addrs := !addrs+1)), name=name,
-                        locations=locations, references=NONE}
+                        locations=locations, references=NONE, instanceTypes=NONE}
                     
                 fun enterVal(name, v) = (#enterVal structEnv)(name, convertValueConstr v)
 

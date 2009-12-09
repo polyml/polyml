@@ -554,7 +554,7 @@ struct
                     Value{ name = name, typeOf = TYPETREE.exnType,
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
-                           references = NONE }
+                           references = NONE, instanceTypes=NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end
@@ -565,7 +565,7 @@ struct
                     Value{ name = name, typeOf = exType ->> TYPETREE.exnType,
                            access = Global(mkConst(toMachineWord id)),
                            class = Exception, locations = declInBasis,
-                           references = NONE }
+                           references = NONE, instanceTypes=NONE }
             in
                 #enterVal runCallEnv (name, exc)
             end

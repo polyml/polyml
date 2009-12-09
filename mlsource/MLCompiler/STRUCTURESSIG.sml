@@ -24,7 +24,8 @@
 (*****************************************************************************)
 signature STRUCTURESSIG =
 sig
-    type structs;
+    type structDec
+    type structValue
     type structVals;
     type types;
     type parsetree;
@@ -54,23 +55,22 @@ sig
     type formalArgStruct
     type sigs
 
-    val isEmptyStruct:      structs -> bool;
-    val emptyStruct:        structs
-    val mkStructureDec:     structBind list * location -> structs;
-    val mkStruct:           structs list * location -> structs;
+    val mkStructureDec:     structBind list * location -> structDec
+    val mkStruct:           structDec list * location -> structValue
     val mkSignatureDec:     sigBind list * location -> topdec;
     val mkFunctorDec:       functorBind list * location -> topdec;
-    val mkLocaldec:         structs list * structs list * bool * location -> structs;
-    val mkCoreLang:         parsetree * location -> structs;
-    val mkStructureBinding: (string * location) * (sigs * bool * location) option * structs * location -> structBind
-    val mkStructIdent:      string * location -> structs;
+    val mkLocaldec:         structDec list * structDec list * location -> structDec;
+    val mkLetdec:           structDec list * structValue * location -> structValue;
+    val mkCoreLang:         parsetree * location -> structDec;
+    val mkStructureBinding: (string * location) * (sigs * bool * location) option * structValue * location -> structBind
+    val mkStructIdent:      string * location -> structValue;
     val mkSignatureBinding: (string * location) * sigs * location -> sigBind;
-    val mkFunctorAppl:      string * structs * location * location -> structs;
+    val mkFunctorAppl:      string * structValue * location * location -> structValue;
     val mkFormalArg:        string * sigs -> formalArgStruct;
     val mkFunctorBinding:
-        string * location * (sigs * bool * location) option * structs * formalArgStruct * location -> functorBind;
-    val mkSigConstraint:    structs * sigs * bool * location -> structs
-    val mkTopDec:           structs -> topdec
+        string * location * (sigs * bool * location) option * structValue * formalArgStruct * location -> functorBind;
+    val mkSigConstraint:    structValue * sigs * bool * location -> structValue
+    val mkTopDec:           structDec -> topdec
     val mkProgram:          topdec list * location -> program
 
     val pass2Structs:   program * lexan * env -> unit;
@@ -91,7 +91,8 @@ sig
 
     structure Sharing:
     sig
-        type structs        = structs
+        type structDec      = structDec
+        type structValue    = structValue
         type structVals     = structVals
         type types          = types
         type parsetree      = parsetree

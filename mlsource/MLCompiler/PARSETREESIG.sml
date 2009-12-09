@@ -153,6 +153,7 @@ sig
 
     val getExportTree: navigation * parsetree -> exportTree
 
+    val setLeastGeneralTypes: parsetree * lexan -> unit
 
     (* Types that can be shared. *)
     structure Sharing:

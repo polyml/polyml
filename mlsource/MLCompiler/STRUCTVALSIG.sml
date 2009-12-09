@@ -140,7 +140,8 @@ sig
             access: valAccess,
             class: valueClass,
             locations: locationProp list,
-            references: references
+            references: references,
+            instanceTypes: types list ref option
         }
 
     (* Classes of values. *)
