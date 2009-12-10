@@ -106,7 +106,7 @@ struct
      because they can be declared by opening a structure with substructures. *)
   datatype coreDeclaration =
     CoreValue       of values
-  | CoreType        of typeConstrs
+  | CoreType        of typeConstrSet
   | CoreFix         of string*fixStatus (* Include the name because it isn't part of fixStatus. *)
   | CoreStruct      of structVals
 
@@ -938,7 +938,8 @@ struct
 
     (* Check that a matching has succeeded, and check the value
        constructors if they are datatypes. *)
-    fun checkTypeConstrs (candid, target, targTypeMap: int -> typeId option, lex, near, lno, typeEnv, structPath) =
+    fun checkTypeConstrs (candidSet as TypeConstrSet(candid, _), targetSet as TypeConstrSet(target, _),
+                          targTypeMap: int -> typeId option, lex, near, lno, typeEnv, structPath) =
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
@@ -956,7 +957,7 @@ struct
                          mkTypeConstruction (targetName, target, tvars, []), 
                          targTypeMap) of
                 MatchError error => (* Report the error. *)
-                    errorInDatatype(candid, target, matchErrorReport(lex, typeEnv, typeEnv) error)
+                    errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
             |   MatchSuccess _ => ()
                 (* We have already checked for matching a type in the structure to a datatype in the signature.
                    In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
@@ -1030,14 +1031,14 @@ struct
             if tagIs typeConstrVar dVal
             then
             let (* See if there is one with the same name. *)
-                val target = tagProject typeConstrVar dVal;
+                val targetSet as TypeConstrSet(target, targetConstrs) = tagProject typeConstrVar dVal;
                 val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
                 fun displayType t = displayTypeConstrs(t, errorDepth lex, printTypeEnv)
                 val typeError = sigStructMatchMsg(lex, near, lno, structPath) displayType
             in (* Match up the types. This does certain checks but
                   does not check sharing. Equality is checked for. *)
                 case univLookup (sigTab candidate, typeConstrVar, dName) of
-                    SOME candid =>
+                    SOME (candidSet as TypeConstrSet(candid, candidConstrs)) =>
                         if not (isUndefinedTypeConstr target) (* just in case *)
                         then
                         ( 
@@ -1049,24 +1050,23 @@ struct
                             |   _ => ();
                     
                             if tcArity target <> tcArity candid
-                            then typeError(candid, target,
+                            then typeError(candidSet, targetSet,
                                         PrettyString "Types take different numbers of type arguments.")
 
                             (* Check that it's a datatype before checking for eqtype. *)
-                            else if not (null (tcConstructors target)) andalso
-                                    null (tcConstructors candid)
-                            then typeError(candid, target, 
+                            else if not (null targetConstrs) andalso null candidConstrs
+                            then typeError(candidSet, targetSet, 
                                         PrettyString "Type in structure is not a datatype")
 
                             else if not(tcIsAbbreviation target) andalso tcEquality target
                                     andalso not (permitsEquality candid)
-                            then typeError(candid, target, 
+                            then typeError(candidSet, targetSet, 
                                         PrettyString "Type in structure is not an equality type")
                            
                             else () 
                         )
                         else ()
-                |   NONE => sigStructMissingMsg(lex, near, lno, structPath) displayType target
+                |   NONE => sigStructMissingMsg(lex, near, lno, structPath) displayType targetSet
             end
              
             else if tagIs structVar dVal
@@ -1123,7 +1123,7 @@ struct
                             in
                                 (* Now check that the types match. *)
                                 checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv, structPath);
-                                ListPair.foldl matchConstructor matches (tcConstructors candid, tcConstructors target)
+                                ListPair.foldl matchConstructor matches (tsConstructors candid, tsConstructors target)
                             end
                     |   NONE => matches (* If the lookup failed ignore
                                      the error - we've already reported it in matchNames *)
@@ -1334,7 +1334,7 @@ struct
                     (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
             |   matchConstructor(_, matches) = matches
         in
-            List.foldl matchConstructor matches (tcConstructors(tagProject typeConstrVar dVal))
+            List.foldl matchConstructor matches (tsConstructors(tagProject typeConstrVar dVal))
         end
         else matches
     in
@@ -1551,8 +1551,7 @@ struct
                 if tagIs typeConstrVar dVal
                 then
                 let
-                    val tConstr = tagProject typeConstrVar dVal
-                    val valConstrs = tcConstructors tConstr
+                    val tConstr as TypeConstrSet(typConstr, valConstrs) = tagProject typeConstrVar dVal
                 in
                     if null valConstrs
                     then (#enterType finalEnv (dName, tConstr); (addrs, matches))
@@ -1578,11 +1577,10 @@ struct
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
-                            makeDatatypeConstr(
-                                tcName tConstr, tcTypeVars tConstr, tcIdentifier tConstr, 0, tcLocations tConstr)
-                        val () = tcSetConstructors(newConstructor, List.rev newConstrs)
+                            makeTypeConstructor(
+                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, 0, tcLocations typConstr)
                     in
-                        #enterType finalEnv (dName, newConstructor);
+                        #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
                     end
                 end
@@ -2747,13 +2745,11 @@ struct
              to code-generate the declarations first then return the values. *)
             fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], nullLex, location nullLex) :: rest
             |   loadVals (CoreStruct s, rest) = codeStruct (s, level) :: rest
-            |   loadVals (CoreType t, rest) =
+            |   loadVals (CoreType (TypeConstrSet(_, tcConstructors)), rest) =
                     (* Type IDs are handled separately but we need to load the value constructors if
                        this is a datatype.  This is really only because of datatype replication where
                        we need to be able to get the value constructors from the datatype. *)
-                    List.map(
-                        fn v => codeVal (v, level, typeVarMap, [], nullLex, location nullLex))
-                            (tcConstructors t)
+                    List.map( fn v => codeVal (v, level, typeVarMap, [], nullLex, location nullLex)) tcConstructors
                         @ rest
             |   loadVals (_, rest)              = rest
             
@@ -2984,9 +2980,9 @@ struct
                  (addr, { fixes=pair :: fixes, values=values, structures=structures,
                           signatures=signatures, functors=functors, types=types } )
 
-            |   makeDecs (CoreType tc, (addr, {fixes, values, structures, signatures, functors, types})) =
+            |   makeDecs (CoreType (TypeConstrSet(tc, constrs)),
+                                (addr, {fixes, values, structures, signatures, functors, types})) =
                 let
-                    val constrs = tcConstructors tc
                     fun loadConstr(Value{class, name, typeOf, locations, ...}, (addr, others)) =
                     let
                         val newAccess = Global(mkInd (addr, results))
@@ -2998,9 +2994,7 @@ struct
                         (addr+1, others @ [newConstr])
                     end
                     val (nextAddr, newConstrs) = List.foldl loadConstr (addr, []) constrs
-                    val () = (* Don't do this if it hasn't got any: it may be locked. *)
-                        if null constrs then () else tcSetConstructors(tc, newConstrs)
-                    val copiedTC = fullCopyDatatype(tc, mapTypeIds, "")
+                    val copiedTC = fullCopyDatatype(TypeConstrSet(tc, newConstrs), mapTypeIds, "")
                     val newName = #second(splitString(tcName tc))
                 in
                     (nextAddr, { fixes=fixes, values=values, structures=structures,
@@ -3145,7 +3139,7 @@ struct
         type lexan          = lexan
         type pretty         = pretty
         type values         = values
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type codetree       = codetree
         type signatures     = signatures
         type functors       = functors

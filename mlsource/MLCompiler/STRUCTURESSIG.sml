@@ -32,7 +32,7 @@ sig
     type lexan;
     type pretty;
     type values;
-    type typeConstrs;
+    type typeConstrSet;
     type typeVarForm
     type codetree;
     type signatures;
@@ -80,7 +80,7 @@ sig
             {
                 fixes: (string * fixStatus) list, values: (string * values) list,
                 structures: (string * structVals) list, signatures: (string * signatures) list,
-                functors: (string * functors) list, types: (string* typeConstrs) list
+                functors: (string * functors) list, types: (string* typeConstrSet) list
             };
 
     val gencodeStructs: program * lexan -> codetree;
@@ -99,7 +99,7 @@ sig
         type lexan          = lexan
         type pretty         = pretty
         type values         = values
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type codetree       = codetree
         type signatures     = signatures
         type functors       = functors

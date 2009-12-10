@@ -20,7 +20,6 @@ signature SIGNATURESSIG =
 sig
     type sigs
     type structSigBind
-    type types
     type parsetree
     type typeParsetree
     type typeVarForm
@@ -45,7 +44,7 @@ sig
     val mkExSig:            (string * location) * typeParsetree option * location -> specs
     val mkCoreType:         parsetree * location -> specs
     val mkSharing:          bool * (string * location) list * location -> specs
-    val mkWhereType:        sigs * typeVarForm list * string * types * location -> sigs
+    val mkWhereType:        sigs * typeVarForm list * string * typeParsetree * location -> sigs
     val mkInclude:          sigs list * location -> specs
     val mkSigIdent:         string * location -> sigs;
     val mkSig:              specs list * location -> sigs;
@@ -61,7 +60,6 @@ sig
         type sigs           = sigs
         type structSigBind  = structSigBind
         type signatures     = signatures
-        type types          = types
         type parsetree      = parsetree
         type typeParsetree  = typeParsetree
         type typeVarForm    = typeVarForm

@@ -27,6 +27,7 @@ sig
     type types;
     type values;
     type typeConstrs;
+    type typeConstrSet
     type typeVarForm
     type lexan;
     type typeId;
@@ -45,7 +46,7 @@ sig
     type codetree
 
     type printTypeEnv =
-        { lookupType: string -> (typeConstrs * (int->typeId) option) option,
+        { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
@@ -73,9 +74,6 @@ sig
     val linkTypeVars: typeVarForm * typeVarForm -> unit;
     val setTvarLevel: typeVarForm * int -> unit;
 
-    (* Fill in the values of type variables and make checks. *)
-    val assignTypes: types * (string * location -> typeConstrs) * lexan -> unit;
-
     (* Copy a type constructor. *)
     val copyTypeConstr:
         typeConstrs * (typeId -> typeId option) * (types -> types) * (string -> string) -> typeConstrs
@@ -94,8 +92,8 @@ sig
     val displayWithMap: types * int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* Print out a type constructor. *)
-    val displayTypeConstrs: typeConstrs * int * printTypeEnv -> pretty;
-    val displayTypeConstrsWithMap: typeConstrs * int * printTypeEnv * (int->typeId) option -> pretty;
+    val displayTypeConstrs: typeConstrSet * int * printTypeEnv -> pretty;
+    val displayTypeConstrsWithMap: typeConstrSet * int * printTypeEnv * (int->typeId) option -> pretty;
 
     (* A list of type variables. *)
     val displayTypeVariables: typeVarForm list * int -> pretty list;
@@ -104,7 +102,7 @@ sig
     val typeConstrFromOverload: types * bool -> typeConstrs;
 
     (* Check a set of mutually recursive datatypes to see which admit equality. *)
-    val computeDatatypeEqualities: typeConstrs list * (int -> bool) -> unit;
+    val computeDatatypeEqualities: typeConstrSet list * (int -> bool) -> unit;
 
     (* Unify two type structures to give a unified type. *)
     val unifyTypes: types * types -> matchResult option
@@ -181,6 +179,8 @@ sig
        type identifier of the constructor that is being rebound. *)
     val typeNameRebinding: typeVarForm list * types -> typeId option
 
+    val leastGeneral: types list -> types
+
     (* Parse tree operations. *)
     type typeParsetree
     val ParseTypeBad: typeParsetree
@@ -192,12 +192,12 @@ sig
         ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
     val makeParseTypeId: typeVarForm * location -> typeParsetree
     val unitTree: location -> typeParsetree
+    val displayTypeParse: typeParsetree * int * printTypeEnv -> pretty;
 
-    val typeFromTypeParse: typeParsetree -> types
+    (* Fill in the values of type variables and make checks. *)
+    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
 
     val typeExportTree: navigation * typeParsetree -> exportTree
-    
-    val leastGeneral: types list -> types
 
     structure TypeValue:
     sig
@@ -239,6 +239,7 @@ sig
         and  typeId     = typeId
         and  structVals = structVals
         and  typeConstrs= typeConstrs
+        and  typeConstrSet=typeConstrSet
         and  typeParsetree = typeParsetree
         and  locationProp = locationProp
         and  pretty     = pretty

@@ -124,7 +124,7 @@ struct
         sigExp: sigs,
         typeVars: typeVarForm list,
         typeName: string,
-        realisation: types,
+        realisation: typeParsetree,
         line: location
       }
 
@@ -213,8 +213,6 @@ struct
                 displayList (vs, separator, depth - 1) dodisplay
             end (* displayList *)
 
-    val displayType = TYPETREE.display;
-
     fun displaySigs (str, depth) =
         if depth <= 0 (* elide further text. *)
         then PrettyString "..."
@@ -246,7 +244,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString "=",
                     PrettyBreak (1, 0),
-                    displayType (realisation, depth - 1, emptyTypeEnv)
+                    displayTypeParse (realisation, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -283,7 +281,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1, emptyTypeEnv)
+                    displayTypeParse (typeof, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -303,7 +301,7 @@ struct
                     PrettyBreak (1, 1),
                     PrettyString (name ^ " :"),
                     PrettyBreak (1, 0),
-                    displayType (typeFromTypeParse typeof, depth - 1, emptyTypeEnv)
+                    displayTypeParse (typeof, depth - 1, emptyTypeEnv)
                 ]
             )
 
@@ -566,11 +564,12 @@ struct
         |   _ => raise InternalError "linkFlexibleTypeIds: not bound"
 
         local (* Sharing *)
-            fun shareTypes(typeA, aPath, aMap, typeB, bPath, bMap, lno, nearStruct) =
+            fun shareTypes(typeA as TypeConstrSet(constrA, _), aPath, aMap,
+                           typeB as TypeConstrSet(constrB, _), bPath, bMap, lno, nearStruct) =
             let
                 fun cantShare reason =
                 let
-                    fun showTypeCons(t, p) =
+                    fun showTypeCons(TypeConstrSet(t, _), p) =
                     let
                         val context =
                             case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations t) of
@@ -608,25 +607,25 @@ struct
                                 printId tcId
                             ]))
             in
-                if isUndefinedTypeConstr typeA orelse isUndefinedTypeConstr typeB
+                if isUndefinedTypeConstr constrA orelse isUndefinedTypeConstr constrB
                 then ()
-                else if tcArity typeA <> tcArity typeB (* Check arity. *)
+                else if tcArity constrA <> tcArity constrB (* Check arity. *)
                 then cantShare(PrettyString "The type constructors take different numbers of arguments.")
                 else
                 let
                     fun mapId (map, TypeId{idKind=Bound{offset, ...}, ...}) = map offset
                     |   mapId (_, id) = id
-                    val aId = mapId(aMap, tcIdentifier typeA)
-                    and bId = mapId(bMap, tcIdentifier typeB)
+                    val aId = mapId(aMap, tcIdentifier constrA)
+                    and bId = mapId(bMap, tcIdentifier constrB)
                 in
                     (* The type constructors are only looked up in the signature but they
                        already may be set to another type through a "where type" or they may
                        have been created with Free IDs through type t=s declarations.  This
                        could be a free identifier or a type function.  *)
                     if not (isVariableId aId)
-                    then alreadyBound(aPath, tcName typeA, aId)
+                    then alreadyBound(aPath, tcName constrA, aId)
                     else if not (isVariableId bId)
-                    then alreadyBound(bPath, tcName typeB, bId)
+                    then alreadyBound(bPath, tcName constrB, bId)
                     else linkFlexibleTypeIds(aId, bId)
                 end
             end (* shareTypes *);
@@ -725,7 +724,7 @@ struct
                         let
                             val first  = lookupSharing hd
                         in
-                            if isUndefinedTypeConstr first
+                            if isUndefinedTypeConstr(tsConstr first)
                             then ()
                             else List.app (fn typ =>
                                     shareTypes (lookupSharing typ, "", typeIdEnv(), first, "", typeIdEnv(), line, near)) tl
@@ -810,7 +809,7 @@ struct
             makeSignature(name, tab, !idCount, !idCount, declaredAt, mapIds, [])
         end
 
-        and signatureWhereType(sigExp, typeVars, typeName, realisation, line, Env globalEnv, structPath) =
+        and signatureWhereType(sigExp, typeVars, typeName, realisationType, line, Env globalEnv, structPath) =
         let
             (* We construct the signature into the result signature.  When we apply the
                "where" we need to look up the types (and structures) only within the
@@ -849,7 +848,7 @@ struct
                  giveError (str, locn, lex))
 
             (* Process the type, looking up any type constructors. *)
-            val () = assignTypes (realisation, lookupGlobal, lex);
+            val realisation = assignTypes (realisationType, lookupGlobal, lex);
 
             fun cantSet(reason1, reason2) =
             let
@@ -875,13 +874,13 @@ struct
             end
          in
             (* Now try to set the target type to the type function. *)
-            if isUndefinedTypeConstr sigTypeConstr
+            if isUndefinedTypeConstr (tsConstr sigTypeConstr)
             then () (* Probably because looking up the type constructor name failed. *)
             else
             let
                 (* Map the type identifier to be set. *)
                 val typeId =
-                    case tcIdentifier sigTypeConstr of
+                    case tcIdentifier (tsConstr sigTypeConstr) of
                         TypeId{idKind=Bound{offset, ...}, ...} => idMap offset
                     |   id => id
             in
@@ -997,7 +996,7 @@ struct
                       checkAndEnter (#enterVal structEnv, #lookupVal structEnv, "Value",
                         fn (Value{ locations, ...}) => locations),
                     enterType     =
-                      checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations),
+                      checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations o tsConstr),
                     enterStruct   =
                       checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", structLocations),
                     (* These next three can't occur. *)
@@ -1054,7 +1053,6 @@ struct
                 
               | ValSig {name=(name, nameLoc), typeof, line, ...} =>
                 let
-                    val typeof = typeFromTypeParse typeof
                   val errorFn = giveSpecError (signat, line, lex);
                 
                   fun lookup(s, locn) =
@@ -1067,13 +1065,13 @@ struct
                        },
                      s,
                      giveSpecError (signat, locn, lex));
-                in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins.  "it" is allowed here. *)
-                    if name = "true" orelse name = "false" orelse name = "nil"
-                    orelse name = "::" orelse name = "ref"
-                  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
-                  else ();
-                  assignTypes (typeof, lookup, lex);
+                  val () = if name = "true" orelse name = "false" orelse name = "nil"
+                            orelse name = "::" orelse name = "ref"
+                        then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
+                        else ();
+                  val typeof = assignTypes (typeof, lookup, lex);
+                in  (* If the type is not found give an error. *)
                   (* The type is copied before being entered in the environment.
                      This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
@@ -1101,13 +1099,7 @@ struct
                   val exType =
                     case typeof of
                         NONE => exnType
-                    |   SOME typeof =>
-                        let
-                            val ty = typeFromTypeParse typeof
-                        in
-                            assignTypes (ty, lookup, lex);
-                            mkFunctionType (ty, exnType)
-                        end
+                    |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins. "it" is not allowed. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
@@ -1154,7 +1146,7 @@ struct
                             let val addr = !address in address := addr+1; Formal addr end
                         |   newAccess _ = raise InternalError "newAccess: Not Formal"
 
-                        fun enterType(name, ty) =
+                        fun enterType(name, tySet as TypeConstrSet(ty, tcConstructors)) =
                         let
                             (* Process value constructors with the type.  Because values can't
                                be redefined within a signature we can't have overridden this
@@ -1166,16 +1158,15 @@ struct
                                       class=class, locations=locations, references=NONE,
                                       instanceTypes=NONE}
                             val newType =
-                                case tcConstructors ty of
-                                    [] => ty (* Not a datatype. *)
+                                case tcConstructors of
+                                    [] => tySet (* Not a datatype. *)
                                 |   constrs =>
                                     let
                                         val newTy =
-                                        makeDatatypeConstr(tcName ty, tcTypeVars ty, tcIdentifier ty, 0,
+                                        makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty, 0,
                                             tcLocations ty)
                                     in
-                                        tcSetConstructors(newTy, List.map copyConstructor constrs);
-                                        newTy
+                                        TypeConstrSet(newTy, List.map copyConstructor constrs)
                                     end;
                         in
                             #enterType structEnv(name, newType)
@@ -1230,19 +1221,16 @@ struct
                     
                 fun enterVal(name, v) = (#enterVal structEnv)(name, convertValueConstr v)
 
-                (* Record all the datatypes we declare. *)
-                val datatypeList = ref []
-                fun enterType(name, tyCons) =
-                (
-                    datatypeList := tyCons :: !datatypeList;
-                    #enterType structEnv (name, tyCons)
-                )
+                (* Record all the types and enter them later. *)
+                val datatypeList = searchList ()
+                val enterType = #enter datatypeList
 
                val newEnv = 
                  {
                   lookupVal     = #lookupVal    structEnv,
                   lookupType    =
-                    lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
+                    lookupDefault (#lookup datatypeList)
+                        (lookupDefault (#lookupType structEnv) (#lookupType globalEnv)),
                   lookupFix     = #lookupFix    structEnv,
                   lookupStruct  =
                     lookupDefault (#lookupStruct structEnv) (#lookupStruct globalEnv),
@@ -1280,11 +1268,9 @@ struct
                    datatype environment from those in the value environment.  This
                    is needed for compatibility with the "signature" constructed
                    from a struct...end block. *)
-                fun updateConstrList tyCons =
-                    if null (tcConstructors tyCons)
-                    then ()
-                    else tcSetConstructors(tyCons, List.map convertValueConstr (tcConstructors tyCons))
-                val _ = List.app updateConstrList (!datatypeList)
+                fun enterFinalType (name, TypeConstrSet(tyCons, constrs)) =
+                    #enterType structEnv (name, TypeConstrSet(tyCons, List.map convertValueConstr constrs))
+                val _ = #apply datatypeList enterFinalType
               in
                 ! addrs
               end
@@ -1423,7 +1409,6 @@ struct
     struct
         type sigs           = sigs
         type structSigBind  = structSigBind
-        type types          = types
         type parsetree      = parsetree
         type typeParsetree  = typeParsetree
         type typeVarForm    = typeVarForm

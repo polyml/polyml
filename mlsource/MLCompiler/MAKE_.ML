@@ -39,7 +39,7 @@ functor MAKE_ (
 structure COMPILERBODY :
 sig
     type values;
-    type typeConstrs;
+    type typeConstrSet;
     type fixStatus;
     type structVals;
     type signatures;
@@ -48,21 +48,21 @@ sig
     type nameSpace =
       { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -81,7 +81,7 @@ sig
         exportTree option * ( unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrs) list }) option
+             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
 
 end;
 
@@ -170,8 +170,8 @@ sharing type
 = COMPILERBODY.structVals
 
 sharing type
-  STRUCTVALS.typeConstrs
-= COMPILERBODY.typeConstrs
+  STRUCTVALS.typeConstrSet
+= COMPILERBODY.typeConstrSet
 
 sharing type
   STRUCTVALS.fixStatus
@@ -200,7 +200,7 @@ sig
   type gEnv
   
     type values;
-    type typeConstrs;
+    type typeConstrSet;
     type fixStatus;
     type structVals;
     type signatures;
@@ -209,21 +209,21 @@ sig
     type nameSpace =
       { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -239,7 +239,7 @@ sig
         exportTree option * ( unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrs) list }) option
+             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
 
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env

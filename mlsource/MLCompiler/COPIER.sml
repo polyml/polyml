@@ -46,25 +46,7 @@ functor COPIER(
         val splitString: string -> { first:string,second:string }
     end
 
-sharing type
-  STRUCTVALS.types
-= TYPETREE.types
-
-sharing type
-  STRUCTVALS.values
-= TYPETREE.values
-
-sharing type
-  STRUCTVALS.typeId
-= TYPETREE.typeId
-
-sharing type
-  STRUCTVALS.structVals
-= TYPETREE.structVals
-
-sharing type
-  STRUCTVALS.typeConstrs
-= TYPETREE.typeConstrs
+sharing STRUCTVALS.Sharing = TYPETREE.Sharing
 
 sharing type
     UNIVERSALTABLE.univTable
@@ -75,7 +57,7 @@ struct
     open STRUCTVALS TYPETREE UNIVERSALTABLE UTILITIES
     open Universal; (* for tag record selectors *)
 
-    type tsvEnv = { enterType:   string * typeConstrs -> unit,
+    type tsvEnv = { enterType:   string * typeConstrSet -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
 
@@ -114,7 +96,7 @@ struct
             if tagIs typeConstrVar dVal
             then
             let
-                val tcon = tagProject typeConstrVar dVal
+                val TypeConstrSet(tcon, _) = tagProject typeConstrVar dVal
                 fun makeName s = strName ^ s
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
                 |   copyId _ = NONE
@@ -129,7 +111,7 @@ struct
                         case copyId id of
                             NONE => rest (* Skip (or add to cache?) *)
                         |   SOME newId =>
-                            (if null (tcConstructors tcon) then makeFrozenTypeConstrs else makeDatatypeConstr)
+                            makeTypeConstructor
                                 (makeName(tcName tcon),
                                     tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon) :: rest
                     )
@@ -144,7 +126,7 @@ struct
                         val copiedId =
                             TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
                     in
-                        makeFrozenTypeConstrs(makeName(tcName tcon), args, copiedId, 0, tcLocations tcon) :: rest
+                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, 0, tcLocations tcon) :: rest
                     end
             end
             else rest
@@ -217,7 +199,7 @@ struct
             else if tagIs typeConstrVar dVal
             then
             let
-                val oldConstr = tagProject typeConstrVar dVal
+                val TypeConstrSet(oldConstr, tcConstructors) = tagProject typeConstrVar dVal
                 val newConstr = copyTypeCons oldConstr;
                 (* Copy the value constructors for a datatype. *)
        
@@ -234,13 +216,9 @@ struct
                     else v
                 end;
 
-                val copiedConstrs = map copyValueConstr(tcConstructors oldConstr);
-                val () =
-                    if not (null copiedConstrs)
-                    then tcSetConstructors (newConstr, copiedConstrs)
-                    else ()
+                val copiedConstrs = map copyValueConstr tcConstructors
             in
-                #enterType resEnv (dName, newConstr)
+                #enterType resEnv (dName, TypeConstrSet(newConstr, copiedConstrs))
             end
 
             (* Finally the values and exceptions. *)
@@ -271,11 +249,11 @@ struct
     fun openSignature(Signatures{ tab, typeIdMap, ...}, resEnv, strName) =
         localCopySig(tab, resEnv, typeIdMap, true (* One level. *), strName, typeIdMap, [])
 
-    and fullCopyDatatype(oldConstr, mapTypeId, strName) =
+    and fullCopyDatatype(oldConstr:typeConstrSet, mapTypeId, strName) =
     let
         val sigSpace = makeSignatureTable()
         val Env { enterType, ...} = makeEnv sigSpace
-        val () = enterType(tcName oldConstr, oldConstr)
+        val () = enterType(tcName(tsConstr oldConstr), oldConstr)
         val resType = ref NONE
         val resEnv =
             {
@@ -324,7 +302,7 @@ struct
             fun getConstrOffset(Value { access = Formal addr, ...}, m) = Int.max(addr+1, m)
             |   getConstrOffset(_, m) = m
         in
-            List.foldl getConstrOffset m (tcConstructors (tagProject typeConstrVar dVal))
+            List.foldl getConstrOffset m (tsConstructors (tagProject typeConstrVar dVal))
         end
         else m
     in
@@ -334,7 +312,7 @@ struct
     structure Sharing =
     struct
         type signatures     = signatures
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type structVals     = structVals
         type values         = values
         type typeId         = typeId

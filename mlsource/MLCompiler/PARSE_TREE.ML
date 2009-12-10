@@ -248,7 +248,14 @@ struct
             equalityStatus: bool list ref
         }
 
-    |   DatatypeReplication of datatypeReplicationForm
+    |   DatatypeReplication of
+        {
+            newType:  string,
+            oldType:  string,
+            oldLoc:   location,
+            newLoc:   location,
+            location: location
+        }
 
     |   ExpSeq              of parsetree list * location
 
@@ -339,8 +346,7 @@ struct
            name:          string,
            typeVars:      typeVarForm list,
            constrs:       {constrName: string, constrArg: typeParsetree option, idLocn: location} list,
-           tcon:          typeConstrs ref,
-           valueConstrs:  values list ref,
+           tcon:          typeConstrSet ref,
            nameLoc:       location,
            fullLoc:  location
          }
@@ -375,15 +381,6 @@ struct
        value:  structVals ref,
        location: location
      } 
-     
-   and datatypeReplicationForm =
-        {
-         newType:  string,
-         oldType:  string,
-         oldLoc:   location,
-         newLoc:   location,
-         location: location
-        }
 
     (* An entry in a label record in an expression or a pattern. *)
     and labelRecEntry =
@@ -707,8 +704,7 @@ struct
           name         = name,
           typeVars     = typeVars,
           constrs      = constrs,
-          tcon         = ref undefConstr,
-          valueConstrs = ref [],
+          tcon         = ref(TypeConstrSet(undefConstr, [])),
           nameLoc      = typeNameLoc,
           fullLoc = fullLoc
         };
@@ -863,7 +859,7 @@ struct
                                 PrettyBreak (1, 0),
                                 PrettyString "=",
                                 PrettyBreak (1, 0),
-                                display (typeFromTypeParse t, depth, emptyTypeEnv)
+                                displayTypeParse (t, depth, emptyTypeEnv)
                             ]
                     )
                 )
@@ -892,7 +888,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse argType, depth, emptyTypeEnv)
+                            displayTypeParse (argType, depth, emptyTypeEnv)
                         ]
                 )
             )
@@ -1058,7 +1054,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString ":",
                     PrettyBreak (1, 0),
-                    display (typeFromTypeParse given, depth, emptyTypeEnv)
+                    displayTypeParse (given, depth, emptyTypeEnv)
                 ]
          in
             PrettyBlock (3, true, [],
@@ -1096,7 +1092,7 @@ struct
                     PrettyBreak (1, 0),
                     PrettyString ":",
                     PrettyBreak (1, 0),
-                    display (typeFromTypeParse given, depth, emptyTypeEnv)
+                    displayTypeParse (given, depth, emptyTypeEnv)
                 ]
             )
 
@@ -1229,7 +1225,7 @@ struct
                             PrettyBreak (1, 0),
                             PrettyString "of",
                             PrettyBreak (1, 0),
-                            display (typeFromTypeParse typeof, depth, emptyTypeEnv)
+                            displayTypeParse (typeof, depth, emptyTypeEnv)
                         ]
                     ) @
                     (if isEmptyTree previous then []
@@ -2124,7 +2120,7 @@ struct
                 applyList(firstType, 1, tl)
             end
 
-        fun ptAssignTypes t near =
+        fun ptAssignTypes (t, near) =
             assignTypes
                 (t,
                 fn (s, line) => 
@@ -2326,7 +2322,7 @@ struct
                     val resType =
                         if isBadType elementType
                         then badType
-                        else mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
+                        else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
                 in
                     expType := resType;
                     resType
@@ -2335,8 +2331,7 @@ struct
             |   aConstraint as Constraint {value, given, location} =>
                 let
                     val valType  = processPattern(value, enterResult, level, notConst, mkVar, isRec);
-                    val theType = typeFromTypeParse given
-                    val () = ptAssignTypes theType pat;
+                    val theType = ptAssignTypes(given, pat);
                 in
                     (* These must be unifiable. *)
                     case unifyTypes(valType, theType) of
@@ -2580,10 +2575,10 @@ struct
                             (sigTbl,
                             {
                                 enterType   =
-                                fn (s, ty) =>
+                                fn (s, tySet as TypeConstrSet(ty, valConstrs)) =>
                                 #enterType env (s, 
-                                    case tcConstructors ty of
-                                        [] => ty
+                                    case valConstrs of
+                                        [] => tySet
                                     |   cons =>
                                         let
                                             (* We also have to turn the value constructors into
@@ -2593,12 +2588,11 @@ struct
                                                be part of the value environment. They could have
                                                been redefined. *)
                                             val newTy =
-                                                makeDatatypeConstr(tcName ty, tcTypeVars ty,
+                                                makeTypeConstructor(tcName ty, tcTypeVars ty,
                                                     tcIdentifier ty, 0, tcLocations ty)
                                         in
-                                            tcSetConstructors(newTy,
-                                                List.map (fn c => mkSelectedVar (c, str, openLocs)) cons);
-                                            newTy
+                                            TypeConstrSet(newTy,
+                                                List.map (fn c => mkSelectedVar (c, str, openLocs)) cons)
                                         end
                                 ),
                                 enterStruct =
@@ -2645,13 +2639,7 @@ struct
                 val newEnv = noDuplicates messFn;
               
                 (* First match all the types on the right-hand sides. *)
-                fun processTypeBody (TypeBind {decType = SOME decType, ...}) =
-                let
-                    val t = typeFromTypeParse decType
-                in
-                    ptAssignTypes t v;
-                    t
-                end
+                fun processTypeBody (TypeBind {decType = SOME decType, ...}) = ptAssignTypes(decType, v)
                 |   processTypeBody _ = emptyType (* Specification. *)
                 
                 val resTypes = List.map processTypeBody tlist;
@@ -2669,23 +2657,23 @@ struct
                         let
                             val description = { location = nameLoc, name = name, description = "" }
                         in
-                            makeFrozenTypeConstrs (name, typeVars,
+                            makeTypeConstructor (name, typeVars,
                                 makeTypeId(isEqtype, false, ([], EmptyType), description), 0, [DeclaredAt nameLoc])
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeFrozenTypeConstrs (name, typeVars, typeId, 0, [DeclaredAt nameLoc])
+                                makeTypeConstructor (name, typeVars, typeId, 0, [DeclaredAt nameLoc])
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeFrozenTypeConstrs (name, typeVars,
+                                makeTypeConstructor (name, typeVars,
                                     makeTypeId(isEqtype, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
                             end
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
-                    #enterType env  (name, tcon)  (* Put in the surrounding scope. *)
+                    #enterType env  (name, TypeConstrSet(tcon, []))  (* Put in the surrounding scope. *)
                 end
                    
                 val () = ListPair.app processType (tlist, resTypes);
@@ -2700,7 +2688,7 @@ struct
                    current environment. *)
               let
             (* Look up the type constructor in the environment. *)
-                val oldTypeCons: typeConstrs =
+                val oldTypeCons: typeConstrSet =
                     lookupTyp 
                          ({lookupType = #lookupType env, lookupStruct = #lookupStruct env},
                           oldType,
@@ -2716,9 +2704,8 @@ struct
                                 namePrefix, giveError (v, lex, oldLoc)))
 
                 (* Copy the datatype, converting any Formal constructors to Selected. *)
-                val newTypeCons = mkSelectedType(oldTypeCons, newType, baseStruct, [DeclaredAt newLoc])
-
-                val newValConstrs = tcConstructors newTypeCons
+                val newTypeCons as TypeConstrSet(_, newValConstrs) =
+                    mkSelectedType(oldTypeCons, newType, baseStruct, [DeclaredAt newLoc])
             in
                 (* This previously checked that it was a datatype but that's
                    not actually correct. *)
@@ -2737,7 +2724,7 @@ struct
                 val resType =
                     if isBadType elementType
                     then badType
-                    else mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
+                    else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
             in
                 expType := resType;
                 resType
@@ -2746,8 +2733,7 @@ struct
           | Constraint {value, given, location} =>
             let
                 val valType = assValues near value;
-                val theType = typeFromTypeParse given
-                val ()  = ptAssignTypes theType v;
+                val theType = ptAssignTypes(given, v)
             in
                 (* These must be unifiable. *)
                 case unifyTypes(valType, theType) of
@@ -2875,13 +2861,7 @@ struct
                     val oldType =
                         case ofType of
                             NONE => exnType
-                        |   SOME typeof =>
-                            let
-                                val t = typeFromTypeParse typeof
-                            in
-                                ptAssignTypes t v;
-                                mkFunctionType(t, exnType)
-                            end
+                        |   SOME typeof => mkFunctionType(ptAssignTypes(typeof, v), exnType)
     
                     val exValue = 
                         case previous of 
@@ -3397,8 +3377,7 @@ struct
                                 NONE => ()
                             |   SOME given =>
                                 let
-                                    val theType = typeFromTypeParse given
-                                    val ()  = ptAssignTypes theType v
+                                    val theType = ptAssignTypes(given, v)
                                 in
                                     case unifyTypes(expTyp, theType) of
                                         NONE => () (* OK. *)
@@ -3499,20 +3478,19 @@ struct
         let
             (* A type declaration causes a type to be entered in the type
                environment, together with some constructors. *)
-            fun messFn (name, _, new) = 
+            fun messFn (name, _, TypeConstrSet(new, _)) = 
                 errorNear (lex, true, v, declaredAt(tcLocations new),
                    name ^ " has already been bound in this declaration");
 
-            val newEnv = noDuplicates messFn;
+            val localTypeEnv = noDuplicates messFn;
       
             (* datatype and abstype declarations are both recursive so we can
                enter the type names into the environment during a first pass,
                and then process the value constructors during a second. *)
-            fun enterType(innerType, outerType, typeName) =
+            fun enterType(typeConstr, typeName) =
             (
-                checkForDots  (typeName, lex, declaredAt(tcLocations innerType)); (* Must not be qualified *)
-                #enter newEnv (typeName, innerType); (* Check for duplicates. *)
-                #enterType env  (typeName, outerType)  (* and put in the enclosing scope *)
+                checkForDots  (typeName, lex, declaredAt(tcLocations(tsConstr typeConstr))); (* Must not be qualified *)
+                #enter localTypeEnv (typeName, typeConstr) (* Check for duplicates. *)
             );
        
             (* Make the type constructors and put them in a list. *)
@@ -3526,52 +3504,47 @@ struct
                     if letDepth = 0
                     then makeTypeId(false, true, ([], EmptyType), description)
                     else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
-                val tc =
-                    makeDatatypeConstr(name, typeVars, newId,
-                                       letDepth, [DeclaredAt nameLoc])
-                val outerType =
-                    if isAbs
-                    then
-                        (* Outside the with..end section the type is not a datatype.
-                           The type constructor we enter in the outer environment
-                           uses the same typeId but with the constructors removed. *)
-                        makeFrozenTypeConstrs(name, typeVars, newId, letDepth, [DeclaredAt nameLoc])
-                    else tc
+                val tc = makeTypeConstructor(name, typeVars, newId, letDepth, [DeclaredAt nameLoc])
             in
-                tcon := tc;
-                enterType(tc, outerType, name);
+                tcon := TypeConstrSet(tc, []);
+                enterType(TypeConstrSet(tc, []), name);
                 tc
             end
       
             val listOfTypes = map enterTcon typeList;
 
-            (* First match all the types on the right-hand sides using the
-                datatypes and the existing bindings. *)
-            fun processType (TypeBind {decType = SOME decType, ...}) =
-            let
-                val t = typeFromTypeParse decType
+            local
+                fun lookup(s, line) =
+                    lookupTyp 
+                        ({lookupType = lookupDefault(#lookup localTypeEnv) (#lookupType env),
+                            lookupStruct = #lookupStruct env},
+                        s, giveError (v, lex, line))
             in
-                ptAssignTypes t v;
-                t
+                fun localAssignTypes decType = assignTypes (decType, lookup, lex)
             end
-            |   processType _ = emptyType
 
-            val decTypes = List.map processType withtypes;
+            (* First match all the types on the right-hand sides using the
+               datatypes and the existing bindings. *)
+            local
+                fun processType (TypeBind {decType = SOME decType, ...}) = localAssignTypes decType
+                |   processType _ = emptyType
+            in
+                val decTypes = List.map processType withtypes
+            end;
 
             (* Can now enter the `withtypes'. *)
             fun enterWithType (TypeBind {name, typeVars, nameLoc, ...}, decType) =
             let
+                val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val tcon =
-                    let
-                        val description = { location = nameLoc, name = name, description = "" }
-                    in
-                        makeFrozenTypeConstrs (name, typeVars,
-                            makeTypeId(false, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
-                    end
+                    makeTypeConstructor (name, typeVars,
+                        makeTypeId(false, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
+                val tset = TypeConstrSet(tcon, [])
             in
-                enterType(tcon, tcon, name)
+                enterType(tset, name); (* Checks for duplicates. *)
+                #enterType env (name, tset) (* Put in the global environment. *)
             end
 
             val () = ListPair.app enterWithType (withtypes, decTypes);
@@ -3582,9 +3555,10 @@ struct
                     name ^ " has already been used as a constructor in this type");
       
             val consEnv = noDuplicates messFn;
+            val abstypeEnv = searchList ();
     
             (* Now process the types and generate the constructors. *)
-            fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, ...}, typ) =
+            fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, tcon, ...}, typ) =
             let
                 val numOfConstrs = length constrs;
                 val typeVarsAsTypes = List.map TypeVar typeVars
@@ -3603,12 +3577,7 @@ struct
                         case constrArg of
                             NONE => (resultType, true)
                         |   SOME argtype =>
-                            let
-                                val ty = typeFromTypeParse argtype
-                            in
-                                ptAssignTypes ty v;
-                                (mkFunctionType (ty, resultType), false)
-                            end
+                                (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val cons =
                         makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref 0, level = ref 0},
                                          [DeclaredAt idLocn])
@@ -3623,16 +3592,24 @@ struct
                 in    
                     cons
                 end (* processConstr *)
+                val tset = TypeConstrSet (typ, List.map processConstr sortedConstrs)
             in
-                tcSetConstructors (typ, List.map processConstr sortedConstrs) : unit
+                (* If this is an abstype enter the version with the constructors into
+                   a local environment and a version without the constructors into the
+                   global environment.  If it is a datatype enter the version with
+                   constructors in the global environment. *)
+                if isAbs
+                then (#enter abstypeEnv (name, tset); #enterType env (name, TypeConstrSet(typ, [])))
+                else #enterType env (name, tset);
+                tcon := tset;
+                tset
             end (* genValueConstrs *)
       
-            val () = ListPair.app genValueConstrs (typeList, listOfTypes);
-
+            val listOfTypeSets = ListPair.map genValueConstrs (typeList, listOfTypes);
 
             (* Third pass - Check to see if equality testing is allowed for
                these types. *)
-            val () = computeDatatypeEqualities(listOfTypes, sigTypeIdMap);
+            val () = computeDatatypeEqualities(listOfTypeSets, sigTypeIdMap);
 
             (* If this is a datatype declaration the value constructors should be
                entered in the surrounding scope, otherwise (abstract type
@@ -3656,21 +3633,27 @@ struct
                     val decEnv =
                     let
                         val localEnv = searchList ();
-                        fun enterValFn pair = ( #enter localEnv pair; #enterVal env pair);
+                        fun enterValFn pair = (#enter localEnv pair; #enterVal env pair);
                         val lookupValFn = 
                             lookupDefault (#lookup localEnv)
                                 (lookupDefault (#lookup consEnv) (#lookupVal env))
+                        (* We also have to do something similar with types.  This is really
+                           only for perverse cases where there is a datatype replication
+                           inside the abstype. *)
+                        fun enterTypeFn pair = (#enter abstypeEnv pair; #enterType env pair);
+                        val lookupTypeFn = 
+                            lookupDefault (#lookup abstypeEnv) (#lookupType env)
                     in
                         { 
                             lookupVal     = lookupValFn,
-                            lookupType    = #lookupType env,
+                            lookupType    = lookupTypeFn,
                             lookupFix     = #lookupFix env,
                             lookupStruct  = #lookupStruct env,
                             lookupSig     = #lookupSig env,
                             lookupFunct   = #lookupFunct env,
                             lookupTvars   = #lookupTvars env,
                             enterVal      = enterValFn,
-                            enterType     = #enterType env,
+                            enterType     = enterTypeFn,
                             enterFix      = #enterFix env,
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
@@ -4593,7 +4576,7 @@ struct
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                 (* Get the base type. *)
                 val elementType = mkTypeVar (generalisable, false, false)
-                val listType = mkTypeConstruction ("list", listConstr, [elementType], [DeclaredAt inBasis])
+                val listType = mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)
                 val polyVars = [elementType]
 
@@ -5798,13 +5781,11 @@ struct
                the constructors but the result shouldn't.  For the moment
                ignore the constructors. *)
             val typeCons = List.map(fn (DatatypeBind {tcon = ref tc, ...}) => tc) typelist
-            val eqStatus = if isAbsType then absEq else List.map tcEquality typeCons
+            val eqStatus = if isAbsType then absEq else List.map (tcEquality o tsConstr) typeCons
 
             local
-                fun getConstrCode(DatatypeBind {tcon = ref tc, typeVars, ...}, eqStatus) =
+                fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
                 let
-                    val constrs = tcConstructors tc
-
                     (* Get the argument types or EmptyType if this is nullary. *)
                     fun getConstrType(Value{typeOf=FunctionType{arg, ...}, name, ...}) = (name, arg)
                     |   getConstrType(Value{name, ...}) = (name, EmptyType)
@@ -5819,9 +5800,8 @@ struct
             end
 
             local
-                fun decConstrs(DatatypeBind {tcon = ref tc, ...}, reprs, (decs, debugEnv)) =
+                fun decConstrs(DatatypeBind {tcon = ref (TypeConstrSet(_, constrs)), ...}, reprs, (decs, debugEnv)) =
                 let
-                    val constrs = tcConstructors tc
                     (* Declare the constructors as local variables. *)
                     fun decCons(Value{access=Local{addr, level=lev}, ...}, repr) =
                         let
@@ -5854,7 +5834,7 @@ struct
                             (* This code will build a cons cell containing the run-time value
                                associated with the type Id as the hd and the rest of the run-time
                                environment as the tl. *)
-                            val id = tcIdentifier tc
+                            val id = tcIdentifier (tsConstr tc)
                             val loadTypeId = codeId(id, level)
                             val newEnv = mkTuple [ loadTypeId, rtEnv level ]
                             val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
@@ -5869,7 +5849,8 @@ struct
 
             (* Mark these in the type value cache.  If they are used in subsequent polymorphic IDs
                we must create them after this. *)
-            val newTypeVarMap = markTypeConstructors(typeCons, mkAddr, level, typeVarMap)
+            val newTypeVarMap =
+                markTypeConstructors(List.map tsConstr typeCons, mkAddr, level, typeVarMap)
             (* Process the with..end part. *)
             val (localDecs, newDebug) =
                 codeSequence (declist, [],

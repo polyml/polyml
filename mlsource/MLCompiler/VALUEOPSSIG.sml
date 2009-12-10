@@ -32,6 +32,7 @@ sig
     type functors
     type valAccess
     type typeConstrs
+    type typeConstrSet
     type signatures
     type fixStatus
     type univTable
@@ -52,26 +53,26 @@ sig
     val mkGex:         string * types * codetree * locationProp list -> values
     val mkEx:          string * types * locationProp list -> values
   
-    val mkSelectedType: typeConstrs * string * structVals option * locationProp list -> typeConstrs
+    val mkSelectedType: typeConstrSet * string * structVals option * locationProp list -> typeConstrSet
 
     type nameSpace =
     { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -79,7 +80,7 @@ sig
     };
 
     type printTypeEnv =
-        { lookupType: string -> (typeConstrs * (int->typeId) option) option,
+        { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
           lookupStruct: string -> (structVals * (int->typeId) option) option}
 
     (* Print values. *)
@@ -111,9 +112,9 @@ sig
     val lookupValue:   string * {lookupVal: string -> values option, lookupStruct: string -> structVals option} * 
                           string * (string -> unit) -> values
                                 
-    val lookupTyp:   {lookupType: string -> typeConstrs option,
+    val lookupTyp:   {lookupType: string -> typeConstrSet option,
                       lookupStruct: string -> structVals option} * 
-                        string * (string -> unit) -> typeConstrs
+                        string * (string -> unit) -> typeConstrSet
 
     val codeLocation: location -> codetree
 
@@ -130,6 +131,7 @@ sig
         type functors       = functors
         type valAccess      = valAccess
         type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type signatures     = signatures
         type fixStatus      = fixStatus
         type univTable      = univTable

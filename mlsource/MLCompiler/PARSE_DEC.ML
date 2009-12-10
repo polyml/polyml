@@ -1786,7 +1786,7 @@ struct
             val () = skipon (startTypeSys, fsys, "type", lex);
             val (theType, typeLoc) = parseType (fsys ++ whereSy ++ andSy, lex, typeVarEnv)
             val constrainedSig =
-                (mkWhereType(sigexp, typeVars, typeName, typeFromTypeParse theType, nameLoc),
+                (mkWhereType(sigexp, typeVars, typeName, theType, nameLoc),
                  locSpan(sigLoc, typeLoc))
         in
             if testfor (SYMBOLS.whereSy, empty, lex)

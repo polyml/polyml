@@ -2,6 +2,8 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Modified David C. J. Matthews 2009.
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -115,11 +117,35 @@ struct
     (* A type is the union of these different cases. *)
     and types = 
         TypeVar          of typeVarForm
-    |   TypeConstruction of typeConstructionForm
-    |   FunctionType     of functionTypeForm
-    |   LabelledType     of labelledRecForm
-    |   OverloadSet      of overloadSetForm
+
+    |   TypeConstruction of
+        {
+            name:  string,
+            constr: typeConstrs,
+            args:  types list,
+            locations: locationProp list
+        }
+
+    |   FunctionType of
+        { 
+            arg:    types,
+            result: types
+        }
+
+    |   LabelledType  of
+        { 
+            recList: { name: string, typeof: types } list,
+            frozen: bool,
+            genericInstance: typeVarForm list
+        }
+
+    |   OverloadSet   of
+        {
+            typeset: typeConstrs list
+        }
+
     |   BadType
+
     |   EmptyType
 
     and typeConstrs = 
@@ -128,11 +154,13 @@ struct
             name:       string,
             arity:      int,
             typeVars:   typeVarForm list,
-            constrs:    values list possRef, (* List of value constructors. *)
             identifier: typeId,
             letDepth:   int, (* Needed to check for local datatypes. *)
             locations:  locationProp list (* Location of declaration *)
         }
+
+    and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
+        TypeConstrSet of typeConstrs * values list
 
     (* Access to a value, structure or functor. *)
     and valAccess =
@@ -213,33 +241,11 @@ struct
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
            need but also because it allows us to create a unique Id. *)
-    and typeConstructionForm = 
-    {
-        name:  string,
-        value: typeConstrs possRef,
-        args:  types list,
-        locations: locationProp list
-    }
       
     and typeVarForm = 
     {
         value:    types ref,
         encoding: Word.word
-    }
- 
-    (* A function type takes two types, the argument and the result. *)
-    and functionTypeForm = 
-    { 
-        arg: types,
-        result: types
-    }
-      
-    (* A fixed labelled record. *)
-    and labelledRecForm = 
-    { 
-        recList: { name: string, typeof: types } list,
-        frozen: bool,
-        genericInstance: (*typeVarForm*) { value: types ref, encoding: Word.word } list
     }
     
   (* A set of type contructors.  This is used only during the
@@ -422,8 +428,6 @@ struct
     fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
-    fun tcConstructors (TypeConstrs {constrs,...} : typeConstrs) = pling constrs;
-
     (* Is this a type function?  N.B. It is possible, though unlikely, that it
        is a datatype as well i.e. has value constructors. *)
     fun tcIsAbbreviation (TypeConstrs {identifier,...}) = isTypeFunction identifier
@@ -436,54 +440,23 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
-    
-    fun tcSetConstructors (TypeConstrs {constrs, name, ...}, newConstrs) =
-        updatePR(constrs, newConstrs) handle Fail _ => raise Fail ("SetConstructors:" ^ name)
-    
+  
     fun tcLetDepth  (TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 
-    (* Construct a datatype.  The value constructors can be added on later. *)
-    fun makeDatatypeConstr (name, typeVars, uid, depth, locations) =
+    (* Construct a type constructor. *)
+    fun makeTypeConstructor (name, typeVars, uid, depth, locations) =
         TypeConstrs
         {
             name       = name,
             arity      = length typeVars,
             typeVars   = typeVars,
-            constrs    = VariableRef (ref []), (* REF HOTSPOT - 690 refs here. *)
             identifier = uid,
             letDepth   = depth,
             locations = locations
-        };
+        }
 
-    (* Construct a type abbreviation. *)
-(*    fun makeTypeAbbreviation(name, idKind, typeVars, typeResult, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            arity      = length typeVars,
-            typeVars   = typeVars,
-            constrs    = FrozenRef [],
-            identifier =
-                TypeId{access=Global CodeZero, description=
-                }
-            TypeFunction(typeVars, typeResult),
-            letDepth   = 0,
-            locations = locations
-        };*)
-
-    (* Construct a type constructor that cannot have value constructors added.  This is
-       primarily used in Initialise for base types such as "int". *)
-    fun makeFrozenTypeConstrs (name, typeVars, uid, depth, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            arity      = length typeVars,
-            typeVars   = typeVars,
-            constrs    = FrozenRef [],
-            identifier = uid,
-            letDepth   = depth,
-            locations = locations
-        };
+    fun tsConstr(TypeConstrSet(ts, _)) = ts
+    and tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
@@ -638,7 +611,7 @@ struct
   end; (* functors abstype *)
   
   val valueVar:      values      tag = tag();
-  val typeConstrVar: typeConstrs tag = tag();
+  val typeConstrVar: typeConstrSet tag = tag();
   val fixVar:        fixStatus   tag = tag();
   val structVar:     structVals  tag = tag();
   val signatureVar:  signatures  tag = tag();
@@ -654,13 +627,13 @@ struct
     Env of 
       { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
@@ -693,6 +666,7 @@ struct
         and  structVals = structVals
         and  valAccess  = valAccess
         and  typeConstrs= typeConstrs
+        and  typeConstrSet=typeConstrSet
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus

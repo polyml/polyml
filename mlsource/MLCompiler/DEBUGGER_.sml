@@ -251,7 +251,7 @@ struct
         type machineWord    = machineWord
         type fixStatus      = fixStatus
         type structVals     = structVals
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type signatures     = signatures
         type functors       = functors
         type locationProp   = locationProp

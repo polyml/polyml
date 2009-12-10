@@ -21,7 +21,7 @@ sig
     type codetree
     type types
     type values
-    type typeConstrs
+    type typeConstrSet
     type typeId
     type typeVarForm
     type typeVarMap
@@ -38,16 +38,16 @@ sig
     val createUnaryConstructor: representations * types list * string -> codetree
 
     (* Standard values *)
-    val listConstr: typeConstrs
+    val listConstr: typeConstrSet
     val nilConstructor:  values;
     val consConstructor: values;
     val noneConstructor: values
     val someConstructor: values
-    val optionConstr: typeConstrs
+    val optionConstr: typeConstrSet
 
-    val locationConstr: typeConstrs
-    and contextConstr: typeConstrs
-    and prettyConstr: typeConstrs
+    val locationConstr: typeConstrSet
+    and contextConstr: typeConstrSet
+    and prettyConstr: typeConstrSet
 
     val mkExIden:       types * int * typeVarMap -> codetree
 
@@ -57,7 +57,7 @@ sig
         type codetree       = codetree
         type types          = types
         type values         = values
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type typeId         = typeId
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap

@@ -255,8 +255,8 @@ struct
                             fn({name=n1, typeof=t1}, {name=n2, typeof=t2}) => n1 = n2 andalso sameType(t1, t2))
                             (list1, list2)
                 
-                |   (TypeConstruction{value=v1, args=a1, ...}, TypeConstruction{value=v2, args=a2, ...}) =>
-                        sameTypeConstr(pling v1, pling v2) andalso ListPair.allEq sameType (a1, a2)
+                |   (TypeConstruction{constr=c1, args=a1, ...}, TypeConstruction{constr=c2, args=a2, ...}) =>
+                        sameTypeConstr(c1, c2) andalso ListPair.allEq sameType (a1, a2)
 
                 |   _ => false
 
@@ -305,16 +305,15 @@ struct
                     |   ty => findCachedTypeCode(typeVarMap, ty)
                 )
 
-            |   TypeConstruction { value, args, ...} =>
+            |   TypeConstruction { constr, args, ...} =>
                     let
-                        val typConstr = pling value
                         fun sameTypeConstr(tc1, tc2) = sameTypeId(tcIdentifier tc1, tcIdentifier tc2)
                     in
-                        if tcIsAbbreviation typConstr (* Type abbreviation *)
-                        then findCachedTypeCode(typeVarMap, makeEquivalent (typConstr, args))
+                        if tcIsAbbreviation constr (* Type abbreviation *)
+                        then findCachedTypeCode(typeVarMap, makeEquivalent (constr, args))
                         else if null args
                         then (* Check the permanently cached monotypes. *)
-                            case List.find(fn (t, _) => sameTypeConstr(t, typConstr)) cachedCode of
+                            case List.find(fn (t, _) => sameTypeConstr(t, constr)) cachedCode of
                                 SOME (_, c) => SOME ((fn _ => c), ~1)
                             |   NONE => findCodeFromCache(typeVarMap, typ)
                         else findCodeFromCache(typeVarMap, typ)
@@ -345,15 +344,11 @@ struct
                         |   tyVal => getMaxDepth typeVarMap (tyVal, maxSoFar)
                     )
 
-                |   TypeConstruction{value, args, ...} =>
-                    let
-                        val constr = pling value
-                    in
+                |   TypeConstruction{constr, args, ...} =>
                         if tcIsAbbreviation constr  (* May be an alias *)
                         then getMaxDepth typeVarMap (makeEquivalent (constr, args), maxSoFar)
                         else List.foldl (getMaxDepth typeVarMap)
                                        (Int.max(maxSoFar, checkTypeConstructor(constr, typeVarMap))) args
-                    end
 
                 |   LabelledType {recList, ...} =>
                         List.foldl (fn ({typeof, ...}, m) =>
@@ -396,10 +391,7 @@ struct
                         |   _ =>  (* Just a bound type variable. *) printCode(tvValue tyVar, level)
                     )
 
-                |   TypeConstruction { value, args, name, ...} =>
-                    let
-                        val typConstr = pling value
-                    in
+                |   TypeConstruction { constr=typConstr, args, name, ...} =>
                         if tcIsAbbreviation typConstr (* Handle type abbreviations directly *)
                         then printCode(makeEquivalent (typConstr, args), level)
                         else
@@ -434,7 +426,6 @@ struct
                                             [arg1], false),
                                         level+1, 1, "print-"^name)
                         end
-                    end
 
                 |   LabelledType { recList=[], ...} =>
                         (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 0, 1, "print-labelled")
@@ -560,14 +551,10 @@ struct
                         |   tyVal => makeEq(tyVal, level, getEqFnForID, typeVarMap)
                     )
 
-                |   TypeConstruction{value, args, ...} =>
-                    let
-                        val constr = pling value
-                    in
+                |   TypeConstruction{constr, args, ...} =>
                         if tcIsAbbreviation constr  (* May be an alias *)
                         then makeEq (makeEquivalent (constr, args), level, getEqFnForID, typeVarMap)
                         else equalityForConstruction(constr, args)
-                    end
 
                 |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
                         (* Unary tuples are optimised - no indirection. *)
@@ -601,7 +588,7 @@ struct
     let
         val typesAndAddresses = ListPair.zipEq(typelist, eqAddresses)
 
-        fun equalityForDatatype((tyConstr, addr), isEq) =
+        fun equalityForDatatype((TypeConstrSet(tyConstr, vConstrs), addr), isEq) =
         if isEq
         then
         let
@@ -631,7 +618,7 @@ struct
                     if sameTypeId(typeId, tcIdentifier tyConstr)
                     then mkLoad(0, l-baseLevel-1) (* Directly recursive. *)
                     else
-                    case List.find(fn(tc, _) => sameTypeId(tcIdentifier tc, typeId)) typesAndAddresses of
+                    case List.find(fn(tc, _) => sameTypeId(tcIdentifier(tsConstr tc), typeId)) typesAndAddresses of
                         SOME(_, addr) => mkLoad(addr, l-baseLevel) (* Mutually recursive. *)
                     |   NONE => TypeValue.extractEquality(codeId(typeId, l))
                 (* If this is a recursive call and the type arguments that are being passed (if any) are
@@ -715,7 +702,6 @@ struct
                all the enum constructors.  I've now extended this to all cases where
                there is more than one constructor.  The idea is to speed up equality
                between identical data structures. *)
-            val vConstrs = tcConstructors tyConstr
             val eqCode =
                 case vConstrs of
                    [vcons] => (* Single constructor. *)
@@ -742,7 +728,7 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(typeConstr, level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(typeConstr, vConstrs), level, typeVarMap) =
     let
         val name = tcName typeConstr
         val argTypes = tcTypeVars typeConstr
@@ -833,7 +819,7 @@ struct
 
         |   printerForConstructors _ = raise InternalError ("No constructors:"^name)
             
-        val printerCode = printerForConstructors(tcConstructors typeConstr, 0)
+        val printerCode = printerForConstructors(vConstrs, 0)
     in
         (* Wrap this in the functions for the base types. *)
         if null argTypes
@@ -880,14 +866,10 @@ struct
                         |   tyVal => boxednessForType(tyVal, level, getTypeValueForID, typeVarMap)
                     )
 
-                |   TypeConstruction{value, args, ...} =>
-                    let
-                        val constr = pling value
-                    in
+                |   TypeConstruction{constr, args, ...} =>
                         if tcIsAbbreviation constr  (* May be an alias *)
                         then boxednessForType (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
                         else boxednessForConstruction(constr, args)
-                    end
 
                 |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
                         (* Unary tuples are optimised - no indirection. *)
@@ -1028,7 +1010,7 @@ struct
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(
-            typeDatalist: {typeConstr: typeConstrs, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list,
+            typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list,
             mkAddr, level, typeVarMap) =
     let
         val typelist = List.map #typeConstr typeDatalist
@@ -1052,7 +1034,7 @@ struct
         local
             fun makeTypeId({typeConstr, boxedCode, sizeCode, ...}, eqAddr) =
             let
-                val var = vaLocal(idAccess(tcIdentifier typeConstr))
+                val var = vaLocal(idAccess(tcIdentifier(tsConstr typeConstr)))
                 val newAddr = mkAddr 1
                 open TypeValue
                 val idCode =
@@ -1082,7 +1064,7 @@ struct
             fun setPrinter tc =
                 mkEval(
                     rtsFunction POLY_SYS_assign_word,
-                    [TypeValue.extractPrinter(codeId(tcIdentifier tc, level)),
+                    [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
                               CodeZero, printerForDatatype(tc, level, typeVarMap)],
                     false)
         in
@@ -1187,6 +1169,7 @@ struct
         type codetree   = codetree
         type types      = types
         type typeConstrs= typeConstrs
+        type typeConstrSet=typeConstrSet
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
     end

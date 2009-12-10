@@ -194,12 +194,12 @@ struct
  (* Copy a datatype (if necessary), converting the constructors to selections on
     a base structure.  This is used both when opening a structure and also for
     replicating a datatype. *)
- fun mkSelectedType(tcons: typeConstrs, newName: string, baseStruct: structVals option, locations): typeConstrs =
+ fun mkSelectedType(TypeConstrSet(tcons, tcConstructors), newName, baseStruct: structVals option, locations): typeConstrSet =
     let
         (* Create a new constructor with the same unique ID. *)
         val typeID = tcIdentifier tcons;
         val newTypeCons =
-            makeDatatypeConstr(newName, tcTypeVars tcons, typeID,
+            makeTypeConstructor(newName, tcTypeVars tcons, typeID,
                             tcLetDepth tcons, locations);
         
         (* Copy the value constructors. *)
@@ -232,10 +232,9 @@ struct
                       references = NONE, instanceTypes=NONE}
             end
     
-        val newValConstrs = map copyAConstructor (tcConstructors tcons)
+        val newValConstrs = map copyAConstructor tcConstructors
     in
-        tcSetConstructors(newTypeCons, newValConstrs);
-        newTypeCons
+        TypeConstrSet(newTypeCons, newValConstrs)
     end
 
     (* Locations in exception packets.  In order to have a defined ordering of the fields,
@@ -390,7 +389,7 @@ struct
         in
             (* If the structure is not there the value can't be. *)
             if isUndefinedStruct str
-            then SOME undefConstr
+            then SOME(TypeConstrSet(undefConstr, []))
             else
             let
                 val Signatures { tab, typeIdMap, ...} = structSignat str
@@ -407,7 +406,7 @@ struct
             (
                 errorMessage ("Type constructor" ^ " (" ^ suffix ^ ") has not been declared" ^
                 (if prefix = "" then "" else " in structure " ^ prefix));
-                undefConstr
+                TypeConstrSet(undefConstr, [])
             )
     end 
 
@@ -420,21 +419,21 @@ struct
     type nameSpace =
       { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -1020,14 +1019,10 @@ struct
                  different modules may be at different points in the chain. *)
               (* This does mean that it's not possible to install a
                  pretty printer for a type constructor rather than a datatype. *)
-            fun followTypes (TypeConstruction{value, args, ...}) =
-            let
-                val constr = pling value
-            in
+            fun followTypes (TypeConstruction{constr, args, ...}) =
                 if not (tcIsAbbreviation constr)
                 then SOME(tcIdentifier constr, constr, List.length args)
                 else followTypes (makeEquivalent (constr, args))
-            end
             |   followTypes (TypeVar tv) =
                 (
                     case tvValue tv of
@@ -1165,14 +1160,10 @@ struct
                  different modules may be at different points in the chain. *)
               (* This does mean that it's not possible to install a
                  pretty printer for a type constructor rather than a datatype. *)
-            fun followTypes (TypeConstruction{value, args, ...}) =
-            let
-                val constr = pling value
-            in
+            fun followTypes (TypeConstruction{constr, args, ...}) =
                 if not (tcIsAbbreviation constr)
                 then SOME(tcIdentifier constr, constr, List.length args)
                 else followTypes (makeEquivalent (constr, args))
-            end
             |   followTypes (TypeVar tv) =
                 (
                     case tvValue tv of
@@ -1405,16 +1396,13 @@ struct
                     [alpha, beta] => (rmvars alpha, rmvars beta)
                 |   _ => (badType, badType)
 
-            fun followTypes(TypeConstruction{value, args, ...}):typeConstrs =
-                let
-                    val constr = pling value
-                in
+            fun followTypes(TypeConstruction{constr, args, ...}):typeConstrs =
                    if not (tcIsAbbreviation constr)
                    then if not (isFreeId(tcIdentifier constr))
                    then raise Fail "Cannot install an overload within a structure or functor"
                    else constr
                    else followTypes (makeEquivalent (constr, args))
-                end
+
              | followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
 
             fun addOverloading (argCode: codetree) (name: string) =
@@ -1577,6 +1565,7 @@ struct
         type functors       = functors
         type valAccess      = valAccess
         type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type signatures     = signatures
         type fixStatus      = fixStatus
         type univTable      = univTable

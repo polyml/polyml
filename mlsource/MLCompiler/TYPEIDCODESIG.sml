@@ -22,6 +22,7 @@ sig
     type codetree
     type types
     type typeConstrs
+    type typeConstrSet
     type typeVarForm
     type typeVarMap
 
@@ -29,7 +30,7 @@ sig
     val codeGenerativeId: typeId * bool * (int->int) * int -> codetree
     
     val createDatatypeFunctions:
-         {typeConstr: typeConstrs, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *
+         {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *
             (int->int) * int * typeVarMap -> codetree list
     
     val codeForUniqueId: unit->codetree
@@ -64,6 +65,7 @@ sig
         type codetree   = codetree
         type types      = types
         type typeConstrs= typeConstrs
+        type typeConstrSet=typeConstrSet
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
     end

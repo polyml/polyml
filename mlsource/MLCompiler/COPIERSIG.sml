@@ -19,18 +19,18 @@
 signature COPIERSIG =
 sig
     type signatures
-    type typeConstrs
+    type typeConstrSet
     type structVals
     type values
     type typeId
     type types
     type univTable
 
-    type tsvEnv = { enterType:   string * typeConstrs -> unit,
+    type tsvEnv = { enterType: string * typeConstrSet -> unit,
                   enterStruct: string * structVals  -> unit,
                   enterVal   : string * values      -> unit };
     val openSignature: signatures * tsvEnv * string -> unit
-    val fullCopyDatatype: typeConstrs * (int -> typeId) * string -> typeConstrs
+    val fullCopyDatatype: typeConstrSet * (int -> typeId) * string -> typeConstrSet
     val replaceMap: signatures * (int -> typeId) * int * typeId list * (int -> typeId) -> signatures
 
     val getNextRuntimeOffset : signatures -> int
@@ -38,7 +38,7 @@ sig
     structure Sharing:
     sig
         type signatures     = signatures
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type structVals     = structVals
         type values         = values
         type typeId         = typeId

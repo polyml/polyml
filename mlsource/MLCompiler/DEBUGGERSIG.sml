@@ -25,7 +25,7 @@ sig
     type machineWord
     type fixStatus
     type structVals
-    type typeConstrs
+    type typeConstrSet
     type signatures
     type functors
     type locationProp
@@ -45,21 +45,21 @@ sig
     type nameSpace =
       { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -89,7 +89,7 @@ sig
         type machineWord    = machineWord
         type fixStatus      = fixStatus
         type structVals     = structVals
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type signatures     = signatures
         type functors       = functors
         type locationProp   = locationProp

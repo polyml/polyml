@@ -1,7 +1,7 @@
 (*
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-        
+
     Modified David C. J. Matthews 2009.
 
     This library is free software; you can redistribute it and/or
@@ -41,7 +41,6 @@ sig
     (* Standard type constructors. *)
   
     type typeVarForm;
-    type typeConstrs;
     type uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
@@ -62,29 +61,29 @@ sig
         (* A type is the union of these different cases. *)
     and types = 
         TypeVar of typeVarForm
-    
-    |   TypeConstruction of (* typeConstructionForm *)
+
+    |   TypeConstruction of
         {
             name:  string,
-            value: typeConstrs possRef,
+            constr: typeConstrs,
             args:  types list,
             locations: locationProp list
         }
 
-    |   FunctionType of (* functionTypeForm *)
+    |   FunctionType of
         { 
             arg:    types,
             result: types
         }
-  
-    |   LabelledType  of (* labelledRecForm *)
+
+    |   LabelledType  of
         { 
             recList: { name: string, typeof: types } list,
             frozen: bool,
             genericInstance: typeVarForm list
         }
 
-    |   OverloadSet   of (* overloadSetForm *)
+    |   OverloadSet   of
         {
             typeset: typeConstrs list
         }
@@ -92,6 +91,17 @@ sig
     |   BadType
   
     |   EmptyType
+
+    and typeConstrs = 
+        TypeConstrs of
+        {
+            name:       string,
+            arity:      int,
+            typeVars:   typeVarForm list,
+            identifier: typeId,
+            letDepth:   int, (* Needed to check for local datatypes. *)
+            locations:  locationProp list (* Location of declaration *)
+        }
 
     and valAccess =
         Global   of codetree
@@ -189,8 +199,6 @@ sig
     val tcArity:           typeConstrs -> int;
     val tcTypeVars:        typeConstrs -> typeVarForm list;
     val tcEquivalent:      typeConstrs -> types;
-    val tcConstructors:    typeConstrs -> values list;
-    val tcSetConstructors: typeConstrs * values list -> unit;
     val tcEquality:        typeConstrs -> bool;
     val tcSetEquality:     typeConstrs * bool -> unit;
     val tcIdentifier:      typeConstrs -> typeId;
@@ -198,12 +206,13 @@ sig
     val tcLocations:       typeConstrs -> locationProp list
     val tcIsAbbreviation:  typeConstrs -> bool
 
-    val makeDatatypeConstr:
+    val makeTypeConstructor:
         string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
-    val makeFrozenTypeConstrs:
-        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
-(*    val makeTypeAbbreviation:
-        string * typeVarForm list * types * locationProp list -> typeConstrs;*)
+
+    datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
+        TypeConstrSet of typeConstrs * values list
+    val tsConstr: typeConstrSet -> typeConstrs
+    val tsConstructors: typeConstrSet -> values list
 
     val tvLevel:        typeVarForm -> int;
     val tvEquality:     typeVarForm -> bool;
@@ -297,13 +306,13 @@ sig
         Env of
         {
             lookupVal:    string -> values option,
-            lookupType:   string -> typeConstrs option,
+            lookupType:   string -> typeConstrSet option,
             lookupFix:    string -> fixStatus option,
             lookupStruct: string -> structVals option,
             lookupSig:    string -> signatures option,
             lookupFunct:  string -> functors option,
             enterVal:     string * values      -> unit,
-            enterType:    string * typeConstrs -> unit,
+            enterType:    string * typeConstrSet -> unit,
             enterFix:     string * fixStatus   -> unit,
             enterStruct:  string * structVals  -> unit,
             enterSig:     string * signatures  -> unit,
@@ -313,7 +322,7 @@ sig
     val makeEnv: univTable -> env;
 
     val valueVar:      values      Universal.tag;
-    val typeConstrVar: typeConstrs Universal.tag;
+    val typeConstrVar: typeConstrSet Universal.tag;
     val fixVar:        fixStatus   Universal.tag;
     val structVar:     structVals  Universal.tag;
     val signatureVar:  signatures  Universal.tag;
@@ -330,6 +339,7 @@ sig
         and  structVals = structVals
         and  valAccess  = valAccess
         and  typeConstrs= typeConstrs
+        and  typeConstrSet=typeConstrSet
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus

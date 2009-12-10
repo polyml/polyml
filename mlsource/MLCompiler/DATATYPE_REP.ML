@@ -474,14 +474,12 @@ struct
       | FunctionType _ => 
           UnaryFunction
     
-      | TypeConstruction {value, args, ...} =>
-          let
-            val cons = pling value
-        in
-              (* We may have a type equivalence or this may be a datatype. *)
-            if tcIsAbbreviation cons
-            then getTupleKind (makeEquivalent(cons, args))
-            else if sameTypeId (tcIdentifier cons, tcIdentifier refConstr)
+      | TypeConstruction {constr, args, ...} =>
+        (
+            (* We may have a type equivalence or this may be a datatype. *)
+            if tcIsAbbreviation constr
+            then getTupleKind (makeEquivalent(constr, args))
+            else if sameTypeId (tcIdentifier constr, tcIdentifier refConstr)
             then UnaryGeneric (* A tuple ref is NOT the same as the tuple. *)
             else (* Datatype.  For the moment we only consider datatypes with a
                     single constructor since we want to find the width of the
@@ -489,7 +487,7 @@ struct
                     other cases but it might be helpful to return a special
                     result when we have a datatype which we know will always
                     be boxed. *)
-                case tcConstructors cons of
+           (*     case tcConstructors constr of
                     [Value{typeOf, class=Constructor{nullary=false, ...}, ...}] =>
                         (* This may be a polymorphic datatype in which case
                            we have to invert the constructor to find the base type.
@@ -497,7 +495,8 @@ struct
                            declared as datatype 'a t = X of 'a .*)
                         getTupleKind(constructorResult(typeOf, args))
                 |    _ => UnaryGeneric
-        end
+           *)  UnaryGeneric
+        )
     
       | _ =>
           UnaryGeneric
@@ -549,13 +548,13 @@ struct
         val id =
             makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*),
                 isEqType, true, description)
-        val dtype = makeDatatypeConstr (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
+        val dtype = makeTypeConstructor (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val (valConstrsAndDecs, boxedCode, sizeCode) = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
         fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
         val sortedConstrs = quickSort leq valConstrsAndDecs;
-        val () = tcSetConstructors(dtype, (List.map #1 valConstrsAndDecs))
+        val initialTypeSet = TypeConstrSet(dtype, (List.map #1 valConstrsAndDecs))
         val addrs = ref 0
         fun mkAddrs n = ! addrs before (addrs := !addrs+n)
 
@@ -575,7 +574,7 @@ struct
         (* Create the datatype.  Sets the address of the local in "id". *)
         val dtCode =
             createDatatypeFunctions(
-                [{typeConstr=dtype, eqStatus=isEqType, boxedCode=boxedCode, sizeCode=sizeCode}], mkAddrs, 0, defMap)
+                [{typeConstr=initialTypeSet, eqStatus=isEqType, boxedCode=boxedCode, sizeCode=sizeCode}], mkAddrs, 0, defMap)
 
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode =
@@ -590,11 +589,10 @@ struct
             (decs @ [Value{name=name, typeOf=typeOf, class=class, locations=locations, references=NONE,
                      instanceTypes=NONE, access=Global(mkInd(offset, globalCode))}], offset+1)
         val (gConstrs, _) = List.foldl mkGlobal ([], 1 (* Offset 0 is the type ID *)) sortedConstrs
-        val () = tcSetConstructors(dtype, gConstrs)
 
         (* Finally copy the datatype to put in the code. *)
     in
-        fullCopyDatatype(dtype, fn 0 => newId | _ => raise Subscript, "")
+        fullCopyDatatype(TypeConstrSet(dtype, gConstrs), fn 0 => newId | _ => raise Subscript, "")
     end
 
     (* Nil and :: are used in parsetree for lists constructed
@@ -622,8 +620,9 @@ struct
             buildBasisDatatype("list", "list",
                 [makeTv (EmptyType, generalisable, false, false)], true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
-            case tcConstructors listConstr of
-                [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}] => (nilC, consC)
+            case listConstr of
+                TypeConstrSet(_, [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}]) =>
+                        (nilC, consC)
             |   _ => raise InternalError "nil and cons in wrong order"
     end
 
@@ -650,14 +649,18 @@ struct
             buildBasisDatatype("option", "option",
                 [makeTv (EmptyType, generalisable, false, false)], true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
-            case tcConstructors optionConstr of
-                [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}] => (noneC, someC)
+            case optionConstr of
+                TypeConstrSet(_, [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}]) => (noneC, someC)
             |   _ => raise InternalError "NONE and SOME in wrong order"
     end
 
     local
         fun listConstruct (base : types) : types =
-            mkTypeConstruction ("list", listConstr, [base], [DeclaredAt inBasis]);
+        let
+            val TypeConstrSet(listCons, _) = listConstr
+        in
+            mkTypeConstruction ("list", listCons, [base], [DeclaredAt inBasis])
+        end;
 
         val intTypeConstr    = TYPESTRUCT.intType
         val stringTypeConstr = TYPESTRUCT.stringType
@@ -671,11 +674,12 @@ struct
                     mkLabelEntry("endPosition", intTypeConstr)
                 ]
         in
-            val locationConstr =
-                makeFrozenTypeConstrs(
+            val locationCons =
+                makeTypeConstructor(
                     "location", [],
                     makeTypeFunction(basisDescription "location", ([], mkLabelled(sortLabels fields, true))),
                     0, [DeclaredAt inBasis])
+            val locationConstr = TypeConstrSet(locationCons, [])
         end
 
         local
@@ -683,7 +687,7 @@ struct
             fun makeConstructors typeconstr =
             let
                 val contextType = mkTypeConstruction ("context", typeconstr, [], [DeclaredAt inBasis])
-                val locationType = mkTypeConstruction ("location", locationConstr, [], [DeclaredAt inBasis])
+                val locationType = mkTypeConstruction ("location", locationCons, [], [DeclaredAt inBasis])
                 val constrs =
                    [ ("ContextLocation", locationType),
                      ("ContextParentStructure", mkProductType[stringTypeConstr, listConstruct contextType]),
@@ -706,8 +710,9 @@ struct
         local
             fun makeConstructors typeconstr =
             let
+                val TypeConstrSet(contextCons, _) = contextConstr
                 val prettyType = mkTypeConstruction ("pretty", typeconstr, [], [DeclaredAt inBasis])
-                val contextType = mkTypeConstruction ("context", contextConstr, [], [DeclaredAt inBasis])
+                val contextType = mkTypeConstruction ("context", contextCons, [], [DeclaredAt inBasis])
 
                 val constrs =
                    [ ("PrettyBlock",
@@ -735,12 +740,14 @@ struct
        identify it) containing a print function for the type. *)
     local
         (* The exception identifier contains a value of type (exn*int->pretty) option. *)
+        val TypeConstrSet(optionCons, _) = optionConstr
+        and TypeConstrSet(prettyCons, _) = prettyConstr
         val exnPrinter =
-            mkTypeConstruction ("option", optionConstr,
+            mkTypeConstruction ("option", optionCons,
                 [
                     mkFunctionType(
                         mkProductType[TYPESTRUCT.exnType, TYPESTRUCT.intType],
-                        mkTypeConstruction ("pretty", prettyConstr, [], [DeclaredAt inBasis])
+                        mkTypeConstruction ("pretty", prettyCons, [], [DeclaredAt inBasis])
                     )
                 ],
                 [DeclaredAt inBasis])
@@ -772,7 +779,7 @@ struct
         type codetree       = codetree
         type types          = types
         type values         = values
-        type typeConstrs    = typeConstrs
+        type typeConstrSet  = typeConstrSet
         type typeId         = typeId
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap

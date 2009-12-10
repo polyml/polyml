@@ -45,7 +45,7 @@ sig
     type env
 
     type values;
-    type typeConstrs;
+    type typeConstrSet;
     type fixStatus;
     type structVals;
     type signatures;
@@ -54,21 +54,21 @@ sig
     type nameSpace =
     { 
         lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrs option,
+        lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
         lookupStruct: string -> structVals option,
         lookupSig:    string -> signatures option,
         lookupFunct:  string -> functors option,
 
         enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrs -> unit,
+        enterType:    string * typeConstrSet -> unit,
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit,
 
         allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrs) list,
+        allType:      unit -> (string*typeConstrSet) list,
         allFix:       unit -> (string*fixStatus) list,
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
@@ -90,7 +90,7 @@ sig
         exportTree option * ( unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrs) list }) option
+             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
 end;
 
 structure ADDRESS :
@@ -240,20 +240,20 @@ struct
         end
         
        fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
-            makeFrozenTypeConstrs(
+            makeTypeConstructor(
                 name, typeVars, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
                 0, locations)
   
         (* List of something *)
         fun List (base : types) : types =
-            mkTypeConstruction ("list", listConstr, [base], declInBasis);
+            mkTypeConstruction ("list", tsConstr listConstr, [base], declInBasis);
 
         (* ref something *)
         fun Ref (base : types) : types  =
             mkTypeConstruction ("ref", refConstr, [base], declInBasis);
         
         fun Option (base : types) : types  =
-            mkTypeConstruction ("option", optionConstr, [base], declInBasis);
+            mkTypeConstruction ("option", tsConstr optionConstr, [base], declInBasis);
         
         
         (* Type-dependent functions. *)
@@ -267,7 +267,7 @@ struct
 (*****************************************************************************)
 (*                  unit                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("unit", unitConstr);
+        val () = enterGlobalType ("unit", TypeConstrSet(unitConstr, []));
 
 (*****************************************************************************)
 (*                  bool                                                     *)
@@ -280,30 +280,26 @@ struct
                 mkGconstr ("true",  Bool,
                     createNullaryConstructor(EnumForm 1, [], "true"), true, 2, declInBasis);
         in
-            val () = enterGlobalType  ("bool",  boolConstr);
+            val () = enterGlobalType  ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]));
             val () = enterGlobalValue ("true",  trueCons);
             val () = enterGlobalValue ("false", falseCons);
-            
-            (* Put these constructors onto the boolean type. *)
-            val () =
-                tcSetConstructors (boolConstr, [trueCons, falseCons]);
         end;
         
 
 (*****************************************************************************)
 (*                  int                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("int", intConstr);
+        val () = enterGlobalType ("int", TypeConstrSet(intConstr, []));
    
 (*****************************************************************************)
 (*                  char                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("char", charConstr);
+        val () = enterGlobalType ("char", TypeConstrSet(charConstr, []));
    
 (*****************************************************************************)
 (*                  string                                                   *)
 (*****************************************************************************)
-        val () = enterGlobalType ("string", stringConstr);
+        val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []));
 
         (* chr - define it as an identity function for now. It is redefined in
            the prelude to check that the value is a valid character. *)
@@ -318,14 +314,14 @@ struct
 (*****************************************************************************)
 (*                  real                                                     *)
 (*****************************************************************************)
-        val () = enterGlobalType ("real", realConstr);
+        val () = enterGlobalType ("real", TypeConstrSet(realConstr, []));
 
 (*****************************************************************************)
 (*                  'a list                                                  *)
 (*****************************************************************************)
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
-                (tcConstructors listConstr)
+                (tsConstructors listConstr)
         val () = enterGlobalType  ("list", listConstr);
 
 (*****************************************************************************)
@@ -333,7 +329,7 @@ struct
 (*****************************************************************************)
         val () = (* Enter NONE and SOME. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
-                (tcConstructors optionConstr)
+                (tsConstructors optionConstr)
         val () = enterGlobalType  ("option", optionConstr);
 
 (*****************************************************************************)
@@ -348,11 +344,8 @@ struct
                         createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
                 end
         in
-            val () = enterGlobalType  ("ref", refConstr);
+            val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
-            
-            (* Put this constructor onto the ref type. *)
-            val () = tcSetConstructors (refConstr, [refCons]);
         end;
 
         (* '!' does not really have to be here but it makes it easier
@@ -372,12 +365,12 @@ struct
 (*****************************************************************************)
 (*                  exn                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("exn", exnConstr);
+        val () = enterGlobalType ("exn", TypeConstrSet(exnConstr, []));
 
 (*****************************************************************************)
 (*                  word                                                      *)
 (*****************************************************************************)
-        val () = enterGlobalType ("word", wordConstr);
+        val () = enterGlobalType ("word", TypeConstrSet(wordConstr, []));
 
 
 (*****************************************************************************)
@@ -717,9 +710,9 @@ struct
                 end
         in
             val vectorType =
-                makeFrozenTypeConstrs("vector", [makeTypeVariable()],
+                makeTypeConstructor("vector", [makeTypeVariable()],
                     makeFreeId(idCode, true, basisDescription "vector"), 0, declInBasis);
-            val () = enterGlobalType  ("vector", vectorType);
+            val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []));
         end
 
         (* We also need a type with byte-wise equality. *)
@@ -791,17 +784,17 @@ struct
                 end
         in
             val byteVectorType =
-                makeFrozenTypeConstrs("byteVector", [],
+                makeTypeConstructor("byteVector", [],
                     makeFreeId(idCode, true, basisDescription "byteVector"), 0, declInBasis);
-            val () = #enterType bootstrapEnv ("byteVector", byteVectorType);
+            val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []));
         end
 
     (* We also need array and Array2.array to be passed through here so that
        they have the special property of being eqtypes even if their argument
        is not.   "array" is defined to be in the global environment. *)
-        val () = enterGlobalType  ("array", arrayConstr);
-        val () = #enterType bootstrapEnv ("array", array2Constr)
-        val () = #enterType bootstrapEnv ("byteArray", byteArrayConstr);
+        val () = enterGlobalType  ("array", TypeConstrSet(arrayConstr, []));
+        val () = #enterType bootstrapEnv ("array", TypeConstrSet(array2Constr, []))
+        val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []));
 
 (*****************************************************************************)
 (*                  Polymorphic functions                                    *)
@@ -857,11 +850,11 @@ struct
             fun createType typeName =
             let
                 val typeconstr =
-                    makeFrozenTypeConstrs(typeName, [],
+                    makeTypeConstructor(typeName, [],
                         makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
                         0, declInBasis);
             in
-                #enterType nameSpaceEnv (typeName, typeconstr);
+                #enterType nameSpaceEnv (typeName, TypeConstrSet(typeconstr, []));
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
             end;
     
@@ -894,7 +887,7 @@ struct
     
             val recordType =
                 makeTypeAbbreviation("nameSpace", [], mkLabelled(sortLabels fields, true), declInBasis);
-            val () = #enterType nameSpaceEnv ("nameSpace", recordType);
+            val () = #enterType nameSpaceEnv ("nameSpace", TypeConstrSet(recordType, []));
             
             (* The result type of the compiler includes valueVal etc. *)
             val resultFields = List.map TYPETREE.mkLabelEntry
@@ -922,7 +915,7 @@ struct
             val typeconstr = locationConstr
             val () = #enterType polyMLEnv ("location", typeconstr);
         in
-            val Location = mkTypeConstruction ("location", typeconstr, [], declInBasis)
+            val Location = mkTypeConstruction ("location", tsConstr typeconstr, [], declInBasis)
         end
 
 (*****************************************************************************)
@@ -933,7 +926,7 @@ struct
         in
             val () = #enterType polyMLEnv ("context", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
-                        (tcConstructors typeconstr)
+                        (tsConstructors typeconstr)
         end
 
 (*****************************************************************************)
@@ -944,8 +937,8 @@ struct
         in
             val () = #enterType polyMLEnv ("pretty", typeconstr);
             val () = List.app(fn(tv as Value{name, ...}) => #enterVal polyMLEnv(name, tv))
-                        (tcConstructors typeconstr)
-            val PrettyType = mkTypeConstruction ("pretty", typeconstr, [], declInBasis)
+                        (tsConstructors typeconstr)
+            val PrettyType = mkTypeConstruction ("pretty", tsConstr typeconstr, [], declInBasis)
         end
 
 
@@ -1052,16 +1045,16 @@ struct
             in
                 (* type 'a tag *)
                 val tagConstr =
-                    makeFrozenTypeConstrs("tag", [makeTypeVariable()],
+                    makeTypeConstructor("tag", [makeTypeVariable()],
                         makeFreeId(idCode, false, basisDescription "tag"), 0, declInBasis);
-                val () = #enterType uniStructEnv ("tag", tagConstr)
+                val () = #enterType uniStructEnv ("tag", TypeConstrSet(tagConstr, []))
             end
 
             (* type universal *)
             val univConstr =
-                makeFrozenTypeConstrs("universal", [],
+                makeTypeConstructor("universal", [],
                         makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), 0, declInBasis);
-            val () = #enterType uniStructEnv ("universal", univConstr);
+            val () = #enterType uniStructEnv ("universal",  TypeConstrSet(univConstr, []));
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
             val Universal = mkTypeConstruction ("universal", univConstr, [], declInBasis)
@@ -1087,23 +1080,22 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
             val propConstr =
-                makeDatatypeConstr("ptProperties", [],
+                makeTypeConstructor("ptProperties", [],
                     makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), 0, declInBasis);
-            val () = #enterType polyMLEnv ("ptProperties", propConstr);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
             val parseTreeConstr =
                 makeTypeAbbreviation("parseTree", [], Location ** List PtProperties, declInBasis);    
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
-            val () = #enterType polyMLEnv ("parseTree", parseTreeConstr);
+            val () = #enterType polyMLEnv ("parseTree", TypeConstrSet(parseTreeConstr, []));
 
             (* Representation of the type of a value. *)
             val typesConstr =
-                makeFrozenTypeConstrs("typeExpression", [],
+                makeTypeConstructor("typeExpression", [],
                     makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), 0, declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
-            val () = #enterType polyMLEnv ("typeExpression", typesConstr);
+            val () = #enterType polyMLEnv ("typeExpression", TypeConstrSet(typesConstr, []));
 
             val constrs = (* Order is significant. *)
                [ ("PTdeclaredAt",       Location),
@@ -1127,7 +1119,7 @@ struct
                         (constrs, constrReps)
             val () = List.app (fn c => #enterVal polyMLEnv(valName c, c)) constructors
             (* Put these constructors onto the type. *)
-            val () = tcSetConstructors (propConstr, constructors);
+            val () = #enterType polyMLEnv ("ptProperties", TypeConstrSet(propConstr, constructors));
 
         in
             val ParseTree = ParseTree and Types = Types
