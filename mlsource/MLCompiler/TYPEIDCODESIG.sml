@@ -48,7 +48,7 @@ sig
         type typeVarMap = typeVarMap
         val defaultTypeVarMap: (int->int) * int -> typeVarMap (* The end of the chain. *)
         (* Add a set of type variables to the map. *)
-        val extendTypeVarMap: (typeVarForm * int) list * (int->int) * int * typeVarMap -> typeVarMap
+        val extendTypeVarMap: (typeVarForm * (int->codetree)) list * (int->int) * int * typeVarMap -> typeVarMap
         (* Look up a type variable and return the type it's mapped to. *)
         val mapTypeVars: typeVarMap -> typeVarForm -> types option
         (* Mark in the cache chain that some type constructors are new. *)

@@ -6046,9 +6046,23 @@ struct
                         local
                             (* The poly args come after any result tuple. *)
                             val tupleOffset = if resultTuple = 1 then 0 else 1
-                            val argAddrs = List.tabulate(nPolyVars, fn n => n-nPolyVars-tupleOffset)
+                            val argAddrs =
+                                List.tabulate(nPolyVars, fn n => fn l => mkLoad(n-nPolyVars-tupleOffset, l-fnLevel))
+                            val mainTypeVars = ListPair.zipEq(polyVars, argAddrs)
+                            (* Also need to add any variables used by other polymorphic
+                               functions but not in the existing list.  This is only for very unusual cases. *)
+                            fun addExtras (fPolyVars, pVarList) =
+                            let
+                                fun checkPolymorphism(fpVar, pVars) =
+                                    if isSome(List.find (fn(t, _) => sameTv(t, fpVar)) mainTypeVars)
+                                       orelse isSome(List.find (fn (t, _) => sameTv(t, fpVar)) pVars)
+                                    then pVars else (fpVar, fn _ => defaultTypeCode) :: pVars
+                            in
+                                List.foldl checkPolymorphism pVarList fPolyVars
+                            end
+                            val extraEntries = List.foldl addExtras [] polyVarList
                         in
-                            val typevarArgMap = ListPair.zipEq(polyVars, argAddrs)
+                            val typevarArgMap = mainTypeVars @ extraEntries
                             val newTypeVarMap =
                                 extendTypeVarMap(typevarArgMap, fnMkAddr, fnLevel, typeVarMap)
                         end
@@ -6064,7 +6078,11 @@ struct
                            for this function.  If another function uses different variables it
                            can't be called from this one.  If it had been called from this any
                            type variables would have been fixed as monotypes or the type variables
-                           of this function. *)
+                           of this function.
+                           Except this is wrong in one case.  If one of the recursive calls involves
+                           an exception (e.g. f (fn _ => raise Fail "") (or perhaps some other case
+                           involving "don't care" polymorphic variables) it is possible to call a
+                           function with more polymorphism. *)
                         local
                             fun createApplications(fVal::fVals, addr::addrList, [] :: polyVarList, otherDecs) =
                                 (
@@ -6076,35 +6094,21 @@ struct
                             |   createApplications(
                                     fVal::fVals, addr::addrList, fPolyVars ::polyVarList, otherDecs) =
                                 let
-                                    val (polyArgs, allMatch) =
-                                        let
-                                            fun createMatches(fpVar, (otherDecs, true)) =
-                                                (
-                                                    case List.find (fn(t, _) => sameTv(t, fpVar)) typevarArgMap of
-                                                        SOME (_, addr) => (mkLoad(addr, 0) :: otherDecs, true)
-                                                    |   NONE => ([], false)
-                                                )
-                                            |   createMatches _ = ([], false)
-                                        in
-                                            List.foldr createMatches ([], true) fPolyVars
-                                        end
-                                    val newDecs =
-                                        if allMatch
-                                        then
-                                        let
-                                            val newAddr = fnMkAddr 1
-                                            val polyFn = mkLoad(addr, fnLevel-level)
-                                        in
-                                            (* Set the address to this so if we use this function we pick
-                                               up this declaration. *)
-                                            setValueAddress(fVal, newAddr, fnLevel);
-                                            mkDec(newAddr, mkEval(polyFn, polyArgs, true)) :: otherDecs
-                                        end
-                                        else otherDecs
-                                
+                                    fun createMatches fpVar =
+                                        case List.find (fn(t, _) => sameTv(t, fpVar)) typevarArgMap of
+                                            SOME (_, codeFn) => codeFn fnLevel
+                                        |   NONE => raise InternalError "createMatches: Missing type var"
+                                    val polyArgs = List.map createMatches fPolyVars
+                                    val newAddr = fnMkAddr 1
+                                    val polyFn = mkLoad(addr, fnLevel-level)
+                                        (* Set the address to this so if we use this function we pick
+                                           up this declaration. *)
+                                    val () = setValueAddress(fVal, newAddr, fnLevel);
+                                    val newDecs = mkDec(newAddr, mkEval(polyFn, polyArgs, true)) :: otherDecs
                                 in
                                     createApplications(fVals, addrList, polyVarList, newDecs)
                                 end
+
                             |   createApplications(_, _, _, decs) = decs
                         in 
                             val appDecs =
@@ -6313,7 +6317,7 @@ struct
                         val addresses = ref 1
                         fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
                         val fnLevel = (#level originalContext +1)
-                        val argAddrs = List.tabulate(nPolyVars, fn n => n-nPolyVars)
+                        val argAddrs = List.tabulate(nPolyVars, fn n => fn l => mkLoad(n-nPolyVars, l-fnLevel))
                         val argMap = ListPair.zipEq(polyVars, argAddrs)
                         val newTypeVarMap =
                             extendTypeVarMap(argMap, fnMkAddr, fnLevel, #typeVarMap originalContext)

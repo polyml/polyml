@@ -133,7 +133,7 @@ struct
     struct
         (* Entries are either type var maps or "stoppers". *)
         datatype typeVarMapEntry =
-            TypeVarFormEntry of (typeVarForm * int) list
+            TypeVarFormEntry of (typeVarForm * (int->codetree)) list
         |   TypeConstrListEntry of typeConstrs list
 
         type typeVarMap =
@@ -158,7 +158,7 @@ struct
         |   getCachedTypeValues _ = raise Misc.InternalError "getCachedTypeValues"
 
         (* Extend a type variable environment with a new map of type variables to load functions. *)
-        fun extendTypeVarMap (tvMap: (typeVarForm * int) list, mkAddr, level, typeVarMap) =
+        fun extendTypeVarMap (tvMap: (typeVarForm * (int->codetree)) list, mkAddr, level, typeVarMap) =
             {entryType = TypeVarFormEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
         (* If we find the type var in the map return it as a type.  This is used to
@@ -283,10 +283,10 @@ struct
                                    if we have unreferenced type variables that need to be supplied but
                                    are treated as "don't care". *)
 
-                            |   findCodeFromTypeVar({entryType=TypeVarFormEntry typeVarMap, level, ...} :: rest, tyVar) =
+                            |   findCodeFromTypeVar({entryType=TypeVarFormEntry typeVarMap, ...} :: rest, tyVar) =
                                 (
                                 case List.find(fn(t, _) => sameTv(t, tyVar)) typeVarMap of
-                                    SOME(_, addr) => ((fn l => mkLoad(addr, l-level)), List.length rest+1)
+                                    SOME(_, codeFn) => (codeFn, List.length rest+1)
                                 |   NONE => findCodeFromTypeVar(rest, tyVar)
                                 )
 
@@ -360,12 +360,13 @@ struct
     (* Create a look-up function for type variables in a datatype or type constructor.
        This has to create a full type value even though only one field of it will be
        used but that maintains consistency with the rest of the typeVarMap. *)
-    fun mkTcArgMap argTypes =
+    fun mkTcArgMap (argTypes, level) =
         let
             val nArgs = List.length argTypes
-            val args = List.tabulate(nArgs, fn n => n-nArgs)
+            val argAddrs = List.tabulate(nArgs, fn n => n-nArgs)
+            val args = List.map(fn addr => fn l => mkLoad(addr, l-level)) argAddrs
         in
-            (ListPair.zipEq(argTypes, args), List.map (fn addr => mkLoad(addr, 0)) args)
+            (ListPair.zipEq(argTypes, args), List.map (fn addr => mkLoad(addr, 0)) argAddrs)
         end
 
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
@@ -601,7 +602,7 @@ struct
                     [] => ([], 0, typeVarMap)
                 |   _ =>
                     let
-                        val (varToArgMap, localArgList) = mkTcArgMap argTypes
+                        val (varToArgMap, localArgList) = mkTcArgMap(argTypes, baseLevel+1)
                         val addrs = ref 1 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
@@ -740,7 +741,7 @@ struct
                 [] => ([], level+1, typeVarMap)
             |   _ =>
                 let
-                    val (varToArgMap, localArgList) = mkTcArgMap argTypes
+                    val (varToArgMap, localArgList) = mkTcArgMap(argTypes, level+1)
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
                 in
@@ -957,7 +958,7 @@ struct
                 let
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
-                    val argTypeMap = extendTypeVarMap(#1(mkTcArgMap argTypes), mkAddr, level+1, typeVarMap)
+                    val argTypeMap = extendTypeVarMap(#1(mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
                     val printCode = printerForType(resType, level+1, argTypeMap)
                 in
                     (* Wrap this in a function for the type arguments. *)
@@ -973,7 +974,7 @@ struct
                         val addrs = ref 1 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                         val argTypeMap =
-                            extendTypeVarMap(#1 (mkTcArgMap argTypes), mkAddr, level+1, typeVarMap)
+                            extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
 
                         fun getEqFnForID(typeId, _, l) = (TypeValue.extractEquality(codeId(typeId, l)), NONE)
 
@@ -986,7 +987,7 @@ struct
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
                     val argTypeMap =
-                        extendTypeVarMap(#1 (mkTcArgMap argTypes), mkAddr, level+1, typeVarMap)
+                        extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
                     val innerFnCode =
                         boxednessForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                 in

@@ -2544,7 +2544,9 @@ struct
                                 open TypeVarMap
                                 val destPolymorphism = List.length destVars
                                 val localLevel = level + 1
-                                val argAddrs = List.tabulate(destPolymorphism, fn n => n-destPolymorphism)
+                                val argAddrs =
+                                    List.tabulate(destPolymorphism,
+                                        fn n => fn l => mkLoad(n-destPolymorphism, l-localLevel))
                                 val argMap = ListPair.zipEq(destVars, argAddrs)
                                 val addrs = ref 0
                                 fun mkAddrs n = ! addrs before (addrs := !addrs+n)
