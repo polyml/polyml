@@ -938,7 +938,8 @@ struct
 
     (* Check that a matching has succeeded, and check the value
        constructors if they are datatypes. *)
-    fun checkTypeConstrs (candidSet as TypeConstrSet(candid, _), targetSet as TypeConstrSet(target, _),
+    fun checkTypeConstrs (candidSet as TypeConstrSet(candid, candidConstrs),
+                          targetSet as TypeConstrSet(target, targetConstrs),
                           targTypeMap: int -> typeId option, lex, near, lno, typeEnv, structPath) =
     let
         val candidName : string = tcName candid;
@@ -958,11 +959,26 @@ struct
                          targTypeMap) of
                 MatchError error => (* Report the error. *)
                     errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
-            |   MatchSuccess _ => ()
+            |   MatchSuccess _ =>
                 (* We have already checked for matching a type in the structure to a datatype in the signature.
                    In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
                    must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
-                   So we can check the constructors when we check the values. *)
+                   So we can check the types of the constructors when we check the values.  We still need to
+                   check that if this has constructors that the candidate does not have more constructors. *)
+                if null targetConstrs then () (* Target is just a type: this isn't a problem. *)
+                else if List.length candidConstrs <= List.length targetConstrs
+                then () (* If it's less then it will be picked up later. *)
+                else
+                let
+                    fun checkConstrs(Value{name=candidConstrName, ...}) =
+                        if List.exists(fn Value{name, ...} => name=candidConstrName) targetConstrs
+                        then ()
+                        else errorNear(lex, true, near, lno,
+                                concat["Error while matching datatype ", candidName, ": constructor ", candidConstrName,
+                                        " was present in the structure but not in the signature."]);
+                in
+                    List.app checkConstrs candidConstrs
+                end
     end
 
     (* Check that a candidate signature (actually the environment part of
