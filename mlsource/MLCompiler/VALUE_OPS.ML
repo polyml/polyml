@@ -533,9 +533,9 @@ struct
                     valPart "=",
                     PrettyBreak (1, 0),
                     printValueForType (evalue code, typeOf, depth),
+                    PrettyString ":",
                     PrettyBreak (1, 0),
-                    PrettyBlock (3, false, [],
-                        [ PrettyString ":", PrettyBreak (1, 3), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+                    displayWithMap (typeOf, depth, typeEnv, sigMap)
                  ])
 
         |    (ValBound, _) => (* Values in structures and overloaded values (from PolyML). *)
@@ -1135,7 +1135,8 @@ struct
                         (fn _ => raise Fail "installPP: The argument type was not a simple type construction")),
             level, 1, "InstallPP(P)")
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, [installType, argPrints], lex, loc) =
+  |  codeVal (Value{access = Overloaded InstallPP, typeOf, name, class, locations, references, instanceTypes, ...},
+              level, typeVarMap, [installType, argPrints], lex, loc) =
         let
          (* This is the old function to install a pretty printer.  It has
             been retained for backwards compatibility.
@@ -1173,36 +1174,6 @@ struct
             |   followTypes _ = NONE;
 
             val constrId = followTypes installType
-            
-            val () =
-                case constrId of
-                    NONE => ()
-                |   SOME (_, constr, arity) =>
-                    let
-                        (* Check that the function tuple matches the arguments of the type
-                           we're installing for. *)
-                        (* Each entry should be a function of type 'a * int -> unit *)
-                        fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.intType], TYPESTRUCT.unitType)
-                        (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true))
-                        val tupleType =
-                            case typeVars of
-                                [] => (* No arg so we can have anything here. *)
-                                    mkTypeVar (generalisable, false, false)
-                            |   [arg] => mkFn arg (* Just a single function. *)
-                            |   args => mkProductType(List.map mkFn args)
-                        val installPPType =
-                            mkFunctionType(argPrints, mkFunctionType(installType, TYPESTRUCT.unitType))
-                        val testType =
-                            mkFunctionType(tupleType,
-                                mkFunctionType(
-                                mkTypeConstruction(tcName constr, constr, typeVars, [DeclaredAt loc]),
-                                    TYPESTRUCT.unitType))
-                    in
-                        checkPPType(installPPType, testType, "install_pp", lex, loc,
-                            fn () =>
-                                PrettyString "install_pp element functions must have type 'a * int -> unit")
-                    end;
 
             (* This is the type of the pretty-printer as seen by the user *)
             type pp =
@@ -1211,85 +1182,81 @@ struct
                 (* break *)      (int * int -> unit) *
                 (* endBlock *)   (unit -> unit);
 
-            fun installPp (pprint:pp -> int -> machineWord -> machineWord -> unit) =
-            case constrId of
-                NONE => raise Fail "install_pp: The argument type was not a simple type construction"
-            |   SOME (typeToInstallFor, _, tupleWidth) =>
-                let
-                    (* Convert the old imperative form into the new pretty datatype. *)
-                    fun createPretty depth (elemFns: machineWord) (valToPrint: machineWord): pretty =
-                    let
-                        (* Result stack. This contains open Begins and also accumulates the result. *)
-                        val resultStack = ref []
-                        (* Add an entry to the top block in the stack. *)
-                        fun addEntry p =
-                            case ! resultStack of
-                                [] => (* Nothing there so far. *)
-                                    resultStack := [p]
-                            |   PrettyBlock(i, b, c, l) :: tail  =>
-                                    (* Add to current block. *)
-                                    resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
-                            |   _ => (* Something there but not a Begin. *)
-                                    raise Fail "Missing Begin"
-                        fun addString s =
-                            addEntry(PrettyString s)
-                        and beginBlock(i: int, b: bool) =
-                            addEntry(PrettyBlock(i, b, [], []))
-                        and break (i: int, j: int) : unit =
-                            addEntry(PrettyBreak(i, j))
-                        and endBlock () =
-                            case ! resultStack of
-                                [] => raise Fail "End found with no Begin"
-                            |   hd :: tl =>
-                                    (* Pop the current block from the stack and
-                                       add it as an entry to the immediately containing block. *)
-                                (
-                                    resultStack := tl;
-                                    addEntry hd
-                                )
+            (* Convert the old imperative form into the new pretty datatype. *)
+            fun createPretty (pprint:pp -> int -> machineWord -> machineWord -> unit) 
+                             depth (elemFns: machineWord) (valToPrint: machineWord): pretty =
+            let
+                val (_, _, tupleWidth) = valOf constrId
+                (* Result stack. This contains open Begins and also accumulates the result. *)
+                val resultStack = ref []
+                (* Add an entry to the top block in the stack. *)
+                fun addEntry p =
+                    case ! resultStack of
+                        [] => (* Nothing there so far. *)
+                            resultStack := [p]
+                    |   PrettyBlock(i, b, c, l) :: tail  =>
+                            (* Add to current block. *)
+                            resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
+                    |   _ => (* Something there but not a Begin. *)
+                            raise Fail "Missing Begin"
+                fun addString s =
+                    addEntry(PrettyString s)
+                and beginBlock(i: int, b: bool) =
+                    resultStack := PrettyBlock(i, b, [], []) :: ! resultStack
+                and break (i: int, j: int) : unit =
+                    addEntry(PrettyBreak(i, j))
+                and endBlock () =
+                    case ! resultStack of
+                        [] => raise Fail "End found with no Begin"
+                    |   hd :: tl =>
+                            (* Pop the current block from the stack and
+                               add it as an entry to the immediately containing block. *)
+                        (
+                            resultStack := tl;
+                            addEntry hd
+                        )
 
-                        val processElement: machineWord =
-                        (* This is the single function or tuple of functions to process
-                           the elements when this is a polytype. e.g. for "int" if this
-                           is "int list". *)
-                        case tupleWidth of
-                            0 => toMachineWord (* Not used for monotypes. *)
-                                    (fn _ => raise Fail "Monotype has no type argument")
-                        |   1 => toMachineWord (* Single argument polytypes e.g. list *)
-                                    (fn (v, depth) => addEntry(RunCall.unsafeCast elemFns (v, depth)))
-                        |   n => (* Polytypes of more than one type e.g. ('a, 'b) pair. *)
-                            let (* We have to construct a tuple of functions each of which calls
-                                   the corresponding function in the tuple that is passed in. *)
-                                fun getElem n (v, depth) =
-                                let
-                                    val prettyFn =
-                                        RunCall.unsafeCast(loadWord(toAddress elemFns, toShort n))
-                                in
-                                    addEntry(prettyFn(v, depth))
-                                end
-                                (* As with the print code in printConstruction we use CodeTree
-                                   to create the tuple. *)
-                                val fns = List.tabulate (n, fn n => mkConst(toMachineWord(getElem n)))
-                            in
-                                evalue (mkTuple fns)
-                            end
+                val processElement: machineWord =
+                (* This is the single function or tuple of functions to process
+                   the elements when this is a polytype. e.g. for "int" if this
+                   is "int list". *)
+                case tupleWidth of
+                    0 => toMachineWord (* Not used for monotypes. *)
+                            (fn _ => raise Fail "Monotype has no type argument")
+                |   1 => toMachineWord (* Single argument polytypes e.g. list *)
+                            (fn (v, depth) => addEntry(RunCall.unsafeCast elemFns (v, depth)))
+                |   n => (* Polytypes of more than one type e.g. ('a, 'b) pair. *)
+                    let (* We have to construct a tuple of functions each of which calls
+                           the corresponding function in the tuple that is passed in. *)
+                        fun getElem n (v, depth) =
+                        let
+                            val prettyFn =
+                                RunCall.unsafeCast(loadWord(toAddress elemFns, toShort n))
+                        in
+                            addEntry(prettyFn(v, depth))
+                        end
+                        (* As with the print code in printConstruction we use CodeTree
+                           to create the tuple. *)
+                        val fns = List.tabulate (n, fn n => mkConst(toMachineWord(getElem n)))
                     in
-                        raise Fail "not yet converted!!!!";
-                        pprint (addString, beginBlock, break, endBlock) depth processElement valToPrint;
-                        case ! resultStack of
-                            [] => PrettyBlock(0, false, [], [])
-                        |   [one] => one
-                        |   _ => raise Fail "Incorrect nesting of begin...end blocks"
+                        evalue (mkTuple fns)
                     end
-                in
-                    case idAccess typeToInstallFor of
-                        Global code =>
-                                unsafeCast(evalue(mkInd(1, code))) := createPretty
-                        |   _ => () (* Do nothing silently at the moment. *)
-                end (* installPp *)
+            in
+                pprint (addString, beginBlock, break, endBlock) depth processElement valToPrint;
+                case ! resultStack of
+                    [] => PrettyBlock(0, false, [], [])
+                |   [one] => one
+                |   _ => raise Fail "Incorrect nesting of begin...end blocks"
+            end
 
         in
-            mkConst (toMachineWord installPp)
+            mkProc(
+                mkEval (
+                    codeVal(Value{access = Overloaded AddPretty, typeOf=typeOf, name=name, class=class,
+                                  locations=locations, references=references, instanceTypes=instanceTypes},
+                            level+1, typeVarMap, [installType, argPrints], lex, loc),
+                    [mkEval(mkConst(toMachineWord createPretty), [arg1], false)], false),
+                level+1, 1, "installPP")
         end
 
   |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, _, _, _) =

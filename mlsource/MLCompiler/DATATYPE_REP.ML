@@ -690,7 +690,6 @@ struct
                 val locationType = mkTypeConstruction ("location", locationCons, [], [DeclaredAt inBasis])
                 val constrs =
                    [ ("ContextLocation", locationType),
-                     ("ContextParentStructure", mkProductType[stringTypeConstr, listConstruct contextType]),
                      ("ContextProperty", mkProductType[stringTypeConstr, stringTypeConstr])];
                 (* We rely on chooseConstrRepr giving us the same representation for the
                    constructors as when context was compiled by the previous compiler. *)

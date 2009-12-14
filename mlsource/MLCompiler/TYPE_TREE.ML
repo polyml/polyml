@@ -813,9 +813,7 @@ struct
                 PrettyBlock (0, false, [],
                     [
                         PrettyString "(",
-                        PrettyBreak (0, 0),
                         dispP (t, depth - 1),
-                        PrettyBreak (0, 0),
                         PrettyString ")"
                     ]);
     
@@ -989,9 +987,9 @@ struct
                         if isFunctionType evArg 
                         then parenthesise depth evArg
                         else dispP (evArg, depth - 1),
-                        PrettyBreak(1, 0),
+                        PrettyBreak(1, 2),
                         PrettyString "->",
-                        PrettyBreak (1, 0),
+                        PrettyBreak (1, 2),
                         dispP (result, depth - 1)
                         ])
                 end
