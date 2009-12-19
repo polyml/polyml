@@ -752,13 +752,24 @@ struct
            a simple string, a tuple, a record or a list.
            A reference to this function is copied into the code.
            N.B.  This code is also in InitialBasis to handle "ref" and "option". *)
-        fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
-        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
-        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
-        |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
-        |   parenthesise(s as PrettyBlock _) =
-                PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), s, PrettyBreak(0, 0), PrettyString ")" ])
-        |   parenthesise s = s (* String or Break *)
+        fun parenthesise p =
+            if isPrettyBlock p
+            then
+            let
+                val (_, _, _, items) = projPrettyBlock p
+            in
+                case items of
+                    [ _ ] => p (* Just one item.  No need for parentheses. *)
+                |   [] => p (* Shouldn't generally happen. *)
+                |   first :: _ =>
+                    if isPrettyString first
+                        andalso (case projPrettyString first of
+                                    "(" => true | "{" => true | "[" => true | _ => false)
+                    then p (* Already parenthesised. *)
+                    else
+                        PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), p, PrettyBreak(0, 0), PrettyString ")" ])
+            end
+            else p (* String or Break *)
 
         fun printerForConstructors
                 (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest, depth) =

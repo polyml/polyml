@@ -1194,11 +1194,16 @@ struct
                     case ! resultStack of
                         [] => (* Nothing there so far. *)
                             resultStack := [p]
-                    |   PrettyBlock(i, b, c, l) :: tail  =>
-                            (* Add to current block. *)
-                            resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
-                    |   _ => (* Something there but not a Begin. *)
-                            raise Fail "Missing Begin"
+                    |   head :: tail =>
+                            if isPrettyBlock head
+                            then
+                            let
+                                val (i, b, c, l) = projPrettyBlock head
+                            in (* Add to current block. *)
+                                resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
+                            end
+                            else (* Something there but not a Begin. *)
+                                raise Fail "Missing Begin"
                 fun addString s =
                     addEntry(PrettyString s)
                 and beginBlock(i: int, b: bool) =

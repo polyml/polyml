@@ -19,6 +19,25 @@
 (* Signature for the pretty printer. *)
 signature PRETTYSIG =
 sig
+    type context
+    type pretty
+    val ContextLocation:
+        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int } -> context
+    and ContextProperty: string * string (* User property. *) -> context
+
+    val PrettyBlock: int * bool * context list * pretty list -> pretty
+    and PrettyBreak: int * int -> pretty
+    and PrettyString: string -> pretty
+    
+    val isPrettyBlock: pretty -> bool
+    val isPrettyBreak: pretty -> bool
+    val isPrettyString: pretty -> bool
+    
+    val projPrettyBlock: pretty -> int * bool * context list * pretty list
+    val projPrettyBreak: pretty -> int * int
+    val projPrettyString: pretty -> string
+
+(*
     datatype context =
         ContextLocation of
             { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
@@ -28,6 +47,7 @@ sig
         PrettyBlock of int * bool * context list * pretty list
     |   PrettyBreak of int * int
     |   PrettyString of string
+*)
 
     (* A simple "pretty printer" that just accumulates strings. *)
     val uglyPrint: pretty -> string

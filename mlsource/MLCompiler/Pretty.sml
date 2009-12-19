@@ -16,23 +16,105 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* Datatype for pretty printing. *)
-
-structure Pretty: PRETTYSIG =
+structure Pretty:> PRETTYSIG =
 struct
-    datatype context =
-        ContextLocation of
+
+(*    abstype context =
+        AbsContextLocation of
             { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    |   ContextProperty of string * string (* User property. *)
+    |   AbsContextProperty of string * string (* User property. *)
 
-    datatype pretty =
-        PrettyBlock of int * bool * context list * pretty list
-    |   PrettyBreak of int * int
-    |   PrettyString of string
+    and pretty =
+        AbsPrettyBlock of int * bool * context list * pretty list
+    |   AbsPrettyBreak of int * int
+    |   AbsPrettyString of string
+    
+    with
+        val ContextLocation = AbsContextLocation
+        and ContextProperty = AbsContextProperty
+        
+        val PrettyBlock = AbsPrettyBlock
+        and PrettyBreak = AbsPrettyBreak
+        and PrettyString = AbsPrettyString
+        
+        fun isPrettyBlock(AbsPrettyBlock _) = true | isPrettyBlock _ = false
+        and isPrettyBreak(AbsPrettyBreak _) = true | isPrettyBreak _ = false
+        and isPrettyString(AbsPrettyString _) = true | isPrettyString _ = false
 
-    fun uglyPrint(PrettyBlock(_,_,_,l)) = String.concat(map uglyPrint l)
-    |   uglyPrint(PrettyBreak(n, _)) = String.implode(List.tabulate(n, fn _ => #" "))
-    |   uglyPrint(PrettyString s) = s
+        fun projPrettyBlock(AbsPrettyBlock b) = b | projPrettyBlock _ = raise Match
+        and projPrettyBreak(AbsPrettyBreak b) = b | projPrettyBreak _ = raise Match
+        and projPrettyString(AbsPrettyString b) = b | projPrettyString _ = raise Match
+    end;*)
+
+    (* This is complicated because the data structures we use here will be exported into
+       the code produced by the compiler.  We can't assume that the same representations
+       will be used by this version of the compiler as are used by the compiler that is
+       compiling this code.  We use an explicit representation here which must be kept in
+       synch with the representation used in DATATYPE_REP.ML *)
+    local
+        open Address
+    in
+        type context = address
+        (* Because the argument tuple has more than 4 fields the address is used rather than copying the fields. *)
+        fun ContextLocation(
+                p as { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }): context =
+            toAddress(0, p)
+        and ContextProperty(s1: string, s2: string): context =
+            toAddress(1, s1, s2)
+    end
+
+    local
+        open Address
+    in
+        type pretty = address
+
+        fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
+            toAddress(0, offset, consistent, context, items)
+        and PrettyBreak(breaks: int, offset: int): pretty =
+            toAddress(~1, breaks, offset)
+        and PrettyString(s: string): pretty =
+            toAddress(1, s)
+
+        fun isPrettyBlock p = unsafeCast(loadWord(p, 0w0)) = 0
+        and isPrettyBreak p = unsafeCast(loadWord(p, 0w0)) = ~1
+        and isPrettyString p = unsafeCast(loadWord(p, 0w0)) = 1
+
+        fun projPrettyBlock p =
+            if isPrettyBlock p
+            then
+            let
+                val (_: int, offset: int, consistent: bool, context: context list, items: pretty list) =
+                    unsafeCast p
+            in
+                (offset, consistent, context, items)
+            end
+            else raise Match
+
+        and projPrettyBreak p =
+            if isPrettyBreak p
+            then
+            let
+                val (_: int, breaks: int, offset: int) = unsafeCast p
+            in
+                (breaks, offset)
+            end
+            else raise Match
+
+        and projPrettyString p =
+            if isPrettyString p
+            then
+            let
+                val (_: int, s: string) = unsafeCast p
+            in
+                s
+            end
+            else raise Match
+    end
+
+    fun uglyPrint p =
+        if isPrettyBlock p then String.concat(map uglyPrint(#4 (projPrettyBlock p)))
+        else if isPrettyBreak p then String.implode(List.tabulate(#1 (projPrettyBreak p), fn _ => #" "))
+        else projPrettyString p
 
     (* Pretty printer copied directly from basis/PrettyPrinter.  We can't use the
        same code because the "pretty" type is not the same. *)
@@ -43,16 +125,27 @@ struct
 
         (* Find out whether the block fits and return the space left if it does.
            Terminates with NONE as soon as it finds the line doesn't fit. *)
-        fun getSize(PrettyBlock (_, _, _, entries), spaceLeft) =
-            List.foldl(fn (p, SOME s) => getSize(p, s) | (_, NONE) => NONE)
-                (SOME spaceLeft) entries
-
-        |   getSize(PrettyBreak (blanks, _), spaceLeft) =
-            if blanks <= spaceLeft then SOME(spaceLeft-blanks) else NONE
-
-        |   getSize(PrettyString st, spaceLeft) =
+        fun getSize(p, spaceLeft) =
+            if isPrettyBlock p
+            then
             let
-                val size = String.size st
+                val (_, _, _, entries) = projPrettyBlock p
+            in
+                List.foldl(fn (p, SOME s) => getSize(p, s) | (_, NONE) => NONE)
+                    (SOME spaceLeft) entries
+            end
+            
+            else if isPrettyBreak p
+            then
+            let
+                val (blanks, _) = projPrettyBreak p
+            in
+                if blanks <= spaceLeft then SOME(spaceLeft-blanks) else NONE
+            end
+            
+            else
+            let
+                val size = String.size (projPrettyString p)
             in
                 if size <= spaceLeft
                 then SOME(spaceLeft-size)
@@ -61,8 +154,11 @@ struct
 
         (* Lay out the block and return the space that is left after the line
            has been printed. *)
-        fun layOut(p as PrettyBlock (blockOffset, consistent, _, entries), indent, spaceLeft) =
+        fun layOut (p, indent, spaceLeft) =
+            if isPrettyBlock p
+            then
             let
+                val (blockOffset, consistent, _, entries) = projPrettyBlock p
                 val blockIndent = indent+blockOffset
             in
                 case getSize(p, spaceLeft) of
@@ -76,20 +172,23 @@ struct
                     let
                         (* Lay out this block, breaking where necessary. *)
                         fun doPrint([], left) = (* Finished: return what's left. *) left
-
-                        |   doPrint([PrettyBreak _], left) =
-                                left (* Ignore trailing breaks. *)
-
-                        |   doPrint(PrettyBreak (blanks, breakOffset) :: rest, left) =
+                        
+                        |   doPrint(hd :: rest, left) =
+                            if isPrettyBreak hd
+                            then if null rest
+                            then left (* Ignore trailing breaks. *)
+                            else
                             let
-                                (* Compute the space of the next item(s) up to the end or the
+                                val (blanks, breakOffset) = projPrettyBreak p
+                                 (* Compute the space of the next item(s) up to the end or the
                                    next space.  Since we only break at spaces if there are
                                    Blocks or Strings without spaces between we need to know
                                    the total size. *)
                                 fun getsp([], left) = SOME left
-                                |   getsp(PrettyBreak _ :: _, left) = SOME left
                                 |   getsp(next::rest, left) =
-                                        case getSize(next, left) of
+                                        if isPrettyBreak next
+                                        then SOME left
+                                        else case getSize(next, left) of
                                             NONE => NONE
                                         |   SOME sp => getsp(rest, sp)
                             in
@@ -106,25 +205,38 @@ struct
                                     doPrint(rest, left-blanks)
                                 )
                             end
- 
-                        |   doPrint(PrettyString s :: rest, left) =
-                            (
+                            
+                            else if isPrettyString p
+                            then
+                            let
+                                val s = projPrettyString p
+                            in
                                 stream s;
                                 doPrint(rest, left-size s)
-                            )
+                            end
 
-                        |   doPrint((b as PrettyBlock _) :: rest, left) =
-                                doPrint(rest, layOut(b, blockIndent, left))
+                            else (* Block *) doPrint(rest, layOut(p, blockIndent, left))
 
                         val onLine = doPrint(entries, spaceLeft);
                     in
                         onLine
                     end
             end
-        |   layOut (PrettyBreak (blanks, _), _, spaceLeft) =
-                ( printBlanks blanks; Int.max(spaceLeft-blanks, 0) )
-        |   layOut (PrettyString st, _, spaceLeft) =
-                ( stream st; Int.max(spaceLeft-String.size st, 0) )
+            
+            else if isPrettyBreak p
+            then
+            let
+                val (blanks, _) = projPrettyBreak p
+            in
+                printBlanks blanks; Int.max(spaceLeft-blanks, 0)
+            end
+            
+            else
+            let
+                val st = projPrettyString p
+            in
+                stream st; Int.max(spaceLeft-String.size st, 0)
+            end
 
     in
         if layOut(pretty, 0, lineWidth) <> lineWidth
