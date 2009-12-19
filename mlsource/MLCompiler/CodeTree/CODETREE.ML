@@ -327,7 +327,7 @@ struct
 
   (* N.B. int equality is SHORT integer equality *)
   fun mkTestinteq (xp1, xp2) = 
-    mkEval (rtsFunction POLY_SYS_int_eq, [xp1,xp2], true);
+    mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2], true);
 
   fun mkHandle (exp, taglist, handler) = Handle {exp = exp, taglist = taglist, handler = handler};
   
@@ -534,7 +534,7 @@ struct
      POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
      POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
      POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
-     POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
+     POLY_SYS_string_length,
      POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
      POLY_SYS_mul_word, POLY_SYS_plus_word,
      POLY_SYS_minus_word, POLY_SYS_or_word,
@@ -637,7 +637,7 @@ struct
          POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
          POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
          POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
-         POLY_SYS_string_length, POLY_SYS_int_eq, POLY_SYS_int_neq,
+         POLY_SYS_string_length,
          POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
          POLY_SYS_mul_word, POLY_SYS_plus_word,
          POLY_SYS_minus_word, POLY_SYS_div_word, POLY_SYS_or_word,
@@ -1704,8 +1704,7 @@ DCJM 2000.
           word_eq  251 (used for shorts)
       rather than just for the first two, since although the last case
       may not arise (says who?) it does no harm to test for it. SPF 12/10/94 *)
-              if wordEq (cv, ioOp POLY_SYS_int_eq) orelse
-                  wordEq (cv, ioOp POLY_SYS_equala) orelse
+              if wordEq (cv, ioOp POLY_SYS_equala) orelse
                   wordEq (cv, ioOp POLY_SYS_word_eq)
               then  (* Should be just two arguments. *)
                 case argList of

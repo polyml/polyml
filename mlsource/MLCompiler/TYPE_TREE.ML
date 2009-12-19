@@ -274,7 +274,7 @@ struct
                 0, [DeclaredAt inBasis]);
     in
         val intConstr    = makeConstr("int",    POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
-        val charConstr   = makeConstr("char",   POLY_SYS_int_eq, boxedNever) (* Always short *)
+        val charConstr   = makeConstr("char",   POLY_SYS_word_eq, boxedNever) (* Always short *)
         val stringConstr = makeConstr("string", POLY_SYS_teststreq, boxedEither (* Single chars are unboxed. *))
         val wordConstr   = makeConstr("word",   POLY_SYS_word_eq, boxedNever)
 
@@ -304,7 +304,7 @@ struct
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_int_eq, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 0, boxedNever), true, basisDescription "bool"),
                 0, [DeclaredAt inBasis]);
     end
 

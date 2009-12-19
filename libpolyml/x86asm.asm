@@ -888,17 +888,11 @@ ENDIF
 CALLMACRO   RegMask move_words,Mask_all
 ;#
 
-CALLMACRO    INLINE_ROUTINE int_eq
-    CMPL    Rebx,Reax
-    je      RetTrue
 RetFalse:
     MOVL    CONST FALSE,Reax
     ret
 CALLMACRO   RegMask int_eq,(M_Reax)
 
-CALLMACRO   INLINE_ROUTINE  int_neq
-    CMPL    Rebx,Reax
-    je      RetFalse
 RetTrue:
     MOVL    CONST TRUE,Reax
     ret

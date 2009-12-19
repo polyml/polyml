@@ -2362,13 +2362,7 @@ struct
            
         | [arg1, arg2] =>
             (* binary special cases *)
-        if wordEq (oper,ioOp POLY_SYS_int_eq) (* intEq (tag tests) *)
-          then genCompare (arg1, arg2, testEqW, testNeqW, testEqW, testNeqW)
-    
-        else if wordEq (oper,ioOp POLY_SYS_int_neq) (* intNeq (tag tests) *)
-          then genCompare (arg1, arg2, testNeqW, testEqW, testNeqW, testEqW)
-          
-        else if wordEq (oper,ioOp POLY_SYS_word_eq)
+        if wordEq (oper,ioOp POLY_SYS_word_eq)
           then genCompare (arg1, arg2, testEqW, testNeqW, testEqW, testNeqW)
           
         else if wordEq (oper,ioOp POLY_SYS_word_neq)
@@ -3116,9 +3110,7 @@ struct
      avoid that. SPF 21/11/96
   *)
           else if primBoolOps andalso
-        (wordEq (oper,ioOp POLY_SYS_int_eq)   orelse
-         wordEq (oper,ioOp POLY_SYS_int_neq)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
+        (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
          wordEq (oper,ioOp POLY_SYS_word_neq) orelse
          wordEq (oper,ioOp POLY_SYS_equala)   orelse
          wordEq (oper,ioOp POLY_SYS_int_geq)  orelse

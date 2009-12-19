@@ -116,9 +116,9 @@ struct
   val POLY_SYS_word_neq            = 217
   val POLY_SYS_not_bool            = 218
   val POLY_SYS_string_length       = 223
-  val POLY_SYS_int_eq              = 229
-  val POLY_SYS_int_neq             = 230
-  val POLY_SYS_int_geq             = 231
+(*  val POLY_SYS_int_eq              = 229 (* Removed: equivalent to word_eq. *)
+  val POLY_SYS_int_neq             = 230*) (* Removed: equivalent to word_ne. *)
+  val POLY_SYS_int_geq             = 231 (* These are actually arbitrary precision ops. *)
   val POLY_SYS_int_leq             = 232
   val POLY_SYS_int_gtr             = 233
   val POLY_SYS_int_lss             = 234
