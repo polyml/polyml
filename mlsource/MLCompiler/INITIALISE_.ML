@@ -275,10 +275,10 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm 0, [], "false"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis);
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm 1, [], "true"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis);
         in
             val () = enterGlobalType  ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]));
             val () = enterGlobalValue ("true",  trueCons);

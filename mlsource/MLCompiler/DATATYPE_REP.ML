@@ -73,70 +73,44 @@ sharing STRUCTVALS.Sharing = TYPESTRUCT.Sharing
 ) : DATATYPEREPSIG =
 
 struct
-  open MISC; 
+    open MISC; 
 
-  open CODETREE;
-  open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)
-  open Universal; (* for tag etc. *)
-  open STRUCTVALS;
-  open ADDRESS;
-  open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
-  open TYPEIDCODE
-  open COPIER
-  
-  val length   = List.length;
+    open CODETREE;
+    open TYPESTRUCT; (* Open this first because unitType is in STRUCTVALS as well. *)
+    open Universal; (* for tag etc. *)
+    open STRUCTVALS;
+    open ADDRESS;
+    open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
+    open TYPEIDCODE
+    open COPIER
 
-  val orb = Word8.orb
-  infix 7 orb;
+    val length   = List.length;
 
-(*****************************************************************************)
-(*             Representation of Datatype Constructors                       *)
-(*****************************************************************************)
-  (* These are the possible representations of a value constructor. *)
-  datatype representations = 
-    RefForm            (* As for OnlyOne but must be a monotype. *)
-  | UnitForm           (* If the only value in an enumeration. *)
-  | OnlyOne            (* If only one constructor, there is no tag or box. *)
+    val orb = Word8.orb
+    infix 7 orb;
+
+    (* These are the possible representations of a value constructor. *)
+    datatype representations = 
+        RefForm            (* As for OnlyOne but must be a monotype. *)
+    |   UnitForm           (* If the only value in an enumeration. *)
+    |   OnlyOne            (* If only one constructor, there is no tag or box. *)
                        (* Could be replaced by "UnboxedForm"? *)
     
-  | EnumForm of int    (* Enumeration - argument is the number. (short?) *)
-  | BoxedForm          (* Boxed but not tagged (only unary constructor) *)
-  | UnboxedForm        (* Unboxed and untagged (only unary constructor) *)
+    |   EnumForm of { tag: word, maxTag: word }    (* Enumeration - argument is the number. *)
+    |   ShortForm of word  (* As EnumForm except that one datatype is BoxedForm. *)
+    |   BoxedForm          (* Boxed but not tagged (only unary constructor) *)
+    |   UnboxedForm        (* Unboxed and untagged (only unary constructor) *)
 
-  | ConstForm of machineWord         (* Constant - argument is a tagged value. *)
-  | TaggedBox of int          (* Union - tagged and boxed.  i.e. the representation is a
+    |   ConstForm of { value: machineWord, maxTag: word}   (* Constant - argument is a tagged value. *)
+    |   TaggedBox of { tag: word, maxTag: word }          (* Union - tagged and boxed.  i.e. the representation is a
                                  pair whose first word is the tag and second is the value. *)
-  | TaggedTuple of int * int  (* Union - tagged but with in-line tuple. i.e. for a
+    |   TaggedTuple of { tag: word, maxTag: word, size: int }
+                                (* Union - tagged but with in-line tuple. i.e. for a
                                    tuple of size n the representation is a tuple of size n+1
                                  whose first word contains the tag. *)
 
 
-(* This makes the isConsTest "fn x => not (isShort x)" rather than
-   "fn x => x <> 0", but that shouldn't give any worse code.
-   If it does, we'll have to reinstate ConsForm as a primitive. *)
-  val NilForm  = EnumForm 0;
-  val ConsForm = UnboxedForm;
-  
-(* Similarly, this makes the tests for UnitForm and OnlyOne more
-   expensive, but we shouldn't be generating them anyway (especially
-   as the tests seem buggy). That's what fancy compilation
-   of pattern-matching does for you! Of course, if it doesn't work,
-   we can always reinstate them. SPF 22/10/94 *)
-   
-(* Don't do this ...
-  val UnitForm = EnumForm 0;
-... because it breaks the (hacky!) pretty-printing of arrays.
-    (Array values are represented by a UnitForm value constructor;
-    if we use an EnumForm instead, constrMatches fails, so we
-    get a (handled) exception inside the pretty-printer. This
-    is all very sad. The right fix would be to generalise
-    use-defined pretty-printers to handle parameterised types, and
-    add one of these for arrays.
-    SPF 2/7/96 *)
-(* I've done that although whether it fixes this particular problem
-   or not I don't know. DCJM Sept 2000. *)
-
-  val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
+    val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
 
     val mutableFlags = F_words orb F_mutable;
 
@@ -147,178 +121,103 @@ struct
         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
         false);
 
-(* Don't do this ...
-    val OnlyOne  = UnboxedForm;
-... because that gives the wrong test if the value isn't boxed. SPF 22/10/94 *)
+    local
+        fun mkTag (tag:word) : codetree = mkConst (toMachineWord tag);
 
-  local
-    
-    fun abstract (doIt: codetree -> codetree) (name : string) : codetree =
-      mkInlproc (doIt arg1, 0, 1, name);
-  
-    (* we use toShort to check that the tag actually fits in a 30-bit integer *)
-    fun mkTag (tag:int) : codetree = mkConst (toMachineWord (toShort tag));
+        (* How to apply the constructor at run-time or, if, it's a constant make it now. *)
+        fun constrApply (test: representations, arg) : codetree =
+        let
+            fun tagTupleCode (tag:word, n:int, name:string) : codetree =
+            let
+                (* copy n data fields out of ordinary record *)
+                fun getFields i =
+                    if i < n then mkInd (i, arg1) :: getFields (i + 1) else [];
+            in  
+                mkInlproc (mkTuple (mkTag tag :: getFields 0), 0, 1, name)
+            end;
 
-    (* tag now moved into first word SPF 22/10/94 *)
-    (* get the tag from a TaggedBox or ConstForm *)
-    fun loadTag (u: machineWord) : machineWord = 
-      loadWord (toAddress u, 0w0); (* tag is first field *)
+            fun tagTupleApplyCode (tag: word, n:int, arg:codetree) : codetree =
+                mkEval (tagTupleCode(tag, n, ""), [arg], true);
+        in
+            case test of
+              UnboxedForm          => arg
+            | BoxedForm            => mkTuple [arg]
+            | RefForm              => refApplyCode arg
+            | TaggedBox{tag, ...}  => mkTuple [mkTag tag, arg]
+            | TaggedTuple{tag, size, ...} => tagTupleApplyCode(tag, size, arg)
+            | OnlyOne              => arg
+            | ConstForm{ value, ...} => mkConst value (* tagged value. *)
+            | EnumForm{tag, ...}   => mkConst (toMachineWord tag)
+            | ShortForm tag        => mkConst (toMachineWord tag)
+            | UnitForm             => CodeZero
+        end
 
-    fun identityApplyCode v = v;  (* no-op *)
-    fun boxApplyCode v    = mkTuple [v];
+        (* The run-time test whether a value matches a constructor. *)
+        fun constrMatch (test: representations, value:codetree) : codetree =
+        let
+            fun testTag (tag, v) = mkTestinteq (mkTag tag, v)
 
-    (* Inject into a union. Generate as mkTuple(arg, tag). *)
-    (* we use toShort to check that the tag actually fits in a 30-bit integer *)
-    fun tagBoxApplyCode (tag:int) (v : codetree) =
-      mkTuple [mkTag tag, v];
-              
-    (* Inject into a tagged tuple - we could improve this if we knew that
-       arg is an explicit tuple already, but the optimiser should do this
-       anyway. I have also coded this using inline procedures with explicit
-       applications because I can't work out how to make a well-formed
-       block (because declartion addresses are *not* local to a block?)
-       SPF 25/10/94 *)
-    fun tagTupleCode (tag:int) (n:int) (name:string) : codetree =
-    let
-      (* copy n data fields out of ordinary record *)
-      fun getFields i =
-    if i < n then mkInd (i, arg1) :: getFields (i + 1) else [];
-    in  
-      mkInlproc (mkTuple (mkTag tag :: getFields 0), 0, 1, name)
-    end;
-
-    fun tagTupleApplyCode (tag:int) (n:int) (arg:codetree) : codetree =
-      mkEval (tagTupleCode tag n "", [arg], true);
-
-    fun taggedTupleDestructCode (n:int) (arg:codetree) : codetree =
-    let
-      (* copy n data fields out of tagged record *)
-      fun getFields i =
-    if i <= n then mkInd (i, arg1) :: getFields (i + 1) else [];
-    
-      val proc = mkInlproc (mkTuple (getFields 1), 0, 1, "")
-    in  
-      mkEval (proc, [arg], true)
-    end;
-
-    (* If we need to make a "real" functions, here's how *)
-    val refCode      = abstract refApplyCode "ref";
-(*  val consCode     = abstract identityApplyCode "::" *);
-    val identityCode = abstract identityApplyCode;
-    val boxCode      = abstract boxApplyCode;
-    
-    fun tagBoxCode (tag:int) = 
-      abstract (tagBoxApplyCode tag);
+            fun testTagOf(tag, maxTag, v) = mkTagTest (v, tag, maxTag)
       
-    fun tagTupleCode (tag:int) (n:int) =
-       abstract (tagTupleApplyCode tag n);
+            fun testBoxedTagOf (tag, maxTag, v) =
+                testTagOf (tag, maxTag, mkInd (0, v)); (* tag is first field *)
 
-    fun testTag (tag: int) (v: codetree) =
-      mkTestinteq (mkTag tag, v);
-      
-    fun testBoxedTag (tag: int) (v: codetree) : codetree =
-      mkTestinteq (mkTag tag, mkInd (0, v)); (* tag is first field *)
-       
-    fun taggedBoxDestructCode (box : codetree) : codetree = 
-      mkInd (1, box); (* contents is second field of record *)
+            fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
+                mkEval (rtsFunction POLY_SYS_not_bool,
+                    [mkEval (rtsFunction POLY_SYS_is_short, [v], true)], true);
 
-    (* Use loadWord not indirect because the optimiser reorders indirections. *)
-    fun refDestructCode (v : codetree) : codetree =
-       mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero], false) (* NOT early *)
-       
-    fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
-      mkEval (rtsFunction POLY_SYS_not_bool,
-            [mkEval (rtsFunction POLY_SYS_is_short, [v], true)], true);
-        
-    fun boxedDestructCode (box : codetree) : codetree = mkInd (0, box);
+            (* get the tag from a TaggedBox or ConstForm *)
+            fun loadTag (u: machineWord) : machineWord = 
+                loadWord (toAddress u, 0w0); (* tag is first field *)
+        in
+            case test of
+                UnboxedForm          => testBoxed value
+            |   BoxedForm            => testBoxed value
+            |   RefForm              => CodeTrue
+            |   EnumForm{tag, maxTag}   => testTagOf(tag, maxTag, value)
+            |   ShortForm tag        => testTag(tag, value)
+            |   TaggedBox{tag, maxTag}  => testBoxedTagOf(tag, maxTag, value)
+            |   TaggedTuple{tag, maxTag, ...} => testBoxedTagOf(tag, maxTag, value)
+            |   ConstForm{value=c, maxTag} => testBoxedTagOf(toShort (loadTag c), maxTag, value)
+            |   OnlyOne              => CodeTrue
+            |   UnitForm             => CodeTrue
+        end
 
-  (* The run-time representation of the constructor's value *)
-  fun constrMake (test: representations) (name: string) : codetree =
-    case test of
-      UnboxedForm          => identityCode name
-    | BoxedForm            => boxCode name
-    | TaggedBox tag        => tagBoxCode tag name
-    | TaggedTuple (tag, n) => tagTupleCode tag n name
-    | RefForm              => refCode
-    | ConstForm c          => mkConst c (* tagged value. *)
-    | EnumForm tag         => mkConst (toMachineWord (toShort tag))
-    | OnlyOne              => identityCode name
-    | UnitForm             => CodeZero
-    ;
+      (* The run-time code to destruct a construction. *)
+      (* shouldn't the CodeZero's raise an exception instead?
+         No, because I think there are circumstances in which the destructor
+         code is created even for nullary constructors. *)
+        fun constrDestruct (test: representations, value: codetree) : codetree =
+        let
+            fun taggedTupleDestructCode (n:int, arg:codetree) : codetree =
+            let
+                (* copy n data fields out of tagged record *)
+                fun getFields i = if i <= n then mkInd (i, arg1) :: getFields (i + 1) else [];
+    
+                val proc = mkInlproc (mkTuple (getFields 1), 0, 1, "")
+            in  
+                mkEval (proc, [arg], true)
+            end;
 
-  (* How to apply the constructor at run-time *)
-  fun constrApply (test: representations) : codetree -> codetree =
-    case test of
-      UnboxedForm          => identityApplyCode
-    | BoxedForm            => boxApplyCode
-    | RefForm              => refApplyCode
-    | TaggedBox tag        => tagBoxApplyCode tag
-    | TaggedTuple (tag, n) => tagTupleApplyCode tag n
-    | OnlyOne              => identityApplyCode
-    | _                    => 
-        (fn _ => raise InternalError "constant can't be applied")
+            (* Use loadWord not indirect because the optimiser reorders indirections. *)
+            fun refDestructCode (v : codetree) : codetree =
+               mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero], false) (* NOT early *)
+        in
+            case test of
+                UnboxedForm          => value
+            |   BoxedForm            => mkInd (0, value)
+            |   RefForm              => refDestructCode value
+            |   TaggedBox _         => mkInd (1, value) (* contents is second field of record *)
+            |   TaggedTuple { size, ...} => taggedTupleDestructCode(size, value)
+            |   OnlyOne              => value
+            |   EnumForm _         => CodeZero (* To keep optimiser happy. *)
+            |   ShortForm _         => CodeZero (* To keep optimiser happy. *)
+            |   ConstForm _          => CodeZero (* (rather than raising an exception) *)
+            |   UnitForm             => CodeZero
+        end
 
-  (* The run-time test whether a value matches a constructor. *)
-  fun constrMatch (test: representations) (value:codetree) : codetree =
-    case test of
-      UnboxedForm          => testBoxed value
-    | BoxedForm            => testBoxed value
-    | RefForm              => CodeTrue
-    | EnumForm tag         => testTag tag value 
-    | TaggedBox tag        => testBoxedTag tag value
-    | TaggedTuple (tag, _) => testBoxedTag tag value
-    | ConstForm c          => testBoxedTag (Word.toIntX (* May be signed. *) (toShort (loadTag c))) value
-    | OnlyOne              => CodeTrue
-    | UnitForm             => CodeTrue
-    ;
-
-  (* The compile-time test whether a value matches a constructor. *)
-(*  fun constrMatches (test: representations) (value: word) : bool =
-    case test of
-      UnboxedForm          => not (isShort value)
-    | BoxedForm            => not (isShort value)
-    | RefForm              => true
-    | EnumForm tag         => wordEq (value, toMachineWord tag)
-    | TaggedBox tag        => wordEq (loadTag value, toMachineWord tag)
-    | TaggedTuple (tag, n) => wordEq (loadTag value, toMachineWord tag)
-    | ConstForm c          => wordEq (loadTag value, loadTag c)
-    | OnlyOne              => true
-    | UnitForm             => true
-    ;
-*)
-
-  (* The run-time code to destruct a construction. *)
-  (* shouldn't the CodeZero's raise an exception instead? *)
-  fun constrDestruct (test: representations) (value: codetree) : codetree =
-    case test of
-      UnboxedForm          => identityApplyCode value
-    | BoxedForm            => boxedDestructCode value
-    | RefForm              => refDestructCode value
-    | TaggedBox _        => taggedBoxDestructCode value
-    | TaggedTuple (_, n) => taggedTupleDestructCode n value
-    | OnlyOne              => identityApplyCode value
-    | EnumForm _         => CodeZero (* To keep optimiser happy. *)
-    | ConstForm _          => CodeZero (* (rather than raising an exception) *)
-    | UnitForm             => CodeZero
-    ;
-
-  (* The compile-time function to destruct a construction. *)
-(*  fun constrFetch (test: representations) (value: machineWord) : machineWord =
-    case test of
-      UnboxedForm         => value
-    | BoxedForm           => loadBoxedValue value
-    | RefForm             => loadBoxedValue value
-    | TaggedBox tag       => loadTaggedBoxedValue value
-    | TaggedTuple (tag,n) => loadTaggedTupleValue n value
-    | OnlyOne             => value
-    | EnumForm tag        => loadTag value (* shouldn't occur, but ... *)
-    | ConstForm c         => value         (* shouldn't occur, but ... *)
-    | UnitForm            => value         (* occurs for arrays! *)
-    ;
-*)
-
-    open ValueConstructor
-  in
+        open ValueConstructor
+    in
      (* Constructors are now represented as run-time values.  A nullary constructor is
         a pair consisting of a test function and the constructor value.  A unary
         constructor is a triple: a test function, an injection function and a
@@ -328,32 +227,32 @@ struct
 
         fun createNullaryConstructor (test, [], name) = (* Monotype *)
                 createNullaryConstr{
-                    testMatch = mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
-                    constrValue = constrMake test name (* Value. *)}
+                    testMatch = mkInlproc(constrMatch(test, arg1), 0, 1, name), (* Test function. *)
+                    constrValue = constrApply(test, CodeZero) (* Value. *)}
 
         |   createNullaryConstructor (test, tvs, name): codetree =
             let
                 val numTypes = List.length tvs
             in
                 createNullaryConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch test arg1, 1, 1, name), 0, numTypes, name),
-                    constrValue = mkInlproc(constrMake test name, 0, numTypes, name)}
+                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, 1, name), 0, numTypes, name),
+                    constrValue = mkInlproc(constrApply(test, CodeZero), 0, numTypes, name)}
             end
     
         fun createUnaryConstructor(test: representations, [], name: string): codetree =
                 createValueConstr{
-                    testMatch = mkInlproc(constrMatch test arg1, 0, 1, name), (* Test function. *)
-                    injectValue = mkInlproc(constrApply test arg1, 0, 1, name), (* Injection function. *)
-                    projectValue = mkInlproc(constrDestruct test arg1, 0, 1, name) (* Projection function. *)}
+                    testMatch = mkInlproc(constrMatch(test, arg1), 0, 1, name), (* Test function. *)
+                    injectValue = mkInlproc(constrApply(test, arg1), 0, 1, name), (* Injection function. *)
+                    projectValue = mkInlproc(constrDestruct(test, arg1), 0, 1, name) (* Projection function. *)}
 
         |   createUnaryConstructor(test: representations, tvs, name: string): codetree =
             let
                 val numTypes = List.length tvs
             in
                 createValueConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch test arg1, 1, 1, name), 0, numTypes, name),
-                    injectValue = mkInlproc(mkInlproc(constrApply test arg1, 1, 1, name), 0, numTypes, name),
-                    projectValue = mkInlproc(mkInlproc(constrDestruct test arg1, 1, 1, name), 0, numTypes, name)}
+                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, 1, name), 0, numTypes, name),
+                    injectValue = mkInlproc(mkInlproc(constrApply(test, arg1), 1, 1, name), 0, numTypes, name),
+                    projectValue = mkInlproc(mkInlproc(constrDestruct(test, arg1), 1, 1, name), 0, numTypes, name)}
             end
     end;
 
@@ -363,13 +262,14 @@ struct
    
      Nullary constructors are represented as:
         UnitForm     (if it's the only constructor in the datatype)
-        EnumForm     (if there's no more than one unary constructor)
-         ConstForm    (otherwise)
+        EnumForm     (if all the constructors are nullary)
+        ShortForm     (if there's one unary constructor)
+        ConstForm    (otherwise)
     
      Unary constructors are represented as:
         OnlyOne      (if it's the only constructor in the datatype)
         UnboxedForm  (if it's the only unary constructor, applied to a tuple)
-        TaggedTuple  (if it's not the only unary constructor, applied to a tuple, and we don't need backwards compatibility)
+        TaggedTuple  (if it's not the only unary constructor, applied to a tuple)
         BoxedForm    (if it's the only unary constructor)
         TaggedBox    (otherwise)
         
@@ -403,64 +303,6 @@ struct
   | UnaryFunction       (* unary constructor applied to a function *)
   | UnaryTupled of int  (* a unary constructor applied to a tuple of size n  *)
   ;
-
-  (* Make an object with the appropriate tag. Doing it here means we
-     only do it once for this object. *)
-  fun genConstForm (n :int) : representations =
-  let
-    (* In the new datatype format, I've moved the tag word, so
-       we only need a one-word object. SPF 26/5/95 *)
-    val vec : address = alloc (0w1, F_words, toMachineWord n);
-    val () = lock vec;
-  in
-    ConstForm (toMachineWord vec)
-  end;
-    
-  (* Choose tags in the sequence 0, ~1, 1, ~2, 2, ... because that
-     maximises the chance of the tag being implemented by "immediate"
-     data in the low-level generator. Note this means that "bool"
-     gets a *different* representation than what its natural datatype
-     declaration would give! Of course, we can't do this for the
-     "Old" representations anyway. SPF 18/2/1998
-  *)
-  fun nextTag n = if n < 0 then ~ n else ~ (n + 1);
-    
-  (* We use this version if all the constructors are nullary (i.e. constants)
-     except possibly one.  The (at most one) unary constructor is represented
-     by the boxed value and the nullary constructors by untagged integers. *)
-  (* Note that "UnaryTupled 0" (which would arise as a result of a declaration of the
-     form  datatype t = A of () | ... ) can't be represented as "UnboxedForm"
-     because "{}" is represented as a short (unboxed) integer. *)
-    fun chooseOptimisedRepr1(_, _, []) = []
-    |   chooseOptimisedRepr1(n, tvs, (Nullary, name) :: t) =
-             createNullaryConstructor(EnumForm n, tvs, name) :: chooseOptimisedRepr1 (nextTag n, tvs, t)
-    |   chooseOptimisedRepr1(n, tvs, (UnaryGeneric, name) :: t) =
-               createUnaryConstructor(BoxedForm, tvs, name) :: chooseOptimisedRepr1(n, tvs, t)
-    |   chooseOptimisedRepr1(n, tvs, (UnaryFunction, name) :: t) =
-               createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
-    |   chooseOptimisedRepr1(n, tvs, (UnaryTupled 0, name) :: t) =
-               createUnaryConstructor(BoxedForm, tvs, name)    :: chooseOptimisedRepr1(n, tvs, t)
-    |   chooseOptimisedRepr1(n, tvs, (UnaryTupled _, name) :: t) = 
-               createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
-
-    (* We use this version there's more than 1 unary constructor. *)
-    (* With this representation constructors of small tuples make tuples of
-     size n+1 whose first word is the tag.  Nullary constructors are represented
-     by single word objects containing the tag. *)
-    fun chooseOptimisedRepr2(_, _, []) = []
-    |   chooseOptimisedRepr2(n, tvs, h :: t) = 
-        let
-            val repr = 
-                case h of
-                    (Nullary,       name) => createNullaryConstructor(genConstForm n, tvs, name)
-                |   (UnaryGeneric,  name) => createUnaryConstructor(TaggedBox n, tvs, name)
-                |   (UnaryFunction, name) => createUnaryConstructor(TaggedBox n, tvs, name)
-                |   (UnaryTupled i, name) =>
-                        createUnaryConstructor(
-                            if i <= 4 (*!maxPacking*) then TaggedTuple (n, i) else TaggedBox n, tvs, name)
-        in
-            repr :: chooseOptimisedRepr2(nextTag n, tvs, t)
-        end;
 
     fun getTupleKind t =
       case t of
@@ -502,6 +344,9 @@ struct
           UnaryGeneric
 
     (* This now creates the functions as well as choosing the representation. *)
+    (* N.B. The representation for the "context" and "pretty" datatypes is defined in Pretty.sml.
+       Any changes here that may affect the representation of a datatype may require
+       changes there as well. *)
     fun chooseConstrRepr(cs, tvs: types list) =
     let
         fun checkArgKind (name, EmptyType) = (Nullary, name)
@@ -516,10 +361,87 @@ struct
             let
                 val unaryCount = List.foldl(fn((Nullary, _), n) => n | (_,n) => n+1) 0 l
             in
-                (* tags now allocated from 0 (SPF 22/10/94) *)
-                if unaryCount <= 1
-                then chooseOptimisedRepr1(0, tvs, l) (* can save the box *)
-                else chooseOptimisedRepr2(0, tvs, l) (* can use tagged tuples *)
+                case unaryCount of
+                    0 => (* All are nullary. *)
+                    let
+                        val maxTag = Word.fromInt(List.length l)
+                        fun createRepr(_, []) = []
+                        |   createRepr(n, (_, name) :: t) =
+                                createNullaryConstructor(EnumForm{tag=n, maxTag=maxTag}, tvs, name) :: createRepr (n + 0w1, t)
+                    in
+                        createRepr(0w0, l)
+                    end
+
+                |   1 =>
+                    let
+                        (* We use this version if all the constructors are nullary (i.e. constants)
+                           except one.  The unary constructor is represented
+                           by the boxed value and the nullary constructors by untagged integers. *)
+                        (* Note that "UnaryTupled 0" (which would arise as a result of a declaration of the
+                           form  datatype t = A of () | ... ) can't be represented as "UnboxedForm"
+                          because "{}" is represented as a short (unboxed) integer. *)
+                        fun chooseOptimisedRepr1(_, _, []) = []
+
+                        |   chooseOptimisedRepr1(n, tvs, (Nullary, name) :: t) =
+                                 createNullaryConstructor(ShortForm n, tvs, name) :: chooseOptimisedRepr1 (n + 0w1, tvs, t)
+
+                        |   chooseOptimisedRepr1(n, tvs, (UnaryGeneric, name) :: t) =
+                                   createUnaryConstructor(BoxedForm, tvs, name) :: chooseOptimisedRepr1(n, tvs, t)
+
+                        |   chooseOptimisedRepr1(n, tvs, (UnaryFunction, name) :: t) =
+                                   createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
+
+                        |   chooseOptimisedRepr1(n, tvs, (UnaryTupled 0, name) :: t) =
+                                   createUnaryConstructor(BoxedForm, tvs, name)    :: chooseOptimisedRepr1(n, tvs, t)
+
+                        |   chooseOptimisedRepr1(n, tvs, (UnaryTupled _, name) :: t) = 
+                                   createUnaryConstructor(UnboxedForm, tvs, name)  :: chooseOptimisedRepr1(n, tvs, t)
+
+                    in
+                        chooseOptimisedRepr1(0w0, tvs, l) (* can save the box *)
+                    end
+
+                |   _ =>
+                    let
+                        (* We use this version there's more than 1 unary constructor. *)
+                        (* With this representation constructors of small tuples make tuples of
+                         size n+1 whose first word is the tag.  Nullary constructors are represented
+                         by single word objects containing the tag. *)
+                        val maxTag = Word.fromInt(List.length l)
+
+                        fun chooseOptimisedRepr2(_, _, []) = []
+                        |   chooseOptimisedRepr2(n, tvs, h :: t) = 
+                            let
+                                val repr = 
+                                    case h of
+                                        (Nullary,       name) =>
+                                        let
+                                            (* Make an object with the appropriate tag. Doing it here means we
+                                             only do it once for this object. *)
+                                            fun genConstForm (n :word) : representations =
+                                            let
+                                                val vec : address = alloc (0w1, F_words, toMachineWord n);
+                                                val () = lock vec;
+                                            in
+                                                ConstForm{value=toMachineWord vec, maxTag=maxTag}
+                                            end;
+                                        in
+                                            createNullaryConstructor(genConstForm n, tvs, name)
+                                        end
+                                            
+                                    |   (UnaryGeneric,  name) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, tvs, name)
+                                    |   (UnaryFunction, name) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, tvs, name)
+                                    |   (UnaryTupled i, name) =>
+                                            createUnaryConstructor(
+                                                if i <= 4 (*!maxPacking*)
+                                                then TaggedTuple {tag=n, size=i, maxTag=maxTag}
+                                                else TaggedBox{tag=n, maxTag=maxTag}, tvs, name)
+                            in
+                                repr :: chooseOptimisedRepr2(n + 0w1, tvs, t)
+                            end;
+                    in
+                        chooseOptimisedRepr2(0w0, tvs, l) (* can use tagged tuples *)
+                    end
             end;
         fun makeFun c = mkInlproc(c, 0, List.length tvs, "boxed/size")
         val (boxed, size) =
@@ -608,8 +530,8 @@ struct
                 makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
             val consConstructor =
                 makeValueConstr ("::",  consType,  false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
-            val nilRepresentation = createNullaryConstructor(NilForm, [alpha], "nil")
-            val consRepresentation = createUnaryConstructor(ConsForm, [alpha], "::")
+            val nilRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "nil")
+            val consRepresentation = createUnaryConstructor(UnboxedForm, [alpha], "::")
         in
             ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
             mkInlproc(TypeValue.boxedEither, 0, 1, "boxed-list"),
@@ -637,7 +559,7 @@ struct
                 makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
             val someConstructor =
                 makeValueConstr ("SOME", someType, false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
-            val noneRepresentation = createNullaryConstructor(EnumForm 0, [alpha], "NONE")
+            val noneRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
             ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],
@@ -691,8 +613,8 @@ struct
                 val constrs =
                    [ ("ContextLocation", locationType),
                      ("ContextProperty", mkProductType[stringTypeConstr, stringTypeConstr])];
-                (* We rely on chooseConstrRepr giving us the same representation for the
-                   constructors as when context was compiled by the previous compiler. *)
+                (* The representation of this datatype is given in Pretty.sml and must be the same
+                   as the representation that chooseConstrRepr will use. *)
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, contextType), false, numConstrs,
@@ -719,8 +641,8 @@ struct
                                       listConstruct contextType, listConstruct prettyType]),
                      ("PrettyBreak", mkProductType[intTypeConstr, intTypeConstr]),
                      ("PrettyString", stringTypeConstr)];
-                (* We rely on chooseConstrRepr giving us the same representation for the
-                   constructors as when PrettyPrint was compiled by the previous compiler. *)
+                (* The representation of this datatype is given in Pretty.sml and must be the same
+                   as the representation that chooseConstrRepr will use. *)
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, prettyType), false, numConstrs,

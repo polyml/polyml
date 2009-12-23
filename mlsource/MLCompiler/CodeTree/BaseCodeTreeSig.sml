@@ -63,19 +63,17 @@ sig
     | Cond of codetree * codetree * codetree (* If-statement *)
 
     | Case of (* Case expressions *)
-    {
-        cases   : (codetree * int list) list,
-        test    : codetree,
-        default : codetree,
-        min     : int,
-        max     : int
-    }
+        {
+            cases   : (codetree * word) list,
+            test    : codetree,
+            caseType: caseType,
+            default : codetree
+        }
     
     | BeginLoop of codetree * codetree list(* Start of tail-recursive inline function. *)
 
     | Loop of codetree list (* Jump back to start of tail-recursive function. *)
-    
-    
+
     | Raise of codetree (* Raise an exception *)
 
     | Ldexc (* Load the exception (used at the start of a handler) *)
@@ -100,6 +98,8 @@ sig
     
     | TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
 
+    | TagTest of { test: codetree, tag: word, maxTag: word }
+
     | Global of optVal (* Global value *)
 
     | CodeNil
@@ -123,6 +123,11 @@ sig
         (* A reference which is used to detect recursive inline expansions. *)
         recCall: bool ref
     }
+
+    and caseType =
+        CaseInt
+    |   CaseWord
+    |   CaseTag of word
     
     withtype loadForm = 
     { (* Load a value. *)

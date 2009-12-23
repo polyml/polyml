@@ -51,177 +51,7 @@ end;
 (*****************************************************************************)
 structure PRETTY: PRETTYSIG
 
-) :
-
-(*****************************************************************************)
-(*                  CODECONS export signature                                *)
-(*****************************************************************************)
-sig
-  type machineWord;
-  type short;
-  type code;
-  type reg;   (* Machine registers *)
-  type address;
-  
-  val regNone:     reg;
-  val regResult:   reg;
-  val regClosure:  reg;
-  val regStackPtr: reg;
-  val regHandler:  reg;
-  val regReturn:   reg;
-  
-  val regs:    int;     (* No of registers. *)
-  val argRegs: int;     (* No of args in registers. *)
-  
-  val regN:   int -> reg;
-  val nReg:   reg -> int;
-  val argReg: int -> reg;
-  
-  val regEq:    reg * reg -> bool;
-  val regNeq:   reg * reg -> bool;
-  
-  val regRepr: reg -> string;
-
-  type addrs
-
-  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
-
-  (* Operations. *)
-  type instrs;
-  
-  val instrMove:       instrs;
-  val instrAddA:       instrs;
-  val instrSubA:       instrs;
-  val instrRevSubA:    instrs;
-  val instrMulA:       instrs;
-  val instrAddW:       instrs;
-  val instrSubW:       instrs;
-  val instrRevSubW:    instrs;
-  val instrMulW:       instrs;
-  val instrDivW:       instrs;
-  val instrModW:       instrs;
-  val instrOrW:        instrs;
-  val instrAndW:       instrs;
-  val instrXorW:       instrs;
-  val instrLoad:       instrs;
-  val instrLoadB:      instrs;
-  val instrVeclen:     instrs;
-  val instrVecflags:   instrs;
-  val instrPush:       instrs;
-  val instrUpshiftW:   instrs;
-  val instrDownshiftW: instrs;
-  val instrDownshiftArithW: instrs;
-  val instrGetFirstLong:    instrs;
-  val instrStringLength: instrs;
-  val instrSetStringLength: instrs;
-  val instrBad:        instrs;
-  
-  (* Can the we use the same register as the source and destination
-     of an instructions? (it would be more flexible to make this
-      a function of type "instrs -> bool", but a simple flag will
-      suffice for now. SPF 17/1/97
-  *)
-  val canShareRegs : bool;
-  
-  (* Enquire about operations. *)
-  val instrIsRR: instrs -> bool;         (* Is the general form implemented? *)
-  val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
-
-  (* Code generate operations. *)
-  val genRR: instrs * reg * reg * reg * code -> unit;
-  val genRI: instrs * reg * machineWord * reg * code -> unit;
-
-  type tests;
-  
-  val testNeqW:  tests;
-  val testEqW:   tests;
-  val testGeqW:  tests;
-  val testGtW:   tests;
-  val testLeqW:  tests;
-  val testLtW:   tests;
-  val testNeqA:  tests;
-  val testEqA:   tests;
-  val testGeqA:  tests;
-  val testGtA:   tests;
-  val testLeqA:  tests;
-  val testLtA:   tests;
-  val Short:     tests;
-  val Long:      tests;
-
-  type labels; (* The source of a jump. *)
-
-  val noJump: labels;
-  
-  (* Compare and branch for fixed and arbitrary precision. *)
-  
-  val isCompRR: tests -> bool;
-  val isCompRI: tests * machineWord -> bool;
-  
-  val compareAndBranchRR: reg * reg  * tests * code -> labels;
-  val compareAndBranchRI: reg * machineWord * tests * code -> labels;
-
-  datatype storeWidth = STORE_WORD | STORE_BYTE
-
-  val genLoad:        int * reg * reg * code -> unit;
-  val isIndexedStore: storeWidth -> bool
-  val genStore:       reg * int * reg * storeWidth * reg * code -> unit;
-  val isStoreI:       machineWord * storeWidth * bool -> bool;
-  val genStoreI:      machineWord * int * reg * storeWidth * reg * code -> unit;
-  val genPush:        reg * code -> unit;
-  val genLoadPush:    int * reg * code -> unit;
-  val preferLoadPush: bool;
-  val genLoadCoderef: code  * reg * code -> unit;
-  val genStackOffset: reg * int * code -> unit;
-
-  val allocStore:      int * Word8.word * reg * code -> unit;
-  val setFlag:         reg * code * Word8.word -> unit;
-  val completeSegment: code -> unit;
-
-  datatype callKinds =
-        Recursive
-    |   ConstantFun of machineWord * bool
-    |   CodeFun of code
-    |   FullCall
-  
-  val callFunction:       callKinds * code -> unit;
-  val jumpToFunction:     callKinds * reg * code -> unit;
-  val returnFromFunction: reg * int * code -> unit;
-  val raiseException:     code -> unit;
-
-  type cseg;
-  
-  val copyCode: code * int * reg list -> address;
-
-  val unconditionalBranch: code -> labels;
-  
-  type handlerLab;
-  
-  val loadHandlerAddress:  reg * code -> handlerLab;
-  val fixupHandler: handlerLab * code -> unit;
-  
-  val fixup:        labels * code -> unit; (* Fix up a jump. *)
-
-  (* ic - Address for the next instruction in the segment. *)
-  val ic: code -> addrs;
-  
-  val jumpback: addrs * bool * code -> unit; (* Backwards jump. *)
-
-  val resetStack: int * code -> unit; (* Set a pending reset *)
-  val procName:   code -> string;      (* Name of the procedure. *)
-  
-  type cases
-  type jumpTableAddrs
-  val constrCases : int * addrs -> cases;
-  val useIndexedCase: int * int * int * bool -> bool;
-  val indexedCase : reg * reg * int * int * bool * code -> jumpTableAddrs;
-  val makeJumpTable : jumpTableAddrs * cases list * addrs * int * int * code -> unit;
-  
-  val inlineAssignments: bool
-
-  val codeAddress: code -> address option
-
-  val traceContext: code -> string;
-end (* CODECONS export signature *) =
+) : CODECONSSIG =
 
 
 (*****************************************************************************)
@@ -641,14 +471,14 @@ struct
     val edi = Reg  7;
     
     (* Not real registers. *)
-    val regNone    = Reg  8;  
+    val regNone    = NONE;  
     val regHandler = Reg  9;  
 
     val regResult   = eax; (* Result of function call goes in here. *)
     val regClosure  = edx; (* Addr. of closure for fn. call goes here. *)
     
     val regStackPtr = esp;
-    val regReturn   = regNone;
+    val regReturn   = NONE;
 
     fun getReg (Reg r) = r;      (* reg.down *)
     fun mkReg   n      = Reg n;  (* reg.up   *)
@@ -1464,21 +1294,24 @@ SS-relative addressing modes:
 
 
   (* Similar to genEA, but used when there is an index register.
-     rb may be regNone if no base register is required (used
+     rb may be NONE if no base register is required (used
      with leal to tag values). *)
-  fun genIndexed (offset: int, rb: reg, ri: reg, size : scaleFactor, rd: reg, cvec) =
+  fun genIndexed (offset: int, rb: reg option, ri: reg, size : scaleFactor, rd: reg, cvec) =
   let
-    val offsetCode =
-      if rb regEq regNone orelse (offset = 0 andalso (rb regNeq ebp))
-        then Based    (* no disp field *)
-      else if is8Bit offset
-        then Based8   (* use 8-bit disp field *)
-        else Based32; (* use 32-bit disp field *)
-
-    val basefield = 
-      if rb regEq regNone
-      then 5 (* no base register *)
-      else getReg rb;
+    val (offsetCode, basefield) =
+        case rb of
+            NONE => (Based, 5 (* no base register *))
+        |   SOME rb =>
+            let
+                val base =
+                    if offset = 0 andalso (rb regNeq ebp)
+                    then Based    (* no disp field *)
+                    else if is8Bit offset
+                    then Based8   (* use 8-bit disp field *)
+                    else Based32; (* use 32-bit disp field *)
+            in
+                (base, getReg rb)
+            end
   in
     genmodrm (offsetCode, getReg rd, 4 (* s-i-b *), cvec);
     gensib   (size, getReg ri, basefield, cvec);
@@ -1487,9 +1320,7 @@ SS-relative addressing modes:
     case offsetCode of
       Based8  => gen8s  (offset, cvec)
     | Based32 => gen32s (offset, cvec)
-    | _       => if rb regEq regNone  (* 32 bit absolute used as base *)
-                 then gen32s (offset, cvec)
-                 else ()
+    | _       => case rb of NONE =>  (* 32 bit absolute used as base *) gen32s (offset, cvec) | _ => ()
   end;
 
  (* Tag the value in register r *)
@@ -1502,7 +1333,7 @@ SS-relative addressing modes:
 
    (* new, more compact code (4 bytes) SPF 27/4/95 *)
    genop (LEAL, cvec);
-   genIndexed (1, r, r, Scale1, r, cvec)
+   genIndexed (1, SOME r, r, Scale1, r, cvec)
  )       
 
   fun genImmed (opn: arithOp, rd: reg, imm: int, cvec) : unit =
@@ -1563,7 +1394,7 @@ SS-relative addressing modes:
   fun isStoreI (cnstnt: machineWord, _, _) = isShort cnstnt;
 
   (* Store an immediate value at a given address and offset. *)
-  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_WORD, ri: reg,
+  fun genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_WORD, ri: reg option,
                  cvec as Code{ic, ...}) =
     (
   (*  We have a little problem here: we have to be very careful that
@@ -1582,58 +1413,60 @@ SS-relative addressing modes:
      on a word boundary then this could combine with the immediate value
      if all three low-order words were zero.  It's very unlikely but we
      ought to consider it. *)
-      if isShort cnstnt then () (* No problem. *)
-      else if not (is8Bit offset)
-      then
+        if isShort cnstnt then () (* No problem. *)
+        else if not (is8Bit offset)
+        then
         (
-         doPending(cvec, 12 + 2);
-         align(if ri regEq regNone then 2 else 1, cvec)
+            doPending(cvec, 12 + 2);
+            align(case ri of SOME _ => 2 | NONE => 1, cvec)
         )
-      else if offset = 0 andalso rb regEq eax andalso ri regEq regNone
-      then (* modrm will be zero.  We need to be sure that this is not the
+        else if offset = 0 andalso rb regEq eax andalso not(isSome ri)
+        then (* modrm will be zero.  We need to be sure that this is not the
               first byte in a word. *)
         (
-         doPending(cvec, 12 + 1);
-         if getAddr (!ic) mod 4 = 3 (* opcode will be the last byte in this word. *)
-         then align(1, cvec)
-         else ()
+            doPending(cvec, 12 + 1);
+            if getAddr (!ic) mod 4 = 3 (* opcode will be the last byte in this word. *)
+            then align(1, cvec)
+            else ()
         )
-      else ();
-      genop (MOVL_32_A, cvec);
-      if ri regEq regNone then genop2 (offset, rb, 0, cvec)
-      else genIndexed (offset-2, rb, ri, Scale2, mkReg 0, cvec);
-      if isShort cnstnt
-      then gen32s (Word.toIntX (toShort cnstnt) * 2 + 1, cvec)
-      else addConstToVec (WVal cnstnt, false, cvec)
+        else ();
+        genop (MOVL_32_A, cvec);
+        case ri of
+            NONE => genop2 (offset, rb, 0, cvec)
+        |   SOME ri => genIndexed (offset-2, SOME rb, ri, Scale2, mkReg 0, cvec);
+        if isShort cnstnt
+        then gen32s (Word.toIntX (toShort cnstnt) * 2 + 1, cvec)
+        else addConstToVec (WVal cnstnt, false, cvec)
    )
-  | genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_BYTE, ri: reg, cvec) : unit =
+  | genStoreI (cnstnt: machineWord, offset: int, rb: reg, STORE_BYTE, ri: reg option, cvec) : unit =
     if not (isShort cnstnt)
     then (* This should never happen. *)
         raise InternalError "genStoreI: storing long constant as a byte"
     else
     let
-      val v = toInt (toShort cnstnt)
+        val v = toInt (toShort cnstnt)
     in
-      if ri regEq regNone
-      then
-        (
-          genop (MOVB_8_A, cvec);
-          genop2 (offset, rb, 0, cvec);
-          gen8u (v, cvec)
-        )
-      else
-        (
-          (* Untag the index first. *)
-          genop (Group2_1_A, cvec);
-          genmodrm(Register, 5 (* shr *), getReg ri, cvec);
+        case ri of
+            NONE =>
+            (
+                genop (MOVB_8_A, cvec);
+                genop2 (offset, rb, 0, cvec);
+                gen8u (v, cvec)
+            )
 
-          genop (MOVB_8_A, cvec);
-          genIndexed (offset, rb, ri, Scale1, mkReg 0, cvec);
-          gen8u (v, cvec);
+        |   SOME ri =>
+            (
+                (* Untag the index first. *)
+                genop (Group2_1_A, cvec);
+                genmodrm(Register, 5 (* shr *), getReg ri, cvec);
+
+                genop (MOVB_8_A, cvec);
+                genIndexed (offset, SOME rb, ri, Scale1, mkReg 0, cvec);
+                gen8u (v, cvec);
           
-          (* Retag the index. *)
-          genTag (ri, cvec)
-        )
+                (* Retag the index. *)
+                genTag (ri, cvec)
+            )
    end
 
 
@@ -1701,71 +1534,74 @@ SS-relative addressing modes:
    );
 
 
-  (* Exported.  - movl rs,offset(rb) / movb rs,offset(rb) *)
-  fun genStore (rs: reg, offset: int, rb: reg, STORE_WORD, ri, cvec) : unit =
-    (
-      genop (MOVL_R_A, cvec);
-      if ri regEq regNone then genEA (offset, rb, rs, cvec)
-      else genIndexed (offset-2, rb, ri, Scale2, rs, cvec)
-    )
-  |  genStore (rs: reg, offset: int, rb: reg, STORE_BYTE, ri, cvec) : unit =
-    let
-      (* Only some of the 32 bit registers can be used to store from.
-         Eax, Ebx, Ecx and Edx are fine and the code used for those
-         registers corresponds to their low-order byte.  The other
-         registers can't be used.  In the absence of some way of
-         telling the higher-level code-generator about this or finding
-         out if a suitable register is free if we are given one of
-         the other registers we just have to make the best of it. *)
-        val regToStore =
-            if getReg rs <= 3 then rs (* No problem *)
-            else if rb regNeq eax andalso ri regNeq eax then eax
-            else if rb regNeq ebx andalso ri regNeq ebx then ebx
-            else ecx (* Must be free *)
-     in
-      if rs regEq regToStore then ()
-      else (* Have to move the value into the the right register. *)
+    (* Exported.  - movl rs,offset(rb) / movb rs,offset(rb) *)
+    fun genStore (rs: reg, offset: int, rb: reg, STORE_WORD, ri: reg option, cvec) : unit =
         (
-          genPush(regToStore, cvec);
-          genMove(regToStore, rs, cvec)
-        );
-      (* The value we store has to be untagged. *)
-      genop (Group2_1_A, cvec);
-      genmodrm(Register, 5 (* shr *), getReg regToStore, cvec);
+            genop (MOVL_R_A, cvec);
+            case ri of
+                NONE => genEA (offset, rb, rs, cvec)
+            | SOME ri => genIndexed (offset-2, SOME rb, ri, Scale2, rs, cvec)
+        )
 
-      if ri regEq regNone
-      then ()
-      else
-        ( (* Untag the index as well. *)
-          genop (Group2_1_A, cvec);
-          genmodrm(Register, 5 (* shr *), getReg ri, cvec)
-        );
+    |  genStore (rs: reg, offset: int, rb: reg, STORE_BYTE, ri: reg option, cvec) : unit =
+        let
+          (* Only some of the 32 bit registers can be used to store from.
+             Eax, Ebx, Ecx and Edx are fine and the code used for those
+             registers corresponds to their low-order byte.  The other
+             registers can't be used.  In the absence of some way of
+             telling the higher-level code-generator about this or finding
+             out if a suitable register is free if we are given one of
+             the other registers we just have to make the best of it. *)
+            val regToStore =
+                if getReg rs <= 3 then rs (* No problem *)
+                else if rb regNeq eax andalso (case ri of NONE => true | SOME ri => ri regNeq eax) then eax
+                else if rb regNeq ebx andalso (case ri of NONE => true | SOME ri => ri regNeq ebx) then ebx
+                else ecx (* Must be free *)
+        in
+            if rs regEq regToStore then ()
+            else (* Have to move the value into the the right register. *)
+            (
+                genPush(regToStore, cvec);
+                genMove(regToStore, rs, cvec)
+            );
+            (* The value we store has to be untagged. *)
+            genop (Group2_1_A, cvec);
+            genmodrm(Register, 5 (* shr *), getReg regToStore, cvec);
 
-      genop (MOVB_R_A, cvec);
-      if ri regEq regNone then genEA (offset, rb, regToStore, cvec)
-      else genIndexed (offset, rb, ri, Scale1, regToStore, cvec);
+            case ri of
+                NONE => ()
+            |   SOME ri =>
+                ( (* Untag the index as well. *)
+                    genop (Group2_1_A, cvec);
+                    genmodrm(Register, 5 (* shr *), getReg ri, cvec)
+                );
 
-      (* Restore the original value, either by popping or by retagging.
-         This ensures we don't have a bad value around and also
-         restores the original value since it may still be wanted. *)
-      if rs regEq regToStore
-      then genTag(rs, cvec)
-      else genop(POP_R regToStore, cvec);
+            genop (MOVB_R_A, cvec);
+            
+            case ri of
+                NONE => genEA (offset, rb, regToStore, cvec)
+            |   SOME ri => genIndexed (offset, SOME rb, ri, Scale1, regToStore, cvec);
 
-      if ri regEq regNone
-      then ()
-      else (* retag the index as well. *) genTag (ri, cvec)
-    end;
+            (* Restore the original value, either by popping or by retagging.
+               This ensures we don't have a bad value around and also
+               restores the original value since it may still be wanted. *)
+            if rs regEq regToStore
+            then genTag(rs, cvec)
+            else genop(POP_R regToStore, cvec);
 
+            case ri of
+                NONE => ()
+            |   SOME ri => (* retag the index as well. *) genTag (ri, cvec)
+        end;
 
-  (* Move an immediate value into a register. The immediate value may be
-     any 32-bit number. *)
-  fun genMoveI (rd:reg, immed:int, cvec) =
+    (* Move an immediate value into a register. The immediate value may be
+       any 32-bit number. *)
+    fun genMoveI (rd:reg, immed:int, cvec) =
     (* There may be better ways e.g. xorl rd,rd; addl immed,rd. *)
     (* Need 32 bit immediate. *) (* what if it's zero? (looks like marker word) SPF *)
     (
-      genop  (MOVL_32_R rd, cvec);
-      gen32s (immed, cvec)
+        genop  (MOVL_32_R rd, cvec);
+        gen32s (immed, cvec)
     );
   
   (* Exported. *)
@@ -1784,14 +1620,11 @@ SS-relative addressing modes:
      instruction but it's a problem on machines where we have to load
      the address into a register - we don't have a spare checked
      register available. *)
-  fun loadHandlerAddress  (rd, cvec) : handlerLab =
-    let
-      val lab         = ref addrZero;
-    in
-      genop  (MOVL_32_R rd, cvec);
-      addConstToVec (HVal lab, false, cvec);
-      lab
-    end;
+    fun loadHandlerAddress  (rd, lab, cvec) : unit =
+    (
+        genop  (MOVL_32_R rd, cvec);
+        addConstToVec (HVal lab, false, cvec)
+    )
 
   (* Exported *)
   fun fixupHandler (lab:handlerLab, cvec as Code{exited, ic, branchCheck, ...}) : unit =
@@ -1919,72 +1752,73 @@ Calling conventions:
      stack check.  We need to make sure that we check the stack in any
      function that my be recursive, directly or indirectly.
   *)
-  fun jumpToFunction (callKind, returnReg,
+    fun jumpToFunction (callKind, returnReg,
                       cvec as Code{selfJumps, exited, mustCheckStack, ...}) =
     ( (* Must push the return register? *)
-      if returnReg regNeq regNone
-      then  genop (PUSH_R returnReg, cvec)
-      else ();
+        case returnReg of
+            NONE => ()
+        |   SOME returnReg => genop (PUSH_R returnReg, cvec);
             
-     case callKind of 
-         Recursive =>
-         let
-           val () = mustCheckStack := true;
-           val lab = genSelfBranch cvec;
-         in
-           selfJumps := lab @ ! selfJumps
-         end
+        case callKind of 
+            Recursive =>
+            let
+                val () = mustCheckStack := true;
+                val lab = genSelfBranch cvec;
+            in
+                selfJumps := lab @ ! selfJumps
+            end
            
-     | FullCall =>
-          ( (* Full closure call *)
-            mustCheckStack := true;
-            genop (Group5, cvec);
-            genmodrm(Based, 4 (* jmp *), getReg regClosure, cvec)
-          )
+        |   FullCall =>
+            ( (* Full closure call *)
+                mustCheckStack := true;
+                genop (Group5, cvec);
+                genmodrm(Based, 4 (* jmp *), getReg regClosure, cvec)
+            )
       
-     | CodeFun c =>
-          (
-            mustCheckStack := true; (* May be recursive. *)
-            genop (JMP_32, cvec);
-            codeConst (c, true, cvec)
-          )
+        |   CodeFun c =>
+            (
+                mustCheckStack := true; (* May be recursive. *)
+                genop (JMP_32, cvec);
+                codeConst (c, true, cvec)
+            )
 
-     | ConstantFun(w, false) =>
-          (      
-            mustCheckStack := true; (* May be recursive. *)
-            genop (JMP_32, cvec);
-            addConstToVec (WVal w, true, cvec)
-          )
+        |   ConstantFun(w, false) =>
+            (      
+                mustCheckStack := true; (* May be recursive. *)
+                genop (JMP_32, cvec);
+                addConstToVec (WVal w, true, cvec)
+            )
 
-     | ConstantFun(w, true) =>
-          (
-            (* Indirect jumps are used to call into the RTS.  No need
-               to check the stack. *)
-            genop (Group5, cvec);
-            genmodrm(Based, 4 (* jmp *), 5 (* Immediate address. *), cvec);
-            addConstToVec (WVal w, false, cvec)
-          );
+        |   ConstantFun(w, true) =>
+            (
+                (* Indirect jumps are used to call into the RTS.  No need
+                   to check the stack. *)
+                genop (Group5, cvec);
+                genmodrm(Based, 4 (* jmp *), 5 (* Immediate address. *), cvec);
+                addConstToVec (WVal w, false, cvec)
+            );
 
-     exited := true (* We're not coming back. *)
+        exited := true (* We're not coming back. *)
     );
 
 
-  (* Exported. Return and remove args. *)
-  fun returnFromFunction (resReg, args, cvec as Code{exited, ...}) : unit =
-    (if resReg regNeq regNone
-        then raise InternalError "Wrong argument"
-     else if args = 0
-       then genop (RET, cvec)
-     else let
-       val offset = args * 4
-     in
-       genop (RET_16, cvec);
-       gen8u (offset mod exp2_8, cvec);
-       gen8s (offset div exp2_8, cvec)
-     end;
+    (* Exported. Return and remove args. *)
+    fun returnFromFunction (NONE, args, cvec as Code{exited, ...}) : unit =
+    (
+        if args = 0
+        then genop (RET, cvec)
+        else
+        let
+            val offset = args * 4
+        in
+            genop (RET_16, cvec);
+            gen8u (offset mod exp2_8, cvec);
+            gen8s (offset div exp2_8, cvec)
+        end;
      
-     exited := true (* We're not coming back. *)
-    );
+        exited := true (* We're not coming back. *)
+    )
+    |   returnFromFunction _ = raise InternalError "Wrong argument"
 
 
   (* Exported. The exception argument has already been loaded into eax *)
@@ -2183,7 +2017,38 @@ Calling conventions:
   val testGtA   = Arb JG;
   val testLeqA  = Arb JLE;
   val testLtA   = Arb JL;
-  
+
+    datatype operations =
+        OpRR of { instr: instrs, left: reg, right: reg, output: reg }
+    |   OpRI of { instr: instrs, left: reg, right: machineWord, output: reg }
+    |   CondBranchRR of { left: reg, right: reg, test: tests, label: labels ref }
+    |   CondBranchRI of { left: reg, right: machineWord, test: tests, label: labels ref }
+    |   LoadMemory of { offset: int, base: reg, output: reg }
+    |   PushRegister of reg
+    |   PushMemory of { offset: int, base: reg }
+    |   StoreMemory of { toStore: reg, offset: int, base: reg, width: storeWidth, index: reg option }
+    |   StoreConstant of { toStore: machineWord, offset: int, base: reg, width: storeWidth, index: reg option }
+    |   AllocStore of { size: int, flags: Word8.word, output: reg }
+    |   SetFlag of { base: reg, flags: Word8.word }
+    |   CallFunction of { callKind: callKinds }
+    |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
+    |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
+    |   RaiseException
+    |   UncondBranch of { label: labels ref }
+    |   LoadCodeRef of { refCode: code, output: reg }
+    |   LoadStackAddress of { offset: int, output: reg }
+    |   ResetStack of int
+    |   BackJumpLabel of { dest: addrs ref }
+    |   JumpBack of { dest: addrs ref, addStackCheck: bool }
+    |   ForwardJumpLabel of { label: labels ref }
+    |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
+    |   StartHandler of { handlerLab: addrs ref }
+    |   IndexedCase of
+            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
+              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
+    |   FillJumpTable of
+            { tableAddr: addrs ref, cases: (word * addrs ref) list, default: addrs ref, min: word, max: word }
+
   (* Is this argument acceptable as an immediate or should it be loaded into a register? *)
   local
      fun isPower2 n =
@@ -2475,7 +2340,7 @@ Calling conventions:
          if isDiv
          then ( (* Tag the result into the result register. *)
              genop (LEAL, cvec);
-             genIndexed (1, eax, eax, Scale1, rd, cvec)
+             genIndexed (1, SOME eax, eax, Scale1, rd, cvec)
          )
          else (* Add the tag back into the remainder. *)
              genLeal (rd, edx, 1, cvec);
@@ -2495,9 +2360,16 @@ Calling conventions:
   (* General register/register operation. *)
   fun genRR (inst, r1:reg, r2:reg, rd:reg, cvec) : unit =
   (
-    if (rd regEq r1) orelse (rd regEq r2)
-    then raise InternalError "Registers must be different"
-    else ();
+    case inst of
+        instrPush => ()
+    |   instrMove =>
+            if rd regEq r1
+            then raise InternalError "Registers must be different"
+            else ()
+    |   _ =>
+            if rd regEq r1 orelse rd regEq r2
+            then raise InternalError "Registers must be different"
+            else ();
     
     case inst of
       instrMove => 
@@ -2716,7 +2588,7 @@ Calling conventions:
             by two again to give a word offset.  Then we have to subtract
             2 to account for the tag. *)
          genop      (MOVL_A_R, cvec);
-         genIndexed (~2, r1, r2, Scale2, rd, cvec)
+         genIndexed (~2, SOME r1, r2, Scale2, rd, cvec)
        )
 
    | instrLoadB =>
@@ -2730,7 +2602,7 @@ Calling conventions:
          
          genop (ESCAPE, cvec);
          gen8u (11 * 16 + 6 (* movzl *), cvec);
-         genIndexed (0, r1, rd, Scale1, rd, cvec);
+         genIndexed (0, SOME r1, rd, Scale1, rd, cvec);
          
          (* Tag the result. *)
          genTag (rd, cvec)
@@ -2772,9 +2644,13 @@ Calling conventions:
         else l2 1 0
     end
   in
-    if rd regEq rs andalso (case inst of instrPush => false | _ => true) 
-    then raise InternalError "Registers must be different"
-    else ();
+        case inst of
+        instrPush => ()
+    |   instrMove => ()
+    |   _ =>
+            if rd regEq rs
+            then raise InternalError "Registers must be different"
+            else ();
     
     case inst of 
       instrMove =>
@@ -2982,20 +2858,20 @@ Calling conventions:
                 (
                 genop (LEAL, cvec);
                 (* Using a base and index means the ~1 is just a byte. *)
-                genIndexed (~1, rs, rs, Scale1, rd, cvec)
+                genIndexed (~1, SOME rs, rs, Scale1, rd, cvec)
                 )
             else if log2c = 2
             then (* Multiplying by 4 *)
                 (
                 genop (LEAL, cvec);
                 (* No base register: ~3 is a full word. *)
-                genIndexed (~3, regNone, rs, Scale4, rd, cvec)
+                genIndexed (~3, NONE, rs, Scale4, rd, cvec)
                 )
             else if log2c = 3
             then (* Multiplying by 8 *)
                 (
                 genop (LEAL, cvec);
-                genIndexed (~7, regNone, rs, Scale8, rd, cvec)
+                genIndexed (~7, NONE, rs, Scale8, rd, cvec)
                 )
             else (* Other powers of 2. *)
                 (
@@ -3125,8 +3001,7 @@ Calling conventions:
        
   end; (* genRI *)
 
-
-  type cases = int * addrs;
+  type cases = word * addrs ref;
   
   (* On this architecture, the jumptable is physically inserted into
      the code as a vector of address offsets. The function "indexedCase"
@@ -3141,126 +3016,219 @@ Calling conventions:
      the indexed jump at the expense of doubling the size of the table
      itself. DCJM 1/1/2001
   *)
-  type jumpTableAddrs = addrs;
   
-  fun constrCases (p as (_,_)) = p;
+    fun constrCases (p as (_,_)) = p;
   
-  type caseList = cases list;
+    type caseList = cases list;
 
-  fun useIndexedCase (min:int, max:int, numberOfCases:int, _:bool) =
-    isShort min andalso
-    isShort max andalso
-    numberOfCases > 7 andalso
-    numberOfCases >= (max - min) div 3;
+    fun useIndexedCase { min: word, max: word, number: int, isExhaustive: bool } =
+        if isExhaustive
+        then number > 4
+        else number > 7 andalso number >= (Word.toInt max - Word.toInt min) div 3;
 
-  fun indexedCase (r1:reg, r2:reg, min:int, max:int,
-                  exhaustive:bool, cvec as Code{exited, ic, ...}) : jumpTableAddrs =
-  let 
-    val rangeCheck =
-      if exhaustive then []
-      else let
-        val taggedMin = tag min;
-        val taggedMax = tag max;
-      in
-        (* Is it long? *)
-        genop (Group3_A, cvec);
-        genmodrm(Register, 0(* test *), getReg r1, cvec);
-        gen32u(1, cvec);
+    fun indexedCase (r1:reg, r2:reg, min:word, max:word, testArbitrary, isExhaustive,
+                     cvec as Code{exited, ic, ...}) =
+    let
+        (* Typically, an indexed case will arise from an ML case expression on
+           values of a datatype although it could arise from an int.  If it
+           comes from a datatype it is likely to be almost exhaustive, "almost"
+           because the last case to be written is treated as the default.  We
+           can't actually find this out, though, because the value constructors
+           are essentially opaque and it is only the later phases of the
+           optimiser that can put together the constructor discrimination into
+           the CASE instruction.  *)
+        val taggedMin = tag(Word.toInt min);
+        val taggedMax = tag(Word.toInt max);
         
-        (* Need to check whether the branch is in range. *)
-        let
-          val l1 = putConditional (JE, cvec);
-        
-          (* Compare with the minimum. *)
-          val () = genImmed(CMP, r1, taggedMin, cvec);
-          val l2 = putConditional (JL, cvec);
+        val rangeCheck =
+            if isExhaustive then []
+            else
+            let
+                val l1 =
+                    (* If we are testing ints we need to check that the values are
+                       short.  If we're testing word values, including datatype tags,
+                       we don't need this. *)
+                    if testArbitrary
+                    then
+                    (
+                        (* Is it long? *)
+                        genop (Group3_A, cvec);
+                        genmodrm(Register, 0(* test *), getReg r1, cvec);
+                        gen32u(1, cvec);
+                        (* Need to check whether the branch is in range. *)
+                        [putConditional (JE, cvec)]
+                    )
+                    else []
+
+                (* Compare with the minimum. *)
+                val () = genImmed(CMP, r1, taggedMin, cvec);
+                val l2 = putConditional (JL, cvec);
           
-          (* Compare with the maximum. *)
-          val () = genImmed(CMP, r1, taggedMax, cvec);
-          val l3 = putConditional (JG, cvec);
-        in
-          [l1, l2, l3]
-        end
-      end;
+                (* Compare with the maximum. *)
+                val () = genImmed(CMP, r1, taggedMax, cvec);
+                val l3 = putConditional (JG, cvec)
+            in
+               l1 @ [l2, l3]
+            end
       
-    val lab = ref addrZero;
-  in
-    (* Load the address of the jump table. *)
-    genop  (MOVL_32_R r2, cvec);
-    addConstToVec (HVal lab, false, cvec);
-    (* Compute the jump address.  The index is a tagged
-       integer so it is already multiplied by 2.  We need to
-       multiply by four to get the correct size. We subtract off
-       the minimum value and also the shifted tag. *)
-    genop (LEAL, cvec);
-    genIndexed (min * ~8 - 4, r2, r1, Scale4, r2, cvec);
-    (* Jump into the jump table.  Since each entry in the table
-       is 8 bytes long r2 will still be on a word + 2 byte
-       boundary. *)
-    genop (Group5, cvec);
-    genmodrm(Register, 4 (* jmp *), getReg r2, cvec);
+        val lab = ref addrZero;
+    in
+        (* Load the address of the jump table. *)
+        genop  (MOVL_32_R r2, cvec);
+        addConstToVec (HVal lab, false, cvec);
+        (* Compute the jump address.  The index is a tagged
+           integer so it is already multiplied by 2.  We need to
+           multiply by four to get the correct size. We subtract off
+           the minimum value and also the shifted tag. *)
+        genop (LEAL, cvec);
+        genIndexed (Word.toInt min * ~8 - 4, SOME r2, r1, Scale4, r2, cvec);
+        (* Jump into the jump table.  Since each entry in the table
+           is 8 bytes long r2 will still be on a word + 2 byte
+           boundary. *)
+        genop (Group5, cvec);
+        genmodrm(Register, 4 (* jmp *), getReg r2, cvec);
 
-    exited := true;
-    (* There's a very good chance that we will now extend the branches for
-       the "out of range" checks.  The code to do that doesn't know
-       that all these branches will come to the same point so will generate three
-       separate long branches. We could combine them but it's hardly worth it. *)
-    doPending (cvec,
-        (max - min + 1) * 8 (* size of table. *) + 3 (* Maximum alignment *));
+        exited := true;
+        (* There's a very good chance that we will now extend the branches for
+           the "out of range" checks.  The code to do that doesn't know
+           that all these branches will come to the same point so will generate three
+           separate long branches. We could combine them but it's hardly worth it. *)
+        doPending (cvec,
+            (Word.toInt max - Word.toInt min + 1) * 8 (* size of table. *) + 3 (* Maximum alignment *));
     
         (* The start address must be on a two byte boundary so that the
            address we've loaded is a valid code address. *)
-    while getAddr (!ic) mod 4 <> 2 do genop (NOP, cvec);
+        while getAddr (!ic) mod 4 <> 2 do genop (NOP, cvec);
 
-    let
-        fun initialiseTable i =
-         if i > max then () (* Done *)
-         else
+        let
+            fun initialiseTable i =
+            if i > max then () (* Done *)
+            else
             (
-            gen8u (opToInt JMP_32, cvec);
-            gen32u (0, cvec);
-            (* Add no-ops to make it 8 bytes. *)
-            gen8u (opToInt NOP, cvec);
-            gen8u (opToInt NOP, cvec);
-            gen8u (opToInt NOP, cvec);
-            initialiseTable (i+1)
+                gen8u (opToInt JMP_32, cvec);
+                gen32u (0, cvec);
+                (* Add no-ops to make it 8 bytes. *)
+                gen8u (opToInt NOP, cvec);
+                gen8u (opToInt NOP, cvec);
+                gen8u (opToInt NOP, cvec);
+                initialiseTable (i+0w1)
             )
-      val here = !ic;
-    in
-      lab := here;
-      initialiseTable min;
-      fixup (rangeCheck, cvec); (* The default case comes in here. *)
-      here
-    end
-  end;
+            val here = !ic;
+        in
+            lab := here;
+            initialiseTable min;
+            fixup (rangeCheck, cvec); (* The default case comes in here. *)
+            here
+        end
+    end;
 
-  fun makeJumpTable (startTab:jumpTableAddrs, cl:caseList, default:addrs, 
-                     min : int, max : int, Code{codeVec, ...}) : unit =
-  let
-     fun putCase i addr =
-     let
-        val addrOfJmp = startTab addrPlus ((i - min) * 8)
-        val jumpOffset = (addr addrMinus addrOfJmp) - 5 (* From end of instr. *)
-     in
-        set32s(jumpOffset, addrOfJmp addrPlus 1, codeVec)
-     end
+    fun makeJumpTable (startTab: addrs, cl:caseList, default:addrs, 
+                     min : word, max : word, Code{codeVec, ...}) : unit =
+    let
+        fun putCase i addr =
+        let
+            val addrOfJmp = startTab addrPlus (Word.toInt((i - min) * 0w8))
+            val jumpOffset = (addr addrMinus addrOfJmp) - 5 (* From end of instr. *)
+        in
+            set32s(jumpOffset, addrOfJmp addrPlus 1, codeVec)
+        end
 
-     (* Initialise to the default. *)
-     fun putInDefaults i =
-        if i <= max
-        then (putCase i default; putInDefaults(i+1))
-        else ()
+        (* Initialise to the default. *)
+        fun putInDefaults i =
+            if i <= max
+            then (putCase i default; putInDefaults(i+0w1))
+            else ()
 
-     (* Overwrite the defaults by the cases.  N.B.  We've generated
-        the list in reverse order so if we have any duplicates we
-        will correctly overwrite the later cases with earlier ones. *)
-     fun putInCases [] = ()
-       | putInCases ((i, a) :: t) = (putCase i a; putInCases t)
+        (* Overwrite the defaults by the cases.  N.B.  We've generated
+           the list in reverse order so if we have any duplicates we
+           will correctly overwrite the later cases with earlier ones. *)
+        fun putInCases [] = ()
+        |   putInCases ((i, a) :: t) = (putCase i (! a); putInCases t)
         
-  in
-    putInDefaults min;
-    putInCases cl
-  end;
+    in
+        putInDefaults min;
+        putInCases cl
+    end;
+
+    (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
+    fun codeGenerate (ops, code) =
+    let
+        fun cgOp(OpRR{ instr, left, right, output }) =
+                genRR(instr, left, right, output, code)
+
+        |   cgOp(OpRI{ instr, left, right, output }) =
+                genRI(instr, left, right, output, code)
+
+        |   cgOp(CondBranchRR{ left, right, test, label }) =
+                label := compareAndBranchRR(left, right, test, code)
+
+        |   cgOp(CondBranchRI{ left, right, test, label }) =
+                label := compareAndBranchRI(left, right, test, code)
+
+        |   cgOp(LoadMemory{ offset, base, output }) =
+                genLoad(offset, base, output, code)
+
+        |   cgOp(PushRegister reg) = genPush(reg, code)
+
+        |   cgOp(PushMemory{ offset, base }) = genLoadPush(offset, base, code)
+
+        |   cgOp(StoreMemory{ toStore, offset, base, width, index }) =
+                genStore(toStore, offset, base, width, index, code)
+
+        |   cgOp(StoreConstant{ toStore, offset, base, width, index }) =
+                genStoreI(toStore, offset, base, width, index, code)
+
+        |   cgOp(AllocStore{ size, flags, output }) = allocStore(size, flags, output, code)
+
+        |   cgOp(SetFlag{ base, flags }) = setFlag(base, code, flags)
+
+        |   cgOp(CallFunction{ callKind }) = callFunction(callKind, code)
+
+        |   cgOp(JumpToFunction{ callKind, returnReg }) = jumpToFunction(callKind, returnReg, code)
+
+        |   cgOp(ReturnFromFunction{ returnReg, argsToRemove }) =
+                returnFromFunction(returnReg, argsToRemove, code)
+
+        |   cgOp RaiseException = raiseException code
+
+        |   cgOp(UncondBranch{ label }) = label := unconditionalBranch code
+
+        |   cgOp(LoadCodeRef{ refCode, output }) = genLoadCoderef(refCode, output, code)
+
+        |   cgOp(LoadStackAddress{ offset, output }) = genStackOffset(output, offset, code)
+
+        |   cgOp(ResetStack count) = resetStack(count, code)
+
+        |   cgOp(BackJumpLabel{ dest }) =
+                (* Backwards jump label.  Used for loops and also for indexed jumps because the
+                   jump table is constructed after the code for each case. *)
+            let
+                val Code {exited, ic, branchCheck, ...} = code
+            in
+                (* Make sure any pending operations are done. *)
+                doPending (code, 0);
+                exited := false; (* We may be jumping here. *)
+                branchCheck := !ic;
+                dest := ! ic (* After any pending operations. *)
+            end
+
+        |   cgOp(JumpBack{ dest=ref dest, addStackCheck }) = jumpback(dest, addStackCheck, code)
+
+        |   cgOp(ForwardJumpLabel{ label=ref label }) = fixup(label, code)
+
+        |   cgOp(LoadHandlerAddress{ handlerLab, output }) = loadHandlerAddress(output, handlerLab, code)
+
+        |   cgOp(StartHandler{ handlerLab }) = fixupHandler(handlerLab, code)
+
+        |   cgOp(IndexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive, tableAddrRef }) =
+                tableAddrRef := indexedCase(testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive, code)
+
+        |   cgOp(FillJumpTable{ tableAddr=ref tableAddr, cases, default=ref default, min, max }) =
+                makeJumpTable(tableAddr, cases, default, min, max, code)
+
+    in
+        List.app cgOp (List.rev ops)
+    end
 
 
   fun printCode (Code{procName, numOfConsts, pcOffset, constVec, printStream, ...}) seg endcode =
@@ -4103,15 +4071,6 @@ itself.
     end (* the result *)
   end (* copyCode *);
 
-  (* ic function exported to gencode. Currently only used for backward jumps. *)
-  fun ic (cvec as Code {exited, ic=ic', branchCheck, ...}) =
-  ( (* Make sure any pending operations are done. *)
-    doPending (cvec, 0);
-    exited := false; (* We may be jumping here. *)
-    branchCheck := !ic';
-    ! ic' (* After any pending operations. *)
-  );
-
   fun codeAddress (cvec: code) : address option =
   (* This is used to find the register set for a function which was
      originally a forward reference.  If it has now been compiled we
@@ -4124,5 +4083,16 @@ itself.
   fun traceContext (Code {procName, ic = ref ic, ...}) =
   (* Function name and code offset to help tracing. *)
      procName ^ ":" ^ Int.fmt StringCvt.HEX (getAddr ic)
+
+    structure Sharing =
+    struct
+        type code       = code
+        and  instrs     = instrs
+        and  reg        = reg
+        and  tests      = tests
+        and  addrs      = addrs
+        and  storeWidth = storeWidth
+        and  operations = operations
+    end
 
 end (* struct *) (* CODECONS *);

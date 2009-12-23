@@ -61,6 +61,7 @@ sig
     val mkContainer:        int -> codetree
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
+    val mkTagTest:          codetree * word * word -> codetree
 
     val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
 

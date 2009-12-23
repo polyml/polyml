@@ -65,19 +65,17 @@ struct
     | Cond of codetree * codetree * codetree (* If-statement *)
 
     | Case of (* Case expressions *)
-    {
-        cases   : (codetree * int list) list,
-        test    : codetree,
-        default : codetree,
-        min     : int,
-        max     : int
-    }
+        {
+            cases   : (codetree * word) list,
+            test    : codetree,
+            caseType: caseType,
+            default : codetree
+        }
     
     | BeginLoop of codetree * codetree list(* Start of tail-recursive inline function. *)
 
     | Loop of codetree list (* Jump back to start of tail-recursive function. *)
-    
-    
+
     | Raise of codetree (* Raise an exception *)
 
     | Ldexc (* Load the exception (used at the start of a handler) *)
@@ -102,6 +100,8 @@ struct
     
     | TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
 
+    | TagTest of { test: codetree, tag: word, maxTag: word }
+
     | Global of optVal (* Global value *)
 
     | CodeNil
@@ -125,6 +125,11 @@ struct
         (* A reference which is used to detect recursive inline expansions. *)
         recCall: bool ref
     }
+
+    and caseType =
+        CaseInt
+    |   CaseWord
+    |   CaseTag of word
     
     withtype loadForm = 
     { (* Load a value. *)
@@ -365,23 +370,24 @@ struct
         
         | Ldexc => PrettyString "LDEXC"
         
-        | Case {cases, test, default, min, max} =>
+        | Case {cases, test, default, caseType} =>
             PrettyBlock (1, true, [],
                 PrettyString
-                    (concat ["CASE ", Int.toString min, "-", Int.toString max, "(" ]) ::
+                    (concat ["CASE ",
+                        case caseType of CaseInt => "INT" | CaseWord => "WORD" | CaseTag n => "TAG " ^ Word.toString n,
+                        " (" ]) ::
                 pretty test ::
                 PrettyBreak (1, 0) ::
                 PrettyString "(" ::
                 PrettyBreak (1, 0) ::
                 pList cases ","
-                    (fn (exp : codetree, labels : int list) =>
+                    (fn (exp : codetree, label : word) =>
                         PrettyBlock (1, true, [],
-                            List.foldr (
-                                fn (l, t) =>
-                                    PrettyString (Int.toString l ^ ":") ::
-                                    PrettyBreak (1, 0) :: t
-                                ) [pretty exp] labels
-                            )
+                            [
+                                PrettyString (Word.toString label ^ ":"),
+                                PrettyBreak (1, 0),
+                                pretty exp
+                            ])
                     ) @
                 (
                     case default of
@@ -426,14 +432,26 @@ struct
         | TupleFromContainer (container, size) =>
             PrettyBlock (3, false, [],
                 [
-                    PrettyString ("TUPLECONTAINER(" ^ Int.toString size ^ ", "),
+                    PrettyString ("TUPLECONTAINER(" ^ Int.toString size ^ ","),
                     PrettyBreak (0, 0),
                     pretty container,
                     PrettyBreak (0, 0),
                     PrettyString ")"
                 ]
             )
-        
+
+        |   TagTest { test, tag, maxTag } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString (concat["TAGTEST(", Word.toString tag, ", ", Word.toString maxTag, ","]),
+                    PrettyBreak (1, 0),
+                    pretty test,
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
+            
+
         | Global ov =>
             PrettyBlock (1, true, [],
                 [
@@ -465,7 +483,7 @@ struct
         |   sizeList (c::cs) = size c + sizeList cs
         
         and sizeCaseList []           = 0
-        |   sizeCaseList ((c,il)::cs) = size c + List.length il + sizeCaseList cs
+        |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
 
         and sizeOptVal (OptVal {general,...})       = size general 
         |   sizeOptVal (ValWithDecs {general, ...}) = size general
@@ -498,6 +516,7 @@ struct
             | SetContainer{container, tuple, size=len} => size container + size tuple + len
             | TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
             | Global glob                     => sizeOptVal glob
+            | TagTest { test, ... }           => 1 + size test
             | Case {test,default,cases,...}   =>
                 size test + size default + sizeCaseList cases
             ;

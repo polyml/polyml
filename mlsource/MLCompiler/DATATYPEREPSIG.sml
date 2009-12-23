@@ -31,8 +31,7 @@ sig
 
     type representations
     val RefForm:   representations;
-    val BoxedForm: representations;
-    val EnumForm:  int -> representations;
+    val EnumForm:  { tag: word, maxTag: word } -> representations;
 
     val createNullaryConstructor: representations * types list * string -> codetree
     val createUnaryConstructor: representations * types list * string -> codetree

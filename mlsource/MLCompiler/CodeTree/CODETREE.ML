@@ -134,9 +134,6 @@ struct
           [] => JustTheVal general
         | _  => ValWithDecs {general = general, decs = decs}
           else OptVal ov;
-
-  (* minor HACKS *)
-  type casePair = codetree * int list;
   
   val codegen = gencode;
 
@@ -161,33 +158,7 @@ struct
   
   val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable);
 
-  type evalForm = 
-     { (* Evaluate a function with an argument list. *)
-       function:  codetree,
-       argList:   codetree list,
-       earlyEval: bool
-     }
-
-  and declarForm = 
-     { (* Declare a value or push an argument. *)
-       value:      codetree,
-       addr:       int,
-       references: int
-      }
-
-   and indForm = 
-     { (* Indirect off a value. *)
-       base:   codetree,
-       offset: int
-      }
-
-   and diadic = 
-     codetree * codetree
-
-   and triadic = 
-     codetree * codetree * codetree
-
-   and lambdaForm =
+    type lambdaForm =
      { (* Lambda expressions. *)
        body          : codetree,
        isInline      : inlineStatus,
@@ -202,22 +173,6 @@ struct
    and casePair = 
        (* Expressions and corresponding list of labels. *)
        codetree * int list
-   
-   and caseForm =
-     { (* Case expressions *)
-       cases   : (codetree * int list) list,
-       test    : codetree,
-       default : codetree,
-       min     : int,
-       max     : int
-      }
-   
-   and handleForm =
-     { (* Exception handler. *)
-       exp     : codetree,
-       taglist : codetree list,
-       handler : codetree
-     };
 
 (*************************** end of copied code *****************************)  
   
@@ -328,6 +283,11 @@ struct
   (* N.B. int equality is SHORT integer equality *)
   fun mkTestinteq (xp1, xp2) = 
     mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2], true);
+
+    (* Test a tag value. *)
+    fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =
+        TagTest {test=test, tag=tagValue, maxTag=maxTag }
+        (*mkEval (rtsFunction POLY_SYS_word_eq, [test, mkConst(toMachineWord tagValue)], true);*)
 
   fun mkHandle (exp, taglist, handler) = Handle {exp = exp, taglist = taglist, handler = handler};
   
@@ -1580,18 +1540,16 @@ DCJM 2000.
               Handle {exp = exp, taglist = tags, handler = hand}
             end
       
-        | Case { cases, test, default, min, max } =>
+        | Case { cases, test, default, caseType } =>
             let
-              fun insertCasePair ((e,l) : casePair) : casePair =
-                (insert e, l);
+              fun insertCasePair ((e,l)) = (insert e, l);
             in
               Case
                 {
                   cases   = revmap insertCasePair cases,
                   default = insert default,
                   test    = insert test, (* Must be called last. *)
-                  min     = min,
-                  max     = max
+                  caseType = caseType
                 }
             end : codetree
 
@@ -1606,6 +1564,8 @@ DCJM 2000.
         | Global g =>
            (* Should have been taken off by the optimiser. *)
            optGeneral g : codetree
+
+        |   TagTest{test, tag, maxTag} => TagTest{test=insert test, tag=tag, maxTag=maxTag}
 
         | _ => raise InternalError "unknown instruction"
 
@@ -1658,13 +1618,8 @@ DCJM 2000.
           (* Process the condition AFTER the then- and else-parts. *)
           val insFirst = insert condTest;
           
-          datatype caseVal =
-             NoCaseVal
-           | CaseVal of
-              { tags: int list, 
-                min:  int, 
-                max:  int, 
-                test: codetree };
+          type caseVal =
+            { tag: word, test: codetree, caseType: caseType } option;
         
           (* True if both instructions are loads or indirections with the
              same effect. More complicated cases could be considered but
@@ -1674,246 +1629,150 @@ DCJM 2000.
              as well as Extract is because we (used to) defer Indirect entries.  *)
           datatype similarity = Different | Similar of loadForm;
 
-          fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}))
-                      (Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
+          fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}),
+                       Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
                 if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
                 then if aRef then Similar a else Similar b
                 else Different
               
-           |  similar (Indirect{offset=aOff, base=aBase})
-                      (Indirect{offset=bOff, base=bBase}) =
-                if aOff <> bOff then Different else similar aBase bBase
+           |  similar (Indirect{offset=aOff, base=aBase}, Indirect{offset=bOff, base=bBase}) =
+                if aOff <> bOff then Different else similar (aBase, bBase)
               
-           |  similar (_:codetree) (_:codetree) = Different;
+           |  similar _ = Different;
 
-         (* If we have a call to the int equality operation *)
-         (* then we may be able to use a case statement. *)
-         (* preCode.copyCode.insert.findCase *)
-         fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
-              (* Since we are comparing for equality with constants we
-                 can do a case for short integers (tags) or arbitrary
-                 precision integers.  This will certainly work with the
-                 new (Sparc, Mips, I386) code-generator. *)
-                 
-   (* The above comment is an oversimplification, because we can't be
-      sure that the constant is a short. If it isn't, then word equality
-      is *not* the same as integer equality, so I've added a test for
-      this. I've also added code for all three types of equality test:
-          int_eq   229 (used for case tags - but not necessarily short)
-          equala   113 (arbitrary precision arithmetic)
-          word_eq  251 (used for shorts)
-      rather than just for the first two, since although the last case
-      may not arise (says who?) it does no harm to test for it. SPF 12/10/94 *)
-              if wordEq (cv, ioOp POLY_SYS_equala) orelse
-                  wordEq (cv, ioOp POLY_SYS_word_eq)
-              then  (* Should be just two arguments. *)
+            (* If we have a call to the int equality operation *)
+            (* then we may be able to use a case statement. *)
+            (* preCode.copyCode.insert.findCase *)
+            fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
+            let
+                val isArbitrary = wordEq (cv, ioOp POLY_SYS_equala)
+                val isWord = wordEq (cv, ioOp POLY_SYS_word_eq)
+            in
+                if isArbitrary orelse isWord
+                then  (* Should be just two arguments. *)
                 case argList of
-                  [Constnt c1, arg2] =>
+                    [Constnt c1, arg2] =>
                     if isShort c1
-                    then let
-                      val value : int = Word.toIntX (toShort c1);
-                    in
-                      CaseVal{tags=[value], min=value, max=value, test=arg2}
-                    end
-                    else NoCaseVal (* Not a short constant. *)
+                    then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
+                    else NONE (* Not a short constant. *)
                     
                  | [arg1, Constnt c2] =>
                     if isShort c2
-                    then let
-                      val value : int = Word.toIntX (toShort c2);
-                    in
-                      CaseVal{tags=[value], min=value, max=value, test=arg1}
-                    end
-                    else NoCaseVal (* Not a short constant. *)
+                    then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
+                    else NONE (* Not a short constant. *)
                     
-                | _ => NoCaseVal
+                | _ => NONE
                    (* Wrong number of arguments - should raise exception? *)
                 
-              else NoCaseVal (* Function is not a comparison. *)
-            
-         |  findCase (Case{cases, min=minC, max=maxC, test, default}) : caseVal =
-            (* If we have an expression like x = 1 cor x = 2
-               we can make a case-expression out of it. *)
-            (* This is more complicated now that we've removed
-               conditional-or and replaced it by a normal conditional.
-               If the first expression is suitable for inclusion in the
-               case it will already have been converted into a case. *)
-            let
-              (* To match the other cases we need to have the same
-                 test variable, all the cases must return CodeTrue and
-                 the default must be of the form caseVar = constant.
-                 i.e. it is of the form
-                    case x of n1 => true | n2 => true | _ => x = n3.
-               *)
-              val defCase: caseVal = findCase default
+                else NONE (* Function is not a comparison. *)
+            end
 
-              (* Extract the tags and check that the results are all "true". *)
-              fun checkCases [] = SOME []
-                | checkCases ((c, tags) :: t) =
-                    if
-                        case c of
-                            Constnt w => wordEq(w, True)
-                        |   _  => false
-                    then
-                        case checkCases t of
-                            NONE => NONE
-                          | SOME tags' => SOME(tags @ tags')
-                    else NONE
+         |  findCase(TagTest { test, tag, maxTag }) =
+                SOME { tag=tag, test=test, caseType=CaseTag maxTag }
 
-            in 
-              case (defCase, checkCases cases) of
-                (CaseVal{test=testDef, min=minDef, max=maxDef, tags=tagsDef},
-                 SOME newTags) =>
-                  if similar testDef test <> Different
-                  then
-                     CaseVal{tags = newTags @ tagsDef, min=Int.min(minC, minDef),
-                             max=Int.max(maxC, maxDef),
-                             (* Return the default test rather than the original because
-                                that might contain the last reference. *)
-                             test=testDef}
-                  else NoCaseVal
-              | _ => NoCaseVal
-            end (* isCor *)
-
-         |  findCase _ = NoCaseVal (* Neither of those instructions *) 
+         |  findCase _ = NONE 
            (* end findCase *);
         
           val testCase  : caseVal  = findCase insFirst;
-          (*val insSecond : codetree = insThen;
-          val insThird  : codetree = insElse; *)
         in  (* body of preCode.copyCode.insert(isCond) *)
 
           case testCase of
-            NoCaseVal => (* Can't use a case *)
-                mkIf (insFirst,
-                      addKillSet(insThen, killElseOnly),
-                      addKillSet(insElse, killThenOnly))
-            | CaseVal { tags=caseTags, min=caseMin, max=caseMax, test=caseTest } =>
+                NONE => (* Can't use a case *)
+                    mkIf (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
+            |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
+                    (* Can use a case. Can we combine two cases?
+                      If we have an expression like 
+                           "if x = a then .. else if x = b then ..."
+                      we can combine them into a single "case". *)
+                    case insElse of
+                        Case { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
+                        (
+                        case (similar(nextTest, caseTest), caseCaseTest = nextCaseType) of
+                          (* Note - it is legal (though completely redundant) for the
+                             same case to appear more than once in the list. This is not
+                              checked for at this stage. *)
+                          (* We have to take care to get the "last-reference" flags
+                             and the kill-set right when "nextTest" is the last
+                             reference to the variable.  (N.B. This means that it does
+                             not appear anywhere else in the case). 
+                             There are two cases to consider:
+                             1. If the then-part contains the variable
+                                e.g. if a = 1 then a<lastRef>
+                                     else (case a<lastRef> of 2 => x | _ => y)
+                                Note: because the last reference for a appears in
+                                both the branches it will not be in either kill set.
+                             2. If the then-part does not contain the variable
+                                e.g. if a = 1 then x
+                                     else (case a<lastRef> of 2 => x | _ => y)
+                                Note: because the last reference to a appears only
+                                in the else-part it will be in killElseOnly.
+                             In 1 we transform this into
+                                case a of 1 => a<lastRef> 
+                                | 2 => <kill a> x | 3 => <kill a> y
+                             i.e. the test is NOT the last reference but a must be
+                             killed on the other branches.
+                             In 2 we transform it into
+                                 case a<last> of 1 => x | 2 => y | 3 => z
+                             i.e. the test IS the last reference.
+                           *)
+                            (Similar({lastRef = true, addr, level, ...}), true) =>
+                            let (* Contains the last reference to the test variable. *)
+                                (* Remove this variable from the usage table for the else-part
+                                   since we are lifting it up to the test. *)
+                                val () = removeItem(elseUsage, addr, level);
+                                (* Compute the new kill sets. *)
+                                val (killThenOnly, killElseOnly) =
+                                    computeKillSets(thenUsage, elseUsage);
+                                val testCode =
+                                    if inSet(thenUsage, addr, level)
+                                    then caseTest (* Must be in the then-part. *)
+                                    else nextTest (* Last reference *)
+                            in
+                                Case
+                                {
+                                    cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
+                                                map (fn (c, l) =>
+                                                    (addKillSet(c, killThenOnly), l)) nextCases,
+                                    test    = testCode,
+                                    default = addKillSet(nextDefault, killThenOnly),
+                                    caseType = caseCaseTest
+                                }
+                            end
 
-            (* Can use a case. Can we combine two cases?
-              If we have an expression like 
-                   "if x = a then .. else if x = b then ..."
-              we can combine them into a single "case". *)
-            case insElse of
-                Case { cases=nextCases, min=nextMin, max=nextMax, test=nextTest,
-                       default=nextDefault } =>
-                (
-                case similar nextTest caseTest of
-                  (* Note - it is legal (though completely redundant) for the
-                     same case to appear more than once in the list. This is not
-                      checked for at this stage. *)
-                  (* We have to take care to get the "last-reference" flags
-                     and the kill-set right when "nextTest" is the last
-                     reference to the variable.  (N.B. This means that it does
-                     not appear anywhere else in the case). 
-                     There are two cases to consider:
-                     1. If the then-part contains the variable
-                        e.g. if a = 1 then a<lastRef>
-                             else (case a<lastRef> of 2 => x | _ => y)
-                        Note: because the last reference for a appears in
-                        both the branches it will not be in either kill set.
-                     2. If the then-part does not contain the variable
-                        e.g. if a = 1 then x
-                             else (case a<lastRef> of 2 => x | _ => y)
-                        Note: because the last reference to a appears only
-                        in the else-part it will be in killElseOnly.
-                     In 1 we transform this into
-                        case a of 1 => a<lastRef> 
-                        | 2 => <kill a> x | 3 => <kill a> y
-                     i.e. the test is NOT the last reference but a must be
-                     killed on the other branches.
-                     In 2 we transform it into
-                         case a<last> of 1 => x | 2 => y | 3 => z
-                     i.e. the test IS the last reference.
-                   *)
-                 Similar({lastRef = true, addr, level, ...}) =>
-                    let (* Contains the last reference to the test variable. *)
-                    (* Remove this variable from the usage table for the else-part
-                       since we are lifting it up to the test. *)
-                    val () = removeItem(elseUsage, addr, level);
-                    (* Compute the new kill sets. *)
-                    val (killThenOnly, killElseOnly) =
-                        computeKillSets(thenUsage, elseUsage);
-                    in
-                    if inSet(thenUsage, addr, level)
-                    then (* Must be in the then-part. *)
-                      Case 
-                        {
-                          cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
+                        | (Similar _, true) =>
+                            (* Does not contain the last reference to the test variable or
+                               the test variable is non-local.
+                               Add the kill sets to appropriate cases. *)
+                          Case 
+                            {
+                              cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
                                         map (fn (c, l) =>
                                             (addKillSet(c, killThenOnly), l)) nextCases,
-                          test    = caseTest, (* This will not be a last-ref *)
-                          default = addKillSet(nextDefault, killThenOnly),
-                          min     = Int.min(caseMin, nextMin),
-                          max     = Int.max(caseMax, nextMax)
-                        }
-                    else (* It was in killElseOnly *)
-                      Case 
-                        {
-                          cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
-                                        map (fn (c, l) =>
-                                            (addKillSet(c, killThenOnly), l)) nextCases,
-                          test    = nextTest, (* Last reference *)
-                          default = addKillSet(nextDefault, killThenOnly),
-                          min     = Int.min(caseMin, nextMin),
-                          max     = Int.max(caseMax, nextMax)
-                        }
-                    end
-
-                | Similar _ =>
-                    (* Does not contain the last reference to the test variable or
-                       the test variable is non-local.
-                       Add the kill sets to appropriate cases. *)
-                  Case 
-                    {
-                      cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
-                                map (fn (c, l) =>
-                                    (addKillSet(c, killThenOnly), l)) nextCases,
-                      test    = nextTest,
-                      default = addKillSet(nextDefault, killThenOnly),
-                      min     = Int.min(caseMin, nextMin),
-                      max     = Int.max(caseMax, nextMax)
-                    }
+                              test    = nextTest,
+                              default = addKillSet(nextDefault, killThenOnly),
+                              caseType = caseCaseTest
+                            }
     
-                | Different => (* Two case expressions but they test different
-                                  variables. We can't combine them. *)
+                        | _ => (* Two case expressions but they test different
+                                          variables. We can't combine them. *)
+                          Case
+                            {
+                              cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
+                              test    = caseTest,
+                              default = addKillSet(insElse, killThenOnly),
+                              caseType=caseCaseTest
+                            }
+                         )
+                    | _ => (* insElse is not a case *)
                   Case
                     {
                       cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
                       test    = caseTest,
                       default = addKillSet(insElse, killThenOnly),
-                      min     = caseMin,
-                      max     = caseMax
-                    }
-                 )
-            | _ => (* insElse is not a case *)
-                  (* A nil entry for the default indicates that
-                     the case is exhaustive (ML only), so if we are
-                     converting an "if" without an "else" (Poly only)
-                     we put in a dummy "else". *)
-                  (* DCJM 28/11/99.  Not true: I think this comment was
-                     left over from an old version of the compiler in which
-                     case instructions were actually generated by the ML->codetree
-                     code-generator. I think the idea was to optimise the case
-                     expression when it was applied to a datatype rather than to
-                     integers.  For integers we always have to test that the
-                     value is in the range for which we have entries in the indexed
-                     case before we try computing the jump.  If we know that the
-                     value can only correspond to jump table entries we can avoid
-                     that. 
-                     At present the Case entries in codetree are only produced
-                     here. *)
-                  Case
-                    {
-                      cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
-                      test    = caseTest,
-                      default =
-                        addKillSet(if isCodeNil insElse then
-                                   CodeZero else insElse, killThenOnly),
-                      min     = caseMin,
-                      max     = caseMax
+                      caseType=caseCaseTest
                     }
         end  : codetree (* body of preCode.copyCode.insert(isCond) *)
+
 
     in     
       insert pt
@@ -2162,7 +2021,16 @@ DCJM 2000.
 
          |  cleanCode CodeNil = CodeNil
 
-         |  cleanCode _ = raise InternalError "cleanCode: unknown instr"
+         |  cleanCode (TagTest{test, tag, maxTag}) =
+                TagTest{test=cleanCode test, tag=tag, maxTag=maxTag}
+
+         |  cleanCode (Declar _) = raise InternalError "cleanCode: Declar"
+
+         |  cleanCode (MutualDecs _) = raise InternalError "cleanCode: MutualDecs"
+
+         |  cleanCode (Case _) = raise InternalError "cleanCode: Case"
+
+         |  cleanCode (Global _) = raise InternalError "cleanCode: Global"
    in
         cleanCode pt
    end (* cleanProc *);
@@ -3851,25 +3719,6 @@ DCJM 2000.
                    handler = generalOptimise(handler, tailCall)}
           )
 
-        (* Case expressions are generated only in preCode from if-then-else. *)
-(*      |  optimise (Case { cases, test, default, min, max }) =
-      let
-        
-       fun optimiseCasePair ((e,l):casePair) : casePair =
-         (general e, l);
-      in
-        simpleOptVal
-          (Case
-        {
-          cases   = map optimiseCasePair cases,
-          test    = general test,
-          default = general default,
-          min     = min,
-          max     = max
-        }
-          )
-      end
-*)          
       |  optimise (c as Container _, _) = simpleOptVal c
 
       |  optimise (TupleFromContainer(container, size), _) =
@@ -3981,7 +3830,24 @@ DCJM 2000.
 
       |  optimise (Global g, _) = g
       
-      |  optimise _ = raise InternalError "unknown instruction"
+      |  optimise (TagTest{test, tag, maxTag}, _) =
+            let
+                val optTest = general test
+            in
+                case optTest of
+                    Constnt testResult =>
+                        if isShort testResult andalso toShort testResult = tag
+                        then simpleOptVal CodeTrue
+                        else simpleOptVal CodeFalse
+                |   _ => simpleOptVal(TagTest{test=optTest, tag=tag, maxTag=maxTag})
+            end
+      
+      |  optimise (Case _, _) = raise InternalError "optimise: Case"
+
+      |  optimise (Declar _, _) = raise InternalError "optimise: Declar"
+
+      |  optimise (MutualDecs _, _) = raise InternalError "optimise: MutualDecs"
+
     (* optimise *);
 
 (*****************************************************************************)

@@ -55,12 +55,12 @@ struct
         open Address
     in
         type context = address
+        type loc = { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
         (* Because the argument tuple has more than 4 fields the address is used rather than copying the fields. *)
-        fun ContextLocation(
-                p as { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }): context =
-            toAddress(0, p)
+        fun ContextLocation(p: loc): context =
+            toAddress(0w0, p)
         and ContextProperty(s1: string, s2: string): context =
-            toAddress(1, s1, s2)
+            toAddress(0w1, s1, s2)
     end
 
     local
@@ -69,15 +69,15 @@ struct
         type pretty = address
 
         fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
-            toAddress(0, offset, consistent, context, items)
+            toAddress(0w0, offset, consistent, context, items)
         and PrettyBreak(breaks: int, offset: int): pretty =
-            toAddress(~1, breaks, offset)
+            toAddress(0w1, breaks, offset)
         and PrettyString(s: string): pretty =
-            toAddress(1, s)
+            toAddress(0w2, s)
 
-        fun isPrettyBlock p = unsafeCast(loadWord(p, 0w0)) = 0
-        and isPrettyBreak p = unsafeCast(loadWord(p, 0w0)) = ~1
-        and isPrettyString p = unsafeCast(loadWord(p, 0w0)) = 1
+        fun isPrettyBlock p = toShort(loadWord(p, 0w0)) = 0w0
+        and isPrettyBreak p = toShort(loadWord(p, 0w0)) = 0w1
+        and isPrettyString p = toShort(loadWord(p, 0w0)) = 0w2
 
         fun projPrettyBlock p =
             if isPrettyBlock p
