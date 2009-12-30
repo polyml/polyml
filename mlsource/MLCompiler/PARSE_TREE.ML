@@ -4621,12 +4621,12 @@ struct
                 val equality =
                     equalityForType(
                         mkTypeConstruction(tcName constr, constr, [], []), #level context,
-                        typeVarMap (* Should never be used. *))
+                        defaultTypeVarMap(fn _ => raise InternalError "equalityForType", 0) (* Should never be used. *))
                 val litValue: machineWord option =
                     getLiteralValue(converter, literal, expType, location, vars, lex)
             in
                 addSconstr(equality, litValue, tree, patNo)
-            end
+             end
     
         | Constraint {value, location, ...} => (* process the pattern *)
             buildAot(value, tree, patNo, location, context)
