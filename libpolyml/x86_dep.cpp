@@ -1170,15 +1170,15 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
             switch (PSP_IC(taskData->stack)[1] & (7 << 3)) // This is a code.  Ignore any REX override.
             {
-              case (0 << 3): /* add */
-                      {
-                if (dest != bbb)
-                    Crash("Expected same destination register.");
-                /* immediate value is shifted, but hasn't had 1 added;
-                   do this now before calling add_longc */
-                do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
-                break;
-              }
+                case (0 << 3): /* add */
+                {
+                    if (dest != bbb)
+                        Crash("Expected same destination register.");
+                    /* immediate value is shifted, but hasn't had 1 added;
+                       do this now before calling add_longc */
+                    do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
+                    break;
+                }
 
               case (5 << 3): /* sub */
               {
@@ -1792,7 +1792,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x5c: case 0x5d: case 0x5e: case 0x5f: /* Pop */
         case 0x90: /* nop */ case 0xc3: /* ret */
         case 0xf9: /* stc */ case 0xce: /* into */
-            pt += 1; break;
+        case 0xf0: /* lock. */
+            pt++; break;
 
         case 0x70: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76:
         case 0x77: case 0x7c: case 0x7d: case 0x7e: case 0x7f: case 0xeb:
@@ -1846,9 +1847,14 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x81: /* Group1_32_A */
             {
                 pt ++;
+                unsigned opCode = *pt;
                 skipea(&pt, process);
-                /* Ignore the 32 bit constant here.  It may be
-                   untagged and it shouldn't be an address. */
+                // Only check the 32 bit constant if this is a comparison.
+                // For other operations this may be untagged and shouldn't be an address.
+#ifndef HOSTARCHITECTURE_X86_64
+                if ((opCode & 0x38) == 0x38)
+                    process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
+#endif /* HOSTARCHITECTURE_X86_64 */
                 pt += 4;
                 break;
             }
@@ -1940,6 +1946,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 switch (*pt)
                 {
                 case 0xb6: /* movzl */
+                case 0xc1: /* xaddl */
                     pt++; skipea(&pt, process); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:
