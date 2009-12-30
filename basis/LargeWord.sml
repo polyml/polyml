@@ -359,10 +359,14 @@ local
             val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
 
             (* The values are treated as lo + 2^n * hi *)
+             (* Avoid doing long precision arithmetic unnecessarily. *)
             fun fromInt x = { lo = Word.fromInt x,
-                              hi = Word.fromInt (Int.div(x, maxWordP1)) }
-            and toIntX { lo, hi } = Word.toInt lo + Word.toIntX hi * maxWordP1
-            and toInt { lo, hi } = Word.toInt lo + Word.toInt hi * maxWordP1
+                              hi = if LibrarySupport.isShortInt x then if x < 0 then 0w0-0w1 else 0w0
+                                   else Word.fromInt (Int.div(x, maxWordP1)) }
+            and toIntX { lo, hi=0w0 } = Word.toInt lo
+            |   toIntX { lo, hi } = Word.toInt lo + Word.toIntX hi * maxWordP1
+            and toInt { lo, hi=0w0 } = Word.toInt lo
+            |   toInt { lo, hi } = Word.toInt lo + Word.toInt hi * maxWordP1
 
             val toLargeInt = toInt
             val toLargeIntX = toIntX
