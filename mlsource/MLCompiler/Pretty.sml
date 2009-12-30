@@ -179,7 +179,7 @@ struct
                             then left (* Ignore trailing breaks. *)
                             else
                             let
-                                val (blanks, breakOffset) = projPrettyBreak p
+                                val (blanks, breakOffset) = projPrettyBreak hd
                                  (* Compute the space of the next item(s) up to the end or the
                                    next space.  Since we only break at spaces if there are
                                    Blocks or Strings without spaces between we need to know
@@ -206,16 +206,16 @@ struct
                                 )
                             end
                             
-                            else if isPrettyString p
+                            else if isPrettyString hd
                             then
                             let
-                                val s = projPrettyString p
+                                val s = projPrettyString hd
                             in
                                 stream s;
                                 doPrint(rest, left-size s)
                             end
 
-                            else (* Block *) doPrint(rest, layOut(p, blockIndent, left))
+                            else (* Block *) doPrint(rest, layOut(hd, blockIndent, left))
 
                         val onLine = doPrint(entries, spaceLeft);
                     in
