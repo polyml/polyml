@@ -165,4 +165,12 @@ sig
     type pretty
     val pretty : codetree -> pretty
 
+    structure Sharing:
+    sig
+        type codetree = codetree
+        and  optVal = optVal
+        and  caseType = caseType
+        and  pretty = pretty
+    end
+
 end;

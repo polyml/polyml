@@ -529,5 +529,12 @@ struct
         size pt < maxSize
     end;
 
+    structure Sharing =
+    struct
+        type codetree = codetree
+        and  optVal = optVal
+        and  caseType = caseType
+        and  pretty = pretty
+    end
 
 end;
