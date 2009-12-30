@@ -6427,10 +6427,11 @@ struct
     (* Code generates the parse tree. *)
     fun gencode
             (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
-             mkOuterAddresses, outerTypeVarMap, structName: string) : codetree list * debugenv =
+             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codetree list * debugenv =
         codeSequence ([pt], [],
             {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
-             debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0}, fn (code, {debugEnv, ...}) => (code, debugEnv))
+             debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0},
+             fn (code, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))
 
     (* Types that can be shared. *)
     structure Sharing =

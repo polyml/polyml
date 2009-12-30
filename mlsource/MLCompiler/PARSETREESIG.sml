@@ -146,7 +146,10 @@ sig
 
     type debugenv = environEntry list * (int->codetree)
 
-    val gencode: parsetree * lexan * debugenv * int * (int->int) * typeVarMap * string -> codetree list * debugenv;
+    val gencode:
+        parsetree * lexan * debugenv * int * (int->int) * typeVarMap * string *
+            (codetree list * debugenv * typeVarMap -> codetree list * debugenv)
+            -> codetree list * debugenv
 
     (* only used for debugging and error messages! *)
     val ptDisplay: parsetree * int -> pretty;
