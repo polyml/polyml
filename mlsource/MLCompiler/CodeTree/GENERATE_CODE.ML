@@ -44,7 +44,7 @@ functor GENERATE_CODE (
     structure CODEGEN_TABLE : CODEGEN_TABLESIG where type machineWord = Address.machineWord
     structure BASECODETREE: BaseCodeTreeSig
 
-    sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing
+    sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing = BASECODETREE.Sharing
 ) :  
   
 (*****************************************************************************)
@@ -60,72 +60,66 @@ end =
 (*                  GCODE functor body                                       *)
 (*****************************************************************************)
 struct
-  open CODECONS;
-  open CODEGEN_TABLE;
-  open Address;
-  open Misc; (* after address, so we get Misc.length, not Address.length *)
-  open RuntimeCalls; (* for POLY_SYS numbers *)
-  open BASECODETREE;
-  
-  val F_mutable_words = Word8.orb (F_mutable, F_words);
- 
-  val objLength = Address.length;
-  
-  infix 7 regEq regNeq;
+    open CODECONS;
+    open CODEGEN_TABLE;
+    open Address;
+    open Misc; (* after address, so we get Misc.length, not Address.length *)
+    open RuntimeCalls; (* for POLY_SYS numbers *)
+    open BASECODETREE;
+
+    val F_mutable_words = Word8.orb (F_mutable, F_words);
+    val F_mutable_bytes = Word8.orb (F_mutable, F_bytes);
+
+    val objLength = Address.length;
+
+    infix 7 regEq regNeq;
 
 (*************************** end of copied code *****************************)  
    
-  (* gets a value from the run-time system; 
-    usually this is a closure, but sometimes it's an int.  *)
-  val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-  
-  (* minor HACKS *)
-  fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-       
-  val word0 = toMachineWord 0;
-  val word1 = toMachineWord 1;
-  
-  val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
-  val UnitValue : machineWord = word0; (* unit *)
-  val False : machineWord = word0;     (* false *)
-  val True  : machineWord = word1;     (* true *)
-  val Zero  : machineWord = word0;     (* 0 *)
-  
-  val constntTrue  = Constnt True;
-  val constntFalse = Constnt False;
-  (* Where the result, if any, should go *)
-  datatype whereTo =
-    NoResult     (* discard result *)
-  | ToReg of reg (* put result in a specific register *)
-  | ToPstack     (* Need a result but it can stay on the pseudo-stack *);
-  
-  fun isNoResult NoResult     = true | isNoResult _ = false;
-  
-  (* Are we at the end of the procedure. *)
-  datatype tail =
-    EndOfProc
-  | NotEnd;
-  
-  fun isEndOfProc EndOfProc = true | isEndOfProc _ = false;
+    (* gets a value from the run-time system; 
+       usually this is a closure, but sometimes it's an int.  *)
+    val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
 
-    fun chooseMergeRegister (transtable: ttab, whereto : whereTo, tailKind : tail) : whereTo =
+    (* minor HACKS *)
+    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
+   
+    val word0 = toMachineWord 0;
+    val word1 = toMachineWord 1;
+
+    val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
+    val UnitValue : machineWord = word0; (* unit *)
+    val False : machineWord = word0;     (* false *)
+    val True  : machineWord = word1;     (* true *)
+    val Zero  : machineWord = word0;     (* 0 *)
+
+    val constntTrue  = Constnt True;
+    val constntFalse = Constnt False;
+
+    fun isNoResult NoResult     = true | isNoResult _ = false;
+
+    (* Are we at the end of the procedure. *)
+    datatype tail = EndOfProc | NotEnd;
+
+    fun isEndOfProc EndOfProc = true | isEndOfProc _ = false;
+
+    fun chooseMergeRegister (transtable: ttab, whereto : regHint, tailKind : tail) : regHint =
         case tailKind of
-            EndOfProc => ToReg regResult
+            EndOfProc => UseReg regResult
         |   NotEnd    =>
             (
                 case whereto of
-                    ToPstack =>
+                    NoHint =>
                         (
                             case chooseRegister transtable of
                                 NONE => (* No register is free *)
-                                    ToReg regResult (* So choose an arbitrary register *)
-                            |   SOME rr =>ToReg rr
+                                    UseReg regResult (* So choose an arbitrary register *)
+                            |   SOME rr =>UseReg rr
                         )
                 |   whereto => whereto
             )
 
-  (* Code generate a procedure or global declaration *)
-  fun codegen
+    (* Code generate a procedure or global declaration *)
+    fun codegen
        (pt               : codetree,
         cvec             : code,
         declOnPrevLevel  : int * (unit -> stackIndex) * ttab * code -> stackIndex,
@@ -135,40 +129,44 @@ struct
         discardClosure   : bool,
         numOfArgs        : int,
         debugSwitches    : Universal.universal list) : address =
-  let
-    fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
+    let
+        fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
-    (* make the translation table *)
-    val transtable = ttabCreate debugSwitches;
+        (* make the translation table *)
+        val transtable = ttabCreate debugSwitches;
 
-    (* Header code for procedure. *)
+        (* Header code for procedure. *)
     
-(* Put the arguments and closure/static link register onto the pseudo-stack. *)
-    fun registerArg reg uses =
-      if uses > 0
-      then let
-        val () = codeGenerate(getRegister (transtable, reg), cvec);
-        val addrInd  = pushReg (transtable, reg);
-      in
-        incrUseCount (transtable, addrInd, uses - 1);
-        addrInd
-      end
-      else noIndex;
+        (* Put the arguments and closure/static link register onto the pseudo-stack. *)
+        fun registerArg(reg, uses) =
+        if uses > 0
+        then
+        let
+            val code = getRegister (transtable, reg)
+            (* Code is only generated if we have to save something to get the register
+               and that shouldn't happen here. *)
+            val () = case code of [] => () | _ => raise InternalError "registerArg: non-empty code"
+            val addrInd  = pushReg (transtable, reg);
+        in
+            incrUseCount (transtable, addrInd, uses - 1);
+            addrInd
+        end
+        else noIndex
 
-    (* Push the return address - may have multiple references because
-       we may exit at any of the "tails". *)
-    val returnAddress =
-        case regReturn of
-            NONE =>
-            let
-                (* The return address has already been pushed onto the stack,
-                   probably because the normal call sequence does it. *)
-                val addr = incsp transtable;
-                val () = incrUseCount (transtable, addr, 1000000);
-            in
-                addr
-            end
-        |   SOME regReturn => registerArg regReturn 1000000;
+        (* Push the return address - may have multiple references because
+           we may exit at any of the "tails". *)
+        val returnAddress =
+            case regReturn of
+                NONE =>
+                let
+                    (* The return address has already been pushed onto the stack,
+                       probably because the normal call sequence does it. *)
+                    val addr = incsp transtable;
+                    val () = incrUseCount (transtable, addr, 1000000);
+                in
+                    addr
+                end
+            |   SOME regReturn => registerArg(regReturn, 1000000)
 
     (* If discardClosure is true, all uses of the closure are
        directly-recursive calls which will be handled as "Recursive".
@@ -194,26 +192,10 @@ struct
        to codegen.
        SPF 2/1/97
     *)
-    val closureOrSlAddr = registerArg regClosure (if discardClosure then 0 else 1)
+    val closureOrSlAddr = registerArg(regClosure, if discardClosure then 0 else 1)
       
     (* A vector to map argument numbers into offsets on the pseudo stack. *)
-    val argRegTab : stackIndex Array.array =
-      Array.array (argRegs:int, noIndex: stackIndex);
-
-    (* off-by-ones adjusted SPF 7/6/94 *)
-    local
-      fun pushArgRegs i =
-        if i < numOfArgs andalso i < argRegs
-        then let
-        (* DCJM 29/11/99.  Changed to use lastRef rather than reference counts. *)
-          val () = Array.update (argRegTab, i, registerArg (argReg i) 1);
-        in
-          pushArgRegs (i + 1) 
-        end
-        else ();
-    in  
-      val () = pushArgRegs 0;
-    end;
+    val argRegTab = Vector.tabulate(Int.min(numOfArgs, argRegs), fn i => registerArg (argReg i, 1))
     
     fun exit () =
     let
@@ -241,7 +223,7 @@ struct
       
 
     (* Allocate a segment of the required size. *)
-    fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex =
+    fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex * operations list =
     let
        (* Get a register for the result. We cannot use the local ptr. for the
           result because it's supposed always to point to the bottom of the
@@ -252,27 +234,25 @@ struct
         (* Use the preferred reg if we can. *)
         val (resultReg, regCode) = 
             case whereto of
-                ToReg rr => let val regCode = getRegister (transtable, rr) in (rr, regCode) end
+                UseReg rr => let val regCode = getRegister (transtable, rr) in (rr, regCode) end
             |   _ => getAnyRegister transtable
         
-      val () = codeGenerate(AllocStore {size=csize, flags=flag, output=resultReg} :: regCode, cvec);
-      val resAddr = pushReg (transtable, resultReg);
-      val () = containsLocal (transtable, resultReg); (* Not persistent address. *)
+        val resAddr = pushReg (transtable, resultReg);
     in
-      resAddr
+        (resAddr, AllocStore {size=csize, flags=flag, output=resultReg} :: regCode)
     end;
 
     (* Remove the mutable bit without affecting the use-count. *)
-    fun lockSegment (entry, flag) : unit =
+    fun lockSegment (entry, flag) =
     let
         val () = incrUseCount (transtable, entry, 1);
         val (baseReg, baseIndex, baseCode) = loadEntry (transtable, entry, false);
     in
-        codeGenerate(SetFlag {base=baseReg, flags=flag} :: baseCode, cvec);
-        removeStackEntry(transtable, baseIndex)
+        removeStackEntry(transtable, baseIndex);
+        SetFlag {base=baseReg, flags=flag} :: baseCode
     end;
     
-    infix 9 sub; (* was only 5 - gave subtle bugs. SPF 11/8/94 *)
+    infix 9 sub;
     
     (* Loads a local, argument or closure value; translating local
        stack addresses to real stack offsets.
@@ -283,20 +263,20 @@ struct
       if fpRel 
       then 
         if addr < 0 (* Args. *)
-        then let (* First four args are on the stack. *)
+        then let (* First few args are on the stack. *)
           val argOffset = numOfArgs + addr;
         in
           if argOffset < argRegs
           then
              let
-                val regEntry = Array.sub (argRegTab, argOffset)
+                val regEntry = Vector.sub (argRegTab, argOffset)
              in
                 (* If this is NOT the last reference we need to increment the
                    use count on the entry. *)
                 if lastRef then () else incrUseCount(transtable, regEntry, 1);
                 regEntry
              end
-          else pushStack (transtable, addr * ~wordSize)
+          else pushStack (transtable, addr)
         end
         
         (* positive address - reference to entry on the pstack. *)
@@ -357,7 +337,7 @@ struct
                 val argOffset = numOfArgs + locn;
               in
                 if argOffset < argRegs andalso lastRef
-                then add (Array.sub (argRegTab, argOffset)) (* SPF 7/6/94 *)
+                then add (Vector.sub (argRegTab, argOffset)) (* SPF 7/6/94 *)
                 else ()
               end
               else if not (StretchArray.sub (newDecs,locn)) andalso lastRef
@@ -428,7 +408,7 @@ struct
        primBoolOps set to false, and will generate a call to the RTS.
        
        Note that "whereto" is only a HINT. There is no guarantee that specifying
-       "ToReg r" will actually get the value loaded into that register. For example,
+       "UseReg r" will actually get the value loaded into that register. For example,
        the code that handles constants completely ignores this hint.
        SPF 15/8/96
      *)
@@ -462,7 +442,7 @@ struct
             end;
             
             (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
-            val whereto : whereTo = chooseMergeRegister (transtable, whereto, tailKind);
+            val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
 
             val exp1Result = 
                genToRegister (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
@@ -500,7 +480,8 @@ struct
           
         | Declar {addr, value, references} =>
           let
-            val decl : stackIndex = genToStack (value, matchFailFn);
+            val (decl, decCode) = genToStack (value, matchFailFn)
+            val () = codeGenerate(decCode, cvec)
 
             (* Put the entry for this declaration in the table and set its use-count. *)
             (* Is it a procedure which can be called with a static link? *)
@@ -529,14 +510,14 @@ struct
             end
 
         | Indirect {base, offset} =>
-          let
-            val byteOffset : int        = offset * wordSize;
-            val baseCode   : stackIndex = genToStack (base, matchFailFn)
-            val (index, indCode) = indirect (byteOffset, baseCode, transtable)
-            val () = codeGenerate(indCode, cvec)
-          in  (* Get the value to be indirected on. *)
-            MergeIndex index
-          end
+            let
+                val (baseCode, baseC) = genToStack (base, matchFailFn)
+                val () = codeGenerate(baseC, cvec)
+                val (index, indCode) = indirect (offset, baseCode, transtable)
+                val () = codeGenerate(indCode, cvec)
+            in  (* Get the value to be indirected on. *)
+                MergeIndex index
+            end
 
         | Lambda lam =>
             MergeIndex(genProc (lam, fn _ => (), true, whereto, matchFailFn))
@@ -610,9 +591,9 @@ struct
                    a register.  We could do better if we are loading the last
                    reference to the initial value in which case we could reuse
                    its location. *)
-                val index = genToStack(value, matchFailFn)
+                val (index, indexCode) = genToStack(value, matchFailFn)
                 val (_, decl, decCode) = loadEntry(transtable, index, true)
-                val () = codeGenerate(decCode, cvec)
+                val () = codeGenerate(decCode @ indexCode, cvec)
                 (* It should not be a static-link function - just check. *) 
                 val _ = 
                   case value of
@@ -656,8 +637,8 @@ struct
                 let
                     val whereto =
                       case dest of
-                            ArgToRegister reg => ToReg reg
-                        |   ArgToStack _ => ToPstack
+                            ArgToRegister reg => UseReg reg
+                        |   ArgToStack _ => NoHint
                     val res = gencde (arg, true, whereto, NotEnd, matchFailFn, NONE)
                 in
                     case res of
@@ -721,13 +702,13 @@ struct
                   we are tracing exceptions. *)
                codeGenerate(pushSpecificEntry (transtable, returnAddress), cvec);
                
-            val excVal = genToStack (exp, matchFailFn);
+            val (excVal, excCode) = genToStack (exp, matchFailFn);
             
             val (resultIndex, resultCode) = 
                loadToSpecificReg (transtable, regResult, excVal, true);
 
           in
-            codeGenerate(RaiseException :: resultCode, cvec);
+            codeGenerate(RaiseException :: (resultCode @ excCode), cvec);
             
             removeStackEntry(transtable, resultIndex);
             
@@ -762,7 +743,7 @@ struct
           val mark : stackMark = markStack transtable
 
           (* Save old handler - push regHandler *)
-          val () = codeGenerate([PushRegister regHandler], cvec)
+          val () = codeGenerate([PushToStack(InRegister regHandler)], cvec)
           val oldIndex = incsp transtable;
           
           (* Now it's on the real stack we can remove it from the pstack. *)
@@ -777,9 +758,9 @@ struct
     
             (* Push the exception to be caught. Ensure that it is the
                only item added to the stack. *)
-            val locn        = genToStack (tag, matchFailFn)
+            val (locn, locCode)        = genToStack (tag, matchFailFn)
             val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
-            val () = codeGenerate(stackCode, cvec)
+            val () = codeGenerate(stackCode @ locCode, cvec)
     
             (* Now it's on the real stack we can remove it from the pstack. *)
             val ()    = removeStackEntry(transtable, stackLocn);
@@ -802,10 +783,10 @@ struct
           val handlerList : CODEGEN_TABLE.handler list = rev (map genTag (rev taglist));
       
           (* Initialise regHandler from regStackPtr *)
-          val () = codeGenerate([OpRR{instr=instrMove, left=regStackPtr, right=regStackPtr, output=regHandler}], cvec)
+          val () = codeGenerate([Move{source=InRegister regStackPtr, output=regHandler}], cvec)
 
           (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
-          val whereto : whereTo = chooseMergeRegister (transtable, whereto, tailKind);
+          val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
  
           (* Code generate body, putting the result in result register. *)
           (* "NotEnd" because we have to come back to remove the handler. *)
@@ -813,8 +794,9 @@ struct
  
           (* Reload the old value of regHandler i.e. remove handler. *)
           val () =
-            codeGenerate([LoadMemory { offset=(realstackptr transtable - startOfHandler - 1) * wordSize,
-               base=regStackPtr, output=regHandler}], cvec)
+            codeGenerate(
+                [Move { source=BaseOffset(regStackPtr, (realstackptr transtable - startOfHandler - 1) * wordSize),
+                        output=regHandler}], cvec)
 
           (* Optimisation: return immediately, if possible, rather than
              jumping and then returning. This may turn the following
@@ -864,10 +846,8 @@ struct
             let
                 (* Cases are constructed by the optimiser out of if-then-else
                    expressions. *)                
-                val testValue = genToStack (test, matchFailFn);
-
                 (* Merged values don't necessarily go into regResult *)
-                val whereto : whereTo = chooseMergeRegister (transtable, whereto, tailKind);
+                val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
                 
                 (* Sort the cases into ascending order.  It's possible that we may have
                    duplicates if this came from an if-then-else construction so we
@@ -924,6 +904,8 @@ struct
                         if useIndexedCase {min=min, max=max, number=numberOfCases, isExhaustive=isExhaustive}
                         then
                         let
+                            val (testValue, testCode) = genToStack (test, matchFailFn)
+                            val () = codeGenerate(testCode, cvec)
                             val mark = markStack transtable
      
                             (* Get exclusive use so that
@@ -1041,44 +1023,47 @@ struct
                         let
                             (* Don't use indexing. *)
                             val mark  = markStack transtable
-    
-                            val lastTest = null cps;
-  
-                            (* If this is not the last test we increment the use count for
-                               the case expression so that it will not be thrown away.
-                               We need to do this because we're converting the case
-                               expression, which has a single "last reference" marker
-                               into a series of if-then-elses. *)
-                            val () =
-                                if not lastTest
-                                then incrUseCount (transtable, testValue, 1)
-                                else ()
 
                             val (caseExp : codetree, caseLabel) = cp;
     
                             val lab =
-                                let
-                                    val locn = pushConst (transtable, toMachineWord caseLabel)
-                                    val testType =
-                                        case caseType of
-                                            CaseInt => testNeqA
-                                        |   CaseWord => testNeqW
-                                        |   CaseTag _ => testNeqW
-                                    val (label, testCode) =
-                                        compareAndBranch (testValue, locn, testType, testType, transtable)
-                                    val () = codeGenerate(testCode, cvec)
-                                in
-                                    label
-                                end 
-
-                            (* If we have incremented the use count on the
-                               test value we need to decrement it here.  That's
-                               because on this branch we are not going to test it
-                               again.  DCJM 7/12/00. *)
-                            val () =
-                              if not lastTest
-                              then incrUseCount (transtable, testValue, ~1)
-                              else ()
+                                case checkAndReduceBranches(
+                                        case caseType of CaseInt => testNeqA | _ => testNeqW,
+                                        [test, Constnt(toMachineWord caseLabel)],
+                                        fn (Constnt w) => SOME w | _ => NONE) of
+                                    SOME(testType, args) =>
+                                        let
+                                            (* Because this is a case instruction the use counting will
+                                               count only one for this.  We have to adjust the counts to be sure
+                                               that this won't be lost.  *)
+                                            fun correctedArg arg =
+                                                if null cps
+                                                then arg (* Really the last. *)
+                                                else
+                                                let
+                                                    (* The optimiser only puts these in the "case". *)
+                                                    fun removeLasts(Extract{fpRel, addr, level, ...}) =
+                                                            Extract{fpRel=fpRel, addr=addr, level=level,lastRef=false}
+                                                    |   removeLasts(Indirect{base, offset}) =
+                                                            Indirect{base=removeLasts base, offset=offset}
+                                                    |   removeLasts(c as Constnt _) = c (* For the constant arg. *)
+                                                    |   removeLasts _ = raise InternalError "removeLasts"
+                                                in
+                                                    removeLasts arg
+                                                end
+                                            (* Code generate each argument to the pstack. *)
+                                            val argsAndCode =
+                                                List.map (fn arg => genToStack (correctedArg arg, matchFailFn)) args
+                                            val argLocns = List.map #1 argsAndCode
+                                            (* Return the code ordered with earlier arguments later in the list. *)
+                                            val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                                            val (label, testCode) =
+                                                compareAndBranch (argLocns, testType, transtable)
+                                            val () = codeGenerate(testCode @ argCode, cvec)
+                                        in
+                                            label
+                                        end
+                                |   NONE => raise InternalError "checkAndReduceBranches failed in \"case\""
   
                             (* Generate this case and exit if tail-recursive. *)
                             val thisCaseRes =
@@ -1139,15 +1124,16 @@ struct
                             genMutualDecs ds
                          end,
                        null ds, (* Last one? *)
-                       ToPstack,
+                       NoHint,
                        matchFailFn)
                     in
                       ()
                     end
                  | _ =>
                     let (* should only be constants i.e. procedures already compiled. *)
-                      val () =
-                        makeEntry (transtable, genToStack (dec, matchFailFn), addr, references, false);
+                        val (decEntry, decCode) = genToStack (dec, matchFailFn)
+                        val () = codeGenerate(decCode, cvec)
+                        val () = makeEntry (transtable, decEntry, addr, references, false);
                     in
                       genMutualDecs ds
                     end
@@ -1178,26 +1164,29 @@ struct
                  to the compiler), so I've now deleted this code.
                  SPF 22/10/96
               *)
-              else let 
+              else
+              let 
                     (* Since the vector is immutable, we have to evaluate
                        all the values before we can allocate it. *)    
-                fun loadSmallVector []     _ = 
-                       callgetvec (vecsize, F_words, whereto)
+                    fun loadSmallVector ([], _) =
+                        let
+                            val (entry, code) = callgetvec (vecsize, F_words, whereto)
+                        in
+                            codeGenerate(code, cvec);
+                            entry
+                        end
                        
-                  | loadSmallVector (h::t) byteOffset =
-                  let
-                    val v   = genToStack (h, matchFailFn);
-                    val vec = loadSmallVector t (byteOffset + wordSize)
-                    val code = moveToVec (vec, v, byteOffset, STORE_WORD, transtable)
-                    val () = codeGenerate(code, cvec)
-                  in
-                    vec
-                  end;
-                val vec : stackIndex = loadSmallVector reclist 0;
-                        (* we have to make sure that the code-generator is not going to
-                          reorder the instructions so an instruction which might trap
-                          is put in the sequence of loads. *)
-                val () = completeSegment cvec;
+                    |   loadSmallVector (h::t, wordOffset) =
+                        let
+                            val (v, vCode)   = genToStack (h, matchFailFn);
+                            val () = codeGenerate(vCode, cvec)
+                            val vec = loadSmallVector (t, wordOffset + 1)
+                            val code = moveToVec (vec, v, wordOffset, instrStoreW, transtable)
+                            val () = codeGenerate(code, cvec)
+                        in
+                            vec
+                        end;
+                val vec : stackIndex = loadSmallVector(reclist, 0);
               in
                 MergeIndex vec
               end
@@ -1216,20 +1205,22 @@ struct
         | SetContainer{container, tuple, size} =>
             (* Copy the contents of a tuple into a container. *)
             let
-                val vec = genToStack (container, matchFailFn);
+                val (vec, vecCode) = genToStack (container, matchFailFn);
+                val () = codeGenerate(vecCode, cvec)
             in
                 case tuple of
                     Recconstr cl =>
                         (* Simply set the container from the values. *)
                     let
-                        fun setValue(v, byteOffset) =
+                        fun setValue(v, wordOffset) =
                         let
-                            val entry = genToStack (v, matchFailFn)
+                            val (entry, entryCode) = genToStack (v, matchFailFn)
+                            val () = codeGenerate(entryCode, cvec)
                         in
                             (* Move the entry into the container.  Does not affect the
                                use count for the container entry. *)
-                            codeGenerate(moveToVec (vec, entry, byteOffset, STORE_WORD, transtable), cvec);
-                            byteOffset + wordSize
+                            codeGenerate(moveToVec (vec, entry, wordOffset, instrStoreW, transtable), cvec);
+                            wordOffset + 1
                         end
                     in
                         List.foldl setValue 0 cl;
@@ -1238,7 +1229,8 @@ struct
 
                 |   _ =>
                     let
-                        val tup = genToStack (tuple, matchFailFn);
+                        val (tup, tupCode) = genToStack (tuple, matchFailFn);
+                        val () = codeGenerate(tupCode, cvec)
         
                         fun copy n =
                         if n = size
@@ -1247,15 +1239,15 @@ struct
                         let
                             (* We need to ensure that the tuple entry is only removed
                                when we load the last item from it. *)
-                            val byteOffset = n * wordSize
+                            val wordOffset = n
                             val _ =
                                 if n = size - 1
                                 then ()
                                 else incrUseCount(transtable, tup, 1)
-                            val (entry, entryCode) = indirect (byteOffset, tup, transtable)
+                            val (entry, entryCode) = indirect (wordOffset, tup, transtable)
                             val () = codeGenerate(entryCode, cvec)
                         in
-                            codeGenerate(moveToVec (vec, entry, byteOffset, STORE_WORD, transtable), cvec);
+                            codeGenerate(moveToVec (vec, entry, wordOffset, instrStoreW, transtable), cvec);
                             copy (n+1)
                         end
                     in
@@ -1271,8 +1263,9 @@ struct
         | TupleFromContainer(container, size) =>
             (* Create a tuple from the contents of a container. *)
             let
-                val vec = genToStack (container, matchFailFn);
-                val tup = callgetvec (size, F_words, whereto);
+                val (vec, vecCode) = genToStack (container, matchFailFn);
+                val (tup, tupleCode) = callgetvec (size, F_words, whereto);
+                val () = codeGenerate(tupleCode @ vecCode, cvec)
 
                 fun copy n =
                     if n = size
@@ -1281,15 +1274,14 @@ struct
                     let
                         (* We need to ensure that the container entry is only removed
                            when we load the last item from it. *)
-                        val byteOffset = n * wordSize
                         val _ =
                             if n = size - 1
                             then ()
                             else incrUseCount(transtable, vec, 1)
-                        val (entry, entryCode) = indirect (byteOffset, vec, transtable)
+                        val (entry, entryCode) = indirect (n, vec, transtable)
                         val () = codeGenerate(entryCode, cvec)
                     in
-                        codeGenerate(moveToVec (tup, entry, byteOffset, STORE_WORD, transtable), cvec);
+                        codeGenerate(moveToVec (tup, entry, n, instrStoreW, transtable), cvec);
                         copy (n+1)
                     end
             in
@@ -1306,7 +1298,7 @@ struct
                         argList=[test, Constnt(toMachineWord tag)],
                         earlyEval = false }
             in
-                gencde (code, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
             end
 
         | CodeNil => 
@@ -1320,33 +1312,33 @@ struct
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : codetree, matchFailFn) : stackIndex =
+    and genToStack (pt : codetree, matchFailFn) : stackIndex * operations list =
         let
-            val res = gencde (pt, true, ToPstack, NotEnd, matchFailFn, NONE)
+            val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
         in
             case res of
-                MergeIndex index => index
+                MergeIndex index => (index, [])
               | NoMerge => raise InternalError "genToStack: no result"
         end
 
     (* Generate an expression, with a hint that it should go into
        an argument register. SPF 15/8/96 *) 
-    and genArg (argNo : int, pt, matchFailFn) : stackIndex =
-    let
-      val whereto = if argNo < argRegs then ToReg (argReg argNo) else ToPstack
-      val res = gencde (pt, true, whereto, NotEnd, matchFailFn, NONE)
-    in
+    and genArg (argNo : int, pt, matchFailFn) : stackIndex * operations list =
+        let
+            val whereto = if argNo < argRegs then UseReg (argReg argNo) else NoHint
+            val res = gencde (pt, true, whereto, NotEnd, matchFailFn, NONE)
+        in
             case res of
-                MergeIndex index => index
+                MergeIndex index => (index, [])
               | NoMerge => raise InternalError "genArg: no result"
-    end
+        end
 
 (* ...
    (* Used when the result must be put in a register. *)
    and genToResult (pt, whereto, tailKind, matchFailFn, loopAddr) : unit =
    let
      (* Stack results are forced into result register *)
-     val toWhere = if isToPstack whereto then ToReg regResult else whereto;
+     val toWhere = if isToPstack whereto then UseReg regResult else whereto;
      
      val result = gencde (pt, true, toWhere, tailKind, matchFailFn, loopAddr);
    in
@@ -1355,7 +1347,7 @@ struct
     of an if-then-else if the result register is somewhere else on the
     pstack (e.g. let a == ...; if ... then a else ...) *)
       case toWhere of
-        ToReg rr => loadToSpecificReg (cvec, transtable, rr, result, true)
+        UseReg rr => loadToSpecificReg (cvec, transtable, rr, result, true)
       | _        => ()
    end (* genToResult *)
 ... *)
@@ -1378,7 +1370,7 @@ struct
       *)
       case whereto of
         NoResult => NoMerge
-      | ToReg rr =>
+      | UseReg rr =>
           (
             case result of
                 MergeIndex index =>
@@ -1390,7 +1382,7 @@ struct
                 end
               | NoMerge => raise InternalError "genToRegister: no result"
           )
-      | ToPstack => raise InternalError "genToRegister: not a register"
+      | NoHint => raise InternalError "genToRegister: not a register"
    end (* genToRegister *)
 
     (* `mutualRecursive' is only used for mutually recursive procedures
@@ -1468,8 +1460,8 @@ struct
                         val argOffset = numOfArgs + locn;
                     in
                         if argOffset < argRegs
-                        then pushNonLocal (transtable, newtab, Array.sub (argRegTab, argOffset), makeSl)
-                        else indirect (~locn * wordSize, makeSl (), newtab)
+                        then pushNonLocal (transtable, newtab, Vector.sub (argRegTab, argOffset), makeSl)
+                        else indirect (~locn, makeSl (), newtab)
                     end
                     else (* on the stack *)
                         pushNonLocal (transtable, newtab, pstackForDec (transtable, locn), makeSl)
@@ -1600,7 +1592,7 @@ struct
                 val argOffset = numOfArgs + addr;
               in
                 if argOffset < argRegs
-                then codeGenerate(pushSpecificEntry(transtable, Array.sub (argRegTab, argOffset)), cvec)
+                then codeGenerate(pushSpecificEntry(transtable, Vector.sub (argRegTab, argOffset)), cvec)
                 else ()
               end
               else (* on the stack *)
@@ -1763,7 +1755,7 @@ struct
             let
               val newLocn : int = translateClosureIndex closureList locn 
               val sl : stackIndex = makeSl (); (* load the closure *)
-              val (entry, code) = indirect (newLocn * wordSize, sl, newtab) (* load value from the closure *)
+              val (entry, code) = indirect (newLocn, sl, newtab) (* load value from the closure *)
               val () = codeGenerate(code, cvec)
             in
               entry
@@ -1795,10 +1787,11 @@ struct
           fun loadItems [] offset =
             let
               (* get store for closure *)
-              val vector = callgetvec (offset, F_words, whereto)
+              val (vector, vectorCode) = callgetvec (offset, F_words, whereto)
+              val () = codeGenerate(vectorCode, cvec)
             in
               (* Put code address into closure *)
-              codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, STORE_WORD, transtable), cvec);
+              codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, instrStoreW, transtable), cvec);
               vector
             end
             
@@ -1808,18 +1801,17 @@ struct
 
             | loadItems (h :: t) offset =
               let
-                val valIndex : stackIndex = genToStack (h, matchFailFn);
+                val (valIndex : stackIndex, valCode) = genToStack (h, matchFailFn);
+                val () = codeGenerate(valCode, cvec)
                 val vec = loadItems t (offset + 1)
               in
-                codeGenerate(moveToVec (vec, valIndex, offset * wordSize, STORE_WORD, transtable), cvec);
+                codeGenerate(moveToVec (vec, valIndex, offset, instrStoreW, transtable), cvec);
                 vec
               end;
               
           val vector = loadItems closureList 1;
           
         in
-          (* Prevent any traps before the last store. *)
-          completeSegment cvec;
           (* Have to call this mutualRecursive to register the address. *)
           mutualRecursive vector; 
           vector
@@ -1840,13 +1832,14 @@ struct
           val closureSize = nonConstntCount closureList + 1;
           
           (* get store for closure *)
-          val vector  = callgetvec (closureSize, F_mutable_words, whereto);
+          val (vector, vecCode)  = callgetvec (closureSize, F_mutable_words, whereto)
+          val () = codeGenerate(vecCode, cvec)
           
           (* Put code address into closure *)
           local
             val locn = pushConst (transtable, res);
           in
-            val () = codeGenerate(moveToVec (vector, locn, 0, STORE_WORD, transtable), cvec);
+            val () = codeGenerate(moveToVec (vector, locn, 0, instrStoreW, transtable), cvec);
           end;
 
           local
@@ -1871,7 +1864,7 @@ struct
            
             (* N.B. moveToVec doesn't count as a use of vector. *)
             fun storeWord i = 
-              codeGenerate(moveToVec (vector, locn, i * wordSize, STORE_WORD, transtable), cvec)
+              codeGenerate(moveToVec (vector, locn, i, instrStoreW, transtable), cvec)
           in
             val () = forLoop storeWord 1 wordsToClear
           end;
@@ -1893,16 +1886,17 @@ struct
                 (* constants don't belong in the physical closure *)
                 loadItems t addr
             | loadItems (h::t) addr =
-            let 
-              val () =
-                codeGenerate(moveToVec (vector, genToStack (h, matchFailed), addr, STORE_WORD, transtable), cvec);
+            let
+                val (loadEntry, loadCode) = genToStack (h, matchFailed)
+                val moveCode = moveToVec (vector, loadEntry, addr, instrStoreW, transtable)
+                val () = codeGenerate(moveCode @ loadCode, cvec);
             in
-              loadItems t (addr + wordSize)
+              loadItems t (addr + 1)
             end;
     
-          val () = loadItems closureList wordSize;
-          val () = lockSegment (vector, F_words);
-          val () = incrUseCount (transtable, vector, ~1);
+          val () = loadItems closureList 1
+          val () = codeGenerate(lockSegment (vector, F_words), cvec)
+          val () = incrUseCount (transtable, vector, ~1)
         in
           vector
         end
@@ -1914,25 +1908,28 @@ struct
        if false it is taken if the condition is false. *)
     and genTest (pt, jumpOn, matchFailFn) : labels =
     let (* See if we can generate a conditional instruction. *)
-      (* Those we can't deal with specially are evaluated to the stack and tested. *)
-      fun genOtherTests () =
-      let
-        val top = gencde (pt, false, ToPstack, NotEnd, matchFailFn, NONE);
-         (* Compare the result with false (tagged (0))
-            and skip if it does not match. *)
-        val tst = if jumpOn then testNeqW else testEqW;
-        val constFalse = pushConst (transtable, False);
-      in
-        case top of
-            MergeIndex topIndex =>
-                let
-                    val (label, testCode) = compareAndBranch (topIndex, constFalse, tst, tst, transtable)
-                in
-                    codeGenerate(testCode, cvec);
-                    label
-                end
-          | NoMerge => raise InternalError "genTest: No result"
-      end (* genOtherTests *);
+        (* Those we can't deal with specially are evaluated to the stack and tested. *)
+        fun genOtherTests () =
+            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, Constnt False],
+                                        fn (Constnt w) => SOME w | _ => NONE) of
+                SOME (tst, args) =>
+                    let
+                        (* We can't use genToStack here because we need primBoolOps to be false. *)
+                        fun cgArg arg = 
+                            case gencde (arg, false (* primBoolOps *), NoHint, NotEnd, matchFailFn, NONE) of
+                                MergeIndex index => (index, [])
+                            |   NoMerge => raise InternalError "genTest: no result"
+                        val argsAndCode = List.map cgArg args
+                        val argLocns = List.map #1 argsAndCode
+                        (* Return the code ordered with earlier arguments later in the list. *)
+                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                        val (label, testCode) = compareAndBranch (argLocns, tst, transtable)
+                    in
+                        codeGenerate(testCode @ argCode, cvec);
+                        label
+                    end
+                (* Should consider the possibility that checkAndReduceBranches might return two args. *)
+            |   NONE => raise InternalError "compareAndBranch returned failure"
     in
       case pt of
         Cond (testPart, thenPart, elsePart) =>
@@ -2048,28 +2045,30 @@ struct
       (* May be an interface operation which can be put in line. *)
       let
         (* Generate a compare instruction. *)
-        fun genCompare (arg1, arg2, t, f, ti, fi) =
+        fun genCompare (arg1, arg2, t, f) =
         let
-          val test    = if jumpOn then t  else f;
-          val revTest = if jumpOn then ti else fi;
+            val test    = if jumpOn then t else f;
         in
-          (* Check that the instruction is implemented.
-             N.B. if the first argument is a constant we will use
-             the reversed instruction.  It may only be implemented
-             for constant values so it is not sufficient to check that
-             the general form is implemented. *)
-           if isCompRR test orelse
-             (case arg1 of Constnt w => isCompRI (revTest, w) | _ => false) orelse
-             (case arg2 of Constnt w => isCompRI (test, w)    | _ => false)
-           then let (* Generate the instruction and get the direction. *)
-             val locnOfArg1 = genToStack (arg1, matchFailFn);
-             val locnOfArg2 = genToStack (arg2, matchFailFn);
-             val (label, testCode) = compareAndBranch (locnOfArg1, locnOfArg2, test, revTest, transtable)
-             val () = codeGenerate(testCode, cvec)
-           in
-             label
-           end
-           else genOtherTests () 
+            (* Check that the instruction is implemented.
+               N.B. if the first argument is a constant we will use
+               the reversed instruction.  It may only be implemented
+               for constant values so it is not sufficient to check that
+               the general form is implemented. *)
+            case checkAndReduceBranches(test, [arg1, arg2], fn (Constnt w) => SOME w | _ => NONE) of
+                SOME (test, args) =>
+                   let (* Generate the instruction and get the direction. *)
+                        (* Code generate each argument to the pstack. *)
+                        val argsAndCode =
+                            List.map (fn arg => genToStack (arg, matchFailFn)) args
+                        val argLocns = List.map #1 argsAndCode
+                        (* Return the code ordered with earlier arguments later in the list. *)
+                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                        val (label, testCode) = compareAndBranch (argLocns, test, transtable)
+                        val () = codeGenerate(testCode @ argCode, cvec)
+                   in
+                     label
+                   end
+            |   NONE => genOtherTests () 
         end (* genCompare *);
 
       in
@@ -2079,77 +2078,74 @@ struct
           
         | [arg] =>
             (* unary special cases *)
-        if wordEq (oper,ioOp POLY_SYS_not_bool)
-          then genTest (arg, not jumpOn, matchFailFn)
+            if wordEq (oper,ioOp POLY_SYS_not_bool)
+              then genTest (arg, not jumpOn, matchFailFn)
     
-        else if wordEq (oper,ioOp POLY_SYS_is_short)
-        then
-        (
-          case arg of
-        Constnt (w : machineWord) =>
-          if isShort w
-          then genTest (constntTrue,  jumpOn, matchFailFn)
-          else genTest (constntFalse, jumpOn, matchFailFn)
+            else if wordEq (oper,ioOp POLY_SYS_is_short)
+            then
+            (
+              case arg of
+                Constnt (w : machineWord) =>
+                  if isShort w
+                  then genTest (constntTrue,  jumpOn, matchFailFn)
+                  else genTest (constntFalse, jumpOn, matchFailFn)
         
-          (* Since "isShort" is a monadic operation we pretend that
-         it has a second argument of 0. *)
-          | _ =>
-        if isCompRI (Short, Zero)
-        then
-        let
-            val locnOfArg1 = genToStack (arg, matchFailFn);
-            val locnOfArg2 = pushConst (transtable, Zero);
-            val testOp     = if jumpOn then Short else Long;
-            val (label, testCode) =
-                compareAndBranch(locnOfArg1, locnOfArg2, testOp, testOp, transtable)
-            val () = codeGenerate(testCode, cvec)
-        in
-            label
-        end
-        else genOtherTests ()
-        )
+              | _ =>
+                (
+                    case checkAndReduceBranches(if jumpOn then Short else Long, [arg],
+                                                fn (Constnt w) => SOME w | _ => NONE) of
+                        SOME (testOp, [arg]) =>
+                        let
+                            val (locnOfArg1, arg1Code) = genToStack (arg, matchFailFn);
+                            val (label, testCode) = compareAndBranch([locnOfArg1], testOp, transtable)
+                            val () = codeGenerate(testCode @ arg1Code, cvec)
+                        in
+                            label
+                        end
+                    |   _ => genOtherTests ()
+                )
+            )
             
-        else (* Non-special unary function.*)
-              genOtherTests ()
+            else (* Non-special unary function.*)
+                  genOtherTests ()
            
         | [arg1, arg2] =>
             (* binary special cases *)
-        if wordEq (oper,ioOp POLY_SYS_word_eq)
-          then genCompare (arg1, arg2, testEqW, testNeqW, testEqW, testNeqW)
+            if wordEq (oper,ioOp POLY_SYS_word_eq)
+            then genCompare (arg1, arg2, testEqW, testNeqW)
           
-        else if wordEq (oper,ioOp POLY_SYS_word_neq)
-          then genCompare (arg1, arg2, testNeqW, testEqW, testNeqW, testEqW)
+            else if wordEq (oper,ioOp POLY_SYS_word_neq)
+            then genCompare (arg1, arg2, testNeqW, testEqW)
           
-        else if wordEq (oper,ioOp POLY_SYS_equala)
-          then genCompare (arg1, arg2, testEqA, testNeqA, testEqA, testNeqA)
+            else if wordEq (oper,ioOp POLY_SYS_equala)
+            then genCompare (arg1, arg2, testEqA, testNeqA)
           
-        else if wordEq (oper,ioOp POLY_SYS_int_geq)
-          then genCompare (arg1, arg2, testGeqA, testLtA, testLeqA, testGtA)
+            else if wordEq (oper,ioOp POLY_SYS_int_geq)
+            then genCompare (arg1, arg2, testGeqA, testLtA)
           
-        else if wordEq (oper,ioOp POLY_SYS_int_leq)
-          then genCompare (arg1, arg2, testLeqA, testGtA, testGeqA, testLtA)
+            else if wordEq (oper,ioOp POLY_SYS_int_leq)
+            then genCompare (arg1, arg2, testLeqA, testGtA)
           
-        else if wordEq (oper,ioOp POLY_SYS_int_gtr)
-          then genCompare (arg1, arg2, testGtA, testLeqA, testLtA, testGeqA)
+            else if wordEq (oper,ioOp POLY_SYS_int_gtr)
+            then genCompare (arg1, arg2, testGtA, testLeqA)
           
-        else if wordEq (oper,ioOp POLY_SYS_int_lss)
-          then genCompare (arg1, arg2, testLtA, testGeqA, testGtA, testLeqA)
+            else if wordEq (oper,ioOp POLY_SYS_int_lss)
+            then genCompare (arg1, arg2, testLtA, testGeqA)
           
-        else if wordEq (oper,ioOp POLY_SYS_word_geq)
-          then genCompare (arg1, arg2, testGeqW, testLtW, testLeqW, testGtW)
+            else if wordEq (oper,ioOp POLY_SYS_word_geq)
+            then genCompare (arg1, arg2, testGeqW, testLtW)
           
-        else if wordEq (oper,ioOp POLY_SYS_word_leq)
-          then genCompare (arg1, arg2, testLeqW, testGtW, testGeqW, testLtW)
+            else if wordEq (oper,ioOp POLY_SYS_word_leq)
+            then genCompare (arg1, arg2, testLeqW, testGtW)
           
-        else if wordEq (oper,ioOp POLY_SYS_word_gtr)
-          then genCompare (arg1, arg2, testGtW, testLeqW, testLtW, testGeqW)
+            else if wordEq (oper,ioOp POLY_SYS_word_gtr)
+            then genCompare (arg1, arg2, testGtW, testLeqW)
           
-        else if wordEq (oper,ioOp POLY_SYS_word_lss)
-          then genCompare (arg1, arg2, testLtW, testGeqW, testGtW, testLeqW)
+            else if wordEq (oper,ioOp POLY_SYS_word_lss)
+            then genCompare (arg1, arg2, testLtW, testGeqW)
           
-        else (* Non-special binary function. *) 
-          genOtherTests ()
-      
+            else genOtherTests () (* Non-special binary function. *) 
+
      | _ => (* Functions with more than 2 arguments. *)
        genOtherTests ()
       end (* constant functions *)
@@ -2209,7 +2205,7 @@ struct
         else
           let
             (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
-            val whereto : whereTo = chooseMergeRegister (transtable, whereto, tailKind);
+            val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
     
             (* code for "then part" *)
             val thenResult =
@@ -2257,22 +2253,24 @@ struct
         fun ldArgs []     _             = []
           | ldArgs (h::t) (argNo : int) =
             let
-                val argLocn =
+                val (argLocn, argCode) =
                     if argNo < argRegs
-                    then let (* Put into a register. *)
+                    then
+                    let (* Put into a register. *)
                       val argReg = argReg argNo;
                       (* If we are evaluating an expression we might as well put the
                          result in the register we want to use. They may not stay
                          there because loading other arguments may involve function
                          calls which will use these registers. For that reason we
                          don't put constants in yet. *)
-                      val whereto = case h of Constnt _ => ToPstack | _ => ToReg argReg
+                      val whereto = case h of Constnt _ => NoHint | _ => UseReg argReg
                     in
                         case gencde (h, true, whereto, NotEnd, matchFailFn, NONE) of
-                            MergeIndex index => index
+                            MergeIndex index => (index, [])
                          |  NoMerge => raise InternalError "ldArgs: No result"
                     end
                     else genToStack (h, matchFailFn)
+                val () = codeGenerate(argCode, cvec)
             in
                argLocn :: ldArgs t (argNo + 1)
             end (* ldArgs *);
@@ -2424,9 +2422,9 @@ struct
         fun genArgList _ []            = [] : stackIndex list
           | genArgList n (arg :: args) =
         let
-          val unsafelocn : stackIndex      = genArg (n, arg, matchFailFn);
+          val (unsafelocn, unsafeCode)  = genArg (n, arg, matchFailFn);
           val (safeLocn, safeCode)      = loadIfArg (transtable, unsafelocn)
-          val () = codeGenerate(safeCode, cvec)
+          val () = codeGenerate(safeCode @ unsafeCode, cvec)
           val safeLocns  : stackIndex list = genArgList (n + 1) args;
         in 
           safeLocn :: safeLocns
@@ -2530,374 +2528,353 @@ struct
 
          setupResult (argsToPass, needsResult, true, transtable)
       end;  (* jumpToProc *)
-          
-          
-      (* Call a closure function, i.e. not one that requires a static link. *)
-      fun callClosure (clos : codetree option): mergeResult =
-      let
-        val tailCall = isEndOfProc tailKind;
 
-        local
-            fun getArgRegs n =
-                if n >= argRegs orelse n >= argsToPass then []
-                else argReg n :: getArgRegs(n+1)
-        in
-            val argRegs = getArgRegs 0
-        end
+        (* Call a closure function, i.e. not one that requires a static link. *)
+        fun callClosure (clos : codetree option): mergeResult =
+        let
+            val tailCall = isEndOfProc tailKind;
 
-        (* Get the set of registers modified by this call.  We have to include
-           the argument, closure and code registers even if they're not actually
-           modified because otherwise we may find that we've locked them. *)
-        val registerSet =
-            case clos of
-                SOME (Constnt w) =>
-                    regSetUnion(listToSet(regClosure :: argRegs), getRegisterSet w)
-              | _ (* Recursive or not a constant. *) => allRegisters;
+            local
+                fun getArgRegs n =
+                    if n >= argRegs orelse n >= argsToPass then []
+                    else argReg n :: getArgRegs(n+1)
+            in
+                val argRegs = getArgRegs 0
+            end
 
-        (* Add the registers to the set modified by this function.
-           We don't need to do this for recursive calls.  In that
-           case we must push all the registers (so we set registerSet
-           to allRegisters) but the modification set for this function
-           is simply the registers modified by everything else. *)
-        val _ =
-            case clos of
-                NONE => ()
-            |   _ => addModifiedRegSet(transtable, registerSet);
+            (* Get the set of registers modified by this call.  We have to include
+               the argument, closure and code registers even if they're not actually
+               modified because otherwise we may find that we've locked them. *)
+            val registerSet =
+                case clos of
+                    SOME (Constnt w) =>
+                        regSetUnion(listToSet(regClosure :: argRegs), getRegisterSet w)
+                  | _ (* Recursive or not a constant. *) => allRegisters;
 
-        (* Have to guarantee that the expression to return
-           the procedure is evaluated before the arguments. *)
-        (* In the recursive case the use count for closureOrSlAddr
-           is set by the caller. DCJM 1/12/99. *)
-        val procLocn = 
-          case clos of
-            SOME(Constnt _) => noIndex (* Unused. *)
-          | SOME c          => genToStack (c, matchFailFn) (* the closure *)
-          | NONE            => noIndex  (* Unused. *);
+            (* Add the registers to the set modified by this function.
+               We don't need to do this for recursive calls.  In that
+               case we must push all the registers (so we set registerSet
+               to allRegisters) but the modification set for this function
+               is simply the registers modified by everything else. *)
+            val _ =
+                case clos of
+                    NONE => ()
+                |   _ => addModifiedRegSet(transtable, registerSet);
 
-        local
-            fun loadReg reg addr : stackIndex =
-                let
-                  (* We don't need exclusive use of this value, because it
-                     only gets modified by the function call itself, not
-                     here. We either don't return from the function
-                     (tail-call: we set exited) or we explicitly clear
-                     the cache in setUpResult. *)
-                  val (regIndex, regCode) =
-                        loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
-                in
-                    codeGenerate(regCode, cvec);
-                  (* Lock the register down so that it doesn't get
-                     used to move values onto the stack. *)
-                  lockRegister (transtable, reg);
-                  regIndex
-                end
-        in
-            fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
+            (* Have to guarantee that the expression to return
+               the procedure is evaluated before the arguments. *)
+            (* In the recursive case the use count for closureOrSlAddr
+               is set by the caller. DCJM 1/12/99. *)
+            val (procLocn, procCode) = 
               case clos of
-                 SOME(Constnt w) =>
-                    (* Do we need to load the closure register? *)
-                    let
-                        val addr = toAddress w;
-                    in
-                        if isIoAddress addr
-                        then (* We don't need the closure register but we can't
-                                do the indirection here.  That's because the
-                                code address isn't valid.  We have to do the
-                                indirection at run time. *)
-                            (SOME(pushConst(transtable, w)), true, [], [])
-                        else
-                        let
-                            val code : machineWord = loadWord (addr, 0w0)
-                            val codeLocn = pushConst(transtable, code)
-                        in
-                            if objLength addr = 0w1
-                            then (* The closure is just one word - we don't need to
-                                    put it in the closure register since the function
-                                    won't need it.  Do the indirection now. *)
-                                (SOME codeLocn, false, [], [])
-                            else (* We need to load the closure register. 
-                                We have a choice here.  We could either return
-                                the closure register as the address as we do
-                                in the general case, in which case we would do
-                                an indirect call through the closure register,
-                                or we can do the indirection here and do a
-                                direct call.  On the i386 the latter is definitely
-                                better but on the PPC it will generate longer
-                                code, although possibly no slower if there was
-                                a pipeline stall. *)
-                                (SOME codeLocn, false,
-                                    [loadReg regClosure (pushConst(transtable, w))],
-                                    [regClosure])
-                        end
-                    end
-               | SOME _ =>
-                    (* Calling a non-constant - load the closure register and
-                       set the code address as this with the "indirection"
-                       flag set to true. *)
-                    (SOME(loadReg regClosure procLocn), true, [], [regClosure])
-               | NONE => (* Recursive *)
-                  (* If this function requires a closure we need to reload
-                     the closure register with our original closure. *)
-                  if discardClosure then (NONE, false, [], [])
-                  else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
-        end;
+                SOME(Constnt _) => (noIndex, []) (* Unused. *)
+              | SOME c          => genToStack (c, matchFailFn) (* the closure *)
+              | NONE            => (noIndex, [])  (* Unused. *);
+        
+            val () = codeGenerate(procCode, cvec)
 
-      in
-        if tailCall
-        then jumpToProc (argList, loadClosureProc)
-        else callProc (argList, [procLocn], registerSet, loadClosureProc)
-      end (* callClosure *)
+            local
+                fun loadReg reg addr : stackIndex =
+                    let
+                      (* We don't need exclusive use of this value, because it
+                         only gets modified by the function call itself, not
+                         here. We either don't return from the function
+                         (tail-call: we set exited) or we explicitly clear
+                         the cache in setUpResult. *)
+                      val (regIndex, regCode) =
+                            loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
+                    in
+                        codeGenerate(regCode, cvec);
+                      (* Lock the register down so that it doesn't get
+                         used to move values onto the stack. *)
+                      lockRegister (transtable, reg);
+                      regIndex
+                    end
+            in
+                fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
+                  case clos of
+                     SOME(Constnt w) =>
+                        (* Do we need to load the closure register? *)
+                        let
+                            val addr = toAddress w;
+                        in
+                            if isIoAddress addr
+                            then (* We don't need the closure register but we can't
+                                    do the indirection here.  That's because the
+                                    code address isn't valid.  We have to do the
+                                    indirection at run time. *)
+                                (SOME(pushConst(transtable, w)), true, [], [])
+                            else
+                            let
+                                val code : machineWord = loadWord (addr, 0w0)
+                                val codeLocn = pushConst(transtable, code)
+                            in
+                                if objLength addr = 0w1
+                                then (* The closure is just one word - we don't need to
+                                        put it in the closure register since the function
+                                        won't need it.  Do the indirection now. *)
+                                    (SOME codeLocn, false, [], [])
+                                else (* We need to load the closure register. 
+                                    We have a choice here.  We could either return
+                                    the closure register as the address as we do
+                                    in the general case, in which case we would do
+                                    an indirect call through the closure register,
+                                    or we can do the indirection here and do a
+                                    direct call.  On the i386 the latter is definitely
+                                    better but on the PPC it will generate longer
+                                    code, although possibly no slower if there was
+                                    a pipeline stall. *)
+                                    (SOME codeLocn, false,
+                                        [loadReg regClosure (pushConst(transtable, w))],
+                                        [regClosure])
+                            end
+                        end
+                   | SOME _ =>
+                        (* Calling a non-constant - load the closure register and
+                           set the code address as this with the "indirection"
+                           flag set to true. *)
+                        (SOME(loadReg regClosure procLocn), true, [], [regClosure])
+                   | NONE => (* Recursive *)
+                      (* If this function requires a closure we need to reload
+                         the closure register with our original closure. *)
+                      if discardClosure then (NONE, false, [], [])
+                      else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
+            end
+        in
+            if tailCall
+            then jumpToProc (argList, loadClosureProc)
+            else callProc (argList, [procLocn], registerSet, loadClosureProc)
+        end (* callClosure *)
+
+        fun codeRTSFunction(instr, arguments, whereto) =
+        let
+            val wheretoAsHint = case whereto of (UseReg prefReg) => UseReg prefReg | _ => NoHint
+        in
+            case checkAndReduce(instr, arguments, fn (Constnt w) => SOME w | _ => NONE) of
+                SOME(i, args) =>
+                let
+                    (* Code generate each argument to the pstack. *)
+                    val argsAndCode = List.map (fn arg => genToStack (arg, matchFailFn)) args
+                    val argLocns = List.map #1 argsAndCode
+                    (* Return the code ordered with earlier arguments later in the list. *)
+                    val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, wheretoAsHint)
+                    val () = codeGenerate(opCode @ argCode, cvec)
+                in
+                    MergeIndex opRes
+                end
+            |   NONE => (* Have to use a function call *) callClosure (SOME evalFun)
+        end
 
     in (* body of genEval *)
-      case evalFun of
-        Constnt (oper : machineWord) =>
-    let
-      val args = argList;
-      val addr = toAddress oper;
-  
-      (* Unary operations are generated as binary operations where the second
-         argument is a constant.  e.g. neg(x) is generated as revsub(x, 0). *)
-      fun genU i ri (constnt:machineWord): mergeResult =
-        case args of
-          [arg] => 
-           (* Check that the instruction is implemented. *)
-        if instrIsRR i orelse instrIsRI (i, constnt)
-        then let
-          val locnOfArg1 : stackIndex = genToStack (arg, matchFailFn);
-          val locnOfArg2 : stackIndex = pushConst (transtable, constnt);
-          val regHint =
-            case whereto of
-              ToReg prefReg => UseReg prefReg
-            | _             => NoHint
-            val (binRes, binCode) = binaryOp (locnOfArg1, locnOfArg2, i, ri, transtable, regHint)
-            val () = codeGenerate(binCode, cvec)
-        in
-          MergeIndex binRes
-        end
-        else callClosure (SOME evalFun) (* Have to use a function call *)
-        | _ => raise InternalError 
-               "genU: compiling unary operator (argcount <> 1)";
-  
-      fun genB i ri : mergeResult =
-        case args of
-          [arg1,arg2] =>
-         (* Check that the instruction is implemented.  N.B. if the
-        first argument is a constant we  will use the reversed
-        instruction. It may only be implemented for constant values
-        so it  is not sufficient to check that the general form is
-        implemented. *)
-        if instrIsRR i orelse
-          (case arg1 of Constnt w => instrIsRI (ri, w) | _ => false) orelse
-          (case arg2 of Constnt w => instrIsRI (i, w)  | _ => false)
-        then let
-            val locnOfArg1 : stackIndex = genToStack (arg1, matchFailFn);
-            val locnOfArg2 : stackIndex = genToStack (arg2, matchFailFn);
-            val regHint =
-                case whereto of
-                  ToReg prefReg => UseReg prefReg
-                | _             => NoHint
-            val (binRes, binCode) = binaryOp (locnOfArg1, locnOfArg2, i, ri, transtable, regHint)
-            val () = codeGenerate(binCode, cvec)
-        in
-          MergeIndex binRes
-        end
-        else (* Have to use a function call *) callClosure (SOME evalFun)
-        | _ => raise InternalError "genB: compiling binary operator (argcount <> 2)";
-
-      fun genAllocStore () : mergeResult =
-        case args of
-          [Constnt lengthCnst, Constnt flagsCnst, value] =>
-         if isShort lengthCnst andalso isShort flagsCnst
-         then let
-           (* Allocstore always constructs mutable segments and sets the mutable bit. *)
-           val flags = Word8.orb(Word8.fromLargeWord(Word.toLargeWord(toShort flagsCnst)), F_mutable);
-         in
-           if flags = F_mutable_words
-              (* Add byte segments if/when we have byte assignment. *)
-             (* orelse
-              wordEq (flags, F_mutable_bytes) *)
-           then let (* only do easy cases *)
-             val length : int = Word.toInt (toShort lengthCnst);
-           in
-             (* only in-line small allocations (principally refs) *)
-             if 0 < length andalso length < 5
-             then let (* do it *)
-               val locn     = genToStack (value, matchFailFn);
-               val () = incrUseCount (transtable, locn, length - 1) 
-               val vec      = callgetvec (length, flags, whereto);
-               val (storeKind, unitSize) =
-                  if wordEq (flags, F_mutable_words)
-                  then (STORE_WORD, wordSize)
-                  else (STORE_BYTE, 1)
-
-               fun fillVec byteOffset =
-                 if byteOffset < 0 then ()
-                 else
-                    (
-                    codeGenerate(moveToVec (vec, locn, byteOffset, storeKind, transtable), cvec);
-                    fillVec (byteOffset - unitSize)
-                    )
-
-             in
-               fillVec ((length - 1) * wordSize);
-               MergeIndex vec
-             end
-             else (* too big to in-line (could use loop?) *)
-               callClosure (SOME evalFun)
-           end
-           else (* byte/code segments are too tricky to in-line *) 
-             callClosure (SOME evalFun)
-         end
-         
-         else (* crazy length or flag *)
-           callClosure (SOME evalFun)
-  
-        | _ => (* probably non-constant length *)
-           callClosure (SOME evalFun);
-
-      fun genAssign isWord : mergeResult =
-        case args of
-          [addr,offset,value] =>
-            if isIndexedStore isWord orelse
-                (case offset of
-                    Constnt w =>
-                        (* The index ought always to be short.  If it is we
-                           can use the normal store functions, which are always
-                           provided. *)
-                        isShort w
-                    | _ => false)
-            then
+        case evalFun of
+            Constnt (oper : machineWord) =>
             let
-              val locnOfAddr : stackIndex = genToStack (addr, matchFailFn);
-              val locnOfOffset : stackIndex = genToStack (offset, matchFailFn);
-              val locnOfValue : stackIndex = genToStack (value, matchFailFn);
+                val args = argList;
+                val addr = toAddress oper;
+
+                (* Allocation of mutable segments.  These are initialised to a fixed value. *)
+                fun genAllocStore () : mergeResult =
+                    case args of
+                        [Constnt lengthCnst, Constnt flagsCnst, value] =>
+                            if isShort lengthCnst andalso isShort flagsCnst
+                            then
+                            let
+                                (* Allocstore always constructs mutable segments and sets the mutable bit. *)
+                                val flags = Word8.orb(Word8.fromLargeWord(Word.toLargeWord(toShort flagsCnst)), F_mutable);
+                            in
+                                if flags = F_mutable_words orelse flags = F_mutable_bytes
+                                then
+                                let (* only do easy cases *)
+                                    val length : int = Word.toInt (toShort lengthCnst);
+                                in
+                                    (* only in-line small allocations (principally refs) *)
+                                    if 0 < length andalso length < 5
+                                    then
+                                    let (* do it *)
+                                        val (locn, locnCode)   = genToStack (value, matchFailFn);
+                                        val (vec, vecCode)      = callgetvec (length, flags, whereto);
+                                        val () = codeGenerate(vecCode @ locnCode, cvec)
+                                        val (storeKind, multiple) =
+                                            if wordEq (flags, F_mutable_words)
+                                            then (instrStoreW, 1)
+                                            else (instrStoreB, wordSize)
+
+                                        fun fillVec offset =
+                                            if offset < 0 then ()
+                                            else
+                                            (
+                                                if offset = 0 then () else incrUseCount (transtable, locn, 1);
+                                                codeGenerate(moveToVec (vec, locn, offset, storeKind, transtable), cvec);
+                                                fillVec (offset - 1)
+                                            )
+                                    in
+                                        (* The length is in words so if we are filling this with bytes
+                                           we have to multiply the moves by the word size. *)
+                                        fillVec ((length - 1) * multiple);
+                                        MergeIndex vec
+                                    end
+                                 else (* too big to in-line (could use loop?) *)
+                                    callClosure (SOME evalFun)
+                                end
+                                else (* byte/code segments are too tricky to in-line *) 
+                                    callClosure (SOME evalFun)
+                            end
+     
+                            else (* crazy length or flag *)
+                                callClosure (SOME evalFun)
+
+                    |   _ => (* probably non-constant length *)
+                            callClosure (SOME evalFun);
+
+                fun genAssign(instr, arguments) : mergeResult =
+                let
+                in
+                    case checkAndReduce(instr, arguments, fn (Constnt w) => SOME w | _ => NONE) of
+                        SOME(i, args) =>
+                        let
+                            (* Code generate each argument to the pstack. *)
+                            val argsAndCode = List.map (fn arg => genToStack (arg, matchFailFn)) args
+                            val argLocns = List.map #1 argsAndCode
+                            (* Return the code ordered with earlier arguments later in the list. *)
+                            val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                            val (index, opCode) = dataOp (argLocns, i, transtable, whereto)
+                            val () = codeGenerate(opCode @ argCode, cvec)
+                        in
+                            (* Put in a unit result if necessary. *)
+                            case whereto of
+                                NoResult => NoMerge (* Unused. *)
+                            |   _ => MergeIndex index
+                        end
+                    |   NONE => (* Have to use a function call *) callClosure (SOME evalFun)
+                end
+                    
             in
-              codeGenerate(assignOp (locnOfAddr, locnOfOffset, locnOfValue, isWord, transtable), cvec);
-              (* Put in a unit result if necessary. *)
-              if needsResult
-              then MergeIndex(pushConst (transtable, DummyValue))
-              else NoMerge (* Unused. *)
-            end
-            else (* Have to use a function call *) callClosure (SOME evalFun)
-        | _ => raise InternalError "genAssign: argcount <> 3)";
+                if isIoAddress addr
+                then
+                (
+                    if wordEq (oper,ioOp POLY_SYS_thread_self)
+                    then codeRTSFunction(instrThreadSelf, args, whereto)
 
-    in
-      if isIoAddress addr
-      then
-        (
-  
-          if wordEq (oper,ioOp POLY_SYS_get_length)
-         then genU instrVeclen  instrBad     Zero (* dummy argument *)
+                    else if wordEq (oper,ioOp POLY_SYS_get_length)
+                    then codeRTSFunction(instrVeclen, args, whereto)
 
-          else if wordEq (oper,ioOp POLY_SYS_get_flags)
-         then genU instrVecflags  instrBad   Zero (* dummy argument *)
+                    else if wordEq (oper,ioOp POLY_SYS_get_flags)
+                    then codeRTSFunction(instrVecflags, args, whereto)
 
-         else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-         then genU instrGetFirstLong  instrBad  Zero (* dummy argument *)
+                    else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
+                    then codeRTSFunction(instrGetFirstLong, args, whereto)
 
-          else if wordEq (oper,ioOp POLY_SYS_string_length)
-         then genU instrStringLength instrBad   Zero (* dummy argument *)
-         
-          else if wordEq (oper,ioOp POLY_SYS_set_string_length)
-        then genB instrSetStringLength    instrBad
+                    else if wordEq (oper,ioOp POLY_SYS_string_length)
+                    then codeRTSFunction(instrStringLength, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_set_string_length)
+                    then codeRTSFunction(instrSetStringLength, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_aplus)
+                    then codeRTSFunction(instrAddA, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_aminus)
+                    then codeRTSFunction(instrSubA, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_amul)
+                    then codeRTSFunction(instrMulA, args, whereto)
+
+                    (* Negation is coded as 0 - X. *)
+                    else if wordEq (oper,ioOp POLY_SYS_aneg)
+                    then codeRTSFunction(instrSubA, Constnt Zero :: args, whereto)
+
+                    (* Boolean "not" is coded as xor with "true" *)
+                    else if wordEq (oper,ioOp POLY_SYS_not_bool)
+                    then codeRTSFunction(instrXorW, args @ [Constnt True], whereto)
+
+                    else if  wordEq (oper,ioOp POLY_SYS_or_word)
+                    then codeRTSFunction(instrOrW, args, whereto)
+
+                    else if  wordEq (oper,ioOp POLY_SYS_and_word)
+                    then codeRTSFunction(instrAndW, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_xor_word)
+                    then codeRTSFunction(instrXorW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_aplus)
-        then genB instrAddA    instrAddA
+                    else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
+                    then codeRTSFunction(instrUpshiftW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_aminus)
-        then genB instrSubA    instrRevSubA
+                    else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
+                    then codeRTSFunction(instrDownshiftW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_amul)
-        then genB instrMulA    instrMulA 
+                    else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
+                    then codeRTSFunction(instrDownshiftArithW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_aneg)
-        then genU instrRevSubA instrSubA    Zero
+                    else if wordEq (oper,ioOp POLY_SYS_xor_word)
+                    then codeRTSFunction(instrXorW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_not_bool)
-        then genU instrXorW    instrXorW    True (* xor with "true" *)
+                    else if wordEq (oper,ioOp POLY_SYS_mul_word)
+                    then codeRTSFunction(instrMulW, args, whereto)
         
-          else if  wordEq (oper,ioOp POLY_SYS_or_word)
-        then genB instrOrW  instrOrW 
+                    else if wordEq (oper,ioOp POLY_SYS_plus_word)
+                    then codeRTSFunction(instrAddW, args, whereto)
         
-          else if  wordEq (oper,ioOp POLY_SYS_and_word)
-        then genB instrAndW  instrAndW 
+                    else if wordEq (oper,ioOp POLY_SYS_minus_word)
+                    then codeRTSFunction(instrSubW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_xor_word)
-        then genB instrXorW  instrXorW
+                    else if wordEq (oper,ioOp POLY_SYS_div_word)
+                    then codeRTSFunction(instrDivW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
-        then genB instrUpshiftW instrBad
+                    else if wordEq (oper,ioOp POLY_SYS_mod_word)
+                    then codeRTSFunction(instrModW, args, whereto)
         
-          else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
-        then genB instrDownshiftW instrBad
-        
-          else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
-        then genB instrDownshiftArithW instrBad
-        
-          else if wordEq (oper,ioOp POLY_SYS_xor_word)
-        then genB instrXorW  instrXorW
-        
-          else if wordEq (oper,ioOp POLY_SYS_mul_word)
-        then genB instrMulW  instrMulW
-        
-          else if wordEq (oper,ioOp POLY_SYS_plus_word)
-        then genB instrAddW  instrAddW
-        
-          else if wordEq (oper,ioOp POLY_SYS_minus_word)
-        then genB instrSubW  instrRevSubW
-        
-          else if wordEq (oper,ioOp POLY_SYS_div_word)
-        then genB instrDivW  instrBad
-        
-          else if wordEq (oper,ioOp POLY_SYS_mod_word)
-        then genB instrModW  instrBad
-        
-          else if wordEq (oper,ioOp POLY_SYS_load_byte)
-        then genB instrLoadB instrBad
-        
-          else if wordEq (oper,ioOp POLY_SYS_load_word)
-        then genB instrLoad instrBad
+                    else if wordEq (oper,ioOp POLY_SYS_load_byte)
+                    then codeRTSFunction(instrLoadB, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_load_word)
+                    then codeRTSFunction(instrLoad, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
+                    then codeRTSFunction(instrAtomicIncr, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
+                    then codeRTSFunction(instrAtomicDecr, args, whereto)
       
-          else if wordEq (oper,ioOp POLY_SYS_alloc_store)
-        then genAllocStore ()
+                    else if wordEq (oper,ioOp POLY_SYS_alloc_store)
+                    then genAllocStore ()
 
-          else if wordEq (oper,ioOp POLY_SYS_assign_word) andalso inlineAssignments
-          then genAssign STORE_WORD
+                    else if wordEq (oper,ioOp POLY_SYS_assign_word) andalso inlineAssignments
+                    then genAssign(instrStoreW, args)
 
-          else if wordEq (oper,ioOp POLY_SYS_assign_byte) andalso inlineAssignments
-          then genAssign STORE_BYTE
+                    else if wordEq (oper,ioOp POLY_SYS_assign_byte) andalso inlineAssignments
+                    then genAssign(instrStoreB, args)
 
+                    (* The point of the following code is to call genCond, which will call genTest
+                         which will hopefully use machine instructions for these operations.
+                         We could avoid this by duplicating most of the body of genTest
+                         (the "jumping" boolean code generator) here, but we would like to
+                         avoid that. *)
+                    else if primBoolOps andalso
+                    (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
+                     wordEq (oper,ioOp POLY_SYS_word_neq) orelse
+                     wordEq (oper,ioOp POLY_SYS_equala)   orelse
+                     wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
+                     wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
+                     wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
+                     wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
+                     wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
+                     wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
+                     wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
+                     wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                     wordEq (oper,ioOp POLY_SYS_is_short))
+                    then
+                        genCond
+                            (Eval {function = evalFun, argList = argList, earlyEval = false},
+                             constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
+                    else (* unoptimised I/O call *)
+                        callClosure (SOME evalFun)
+                )
   
-  (* The point of the following code is to call genCond, which will call genTest
-     which will hopefully use machine instructions for these operations.
-     We could avoid this by duplicating most of the body of genTest
-     (the "jumping" boolean code generator) here, but we would like to
-     avoid that. SPF 21/11/96
-  *)
-          else if primBoolOps andalso
-        (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_neq) orelse
-         wordEq (oper,ioOp POLY_SYS_equala)   orelse
-         wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
-         wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
-         wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
-         wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
-         wordEq (oper,ioOp POLY_SYS_word_lss))
-        then
-          genCond
-            (Eval {function = evalFun, argList = argList, earlyEval = false},
-             constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
-          else (* unoptimised I/O call *)
-        callClosure (SOME evalFun)
-        )
-  
-      else (* All other constant functions. *) callClosure (SOME evalFun)
-    end
+                else (* All other constant functions. *) callClosure (SOME evalFun)
+            end
 
-      | Extract {fpRel, addr, level, lastRef, ...} =>
+        |   Extract {fpRel, addr, level, lastRef, ...} =>
     let
       (* The procedure is being loaded from the stack or closure
          so it may be a static-link procedure. *)
@@ -3043,7 +3020,7 @@ struct
     end (* genEval *);
 
 
-    val _ = genToRegister (pt, ToReg regResult, EndOfProc, matchFailed, NONE);
+    val _ = genToRegister (pt, UseReg regResult, EndOfProc, matchFailed, NONE);
 
     val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
   in

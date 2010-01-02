@@ -23,102 +23,113 @@
 
 signature CODECONSSIG =
 sig
-    type machineWord = Address.machineWord;
-    type short = Address.short;
-    type address = Address.address;
-    type code;
-    type reg;   (* Machine registers *)
+    type machineWord = Address.machineWord
+    type short = Address.short
+    type address = Address.address
+    type code
+    type pretty
+    eqtype reg   (* Machine registers *)
 
-    val regNone:     reg option;
-    val regResult:   reg;
-    val regClosure:  reg;
-    val regStackPtr: reg;
-    val regHandler:  reg;
-    val regReturn:   reg option;
+    val regNone:     reg option
+    val regResult:   reg
+    val regClosure:  reg
+    val regStackPtr: reg
+    val regHandler:  reg
+    val regReturn:   reg option
 
-    val regs:    int;     (* No of registers. *)
-    val argRegs: int;     (* No of args in registers. *)
+    val regs:    int     (* No of registers. *)
+    val argRegs: int     (* No of args in registers. *)
 
-    val regN:   int -> reg;
-    val nReg:   reg -> int;
-    val argReg: int -> reg;
+    val regN:   int -> reg
+    val nReg:   reg -> int
+    val argReg: int -> reg
 
-    val regEq:    reg * reg -> bool;
-    val regNeq:   reg * reg -> bool;
+    val regRepr: reg -> string
 
-    val regRepr: reg -> string;
+    structure RegSet:
+    sig
+        type regSet
+        val singleton: reg -> regSet
+        val allRegisters: regSet
+        val noRegisters: regSet
+        val isAllRegs: regSet->bool
+        val regSetUnion: regSet*regSet -> regSet
+        val listToSet: reg list -> regSet
+        val inverseSet: regSet -> regSet
+        val inSet: reg * regSet -> bool
+        val cardinality: regSet -> int
+    end
 
     type addrs
     val addrZero: addrs
 
     (* Operations. *)
-    datatype instrs = 
-        instrMove
-    |   instrAddA
-    |   instrSubA
-    |   instrRevSubA
-    |   instrMulA
-    |   instrAddW
-    |   instrSubW
-    |   instrRevSubW
-    |   instrMulW
-    |   instrDivW
-    |   instrModW
-    |   instrOrW
-    |   instrAndW
-    |   instrXorW
-    |   instrLoad
-    |   instrLoadB
-    |   instrVeclen
-    |   instrVecflags
-    |   instrPush
-    |   instrUpshiftW    (* logical shift left *)
-    |   instrDownshiftW  (* logical shift right *)
-    |   instrDownshiftArithW  (* arithmetic shift right *)
-    |   instrGetFirstLong
-    |   instrStringLength
-    |   instrSetStringLength
-    |   instrBad;
+    type instrs
+    val instrVeclen: instrs
+    val instrVecflags: instrs
+    val instrGetFirstLong: instrs
+    val instrStringLength: instrs
+
+    val instrAddA: instrs
+    and instrSubA: instrs
+    and instrMulA: instrs
+    and instrAddW: instrs
+    and instrSubW: instrs
+    and instrMulW: instrs
+    and instrDivW: instrs
+    and instrModW: instrs
+    and instrOrW: instrs
+    and instrAndW: instrs
+    and instrXorW: instrs
+    and instrLoad: instrs
+    and instrLoadB: instrs
+    and instrUpshiftW: instrs    (* logical shift left *)
+    and instrDownshiftW: instrs  (* logical shift right *)
+    and instrDownshiftArithW: instrs  (* arithmetic shift right *)
+    and instrSetStringLength: instrs
+    and instrThreadSelf: instrs
+    and instrAtomicIncr: instrs
+    and instrAtomicDecr: instrs
+    and instrStoreW: instrs
+    and instrStoreB: instrs
 
     (* Can the we use the same register as the source and destination
      of an instructions? *)
-    val canShareRegs : bool;
+    val canShareRegs : bool
 
-    (* Enquire about operations. *)
-    val instrIsRR: instrs -> bool;         (* Is the general form implemented? *)
-    val instrIsRI: instrs * machineWord -> bool; (* Is the immediate value ok? *)
+    (* Check whether an operation is implemented and, if appropriate, remove
+       constant values into the instruction part. *)
+    val checkAndReduce: instrs * 'a list * ('a -> machineWord option) -> (instrs * 'a list) option
 
-    type tests;
+    val isPushI: machineWord -> bool
 
-    val testNeqW:  tests;
-    val testEqW:   tests;
-    val testGeqW:  tests;
-    val testGtW:   tests;
-    val testLeqW:  tests;
-    val testLtW:   tests;
-    val testNeqA:  tests;
-    val testEqA:   tests;
-    val testGeqA:  tests;
-    val testGtA:   tests;
-    val testLeqA:  tests;
-    val testLtA:   tests;
-    val Short:     tests;
-    val Long:      tests;
+    type tests
 
-    type labels; (* The source of a jump. *)
+    val testNeqW:  tests
+    val testEqW:   tests
+    val testGeqW:  tests
+    val testGtW:   tests
+    val testLeqW:  tests
+    val testLtW:   tests
+    val testNeqA:  tests
+    val testEqA:   tests
+    val testGeqA:  tests
+    val testGtA:   tests
+    val testLeqA:  tests
+    val testLtA:   tests
+    val Short:     tests
+    val Long:      tests
 
-    val noJump: labels;
+    type labels (* The source of a jump. *)
+
+    val noJump: labels
 
     (* Compare and branch for fixed and arbitrary precision. *)
+    val checkAndReduceBranches: tests * 'a list * ('a -> machineWord option) -> (tests * 'a list) option
 
-    val isCompRR: tests -> bool;
-    val isCompRI: tests * machineWord -> bool;
-
-    datatype storeWidth = STORE_WORD | STORE_BYTE
-
-    val isIndexedStore: storeWidth -> bool
-    val isStoreI:       machineWord * storeWidth * bool -> bool;
-    val preferLoadPush: bool;
+(*    val isIndexedStore: unit -> bool
+    val isStoreI:       machineWord * storeWidth * bool -> bool*)
+    val preferLoadPush: bool
 
     datatype callKinds =
         Recursive
@@ -126,57 +137,79 @@ sig
     |   CodeFun of code
     |   FullCall
 
-    val procName:   code -> string;      (* Name of the procedure. *)
+    val procName:   code -> string      (* Name of the procedure. *)
 
-    val useIndexedCase: { min: word, max: word, number: int, isExhaustive: bool } -> bool;
+    val useIndexedCase: { min: word, max: word, number: int, isExhaustive: bool } -> bool
 
     type cases
 
-    val constrCases : word * addrs ref -> cases;
+    val constrCases : word * addrs ref -> cases
 
-    datatype operations =
-        OpRR of { instr: instrs, left: reg, right: reg, output: reg }
-    |   OpRI of { instr: instrs, left: reg, right: machineWord, output: reg }
-    |   CondBranchRR of { left: reg, right: reg, test: tests, label: labels ref }
-    |   CondBranchRI of { left: reg, right: machineWord, test: tests, label: labels ref }
-    |   LoadMemory of { offset: int, base: reg, output: reg }
-    |   PushRegister of reg
-    |   PushMemory of { offset: int, base: reg }
-    |   StoreMemory of { toStore: reg, offset: int, base: reg, width: storeWidth, index: reg option }
-    |   StoreConstant of { toStore: machineWord, offset: int, base: reg, width: storeWidth, index: reg option }
-    |   AllocStore of { size: int, flags: Word8.word, output: reg }
-    |   SetFlag of { base: reg, flags: Word8.word }
-    |   CallFunction of { callKind: callKinds }
-    |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
-    |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
-    |   RaiseException
-    |   UncondBranch of { label: labels ref }
-    |   LoadCodeRef of { refCode: code, output: reg }
-    |   LoadStackAddress of { offset: int, output: reg }
-    |   ResetStack of int
-    |   BackJumpLabel of { dest: addrs ref }
-    |   JumpBack of { dest: addrs ref, addStackCheck: bool }
-    |   ForwardJumpLabel of { label: labels ref }
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
-    |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of
+    datatype source =
+        LiteralSource of machineWord
+    |   InRegister of reg
+    |   BaseOffset of reg * int
+
+    type operations
+
+    val Move: { source: source, output: reg } -> operations
+    val PushToStack: source -> operations
+    val StoreToMemory: { toStore: source, offset: int, base: reg, index: reg option } -> operations
+    val AllocStore: { size: int, flags: Word8.word, output: reg } -> operations
+    val SetFlag: { base: reg, flags: Word8.word } -> operations
+    val CallFunction: { callKind: callKinds } -> operations
+    val JumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
+    val ReturnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations
+    val RaiseException: operations
+    val UncondBranch: { label: labels ref } -> operations
+    val LoadCodeRef: { refCode: code, output: reg } -> operations
+    val LoadStackAddress: { offset: int, output: reg } -> operations
+    val ResetStack: int -> operations
+    val BackJumpLabel: { dest: addrs ref } -> operations
+    val JumpBack: { dest: addrs ref, addStackCheck: bool } -> operations
+    val ForwardJumpLabel: { label: labels ref } -> operations
+    val LoadHandlerAddress: { handlerLab: addrs ref, output: reg } -> operations
+    val StartHandler: { handlerLab: addrs ref } -> operations
+    val IndexedCase:
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
-              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
-    |   FillJumpTable of
-            { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word }
+              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref } -> operations
+    val FillJumpTable:
+            { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word } -> operations
+
+    val prettyOperation: operations * int -> pretty
+
+    datatype regHint = UseReg of reg | NoHint | NoResult
+
+
+    type argReq = source * bool
+
+    datatype argAction =
+        ActionDone of (* The output register if any and the final operation. *)
+            { outReg: reg option, operation: operations }
+    |   ActionLockRegister of (* Lock the register of an argument. *)
+            { argNo: int, reg: reg, willOverwrite: bool, next: nextAction }
+    |   ActionLoadArg of (* Load an argument into a register. *)
+            { argNo: int, regSet: RegSet.regSet, willOverwrite: bool, next: nextAction }
+    |   ActionGetWorkReg of (* Get a work/result register. *)
+            { regSet: RegSet.regSet, setReg: reg -> nextAction }
+
+    withtype nextAction = argReq list -> argAction
+
+    (* Negotiate arguments *)
+    val negotiateArguments: instrs * regHint -> nextAction
+    val negotiateTestArguments: tests * labels ref -> nextAction
 
     (* Code generate operations. *)
     val codeGenerate: operations list * code -> unit
  
-    val copyCode: code * int * reg list -> address;
-    val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
-    val completeSegment: code -> unit;
+    val copyCode: code * int * reg list -> address
+    val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
 
     val inlineAssignments: bool
 
     val codeAddress: code -> address option
 
-    val traceContext: code -> string;
+    val traceContext: code -> string
 
     structure Sharing:
     sig
@@ -185,7 +218,11 @@ sig
         and  reg        = reg
         and  tests      = tests
         and  addrs      = addrs
-        and  storeWidth = storeWidth
         and  operations = operations
+        and  source     = source
+        and  regHint    = regHint
+        and  argAction  = argAction
+        and  regSet     = RegSet.regSet
+        and  pretty     = pretty
     end
 end;

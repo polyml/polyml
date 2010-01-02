@@ -31,7 +31,6 @@ sig
     type instrs;
     type addrs;
     type savedState;
-    type storeWidth;
     type regSet
     type operations
 
@@ -50,9 +49,6 @@ sig
 
     val noIndex: stackIndex;
 
-    (* For debugging only - not used in "official" builds *)
-    val printStack:   ttab -> string -> string -> unit
-
     (* Push entries *)
     val pushReg:      ttab * reg  -> stackIndex;
     val pushStack:    ttab * int  -> stackIndex;
@@ -70,12 +66,11 @@ sig
     (* Code entries *)
     val loadEntry:         ttab * stackIndex * bool -> reg * stackIndex * operations list
     val loadToSpecificReg: ttab * reg * stackIndex * bool -> stackIndex * operations list
-    val containsLocal:     ttab * reg  -> unit;
     val lockRegister:      ttab * reg -> unit;
     val unlockRegister:    ttab * reg -> unit;
     val loadIfArg:         ttab * stackIndex -> stackIndex * operations list
     val indirect:          int * stackIndex * ttab -> stackIndex * operations list
-    val moveToVec:         stackIndex * stackIndex * int * storeWidth * ttab -> operations list
+    val moveToVec:         stackIndex * stackIndex * int * instrs * ttab -> operations list
 
     val removeStackEntry: ttab*stackIndex -> unit;
 
@@ -116,11 +111,10 @@ sig
     val exiting: ttab -> unit;
     val haveExited: ttab -> bool
 
-    datatype regHint = UseReg of reg | NoHint;
-    val binaryOp: stackIndex * stackIndex * instrs * instrs * ttab * regHint -> stackIndex * operations list
-    val assignOp: stackIndex * stackIndex * stackIndex * storeWidth * ttab -> operations list
+    type regHint
+    val dataOp: stackIndex list * instrs * ttab * regHint -> stackIndex * operations list
 
-    val compareAndBranch: stackIndex * stackIndex * tests * tests * ttab -> labels * operations list
+    val compareAndBranch: stackIndex list * tests * ttab -> labels * operations list
 
     val saveState : ttab -> savedState
     val startCase : ttab * savedState -> addrs ref * operations list
@@ -151,7 +145,16 @@ sig
         and  reg        = reg
         and  tests      = tests
         and  addrs      = addrs
-        and  storeWidth = storeWidth
         and  operations = operations
+        and  machineWord = machineWord
+        and  ttab       = ttab
+        and  savedState = savedState
+        and  regSet     = regSet
+        and  stackIndex = stackIndex
+        and  stackMark  = stackMark
+        and  labels     = labels
+        and  handler    = handler
+        and  regHint    = regHint
+        and  argdest    = argdest
     end
 end;
