@@ -3891,8 +3891,19 @@ DCJM 2000.
       val pt =
         case pt of Declar{value, ...} => value | _ => pt;
         
-      fun lookupOldAddr ({addr, ...}: loadForm, depth, 0) =
-            changeLevel (valOf (oldAddrTab sub addr)) depth
+      fun lookupOldAddr ({addr, level, fpRel, ...}: loadForm, depth, 0) =
+            (
+                case oldAddrTab sub addr of
+                    SOME v => changeLevel v depth
+                |   NONE =>
+                    let
+                        val msg =
+                            concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
+                                " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
+                    in
+                        raise InternalError msg
+                    end
+            )
       |   lookupOldAddr ({addr, level, fpRel, ...}, _, _) =
             let
                 val msg =
