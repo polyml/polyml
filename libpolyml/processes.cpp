@@ -767,8 +767,8 @@ void Processes::ThreadExit(TaskData *taskData)
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
     // Remove this from the taskArray
     unsigned index = UNTAGGED(taskData->threadObject->Get(0));
-    if (index < taskArraySize && taskArray[index] == taskData)
-        taskArray[index] = 0;
+    ASSERT(index < taskArraySize && taskArray[index] == taskData);
+    taskArray[index] = 0;
     delete(taskData);
     initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
