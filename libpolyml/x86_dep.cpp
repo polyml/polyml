@@ -1172,37 +1172,50 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             {
                 case (0 << 3): /* add */
                 {
-                    if (dest != bbb)
-                        Crash("Expected same destination register.");
-                    /* immediate value is shifted, but hasn't had 1 added;
-                       do this now before calling add_longc */
-                    do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
+                    if (dest != bbb) { // New format: Same register for source and destination.
+                        // We didn't have a move instruction before this.
+                        PolyWord arg = *(get_reg(taskData, bbb));
+                        // We may come here either because we had an overflow or because we found
+                        // that the argument was long.  If it was oveflow we will have already
+                        // added the value so must substract before we redo the operation
+                        // as proper long precision.
+                        if (arg.IsTagged()) {
+                            arg = PolyWord::FromUnsigned(arg.AsUnsigned() - cval);
+                        }
+                        // Immediate value is shifted, but hasn't had 1 added;
+                        // do this now before calling add_longc
+                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
+                    }
+                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
                     break;
                 }
 
-              case (5 << 3): /* sub */
-              {
-                if (dest != bbb)
+                case (5 << 3): /* sub */
+                {
+                    if (dest != bbb) { // New format: Same register for source and destination.
+                        // We didn't have a move instruction before this.
+                        PolyWord arg = *(get_reg(taskData, bbb));
+                        if (arg.IsTagged()) arg = PolyWord::FromUnsigned(arg.AsUnsigned() + cval);
+                        // Immediate value is shifted, but hasn't had 1 added;
+                        // do this now before calling sub_longc
+                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
+                    }
+                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
+                    break;
+                }
 
-                    Crash("Expected same destination register.");
-                /* immediate value is shifted, but hasn't had 1 added;
-                   do this now before calling sub_longc */
-                do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
-                break;
-              }
+                case (7 << 3): /* cmp */
+                {
+                    if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
+                        Crash("Can't test with store.");
+                    src1 = bbb;
 
-              case (7 << 3): /* cmp */
-                      {
-                if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                    Crash("Can't test with store.");
-                src1 = bbb;
+                    /* immediate value is already tagged */
+                    do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
+                    break;
+                }
 
-                /* immediate value is already tagged */
-                do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
-                break;
-              }
-
-             default: Crash("Unknown instruction after overflow trap");
+                default: Crash("Unknown instruction after overflow trap");
             }
 
             PSP_INCR_PC(taskData->stack, 3);
@@ -1220,35 +1233,40 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
             switch (PSP_IC(taskData->stack)[1] & (7 << 3))
             {
-              case (0 << 3): /* add */
-              {
-                if (dest != bbb)
+                case (0 << 3): /* add */
+                {
+                    if (dest != bbb) { // New format: Same register for source and destination.
+                        PolyWord arg = *(get_reg(taskData, bbb));
+                        if (arg.IsTagged()) {
+                            arg = PolyWord::FromUnsigned(arg.AsUnsigned() - cval);
+                        }
+                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
+                    }
+                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
+                    break;
+                }
 
-                    Crash("Expected same destination register.");
-                /* immediate value is shifted, but hasn't had 1 added;
-                   do this now before calling add_longc */
-                do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
-                break;
-              }
-              case (5 << 3): /* sub */
-              {
-                if (dest != bbb)
-                    Crash("Expected same destination register.");
-                /* immediate value is shifted, but hasn't had 1 added;
-                   do this now before calling sub_longc */
-                do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
-                break;
-              }
+                case (5 << 3): /* sub */
+                {
+                    if (dest != bbb) { // New format: Same register for source and destination.
+                        // We didn't have a move instruction before this.
+                        PolyWord arg = *(get_reg(taskData, bbb));
+                        if (arg.IsTagged()) arg = PolyWord::FromUnsigned(arg.AsUnsigned() + cval);
+                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
+                    }
+                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
+                    break;
+                }
 
-              case (7 << 3): /* cmp */
-              {
-                src1 = bbb;
-                /* immediate value is already tagged */
-                do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
-                break;
-              }
+                case (7 << 3): /* cmp */
+                {
+                    src1 = bbb;
+                    /* immediate value is already tagged */
+                    do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
+                    break;
+                }
 
-             default: Crash("Unknown instruction after overflow trap");
+                default: Crash("Unknown instruction after overflow trap");
             }
 
             PSP_INCR_PC(taskData->stack, 6);
@@ -1815,6 +1833,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xd1: /* Group2_1_A */
         case 0x8f: /* POP_A */
         case 0x8d: /* leal. */
+        case 0xd3: /* Group2_CL_A */
             pt++; skipea(&pt, process); break;
 
         case 0xf6: /* Group3_a */
@@ -1842,6 +1861,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xc1: /* Group2_8_A */
         case 0xc6: /* MOVB_8_A */
         case 0x83: /* Group1_8_A */
+        case 0x80: /* Group1_8_a */
             pt++; skipea(&pt, process); pt++; break;
 
         case 0x81: /* Group1_32_A */

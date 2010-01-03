@@ -92,6 +92,7 @@ sig
     and instrAtomicDecr: instrs
     and instrStoreW: instrs
     and instrStoreB: instrs
+    and instrLockSeg: instrs
 
     (* Can the we use the same register as the source and destination
      of an instructions? *)
@@ -149,37 +150,35 @@ sig
         LiteralSource of machineWord
     |   InRegister of reg
     |   BaseOffset of reg * int
+    |   CodeRefSource of code (* The address of another function *)
+    |   StackAddress of int (* Offset within the stack. *)
 
     type operations
 
-    val Move: { source: source, output: reg } -> operations
-    val PushToStack: source -> operations
-    val StoreToMemory: { toStore: source, offset: int, base: reg, index: reg option } -> operations
-    val AllocStore: { size: int, flags: Word8.word, output: reg } -> operations
-    val SetFlag: { base: reg, flags: Word8.word } -> operations
-    val CallFunction: { callKind: callKinds } -> operations
-    val JumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
-    val ReturnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations
-    val RaiseException: operations
-    val UncondBranch: { label: labels ref } -> operations
-    val LoadCodeRef: { refCode: code, output: reg } -> operations
-    val LoadStackAddress: { offset: int, output: reg } -> operations
-    val ResetStack: int -> operations
-    val BackJumpLabel: { dest: addrs ref } -> operations
-    val JumpBack: { dest: addrs ref, addStackCheck: bool } -> operations
-    val ForwardJumpLabel: { label: labels ref } -> operations
-    val LoadHandlerAddress: { handlerLab: addrs ref, output: reg } -> operations
-    val StartHandler: { handlerLab: addrs ref } -> operations
-    val IndexedCase:
+    val moveOp: { source: source, output: reg } -> operations
+    val pushToStack: source -> operations
+    val storeToMemory: { toStore: source, offset: int, base: reg, index: reg option } -> operations
+    val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
+    val callFunction: { callKind: callKinds } -> operations
+    val jumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
+    val returnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations
+    val raiseException: operations
+    val uncondBranch: unit -> operations * labels ref
+    val resetStack: int -> operations
+    val backJumpLabel: unit -> operations * addrs ref
+    val jumpBack: { dest: addrs ref, addStackCheck: bool } -> operations
+    val forwardJumpLabel: { label: labels ref } -> operations
+    val loadHandlerAddress: { handlerLab: addrs ref, output: reg } -> operations
+    val startHandler: { handlerLab: addrs ref } -> operations
+    val indexedCase:
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref } -> operations
-    val FillJumpTable:
+    val fillJumpTable:
             { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word } -> operations
 
     val prettyOperation: operations * int -> pretty
 
     datatype regHint = UseReg of reg | NoHint | NoResult
-
 
     type argReq = source * bool
 
@@ -197,15 +196,11 @@ sig
 
     (* Negotiate arguments *)
     val negotiateArguments: instrs * regHint -> nextAction
-    val negotiateTestArguments: tests * labels ref -> nextAction
+    val negotiateTestArguments: tests -> nextAction * labels ref
 
-    (* Code generate operations. *)
-    val codeGenerate: operations list * code -> unit
- 
-    val copyCode: code * int * reg list -> address
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
-
-    val inlineAssignments: bool
+    (* Code generate operations and construct the final code. *)
+    val copyCode: code * operations list * int * reg list -> address
 
     val codeAddress: code -> address option
 

@@ -54,7 +54,7 @@ sig
     val pushStack:    ttab * int  -> stackIndex;
     val pushConst:    ttab * machineWord -> stackIndex;
     val pushCodeRef:  ttab * code -> stackIndex;
-    val pushNonLocal: ttab * ttab * stackIndex * (unit -> stackIndex) -> stackIndex * operations list
+    val pushNonLocal: ttab * ttab * stackIndex * (unit -> stackIndex * operations list) -> stackIndex * operations list
     val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operations list
     val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operations list
     val pushAll:      ttab -> operations list;

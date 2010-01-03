@@ -558,6 +558,7 @@ struct
   datatype opCode =
     Group1_8_A
   | Group1_32_A
+  | Group1_8_a
   | JMP_8
   | JMP_32
   | CALL_32 (* SPF 6/6/95 *)
@@ -592,6 +593,7 @@ struct
   | Group3_A
   | Group3_a
   | Group2_8_A
+  | Group2_CL_A
   | Group2_1_A
   | PUSH_8
   | PUSH_32
@@ -603,6 +605,7 @@ struct
     case opn of
       Group1_8_A    =>  0wx83
     | Group1_32_A   =>  0wx81
+    | Group1_8_a    =>  0wx80
     | JMP_8         =>  0wxeb
     | JMP_32        =>  0wxe9
     | CALL_32       =>  0wxe8
@@ -638,8 +641,9 @@ struct
     | Group3_a      => 0wxf6
     | Group2_8_A    => 0wxc1
     | Group2_1_A    => 0wxd1
-    | PUSH_8        =>  0wx6a
-    | PUSH_32       =>  0wx68
+    | Group2_CL_A   => 0wxd3
+    | PUSH_8        => 0wx6a
+    | PUSH_32       => 0wx68
     | TEST_ACC8     => 0wxa8
     |   LOCK        => 0wxF0
     ;
@@ -1354,7 +1358,7 @@ SS-relative addressing modes:
         then
         (
             doPending(cvec, 12 + 2);
-            align(case ri of SOME _ => 0w2 | NONE => 0w1, cvec)
+            align(case ri of NONE => 0w2 | SOME _ => 0w1, cvec)
         )
         else if offset = 0 andalso rb = eax andalso not(isSome ri)
         then (* modrm will be zero.  We need to be sure that this is not the
@@ -1853,10 +1857,6 @@ Calling conventions:
         gen32u (lengthWord, cvec)
     end;
 
-  (* Remove the mutable bit by clearing the flag byte. *)
-  fun setFlag (baseReg, cvec, flag) : unit =
-     genStoreIB (toMachineWord flag, ~1, baseReg, regNone, cvec);
-
     (* Operations. *)
     datatype instrs =
         InstrAddA
@@ -1899,6 +1899,7 @@ Calling conventions:
     |   InstrAtomicAdd of int
     |   InstrStoreW of { offset: short option, toStore: machineWord option }
     |   InstrStoreB of { offset: short option, toStore: machineWord option }
+    |   InstrLockSeg
 
     (* Exported instructions. *)
     val instrAddA = InstrAddA
@@ -1927,6 +1928,7 @@ Calling conventions:
     and instrAtomicDecr = InstrAtomicAdd ~1
     and instrStoreW = InstrStoreW { offset=NONE, toStore=NONE }
     and instrStoreB = InstrStoreB { offset=NONE, toStore=NONE }
+    and instrLockSeg = InstrLockSeg
 
 
     fun prettyInstr(instr, _) =
@@ -1969,6 +1971,7 @@ Calling conventions:
         |   InstrAtomicAdd i            => PrettyString ("AtomicAdd " ^ Int.toString i)
         |   InstrStoreW _               => PrettyString "InstrStoreW"
         |   InstrStoreB _               => PrettyString "InstrStoreB"
+        |   InstrLockSeg                => PrettyString "InstrLockSeg"
 
   (* Can the we use the same register as the source and destination
      of an instructions? On this machine - no. *)
@@ -2005,6 +2008,8 @@ Calling conventions:
         LiteralSource of machineWord
     |   InRegister of reg
     |   BaseOffset of reg * int
+    |   CodeRefSource of code (* The address of another function *)
+    |   StackAddress of int (* Offset within the stack. *)
 
     datatype operations =
         DataOp of { instr: instrs, operands: source list, output: reg option }
@@ -2013,14 +2018,11 @@ Calling conventions:
     |   PushToStack of source
     |   StoreToMemory of { toStore: source, offset: int, base: reg, index: reg option }
     |   AllocStore of { size: int, flags: Word8.word, output: reg }
-    |   SetFlag of { base: reg, flags: Word8.word }
     |   CallFunction of { callKind: callKinds }
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
     |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
     |   RaiseException
     |   UncondBranch of { label: labels ref }
-    |   LoadCodeRef of { refCode: code, output: reg }
-    |   LoadStackAddress of { offset: int, output: reg }
     |   ResetStack of int
     |   BackJumpLabel of { dest: addrs ref }
     |   JumpBack of { dest: addrs ref, addStackCheck: bool }
@@ -2052,8 +2054,6 @@ Calling conventions:
                 PrettyString "StoreToMemory"
         |   AllocStore { size=_, flags=_, output=_ } =>
                 PrettyString "AllocStore"
-        |   SetFlag { base=_, flags=_ } =>
-                PrettyString "SetFlag"
         |   CallFunction { callKind=_ } =>
                 PrettyString "CallFunction"
         |   JumpToFunction { callKind=_, returnReg=_ } =>
@@ -2064,10 +2064,6 @@ Calling conventions:
                 PrettyString "RaiseException"
         |   UncondBranch { label=_ } =>
                 PrettyString "UncondBranch"
-        |   LoadCodeRef { refCode=_, output=_ } =>
-                PrettyString "LoadCodeRef"
-        |   LoadStackAddress { offset=_, output=_ } =>
-                PrettyString "LoadStackAddress"
         |   ResetStack _(*int*) =>
                 PrettyString "ResetStack"
         |   BackJumpLabel { dest=_ } =>
@@ -2214,25 +2210,25 @@ Calling conventions:
             )
 
             (* Shift operations are only implemented for constant shifts. *)
-        |   checkAndReduce(InstrUpshiftW, [arg1, arg2], mapper) =
+        |   checkAndReduce(InstrUpshiftW, args as [arg1, arg2], mapper) =
             (
                 case mapper arg2 of
                     SOME lit => SOME(InstrUpshiftWConst(toShort lit), [arg1])
-                |   NONE => NONE
+                |   NONE => SOME(InstrUpshiftW, args)
             )
 
-        |   checkAndReduce(InstrDownshiftW, [arg1, arg2], mapper) =
+        |   checkAndReduce(InstrDownshiftW, args as [arg1, arg2], mapper) =
             (
                 case mapper arg2 of
                     SOME lit => SOME(InstrDownshiftWConst(toShort lit), [arg1])
-                |   NONE => NONE
+                |   NONE => SOME(InstrDownshiftW, args)
             )
 
-        |   checkAndReduce(InstrDownshiftArithW, [arg1, arg2], mapper) =
+        |   checkAndReduce(InstrDownshiftArithW, args as [arg1, arg2], mapper) =
             (
                 case mapper arg2 of
                     SOME lit => SOME(InstrDownshiftArithWConst(toShort lit), [arg1])
-                |   NONE => NONE
+                |   NONE => SOME(InstrDownshiftArithW, args)
             )
 
         |   checkAndReduce(InstrSetStringLength, [arg1, arg2], _) =
@@ -2277,6 +2273,8 @@ Calling conventions:
                 |   [_, NONE, NONE] => SOME(InstrStoreB{offset=NONE, toStore=NONE}, [arg1, arg2, arg3])
                 |   _ => raise InternalError "InstrStoreB: Wrong number of arguments"
             )
+
+        |   checkAndReduce(InstrLockSeg, [arg1], _) = SOME(InstrLockSeg, [arg1])
 
         |   checkAndReduce _ = raise InternalError "checkAndReduce: bad arguments"
     end
@@ -2343,18 +2341,17 @@ Calling conventions:
 
     (* Default action for all operations. *)
     local
+        (* If we have specified a preferred register use that. *)
+        fun prefAsSet(UseReg reg) = singleton reg
+        |   prefAsSet _ = allRegisters
+
         (* We get the output register first because we're going to lock that down. *)
-        fun getResultReg(instr, pref: regHint) args =
-        let
-            val regSet =
-            case pref of
-                UseReg reg => singleton reg (* If we have provided a hint register assume it's acceptable. *)
-            |   NoHint => allRegisters (* The caller had no preference: use any register. *)
-            |   NoResult => raise InternalError "getResultReg"
-        in
-            ActionGetWorkReg{regSet=regSet,
-                setReg = fn reg => getArg(instr, SOME reg, List.map(fn _ => NONE) args)}
-        end
+        fun getResultReg(instr, pref: regHint, operands) _ =
+            ActionGetWorkReg{regSet=prefAsSet pref, (* Use the preferred destination. *)
+                setReg = fn reg => getArg(instr, SOME reg, operands)}
+        
+        and getInitialResultReg(instr, pref: regHint) args =
+            getResultReg(instr, pref: regHint, List.map(fn _ => NONE) args) args
 
         (* The initial case if we don't need an output register. *)
         and getInitialArg instr args =
@@ -2392,8 +2389,9 @@ Calling conventions:
     in
         fun defaultActions(instr as InstrStoreW _, _) = getInitialArg instr
         |   defaultActions(instr as InstrStoreB _, _) = getInitialArg instr
+        |   defaultActions(instr as InstrLockSeg, _) = getInitialArg instr
 
-        |   defaultActions(instr, pref) = getResultReg(instr, pref)
+        |   defaultActions(instr, pref) = getInitialResultReg(instr, pref)
         
         local
             (* Storing a byte is complicated because we can only store from some registers.
@@ -2423,12 +2421,91 @@ Calling conventions:
         in
             val storeByteNegotiator = loadStoreArg
         end
+        
+        local
+            (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
+            val ecxSet = singleton ecx
+            fun loadShiftArg (instr, pref) [_, arg2] =
+            (
+                case arg2 of
+                    (InRegister reg, lastRef) =>
+                        if reg = ecx andalso lastRef
+                        then ActionLockRegister{argNo=1, reg=reg, willOverwrite=true,
+                                next=loadResultArg(instr, pref)}
+                        else (* Not in the right register - move it. *)
+                            ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
+                                next=loadShiftArg(instr, pref)}
+                |   (_, _) =>
+                        ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
+                             next=loadShiftArg(instr, pref)}
+            )
+            | loadShiftArg _ _ = raise InternalError "loadShiftArg: bad arguments"
+
+            (* Load the first argument into a register we can use for the result. *)
+            and loadResultArg (instr, pref) [arg1, _] =
+            (
+                case arg1 of
+                    (InRegister reg, lastRef) =>
+                        if lastRef
+                        then ActionLockRegister{argNo=0, reg=reg, willOverwrite=true,
+                                next=finished(instr, reg)}
+                        else (* Can't clobber this register - move the value. *)
+                            ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=true,
+                                next=loadResultArg(instr, pref)}
+                |   (_, _) =>
+                        ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=true,
+                             next=loadResultArg(instr, pref)}
+            )
+            |   loadResultArg _ _ = raise InternalError "loadResultArg: bad arguments"
+            
+            and finished (instr, resReg) _ =
+                ActionDone{
+                    outReg=SOME resReg,
+                    operation=DataOp{ instr = instr, operands = [InRegister resReg, InRegister ecx], output = SOME resReg}
+                    }
+
+        in
+            val shiftNegotiator = loadShiftArg
+        end
+        
+        local (* In many cases we want to use the same register for an argument as for the result. *)
+            fun loadDestArg(instr, _) [(InRegister reg, true)] = (* Single argument case *)
+                    ActionLockRegister{argNo=0, reg=reg, willOverwrite=true,
+                                       next=getArg(instr, SOME reg, [SOME(InRegister reg)])}
+            |   loadDestArg(instr, pref) [(_, _)] = (* Not in a register or register can't be modified. *)
+                    ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+                                  next=loadDestArg(instr, pref)}
+                
+            |   loadDestArg(instr, _) [(InRegister reg1, true), _] = (* Double arguments *)
+                    ActionLockRegister{argNo=0, reg=reg1, willOverwrite=true,
+                                       next=getArg(instr, SOME reg1, [SOME(InRegister reg1), NONE])}
+            |   loadDestArg(instr, pref) [(_, _), _] = (* Not in a register or register can't be modified. *)
+                    ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+                                  next=loadDestArg(instr, pref)}
+
+            |   loadDestArg _ _ = raise InternalError "loadDestArg: not one or two arguments"
+        in
+            val sharedFirstArgNegotiator = loadDestArg
+        end
     end
 
 
-    (* Select the argument negotiator.  Apart from StoreByte always use the default. *)
+    (* Select the argument negotiator.  Apart from StoreByte and shifts always use the default. *)
     fun negotiateArguments(instr as InstrStoreB({ toStore=NONE(* Not storing a constant *), ...}), _) =
             storeByteNegotiator instr
+    |   negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(instr, pref)
+
+    |   negotiateArguments(instr as InstrSubW, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrOrW, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAndW, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAddAConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrSubAConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrOrWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAndWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrXorWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+
     |   negotiateArguments(instr, pref) = defaultActions(instr, pref)
 
     (* Default action for comparisons and tests. *)
@@ -2460,7 +2537,12 @@ Calling conventions:
     end
 
     (* Select the argument negotiator.  For the moment always use the default. *)
-    fun negotiateTestArguments(test, label) = defaultTestActions(test, label)
+    fun negotiateTestArguments test =
+    let
+        val destLabel = ref noJump
+    in
+        (defaultTestActions(test, destLabel), destLabel)
+    end
 
     fun isPushI _ = true
       
@@ -2667,8 +2749,6 @@ Calling conventions:
         )
         
     |   compareAndBranchUnary _ = raise InternalError "compareAndBranchUnary: Unknown instruction"
-
-    val inlineAssignments = true;
   
   (* Common code for div and mod word.  They are identical apart from
      getting the result. *)
@@ -2745,13 +2825,24 @@ Calling conventions:
          then genop(POP_R eax, cvec) else ()
       end
 
+
+    fun checkAndLimitShift cvec =
+    let
+        (* The X86 masks the shift value but the ML basis library requires shift values
+           greater than the word size to set the value to 0/-1 as appropriate.
+           We set the shift to the maximum if it is larger rather than trying to
+           set the result to the appropriate value. The shift value is always in ecx. *)
+        val maxShift = if wordSize = 4 then tag 31 else tag 63
+        val () = genImmed (CMP, ecx, maxShift, cvec)
+        val lab = putConditional (JNA, cvec)
+    in
+        genMoveI (ecx, maxShift, cvec);
+        fixup ([lab], cvec)
+    end
+ 
     (* General register/register operation. *)
     fun genRR (inst, r1:reg, r2:reg, rd:reg, cvec) : unit =
     (
-        if rd = r1 orelse rd = r2
-        then raise InternalError "Registers must be different"
-        else ();
-    
     case inst of  
      InstrAddA =>
        (* Arbitrary precision addition. *)
@@ -2854,9 +2945,10 @@ Calling conventions:
    | InstrSubW =>
        (* Fixed precision subtraction. (Doesn't test for overflow.) *)
        (
-         genMove  (rd, r1, cvec);
-         genReg   (SUB, rd, r2, cvec);
-         genImmed (ADD, rd, 1, cvec)
+            if rd = r1 then () else raise InternalError "InstrSubW: not shared registers";
+            (*genMove  (rd, r1, cvec);*)
+            genReg   (SUB, rd, r2, cvec);
+            genImmed (ADD, rd, 1, cvec)
        )
 
    | InstrMulW =>
@@ -2914,15 +3006,17 @@ Calling conventions:
    | InstrOrW =>
        (* Logical or. *)
        (
-         genMove (rd, r1, cvec);
-         genReg  (OR, rd, r2, cvec)
+            if rd = r1 then () else raise InternalError "InstrOrW: not shared registers";
+            (*genMove (rd, r1, cvec);*)
+            genReg  (OR, rd, r2, cvec)
        )
 
    | InstrAndW =>
        (* Logical and. *)
        (
-         genMove (rd, r1, cvec);
-         genReg  (AND, rd, r2, cvec)
+            if rd = r1 then () else raise InternalError "InstrAndW: not shared registers";
+            (*genMove (rd, r1, cvec);*)
+            genReg  (AND, rd, r2, cvec)
        )
 
    | InstrXorW =>
@@ -2931,6 +3025,43 @@ Calling conventions:
          genLeal (rd, r2, ~1, cvec);
          genReg  (XOR, rd, r1, cvec)
        )
+
+    |   InstrUpshiftW =>
+        (
+            if rd = r1 andalso r2 = ecx then () else raise InternalError "instrUpshiftW: Bad registers";
+            checkAndLimitShift cvec;
+            genLeal (rd, rd, ~1, cvec); (* Remove the tag from the value before we shift. *)
+            genop (Group2_1_A, cvec); (* Untag ecx first. *)
+            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
+            genop (Group2_CL_A, cvec);
+            genmodrm(Register, 0w4 (* shl *), getReg rd, cvec);
+            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
+            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
+        )
+
+    |   InstrDownshiftW =>
+        (
+            if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftW: Bad registers";
+            checkAndLimitShift cvec;
+            genop (Group2_1_A, cvec); (* Untag ecx first. *)
+            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
+            genop (Group2_CL_A, cvec);
+            genmodrm(Register, 0w5 (* shr *), getReg rd, cvec);
+            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
+            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
+        )
+
+    |   InstrDownshiftArithW =>
+        (
+            if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftArithW: Bad registers";
+            checkAndLimitShift cvec;
+            genop (Group2_1_A, cvec); (* Untag ecx first. *)
+            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
+            genop (Group2_CL_A, cvec);
+            genmodrm(Register, 0w7 (* sar *), getReg rd, cvec);
+            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
+            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
+        )
 
    | InstrLoadW =>
        (* Load a word. *)
@@ -3046,7 +3177,8 @@ Calling conventions:
             val c = toInt constnt;
             val addr = tagTest1 (rs, cvec);
         in
-            genMove  (rd, rs, cvec);
+            if rd = rs then () else raise InternalError "InstrAddAConst: Bad registers";
+            (*genMove  (rd, rs, cvec);*)
             genImmed (ADD, rd,  semitag c, cvec);
             genJO8   (addr, cvec)
         end
@@ -3057,7 +3189,8 @@ Calling conventions:
             val c = toInt constnt
             val addr = tagTest1 (rs, cvec)
         in
-            genMove  (rd, rs, cvec);
+            if rd = rs then () else raise InternalError "InstrSubAConst: Bad registers";
+            (*genMove  (rd, rs, cvec);*)
             genImmed (SUB, rd, semitag c, cvec);
             genJO8   (addr, cvec)
         end
@@ -3096,7 +3229,8 @@ Calling conventions:
             val c = toInt constnt
             val tagged = tag c;
         in
-            genMove  (rd, rs, cvec);
+            if rd = rs then () else raise InternalError "InstrOrWConst: Bad registers";
+            (*genMove  (rd, rs, cvec);*)
             genImmed (OR, rd, tagged, cvec)
         end
 
@@ -3106,7 +3240,8 @@ Calling conventions:
             val c = toInt constnt
             val tagged = tag c;
         in
-            genMove  (rd, rs, cvec);
+            if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
+            (*genMove  (rd, rs, cvec);*)
             genImmed (AND, rd, tagged, cvec)
         end
 
@@ -3115,7 +3250,8 @@ Calling conventions:
         let
             val c = toInt constnt
         in
-            genMove  (rd, rs, cvec);
+            if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
+            (*genMove  (rd, rs, cvec);*)
             genImmed (XOR, rd, semitag c, cvec)
         end
 
@@ -3427,6 +3563,15 @@ Calling conventions:
         
         |   cgOp(DataOp{ instr=InstrThreadSelf, operands=[], output=SOME output }) =
                 genLoad (MemRegThreadSelf, ebp, output, code) (* movl 60(%ebp),r; *)
+                
+        |   cgOp(DataOp{ instr=InstrLockSeg, operands=[InRegister baseReg], output=_ }) =
+                (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
+                (
+                    genop(Group1_8_a (* group1, 8-bit immediate. byte operand *), code);
+                    genmodrm (Based8, arithOpToWord AND, getReg baseReg, code);
+                    gen8s (~1, code);
+                    gen8u(0wxff - 0wx40, code)
+                )
 
         |   cgOp(DataOp{ instr=_, operands=_, output=_ }) =
                 raise InternalError "Not implemented"
@@ -3455,6 +3600,12 @@ Calling conventions:
 
         |   cgOp(Move{ source=BaseOffset(base, offset), output }) =
                 genLoad(offset, base, output, code)
+
+        |   cgOp(Move{ source=CodeRefSource refCode, output }) =
+                genLoadCoderef(refCode, output, code)
+
+        |   cgOp(Move{ source=StackAddress offset, output }) =
+                genStackOffset(output, offset, code)
 
         |   cgOp(CondBranch{ operands=[InRegister left, InRegister right], test, label }) =
                 label := compareAndBranchRR(left, right, test, code)
@@ -3494,18 +3645,18 @@ Calling conventions:
                     addConstToVec (WVal constnt, false, code) (* Remember this constant and address. *)
                 )
 
+        |   cgOp(PushToStack _ ) = raise InternalError "Not implemented"
+
         |   cgOp(StoreToMemory{ toStore=InRegister toStore, offset, base, index }) =
                 genStoreW(toStore, offset, base, index, code)
 
         |   cgOp(StoreToMemory{ toStore=LiteralSource toStore, offset, base, index }) =
                 genStoreIW(toStore, offset, base, index, code)
 
-        |   cgOp(StoreToMemory{ toStore=BaseOffset _, offset=_, base=_, index=_ }) =
+        |   cgOp(StoreToMemory{ toStore=_, offset=_, base=_, index=_ }) =
                 raise InternalError "Not implemented"
 
         |   cgOp(AllocStore{ size, flags, output }) = allocStore(size, flags, output, code)
-
-        |   cgOp(SetFlag{ base, flags }) = setFlag(base, code, flags)
 
         |   cgOp(CallFunction{ callKind }) = callFunction(callKind, code)
 
@@ -3517,10 +3668,6 @@ Calling conventions:
         |   cgOp RaiseException = raiseException code
 
         |   cgOp(UncondBranch{ label }) = label := unconditionalBranch code
-
-        |   cgOp(LoadCodeRef{ refCode, output }) = genLoadCoderef(refCode, output, code)
-
-        |   cgOp(LoadStackAddress{ offset, output }) = genStackOffset(output, offset, code)
 
         |   cgOp(ResetStack count) =
                 if count < 0 then raise InternalError "ResetStack: negative" else resetStack(Word.fromInt count, code)
@@ -3693,56 +3840,58 @@ Calling conventions:
             val () = ptr +:= 0w1;
         in
             if opByte = opToInt Group1_8_A orelse 
-                opByte = opToInt Group1_32_A
+                opByte = opToInt Group1_32_A orelse
+                opByte = opToInt Group1_8_a
             then
             let
                 (* Opcode is determined by next byte. *)
                 val nb = Word8.toInt (csegGet (seg, !ptr));
             in
                 printArith ((nb div 8) mod 8);
+                if opByte = opToInt Group1_8_a
+                then print "b" else print "l";
                 print "_rev\t";
-                printEA (); (* These are the wrong way round. *)
+                printEA (); (* These are the wrong way round for gas. *)
                 print ",";
-                if opByte = opToInt Group1_8_A
-                then print8 ()
-                else print32 ()
+                if opByte = opToInt Group1_32_A
+                then print32 () else print8 ()
             end
          
             else if opByte = opToInt JE
-            then (print "je\t"; printJmp())
+            then (print "je  \t"; printJmp())
 
             else if opByte = opToInt JNE
-            then (print "jne\t"; printJmp())
+            then (print "jne  \t"; printJmp())
 
             else if opByte = opToInt JO
-            then (print "jo\t"; printJmp())
+            then (print "jo  \t"; printJmp())
 
             else if opByte = opToInt JL
-            then (print "jl\t"; printJmp())
+            then (print "jl  \t"; printJmp())
 
             else if opByte = opToInt JG
-            then (print "jg\t"; printJmp())
+            then (print "jg  \t"; printJmp())
 
             else if opByte = opToInt JLE
-            then (print "jle\t"; printJmp())
+            then (print "jle \t"; printJmp())
 
             else if opByte = opToInt JGE
-            then (print "jge\t"; printJmp())
+            then (print "jge \t"; printJmp())
 
             else if opByte = opToInt JB
-            then (print "jb\t"; printJmp())
+            then (print "jb  \t"; printJmp())
 
             else if opByte = opToInt JA
-            then (print "ja\t"; printJmp())
+            then (print "ja  \t"; printJmp())
 
             else if opByte = opToInt JNA
-            then (print "jna\t"; printJmp())
+            then (print "jna \t"; printJmp())
 
             else if opByte = opToInt JNB
-            then (print "jnb\t"; printJmp())
+            then (print "jnb \t"; printJmp())
 
             else if opByte = opToInt JMP_8
-            then (print "jmp\t"; printJmp())
+            then (print "jmp \t"; printJmp())
 
             else if opByte = opToInt JMP_32
             then
@@ -3894,7 +4043,7 @@ Calling conventions:
                 print
                   (case opc of
                      2 => "call"
-                   | 4 => "jmp"
+                   | 4 => "jmp "
                    | 6 => "push"
                    | _ => "???"
                   );
@@ -3942,27 +4091,8 @@ Calling conventions:
                 if opc = 0 then (print ","; print8 ()) else ()
             end
          
-            else if opByte = opToInt Group2_8_A
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val opc = (nb div 8) mod 8;
-            in
-                print
-                  (case opc of
-                     4 => "shl"
-                   | 5 => "shr"
-                   | 7 => "sar"
-                   | _ => "???"
-                  );
-                print "\t";
-                printEA (); (* These are the wrong way round. *)
-                print ",";
-                print8 ()
-            end
-         
-            else if opByte = opToInt Group2_1_A
+            else if opByte = opToInt Group2_1_A orelse opByte = opToInt Group2_CL_A
+                    orelse opByte = opToInt Group2_8_A
             then
             let
                 (* Opcode is determined by next byte. *)
@@ -3971,12 +4101,18 @@ Calling conventions:
             in
                 print
                    (case opc of
-                      5 => "shr"
-                    | 7 => "sar"
+                      4 => "shl "
+                    | 5 => "shr "
+                    | 7 => "sar "
                     | _ => "???"
                    );
-                print "\t1,";
-                printEA ()
+                print "\t";
+                printEA ();
+                print ",";
+                (* This is the reverse order from gas which has the shift first. *)
+                if opByte = opToInt Group2_1_A then print "1"
+                else if opByte = opToInt Group2_CL_A then print "cl"
+                else print8 ()
             end
       
             else if opByte = opToInt ESCAPE
@@ -4132,24 +4268,17 @@ Calling conventions:
      check the stack at all. *)
   val minStackCheck = 20; 
   
-  (* Adds the constants onto the code, and copies the code into a new segment *)
-  fun copyCode (cvec as
-                    Code{pcOffset,
-                         codeVec,
-                         noClosure,
-                         selfCalls = ref selfCalls,
-                         selfJumps = ref selfJumps,
-                         mustCheckStack = ref callsAProc,
-                         numOfConsts,
-                         ic,
-                         constVec = ref constVec,
-                         resultSeg,
-                         procName,
-                         printAssemblyCode,
-                         printStream,
-                         ...},
-                stackRequired, registerSet) : address =
-  let
+    (* Adds the constants onto the code, and copies the code into a new segment *)
+    fun copyCode (cvec, operations, stackRequired, registerSet) : address =
+    let
+        (* TODO: Previously we generated code as we went along and so could only
+           create the prelude at the end.  Now that we have the code as a list we
+           can generate the prelude first and then put the code into the segment.  *)
+    val () = codeGenerate(operations, cvec)
+
+    val Code{pcOffset, codeVec, noClosure, selfCalls = ref selfCalls, selfJumps = ref selfJumps,
+             mustCheckStack = ref callsAProc, numOfConsts, ic, constVec = ref constVec,
+             resultSeg, procName, printAssemblyCode, printStream, ...} = cvec
     
     (* This aligns ic onto a fullword boundary. *)
     val ()   = align (0w0, cvec);
@@ -4419,6 +4548,38 @@ itself.
   fun traceContext (Code {procName, ic = ref ic, ...}) =
   (* Function name and code offset to help tracing. *)
      procName ^ ":" ^ Word.fmt StringCvt.HEX (ic)
+
+
+    (* Exported versions of operations datatype *)
+    val moveOp = Move
+    and pushToStack = PushToStack
+    val storeToMemory = StoreToMemory
+    val allocStore = AllocStore
+    val callFunction = CallFunction
+    val jumpToFunction = JumpToFunction
+    val returnFromFunction = ReturnFromFunction
+    val raiseException = RaiseException
+    val resetStack = ResetStack
+    val jumpBack = JumpBack
+    val forwardJumpLabel = ForwardJumpLabel
+    val loadHandlerAddress = LoadHandlerAddress
+    val startHandler = StartHandler
+    val indexedCase = IndexedCase
+    val fillJumpTable = FillJumpTable
+
+    fun uncondBranch() =
+    let
+        val label = ref noJump
+    in
+        (UncondBranch{label=label}, label)
+    end
+
+    fun backJumpLabel() =
+    let
+        val loopLabel: addrs ref = ref addrZero
+    in
+        (BackJumpLabel{dest=loopLabel}, loopLabel)
+    end
 
     structure Sharing =
     struct
