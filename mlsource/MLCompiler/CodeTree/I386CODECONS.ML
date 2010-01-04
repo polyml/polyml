@@ -1,4 +1,7 @@
 (*
+    Copyright David C. J. Matthews 1989, 2000, 2009
+    
+    Based on original code:    
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
@@ -1748,7 +1751,7 @@ Calling conventions:
     |   returnFromFunction _ = raise InternalError "Wrong argument"
 
 
-  (* Exported. The exception argument has already been loaded into eax *)
+    (* Exported. The exception argument has already been loaded into eax *)
     (* Call, rather than jump to, the exception code so that we have
        the address of the caller if we need to produce an exception
        trace. *)
@@ -1767,14 +1770,14 @@ Calling conventions:
 
 
 
-  (* Exported. Set a register to a particular offset in the stack. *)
-  fun genStackOffset (reg, byteOffset, cvec) : unit = 
+    (* Exported. Set a register to a particular offset in the stack. *)
+    fun genStackOffset (reg, byteOffset, cvec) : unit = 
     if byteOffset = 0
     then genMove (reg, regStackPtr, cvec)
     else genLeal (reg, regStackPtr, byteOffset, cvec)
 
-  (* Only used for while-loops. *)
-  fun jumpback (lab, stackCheck, cvec as Code{exited, ic, ...}) : unit =
+    (* Only used for while-loops. *)
+    fun jumpback (lab, stackCheck, cvec as Code{exited, ic, ...}) : unit =
     (
       (* Put in a stack check. This is used to allow the code to be interrupted. *)
       if stackCheck
@@ -2095,6 +2098,9 @@ Calling conventions:
             p2(0w1, 0w0)
         end
     in
+        (* checkAndReduce checks whether an instruction is implemented and removes literal constant cases.
+           It needs to be called before the argument negotiation because on some platforms (not this)
+           some instructions are only implemented for certain constant arguments. *)
         (* Nearly all instructions are implemented in the general case. *)
         fun checkAndReduce(InstrAddA, args: 'a list as [arg1, arg2], mapper: 'a -> machineWord option) =
             (
@@ -2279,31 +2285,41 @@ Calling conventions:
         |   checkAndReduce _ = raise InternalError "checkAndReduce: bad arguments"
     end
 
-    local
         (* If we reverse the left and right arguments we reverse the sense of the jump. *)
-        fun reverseOp JE = JE
-        |   reverseOp JNE = JNE
-        |   reverseOp JA = JB
-        |   reverseOp JB = JA
-        |   reverseOp JNA = JNB
-        |   reverseOp JNB = JNA
-        |   reverseOp JL = JG
-        |   reverseOp JG = JL
-        |   reverseOp JLE = JGE
-        |   reverseOp JGE = JLE
-        |   reverseOp _ = raise InternalError "reverseOp: unknown branch"
+        fun reverseTestOp JE = JE
+        |   reverseTestOp JNE = JNE
+        |   reverseTestOp JA = JB
+        |   reverseTestOp JB = JA
+        |   reverseTestOp JNA = JNB
+        |   reverseTestOp JNB = JNA
+        |   reverseTestOp JL = JG
+        |   reverseTestOp JG = JL
+        |   reverseTestOp JLE = JGE
+        |   reverseTestOp JGE = JLE
+        |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
+
+    local
     in
         fun checkAndReduceBranches(Arb opcode, args as [arg1, arg2], mapper) =
-            (
+            let
+                (* Because we normalise arbitrary precision values if we are testing
+                   a short integer value for equality we don't have to perform a tag
+                   test.  We use word equality for those cases. *)
+                fun constOp(JE, lit) = WrdConst(JE, lit)
+                |   constOp(JNE, lit) = WrdConst(JNE, lit)
+                |   constOp(opc, lit) = ArbConst(opc, toShort lit)
+            in
                 case List.map mapper args of
                     [_, SOME lit] =>
-                        if isShort lit then SOME (ArbConst(opcode, toShort lit), [arg1])
+                        if isShort lit
+                        then SOME (constOp(opcode, lit), [arg1])
                         else SOME (Arb opcode, args)
                 |   [SOME lit, _] => 
-                        if isShort lit then SOME (ArbConst(reverseOp opcode, toShort lit), [arg2])
+                        if isShort lit
+                        then SOME (constOp(reverseTestOp opcode, lit), [arg2])
                         else SOME (Arb opcode, args)
                 |   _ => SOME (Arb opcode, args)
-            )
+            end
 
             (* Word equality is used both as equality on values of type "word" where all the values are
                definitely short but also as a general pointer equality operation. *)
@@ -2311,7 +2327,7 @@ Calling conventions:
             (
                 case List.map mapper args of
                     [_, SOME lit] => SOME (WrdConst(opcode, lit), [arg1])
-                |   [SOME lit, _] =>  SOME (WrdConst(reverseOp opcode, lit), [arg2])
+                |   [SOME lit, _] =>  SOME (WrdConst(reverseTestOp opcode, lit), [arg2])
                 |   _ => SOME (Wrd opcode, args)
             )
 
@@ -2390,6 +2406,7 @@ Calling conventions:
         fun defaultActions(instr as InstrStoreW _, _) = getInitialArg instr
         |   defaultActions(instr as InstrStoreB _, _) = getInitialArg instr
         |   defaultActions(instr as InstrLockSeg, _) = getInitialArg instr
+        |   defaultActions(instr as InstrSetStringLength, _) = getInitialArg instr
 
         |   defaultActions(instr, pref) = getInitialResultReg(instr, pref)
         
@@ -2468,7 +2485,47 @@ Calling conventions:
             val shiftNegotiator = loadShiftArg
         end
         
+        local
+            (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
+               registers the best arrangement for the arguments is to get the first argument into
+               eax and the second into edx. *)
+            val eaxSet = singleton eax and edxSet = singleton edx
+
+            fun loadArg1 instr [(InRegister reg, lastRef), _] =
+                if reg = eax andalso lastRef
+                then ActionLockRegister{argNo=0, reg=reg, willOverwrite=true, next=loadArg2 instr}
+                else (* Not in the right register - move it. *)
+                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+            |   loadArg1 instr [_, _] =
+                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+            |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
+            
+            and loadArg2 instr [_, (InRegister reg, lastRef)] =
+                if reg = edx andalso lastRef
+                then ActionLockRegister{argNo=1, reg=reg, willOverwrite=true, next=finished instr}
+                else (* Not in the right register - move it. *)
+                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                    
+            |   loadArg2 instr [_, _] =
+                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+
+            |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
+
+            and finished instr _ =
+                ActionDone{
+                    outReg=SOME eax,
+                    operation=DataOp{ instr = instr, operands = [InRegister eax, InRegister edx], output = SOME eax}
+                    }
+        in
+            val multiplyNegotiator = loadArg1
+        end
+        
         local (* In many cases we want to use the same register for an argument as for the result. *)
+            fun isReversible InstrSubW = false
+            |   isReversible _ = true
+
             fun loadDestArg(instr, _) [(InRegister reg, true)] = (* Single argument case *)
                     ActionLockRegister{argNo=0, reg=reg, willOverwrite=true,
                                        next=getArg(instr, SOME reg, [SOME(InRegister reg)])}
@@ -2479,13 +2536,20 @@ Calling conventions:
             |   loadDestArg(instr, _) [(InRegister reg1, true), _] = (* Double arguments *)
                     ActionLockRegister{argNo=0, reg=reg1, willOverwrite=true,
                                        next=getArg(instr, SOME reg1, [SOME(InRegister reg1), NONE])}
+                (* For most instructions we can use the second argument if it's in a register. *)
+            |   loadDestArg(instr, pref) [_, (InRegister reg2, true)] = (* Could use the second argument *)
+                    if isReversible instr
+                    then ActionLockRegister{argNo=0, reg=reg2, willOverwrite=true,
+                                       next=getArg(instr, SOME reg2, [NONE, SOME(InRegister reg2)])}
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+                                  next=loadDestArg(instr, pref)}
             |   loadDestArg(instr, pref) [(_, _), _] = (* Not in a register or register can't be modified. *)
                     ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
 
             |   loadDestArg _ _ = raise InternalError "loadDestArg: not one or two arguments"
         in
-            val sharedFirstArgNegotiator = loadDestArg
+            val sharedArgNegotiator = loadDestArg
         end
     end
 
@@ -2497,18 +2561,22 @@ Calling conventions:
     |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(instr, pref)
     |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(instr, pref)
 
-    |   negotiateArguments(instr as InstrSubW, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrOrW, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAndW, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAddAConst _, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrSubAConst _, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrOrWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAndWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrXorWConst _, pref) = sharedFirstArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrSubW, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrOrW, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAndW, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAddAConst _, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrSubAConst _, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrOrWConst _, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrAndWConst _, pref) = sharedArgNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrXorWConst _, pref) = sharedArgNegotiator(instr, pref)
+    
+    (*|   negotiateArguments(instr as InstrMulA, _) = multiplyNegotiator instr*)
+        (* Only use the negotiator for word multiplication at the moment. *)
+    |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator instr
 
     |   negotiateArguments(instr, pref) = defaultActions(instr, pref)
 
-    (* Default action for comparisons and tests. *)
+    (* Actions for comparisons and tests. *)
     local
         fun getArg(test, label, operands) args =
         if List.length operands = List.length args
@@ -2532,8 +2600,46 @@ Calling conventions:
                            to look at this again after it's been loaded. *)
                         next=getArg(test, label, operands)}
         end
+
+        fun getOneArgInReg(test, label) [(InRegister reg1, _), (op2, _)] =
+                ActionDone{
+                    outReg=NONE,
+                    operation= CondBranch { operands=[InRegister reg1, op2], test=test, label=label }
+                    }
+        |   getOneArgInReg(test, label) [(op1, _), (InRegister reg2, _)] =
+            let
+                fun reverse(Arb test) = Arb(reverseTestOp test)
+                |   reverse(Wrd test) = Wrd(reverseTestOp test)
+                |   reverse _ = raise InternalError "reverse"
+            in
+                ActionDone{
+                    outReg=NONE,
+                    operation= CondBranch { operands=[InRegister reg2, op1], test=reverse test, label=label }
+                    }
+            end
+        |   getOneArgInReg(test, label) [_, _] =
+                ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=false,
+                    (* Load into a register - won't modify it afterwards.  Next action is
+                       to look at this again after it's been loaded. *)
+                    next=getOneArgInReg(test, label)}
+        |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"
     in
         fun defaultTestActions(test, label) = getArg(test, label, [])
+        
+        val binaryWordTestActions = getOneArgInReg
+
+        fun unaryTestActions(test, label) [(InRegister reg, _)] =
+                (* It's in a register.  We're done. *)
+                ActionDone{
+                    outReg=NONE,
+                    operation= CondBranch { operands=[InRegister reg], test=test, label=label }
+                    }
+        |   unaryTestActions(test, label) [_] =
+                ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=false,
+                    (* Load into a register - won't modify it afterwards.  Next action is
+                       to look at this again after it's been loaded. *)
+                    next=unaryTestActions(test, label)}
+        |   unaryTestActions _ _ = raise InternalError "unaryTestActions: Wrong arguments"
     end
 
     (* Select the argument negotiator.  For the moment always use the default. *)
@@ -2541,289 +2647,159 @@ Calling conventions:
     let
         val destLabel = ref noJump
     in
-        (defaultTestActions(test, destLabel), destLabel)
+        case test of
+            Arb _ => (defaultTestActions(test, destLabel), destLabel)
+        |   ArbConst _ => (unaryTestActions(test, destLabel), destLabel)
+        |   Wrd _ => (binaryWordTestActions(test, destLabel), destLabel)
+        |   WrdConst _ => (unaryTestActions(test, destLabel), destLabel)
+        |   Length _ => (unaryTestActions(test, destLabel), destLabel)
     end
 
     fun isPushI _ = true
-      
-  (* Test a single argument and trap if it is long.  The result is
-     the instruction address of the trap, and is used to jump back to
-     if the instruction overflows. *)
-  fun tagTest1 (r: reg, cvec as Code{ic, ...}) =
-  let
-    val regNum = getReg r;
-  in
-     if regNum = getReg eax
-     then (* Special instruction for testing accumulator.  Can use an
-             8-bit test. *)
-       (
-        genop (TEST_ACC8, cvec);
-        gen8u (0w1, cvec)
-       )
-     else if regNum < 0w4 (* can we use an 8-bit test? *)
-     then (* Yes. The register value refers to low-order byte. *)
-       (
-        genop    (Group3_a, cvec);
-        genmodrm (Register, 0w0 (* test *), regNum, cvec);
-        gen8u    (0w1, cvec)
-       )
-     else
-       (
-        genop    (Group3_A, cvec);
-        genmodrm (Register, 0w0 (* test *), regNum, cvec);
-        gen32u   (0w1, cvec)
-       );
+
+    (* Test the bottom bit and jump depending on its value.  This is used
+       for tag tests in arbitrary precision operations and also for testing
+       for short/long values. *)
+    fun testTag(r, cvec) =
+        if r = eax
+        then (* Special instruction for testing accumulator.  Can use an 8-bit test. *)
+        (
+            genop (TEST_ACC8, cvec);
+            gen8u (0w1, cvec)
+        )
+        else if r = ebx orelse r = ecx orelse r = edx (* can we use an 8-bit test? *)
+        then (* Yes. The register value refers to low-order byte. *)
+        (
+            genop    (Group3_a, cvec);
+            genmodrm (Register, 0w0 (* test *), getReg r, cvec);
+            gen8u    (0w1, cvec)
+        )
+        else
+        (
+            genop    (Group3_A, cvec);
+            genmodrm (Register, 0w0 (* test *), getReg r, cvec);
+            gen32u   (0w1, cvec)
+        )
+
+    (* Test a single argument and trap if it is long.  The result is
+       the instruction address of the trap, and is used to jump back to
+       if the instruction overflows. *)
+    fun tagTest1 (r: reg, cvec as Code{ic, ...}) =
+    let
+        val () = testTag(r, cvec)
+        val lab = putConditional (JNE, cvec); (* generates code *)
+        val jumpback = !ic;
+    in
+        genop(Group5, cvec);
+        genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
+        gen8u (Word8.fromInt MemRegArbEmulation, cvec);
+        fixup ([lab], cvec);
+        jumpback
+    end (* tagTest1 *)
+
+    (* Test a pair of arguments and trap if either is long.  The result is
+       the instruction address of the trap, and is used to jump back to
+       if the instruction overflows. *)
+    fun tagTest2 (rd:reg, r1:reg, r2:reg, cvec as Code{ic, ...}) : addrs =
+    (
+        if rd = r1 orelse rd = r2 then raise InternalError "tagTest2: Sharing registers" else ();
+        genMove (rd, r1, cvec);
+        genReg  (AND, rd, r2, cvec);
+        testTag(rd, cvec);
      
-     let
-       val lab = putConditional (JNE, cvec); (* generates code *)
-       val jumpback = !ic;
-     in
-       genop(Group5, cvec);
-       genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
-       gen8u (Word8.fromInt MemRegArbEmulation, cvec);
-       fixup ([lab], cvec);
-       jumpback
-     end
-  end; (* tagTest1 *)
-
-  (* Test a pair of arguments and trap if either is long.  The result is
-    the instruction address of the trap, and is used to jump back to
-    if the instruction overflows. *)
-  fun tagTest2 (rd:reg, r1:reg, r2:reg, useOr:bool, cvec as Code{ic, ...}) : addrs =
-  let
-     (* In most cases we have to trap if EITHER is long, and so we AND
-       together the arguments.  However if we are comparing two arbitrary
-       precision values for (in)equality, we need only trap if BOTH are
-       long, since if one is long and the other not then they are both
-       definitely different. *)
-    val testOP = if useOr then OR else AND;
-  in   
-     (* If the destination register is not the same as either source
-        register we can use that directly, otherwise we have to push it. *)
-     (* bug-fixed SPF 3/1/95 - now checks both r1 and r2. *)
-    if rd = r1
-       then 
-         (
-           genPush (rd, cvec);
-           genReg  (testOP, rd, r2, cvec)
-         )
-     else if rd = r2
-       then
-         (
-           genPush (rd, cvec);
-           genReg  (testOP, rd, r1, cvec)
-         )
-       else
-         (
-           genMove (rd, r1, cvec);
-           genReg  (testOP, rd, r2, cvec)
-         );
-
-     if rd = eax
-     then (* Special instruction to test the accumulator. *)
-        (
-        genop (TEST_ACC8, cvec);
-        gen8u (0w1, cvec)
-        )
-     else if (getReg rd) < 0w4 (* We can only use 8-bit tests with first 4 regs! (SPF) *)
-     then (* Use an 8-bit test.  The register value refers to low-order byte. *)
-       (
-        genop    (Group3_a, cvec);
-        genmodrm (Register, 0w0(* test *), getReg rd, cvec);
-        gen8u    (0w1, cvec)
-       )
-     else
-       (
-        genop    (Group3_A, cvec);
-        genmodrm (Register, 0w0(* test *), getReg rd, cvec);
-        gen32u   (0w1, cvec)
-       );
-
-     (* restore rd if it's used as a source register *)
-     if (rd = r1) orelse (rd = r2)
-     then genop (POP_R rd, cvec)
-     else ();
-     
-     let
-       val lab = putConditional (JNE, cvec); (* generates code *)
-       val jumpback = !ic;
-     in
-       genop(Group5, cvec);
-       genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
-       gen8u (Word8.fromInt MemRegArbEmulation, cvec);
-       fixup ([lab], cvec);
-       jumpback
-     end
-   end;
-
-
-  (* generate the "jump on overflow" used to
-     implement arbitrary-precision operations. *)
-  fun genJO8 (addr, cvec as Code{ic, ...}) = 
-  let
-    val () = doPending (cvec, 12);
-    val here     = !ic;
-    (* jump address calculations are relative to the value
-        of the program counter *after* the instruction *)
-    val offset   = addr addrMinus (here addrPlus 2);
-  in
-    gen8u (opToInt JO, cvec);
-    gen8s (offset, cvec)
-  end
-
-    (* Fixed and arbitrary precision comparisons. *)
-    fun compareAndBranchRR (r1, r2, Wrd opc, cvec)=
-        (
-          genReg (CMP, r1, r2, cvec);
-          [putConditional (opc, cvec)]
-        )
-  
-    | compareAndBranchRR (r1, r2, Arb opc, cvec) =
         let
-            (* Test the tags.  If we are testing for equality we can OR the
-               tags and only trap if both arguments are long.  Try to use
-               eax, ebx, ecx or edx for rd because then we can use a single
-               byte test. *)
-            val rd = if getReg r1 > 0w4 then r2 else r1;
-            val useOr = 
-                case opc of
-                    JE  => true
-                |   JNE => true
-                |   _   => false
+            val lab = putConditional (JNE, cvec); (* generates code *)
+            val jumpback = !ic;
         in
-            tagTest2 (rd, r1, r2, useOr, cvec);
-            genReg   (CMP, r1, r2, cvec);
-            [putConditional (opc, cvec)]
+            genop(Group5, cvec);
+            genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
+            gen8u (Word8.fromInt MemRegArbEmulation, cvec);
+            fixup ([lab], cvec);
+            jumpback
         end
- 
-    |   compareAndBranchRR _ = raise InternalError "compareAndBranchRR: Unknown instruction"
+    )
 
-
-    fun compareAndBranchUnary (r, Length opc, cvec) =
-        (
-           (* Since we're only interested in the bottom bit we could use an
-              8-bit test, provided the value was in eax, ebx, ecx, edx. *)
-           genop (Group3_A, cvec);
-           genmodrm (Register, 0w0, getReg r, cvec);
-           gen32u (0w1, cvec);
-           [putConditional (opc, cvec)]
-        )
-
-    |   compareAndBranchUnary (r, WrdConst(opc, cnstnt), cvec) =
-        if isShort cnstnt
-        then
-        let
-            val c = toInt(toShort cnstnt)
-        in
-            genImmed (CMP, r, tag c, cvec);
-            [putConditional (opc, cvec)]
-        end
-        else (* We may be comparing with an address. *)
-        (
-            genop (Group1_32_A (* group1, 32 bit immediate *), cvec);
-            genmodrm(Register, arithOpToWord CMP, getReg r, cvec);
-            addConstToVec (WVal cnstnt, false, cvec); (* Remember this constant and address. *)
-            [putConditional (opc, cvec)]
-        )
-
-    |   compareAndBranchUnary (r, ArbConst(JE, cnstnt), cvec) =
-        (
-            (* Can do tests for (in)equality on arbitrary precision values
-               without checking the tags since the values we're comparing
-               against are short constants. *)
-            genImmed (CMP, r, tag(toInt cnstnt), cvec);
-            [putConditional (JE, cvec)]
-        )
-
-    |   compareAndBranchUnary (r, ArbConst(JNE, cnstnt), cvec) =
-        (
-            genImmed (CMP, r, tag(toInt cnstnt), cvec);
-            [putConditional (JNE, cvec)]
-        )
-
-    |   compareAndBranchUnary (r, ArbConst(opc, cnstnt), cvec) =
-        (
-            tagTest1 (r, cvec);
-            genImmed (CMP, r, tag(toInt cnstnt), cvec);
-            [putConditional (opc, cvec)]
-        )
-        
-    |   compareAndBranchUnary _ = raise InternalError "compareAndBranchUnary: Unknown instruction"
+    (* generate the "jump on overflow" used to implement arbitrary-precision operations. *)
+    fun genJO8 (addr, cvec as Code{ic, ...}) = 
+    let
+        val () = doPending (cvec, 12);
+        val here     = !ic;
+        (* jump address calculations are relative to the value
+           of the program counter *after* the instruction *)
+        val offset   = addr addrMinus (here addrPlus 2);
+    in
+        gen8u (opToInt JO, cvec);
+        gen8s (offset, cvec)
+    end
   
-  (* Common code for div and mod word.  They are identical apart from
-     getting the result. *)
-  fun divmodWord(isDiv: bool, r1:reg, r2:reg, rd:reg, cvec) : unit =
-        let
+    (* Common code for div and mod word.  They are identical apart from
+       getting the result. *)
+    fun divmodWord(isDiv: bool, r1:reg, r2:reg, rd:reg, cvec) : unit =
+    let
           (* The divisor needs to be a different register from
              either eax or edx.  It also needs to be different from
              r1 since we're going to modify divReg before we load r1
              into eax. *)
-          val divReg =
+        val divReg =
             if rd <> eax andalso rd <> edx
             then rd
             else if r1 <> ecx
             then ecx
             else esi
-       in
-         (* This is a bit complicated because the result is always placed
+    in
+        (* This is a bit complicated because the result is always placed
             in the EDX:EAX register pair so we have to save one or both. *)
-         if rd <> eax
-         then genPush(eax, cvec) else ();
-         if rd <> edx
-         then genPush(edx, cvec) else ();
-         if divReg <> rd
-         then genPush(divReg, cvec) else ();
-         (* Untag, but don't shift, the divisor and dividend. *)
-         if r2 = eax
-         then
-            (
+        if rd <> eax then genPush(eax, cvec) else ();
+        if rd <> edx then genPush(edx, cvec) else ();
+        if divReg <> rd then genPush(divReg, cvec) else ();
+        (* Untag, but don't shift, the divisor and dividend. *)
+        if r2 = eax
+        then
+        (
              if divReg = r1
              then raise InternalError "Assertion failed: Invalid registers"
              else ();
-             (* We use move followed by substraction since that tests the
-                result for zero. *)
+             (* We use move followed by subtraction since that tests the result for zero. *)
              genMove(divReg, r2, cvec);
              genImmed (SUB, divReg, 1, cvec);
              genLeal (eax, r1, ~1, cvec)
-            )
-         else
-            (
+        )
+        else
+        (
              genLeal (eax, r1, ~1, cvec);
              genMove(divReg, r2, cvec);
              genImmed (SUB, divReg, 1, cvec)
-            );
-          let
+        );
+        let
             val lab = [putConditional (JNE, cvec)]
-          in
-              (* call *) (* Use a call so we can get an exception trace. *)
-              genop(Group5, cvec);
-              genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
-              gen8u (Word8.fromInt MemRegRaiseDiv, cvec);
-              fixup (lab, cvec)
-          end;
-         (* Do the division. *)
-         genReg  (XOR, edx, edx, cvec);
-         genop (Group3_A, cvec);
-         genmodrm(Register, 0w6 (* div *), getReg divReg, cvec);
+        in
+            (* call *) (* Use a call so we can get an exception trace. *)
+            genop(Group5, cvec);
+            genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
+            gen8u (Word8.fromInt MemRegRaiseDiv, cvec);
+            fixup (lab, cvec)
+        end;
+        (* Do the division. *)
+        genReg  (XOR, edx, edx, cvec);
+        genop (Group3_A, cvec);
+        genmodrm(Register, 0w6 (* div *), getReg divReg, cvec);
          
-         if isDiv
-         then ( (* Tag the result into the result register. *)
+        if isDiv
+        then
+        ( (* Tag the result into the result register. *)
              genop (LEAL, cvec);
              genIndexed (1, SOME eax, eax, Scale1, rd, cvec)
-         )
-         else (* Add the tag back into the remainder. *)
+        )
+        else (* Add the tag back into the remainder. *)
              genLeal (rd, edx, 1, cvec);
 
-         (* Restore the saved registers.  N.B. This also has
-            the effect of making sure that both eax and edx contain
-            valid values. *)
-         if divReg <> rd
-         then genop(POP_R divReg, cvec) else ();
-         if rd <> edx
-         then genop(POP_R edx, cvec) else ();
-         if rd <> eax
-         then genop(POP_R eax, cvec) else ()
-      end
+        (* Restore the saved registers.  N.B. This also has
+           the effect of making sure that both eax and edx contain
+           valid values. *)
+        if divReg <> rd then genop(POP_R divReg, cvec) else ();
+        if rd <> edx then genop(POP_R edx, cvec) else ();
+        if rd <> eax then genop(POP_R eax, cvec) else ()
+    end
 
 
     fun checkAndLimitShift cvec =
@@ -2839,544 +2815,6 @@ Calling conventions:
         genMoveI (ecx, maxShift, cvec);
         fixup ([lab], cvec)
     end
- 
-    (* General register/register operation. *)
-    fun genRR (inst, r1:reg, r2:reg, rd:reg, cvec) : unit =
-    (
-    case inst of  
-     InstrAddA =>
-       (* Arbitrary precision addition. *)
-       (* If either argument is long, or if both arguments are short
-          but the result overflows, the code branchs to "addr". This
-          executes a trap which gets us into the run-time system which
-          then emulates the instructions, using long arithmetic.
-          Isn't that cute? To make it work, we have to be sure that
-          the source and destination registers are different, because
-          otherwise we wouldn't be able to perform the emulation
-          following an arithmetic overflow.
-          
-          Warning: since the RTS can only emulate a few instructions,
-          we have to be very careful about what code we generate here.
-          
-          For example, we use 2-byte "leal" instructions for tagging and
-          untagging rather than 1-byte "add" instructions because the
-          emulation has to treat these two operations differently.
-          SPF 4/1/95 *)
-       let
-         val addr = tagTest2 (rd, r1, r2, false, cvec); (* generates code *)
-       in
-         (* Do the actual operation after removing a tag from one arg. *)
-         genLeal (rd, r1, ~1, cvec);
-         genReg  (ADD, rd, r2, cvec);
-         genJO8  (addr, cvec)
-       end
-  
-   | InstrSubA =>
-       (* Arbitrary precision subtraction. *)
-       let
-         val addr = tagTest2 (rd, r1, r2, false, cvec); (* generates code *)
-       in
-         (* Do the actual operation after removing a tag from one arg. *)
-         genMove (rd, r1, cvec);
-         genReg  (SUB, rd, r2, cvec);
-         genLeal (rd, rd, 1, cvec); (* Put back the tag. *)
-         genJO8  (addr, cvec)
-       end
-  
-   | InstrMulA =>
-       (* Arbitrary precision multiplication. *)
-       let
-         val addr = tagTest2 (rd, r1, r2, false, cvec); (* generates code *)
-       in
-         (* This is a bit complicated because the result is always placed
-            in the EDX:EAX register pair so we have to save one or both. *)
-         (* If the multiply overflows we need to be able to recover the
-            original arguments in order to emulate the instruction. *)
-         if rd <> eax
-         then genPush(eax, cvec) else ();
-         if rd <> edx
-         then genPush(edx, cvec) else ();
-         if r2 = edx
-         then
-            (
-             (* Untag, but don't shift the multiplicand. *)
-             genLeal (eax, r1, ~1, cvec);
-             (* Shift down the multiplier. *)
-             genop (Group2_1_A, cvec);
-             genmodrm(Register, 0w7 (* sar *), getReg edx, cvec)
-            )
-         else (* r2 <> edx *)
-            (
-             (* Shift down the multiplier. *)
-             if r1 <> edx
-             then genMove(edx, r1, cvec) else ();
-             genop (Group2_1_A, cvec);
-             genmodrm(Register, 0w7 (* sar *), getReg edx, cvec);
-             (* Untag, but don't shift the multiplicand. *)
-             genLeal (eax, r2, ~1, cvec)
-            );
-         (* Do the multiplication. *)
-         genop (Group3_A, cvec);
-         genmodrm(Register, 0w5 (* imull *), getReg edx, cvec);
-         (* Add back the tag, but don't shift. *)
-         genLeal (rd, eax, 1, cvec);
-         (* Restore the saved registers.  N.B. This also has
-            the effect of making sure that both eax and edx contain
-            valid values. *)
-         if rd <> edx
-         then genop(POP_R edx, cvec)
-         else ();
-         if rd <> eax
-         then genop(POP_R eax, cvec)
-         else ();
-         genJO8  (addr, cvec) (* Check for overflow. *)
-      end
-
-    | InstrAddW =>
-       (* Fixed precision addition. (Doesn't test for overflow.) *)
-       (
-         (* Remove the tag from one argument, then add in the other. *)
-         (* This could be done using a single leal instruction:
-            leal rd,[r1+r2-1] *)
-         genLeal (rd, r2, ~1, cvec);
-         genReg  (ADD, rd, r1, cvec)
-       )
-
-   | InstrSubW =>
-       (* Fixed precision subtraction. (Doesn't test for overflow.) *)
-       (
-            if rd = r1 then () else raise InternalError "InstrSubW: not shared registers";
-            (*genMove  (rd, r1, cvec);*)
-            genReg   (SUB, rd, r2, cvec);
-            genImmed (ADD, rd, 1, cvec)
-       )
-
-   | InstrMulW =>
-       (* Fixed precision multiplication. (Doesn't test for overflow.) *)
-       (
-         (* This is a bit complicated because the result is always placed
-            in the EDX:EAX register pair so we have to save one or both. *)
-         if rd <> eax
-         then genPush(eax, cvec) else ();
-         if rd <> edx
-         then genPush(edx, cvec) else ();
-         if r2 = edx
-         then
-            (
-             (* Untag, but don't shift the multiplicand. *)
-             genLeal (eax, r1, ~1, cvec);
-             (* Shift down the multiplier. *)
-             genop (Group2_1_A, cvec);
-             genmodrm(Register, 0w5 (* shr *), getReg edx, cvec)
-            )
-         else
-            (
-             (* Shift down the multiplier. *)
-             if r1 <> edx
-             then genMove(edx, r1, cvec) else ();
-             genop (Group2_1_A, cvec);
-             genmodrm(Register, 0w5 (* shr *), getReg edx, cvec);
-             (* Untag, but don't shift the multiplicand. *)
-             genLeal (eax, r2, ~1, cvec)
-            );
-         (* Do the multiplication. *)
-         genop (Group3_A, cvec);
-         genmodrm(Register, 0w4 (* mull *), getReg edx, cvec);
-         (* Add back the tag, but don't shift. *)
-         genLeal (rd, eax, 1, cvec);
-         (* Restore the saved registers.  N.B. This also has
-            the effect of making sure that both eax and edx contain
-            valid values. *)
-         if rd <> edx
-         then genop(POP_R edx, cvec)
-         else ();
-         if rd <> eax
-         then genop(POP_R eax, cvec)
-         else ()
-      )
-
-   | InstrDivW =>
-       (* Fixed precision division. (Doesn't test for overflow.) *)
-       divmodWord(true, r1, r2, rd, cvec)
-
-   | InstrModW =>
-       (* Fixed precision remainder. (Doesn't test for overflow.) *)
-       divmodWord(false, r1, r2, rd, cvec)
-
-   | InstrOrW =>
-       (* Logical or. *)
-       (
-            if rd = r1 then () else raise InternalError "InstrOrW: not shared registers";
-            (*genMove (rd, r1, cvec);*)
-            genReg  (OR, rd, r2, cvec)
-       )
-
-   | InstrAndW =>
-       (* Logical and. *)
-       (
-            if rd = r1 then () else raise InternalError "InstrAndW: not shared registers";
-            (*genMove (rd, r1, cvec);*)
-            genReg  (AND, rd, r2, cvec)
-       )
-
-   | InstrXorW =>
-       (
-         (* Must remove the tag from one argument. *)
-         genLeal (rd, r2, ~1, cvec);
-         genReg  (XOR, rd, r1, cvec)
-       )
-
-    |   InstrUpshiftW =>
-        (
-            if rd = r1 andalso r2 = ecx then () else raise InternalError "instrUpshiftW: Bad registers";
-            checkAndLimitShift cvec;
-            genLeal (rd, rd, ~1, cvec); (* Remove the tag from the value before we shift. *)
-            genop (Group2_1_A, cvec); (* Untag ecx first. *)
-            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
-            genop (Group2_CL_A, cvec);
-            genmodrm(Register, 0w4 (* shl *), getReg rd, cvec);
-            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
-            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
-        )
-
-    |   InstrDownshiftW =>
-        (
-            if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftW: Bad registers";
-            checkAndLimitShift cvec;
-            genop (Group2_1_A, cvec); (* Untag ecx first. *)
-            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
-            genop (Group2_CL_A, cvec);
-            genmodrm(Register, 0w5 (* shr *), getReg rd, cvec);
-            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
-            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
-        )
-
-    |   InstrDownshiftArithW =>
-        (
-            if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftArithW: Bad registers";
-            checkAndLimitShift cvec;
-            genop (Group2_1_A, cvec); (* Untag ecx first. *)
-            genmodrm(Register, 0w5 (* shr *), getReg ecx, cvec);
-            genop (Group2_CL_A, cvec);
-            genmodrm(Register, 0w7 (* sar *), getReg rd, cvec);
-            genImmed (OR, rd, tag 0, cvec); (* Put in the tag *)
-            genTag (ecx, cvec) (* Retag ecx so that it's a valid tagged int. *)
-        )
-
-   | InstrLoadW =>
-       (* Load a word. *)
-       (
-         (* The index is already multiplied by 2, so we need only multiply
-            by two again to give a word offset.  Then we have to subtract
-            2 to account for the tag. *)
-         genop      (MOVL_A_R, cvec);
-         genIndexed (~2, SOME r1, r2, Scale2, rd, cvec)
-       )
-
-   | InstrLoadB =>
-       (* Load a byte. *)
-       (        
-         (* mov r2,rd; shrl $1,rd; movzl 0(r1,rd,1),rd; leal 1(,rd,2),rd *)
-         genMove (rd, r2, cvec);
-         
-         genop (Group2_1_A, cvec);
-         genmodrm(Register, 0w5 (* shr *), getReg rd, cvec);
-         
-         genop (ESCAPE, cvec);
-         gen8u (0wxB6 (* movzl *), cvec);
-         genIndexed (0, SOME r1, rd, Scale1, rd, cvec);
-         
-         (* Tag the result. *)
-         genTag (rd, cvec)
-       )
-
-   |  InstrSetStringLength => (* Set the length word of a string. *)
-       (
-       (* The length is untagged. *)
-       genop (Group2_1_A, cvec);
-       genmodrm(Register, 0w5 (* shr *), getReg r2, cvec);
-
-       genop (MOVL_R_A, cvec);
-       genEA (0, r1, r2, cvec);
-
-       (* Restore the original value. This ensures we don't have a
-          bad value around and also restores the original value
-          since it may still be wanted. *)
-       genTag(r2, cvec)
-       )
-
-   | _ =>
-      (* bad and unimplemented Instrs *)
-      raise InternalError "Unimplemented instruction"
-  ); (* end genRR *)
-
-    fun genUnary (InstrVeclen, rs, rd, cvec) =
-        (
-          genLoad  (~4, rs, rd, cvec);
-      
-          (* length only occupies the least significant 24 bits
-             - the other bits are flags. *)
-          genImmed (AND, rd, exp2_24 - 1, cvec);
-
-          (* Tag the result. *)
-          genTag (rd, cvec)
-        )
-
-    |   genUnary (InstrVecflags, rs, rd, cvec) =  
-        (* Load the flags byte. *)
-        (
-          genop (ESCAPE, cvec);
-          gen8u (0wxB6 (* movzx *), cvec);
-          genEA (~1, rs, rd, cvec);
-
-          (* Tag the result. *)
-          genTag (rd, cvec)          
-        )
-
-    |   genUnary (InstrGetFirstLong, rs, rd, cvec) =  
-        let
-            (* Get the first word of a long integer.  We've already
-               checked that it is long. *)
-            (* Test the "sign bit" of the object. *)
-            val _ =
-                (
-                genop    (Group3_a, cvec);
-                genmodrm(Based8, 0w0 (* test *), getReg rs, cvec);
-                gen8s (~1, cvec);
-                gen8u (0w16, cvec)
-                )
-            (* Load the unsigned, untagged, little-endian value. *)
-            val _ = genLoad  (0, rs, rd, cvec);
-            (* Skip if the sign bit wasn't set. *)
-            val l1 = [putConditional (JE, cvec)]
-        in
-            genop(Group3_A, cvec);
-            genmodrm(Register, 0w3 (* neg *), getReg rd, cvec);
-
-            fixup(l1, cvec);
-            genTag (rd, cvec)
-        end
-
-    |   genUnary (InstrStringLength, rs, rd, cvec) =  
-        let
-            (* If it's tagged the result is 1 otherwise we need to load
-               the length word and tag it. *)
-            val l1 = compareAndBranchUnary (rs, Long, cvec)
-            val _ = genMoveI (rd, tag 1, cvec);
-            val l2 = unconditionalBranch cvec
-        in
-            fixup(l1, cvec);
-            genLoad  (0, rs, rd, cvec); (* Load the length word. *)
-            genTag (rd, cvec); (* And tag the result. *)
-            fixup(l2, cvec)
-        end
-
-    |   genUnary (InstrAddAConst constnt, rs, rd, cvec) =  
-        (* Arbitrary precision addition. *)
-        let 
-            val c = toInt constnt;
-            val addr = tagTest1 (rs, cvec);
-        in
-            if rd = rs then () else raise InternalError "InstrAddAConst: Bad registers";
-            (*genMove  (rd, rs, cvec);*)
-            genImmed (ADD, rd,  semitag c, cvec);
-            genJO8   (addr, cvec)
-        end
-
-    |   genUnary (InstrSubAConst constnt, rs, rd, cvec) =
-        (* Arbitrary precision subtraction. *)
-        let 
-            val c = toInt constnt
-            val addr = tagTest1 (rs, cvec)
-        in
-            if rd = rs then () else raise InternalError "InstrSubAConst: Bad registers";
-            (*genMove  (rd, rs, cvec);*)
-            genImmed (SUB, rd, semitag c, cvec);
-            genJO8   (addr, cvec)
-        end
-
-    |   genUnary (InstrAddWConst constnt, rs, rd, cvec) =
-        (* Fixed precision addition - doesn't check for overflow. *)
-        (* The argument is shifted but not tagged *)
-        let
-            val c = toInt constnt
-        in
-            genLeal (rd, rs, semitag c, cvec)
-        end
-
-    |   genUnary (InstrSubWConst constnt, rs, rd, cvec) =
-        (* Fixed precision subtraction - doesn't check for overflow.  *)
-        (* The argument is shifted but not tagged. *)
-        let
-            val c = toInt constnt
-        in
-            genLeal (rd, rs, ~ (semitag c), cvec)
-        end
-
-    (*  Now removed.  This is no longer safe now that we look for constants
-        in the code.
-    | InstrRevSubW => 
-        (* Fixed precision reverse subtraction - doesn't check for overflow. *)
-        (
-          genMoveI (rd, semitag c + 2, cvec);
-          genReg   (SUB, rd, rs, cvec)
-        )
-    *)
-
-    |   genUnary (InstrOrWConst constnt, rs, rd, cvec) =
-        (* Logical or. *)
-        let
-            val c = toInt constnt
-            val tagged = tag c;
-        in
-            if rd = rs then () else raise InternalError "InstrOrWConst: Bad registers";
-            (*genMove  (rd, rs, cvec);*)
-            genImmed (OR, rd, tagged, cvec)
-        end
-
-    |   genUnary (InstrAndWConst constnt, rs, rd, cvec) =
-        (* Logical and. *)
-        let
-            val c = toInt constnt
-            val tagged = tag c;
-        in
-            if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
-            (*genMove  (rd, rs, cvec);*)
-            genImmed (AND, rd, tagged, cvec)
-        end
-
-    |   genUnary (InstrXorWConst constnt, rs, rd, cvec) =
-        (* Constant must be shifted but not tagged. *)
-        let
-            val c = toInt constnt
-        in
-            if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
-            (*genMove  (rd, rs, cvec);*)
-            genImmed (XOR, rd, semitag c, cvec)
-        end
-
-    |   genUnary (InstrUpshiftWConst constnt, rs, rd, cvec) =
-        (* Word shift of more than 31 (unsigned) is defined to return zero
-           for the logical shifts and either 0 or all ones for the arithmetic
-           shift.  The i386 shift instructions mask the shift value instead. *)
-         let
-            val c = toInt constnt
-        in
-            if c < 0 orelse c > 31
-            then genMoveI (rd, tag 0, cvec)
-            else if c = 0 (* Multiplying by one??? *)
-            then genMove (rd, rs, cvec)
-            else if c = 1
-            then (* Multiplying by 2. *)
-                (
-                genop (LEAL, cvec);
-                (* Using a base and index means the ~1 is just a byte. *)
-                genIndexed (~1, SOME rs, rs, Scale1, rd, cvec)
-                )
-            else if c = 2
-            then (* Multiplying by 4 *)
-                (
-                genop (LEAL, cvec);
-                (* No base register: ~3 is a full word. *)
-                genIndexed (~3, NONE, rs, Scale4, rd, cvec)
-                )
-            else if c = 3
-            then (* Multiplying by 8 *)
-                (
-                genop (LEAL, cvec);
-                genIndexed (~7, NONE, rs, Scale8, rd, cvec)
-                )
-            else (* Other powers of 2. *)
-            let
-                fun power2 n = if n = 0 then 1 else 2 * power2 (n-1)
-            in
-                genMove (rd, rs, cvec);
-                genop (Group2_8_A, cvec);
-                genmodrm(Register, 0w4 (* shl *), getReg rd, cvec);
-                gen8s (c, cvec);
-                (* We have shifted the tag bit along with everything else.
-                   We need to subtract the shifted tag bit and a tag bit to
-                   the end. *)
-                genLeal (rd, rd, 1 - power2 c, cvec)
-            end
-        end
-
-    |   genUnary (InstrDownshiftWConst constnt, rs, rd, cvec) =
-        let
-            val c = toInt constnt
-        in
-            if c < 0 orelse c > 31
-            then genMoveI (rd, tag 0, cvec)
-            else
-            (
-                genMove (rd, rs, cvec);
-                genop (Group2_8_A, cvec);
-                genmodrm(Register, 0w5 (* shr *), getReg rd, cvec);
-                gen8s (c, cvec);
-                genImmed (OR, rd, tag 0, cvec) (* Put in the tag *)
-            )
-        end
-
-    |   genUnary (InstrDownshiftArithWConst constnt, rs, rd, cvec) =
-        (* In this case it's easiest to set the shift to 31. *)
-        let
-          val c = toInt constnt
-        in
-          genMove (rd, rs, cvec);
-          genop (Group2_8_A, cvec);
-          genmodrm(Register, 0w7 (* sar *), getReg rd, cvec);
-          gen8s (if c < 0 orelse c > 31 then 31 else c, cvec);
-          genImmed (OR, rd, tag 0, cvec) (* Put in the tag *)
-        end
-
-    |   genUnary (InstrMulAConst2, rs, rd, cvec) =
-        (* We only handle multiplication by two at the moment.  We
-           could handle a wider range but it's not that easy particularly
-           because the overflow flag is not defined on shifts of more than
-           one. *)
-        let 
-            val addr = tagTest1 (rs, cvec);
-        in
-            (* Do the actual operation after removing a tag from one arg. *)
-            genLeal (rd, rs, ~1, cvec);
-            genReg  (ADD, rd, rs, cvec);
-            genJO8  (addr, cvec)
-        end
-
-    |   genUnary (InstrLoadWConstOffset constnt, rs, rd, cvec) =
-        let
-          val c = toInt constnt
-        in
-          (* Offset is words so multiply by 4 to get byte offset. *)
-          genLoad (c * 4, rs, rd, cvec)
-        end
-
-    |   genUnary (InstrLoadBConstOffset constnt, rs, rd, cvec) =
-		let
-		    val c = toInt constnt
-        in
-            genop (ESCAPE, cvec);
-            gen8u (0wxB6 (* movzx *), cvec);
-            genEA (c, rs, rd, cvec);
-
-            (* Tag the result. *)
-            genTag (rd, cvec)          
-        end
-
-    |   genUnary (InstrAtomicAdd incr, rs, rd, cvec) =
-        (* Atomic Increment/Decrement. *)
-        (
-            genReg(XOR, rd, rd, cvec); (* Can't use MOVL because it's not tagged. *)
-            genImmed (ADD, rd, semitag incr, cvec);
-            genop (LOCK, cvec);
-            gen8u (0wx0f (* ESCAPE *), cvec);
-            gen8u(0wxC1 (* xaddl *), cvec);
-            genEA(0, rs, rd, cvec);
-            (* Since xadd returns the original value we have to add in the value again. *)
-            genImmed (ADD, rd, semitag incr, cvec)
-        )
-
-    |   genUnary _ = (* bad *) raise InternalError "Unimplemented instruction"
 
   (* On this architecture, the jumptable is physically inserted into
      the code as a vector of address offsets. The function "indexedCase"
@@ -3426,10 +2864,7 @@ Calling conventions:
                     if testArbitrary
                     then
                     (
-                        (* Is it long? *)
-                        genop (Group3_A, cvec);
-                        genmodrm(Register, 0w0(* test *), getReg r1, cvec);
-                        gen32u(0w1, cvec);
+                        testTag(r1, cvec);
                         (* Need to check whether the branch is in range. *)
                         [putConditional (JE, cvec)]
                     )
@@ -3528,11 +2963,500 @@ Calling conventions:
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
     fun codeGenerate (ops, code) =
     let
-        fun cgOp(DataOp{ instr, operands=[InRegister source], output=SOME output }) =
-                genUnary (instr, source, output, code)
+        fun cgOp(DataOp{ instr=InstrVeclen, operands=[InRegister rs], output=SOME rd}) =
+            (
+              genLoad  (~4, rs, rd, code);
+      
+              (* length only occupies the least significant 24 bits
+                 - the other bits are flags. *)
+              genImmed (AND, rd, exp2_24 - 1, code);
 
-        |   cgOp(DataOp{ instr, operands=[InRegister left, InRegister right], output=SOME output }) =
-                genRR(instr, left, right, output, code)
+              (* Tag the result. *)
+              genTag (rd, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrVecflags, operands=[InRegister rs], output=SOME rd}) =  
+            (* Load the flags byte. *)
+            (
+              genop (ESCAPE, code);
+              gen8u (0wxB6 (* movzx *), code);
+              genEA (~1, rs, rd, code);
+
+              (* Tag the result. *)
+              genTag (rd, code)          
+            )
+
+        |   cgOp(DataOp{ instr=InstrGetFirstLong, operands=[InRegister rs], output=SOME rd}) =  
+            let
+                (* Get the first word of a long integer.  We've already
+                   checked that it is long. *)
+                (* Test the "sign bit" of the object. *)
+                val _ =
+                    (
+                    genop    (Group3_a, code);
+                    genmodrm(Based8, 0w0 (* test *), getReg rs, code);
+                    gen8s (~1, code);
+                    gen8u (0w16, code)
+                    )
+                (* Load the unsigned, untagged, little-endian value. *)
+                val _ = genLoad  (0, rs, rd, code);
+                (* Skip if the sign bit wasn't set. *)
+                val l1 = [putConditional (JE, code)]
+            in
+                genop(Group3_A, code);
+                genmodrm(Register, 0w3 (* neg *), getReg rd, code);
+
+                fixup(l1, code);
+                genTag (rd, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrStringLength, operands=[InRegister rs], output=SOME rd}) =  
+            let
+                (* If it's tagged the result is 1 otherwise we need to load
+                   the length word and tag it. *)
+                val () = testTag(rs, code)
+                val l1 = [putConditional (JE, code)]
+                val _ = genMoveI (rd, tag 1, code)
+                val l2 = unconditionalBranch code
+            in
+                fixup(l1, code);
+                genLoad  (0, rs, rd, code); (* Load the length word. *)
+                genTag (rd, code); (* And tag the result. *)
+                fixup(l2, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrAddAConst constnt, operands=[InRegister rs], output=SOME rd}) =  
+            (* Arbitrary precision addition. *)
+            let 
+                val c = toInt constnt;
+                val addr = tagTest1 (rs, code);
+            in
+                if rd = rs then () else raise InternalError "InstrAddAConst: Bad registers";
+                (*genMove  (rd, rs, code);*)
+                genImmed (ADD, rd,  semitag c, code);
+                genJO8   (addr, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrSubAConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Arbitrary precision subtraction. *)
+            let 
+                val c = toInt constnt
+                val addr = tagTest1 (rs, code)
+            in
+                if rd = rs then () else raise InternalError "InstrSubAConst: Bad registers";
+                (*genMove  (rd, rs, code);*)
+                genImmed (SUB, rd, semitag c, code);
+                genJO8   (addr, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrAddWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Fixed precision addition - doesn't check for overflow. *)
+            (* The argument is shifted but not tagged *)
+            let
+                val c = toInt constnt
+            in
+                genLeal (rd, rs, semitag c, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrSubWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Fixed precision subtraction - doesn't check for overflow.  *)
+            (* The argument is shifted but not tagged. *)
+            let
+                val c = toInt constnt
+            in
+                genLeal (rd, rs, ~ (semitag c), code)
+            end
+
+        (*  Now removed.  This is no longer safe now that we look for constants
+            in the code.
+        | InstrRevSubW => 
+            (* Fixed precision reverse subtraction - doesn't check for overflow. *)
+            (
+              genMoveI (rd, semitag c + 2, code);
+              genReg   (SUB, rd, rs, code)
+            )
+        *)
+
+        |   cgOp(DataOp{ instr=InstrOrWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Logical or. *)
+            let
+                val c = toInt constnt
+                val tagged = tag c;
+            in
+                if rd = rs then () else raise InternalError "InstrOrWConst: Bad registers";
+                (*genMove  (rd, rs, code);*)
+                genImmed (OR, rd, tagged, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrAndWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Logical and. *)
+            let
+                val c = toInt constnt
+                val tagged = tag c;
+            in
+                if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
+                (*genMove  (rd, rs, code);*)
+                genImmed (AND, rd, tagged, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrXorWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Constant must be shifted but not tagged. *)
+            let
+                val c = toInt constnt
+            in
+                if rd = rs then () else raise InternalError "InstrAndWConst: Bad registers";
+                (*genMove  (rd, rs, code);*)
+                genImmed (XOR, rd, semitag c, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrUpshiftWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* Word shift of more than 31 (unsigned) is defined to return zero
+               for the logical shifts and either 0 or all ones for the arithmetic
+               shift.  The i386 shift instructions mask the shift value instead. *)
+             let
+                val c = toInt constnt
+            in
+                if c < 0 orelse c > 31
+                then genMoveI (rd, tag 0, code)
+                else if c = 0 (* Multiplying by one??? *)
+                then genMove (rd, rs, code)
+                else if c = 1
+                then (* Multiplying by 2. *)
+                    (
+                    genop (LEAL, code);
+                    (* Using a base and index means the ~1 is just a byte. *)
+                    genIndexed (~1, SOME rs, rs, Scale1, rd, code)
+                    )
+                else if c = 2
+                then (* Multiplying by 4 *)
+                    (
+                    genop (LEAL, code);
+                    (* No base register: ~3 is a full word. *)
+                    genIndexed (~3, NONE, rs, Scale4, rd, code)
+                    )
+                else if c = 3
+                then (* Multiplying by 8 *)
+                    (
+                    genop (LEAL, code);
+                    genIndexed (~7, NONE, rs, Scale8, rd, code)
+                    )
+                else (* Other powers of 2. *)
+                let
+                    fun power2 n = if n = 0 then 1 else 2 * power2 (n-1)
+                in
+                    genMove (rd, rs, code);
+                    genop (Group2_8_A, code);
+                    genmodrm(Register, 0w4 (* shl *), getReg rd, code);
+                    gen8s (c, code);
+                    (* We have shifted the tag bit along with everything else.
+                       We need to subtract the shifted tag bit and a tag bit to
+                       the end. *)
+                    genLeal (rd, rd, 1 - power2 c, code)
+                end
+            end
+
+        |   cgOp(DataOp{ instr=InstrDownshiftWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            let
+                val c = toInt constnt
+            in
+                if c < 0 orelse c > 31
+                then genMoveI (rd, tag 0, code)
+                else
+                (
+                    genMove (rd, rs, code);
+                    genop (Group2_8_A, code);
+                    genmodrm(Register, 0w5 (* shr *), getReg rd, code);
+                    gen8s (c, code);
+                    genImmed (OR, rd, tag 0, code) (* Put in the tag *)
+                )
+            end
+
+        |   cgOp(DataOp{ instr=InstrDownshiftArithWConst constnt, operands=[InRegister rs], output=SOME rd}) =
+            (* In this case it's easiest to set the shift to 31. *)
+            let
+              val c = toInt constnt
+            in
+              genMove (rd, rs, code);
+              genop (Group2_8_A, code);
+              genmodrm(Register, 0w7 (* sar *), getReg rd, code);
+              gen8s (if c < 0 orelse c > 31 then 31 else c, code);
+              genImmed (OR, rd, tag 0, code) (* Put in the tag *)
+            end
+
+        |   cgOp(DataOp{ instr=InstrMulAConst2, operands=[InRegister rs], output=SOME rd}) =
+            (* We only handle multiplication by two at the moment.  We
+               could handle a wider range but it's not that easy particularly
+               because the overflow flag is not defined on shifts of more than
+               one. *)
+            let 
+                val addr = tagTest1 (rs, code);
+            in
+                (* Do the actual operation after removing a tag from one arg. *)
+                genLeal (rd, rs, ~1, code);
+                genReg  (ADD, rd, rs, code);
+                genJO8  (addr, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrLoadWConstOffset constnt, operands=[InRegister rs], output=SOME rd}) =
+            let
+                val c = toInt constnt
+            in
+                (* Offset is words so multiply by 4 to get byte offset. *)
+                genLoad (c * 4, rs, rd, code)
+            end
+
+        |   cgOp(DataOp{ instr=InstrLoadBConstOffset constnt, operands=[InRegister rs], output=SOME rd}) =
+    		let
+    		    val c = toInt constnt
+            in
+                genop (ESCAPE, code);
+                gen8u (0wxB6 (* movzx *), code);
+                genEA (c, rs, rd, code);
+
+                (* Tag the result. *)
+                genTag (rd, code)          
+            end
+
+        |   cgOp(DataOp{ instr=InstrAtomicAdd incr, operands=[InRegister rs], output=SOME rd}) =
+            (* Atomic Increment/Decrement. *)
+            (
+                genReg(XOR, rd, rd, code); (* Can't use MOVL because it's not tagged. *)
+                genImmed (ADD, rd, semitag incr, code);
+                genop (LOCK, code);
+                gen8u (0wx0f (* ESCAPE *), code);
+                gen8u(0wxC1 (* xaddl *), code);
+                genEA(0, rs, rd, code);
+                (* Since xadd returns the original value we have to add in the value again. *)
+                genImmed (ADD, rd, semitag incr, code)
+            )        
+
+        |   cgOp(DataOp{ instr=InstrAddA, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Arbitrary precision addition. *)
+            (* If either argument is long, or if both arguments are short
+               but the result overflows, the code branches to "addr". This
+               executes a trap which gets us into the run-time system which
+               then emulates the instructions, using long arithmetic.
+               Isn't that cute? To make it work, we have to be sure that
+               the source and destination registers are different, because
+               otherwise we wouldn't be able to perform the emulation
+               following an arithmetic overflow.
+          
+               Warning: since the RTS can only emulate a few instructions,
+               we have to be very careful about what code we generate here.
+          
+               For example, we use 2-byte "leal" instructions for tagging and
+               untagging rather than 1-byte "add" instructions because the
+               emulation has to treat these two operations differently.
+               SPF 4/1/95 *)
+            let
+                val addr = tagTest2 (rd, r1, r2, code) (* generates code *)
+            in
+                (* Do the actual operation after removing a tag from one arg. *)
+                genLeal (rd, r1, ~1, code);
+                genReg  (ADD, rd, r2, code);
+                genJO8  (addr, code)
+            end
+  
+        |   cgOp(DataOp{ instr=InstrSubA, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Arbitrary precision subtraction. *)
+            let
+                val addr = tagTest2 (rd, r1, r2, code); (* generates code *)
+            in
+                (* Do the actual operation after removing a tag from one arg. *)
+                genMove (rd, r1, code);
+                genReg  (SUB, rd, r2, code);
+                genLeal (rd, rd, 1, code); (* Put back the tag. *)
+                genJO8  (addr, code)
+            end
+  
+        |   cgOp(DataOp{ instr=InstrMulA, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Arbitrary precision multiplication. *)
+            let
+                val addr = tagTest2 (rd, r1, r2, code) (* generates code *)
+            in
+                (* This is a bit complicated because the result is always placed
+                   in the EDX:EAX register pair so we have to save one or both. *)
+                 (* If the multiply overflows we need to be able to recover the
+                    original arguments in order to emulate the instruction. *)
+                if rd <> eax then genPush(eax, code) else ();
+                if rd <> edx then genPush(edx, code) else ();
+                if r2 = edx
+                then
+                (
+                    (* Untag, but don't shift the multiplicand. *)
+                    genLeal (eax, r1, ~1, code);
+                    (* Shift down the multiplier to remove the tag. *)
+                    genop (Group2_1_A, code);
+                    genmodrm(Register, 0w7 (* sar *), getReg edx, code)
+                )
+                else (* r2 <> edx *)
+                (
+                    (* Shift down the multiplier. *)
+                    if r1 <> edx then genMove(edx, r1, code) else ();
+                    genop (Group2_1_A, code);
+                    genmodrm(Register, 0w7 (* sar *), getReg edx, code);
+                    (* Untag, but don't shift the multiplicand. *)
+                    genLeal (eax, r2, ~1, code)
+                );
+                (* Do the multiplication. *)
+                genop (Group3_A, code);
+                genmodrm(Register, 0w5 (* imull *), getReg edx, code);
+                (* Add back the tag, but don't shift. *)
+                genLeal (rd, eax, 1, code);
+                (* Restore the saved registers.  N.B. This also has
+                   the effect of making sure that both eax and edx contain
+                   valid values. *)
+                if rd <> edx then genop(POP_R edx, code) else ();
+                if rd <> eax then genop(POP_R eax, code) else ();
+                genJO8  (addr, code) (* Check for overflow. *)
+            end
+
+        |   cgOp(DataOp{ instr=InstrAddW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Fixed precision addition. (Doesn't test for overflow.) *)
+            (
+                (* Remove the tag from one argument, then add in the other. *)
+                (* This could be done using a single leal instruction: leal rd,[r1+r2-1] *)
+                genLeal (rd, r2, ~1, code);
+                genReg  (ADD, rd, r1, code)
+           )
+
+        |   cgOp(DataOp{ instr=InstrSubW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Fixed precision subtraction. (Doesn't test for overflow.) *)
+            (
+                if rd = r1 then () else raise InternalError "InstrSubW: not shared registers";
+                (*genMove  (rd, r1, code);*)
+                genReg   (SUB, rd, r2, code);
+                genImmed (ADD, rd, 1, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrMulW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Fixed precision multiplication. (Doesn't test for overflow.) *)
+            (
+                (* The negotiator puts the arguments into specific registers. *)
+                if rd = eax andalso r1 = eax andalso r2 = edx then () else raise InternalError "InstrMulW: bad arguments";
+                (* Untag, but don't shift the multiplicand. *)
+                genLeal (eax, eax, ~1, code);
+                (* Shift down the multiplier. *)
+                genop (Group2_1_A, code);
+                genmodrm(Register, 0w5 (* shr *), getReg edx, code);
+                (* Do the multiplication. *)
+                genop (Group3_A, code);
+                genmodrm(Register, 0w4 (* mull *), getReg edx, code);
+                (* Add back the tag, but don't shift. *)
+                genLeal (eax, eax, 1, code);
+                genMove (edx, eax, code) (* Copy this into edx so it doesn't have a bad value. *)
+            )
+
+        |   cgOp(DataOp{ instr=InstrDivW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Fixed precision division. (Doesn't test for overflow.) *)
+            divmodWord(true, r1, r2, rd, code)
+
+        |   cgOp(DataOp{ instr=InstrModW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Fixed precision remainder. (Doesn't test for overflow.) *)
+            divmodWord(false, r1, r2, rd, code)
+
+        |   cgOp(DataOp{ instr=InstrOrW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+           (* Logical or. *)
+           (
+                if rd = r1 then genReg  (OR, rd, r2, code)
+                else if rd = r2 then genReg  (OR, rd, r1, code)
+                else raise InternalError "InstrOrW: not shared registers"
+           )
+
+        |   cgOp(DataOp{ instr=InstrAndW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+           (* Logical and. *)
+           (
+                if rd = r1 then genReg  (AND, rd, r2, code)
+                else if rd = r2 then genReg  (AND, rd, r1, code)
+                else raise InternalError "InstrAndW: not shared registers"
+           )
+
+        |   cgOp(DataOp{ instr=InstrXorW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (
+                (* Must remove the tag from one argument. *)
+                genLeal (rd, r2, ~1, code);
+                genReg  (XOR, rd, r1, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrUpshiftW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (
+                if rd = r1 andalso r2 = ecx then () else raise InternalError "instrUpshiftW: Bad registers";
+                checkAndLimitShift code;
+                genLeal (rd, rd, ~1, code); (* Remove the tag from the value before we shift. *)
+                genop (Group2_1_A, code); (* Untag ecx first. *)
+                genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                genop (Group2_CL_A, code);
+                genmodrm(Register, 0w4 (* shl *), getReg rd, code);
+                genImmed (OR, rd, tag 0, code); (* Put in the tag *)
+                genTag (ecx, code) (* Retag ecx so that it's a valid tagged int. *)
+            )
+
+        |   cgOp(DataOp{ instr=InstrDownshiftW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (
+                if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftW: Bad registers";
+                checkAndLimitShift code;
+                genop (Group2_1_A, code); (* Untag ecx first. *)
+                genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                genop (Group2_CL_A, code);
+                genmodrm(Register, 0w5 (* shr *), getReg rd, code);
+                genImmed (OR, rd, tag 0, code); (* Put in the tag *)
+                genTag (ecx, code) (* Retag ecx so that it's a valid tagged int. *)
+            )
+
+        |   cgOp(DataOp{ instr=InstrDownshiftArithW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (
+                if rd = r1 andalso r2 = ecx then () else raise InternalError "InstrDownshiftArithW: Bad registers";
+                checkAndLimitShift code;
+                genop (Group2_1_A, code); (* Untag ecx first. *)
+                genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                genop (Group2_CL_A, code);
+                genmodrm(Register, 0w7 (* sar *), getReg rd, code);
+                genImmed (OR, rd, tag 0, code); (* Put in the tag *)
+                genTag (ecx, code) (* Retag ecx so that it's a valid tagged int. *)
+            )
+
+        |   cgOp(DataOp{ instr=InstrLoadW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Load a word. *)
+            (
+                (* The index is already multiplied by 2, so we need only multiply
+                   by two again to give a word offset.  Then we have to subtract
+                   2 to account for the tag. *)
+                genop      (MOVL_A_R, code);
+                genIndexed (~2, SOME r1, r2, Scale2, rd, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrLoadB, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (* Load a byte. *)
+            (        
+                (* mov r2,rd; shrl $1,rd; movzl 0(r1,rd,1),rd; leal 1(,rd,2),rd *)
+                genMove (rd, r2, code);
+         
+                genop (Group2_1_A, code);
+                genmodrm(Register, 0w5 (* shr *), getReg rd, code);
+         
+                genop (ESCAPE, code);
+                gen8u (0wxB6 (* movzl *), code);
+                genIndexed (0, SOME r1, rd, Scale1, rd, code);
+         
+                (* Tag the result. *)
+                genTag (rd, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrSetStringLength, operands=[InRegister r1, InRegister r2], output=NONE }) =
+            (* Set the length word of a string. *)
+            (
+            (* The length is untagged. *)
+                genop (Group2_1_A, code);
+                genmodrm(Register, 0w5 (* shr *), getReg r2, code);
+
+                genop (MOVL_R_A, code);
+                genEA (0, r1, r2, code);
+
+                (* Restore the original value. This ensures we don't have a
+                   bad value around and also restores the original value
+                   since it may still be wanted. *)
+                genTag(r2, code)
+            )
 
             (* Assignment operators. *)
         |   cgOp(DataOp{ instr=InstrStoreW{offset=NONE, toStore=NONE},
@@ -3607,11 +3531,72 @@ Calling conventions:
         |   cgOp(Move{ source=StackAddress offset, output }) =
                 genStackOffset(output, offset, code)
 
-        |   cgOp(CondBranch{ operands=[InRegister left, InRegister right], test, label }) =
-                label := compareAndBranchRR(left, right, test, code)
+        |   cgOp(CondBranch{ operands=[InRegister r1, InRegister r2], test=Wrd opc, label }) =
+            (
+                genReg (CMP, r1, r2, code);
+                label := [putConditional (opc, code)]
+            )
 
-        |   cgOp(CondBranch{ operands=[InRegister arg], test, label }) =
-                label := compareAndBranchUnary(arg, test, code)
+        |   cgOp(CondBranch{ operands=[InRegister r1, InRegister r2], test=Arb opc, label }) =
+            let
+                (* Because we normalise short precision integers if we are testing for (in)equality
+                   we only have to do a full arbitrary precision test if BOTH arguments are long.
+                   In all other cases we have to do the full test if EITHER is long. *)
+                val isEquality = case opc of JE  => true | JNE => true | _   => false
+                val () = testTag(r1, code)
+                (* If this is an (in)equality we go straight to the test if this is short. *)
+                val l1 = putConditional (if isEquality then JNE else JE, code)
+                val () = testTag(r2, code)
+                val l2 = putConditional (JNE, code)
+                val () = if isEquality then () else fixup ([l1], code)
+                val () =
+                    (
+                        genop(Group5, code);
+                        genmodrm (Based8, 0w2 (* call *), getReg ebp, code);
+                        gen8u (Word8.fromInt MemRegArbEmulation, code)
+                    )
+            in
+                fixup (if isEquality then [l1, l2] else [l2], code);
+                genReg(CMP, r1, r2, code);
+                label := [putConditional (opc, code)]
+            end
+
+        |   cgOp(CondBranch{ operands=[InRegister left, BaseOffset(base, offset)], test=Wrd opc, label }) =
+            (
+                genop(Arith (CMP, 3), code);
+                genEA(offset, base, left, code);
+                label := [putConditional (opc, code)]
+            )
+
+        |   cgOp(CondBranch{ operands=[InRegister r], test=Length opc, label }) =
+                (
+                    testTag(r, code); (* Use the standard tag test. *)
+                    label := [putConditional (opc, code)]
+                )
+
+        |   cgOp(CondBranch{ operands=[InRegister r], test=WrdConst(opc, cnstnt), label }) =
+                if isShort cnstnt
+                then
+                let
+                    val c = toInt(toShort cnstnt)
+                in
+                    genImmed (CMP, r, tag c, code);
+                    label := [putConditional (opc, code)]
+                end
+                else (* We may be comparing with an address. *)
+                (
+                    genop (Group1_32_A (* group1, 32 bit immediate *), code);
+                    genmodrm(Register, arithOpToWord CMP, getReg r, code);
+                    addConstToVec (WVal cnstnt, false, code); (* Remember this constant and address. *)
+                    label := [putConditional (opc, code)]
+                )
+
+        |   cgOp(CondBranch{ operands=[InRegister r], test=ArbConst(opc, cnstnt), label }) =
+                (
+                    tagTest1 (r, code);
+                    genImmed (CMP, r, tag(toInt cnstnt), code);
+                    label := [putConditional (opc, code)]
+                )
 
         |   cgOp(CondBranch{ operands=_, test=_, label=_ }) =
                 raise InternalError "Not implemented"
