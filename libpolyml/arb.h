@@ -58,6 +58,6 @@ extern unsigned short   get_C_ushort(TaskData *taskData, PolyWord);
 extern POLYSIGNED       get_C_long(TaskData *taskData, PolyWord);
 extern short            get_C_short(TaskData *taskData, PolyWord);
 extern int              compareLong(TaskData *taskData, Handle,Handle);
-
+extern double           get_C_real(TaskData *taskData, PolyWord x);
 
 #endif

@@ -562,6 +562,7 @@ EDX_OFF     EQU     32
 ESI_OFF     EQU     36
 EDI_OFF     EQU     40
 FLAGS_OFF   EQU     48
+FPREGS_OFF  EQU     52
 
 ELSE
 
@@ -577,6 +578,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    ESI_OFF,    36
 .set    EDI_OFF,    40
 .set    FLAGS_OFF,  48
+.set    FPREGS_OFF, 52
 ELSE
 .set    PC_OFF,     8
 .set    SP_OFF,     16
@@ -597,6 +599,7 @@ ELSE
 .set    R14_OFF,    136
 ;# 144 is the count of the number of unchecked registers
 .set    FLAGS_OFF,  152
+.set    FPREGS_OFF, 160
 ENDIF
 
 ENDIF
@@ -667,6 +670,7 @@ ENDIF
     MOVL    SP_OFF[Reax],Resp               ;# Set the new stack ptr
     PUSHL   PC_OFF[Reax]                    ;# Push the code address
     PUSHL   FLAGS_OFF[Reax]                 ;# Push the flags
+    FRSTOR  FPREGS_OFF[Reax]
     MOVL    EBX_OFF[Reax],Rebx              ;# Load the registers
     MOVL    ECX_OFF[Reax],Recx
     MOVL    EDX_OFF[Reax],Redx
@@ -705,6 +709,7 @@ ENDIF
     MOVL    Redx,EDX_OFF[Reax]
     MOVL    Resi,ESI_OFF[Reax]
     MOVL    Redi,EDI_OFF[Reax]
+    FNSAVE  FPREGS_OFF[Reax]
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8,R8_OFF[Reax]
     MOVL    R9,R9_OFF[Reax]
@@ -2141,10 +2146,12 @@ ENDIF
 CALLMACRO   RegMask real_geq,(M_Reax)
 
 CALLMACRO INLINE_ROUTINE real_from_int
-        call    mem_for_real
+    TESTL   CONST TAG,Reax   ;# Is it long ?
+    jz      real_float_1
+    call    mem_for_real
 	jb      real_float_1     ;# Not enough space - call RTS.
-        SARL    CONST TAGSHIFT,Reax ;# Untag the value
-	MOVL    Reax,RealTemp[Rebp]	;# Save it in a temporary
+    SARL    CONST TAGSHIFT,Reax ;# Untag the value
+	MOVL    Reax,RealTemp[Rebp]	;# Save it in a temporary (N.B. It's now untagged)
 IFDEF WINDOWS
 	FILD    dword ptr RealTemp[Rebp]
 	FSTP    qword ptr [Recx]

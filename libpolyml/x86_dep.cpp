@@ -85,8 +85,8 @@
 #else /* HOSTARCHITECTURE_X86_64 */
 #define CHECKED_REGS    13
 #endif /* HOSTARCHITECTURE_X86_64 */
-/* The unchecked reg field is used for the condition codes. */
-#define UNCHECKED_REGS  1
+// The unchecked reg field is used for the condition codes and FP save.
+#define UNCHECKED_REGS  1 + (108/sizeof(PolyWord))
 
 // Number of arguments passed in registers,
 // The remainder go on the stack.
@@ -276,7 +276,57 @@ static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmul
 #define PSP_IC(stack)           (stack)->p_pc
 #define PSP_INCR_PC(stack, n)   (stack)->p_pc += n
 #define PSP_SP(stack)           (stack)->p_sp
-#define PSP_HR(stack)           (stack)->hr  
+#define PSP_HR(stack)           (stack)->hr
+
+
+// Structure of floating point save area.
+// This is dictated by the hardware.
+typedef byte fpregister[10];
+
+struct fpSaveArea {
+    unsigned short cw;
+    unsigned short _unused0;
+    unsigned short sw;
+    unsigned short _unused1;
+    unsigned short tw;
+    unsigned short _unused2;
+    unsigned fip;
+    unsigned short fcs0;
+    unsigned short _unused3;
+    unsigned foo;
+    unsigned short fcs1;
+    unsigned short _unused4;
+    fpregister registers[8];
+};
+
+// Layout of base of stack on X86.  The general format is
+// standard for all architectures to simplify the GC.
+class PolyX86Stack: public PolyObject {
+public:
+    POLYUNSIGNED    p_space;
+    POLYCODEPTR     p_pc;
+    PolyWord        *p_sp;
+    PolyWord        *p_hr;
+    POLYUNSIGNED    p_nreg;
+    PolyWord        p_eax;
+    PolyWord        p_ebx;
+    PolyWord        p_ecx;
+    PolyWord        p_edx;
+    PolyWord        p_esi;
+    PolyWord        p_edi;
+#ifdef HOSTARCHITECTURE_X86_64
+    PolyWord        p_r8;
+    PolyWord        p_r9;
+    PolyWord        p_r10;
+    PolyWord        p_r11;
+    PolyWord        p_r12;
+    PolyWord        p_r13;
+    PolyWord        p_r14;
+#endif
+    POLYUNSIGNED    p_nUnchecked;
+    POLYUNSIGNED    p_flags;
+    struct fpSaveArea p_fp;
+};
 
 // Values for the returnReason byte
 enum RETURN_REASON {
@@ -463,7 +513,7 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
-    StackObject *newStack = (StackObject *)DEREFWORDHANDLE(stackh);
+    PolyX86Stack * newStack = (PolyX86Stack*)DEREFWORDHANDLE(stackh);
     POLYUNSIGNED stack_size     = newStack->Length();
     POLYUNSIGNED topStack = stack_size-5;
     newStack->p_space = OVERFLOW_STACK_SIZE;
@@ -472,14 +522,32 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
     newStack->p_hr    = newStack->Offset(topStack)+1;
     newStack->p_nreg  = CHECKED_REGS;
 
-    for (POLYUNSIGNED i = 0; i < CHECKED_REGS; i++) newStack->p_reg[i] = TAGGED(0);
-
-    newStack->p_reg[CHECKED_REGS] = PolyWord::FromUnsigned(UNCHECKED_REGS); /* 1 unchecked register */
-    newStack->p_reg[CHECKED_REGS+1] = PolyWord::FromUnsigned(0);
-    newStack->p_reg[3] = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
-
     /* If this function takes an argument store it in the argument register. */
-    if (arg != 0) newStack->p_reg[0] = DEREFWORD(arg);
+    if (arg == 0) newStack->p_eax = TAGGED(0);
+    else newStack->p_eax = DEREFWORD(arg);
+    newStack->p_ebx = TAGGED(0);
+    newStack->p_ecx = TAGGED(0);
+    newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
+    newStack->p_esi = TAGGED(0);
+    newStack->p_edi = TAGGED(0);
+#ifdef HOSTARCHITECTURE_X86_64
+    newStack->p_r8 = TAGGED(0);
+    newStack->p_r9 = TAGGED(0);
+    newStack->p_r10 = TAGGED(0);
+    newStack->p_r11 = TAGGED(0);
+    newStack->p_r12 = TAGGED(0);
+    newStack->p_r13 = TAGGED(0);
+    newStack->p_r14 = TAGGED(0);
+#endif
+
+    newStack->p_nUnchecked = UNCHECKED_REGS; // 1 unchecked register plus FP area
+    newStack->p_flags = 0;
+
+    // Floating point save area.
+    ASSERT(sizeof(struct fpSaveArea) == 108);
+    memset(&newStack->p_fp, 0, 108);
+    newStack->p_fp.cw = 0x037f ; // Control word
+    newStack->p_fp.tw = 0xffff; // Tag registers - all unused
 
     /* We initialise the end of the stack with a sequence that will jump to
        kill_self whether the process ends with a normal return or by raising an
@@ -498,7 +566,7 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
     // address before jumping to it.
     Handle killCode = BuildKillSelf(parentTaskData);
     PolyWord killJump = killCode->Word();
-    newStack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
+    newStack = (PolyX86Stack *)DEREFWORDHANDLE(stackh); // In case it's moved
     newStack->Set(topStack+2, killJump); // Default handler.
     /* Set up exception handler.  This also, conveniently, ends up in p_pc
        if we return normally.  */
@@ -962,27 +1030,27 @@ void X86Dependent::SetForRetry(TaskData *taskData, int ioCall)
 PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
 /* Returns a pointer to the register given by n. */
 {
-  switch (n) 
+    PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+    switch (n) 
     {
-      case 0: return &PSP_EAX(taskData->stack);
-      case 1: return &PSP_ECX(taskData->stack);
-      case 2: return &PSP_EDX(taskData->stack);
-      case 3: return &PSP_EBX(taskData->stack);
-      case 4: return (PolyWord*)&taskData->stack->p_sp;
-      case 6: return &PSP_ESI(taskData->stack);
-      case 7: return &PSP_EDI(taskData->stack);
+    case 0: return &stack->p_eax;
+    case 1: return &stack->p_ecx;
+    case 2: return &stack->p_edx;
+    case 3: return &stack->p_ebx;
+    case 4: return (PolyWord*)&stack->p_sp;
+    case 6: return &stack->p_esi;
+    case 7: return &stack->p_edi;
 #ifdef HOSTARCHITECTURE_X86_64
-      case 8: return &PSP_R8(taskData->stack);
-      case 9: return &PSP_R9(taskData->stack);
-      case 10: return &PSP_R10(taskData->stack);
-      case 11: return &PSP_R11(taskData->stack);
-      case 12: return &PSP_R12(taskData->stack);
-      case 13: return &PSP_R13(taskData->stack);
-      case 14: return &PSP_R14(taskData->stack);
-      // R15 is the heap pointer so shouldn't occur here.
+    case 8: return &stack->p_r8;
+    case 9: return &stack->p_r9;
+    case 10: return &stack->p_r10;
+    case 11: return &stack->p_r11;
+    case 12: return &stack->p_r12;
+    case 13: return &stack->p_r13;
+    case 14: return &stack->p_r14;
+    // R15 is the heap pointer so shouldn't occur here.
 #endif /* HOSTARCHITECTURE_X86_64 */
-      default: 
-        Crash("Unknown register %d at %p\n", n, PSP_IC(taskData->stack));
+    default: Crash("Unknown register %d at %p\n", n, stack->p_pc);
     }
 }
 
@@ -990,21 +1058,21 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
 void X86Dependent::HeapOverflowTrap(TaskData *taskData)
 {
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
+    PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
     POLYUNSIGNED wordsNeeded = 0;
     // The next instruction, after any branches round forwarding pointers, will
     // be a store of register containing the adjusted heap pointer.  We need to
     // find that register and the value in it in order to find out how big the
     // area we actually wanted is.
-    while (PSP_IC(taskData->stack)[0] == 0xeb)
+    while (stack->p_pc[0] == 0xeb)
     {
-        if (PSP_IC(taskData->stack)[1] >= 128)
-            PSP_IC(taskData->stack) += 256 - PSP_IC(taskData->stack)[1] + 2;
-        else PSP_IC(taskData->stack) += PSP_IC(taskData->stack)[1] + 2;
+        if (stack->p_pc[1] >= 128) stack->p_pc += 256 - stack->p_pc[1] + 2;
+        else stack->p_pc += stack->p_pc[1] + 2;
     }
 #ifndef HOSTARCHITECTURE_X86_64
     // This should be movl REG,0[%ebp].
-    ASSERT(PSP_IC(taskData->stack)[0] == 0x89);
-    mdTask->allocReg = (PSP_IC(taskData->stack)[1] >> 3) & 7; // Remember this until we allocate the memory
+    ASSERT(stack->p_pc[0] == 0x89);
+    mdTask->allocReg = (stack->p_pc[1] >> 3) & 7; // Remember this until we allocate the memory
     PolyWord *reg = get_reg(taskData, mdTask->allocReg);
     PolyWord reg_val = *reg;
     // The space we need is the difference between this register
@@ -1019,16 +1087,16 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
     ASSERT (wordsNeeded <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
 #else /* HOSTARCHITECTURE_X86_64 */
     // This should be movq Length,-8(%r15)
-    ASSERT(PSP_IC(taskData->stack)[0] == 0x49 && PSP_IC(taskData->stack)[1] == 0xc7 && PSP_IC(taskData->stack)[2] == 0x47 && PSP_IC(taskData->stack)[3] == 0xf8);
+    ASSERT(stack->p_pc[0] == 0x49 && stack->p_pc[1] == 0xc7 && stack->p_pc[2] == 0x47 && stack->p_pc[3] == 0xf8);
     // The Length field should be in the next word.  N.B.  This assumes that
     // the length word < 2^31.
-    ASSERT((PSP_IC(taskData->stack)[7] & 0x80) == 0); // Should not be negative
-    for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | PSP_IC(taskData->stack)[i];
+    ASSERT((stack->p_pc[7] & 0x80) == 0); // Should not be negative
+    for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | stack->p_pc[i];
     wordsNeeded += 1; // That was the object size. We need to add one for the length word.
 #endif /* HOSTARCHITECTURE_X86_64 */
     
     if (profileMode == kProfileStoreAllocation)
-        add_count(taskData, PSP_IC(taskData->stack), PSP_SP(taskData->stack), wordsNeeded);
+        add_count(taskData, stack->p_pc, stack->p_sp, wordsNeeded);
 
 #ifdef HOSTARCHITECTURE_X86_64
     // On the X64 the value that ends up in allocSpace->pointer includes the
@@ -1297,13 +1365,17 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             PSP_INCR_PC(taskData->stack, 1);
             break;
 
-        case 0xd1: /* Group1A - must be sar edx before a multiply. */
-            if (PSP_IC(taskData->stack)[1] != 0xfa)
-                Crash("Unknown instruction after overflow trap");
-            PSP_INCR_PC(taskData->stack, 2);
-            /* If we haven't moved anything into edx then edx must be
-               one of the arguments. */
-            if (src2 == -1) src2 = 2; /* edx. */
+        case 0xd1: /* Group1A - must be sar edx before a multiply or sar [esp] before Real.fromInt */
+            if (PSP_IC(taskData->stack)[1] == 0xfa) {
+                PSP_INCR_PC(taskData->stack, 2);
+                /* If we haven't moved anything into edx then edx must be
+                   one of the arguments. */
+                if (src2 == -1) src2 = 2; /* edx. */
+            }
+            else if (PSP_IC(taskData->stack)[1] == 0x3c) {
+                PSP_INCR_PC(taskData->stack, 3);
+            }
+            else Crash("Unknown instruction after overflow trap");
             break;
 
         case 0xf7: /* Multiply instruction. */
@@ -1313,6 +1385,45 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             /* Subtract one because the next instruction will tag it. */
             PSP_EAX(taskData->stack) = PolyWord::FromUnsigned(PSP_EAX(taskData->stack).AsUnsigned() - 1);
             PSP_INCR_PC(taskData->stack, 2);
+            return true;
+
+        case 0xdb: // Floating point ESCAPE 3
+            {
+                PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+                if (stack->p_pc[1] != 0x04 || stack->p_pc[2] != 0x24)
+                    Crash("Unknown instruction after overflow trap");
+                // The operand is on the stack.
+                union { double dble; byte bytes[sizeof(double)]; } dValue;
+                dValue.dble = get_C_real(taskData, stack->p_sp[0]);
+                stack = (PolyX86Stack*)taskData->stack; // Shouldn't have GC'd, but just in case.
+                unsigned top = (stack->p_fp.sw >> 11) & 7;
+                top = (top-1) & 0x7;
+                stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);
+                stack->p_fp.tw &= ~(3 << top*2); // Needed?
+                // Turn the double precision value into extended precision.  Because
+                // the double precision has less precision than the extended it will
+                // always fit.  The result is always put into the first register which is
+                // the top of the stack.
+                memset(stack->p_fp.registers[0], 0, 10);
+                if (dValue.dble != 0.0) { // Check for zero although that's short so shouldn't occur.
+                    // Since we've converted an integer the exp is always +ve
+                    // This works correctly for infinity which can occur with large
+                    // arbitrary precision numbers e.g. IntInf.pow(10, 309)
+                    int exp = ((dValue.bytes[7] & 0x7f) << 4) | (dValue.bytes[6] >> 4);
+                    if (exp != 0) exp = exp - 1023+16383;
+                    stack->p_fp.registers[0][9] = (exp >> 8) & 0xff;
+                    stack->p_fp.registers[0][8] = exp & 0xff;
+                    if (dValue.dble < 0) stack->p_fp.registers[0][9] |= 0x80; // Set the sign bit
+                    // Mantissa is shifted down by one bit and the top bit is set.
+                    unsigned acc = dValue.bytes[6] | (0x80 >> 3);
+                    for (int i = 5; i >= 0; i--) {
+                        acc = (acc << 8) | dValue.bytes[i];
+                        stack->p_fp.registers[0][i+2] = acc >> 5;
+                    }
+                    stack->p_fp.registers[0][1] = acc << 3;
+                }
+                PSP_INCR_PC(taskData->stack, 3);
+            }
             return true;
 
         default:
@@ -1978,6 +2089,15 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }
+                break;
+            }
+
+        case 0xd8: case 0xd9: case 0xda: case 0xdb:
+        case 0xdc: case 0xdd: case 0xde: case 0xdf: // Floating point escape instructions
+            {
+                pt++;
+                if ((*pt & 0xe0) == 0xe0) pt++;
+                else skipea(&pt, process);
                 break;
             }
 

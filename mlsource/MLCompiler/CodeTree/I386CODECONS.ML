@@ -61,19 +61,14 @@ struct
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
     
-    val op << = Word.<< and op >> = Word.>> and op ~>> = Word.~>>
-    val op <<+ = LargeWord.<< and op >>+ = LargeWord.>> and op ~>>+ = LargeWord.~>>
-    val op <<-+ = Word8.<< and op >>- = Word8.>> and op ~>>- = Word8.~>>
+    val op << = Word.<< and op >> = Word.>>
+    val op <<+ = LargeWord.<< and op >>+ = LargeWord.>>
+    val op <<- = Word8.<< and op >>- = Word8.>>
 
-    val op andb = Word.andb and op orb = Word.orb
-    val op andbL = LargeWord.andb and op orbL = LargeWord.orb
- (*   val op andb8 = Word8.andb and op orb8 = Word8.orb *)
+    val op orb = Word.orb and op orbL = LargeWord.orb and op orb8 = Word8.orb
+    val op andb8 = Word8.andb
 
-    (* Suppress warnings about not using some of these. *)
-    val _ = op >> and _ = op ~>> and _ = op ~>>+ and _ = op <<-+
-    and _ = op >>- and _ = op ~>>-
-    val _ = op andb and _ = op andbL
-    
+    (*val op andb = Word.andb op andbL = LargeWord.andb *)
 
     val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
  
@@ -367,7 +362,7 @@ struct
     end
 
     datatype mode =
-        Based    (* mod = 0 *)
+        Based0    (* mod = 0 *)
     |   Based8   (* mod = 1 *)
     |   Based32  (* mod = 2 *)
     |   Register (* mod = 3 *) ;
@@ -376,15 +371,15 @@ struct
     (* Put together the three fields which make up the mod r/m byte. *)
     fun modrm (md : mode, rg: Word8.word, rm : Word8.word) : Word8.word =
     let
-        val modField = 
+        val modField: Word8.word = 
           case md of 
-              Based    => 0w0 * Word8.fromInt exp2_6 (* compile-time evaluated! *)
-            | Based8   => 0w1 * Word8.fromInt exp2_6
-            | Based32  => 0w2 * Word8.fromInt exp2_6
-            | Register => 0w3 * Word8.fromInt exp2_6
+              Based0   => 0w0
+            | Based8   => 0w1
+            | Based32  => 0w2
+            | Register => 0w3
             ;
     in
-        modField + (rg * Word8.fromInt exp2_3) + rm
+        (modField <<- 0w6) orb8 (rg <<- 0w3) orb8 rm
     end;
 
     fun genmodrm (md : mode, rg: Word8.word, rm : Word8.word, cvec) : unit =
@@ -602,6 +597,7 @@ struct
   | PUSH_32
   | TEST_ACC8
   | LOCK
+  | FPESC of Word8.word
   ;
 
   fun opToInt opn: Word8.word =
@@ -649,6 +645,7 @@ struct
     | PUSH_32       => 0wx68
     | TEST_ACC8     => 0wxa8
     |   LOCK        => 0wxF0
+    |   FPESC n     => 0wxD8 orb8 n   
     ;
 
 (* ...
@@ -1184,9 +1181,9 @@ SS-relative addressing modes:
   end; (* genSelfBranch *)
     
 
-  (* Exported. Adds in the reset. Does not actually generate code. *)
-  fun resetStack (offset, Code{stackReset, ...}) : unit =
-    stackReset := ! stackReset + offset;
+    (* Adds in the reset. Does not actually generate code. *)
+    fun resetStack (offset, Code{stackReset, ...}) : unit =
+        stackReset := ! stackReset + offset;
 
   (* Generate an effective address. *)
   fun genEA (offset: int, rb: reg, r : reg, cvec) : unit =
@@ -1194,7 +1191,7 @@ SS-relative addressing modes:
     val offsetCode =
       (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
       if offset = 0 andalso (rb <> ebp) 
-        then Based  (* no disp field *)
+        then Based0  (* no disp field *)
       else if is8Bit offset
         then Based8  (* use 8-bit disp field *)
         else Based32; (* use 32-bit disp field *)
@@ -1222,7 +1219,7 @@ SS-relative addressing modes:
     val offsetCode =
       (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
       if offset = 0 andalso (rb <> ebp) 
-        then Based  (* no disp field *)
+        then Based0  (* no disp field *)
       else if is8Bit offset
         then Based8  (* use 8-bit disp field *)
         else Based32; (* use 32-bit disp field *)
@@ -1251,12 +1248,12 @@ SS-relative addressing modes:
   let
     val (offsetCode, basefield) =
         case rb of
-            NONE => (Based, 0w5 (* no base register *))
+            NONE => (Based0, 0w5 (* no base register *))
         |   SOME rb =>
             let
                 val base =
                     if offset = 0 andalso (rb <> ebp)
-                    then Based    (* no disp field *)
+                    then Based0    (* no disp field *)
                     else if is8Bit offset
                     then Based8   (* use 8-bit disp field *)
                     else Based32; (* use 32-bit disp field *)
@@ -1415,16 +1412,15 @@ SS-relative addressing modes:
    end
 
 
-  (* Exported. *)
-  (* Store a value on the stack.  This is used when the registers need to be
-     saved, for more than 4 arguments or to push an exception handler. *)
-  fun genPush (r:reg, cvec) : unit =
+    (* Store a value on the stack.  This is used when the registers need to be
+       saved, for more than 4 arguments or to push an exception handler. *)
+    fun genPush (r:reg, cvec) : unit =
     if r = regHandler (* Not a real register. *)
     then
-      (
+    (
         genop (Group5, cvec);
         genop2 (MemRegHandlerRegister, ebp, 0w6 (* push *), cvec)
-      )
+    )
     else genop (PUSH_R r, cvec);
 
 
@@ -1533,13 +1529,6 @@ SS-relative addressing modes:
         genop  (MOVL_32_R rd, cvec); (* TODO: Have different kinds of constants here.  If it's semitagged use xor/add. *)
         gen32s (immed, cvec)
     )
-  
-    (* Exported. *)
-    fun genLoadCoderef (c:code, rd:reg, cvec) : unit =
-    (
-        genop  (MOVL_32_R rd, cvec);
-        codeConst (c, false, cvec)
-    )
 
     type handlerLab = addrs ref;
   
@@ -1626,7 +1615,7 @@ Calling conventions:
             align (0w0, cvec);
          
             genop (Group5, cvec);
-            genmodrm(Based, 0w2 (* call *), getReg regClosure, cvec)
+            genmodrm(Based0, 0w2 (* call *), getReg regClosure, cvec)
           )
 
      | CodeFun c =>
@@ -1662,7 +1651,7 @@ Calling conventions:
             align (0w0, cvec);
          
             genop (Group5, cvec);
-            genmodrm(Based, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
+            genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
             addConstToVec (WVal w, false, cvec)
           );
 
@@ -1702,7 +1691,7 @@ Calling conventions:
             ( (* Full closure call *)
                 mustCheckStack := true;
                 genop (Group5, cvec);
-                genmodrm(Based, 0w4 (* jmp *), getReg regClosure, cvec)
+                genmodrm(Based0, 0w4 (* jmp *), getReg regClosure, cvec)
             )
       
         |   CodeFun c =>
@@ -1724,7 +1713,7 @@ Calling conventions:
                 (* Indirect jumps are used to call into the RTS.  No need
                    to check the stack. *)
                 genop (Group5, cvec);
-                genmodrm(Based, 0w4 (* jmp *), 0w5 (* Immediate address. *), cvec);
+                genmodrm(Based0, 0w4 (* jmp *), 0w5 (* Immediate address. *), cvec);
                 addConstToVec (WVal w, false, cvec)
             );
 
@@ -1767,14 +1756,6 @@ Calling conventions:
        genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
        gen8u (Word8.fromInt MemRegRaiseException, cvec)
       )
-
-
-
-    (* Exported. Set a register to a particular offset in the stack. *)
-    fun genStackOffset (reg, byteOffset, cvec) : unit = 
-    if byteOffset = 0
-    then genMove (reg, regStackPtr, cvec)
-    else genLeal (reg, regStackPtr, byteOffset, cvec)
 
     (* Only used for while-loops. *)
     fun jumpback (lab, stackCheck, cvec as Code{exited, ic, ...}) : unit =
@@ -1903,6 +1884,10 @@ Calling conventions:
     |   InstrStoreW of { offset: short option, toStore: machineWord option }
     |   InstrStoreB of { offset: short option, toStore: machineWord option }
     |   InstrLockSeg
+    |   InstrUnaryFP of Word8.word (* Unary floating point operations *)
+    |   InstrBinaryFP of Word8.word (* Binary floating point operations *)
+    |   InstrIntToFP (* Float an integer. *)
+    |   InstrUnimplemented
 
     (* Exported instructions. *)
     val instrAddA = InstrAddA
@@ -1932,7 +1917,20 @@ Calling conventions:
     and instrStoreW = InstrStoreW { offset=NONE, toStore=NONE }
     and instrStoreB = InstrStoreB { offset=NONE, toStore=NONE }
     and instrLockSeg = InstrLockSeg
-
+    (* Floating point operations. *)
+    and instrAddFP = InstrBinaryFP 0w0
+    and instrSubFP = InstrBinaryFP 0w4
+    and instrMulFP = InstrBinaryFP 0w1
+    and instrDivFP = InstrBinaryFP 0w6
+    and instrNegFP = InstrUnaryFP 0wxE0
+    and instrIntToRealFP = InstrIntToFP
+    and instrRealToIntFP = InstrUnimplemented
+    and instrSqrtFP = InstrUnaryFP 0wxFA
+    and instrSinFP = InstrUnaryFP 0wxFE
+    and instrCosFP = InstrUnaryFP 0wxFF
+    and instrAtanFP = InstrUnaryFP 0wxF3
+    and instrExpFP = InstrUnimplemented 
+    and instrLnFP  = InstrUnimplemented
 
     fun prettyInstr(instr, _) =
         case instr of
@@ -1975,37 +1973,45 @@ Calling conventions:
         |   InstrStoreW _               => PrettyString "InstrStoreW"
         |   InstrStoreB _               => PrettyString "InstrStoreB"
         |   InstrLockSeg                => PrettyString "InstrLockSeg"
-
-  (* Can the we use the same register as the source and destination
-     of an instructions? On this machine - no. *)
-  val canShareRegs : bool = false;
-
+        |   InstrUnaryFP w              => PrettyString ("InstrUnaryFP " ^ Word8.toString w)
+        |   InstrBinaryFP w             => PrettyString ("InstrBinaryFP " ^ Word8.toString w)
+        |   InstrIntToFP                => PrettyString "InstrIntToFP"
+        |   InstrUnimplemented          => PrettyString "InstrUnimplemented"
 
     datatype tests = 
         Arb of opCode
     |   ArbConst of opCode * short
     |   Wrd of opCode
     |   WrdConst of opCode * machineWord (* Both long and short. *)
+    |   FloatingPt of opCode
     |   Length of opCode
   
-    val Short = Length JNE;
-    val Long  = Length JE;
+    val Short = Length JNE
+    val Long  = Length JE
 
-    val testNeqW  = Wrd JNE;
-    val testEqW   = Wrd JE;
-    val testGeqW  = Wrd JNB; (* These are UNsigned comparisons *)
-    val testGtW   = Wrd JA;
-    val testLeqW  = Wrd JNA;
-    val testLtW   = Wrd JB;
+    val testNeqW  = Wrd JNE
+    val testEqW   = Wrd JE
+    val testGeqW  = Wrd JNB (* These are UNsigned comparisons *)
+    val testGtW   = Wrd JA
+    val testLeqW  = Wrd JNA
+    val testLtW   = Wrd JB
 
-    val testNeqA  = Arb JNE;
-    val testEqA   = Arb JE;
-    val testGeqA  = Arb JGE;
-    val testGtA   = Arb JG;
-    val testLeqA  = Arb JLE;
-    val testLtA   = Arb JL;
+    val testNeqA  = Arb JNE
+    val testEqA   = Arb JE
+    val testGeqA  = Arb JGE
+    val testGtA   = Arb JG
+    val testLeqA  = Arb JLE
+    val testLtA   = Arb JL
 
-    type cases = word * addrs ref;
+    
+    val testNeqFP = FloatingPt JNE
+    val testEqFP  = FloatingPt JE
+    val testGeqFP = FloatingPt JGE
+    val testGtFP  = FloatingPt JG
+    val testLeqFP = FloatingPt JLE
+    val testLtFP  = FloatingPt JL
+
+    type cases = word * addrs ref
 
     datatype source =
         LiteralSource of machineWord
@@ -2282,6 +2288,12 @@ Calling conventions:
 
         |   checkAndReduce(InstrLockSeg, [arg1], _) = SOME(InstrLockSeg, [arg1])
 
+        |   checkAndReduce(instr as InstrUnaryFP _, args as [_], _) = SOME(instr, args)
+        |   checkAndReduce(instr as InstrBinaryFP _, args as [_,_], _) = SOME(instr, args)
+        |   checkAndReduce(instr as InstrIntToFP, args as [_], _) = SOME(instr, args)
+
+        |   checkAndReduce(InstrUnimplemented, _, _) = NONE
+
         |   checkAndReduce _ = raise InternalError "checkAndReduce: bad arguments"
     end
 
@@ -2331,7 +2343,9 @@ Calling conventions:
                 |   _ => SOME (Wrd opcode, args)
             )
 
-        |   checkAndReduceBranches(Length opcode, [arg1], _) = SOME (Length opcode, [arg1])
+        |   checkAndReduceBranches(opc as Length _, args as [_], _) = SOME (opc, args)
+        
+        |   checkAndReduceBranches(opc as FloatingPt _, args as [_, _], _) = SOME (opc, args)
 
         |   checkAndReduceBranches _ = raise InternalError "checkAndReduceBranches: bad arguments"
     end
@@ -2623,10 +2637,6 @@ Calling conventions:
                        to look at this again after it's been loaded. *)
                     next=getOneArgInReg(test, label)}
         |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"
-    in
-        fun defaultTestActions(test, label) = getArg(test, label, [])
-        
-        val binaryWordTestActions = getOneArgInReg
 
         fun unaryTestActions(test, label) [(InRegister reg, _)] =
                 (* It's in a register.  We're done. *)
@@ -2640,19 +2650,26 @@ Calling conventions:
                        to look at this again after it's been loaded. *)
                     next=unaryTestActions(test, label)}
         |   unaryTestActions _ _ = raise InternalError "unaryTestActions: Wrong arguments"
-    end
 
-    (* Select the argument negotiator.  For the moment always use the default. *)
-    fun negotiateTestArguments test =
-    let
-        val destLabel = ref noJump
+        (* Floating point comparisons all require the ax register.  The other arguments
+           are loaded into registers. *)
+        fun floatPtActions(test, label) _ =
+            ActionGetWorkReg{regSet=singleton eax, setReg = fn _ => getArg(test, label, [])}
+
     in
-        case test of
-            Arb _ => (defaultTestActions(test, destLabel), destLabel)
-        |   ArbConst _ => (unaryTestActions(test, destLabel), destLabel)
-        |   Wrd _ => (binaryWordTestActions(test, destLabel), destLabel)
-        |   WrdConst _ => (unaryTestActions(test, destLabel), destLabel)
-        |   Length _ => (unaryTestActions(test, destLabel), destLabel)
+        (* Select the argument negotiator. *)
+        fun negotiateTestArguments test =
+        let
+            val destLabel = ref noJump
+        in
+            case test of
+                Arb _ => (getArg(test, destLabel, []), destLabel)
+            |   ArbConst _ => (unaryTestActions(test, destLabel), destLabel)
+            |   Wrd _ => (getOneArgInReg(test, destLabel), destLabel)
+            |   WrdConst _ => (unaryTestActions(test, destLabel), destLabel)
+            |   Length _ => (unaryTestActions(test, destLabel), destLabel)
+            |   FloatingPt _ => (floatPtActions(test, destLabel), destLabel)
+        end
     end
 
     fun isPushI _ = true
@@ -3415,6 +3432,51 @@ Calling conventions:
                 genTag (ecx, code) (* Retag ecx so that it's a valid tagged int. *)
             )
 
+        |   cgOp(DataOp{ instr=InstrUnaryFP opn, operands=[InRegister reg], output=SOME rd }) =
+            (
+                (* Allocate space for the result. *)
+                allocStore(8 div wordSize, F_bytes, rd, code);
+                genop(FPESC 0w5, code); (* FLD [reg] *)
+                genop2(0, reg, 0wx0, code);
+                (* If this is the FPATAN function we need to push 1.0 here. *)
+                if opn = 0wxF3 then (genop(FPESC 0w1, code); gen8u(0wxE8, code)) else ();
+                (* We use the change-sign operation here so that this works correctly for +/- zero. *)
+                genop(FPESC 0w1, code); (* FCHS/FSIN etc *)
+                gen8u(opn, code);
+                genop(FPESC 0w5, code); (* FSTP [rd] *)
+                genop2(0, rd, 0wx3, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrBinaryFP nnn, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
+            (
+                (* Allocate space for the result. *)
+                allocStore(8 div wordSize, F_bytes, rd, code);
+                genop(FPESC 0w5, code); (* FLD [r1] *)
+                genop2(0, r1, 0wx0, code);
+                genop(FPESC 0w4, code); (* FADD/FMUL etc *)
+                genop2(0, r2, nnn, code);
+                genop(FPESC 0w5, code); (* FSTP [rd] *)
+                genop2(0, rd, 0wx3, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrIntToFP, operands=[InRegister reg], output=SOME rd }) =
+            (
+                (* We have to load from memory so the easiest way is to push the source register. *)
+                genPush(reg, code);
+                (* The argument may be long so we need to test the tag bit. *)
+                tagTest1(reg, code);
+                (* Shift the value we pushed to untag it now we've done any trapping. *)
+                genop (Group2_1_A, code);
+                genop2(0, esp, 0w7 (* sar *), code);
+                genop(FPESC 0w3, code); (* FILD [reg] *)
+                genop2(0, esp, 0wx0, code);
+                resetStack(0w1, code); (* Have to restore the SP here BEFORE allocating memory. *)
+                (* Allocate space for the result. *)
+                allocStore(8 div wordSize, F_bytes, rd, code);
+                genop(FPESC 0w5, code); (* FSTP [rd] *)
+                genop2(0, rd, 0wx3, code)
+            )
+
         |   cgOp(DataOp{ instr=InstrLoadW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
             (* Load a word. *)
             (
@@ -3526,10 +3588,16 @@ Calling conventions:
                 genLoad(offset, base, output, code)
 
         |   cgOp(Move{ source=CodeRefSource refCode, output }) =
-                genLoadCoderef(refCode, output, code)
+            (
+                genop  (MOVL_32_R output, code);
+                codeConst (refCode, false, code)
+            )
 
-        |   cgOp(Move{ source=StackAddress offset, output }) =
-                genStackOffset(output, offset, code)
+        |   cgOp(Move{ source=StackAddress byteOffset, output }) =
+                (* Set a register to a particular offset in the stack. *)
+                if byteOffset = 0
+                then genMove (output, regStackPtr, code)
+                else genLeal (output, regStackPtr, byteOffset, code)
 
         |   cgOp(CondBranch{ operands=[InRegister r1, InRegister r2], test=Wrd opc, label }) =
             (
@@ -3569,34 +3637,68 @@ Calling conventions:
             )
 
         |   cgOp(CondBranch{ operands=[InRegister r], test=Length opc, label }) =
-                (
-                    testTag(r, code); (* Use the standard tag test. *)
-                    label := [putConditional (opc, code)]
-                )
+            (
+                testTag(r, code); (* Use the standard tag test. *)
+                label := [putConditional (opc, code)]
+            )
 
         |   cgOp(CondBranch{ operands=[InRegister r], test=WrdConst(opc, cnstnt), label }) =
-                if isShort cnstnt
-                then
-                let
-                    val c = toInt(toShort cnstnt)
-                in
-                    genImmed (CMP, r, tag c, code);
-                    label := [putConditional (opc, code)]
-                end
-                else (* We may be comparing with an address. *)
-                (
-                    genop (Group1_32_A (* group1, 32 bit immediate *), code);
-                    genmodrm(Register, arithOpToWord CMP, getReg r, code);
-                    addConstToVec (WVal cnstnt, false, code); (* Remember this constant and address. *)
-                    label := [putConditional (opc, code)]
-                )
+            if isShort cnstnt
+            then
+            let
+                val c = toInt(toShort cnstnt)
+            in
+                genImmed (CMP, r, tag c, code);
+                label := [putConditional (opc, code)]
+            end
+            else (* We may be comparing with an address. *)
+            (
+                genop (Group1_32_A (* group1, 32 bit immediate *), code);
+                genmodrm(Register, arithOpToWord CMP, getReg r, code);
+                addConstToVec (WVal cnstnt, false, code); (* Remember this constant and address. *)
+                label := [putConditional (opc, code)]
+            )
 
         |   cgOp(CondBranch{ operands=[InRegister r], test=ArbConst(opc, cnstnt), label }) =
-                (
-                    tagTest1 (r, code);
-                    genImmed (CMP, r, tag(toInt cnstnt), code);
-                    label := [putConditional (opc, code)]
-                )
+            (
+                tagTest1 (r, code);
+                genImmed (CMP, r, tag(toInt cnstnt), code);
+                label := [putConditional (opc, code)]
+            )
+
+        |   cgOp(CondBranch{ operands=[InRegister r1, InRegister r2], test=FloatingPt opc, label }) =
+            let
+                (* Floating point comparisons use the values of the condition bits in AX.
+                   We do explicit tests on the bits rather than using the SAHF instruction
+                   because not all 64-bit processors support the SAHF instruction. *)
+                val c3 = 0wx4000 and c2 = 0wx0400 and c0 = 0wx0100
+                val revOrder = opc = JL orelse opc = JLE
+                val mask =
+                    case opc of
+                        JE => c2 orb c3
+                    |   JNE => c2 orb c3
+                    |   JL => c0 orb c2 orb c3
+                    |   JG => c0 orb c2 orb c3
+                    |   JLE => c0 orb c2
+                    |   JGE => c0 orb c2
+                    |   _ => raise InternalError "FloatingPt"
+            in
+                genop(FPESC 0w5, code); (* FLD [r1] *)
+                genop2(0, if revOrder then r2 else r1, 0wx0, code);
+                genop(FPESC 0w4, code); (* FCOMP [r2] - compare and pop *)
+                genop2(0, if revOrder then r1 else r2, 0w3, code);
+                genop(FPESC 0w7, code); (* FNSTSW AX *)
+                gen8u(0wxe0, code);
+
+                genImmed(AND, eax, Word.toInt mask, code);
+                if opc = JE orelse opc = JNE
+                then genImmed (CMP, eax, Word.toInt c3, code)
+                else (* AND has set the condition codes. *) ();
+                (* EAX currently has an untagged value in it. Make it safe before
+                   doing anything else by moving ebx, which ought to be safe, into it. *)
+                genMove(eax, ebx, code);
+                label := [putConditional (if opc = JNE then JNE else JE, code)]
+            end
 
         |   cgOp(CondBranch{ operands=_, test=_, label=_ }) =
                 raise InternalError "Not implemented"
@@ -4163,6 +4265,44 @@ Calling conventions:
             
             else if opByte = opToInt LOCK
             then print "lock "
+            
+            else if opByte >= opToInt (FPESC 0w0) andalso opByte <= opToInt (FPESC 0w7)
+            then (* Floating point escapes *)
+            let
+                (* Opcode is in next byte. *)
+                val opByte2  = csegGet (seg, !ptr)
+                val nnn = (opByte2 >>- 0w3) andb8 0w7
+                val escNo = opByte andb8 0wx7
+            in
+                if (opByte2 andb8 0wxE0) = 0wxE0
+                then (* mod = 11 *)
+                (
+                    case (escNo, opByte2) of
+                        (0w1, 0wxE0) => print "fchs"
+                    |   (0w1, 0wxE8) => print "fld1"
+                    |   (0w1, 0wxF3) => print "fpatan"
+                    |   (0w1, 0wxFA) => print "fsqrt"
+                    |   (0w1, 0wxFE) => print "fsin"
+                    |   (0w1, 0wxFF) => print "fcos"
+                    |   (0w7, 0wxE0) => print "fnstsw\tax"
+                    |   _ => (printHex(Word8.toInt opByte); printHex(Word8.toInt opByte2));
+                    ptr +:= 0w1
+                )
+                else (* mod = 00, 01, 10 *)
+                (
+                    case (escNo, nnn) of
+                        (0w3, 0w0) => print "fild\t"
+                    |   (0w4, 0w0) => print "fadd\t"
+                    |   (0w4, 0w1) => print "fmul\t"
+                    |   (0w4, 0w3) => print "fcomp\t"
+                    |   (0w4, 0w4) => print "fsub\t"
+                    |   (0w4, 0w6) => print "fdiv\t"
+                    |   (0w5, 0w0) => print "fld \t"
+                    |   (0w5, 0w3) => print "fstp\t"
+                    |   _ => (printHex(Word8.toInt opByte); printHex(Word8.toInt opByte2));
+                    printEA ()
+                )
+            end
 
             else printHex(Word8.toInt opByte);
       

@@ -93,10 +93,19 @@ sig
     and instrStoreW: instrs
     and instrStoreB: instrs
     and instrLockSeg: instrs
-
-    (* Can the we use the same register as the source and destination
-     of an instructions? *)
-    val canShareRegs : bool
+    and instrAddFP: instrs
+    and instrSubFP: instrs
+    and instrMulFP: instrs
+    and instrDivFP: instrs
+    and instrNegFP: instrs
+    and instrIntToRealFP: instrs
+    and instrRealToIntFP: instrs
+    and instrSqrtFP: instrs
+    and instrSinFP: instrs
+    and instrCosFP: instrs
+    and instrAtanFP: instrs
+    and instrExpFP: instrs
+    and instrLnFP: instrs
 
     (* Check whether an operation is implemented and, if appropriate, remove
        constant values into the instruction part. *)
@@ -105,7 +114,6 @@ sig
     val isPushI: machineWord -> bool
 
     type tests
-
     val testNeqW:  tests
     val testEqW:   tests
     val testGeqW:  tests
@@ -120,6 +128,12 @@ sig
     val testLtA:   tests
     val Short:     tests
     val Long:      tests
+    val testNeqFP: tests
+    val testEqFP:  tests
+    val testGeqFP: tests
+    val testGtFP:  tests
+    val testLeqFP: tests
+    val testLtFP:  tests
 
     type labels (* The source of a jump. *)
 

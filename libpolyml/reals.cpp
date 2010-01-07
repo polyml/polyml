@@ -219,8 +219,8 @@ Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
 /* CALL_IO1(Real_float, REF, NOIND) */
 Handle Real_floatc(TaskData *mdTaskData, Handle x) /* SHORT int to real */
 {
-    POLYSIGNED n = UNTAGGED(DEREFWORDHANDLE(x));
-    return real_result(mdTaskData, (double)n);
+    double d = get_C_real(mdTaskData, DEREFWORDHANDLE(x));
+    return real_result(mdTaskData, d);
 }
 
 /* CALL_IO1(Real_int, REF, NOIND) */

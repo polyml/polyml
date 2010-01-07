@@ -239,27 +239,12 @@ struct
         else if isNan x then raise General.Div else raise General.Overflow
 
     local
-        infix 7 rem quot
-        (* The RTS float and floor operations only work with SHORT integers.
-           Since we may be dealing with arbitrary precision values we need to
-           restrict the range of arguments so that they will work.
-        .  We use 32768 since that is always a short representation on all
-           architectures (in fact 2^28 is probably all right). We could
-           do better and find the largest power of two (because that's likely to
-           be fast to multiply by) which is a short value. *)
         val maxShortInt = 32768
         val floatShort: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real;
         val maxShortIntAsReal = floatShort maxShortInt
         val floorShort: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int;
-        val isShort   : int -> bool = RunCall.run_call1 POLY_SYS_is_short
-        val op quot = Int.quot and op rem = Int.rem
     in
-        (* TODO: I think there may be the possibility of errors due to
-           rounding when converting large integers to real. *)
-        fun fromInt n =
-            if isShort n then floatShort n
-            else (maxShortIntAsReal * fromInt (n quot maxShortInt) +
-                    floatShort (n rem maxShortInt))
+        val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real
           
         val fromLargeInt = fromInt
         

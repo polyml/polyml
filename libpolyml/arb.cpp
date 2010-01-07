@@ -1283,6 +1283,24 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
 }
 
+// Convert a long precision value to integer
+double get_C_real(TaskData *, PolyWord x)
+{
+    if (IS_INT(x)) {
+        POLYSIGNED t = UNTAGGED(x);
+        return (double)t;
+    }
+    byte *u = (byte *)(x.AsObjPtr());
+    POLYUNSIGNED lx = OBJECT_LENGTH(x)*sizeof(PolyWord);
+    double acc = 0;
+    for( ; lx > 0; lx--) {
+        acc = acc * 256 + (double)u[lx-1];
+    }
+    if (OBJ_IS_NEGATIVE(GetLengthWord(x)))
+        return -acc;
+    else return acc;
+}
+
 /*
 These functions are used primarily during porting.  They handle both
 short and long forms of integers and are generally superseded by

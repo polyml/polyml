@@ -2047,37 +2047,55 @@ struct
             (* binary special cases *)
             if wordEq (oper,ioOp POLY_SYS_word_eq)
             then genCompare (arg1, arg2, testEqW, testNeqW)
-          
+         
             else if wordEq (oper,ioOp POLY_SYS_word_neq)
             then genCompare (arg1, arg2, testNeqW, testEqW)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_equala)
             then genCompare (arg1, arg2, testEqA, testNeqA)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_int_geq)
             then genCompare (arg1, arg2, testGeqA, testLtA)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_int_leq)
             then genCompare (arg1, arg2, testLeqA, testGtA)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_int_gtr)
             then genCompare (arg1, arg2, testGtA, testLeqA)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_int_lss)
             then genCompare (arg1, arg2, testLtA, testGeqA)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_word_geq)
             then genCompare (arg1, arg2, testGeqW, testLtW)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_word_leq)
             then genCompare (arg1, arg2, testLeqW, testGtW)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_word_gtr)
             then genCompare (arg1, arg2, testGtW, testLeqW)
-          
+
             else if wordEq (oper,ioOp POLY_SYS_word_lss)
             then genCompare (arg1, arg2, testLtW, testGeqW)
-          
+
+            else if wordEq (oper,ioOp POLY_SYS_Real_eq)
+            then genCompare (arg1, arg2, testEqFP, testNeqFP)
+         
+            else if wordEq (oper,ioOp POLY_SYS_Real_neq)
+            then genCompare (arg1, arg2, testNeqFP, testEqFP)
+
+            else if wordEq (oper,ioOp POLY_SYS_Real_geq)
+            then genCompare (arg1, arg2, testGeqFP, testLtFP)
+
+            else if wordEq (oper,ioOp POLY_SYS_Real_leq)
+            then genCompare (arg1, arg2, testLeqFP, testGtFP)
+
+            else if wordEq (oper,ioOp POLY_SYS_Real_gtr)
+            then genCompare (arg1, arg2, testGtFP, testLeqFP)
+
+            else if wordEq (oper,ioOp POLY_SYS_Real_lss)
+            then genCompare (arg1, arg2, testLtFP, testGeqFP)
+
             else genOtherTests () (* Non-special binary function. *) 
 
      | _ => (* Functions with more than 2 arguments. *)
@@ -2759,11 +2777,50 @@ struct
                     else if wordEq(oper, ioOp POLY_SYS_lockseg)
                     then codeRTSFunction(instrLockSeg, args, whereto)
 
+                    else if wordEq (oper,ioOp POLY_SYS_Add_real)
+                    then codeRTSFunction(instrAddFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_Sub_real)
+                    then codeRTSFunction(instrSubFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_Mul_real)
+                    then codeRTSFunction(instrMulFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_Div_real)
+                    then codeRTSFunction(instrDivFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_Neg_real)
+                    then codeRTSFunction(instrNegFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_int_to_real)
+                    then codeRTSFunction(instrIntToRealFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_real_to_int)
+                    then codeRTSFunction(instrRealToIntFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
+                    then codeRTSFunction(instrSqrtFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_sin_real)
+                    then codeRTSFunction(instrSinFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_cos_real)
+                    then codeRTSFunction(instrCosFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_arctan_real)
+                    then codeRTSFunction(instrAtanFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_exp_real)
+                    then codeRTSFunction(instrExpFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_ln_real)
+                    then codeRTSFunction(instrLnFP, args, whereto)
+
                     (* The point of the following code is to call genCond, which will call genTest
-                         which will hopefully use machine instructions for these operations.
-                         We could avoid this by duplicating most of the body of genTest
-                         (the "jumping" boolean code generator) here, but we would like to
-                         avoid that. *)
+                       which will hopefully use machine instructions for these operations.
+                       We could avoid this by duplicating most of the body of genTest
+                       (the "jumping" boolean code generator) here, but we would like to
+                       avoid that. *)
                     else if primBoolOps andalso
                     (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
                      wordEq (oper,ioOp POLY_SYS_word_neq) orelse
@@ -2776,6 +2833,12 @@ struct
                      wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
                      wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
                      wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
+                     wordEq (oper,ioOp POLY_SYS_Real_lss) orelse
                      wordEq (oper,ioOp POLY_SYS_is_short))
                     then
                         genCond
