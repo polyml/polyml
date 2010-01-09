@@ -55,7 +55,147 @@
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-7 CUTS, David C.J. Matthews and contributors.";
+"Copyright (c) 2002-10 CUTS, David C.J. Matthews and contributors.";
+
+// Property bits for functions.  For compiled functions these are
+// stored in the register mask word.  None of the architectures has
+// more than 20 usable registers so we're safe putting them in these bits.
+// N.B. These are untagged values.
+// NORAISE means the function does not raise an exception.
+// NOUPDATE means the function does not perform any side-effects so if
+// its value is not used and it doesn't raise an exception it can be eliminated.
+// NODEREF means the value of the function depends only on the value of its arguments
+// and not on any other state.
+#define PROPWORD_NORAISE    0x40000000
+#define PROPWORD_NOUPDATE   0x20000000
+#define PROPWORD_NODEREF    0x10000000
+
+static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
+{
+    switch (i) {
+    case POLY_SYS_exit: return 0;
+    case POLY_SYS_chdir: return 0;
+    case POLY_SYS_alloc_store:
+        // Allocating memory doesn't have any visible effect on the state.  It can raise Size.
+        return PROPWORD_NOUPDATE;
+    case POLY_SYS_raisex: return 0;
+    case POLY_SYS_get_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_get_flags:
+        // This isn't quite true.  It is possible to clear the mutable flag on a mutable segment.
+        return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_str_compare: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststreq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststrneq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststrgtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststrlss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststrgeq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_teststrleq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_exception_trace: return 0;
+    case POLY_SYS_give_ex_trace: return 0;
+    case POLY_SYS_lockseg: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_emptystring: return 0; // Not a function
+    case POLY_SYS_nullvector: return 0; // Not a function
+    case POLY_SYS_network: return 0;
+    case POLY_SYS_os_specific: return 0;
+    case POLY_SYS_io_dispatch: return 0;
+    case POLY_SYS_signal_handler: return 0;
+    case POLY_SYS_atomic_incr: return PROPWORD_NORAISE;
+    case POLY_SYS_atomic_decr: return PROPWORD_NORAISE;
+    case POLY_SYS_thread_self: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_thread_dispatch: return 0;
+    case POLY_SYS_kill_self: return 0;
+    case POLY_SYS_profiler: return 0;
+    case POLY_SYS_full_gc: return PROPWORD_NORAISE; // Effectively has a side-effect
+    case POLY_SYS_stack_trace: return 0;
+    case POLY_SYS_timing_dispatch: return 0;
+    case POLY_SYS_objsize: return PROPWORD_NORAISE;
+    case POLY_SYS_showsize: return PROPWORD_NORAISE;
+    case POLY_SYS_is_short: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_aplus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_aminus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_amul: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_adiv: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_amod: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_aneg: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_xora: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_equala: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_ora: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_anda: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_str: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_lss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Real_Dispatch: return 0;
+    case POLY_SYS_Add_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Sub_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Mul_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Div_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Neg_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Repr_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_conv_real: return PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_real_to_int: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_sqrt_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_sin_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_cos_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_arctan_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_exp_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_ln_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_stdin: return 0; // Not a function
+    case POLY_SYS_stdout: return 0; // Not a function
+    case POLY_SYS_process_env: return 0;
+    case POLY_SYS_set_string_length: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_get_first_long_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_poly_specific: return 0;
+    case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_set_code_constant: return 0;
+    case POLY_SYS_move_words: return PROPWORD_NORAISE;
+    case POLY_SYS_shift_right_arith_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_to_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_move_bytes: return PROPWORD_NORAISE;
+    case POLY_SYS_code_flags: return 0;
+    case POLY_SYS_shrink_stack: return 0;
+    case POLY_SYS_stderr: return 0; // Not a function
+    case POLY_SYS_callcode_tupled: return 0;
+    case POLY_SYS_foreign_dispatch: return 0;
+    case POLY_SYS_XWindows: return 0;
+    case POLY_SYS_is_big_endian: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_bytes_per_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_offset_address: return 0;
+    case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_word_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_int_lss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_mul_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_plus_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_minus_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_div_word: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_or_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_and_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_xor_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_shift_left_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_mod_word: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_word_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_word_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_word_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_word_lss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_word_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_load_byte: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_load_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_assign_byte: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_assign_word: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    default: raise_exception_string(taskData, EXC_Fail, "Unknown IO operation");
+    }
+}
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -172,11 +312,12 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 {
                     if (pt == (PolyObject*)IoEntry(i))
                     {
-                        return Make_arbitrary_precision(taskData,
-                                machineDependent->GetIOFunctionRegisterMask(i));
+                        int regMask = machineDependent->GetIOFunctionRegisterMask(i);
+                        POLYUNSIGNED props = rtsProperties(taskData, i);
+                        return Make_arbitrary_precision(taskData, regMask | props);
                     }
                 }
-                raise_syscall(taskData, "Io pointer not found", 0);
+                raise_exception_string(taskData, EXC_Fail, "Io pointer not found");
             }
             else
             {
@@ -193,16 +334,11 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                        constant area. */
                     PolyWord *codePt = pt->ConstPtrForCode();
                     PolyWord mask = codePt[1];
-                    /* A real mask will be an integer.  For backwards
-                       compatibility if we find something that isn't we
-                       treat it as all registers. */
-                    if (IS_INT(mask))
-                    {
-                        return SAVE(mask);
-                    }
-                    else return Make_arbitrary_precision(taskData, -1);
+                    // A real mask will be an integer.
+                    if (IS_INT(mask)) return SAVE(mask);
+                    else raise_exception_string(taskData, EXC_Fail, "Invalid mask");
                 }
-                else raise_syscall(taskData, "Not a code pointer", 0);
+                else raise_exception_string(taskData, EXC_Fail, "Not a code pointer");
             }
         }
 
