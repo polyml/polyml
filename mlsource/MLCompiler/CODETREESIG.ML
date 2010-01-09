@@ -66,7 +66,7 @@ sig
     val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
 
     val pretty:    codetree -> pretty;
-    val evalue:    codetree -> machineWord;
+    val evalue:    codetree -> machineWord option
     val genCode:   codetree * Universal.universal list -> (unit -> codetree);
     
     val rtsFunction:        int -> codetree

@@ -484,7 +484,7 @@ struct
                 false)
         val pretty =
             RunCall.unsafeCast(
-                evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [printerCode]), [])()))
+                valOf(evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [printerCode]), [])())))
     in
         pretty
     end
@@ -532,7 +532,7 @@ struct
                 [
                     valPart "=",
                     PrettyBreak (1, 0),
-                    printValueForType (evalue code, typeOf, depth),
+                    printValueForType (valOf(evalue code), typeOf, depth),
                     PrettyString ":",
                     PrettyBreak (1, 0),
                     displayWithMap (typeOf, depth, typeEnv, sigMap)
@@ -567,7 +567,7 @@ struct
   (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
   fun printValues (Value{typeOf, class, access, ...}, depth, _) =
         case (class, access) of
-            (ValBound, Global code) => printValueForType (evalue code, typeOf, depth)
+            (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
 
     (* Prints "sig ... end" as a block, with no external formatting *)
@@ -1244,7 +1244,7 @@ struct
                            to create the tuple. *)
                         val fns = List.tabulate (n, fn n => mkConst(toMachineWord(getElem n)))
                     in
-                        evalue (mkTuple fns)
+                        valOf(evalue (mkTuple fns))
                     end
             in
                 pprint (addString, beginBlock, break, endBlock) depth processElement valToPrint;
@@ -1405,16 +1405,12 @@ struct
            additional overloading as a pointer to a function.  Most overloads
            are small functions or wrapped calls to RTS functions and so
            we need to get the inline code for them. *)
-           (
-               (* evalue raises an exception if "argument" is not a constant,
+                (* evalue raises an exception if "argument" is not a constant,
                   or more usefully, a global value containing a constant and
                   possibly a piece of codetree to inline. *)
-               evalue(argument);
-               mkConst (toMachineWord (addOverloading argument))
-           )
-           handle SML90.Interrupt => raise SML90.Interrupt
-             | _ =>
-               mkEval (mkConst (toMachineWord addOverloadGeneral), [argument], false)
+          case evalue(argument) of
+            SOME _ => mkConst (toMachineWord (addOverloading argument))
+          | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument], false)
         end
 
       | GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
@@ -1496,7 +1492,7 @@ struct
      look at the address. *)
    fun isTheSameException(Value{access = Global aCode, ...},
                              Value{access = Global bCode, ...}) : bool =
-        wordEq(evalue aCode, evalue bCode)
+        wordEq(valOf(evalue aCode), valOf(evalue bCode))
        
    |  isTheSameException(Value{access = Local{addr=ref aAddr, level=ref aLevel}, ...},
                             Value{access = Local{addr=ref bAddr, level=ref bLevel}, ...}) : bool =

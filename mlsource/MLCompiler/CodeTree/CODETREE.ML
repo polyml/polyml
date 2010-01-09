@@ -459,11 +459,10 @@ struct
    |  mkInd (addr, base as Constnt _) = findEntryInBlock base addr
    |  mkInd (addr, base) = Indirect {base = base, offset = addr};
         
-  (* Get the value from the code. *)
-  fun evalue (Constnt c) : machineWord = c
-   |  evalue (Global g) : machineWord = evalue(optGeneral g)
-   |  evalue _ =
-        raise InternalError "evalue: Not a constant"
+    (* Get the value from the code. *)
+    fun evalue (Constnt c) = SOME c
+    |   evalue (Global g) = evalue(optGeneral g)
+    |   evalue _ = NONE
 
   (* Test for possible side effects. If an expression has no side-effect
      and its result is not used then we don't need to generate it. An

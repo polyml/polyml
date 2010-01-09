@@ -4137,7 +4137,7 @@ struct
             val (conv, name) =
                  getOverloadInstance(valName converter, instance, true)
         in
-            SOME(RunCall.unsafeCast(evalue conv) literal)
+            SOME(RunCall.unsafeCast(valOf(evalue conv)) literal)
                 handle Match => NONE (* Overload error *)
                   | Conversion s =>
                           (
@@ -4400,7 +4400,7 @@ struct
                     let
                         val eqCode = mkEval(eqFun, [mkTuple[mkConst a, mkConst b]], false)
                     in
-                        RunCall.unsafeCast(evalue(genCode(eqCode, debugParams lex)()))
+                        RunCall.unsafeCast(valOf(evalue(genCode(eqCode, debugParams lex)())))
                     end
                 |   equalSpecials _ = false
 
