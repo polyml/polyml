@@ -126,7 +126,7 @@ struct
         staticLinkRegSet : int -> regSet,
         discardClosure   : bool,
         numOfArgs        : int,
-        debugSwitches    : Universal.universal list) : operations list * int * reg list =
+        debugSwitches    : Universal.universal list) : operations list * int * regSet =
     let
         val cvec = ref []
         fun codeGenerate(ops, cvec) = cvec := ops @ ! cvec
@@ -210,7 +210,8 @@ struct
                     ]
             |   SOME _ =>
                 let
-                    val (returnReg, returnOffset, returnCode) = loadEntry (transtable, returnAddress, false);
+                    val (returnReg, returnOffset, returnCode) =
+                        loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false);
                     val () = removeStackEntry (transtable, returnOffset)
                 in
                     returnFromFunction{returnReg=SOME returnReg, argsToRemove=stackArgs} ::
@@ -580,7 +581,11 @@ struct
                    reference to the initial value in which case we could reuse
                    its location. *)
                 val (index, indexCode) = genToStack(value, matchFailFn)
-                val (_, decl, decCode) = loadEntry(transtable, index, true)
+                (* TODO: If this is actually a floating point value we would REALLY like this in
+                   a floating point register but we don't know here whether we have a floating point
+                   value until we do some floating point operations.  It could be worth looking through
+                   the code and seeing how we're going to use this. *)
+                val (_, decl, decCode) = loadEntryToSet(transtable, index, RegSet.generalRegisters, true)
                 val () = codeGenerate(decCode @ indexCode, cvec)
                 (* It should not be a static-link function - just check. *) 
                 val _ = 
@@ -897,7 +902,8 @@ struct
      
                             (* Get exclusive use so that
                                indexedCase can modify the registers. *)
-                            val (testReg, testIndex, testCode)  = loadEntry (transtable, testValue, true);
+                            val (testReg, testIndex, testCode)  =
+                                loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
                             val () = removeStackEntry (transtable, testIndex);
   
                             (* Need a work register. *)
@@ -1366,7 +1372,8 @@ struct
       (* Finds the nth. item in the closure and returns the entry *)
       fun findClosure (h::_) 1 = (* found it *) h
         | findClosure (_::t) n = findClosure t (n - 1) 
-        | findClosure _      _ = raise InternalError "findClosure";
+        | findClosure _      _ = raise InternalError "findClosure"
+        
     in
       if not makeClosure
       then let (* static link form *)
@@ -1521,7 +1528,7 @@ struct
             val closureEntry = findClosure closureList prevloc;
           in
             case closureEntry of
-              Constnt (w : machineWord) => getRegisterSet w
+              Constnt (w : machineWord) => getRegisterSetForFunction w
             | Extract {fpRel = true, addr, ...} =>
                 if addr > 0
                 then getFunctionRegSet(pstackForDec (transtable, addr), transtable)
@@ -2431,7 +2438,8 @@ struct
                     then NONE (* Leave it there. *)
                     else
                     let
-                        val (reg, regIndex, loadCode) = loadEntry (transtable, returnAddress, false)
+                        val (reg, regIndex, loadCode) =
+                            loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
                         val () = codeGenerate(loadCode, cvec)
                     in
                         removeStackEntry(transtable, regIndex);
@@ -2500,7 +2508,7 @@ struct
             val registerSet =
                 case clos of
                     SOME (Constnt w) =>
-                        regSetUnion(listToSet(regClosure :: argRegs), getRegisterSet w)
+                        regSetUnion(listToSet(regClosure :: argRegs), getRegisterSetForFunction w)
                   | _ (* Recursive or not a constant. *) => allRegisters;
 
             (* Add the registers to the set modified by this function.

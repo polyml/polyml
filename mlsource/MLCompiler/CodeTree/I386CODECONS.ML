@@ -68,7 +68,7 @@ struct
     val op orb = Word.orb and op orbL = LargeWord.orb and op orb8 = Word8.orb
     val op andb8 = Word8.andb
 
-    (*val op andb = Word.andb op andbL = LargeWord.andb *)
+    val op andb = Word.andb (* and op andbL = LargeWord.andb *)
 
     val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
  
@@ -371,13 +371,14 @@ struct
     (* Put together the three fields which make up the mod r/m byte. *)
     fun modrm (md : mode, rg: Word8.word, rm : Word8.word) : Word8.word =
     let
+        val _ = if rg > 0w7 then raise InternalError "modrm: bad rg" else ()
+        val _ = if rm > 0w7 then raise InternalError "modrm: bad rm" else ()
         val modField: Word8.word = 
-          case md of 
-              Based0   => 0w0
-            | Based8   => 0w1
-            | Based32  => 0w2
-            | Register => 0w3
-            ;
+            case md of 
+                Based0   => 0w0
+            |   Based8   => 0w1
+            |   Based32  => 0w2
+            |   Register => 0w3
     in
         (modField <<- 0w6) orb8 (rg <<- 0w3) orb8 rm
     end;
@@ -430,51 +431,64 @@ struct
   )
 
 
-    datatype reg = Reg of Word8.word  (* registers. *)
+    (* Registers and pseudo-registers. *)
+    datatype reg =
+        GenReg of Word8.word
+    |   HandlerReg
+    |   FPReg of Word8.word
 
     (* These are the real registers we have. *)
-    val eax = Reg  0w0;  
-    val ecx = Reg  0w1;  
-    val edx = Reg  0w2;
-    val ebx = Reg  0w3;  
-    val esp = Reg  0w4;  
-    val ebp = Reg  0w5;
-    val esi = Reg  0w6;  
-    val edi = Reg  0w7;
-    
-    (* Not real registers. *)
+    val eax = GenReg  0w0;  
+    val ecx = GenReg  0w1;  
+    val edx = GenReg  0w2;
+    val ebx = GenReg  0w3;  
+    val esp = GenReg  0w4;  
+    val ebp = GenReg  0w5;
+    val esi = GenReg  0w6;  
+    val edi = GenReg  0w7;
+
+    (* Floating point "registers".  Actually entries on the floating point stack.
+       The X86 has a floating point stack with eight entries.  We treat six of
+       them as registers and push the appropriate register(s) onto the top of
+       the stack if we need them as operands. *)
+    val fp0 = FPReg 0w0
+    and fp1 = FPReg 0w1
+    and fp2 = FPReg 0w2
+    and fp3 = FPReg 0w3
+    and fp4 = FPReg 0w4
+    and fp5 = FPReg 0w5
+
+     (* Not real registers. *)
     val regNone    = NONE;  
-    val regHandler = Reg 0w9;  
+    val regHandler = HandlerReg
 
     val regResult   = eax; (* Result of function call goes in here. *)
     val regClosure  = edx; (* Addr. of closure for fn. call goes here. *)
     
     val regStackPtr = esp;
-    val regReturn   = NONE;
+    val regReturn   = NONE; (* Return address is on the stack. *)
 
-    fun getReg (Reg r) = r;      (* reg.down *)
-    fun mkReg   n      = Reg n;  (* reg.up   *)
+    fun getReg (GenReg r) = r
+    |   getReg _ = raise InternalError "getReg: not a general register"
+    fun mkReg   n      = GenReg n;  (* reg.up   *)
   
-    (* The number of general registers. Includes result, closure, code,
-       return and arg regs but not stackptr, handler, stack limit
-       or heap ptrs. *)
-    val regs = 6 (* eax, ebx, ecx, edx, esi, edi *);
+    (* The maximum size of the register vectors and masks. *)
+    val regs = 14
 
-    (* N.B. The encoding of registers as integers here is used to
-       encode the register modification sets.  It MUST match the
-       encoding used for IO functions in the registerMaskVector in
-       the RTS assembly code section. *)
     (* The nth register (counting from 0). *)
     fun regN i =
-        if i < 0 orelse i >= regs then raise InternalError "Bad register number"
-        else if i = 4 then esi
-        else if i = 5 then edi
-        else mkReg(Word8.fromInt i)
-  
+        if i < 0
+        then raise InternalError "Bad register number"
+        else if i < 8
+        then GenReg(Word8.fromInt i)
+        else if i < regs
+        then FPReg(Word8.fromInt(i-8))
+        else raise InternalError "Bad register number"
+ 
     (* The number of the register. *)
-    fun nReg r =
-      if r = esi then 4 else
-      if r = edi then 5 else Word8.toInt(getReg r);
+    fun nReg(GenReg r) = Word8.toInt r
+    |   nReg(FPReg r) = Word8.toInt r + 8
+    |   nReg HandlerReg = raise InternalError "nReg"
 
     fun regRepr r = 
       if r = eax then "%eax" else
@@ -485,6 +499,12 @@ struct
       if r = ebp then "%ebp" else
       if r = esi then "%esi" else
       if r = edi then "%edi" else
+      if r = fp0 then "fp0" else
+      if r = fp1 then "fp1" else
+      if r = fp2 then "fp2" else
+      if r = fp3 then "fp3" else
+      if r = fp4 then "fp4" else
+      if r = fp5 then "fp5" else
          "r" ^ Word8.toString (getReg r);
     
     (* Arguments are passed in eax and ebx. *)
@@ -501,6 +521,7 @@ struct
         type regSet = word
         fun singleton r = Word.<<(0w1, Word.fromInt(nReg r))
         val regSetUnion = Word.orb
+        val regSetIntersect = Word.andb
 
         local
             fun addReg(acc, n) =
@@ -513,21 +534,87 @@ struct
 
         fun inSet(r, rs) = Word.andb(singleton r, rs) <> 0w0
         
-        fun inverseSet s = Word.andb(allRegisters, Word.notb s)
+        fun regSetMinus(s1, s2) = Word.andb(s1, Word.notb s2)
         
         val listToSet = List.foldl (fn(r, rs) => Word.orb(singleton r, rs)) 0w0
+
+        val generalRegisters = (* Registers checked by the GC. *)
+            listToSet [eax, ecx, edx, ebx, esi, edi]
         
+        val floatingPtRegisters =
+            listToSet [fp0, fp1, fp2, fp3, fp4, fp5]
+
         fun isAllRegs rs = rs = allRegisters
-        
-        local
-            fun card n 0w0 = n
-            |   card n rs = card (n+1) (Word.xorb(rs, Word.andb(rs, ~rs)))
+
+        fun setToList regSet =
+        let
+            fun testBit (n, res) =
+                if n = regs
+                then res
+                else if inSet(regN n, regSet)
+                then testBit(n+1, regN n :: res)
+                else testBit(n+1, res)
         in
-            val cardinality = card 0
+            testBit(0, [])
+        end
+
+        val cardinality = List.length o setToList
+
+        (* Choose one of the set. *)
+        val oneOf = hd o setToList
+        
+        fun regSetRepr regSet =
+        let
+            val regs = setToList regSet
+        in
+            "[" ^ String.concatWith "," (List.map regRepr regs) ^ "]"
         end
      end
 
     open RegSet
+
+    (* Encode and decode the mask of modified registers stored in compiled code and
+       maintained for the RTS.  N.B. This encoding is built into x87asm.asm in the RTS. *)
+    local
+        val regMap =
+        [
+            (eax, 0wx0001),
+            (ecx, 0wx0002),
+            (edx, 0wx0004),
+            (ebx, 0wx0008),
+            (esi, 0wx0010),
+            (edi, 0wx0020)
+        ]
+        (*
+        #define     M_R8         64
+        #define     M_R9        128
+        #define     M_R10       256
+        #define     M_R11       512
+        #define     M_R12      1024
+        #define     M_R13      2048
+        #define     M_R14      4096*)
+    in
+        fun getRegisterSet (rSet: Word.word): regSet =
+        let
+            fun testBit((reg, bit), acc) =
+                if (rSet andb bit) = 0w0
+                then acc
+                else reg :: acc
+            val regs = List.foldl testBit [] regMap
+        in
+            listToSet regs
+        end
+        
+        and encodeRegSet(regSet: regSet): word =
+        let
+            fun testBit((reg, bit), acc) =
+                if inSet(reg, regSet)
+                then acc orb bit
+                else acc
+        in
+            List.foldl testBit 0w0 regMap
+        end
+    end
 
   datatype arithOp =
     ADD
@@ -598,7 +685,7 @@ struct
   | TEST_ACC8
   | LOCK
   | FPESC of Word8.word
-  ;
+  | XCHNG
 
   fun opToInt opn: Word8.word =
     case opn of
@@ -645,7 +732,8 @@ struct
     | PUSH_32       => 0wx68
     | TEST_ACC8     => 0wxa8
     |   LOCK        => 0wxF0
-    |   FPESC n     => 0wxD8 orb8 n   
+    |   FPESC n     => 0wxD8 orb8 n
+    |   XCHNG       => 0wx87
     ;
 
 (* ...
@@ -831,10 +919,10 @@ SS-relative addressing modes:
         )
     end (* resetSp *); 
         
-  (* Do any pending instructions, but only fix up branches if there
-     are instructions in the pipe-line. *)
-  fun flushQueue (Code{stackReset = ref 0w0, ...}) = ()
-   |  flushQueue cvec = resetSp cvec;
+    (* Do any pending instructions, but only fix up branches if there
+       are instructions in the pipe-line. *)
+    fun flushQueue (Code{stackReset = ref 0w0, ...}) = ()
+    |   flushQueue cvec = resetSp cvec;
 
 
     (* Makes a new label. *)
@@ -1313,25 +1401,23 @@ SS-relative addressing modes:
         |   0w3 => genImmed (OR, eax, 0, cvec)
         |   _ => ()
 
-  (* Exported.  - movl offset(rb),rd. *)
-  fun genLoad (offset: int, rb: reg, rd: reg, cvec) : unit =
-    if rd = regHandler (* Not a real register. *)
-    then 
-      (
-       (* pushl offset(rb); popl 4(ebp) *)
-       (* This only happens when we are popping the handler so we
-          could simply pop it straight. *)
-       genop (Group5, cvec);
-       genop2 (offset, rb, 0w6 (* push *), cvec);
+    (* movl offset(rb),rd. *)
+    fun genLoad (offset: int, rb: reg, HandlerReg(* Not a real register. *), cvec) : unit =
+        (
+            (* pushl offset(rb); popl 4(ebp) *)
+            (* This only happens when we are popping the handler so we
+              could simply pop it straight. *)
+            genop (Group5, cvec);
+            genop2 (offset, rb, 0w6 (* push *), cvec);
        
-       genop (POP_A, cvec);
-       genop2 (MemRegHandlerRegister, ebp, 0w0, cvec)
-      )
-    else
-      (
-       genop (MOVL_A_R, cvec);
-       genEA (offset, rb, rd, cvec)
-      );
+            genop (POP_A, cvec);
+            genop2 (MemRegHandlerRegister, ebp, 0w0, cvec)
+        )
+    | genLoad (offset: int, rb: reg, rd: reg, cvec) : unit =
+        (
+            genop (MOVL_A_R, cvec);
+            genEA (offset, rb, rd, cvec)
+        )
 
   (* Store an immediate value at a given address and offset. *)
   fun genStoreIW (cnstnt: machineWord, offset: int, rb: reg, ri: reg option,
@@ -1412,16 +1498,8 @@ SS-relative addressing modes:
    end
 
 
-    (* Store a value on the stack.  This is used when the registers need to be
-       saved, for more than 4 arguments or to push an exception handler. *)
-    fun genPush (r:reg, cvec) : unit =
-    if r = regHandler (* Not a real register. *)
-    then
-    (
-        genop (Group5, cvec);
-        genop2 (MemRegHandlerRegister, ebp, 0w6 (* push *), cvec)
-    )
-    else genop (PUSH_R r, cvec);
+    (* Store a value on the stack. *)
+    fun genPush (r:reg, cvec) = genop (PUSH_R r, cvec);
 
 
   (* Exported. Load a value and push it on the stack.  Used when all
@@ -1460,20 +1538,20 @@ SS-relative addressing modes:
     !ic addrPlus ~4
   );
 
-  (* Register/register move. *)
-  fun genMove (rd:reg, rs:reg, cvec) : unit =
+    (* Register/register move. *)
+    fun genMove (rd:reg, rs:reg, cvec) : unit =
     (
-     genop (MOVL_R_A, cvec);
-     genmodrm(Register, getReg rs, getReg rd, cvec)
-    );
+        if getReg rd = 0w5 then raise InternalError "Destination is ebp" else ();
+        genop (MOVL_R_A, cvec);
+        genmodrm(Register, getReg rs, getReg rd, cvec)
+    )
 
-  (* Add a register to a constant. *)
-  fun genLeal (rd:reg, rs:reg, offset:int, cvec) : unit =
-   (
-     genop (LEAL, cvec);
-     genEA (offset, rs, rd, cvec)
-   );
-
+    (* Add a register to a constant. *)
+    fun genLeal (rd:reg, rs:reg, offset:int, cvec) : unit =
+    (
+        genop (LEAL, cvec);
+        genEA (offset, rs, rd, cvec)
+    )
 
     (* Exported.  - movl rs,offset(rb) / movb rs,offset(rb) *)
     fun genStoreW (rs: reg, offset: int, rb: reg, ri: reg option, cvec) : unit =
@@ -1532,7 +1610,7 @@ SS-relative addressing modes:
 
     type handlerLab = addrs ref;
   
-  (* Exported. Loads the address of the destination of a branch. Used to
+    (* Loads the address of the destination of a branch. Used to
      put in the address of the exception handler.
      We used to have pushAddress in place of this which pushed the
      address at the same time.  On this architecture it can save an
@@ -1545,21 +1623,20 @@ SS-relative addressing modes:
         addConstToVec (HVal lab, false, cvec)
     )
 
-  (* Exported *)
-  fun fixupHandler (lab:handlerLab, cvec as Code{exited, ic, branchCheck, ...}) : unit =
-  ( 
-    (* Make sure anything pending is done first. *)
-    (* 15 comes from maximum instruction size + up to 3 nops. *)
-    doPending (cvec, 15); 
+    fun fixupHandler (lab:handlerLab, cvec as Code{exited, ic, branchCheck, ...}) : unit =
+    ( 
+        (* Make sure anything pending is done first. *)
+        (* 15 comes from maximum instruction size + up to 3 nops. *)
+        doPending (cvec, 15); 
     
-    (* Ensure the return address is aligned onto a word + 2 byte
-       boundary. *)
-    align (0w2, cvec);
+        (* Ensure the return address is aligned onto a word + 2 byte
+           boundary. *)
+        align (0w2, cvec);
     
-    exited := false;
-    branchCheck := !ic;
-    lab := !ic
-  );
+        exited := false;
+        branchCheck := !ic;
+        lab := !ic
+    );
 
   datatype callKinds =
         Recursive           (* The function calls itself. *)
@@ -1804,7 +1881,28 @@ Calling conventions:
       end;
       
       exited := true
-    );
+    )
+
+    (* Load a floating point register to the stack.  Because the positions are dependent on
+       the number of items already pushed we may need to add an offset. *)
+    fun loadFpRegToStack(fpReg, offset, code) =
+    let
+        val fp = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
+    in
+        genop(FPESC 0w1, code); (* FLD ST(r1) *)
+        gen8u((0w3 <<- 0w6) orb8 (0w0 <<- 0w3) orb8 (fp + offset), code)
+    end
+
+    (* Pops the top of the stack into a register.  This assumes that there is
+       exactly one item on the stack which is why we add one here. *)
+    fun storeFpRegFromStack(fpReg, code) =
+    let
+        val dest = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
+    in
+        genop(FPESC 0w5, code); (* FSTP ST(n+1) *)
+        gen8u((0w3 <<- 0w6) orb8 (0w3 <<- 0w3) orb8 (dest+0w1(* One item *)), code)
+    end
+    
 
     (* Allocate store and put the resulting pointer in the result register. *)
     fun allocStore (size, flag, resultReg, cvec) : unit =
@@ -2355,7 +2453,14 @@ Calling conventions:
 
     datatype regHint = UseReg of reg | NoHint | NoResult
 
-    type argReq = source * bool
+    (* These are almost the same as source values except that a value
+       may be in more than one register. *)
+    datatype actionSource =
+        ActLiteralSource of machineWord
+    |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
+    |   ActBaseOffset of reg * int
+    |   ActCodeRefSource of code (* The address of another function *)
+    |   ActStackAddress of int (* Offset within the stack. *)
 
     datatype argAction =
         ActionDone of (* The output register if any and the final operation. *)
@@ -2367,27 +2472,29 @@ Calling conventions:
     |   ActionGetWorkReg of (* Get a work/result register. *)
             { regSet: regSet, setReg: reg -> nextAction }
 
-    withtype nextAction = argReq list -> argAction
+    withtype nextAction = actionSource list -> argAction
 
     (* Default action for all operations. *)
     local
-        (* If we have specified a preferred register use that. *)
-        fun prefAsSet(UseReg reg) = singleton reg
-        |   prefAsSet _ = allRegisters
+        (* If we have specified a preferred register use that except when
+           it's a general register and we're producing floating point result. *)
+        fun prefAsSet(UseReg reg, regSet) =
+                if inSet(reg, regSet) then singleton reg else regSet
+        |   prefAsSet(_, regSet) = regSet
 
         (* We get the output register first because we're going to lock that down. *)
-        fun getResultReg(instr, pref: regHint, operands) _ =
-            ActionGetWorkReg{regSet=prefAsSet pref, (* Use the preferred destination. *)
-                setReg = fn reg => getArg(instr, SOME reg, operands)}
+        fun getResultReg(instr, regSet, pref: regHint, operands) _ =
+            ActionGetWorkReg{regSet=prefAsSet(pref, regSet), (* Use the preferred destination. *)
+                setReg = fn reg => getArg(instr, regSet, SOME reg, operands)}
         
-        and getInitialResultReg(instr, pref: regHint) args =
-            getResultReg(instr, pref: regHint, List.map(fn _ => NONE) args) args
+        and getInitialResultReg(instr, regSet, pref: regHint) args =
+            getResultReg(instr, regSet, pref: regHint, List.map(fn _ => NONE) args) args
 
         (* The initial case if we don't need an output register. *)
         and getInitialArg instr args =
-            getArg(instr, NONE, List.map(fn _ => NONE) args) args
+            getArg(instr, generalRegisters, NONE, List.map(fn _ => NONE) args) args
 
-        and getArg(instr, outputReg, operands) args =
+        and getArg(instr, regSet, outputReg, operands) args =
         let
             (* Take each NONE in the operand list and replace it with the appropriate operand. *)
             fun nextArg([], [], _) =
@@ -2399,16 +2506,27 @@ Calling conventions:
             |   nextArg(NONE :: otherOps, arg :: _, argNo) =
                 (
                     case arg of (* Look at the next argument *)
-                        (InRegister reg, _) =>
+                        (ActInRegisterSet{ readable, ...}) =>
+                        if regSetIntersect(readable, regSet) <> noRegisters
+                        then
+                        let
+                            val aReg = oneOf(regSetIntersect(readable, regSet))
+                        in
                             (* It's in a register.  Lock it, record it and go on to the next arg. *)
-                            ActionLockRegister{argNo=argNo, reg=reg, willOverwrite=false,
-                                next=getArg(instr, outputReg,
-                                        List.take(operands, argNo) @ (SOME(InRegister reg) :: otherOps))}
-                    |   (_, _) =>
-                            ActionLoadArg{argNo=argNo, regSet=allRegisters, willOverwrite=false,
+                            ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
+                                next=getArg(instr, regSet, outputReg,
+                                        List.take(operands, argNo) @ (SOME(InRegister aReg) :: otherOps))}
+                        end
+                        else ActionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=false,
                                 (* Load into a register - won't modify it afterwards.  Next action is
                                    to look at this again after it's been loaded. *)
-                                next=getArg(instr, outputReg, operands)}
+                                next=getArg(instr, regSet, outputReg, operands)}
+                    |   _ => (* If the value is not in a register we need to load it first to a
+                                general register even if the eventual destination is a floating pt reg. *)
+                            ActionLoadArg{argNo=argNo, regSet=generalRegisters, willOverwrite=false,
+                                (* Load into a register - won't modify it afterwards.  Next action is
+                                   to look at this again after it's been loaded. *)
+                                next=getArg(instr, regSet, outputReg, operands)}
                 )
             |   nextArg(SOME _ :: otherOps, _ :: otherArgs, argNo) =
                     nextArg(otherOps, otherArgs, argNo+1)
@@ -2417,12 +2535,13 @@ Calling conventions:
             nextArg(operands, args, 0)
         end
     in
-        fun defaultActions(instr as InstrStoreW _, _) = getInitialArg instr
-        |   defaultActions(instr as InstrStoreB _, _) = getInitialArg instr
-        |   defaultActions(instr as InstrLockSeg, _) = getInitialArg instr
-        |   defaultActions(instr as InstrSetStringLength, _) = getInitialArg instr
-
-        |   defaultActions(instr, pref) = getInitialResultReg(instr, pref)
+        val noresultNegotiator = getInitialArg
+        fun floatingPtNegotiator(instr, pref) = getInitialResultReg(instr, floatingPtRegisters, pref)
+        fun generalNegotiator(instr, pref) = getInitialResultReg(instr, generalRegisters, pref)
+        (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
+        fun intToFPNegotiator(instr, pref) _ =
+            ActionGetWorkReg{regSet=prefAsSet(pref, floatingPtRegisters),
+                setReg = fn reg => getArg(instr, generalRegisters, SOME reg, [NONE])}
         
         local
             (* Storing a byte is complicated because we can only store from some registers.
@@ -2433,17 +2552,23 @@ Calling conventions:
                 val argNo = List.length args - 1 (* Last argument. *)
             in
                 case List.last args of
-                    (InRegister reg, _) =>
+                    (ActInRegisterSet{ readable, ...}) =>
                         (* Put it in the right register.  We might record here whether
                            this is the last usage and only retag the result if we really
                            have to. *)
-                        if inSet(reg, byteStoreRegs)
-                        then ActionLockRegister{argNo=argNo, reg=reg, willOverwrite=false,
-                                next=getArg(instr, NONE, List.tabulate(argNo, fn _ => NONE) @ [SOME(InRegister reg)])}
+                        if regSetIntersect(readable, byteStoreRegs) <> noRegisters
+                        then
+                        let
+                            val aReg = oneOf(regSetIntersect(readable, generalRegisters))
+                        in
+                            ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
+                                next=getArg(instr, generalRegisters, NONE,
+                                                List.tabulate(argNo, fn _ => NONE) @ [SOME(InRegister aReg)])}
+                        end
                         else (* Not in the right register - move it. *)
                             ActionLoadArg{argNo=argNo, regSet=byteStoreRegs, willOverwrite=false,
                                 next=loadStoreArg instr}
-                |   (_, _) =>
+                |   _ =>
                         ActionLoadArg{argNo=argNo, regSet=byteStoreRegs, willOverwrite=false,
                             (* Load into a register - won't modify it afterwards.  Next action is
                                to look at this again after it's been loaded. *)
@@ -2459,14 +2584,14 @@ Calling conventions:
             fun loadShiftArg (instr, pref) [_, arg2] =
             (
                 case arg2 of
-                    (InRegister reg, lastRef) =>
-                        if reg = ecx andalso lastRef
-                        then ActionLockRegister{argNo=1, reg=reg, willOverwrite=true,
+                    (ActInRegisterSet{ modifiable, ...}) =>
+                        if regSetIntersect(modifiable, ecxSet) <> noRegisters
+                        then ActionLockRegister{argNo=1, reg=ecx, willOverwrite=true,
                                 next=loadResultArg(instr, pref)}
                         else (* Not in the right register - move it. *)
                             ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
                                 next=loadShiftArg(instr, pref)}
-                |   (_, _) =>
+                |   _=>
                         ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
                              next=loadShiftArg(instr, pref)}
             )
@@ -2476,15 +2601,20 @@ Calling conventions:
             and loadResultArg (instr, pref) [arg1, _] =
             (
                 case arg1 of
-                    (InRegister reg, lastRef) =>
-                        if lastRef
-                        then ActionLockRegister{argNo=0, reg=reg, willOverwrite=true,
-                                next=finished(instr, reg)}
+                    (ActInRegisterSet{ modifiable, ...}) =>
+                        if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                        then
+                        let
+                            val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                        in
+                            ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                                next=finished(instr, aReg)}
+                        end
                         else (* Can't clobber this register - move the value. *)
-                            ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=true,
+                            ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
                                 next=loadResultArg(instr, pref)}
-                |   (_, _) =>
-                        ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=true,
+                |   _ =>
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
                              next=loadResultArg(instr, pref)}
             )
             |   loadResultArg _ _ = raise InternalError "loadResultArg: bad arguments"
@@ -2505,9 +2635,9 @@ Calling conventions:
                eax and the second into edx. *)
             val eaxSet = singleton eax and edxSet = singleton edx
 
-            fun loadArg1 instr [(InRegister reg, lastRef), _] =
-                if reg = eax andalso lastRef
-                then ActionLockRegister{argNo=0, reg=reg, willOverwrite=true, next=loadArg2 instr}
+            fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
+                if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
                 else (* Not in the right register - move it. *)
                     ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
 
@@ -2516,9 +2646,9 @@ Calling conventions:
 
             |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
             
-            and loadArg2 instr [_, (InRegister reg, lastRef)] =
-                if reg = edx andalso lastRef
-                then ActionLockRegister{argNo=1, reg=reg, willOverwrite=true, next=finished instr}
+            and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
+                if regSetIntersect(modifiable, edxSet) <> noRegisters
+                then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
                 else (* Not in the right register - move it. *)
                     ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
                     
@@ -2540,25 +2670,46 @@ Calling conventions:
             fun isReversible InstrSubW = false
             |   isReversible _ = true
 
-            fun loadDestArg(instr, _) [(InRegister reg, true)] = (* Single argument case *)
-                    ActionLockRegister{argNo=0, reg=reg, willOverwrite=true,
-                                       next=getArg(instr, SOME reg, [SOME(InRegister reg)])}
-            |   loadDestArg(instr, pref) [(_, _)] = (* Not in a register or register can't be modified. *)
-                    ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+            fun loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}] = (* Single argument case *)
+                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                    in
+                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                                       next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg)])}
+                    end
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                                  next=loadDestArg(instr, pref)}
+            |   loadDestArg(instr, pref) [_] = (* Not in a register. *)
+                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
                 
-            |   loadDestArg(instr, _) [(InRegister reg1, true), _] = (* Double arguments *)
-                    ActionLockRegister{argNo=0, reg=reg1, willOverwrite=true,
-                                       next=getArg(instr, SOME reg1, [SOME(InRegister reg1), NONE])}
-                (* For most instructions we can use the second argument if it's in a register. *)
-            |   loadDestArg(instr, pref) [_, (InRegister reg2, true)] = (* Could use the second argument *)
-                    if isReversible instr
-                    then ActionLockRegister{argNo=0, reg=reg2, willOverwrite=true,
-                                       next=getArg(instr, SOME reg2, [NONE, SOME(InRegister reg2)])}
-                    else ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+            |   loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}, _] = (* Double arguments *)
+                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                    in
+                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                                       next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg), NONE])}
+                    end
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
-            |   loadDestArg(instr, pref) [(_, _), _] = (* Not in a register or register can't be modified. *)
-                    ActionLoadArg{argNo=0, regSet=prefAsSet pref, willOverwrite=true,
+                (* For most instructions we can use the second argument if it's in a register. *)
+            |   loadDestArg(instr, pref) [_, ActInRegisterSet{ modifiable, ...}] = (* Could use the second argument *)
+                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters andalso isReversible instr
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                    in
+                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                                       next=getArg(instr, generalRegisters, SOME aReg, [NONE, SOME(InRegister aReg)])}
+                    end
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                                  next=loadDestArg(instr, pref)}
+            |   loadDestArg(instr, pref) [_, _] = (* Not in a register. *)
+                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
 
             |   loadDestArg _ _ = raise InternalError "loadDestArg: not one or two arguments"
@@ -2568,7 +2719,7 @@ Calling conventions:
     end
 
 
-    (* Select the argument negotiator.  Apart from StoreByte and shifts always use the default. *)
+    (* Select the argument negotiator. *)
     fun negotiateArguments(instr as InstrStoreB({ toStore=NONE(* Not storing a constant *), ...}), _) =
             storeByteNegotiator instr
     |   negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
@@ -2588,11 +2739,22 @@ Calling conventions:
         (* Only use the negotiator for word multiplication at the moment. *)
     |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator instr
 
-    |   negotiateArguments(instr, pref) = defaultActions(instr, pref)
+        (* Functions that don't return a result. *)
+    |   negotiateArguments(instr as InstrStoreW _, _) = noresultNegotiator instr
+    |   negotiateArguments(instr as InstrStoreB _, _) = noresultNegotiator instr
+    |   negotiateArguments(instr as InstrLockSeg, _) = noresultNegotiator instr
+    |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator instr
 
+        (* Floating point functions. *)
+    |   negotiateArguments(instr as InstrUnaryFP _, pref) = floatingPtNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrBinaryFP _, pref) = floatingPtNegotiator(instr, pref)
+    |   negotiateArguments(instr as InstrIntToFP, pref) = intToFPNegotiator(instr, pref)
+
+    |   negotiateArguments(instr, pref) = generalNegotiator(instr, pref)
+ 
     (* Actions for comparisons and tests. *)
     local
-        fun getArg(test, label, operands) args =
+        fun getArg(test, label, registerSet, operands) args =
         if List.length operands = List.length args
         then (* All done *)
             ActionDone{
@@ -2604,23 +2766,39 @@ Calling conventions:
             val argNo = List.length operands
         in
             case List.nth(args, argNo) of (* Look at the next argument *)
-                (InRegister reg, _) =>
-                    (* It's in a register.  Lock it, record it and go on to the next arg. *)
-                    ActionLockRegister{argNo=argNo, reg=reg, willOverwrite=false,
-                        next=getArg(test, label, operands @ [InRegister reg])}
-            |   (_, _) =>
-                    ActionLoadArg{argNo=argNo, regSet=allRegisters, willOverwrite=false,
+                (ActInRegisterSet{ readable, ...}) =>
+                    if regSetIntersect(readable, registerSet) <> noRegisters
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(readable, registerSet))
+                    in
+                        (* It's in a register.  Lock it, record it and go on to the next arg. *)
+                        ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
+                            next=getArg(test, label, registerSet, operands @ [InRegister aReg])}
+                    end
+                    else ActionLoadArg{argNo=argNo, regSet=registerSet, willOverwrite=false,
+                                next=getArg(test, label, registerSet, operands)}
+            |   _ => (* If it's not currently in any register put it first into a general register
+                        even if we eventually want it in a floating point register. *)
+                    ActionLoadArg{argNo=argNo, regSet=generalRegisters, willOverwrite=false,
                         (* Load into a register - won't modify it afterwards.  Next action is
                            to look at this again after it's been loaded. *)
-                        next=getArg(test, label, operands)}
+                        next=getArg(test, label, registerSet, operands)}
         end
 
-        fun getOneArgInReg(test, label) [(InRegister reg1, _), (op2, _)] =
+(*        fun getOneArgInReg(test, label) [(ActInRegisterSet{ readable, ...}), op2] =
+            if regSetIntersect(readable, generalRegisters) <> noRegisters
+            then
+            let
+                val aReg = oneOf(regSetIntersect(readable, generalRegisters))
+            in
                 ActionDone{
                     outReg=NONE,
                     operation= CondBranch { operands=[InRegister reg1, op2], test=test, label=label }
                     }
-        |   getOneArgInReg(test, label) [(op1, _), (InRegister reg2, _)] =
+            end
+            else
+        |   getOneArgInReg(test, label) [(op1, (InRegister reg2, _)] =
             let
                 fun reverse(Arb test) = Arb(reverseTestOp test)
                 |   reverse(Wrd test) = Wrd(reverseTestOp test)
@@ -2632,20 +2810,27 @@ Calling conventions:
                     }
             end
         |   getOneArgInReg(test, label) [_, _] =
-                ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=false,
+                ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                     (* Load into a register - won't modify it afterwards.  Next action is
                        to look at this again after it's been loaded. *)
                     next=getOneArgInReg(test, label)}
-        |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"
+        |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"*)
 
-        fun unaryTestActions(test, label) [(InRegister reg, _)] =
-                (* It's in a register.  We're done. *)
-                ActionDone{
-                    outReg=NONE,
-                    operation= CondBranch { operands=[InRegister reg], test=test, label=label }
-                    }
+        fun unaryTestActions(test, label) [ActInRegisterSet{ readable, ...}] =
+                if regSetIntersect(readable, generalRegisters) <> noRegisters
+                then
+                let
+                    val aReg = oneOf(regSetIntersect(readable, generalRegisters))
+                in (* It's in a register.  We're done. *)
+                    ActionDone{
+                        outReg=NONE,
+                        operation= CondBranch { operands=[InRegister aReg], test=test, label=label }
+                        }
+                end
+                else ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                   next=unaryTestActions(test, label)}
         |   unaryTestActions(test, label) [_] =
-                ActionLoadArg{argNo=0, regSet=allRegisters, willOverwrite=false,
+                ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                     (* Load into a register - won't modify it afterwards.  Next action is
                        to look at this again after it's been loaded. *)
                     next=unaryTestActions(test, label)}
@@ -2654,7 +2839,8 @@ Calling conventions:
         (* Floating point comparisons all require the ax register.  The other arguments
            are loaded into registers. *)
         fun floatPtActions(test, label) _ =
-            ActionGetWorkReg{regSet=singleton eax, setReg = fn _ => getArg(test, label, [])}
+            ActionGetWorkReg{regSet=singleton eax,
+                setReg = fn _ => getArg(test, label, floatingPtRegisters, [])}
 
     in
         (* Select the argument negotiator. *)
@@ -2663,9 +2849,9 @@ Calling conventions:
             val destLabel = ref noJump
         in
             case test of
-                Arb _ => (getArg(test, destLabel, []), destLabel)
+                Arb _ => (getArg(test, destLabel, generalRegisters, []), destLabel)
             |   ArbConst _ => (unaryTestActions(test, destLabel), destLabel)
-            |   Wrd _ => (getOneArgInReg(test, destLabel), destLabel)
+            |   Wrd _ => ((*getOneArgInReg*)getArg(test, destLabel, generalRegisters, []), destLabel)
             |   WrdConst _ => (unaryTestActions(test, destLabel), destLabel)
             |   Length _ => (unaryTestActions(test, destLabel), destLabel)
             |   FloatingPt _ => (floatPtActions(test, destLabel), destLabel)
@@ -3434,30 +3620,24 @@ Calling conventions:
 
         |   cgOp(DataOp{ instr=InstrUnaryFP opn, operands=[InRegister reg], output=SOME rd }) =
             (
-                (* Allocate space for the result. *)
-                allocStore(8 div wordSize, F_bytes, rd, code);
-                genop(FPESC 0w5, code); (* FLD [reg] *)
-                genop2(0, reg, 0wx0, code);
+                loadFpRegToStack(reg, 0w0, code); (* FLD r1 *)
                 (* If this is the FPATAN function we need to push 1.0 here. *)
                 if opn = 0wxF3 then (genop(FPESC 0w1, code); gen8u(0wxE8, code)) else ();
                 (* We use the change-sign operation here so that this works correctly for +/- zero. *)
                 genop(FPESC 0w1, code); (* FCHS/FSIN etc *)
                 gen8u(opn, code);
-                genop(FPESC 0w5, code); (* FSTP [rd] *)
-                genop2(0, rd, 0wx3, code)
+                storeFpRegFromStack(rd, code)
             )
 
         |   cgOp(DataOp{ instr=InstrBinaryFP nnn, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
-            (
-                (* Allocate space for the result. *)
-                allocStore(8 div wordSize, F_bytes, rd, code);
-                genop(FPESC 0w5, code); (* FLD [r1] *)
-                genop2(0, r1, 0wx0, code);
-                genop(FPESC 0w4, code); (* FADD/FMUL etc *)
-                genop2(0, r2, nnn, code);
-                genop(FPESC 0w5, code); (* FSTP [rd] *)
-                genop2(0, rd, 0wx3, code)
-            )
+            let
+                val fp2 = case r2 of FPReg fp => fp | _ => raise InternalError "fpreg"
+            in
+                loadFpRegToStack(r1, 0w0, code); (* FLD r1 *)
+                genop(FPESC 0w0, code); (* FADD/FMUL etc *)
+                gen8u((0w3 <<- 0w6) orb8 (nnn <<- 0w3) orb8 (fp2 + 0w1 (* One item already there *)), code);
+                storeFpRegFromStack(rd, code)
+            end
 
         |   cgOp(DataOp{ instr=InstrIntToFP, operands=[InRegister reg], output=SOME rd }) =
             (
@@ -3470,11 +3650,8 @@ Calling conventions:
                 genop2(0, esp, 0w7 (* sar *), code);
                 genop(FPESC 0w3, code); (* FILD [reg] *)
                 genop2(0, esp, 0wx0, code);
-                resetStack(0w1, code); (* Have to restore the SP here BEFORE allocating memory. *)
-                (* Allocate space for the result. *)
-                allocStore(8 div wordSize, F_bytes, rd, code);
-                genop(FPESC 0w5, code); (* FSTP [rd] *)
-                genop2(0, rd, 0wx3, code)
+                storeFpRegFromStack(rd, code);
+                resetStack(0w1, code) (* Pop the stack. *)
             )
 
         |   cgOp(DataOp{ instr=InstrLoadW, operands=[InRegister r1, InRegister r2], output=SOME rd }) =
@@ -3562,11 +3739,34 @@ Calling conventions:
         |   cgOp(DataOp{ instr=_, operands=_, output=_ }) =
                 raise InternalError "Not implemented"
 
+        |   cgOp(Move{ source=InRegister source, output=HandlerReg (* Not a real register. *) }) =
+                genStoreW (source, MemRegHandlerRegister, ebp, regNone, code)
+
         |   cgOp(Move{ source=InRegister source, output }) =
-                (* Move from one register to another. r2 is ignored *)
-                if output = regHandler (* Not a real register. *)
-                then genStoreW (source, MemRegHandlerRegister, ebp, regNone, code)
-                else genMove  (output, source, code)
+                (* Move from one register to another.  If we're moving between fixed and floating point
+                   registers we may have to pack or unpack it. *)
+                (
+                    case (source, output) of
+                        (GenReg _, GenReg _) => genMove(output, source, code)
+                    |   (GenReg _, dest as FPReg _) =>
+                        (
+                            genop(FPESC 0w5, code); (* FLD [r1] *)
+                            genop2(0, source, 0wx0, code);
+                            storeFpRegFromStack(dest, code)
+                        )
+                    |   (src as FPReg _, GenReg _) =>
+                        (
+                            (* Create a new entry on the heap and copy the value in.
+                               TODO: If this is actually ST(0) we could store directly
+                               with loading and without popping. *)
+                            loadFpRegToStack(src, 0w0, code);
+                            allocStore(8 div wordSize, F_bytes, output, code);
+                            genop(FPESC 0w5, code); (* FSTP [rd] *)
+                            genop2(0, output, 0wx3, code)
+                        )
+                    |   (FPReg _, FPReg _) => raise InternalError "Move  between fp registers"
+                    |   _ => raise InternalError "Move to handler register"
+                )
 
         |   cgOp(Move{ source=LiteralSource source, output }) =
                 if isShort source
@@ -3668,6 +3868,8 @@ Calling conventions:
 
         |   cgOp(CondBranch{ operands=[InRegister r1, InRegister r2], test=FloatingPt opc, label }) =
             let
+                val fp1 = case r1 of FPReg fp => fp | _ => raise InternalError "fpreg"
+                and fp2 = case r2 of FPReg fp => fp | _ => raise InternalError "fpreg"
                 (* Floating point comparisons use the values of the condition bits in AX.
                    We do explicit tests on the bits rather than using the SAHF instruction
                    because not all 64-bit processors support the SAHF instruction. *)
@@ -3683,10 +3885,9 @@ Calling conventions:
                     |   JGE => c0 orb c2
                     |   _ => raise InternalError "FloatingPt"
             in
-                genop(FPESC 0w5, code); (* FLD [r1] *)
-                genop2(0, if revOrder then r2 else r1, 0wx0, code);
-                genop(FPESC 0w4, code); (* FCOMP [r2] - compare and pop *)
-                genop2(0, if revOrder then r1 else r2, 0w3, code);
+                loadFpRegToStack(if revOrder then r2 else r1, 0w0, code);
+                genop(FPESC 0w4, code); (* FCOMP ST(r2+1) - compare and pop *)
+                gen8u((0w3 <<- 0w6) orb8 (0w3 <<- 0w3) orb8 (if revOrder then fp1+0w1 else fp2+0w1), code);
                 genop(FPESC 0w7, code); (* FNSTSW AX *)
                 gen8u(0wxe0, code);
 
@@ -3703,7 +3904,28 @@ Calling conventions:
         |   cgOp(CondBranch{ operands=_, test=_, label=_ }) =
                 raise InternalError "Not implemented"
 
-        |   cgOp(PushToStack(InRegister reg)) = genPush(reg, code)
+        |   cgOp(PushToStack(InRegister(reg as GenReg _ ))) = genPush(reg, code)
+        |   cgOp(PushToStack(InRegister(src as FPReg _ ))) =
+            (   (* We need to push a fp register to the stack.  This can't be done directly
+                   and it would be better if we could use a negotiator to get this into a
+                   general register first. *)
+                (* Push eax (any register would do), allocate memory into that, then
+                   swap the value with the top of the stack, restoring the original
+                   eax and puting the address of the store onto the stack. *)
+                genPush(eax, code);
+                loadFpRegToStack(src, 0w0, code);
+                allocStore(8 div wordSize, F_bytes, eax, code);
+                genop(FPESC 0w5, code); (* FSTP [rd] *)
+                genop2(0, eax, 0wx3, code);
+                genop(XCHNG, code);
+                genEA (0, esp, eax, code)
+            )
+                
+        |   cgOp(PushToStack(InRegister HandlerReg)) = (* Not a real register. *)
+            (
+                genop (Group5, code);
+                genop2 (MemRegHandlerRegister, ebp, 0w6 (* push *), code)
+            )
 
         |   cgOp(PushToStack(BaseOffset(base, offset))) = genLoadPush(offset, base, code)
 
@@ -4026,7 +4248,7 @@ Calling conventions:
                 print ",";
                 print (regRepr (mkReg(Word8.fromInt reg)))
             end
-         
+
             else if opByte = opToInt MOVL_R_A
             then
             let
@@ -4035,6 +4257,19 @@ Calling conventions:
                 val reg = (nb div 8) mod 8;
             in
                 print "movl\t";
+                print (regRepr (mkReg(Word8.fromInt reg)));
+                print ",";
+                printEA ()
+            end
+
+            else if opByte = opToInt XCHNG
+            then
+            let
+                (* Register is in next byte. *)
+                val nb = Word8.toInt (csegGet (seg, !ptr));
+                val reg = (nb div 8) mod 8;
+            in
+                print "xchngl\t";
                 print (regRepr (mkReg(Word8.fromInt reg)));
                 print ",";
                 printEA ()
@@ -4095,7 +4330,7 @@ Calling conventions:
                 print32 ();
                 print("," ^ regRepr (mkReg (opByte mod 0w8)))
             )
-         
+
             else if opByte = opToInt MOVL_32_A
             then
             (
@@ -4274,17 +4509,24 @@ Calling conventions:
                 val nnn = (opByte2 >>- 0w3) andb8 0w7
                 val escNo = opByte andb8 0wx7
             in
-                if (opByte2 andb8 0wxE0) = 0wxE0
+                if (opByte2 andb8 0wxC0) = 0wxC0
                 then (* mod = 11 *)
                 (
-                    case (escNo, opByte2) of
-                        (0w1, 0wxE0) => print "fchs"
-                    |   (0w1, 0wxE8) => print "fld1"
-                    |   (0w1, 0wxF3) => print "fpatan"
-                    |   (0w1, 0wxFA) => print "fsqrt"
-                    |   (0w1, 0wxFE) => print "fsin"
-                    |   (0w1, 0wxFF) => print "fcos"
-                    |   (0w7, 0wxE0) => print "fnstsw\tax"
+                    case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
+                        (0w1, 0w4, 0w0) => print "fchs"
+                    |   (0w7, 0w4, 0w0) => print "fnstsw\tax"
+                    |   (0w1, 0w5, 0w0) => print "fld1"
+                    |   (0w1, 0w6, 0w3) => print "fpatan"
+                    |   (0w1, 0w7, 0w2) => print "fsqrt"
+                    |   (0w1, 0w7, 0w6) => print "fsin"
+                    |   (0w1, 0w7, 0w7) => print "fcos"
+                    |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
+                    |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
+                    |   (0w4, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ "), st")
+                    |   (0w0, 0w0, rno) => print ("fadd\tst,st(" ^ Word8.toString rno ^ ")")
+                    |   (0w0, 0w1, rno) => print ("fmul\tst,st(" ^ Word8.toString rno ^ ")")
+                    |   (0w0, 0w4, rno) => print ("fsub\tst,st(" ^ Word8.toString rno ^ ")")
+                    |   (0w0, 0w6, rno) => print ("fdiv\tst,st(" ^ Word8.toString rno ^ ")")
                     |   _ => (printHex(Word8.toInt opByte); printHex(Word8.toInt opByte2));
                     ptr +:= 0w1
                 )
@@ -4576,19 +4818,7 @@ itself.
       in
             val _ = csegPutWord (seg, endOfCode + 0w2, nameWord);
       end;
-      local
-            (* Encode the register mask.  This encoding must be the same
-           as the one used for assembly code segments. *)
-        fun encodeReg(r, n: short): short =
-        let
-            val reg = 0w1 << Word.fromInt (nReg r)
-        in
-            reg orb n
-        end
-        val regSet = List.foldl encodeReg 0w0 registerSet
-      in
-        val () = csegPutWord (seg, endOfCode + 0w3, toMachineWord regSet);
-      end;
+        val () = csegPutWord (seg, endOfCode + 0w3, toMachineWord(encodeRegSet registerSet))
     end;  (* scope of endOfCode *)
   in 
     let
@@ -4651,9 +4881,9 @@ itself.
         then (* print out the code *)
           (
           printCode cvec seg ((endic) + offset * 0w4);
-          printStream "Register set = [";
-          List.app (fn r => (printStream " "; printStream(regRepr r))) registerSet;
-          printStream "]\n\n"
+          printStream "Register set = ";
+          printStream(regSetRepr registerSet);
+          printStream "\n\n"
           )
         else ();
     in

@@ -117,7 +117,7 @@ struct
     |   StackEntry of 
         {
             ent:   stackUnion,
-            cache: reg option, (* NONE means not cached. *)
+            cache: regSet,
             uses:  int,
             destStack: int option
                 (* destStack is used to indicate where on the stack this
@@ -222,42 +222,41 @@ struct
         else findFree (nextReg, NONE)
     end;
 
-  (* Print the allocated registers. *)
-  fun printRegs printStream regs =
-  let
-    fun printReg i =
+    (* Print the allocated registers. *)
+    fun printRegs printStream regs =
     let
-      val useCount = sub (Vec regs, i)
+        fun printReg i =
+        let
+            val useCount = sub (Vec regs, i)
+        in
+            if useCount > 0
+            then
+            (
+                printStream " "; printStream (regRepr (regN i));
+                printStream "="; printStream(Int.toString useCount)
+            )
+            else ()
+        end (* printReg *);
     in
-      if useCount > 0
-      then
-        (
-          printStream " "; printStream (regRepr (regN i));
-          printStream "="; printStream(Int.toString useCount);
-          {}
-        )
-      else ()
-    end (* printReg *);
-  in
-    forLoop printReg 0 (vecSize - 1)
-  end (* printRegs *);
+        forLoop printReg 0 (vecSize - 1)
+    end (* printRegs *);
 
-  fun free (regs as {freeRegs, ...}) reg =
-  let
-    val r = nReg reg; (* SPF 7/6/94 - fixed off-by-one *)
-    val v = Vec regs;
-    val useCount = sub (v, r)
-  in
-    if useCount = 0
-    then raise InternalError ("free: register already free #" ^ Int.toString r)
-    else
+    fun free (regs as {freeRegs, ...}) reg =
+    let
+        val r = nReg reg
+        val v = Vec regs;
+        val useCount = sub (v, r)
+    in
+        if useCount = 0
+        then raise InternalError ("free: register already free #" ^ Int.toString r)
+        else
         (
-        if useCount = 1
-        then freeRegs := !freeRegs + 1
-        else ();
-        update (v, r, useCount - 1)
+            if useCount = 1
+            then freeRegs := !freeRegs + 1
+            else ();
+            update (v, r, useCount - 1)
         )
-  end;
+    end;
   
     (* Increment use count. *)
     fun incr (regs as {freeRegs, ...}) reg =
@@ -458,9 +457,9 @@ struct
       
         printStackUnion printStream ent;
       
-        case cache of
-            SOME cache => (printStream " in "; printStream(regRepr cache)) 
-        |   NONE => ();
+        if cache <> noRegisters
+        then (printStream " in "; printStream(regSetRepr cache)) 
+        else ();
 
         case destStack of
             NONE => ()
@@ -530,25 +529,23 @@ struct
            location. Actual parameters to procedures are not use-counted in
            the same way as locals so it is worth keeping them cached. *)
         let
-          val cacheReg =
-            case cache of
-                NONE => NONE
-            |   SOME cache =>
-                    if not keepIfCache orelse 
+            val cacheRegs =
+                if cache = noRegisters
+                then noRegisters
+                else if not keepIfCache orelse 
                      (case stacken of
                         Register _ => true
-                      | StackW i      => i > 0 (* Parameters on the stack have -ve address. *)
-                      | _            => false)
-            
-                   then (* Clear cache. *)
-                    ( 
-                      free (regset table) cache;
-                      NONE
-                    )
-                else (* Retain cache value. *) SOME cache;
+                      | StackW i   => i > 0 (* Parameters on the stack have -ve address. *)
+                      | _          => false)
+                then (* Clear cache. *)
+                (
+                    List.app (free (regset table)) (setToList cache);
+                    noRegisters
+                )
+                else (* Retain cache value. *) cache;
         in
-          case cacheReg of
-            NONE => (* If the cache is (now) empty we can remove the entry completely. *)
+            if cacheRegs = noRegisters
+            then (* If the cache is (now) empty we can remove the entry completely. *)
             ( 
              (* clobber the entry. *)
               stretchUpdate (pstack, entry, NoStackEntry);
@@ -565,7 +562,7 @@ struct
             )
          
           (* otherwise we just leave the entry there. *)
-          | SOME _ => stretchUpdate (pstack, entry, makeStackEntry(stacken, cacheReg, 0, NONE))
+          else stretchUpdate (pstack, entry, makeStackEntry(stacken, cacheRegs, 0, NONE))
         end (* end removeEntry *)
 
   (* Add the number of uses to the use count of an item on the stack. *)
@@ -603,7 +600,7 @@ struct
                 StackW addr => SOME addr
             |   _ => NONE
     in
-        stretchUpdate (pstack, psp, makeStackEntry(entry, NONE, 1, destStack));
+        stretchUpdate (pstack, psp, makeStackEntry(entry, noRegisters, 1, destStack));
         pstackptr table := stacktop + 1;
         if pstackTrace then printStack(table, name, []) else ();
         stacktop
@@ -650,14 +647,14 @@ struct
    let
      val () = addRegUse (table, reg);
    in
-     if pstackTrace then printStack(table, "lockRegister", []) else ()
+     if pstackTrace then printStack(table, "lockRegister:"^regRepr reg, []) else ()
    end;
 
    fun unlockRegister (table as Ttab{pstackTrace, ...}, reg) : unit =
    let
      val () = free (regset table) reg;
    in
-     if pstackTrace then printStack(table, "unlockRegister", []) else ()
+     if pstackTrace then printStack(table, "unlockRegister:"^regRepr reg, []) else ()
    end;
 
     (* Puts a value in the real stack onto the pseudo-stack.
@@ -680,53 +677,52 @@ struct
         search first
     end;
 
-  (* Remove registers from the cache. *)
-  fun removeFromCache (table as Ttab{pstack, ...}, regSet, continue: unit -> bool) =
-  let
-    fun ok r = inSet(r, regSet)
-
-    fun clear (entry: stackIndex) (limit: stackIndex) =
-      if entry < limit
-      then let
-        val stackent = pstackEntry(table, entry);
-      in
-        case stackent of
-          NoStackEntry => ()
+    (* Remove registers from the cache. *)
+    fun removeFromCache (table as Ttab{pstack, pstackTrace, ...}, regSet, continue: unit -> bool) =
+    let
+        fun clear (entry: stackIndex, limit: stackIndex) =
+        if entry < limit
+        then
+        let
+            val stackent = pstackEntry(table, entry);
+        in
+            case stackent of
+                NoStackEntry => ()
           
-        | StackEntry {cache = NONE, ...} => ()
-
-        | StackEntry {ent = stacken, cache = SOME cacheReg, uses, destStack} =>
-            (* Remove the entry if the wanted register is the cache *)
-            (* or the value being cached. *)
-            if ok cacheReg orelse
-              (case stacken of
-                 Register reg      => ok reg
-               | Direct {base,...} => ok base
-               | _                 => false)
-            then 
-              (* If the use-count is positive, simply set the cache to *)
-              (* empty, otherwise remove the entry. *)
-              if uses = 0
-              then removeEntry table entry false
-              else
-                ( 
-                  free (regset table) cacheReg;
-                  stretchUpdate (pstack, entry,
-                        makeStackEntry(stacken, NONE, uses, destStack))
-                )
-            else ();
-        
-        if continue () then clear (entry + 1) limit else ()
-      end
-      else (); (* end clear *)
-      
-    val second = first + 1;
-  in
-   (* Do the constant pointer last.  If we are flushing the cache to free
-      registers it's probably more use than the others. *)
-   clear second (pstackVal table);
-   if continue () then clear first second else ()
-  end;
+            |   StackEntry {ent = stacken, cache, uses, destStack} =>
+                if cache = noRegisters
+                then ()
+                else
+                let
+                    val keep = regSetMinus(cache, regSet)
+                    val remove = regSetIntersect(cache, regSet)
+                in
+                    if uses = 0 andalso
+                        (* If it has a zero use count we are keeping it only because of the cache.
+                           We completely remove an entry, which frees all the registers both in the
+                           cache and the entry, either if the cache is now empty or if the entry
+                           itself contains a register we want. *)
+                        (keep = noRegisters orelse
+                        (case stacken of
+                             Register reg      => inSet(reg, regSet)
+                           | Direct {base,...} => inSet(base, regSet)
+                           | _                 => false)
+                        )
+                    then removeEntry table entry false
+                    else
+                    (
+                        List.app(free (regset table)) (setToList remove);
+                        stretchUpdate (pstack, entry,
+                            makeStackEntry(stacken, keep, uses, destStack))
+                    )
+                end;
+            if continue () then clear (entry + 1, limit) else ()
+        end
+        else (); (* end clear *)
+    in
+        clear (first, pstackVal table);
+        if pstackTrace then printStack(table, "removeFromCache"^regSetRepr regSet, []) else () 
+    end;
 
     (* Remove everything from the cache. *)
     fun clearCache table = removeFromCache(table, allRegisters, fn () => true);
@@ -753,12 +749,12 @@ struct
     fun moveRR(rs, rd) = moveOp{source=InRegister rs, output=rd};
 
     (* Frees registers by pushing values onto the stack or moving them to
-     other registers.  `selectRegister' selects which registers are
-     affected, `selectEntry' selects which entries are affected. Used
-     either to clear all registers or just to free a particular one.
-     `loadIfPoss' is true if it is sufficient to move the entry to
-     another register. *)
-    fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}, regSet, selectEntry, loadIfPoss) =
+       other registers.  `selectRegister' selects which registers are
+       affected, `selectEntry' selects which entries are affected. Used
+       either to clear all registers or just to free a particular one.
+       `loadIfPoss' is true if it is sufficient to move the entry to
+       another register. *)
+    fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}, setToFree, selectEntry, loadIfPoss) =
     let
         fun pushEntries(entry, instrList) =
         if not(entry < pstackVal table)
@@ -772,17 +768,8 @@ struct
                StackEntry {uses, ent = Direct {base, offset}, cache = cacheReg,
                            destStack} =>
                 (* Values which are cached but are otherwise not needed
-                   have a zero use-count. There is no need to push them.
-                   In fact, we have to explicitly clear the entry as
-                   otherwise getRegister could fail because the register
-                   could be locked by a zero-use pstack entry. SPF 26/9/95
-                 *)
-                (* I don't understand this - we clear that register from the
-                   cache - try uncommenting this.  DCJM 30/11/00 *)
-                (* Was uncommenting this the cause of the bug in loadEntry
-                   I fixed on 17/1/01?  If so the current code is better.
-                   DCJM 25/1/01. *)
-                if (* *) uses = 0 orelse (* *) not (selectEntry entry)
+                   have a zero use-count. There is no need to push them. *)
+                if uses = 0 orelse not (selectEntry entry)
                 then [] 
                 else
                 let 
@@ -792,9 +779,9 @@ struct
                         val alignInstrs = alignStack(table, [], destStack);
 
                         val pushInstr =
-                            case cacheReg of
-                                SOME cacheReg => pushToStack(InRegister cacheReg)
-                            |   NONE =>  pushToStack(BaseOffset(base, offset))
+                            if regSetIntersect(cacheReg, generalRegisters) <> noRegisters
+                            then pushToStack(InRegister(oneOf(regSetIntersect(cacheReg, generalRegisters))))
+                            else pushToStack(BaseOffset(base, offset))
                   
                         val () = free (regset table) base
                   
@@ -814,38 +801,38 @@ struct
                     end;
               
                     fun saveDirectInReg destReg =
-                    let 
+                    let
+                        (* Free the base register. *)
                         val () = free (regset table) base
+                        (* Free all cache registers except the destination, if it's in there. *)
+                        val () = List.app (free (regset table))
+                                    (setToList(regSetMinus(cacheReg, singleton destReg)));
 
                         val loadInstrs =
-                            case cacheReg of
-                                NONE => [moveOp{source=BaseOffset(base, offset), output=destReg}]
-                            |   SOME cacheReg =>
-                                    if cacheReg = destReg
-                                    then [] (* already cached in destination register *)
-                                    else
-                                    ( (* Cached in a different register - move it there
-                                            and free the cache. *)
-                                        free (regset table) cacheReg;
-                                        [moveRR(cacheReg, destReg)]
-                                    )
+                            if inSet(destReg, cacheReg)
+                            then [] (* already cached in destination register. *)
+                            else if regSetIntersect(cacheReg, generalRegisters) <> noRegisters
+                            then (* Cached in a different register - move it there and free the cache. *)
+                                [moveRR(oneOf(regSetIntersect(cacheReg, generalRegisters)), destReg)]
+                            else (* Not in a suitable cache register. *)
+                                [moveOp{source=BaseOffset(base, offset), output=destReg}]
                     in
                         (* Clear out the cache and overwrite this entry with a
-                          reference to the register. *)
+                           reference to the register. *)
                         stretchUpdate (pstack, entry,
-                              makeStackEntry(Register destReg, NONE, uses, destStack));
+                              makeStackEntry(Register destReg, noRegisters, uses, destStack));
                         loadInstrs
                     end
                 in
-                    if not (inSet(base, regSet)) then []
+                    if not (inSet(base, setToFree)) then []
                     else if uses = 0 then (* discardDirect () *) (removeEntry table entry false; [])
                     else if not loadIfPoss (* Not allowed to move it to another register. *)
                     then saveDirectOnStack ()
-                    else if case cacheReg of SOME cacheReg => not (inSet(cacheReg, regSet)) | _ => false
-                    (* It's cached in an acceptable register. *)
-                    then saveDirectInReg(valOf cacheReg)
+                    else if regSetMinus(cacheReg, setToFree) <> noRegisters
+                    (* It's cached in an acceptable register i.e. one NOT in setToFree. *)
+                    then saveDirectInReg(oneOf(regSetMinus(cacheReg, setToFree)))
                     else (* Is there an acceptable register free?  If so load it into that. *)
-                        case getAcceptableRegister (regset table, inverseSet regSet) of
+                        case getAcceptableRegister (regset table, regSetMinus(generalRegisters, setToFree)) of
                             SOME destReg => saveDirectInReg destReg
                         |   NONE => saveDirectOnStack ()
                 end
@@ -862,17 +849,14 @@ struct
 
                         val pushInstr = pushToStack(InRegister reg)
 
-                        val newCache =
-                            (* Have pushed a register - can treat the register as caching
-                               the stack location we have pushed it into. *)
-                            case cacheReg of
-                                NONE => reg
-                            |   SOME cacheReg => (free (regset table) reg; cacheReg);
+                        (* Have pushed a register - can treat the register as caching
+                           the stack location we have pushed it into. *)
+                        val newCache = regSetUnion(cacheReg, singleton reg)
                         val stackAddr = realstackVal table
                     in
                         (* Overwrite this entry with a reference to the stack. *)
                         stretchUpdate (pstack, entry,
-                                makeStackEntry(StackW stackAddr, SOME newCache, uses, SOME stackAddr));
+                                makeStackEntry(StackW stackAddr, newCache, uses, SOME stackAddr));
 
                         realstackptr table := realstackVal table + 1;
                     
@@ -915,32 +899,34 @@ struct
                         )
                         else ();
 
-                        val () = free (regset table) reg : unit;
+                        (* Free this register *)
+                        val () = free (regset table) reg
+                        (* Free all cache registers except the destination, if it's in there. *)
+                        val () = List.app (free (regset table))
+                                    (setToList(regSetMinus(cacheReg, singleton destReg)));
                 
                         val moveInstrs =
-                            case cacheReg of
-                                NONE => [moveRR(reg, destReg)]
-                            |   SOME cacheReg =>
-                                    if cacheReg = destReg
-                                    then [] (* already cached in destination register *)
-                                    else [moveRR(reg, destReg)]
+                            if inSet(destReg, cacheReg)
+                            then [] (* already cached in destination register *)
+                            else [moveRR(reg, destReg)]
                     in
                         regChanged entry; (* Start from this entry not from the bottom *)
 
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
                         stretchUpdate (pstack, entry,
-                            makeStackEntry(Register destReg, NONE, uses, destStack));
+                            makeStackEntry(Register destReg, noRegisters, uses, destStack));
                         moveInstrs
                     end
                 in
-                    if not (inSet(reg, regSet)) then []
+                    if not (inSet(reg, setToFree)) then []
                     else if uses = 0
                     then (* discardReg () *) (removeEntry table entry false; [])
                     else if not loadIfPoss then saveRegOnStack ()
-                    else if case cacheReg of SOME cacheReg => not (inSet(cacheReg, regSet)) | NONE => false
-                    then saveRegInReg(valOf cacheReg)
-                    else case getAcceptableRegister (regset table, inverseSet regSet) of
+                    else if regSetMinus(cacheReg, setToFree) <> noRegisters
+                        (* It's cached in a register that we don't need - save it there. *)
+                    then saveRegInReg(oneOf(regSetMinus(cacheReg, setToFree)))
+                    else case getAcceptableRegister (regset table, regSetMinus(generalRegisters, setToFree)) of
                             SOME destReg => saveRegInReg destReg
                         |   NONE =>saveRegOnStack ()
                 end (* let for saveReg etc. *)
@@ -953,7 +939,7 @@ struct
 
         val code = pushEntries(first, [])
     in
-        if pstackTrace then printStack(table, "pushRegisters", code) else ();
+        if pstackTrace then printStack(table, "pushRegisters"^regSetRepr setToFree, code) else ();
         code
     end
 
@@ -1049,15 +1035,9 @@ struct
         end
     )
 
-
-    (* Push all registers.  Now only used before a while-loop.  Also used
-        when we have run out of registers.  That should be changed. *)
-    fun pushAll table =
-        pushRegisters(table, allRegisters, fn _ => true(* all entries *), false)
-
     (* Push a specific entry.  This should really be incorporated into
-     pushRegisters since at the moment it processes all the entries
-     and only selects the particular one.  *)
+       pushRegisters since at the moment it processes all the entries
+       and only selects the particular one.  *)
     fun pushSpecificEntry (table, entry) =
         pushRegisters(table, allRegisters, fn e => e = entry, false)
 
@@ -1327,7 +1307,7 @@ struct
                         in (* If we still haven't found anything we are in big trouble. *)
                             case getReg () of
                                 SOME r => (r, pushInstrs)
-                            |   NONE => raise InternalError "No free registers"
+                            |   NONE => raise InternalError("No free registers: " ^ regSetRepr rSet)
                         end
                 end
     in 
@@ -1338,7 +1318,7 @@ struct
     end
 
     fun getRegister(table, reg) = #2(getRegisterInSet(table, singleton reg))
-    and getAnyRegister table = getRegisterInSet(table, allRegisters)
+    and getAnyRegister table = getRegisterInSet(table, generalRegisters)
 
   (* Resets the stack to the value given by removing any entries with
      non-zero use counts above it. This is fairly rare so does not have
@@ -1369,20 +1349,23 @@ struct
                         let
                             (* Load it without changing the use count. *)
                             val (reg, regCode) =
-                                case cache of
-                                    SOME cache => (cache, [])
-                                |   NONE =>
+                                if cache <> noRegisters
+                                then (oneOf cache, [])
+                                else
                                     let
-                                        val (reg, code)      = getAnyRegister table
+                                        val (reg, code) = getAnyRegister table
                                         val stackOffset = (addr - realstackVal table + 1) * ~wordSize
                                         val fullCode =
                                             moveOp{source=BaseOffset(regStackPtr, stackOffset), output=reg} :: code
                                     in
                                         (reg, fullCode)
                                     end;
+                            (* Free all cache registers except the destination, if it's in there. *)
+                            val () = List.app (free (regset table))
+                                        (setToList(regSetMinus(cache, singleton reg)))
                         in (* Clear out the cache and overwrite this entry with a reference to the register. *)
                             stretchUpdate (pstack, entry,
-                                makeStackEntry(Register reg, NONE, uses, NONE));
+                                makeStackEntry(Register reg, noRegisters, uses, NONE));
                             regCode
                         end
                         else []
@@ -1411,6 +1394,7 @@ struct
 
     fun freeRegister (table, reg) : unit = free (regset table) reg;
 
+    (* Choose a register to be used to hold the result e.g. of a "case". *)
     fun chooseRegister (table : ttab) : reg option =
     let
         fun chooseReg ({vec,nextr, ...}:rset) =
@@ -1420,7 +1404,7 @@ struct
             fun next n = if n = 0 then (vecSize - 1) else (n - 1);
       
             fun findFree (i : int) : reg option =
-            if sub (vec, i) = 0
+            if sub (vec, i) = 0 andalso inSet(regN i, generalRegisters)
             then
             (
                 (* Next time start looking at the register before this. *)
@@ -1441,20 +1425,12 @@ struct
         chooseReg (regset table)
     end
 
-  (* Return the set of modified registers for this function. *)
-  fun getModifedRegSet (Ttab{regset={modSet=ref modSet, ...}, ...}) : reg list =
-  let
-      fun getRegs(i, rset) =
-         if i < 0 then rset
-         else if inSet(regN i, modSet) then getRegs(i-1, regN i :: rset)
-         else getRegs(i-1, rset)
-  in
-      getRegs(regs-1, [])
-  end
+    (* Return the set of modified registers for this function. *)
+    fun getModifedRegSet (Ttab{regset={modSet=ref modSet, ...}, ...}) = modSet
 
     (* Add a set of registers to those modified by this function.
-     This will be the set of registers modified by a function
-     called by this one. *)
+       This will be the set of registers modified by a function
+       called by this one. *)
     fun addModifiedRegSet (transtable: ttab, regs: regSet): unit =
     let
         val Ttab{regset={modSet, ...}, ...} = transtable
@@ -1464,39 +1440,39 @@ struct
 
     (* Generates code for an entry on the pseudo-stack. *)
     (* Moves the entry (at locn) into destReg, decrementing the
-     use-count for entry. Doesn't push anything new on the pstack. *)
+       use-count for entry. Doesn't push anything new on the pstack. *)
     fun loadPstackEntry (table as Ttab{pstackTrace, ...}, locn (* Offset on the stack *), destReg) =
     let
         val {cache = cacheReg, ent, ...} = pstackRealEntry(table, locn)
         val loadCode =
-            case (cacheReg, ent) of
-                (SOME cacheReg, _) =>
-                    if cacheReg <> destReg
-                    then [moveRR(cacheReg, destReg)]
-                    else []
+            if inSet(destReg, cacheReg)
+            then []
+            else if cacheReg <> noRegisters
+            then [moveRR(oneOf cacheReg, destReg)]
+            else case ent of
 
-            |   (NONE, Register reg) =>
+               Register reg =>
                     if reg <> destReg
                     then [moveRR(reg, destReg)]
                     else []
           
-            |   (NONE, Literal lit) =>
+            |   Literal lit =>
                     [moveOp{source=LiteralSource lit, output=destReg}]
 
-            |   (NONE, CodeRef code) =>
+            |   CodeRef code =>
                     [moveOp{source=CodeRefSource code, output=destReg}]
 
-            |   (NONE, Direct {base, offset}) =>
+            |   Direct {base, offset} =>
                     [moveOp{source=BaseOffset(base, offset), output=destReg}]
 
-            |   (NONE, StackW index) =>
+            |   StackW index =>
                 let
                     val stackOffset = (realstackVal table - index - 1) * wordSize
                 in
                     [moveOp{source=BaseOffset(regStackPtr, stackOffset), output=destReg}]
                 end
     
-            |   (NONE, Container l) => (* The first entry in the container gives us the address. *)
+            |   Container l => (* The first entry in the container gives us the address. *)
                 case pstackRealEntry(table, hd l) of
                     {ent = StackW index, ...} =>
                         let
@@ -1549,31 +1525,29 @@ struct
                     else NONE (* Not in the right register. *)
         
             |   _ => (* May be cached. *)
-                case cacheReg of
-                    NONE => NONE
-                |   SOME cacheReg =>
-                        if inSet(cacheReg, rSet)
-                        then (* It's caching and it's acceptable. *)
-                        let
-                            (* Get the register, increment its use count and put it on the stack *)
-                            (* If we are going to trample on the register we must remove it
-                               from the cache. If this is the last real reference that will
-                               not matter, but if this is actually a reference to a parameter
-                               which could be loaded onto the stack again we have to be careful
-                               that the cache does not indicate a register which has been changed. *)
-                            val () = 
-                                if willTrample
-                                then stretchUpdate (pstack, realLoc,
-                                          makeStackEntry(stackEntry, NONE, uses, destStack))
-                                else addRegUse (table, cacheReg)
-                            val newEntry = pushReg (table, cacheReg)
-                        in
-                            (* Must decrement the use-count of the entry we are loading as though
-                              we had actually loaded it. *)
-                            incrUseCount (table, entry, ~1);
-                            SOME (cacheReg, newEntry)
-                        end
-                        else NONE 
+                if regSetIntersect(cacheReg, rSet) <> noRegisters
+                then (* There's an acceptable register in the cache. *)
+                let
+                    val destReg = oneOf(regSetIntersect(cacheReg, rSet))
+                    (* Get the register, increment its use count and put it on the stack *)
+                    (* If we are going to trample on the register we must remove it
+                       from the cache. If this is the last real reference that will
+                       not matter, but if this is actually a reference to a parameter
+                       which could be loaded onto the stack again we have to be careful
+                       that the cache does not indicate a register which has been changed. *)
+                    val () = 
+                        if willTrample
+                        then stretchUpdate (pstack, realLoc,
+                                  makeStackEntry(stackEntry, regSetMinus(cacheReg, singleton destReg), uses, destStack))
+                        else addRegUse (table, destReg)
+                    val newEntry = pushReg (table, destReg)
+                in
+                    (* Must decrement the use-count of the entry we are loading as though
+                       we had actually loaded it. *)
+                    incrUseCount (table, entry, ~1);
+                    SOME (destReg, newEntry)
+                end
+                else NONE 
     in
         case acceptable of
             SOME (reg, entry) => (reg, entry, []) (* Can use what we have. *)
@@ -1599,47 +1573,32 @@ struct
                            help to minimise register-register moves when we have
                            to merge branches. *)
                         val cacheIt =
-                            not willTrample andalso not(isSome cache) andalso
+                            not willTrample andalso
                                case ent of
-                                  Direct   _    => true
+                                  Direct   _   => true
                                (* Cannot cache it if we are about to pop it. *)
-                               | StackW index   => (0 >= index orelse not lastRef)
+                               | StackW index  => (0 >= index orelse not lastRef)
                                | _             => false
                         (* If we are going to cache it we musn't let it be removed. *)
-                        val () = 
-                            if cacheIt
-                            then incrUseCount (table, entry, 1) 
-                            else ();
-
+                        val () = if cacheIt then incrUseCount (table, entry, 1) else ()
                         val loadEntry = loadPstackEntry(table, entry, resultReg)
-                        val newEntry = pushReg (table, resultReg);
+                        val newEntry = pushReg (table, resultReg)
                     in
                     if cacheIt
                     then
-                      (
-                        (* First remove any register already in the cache.
-                           This should now be a no-op. *)
-                        case cache of
-                            SOME cache => freeRegister (table, cache)
-                        |   NONE => ();
-                
+                    (
                         (* put in the cache and restore use-count. *)
                         stretchUpdate (pstack, realLoc,
-                                makeStackEntry(ent, SOME resultReg, uses, destStack));
-                        
+                                makeStackEntry(ent, regSetUnion(cache, singleton resultReg), uses, destStack));
                         addRegUse (table, resultReg);
-                
                         incrUseCount (table, entry, ~1)
-                      ) 
+                    ) 
                     else ();
             
                     (resultReg, newEntry, loadEntry @ regCode)
                 end
              end (* useNewRegister *)
     end
-
-    fun loadEntry (table, entry, willTrample) =
-        loadEntryToSet(table, entry, allRegisters, willTrample)
 
     fun loadToSpecificReg (table, reg, entry, needExclusive) =
     let
@@ -1667,9 +1626,9 @@ struct
                         let (* This is the entry. *)
                             (* Load it without changing the use count. *)
                             val (reg, code) =
-                                case cache of
-                                    SOME cache => (cache, [])
-                                |   NONE =>
+                                if cache <> noRegisters
+                                then (oneOf cache, [])
+                                else
                                     let
                                         val (reg, regCode) = getAnyRegister table
                                         val off = (realstackVal table - 1 - addr) * wordSize;
@@ -1677,13 +1636,16 @@ struct
                                         (reg, moveOp{source=BaseOffset(regStackPtr, off), output=reg} :: regCode)
                                     end;
                   
-                              val newStackent =
+                            (* Free all cache registers except the destination, if it's in there. *)
+                            val () = List.app (free (regset table))
+                                        (setToList(regSetMinus(cache, singleton reg)))
+                            val newStackent =
                                 (* Make a new entry with a NEW stack destination.
                                    If we have to push it we have to use a new location.
                                    I don't like this but it's safe because this only occurs
                                    for a tail-recursive value or for a temporary value
                                    in an exception handler. *)
-                                makeStackEntry(Register reg, NONE, uses, NONE);
+                                makeStackEntry(Register reg, noRegisters, uses, NONE);
                         in
                             (* Clear out the cache and overwrite this entry with a
                                reference to the register. *)
@@ -1715,7 +1677,7 @@ struct
 
         fun generalStoreInStack () = (* General case. *)
         let
-            val (reg, regEntry, code) = loadEntry (table, entry, false)
+            val (reg, regEntry, code) = loadEntryToSet(table, entry, generalRegisters, false)
             (* Lock the register, otherwise it might be used to load an entry. *)
             val () = lockRegister (table, reg)
       
@@ -1776,7 +1738,7 @@ struct
                 else generalStoreInStack () 
   
         |   Direct {base, offset} =>
-                if preferLoadPush andalso isPush andalso not (isSome cacheReg)
+                if preferLoadPush andalso isPush andalso cacheReg = noRegisters
                 then
                 let (* Push memory. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
@@ -1789,7 +1751,7 @@ struct
 
 
         |   StackW index =>
-                if preferLoadPush andalso isPush andalso not (isSome cacheReg)
+                if preferLoadPush andalso isPush andalso cacheReg = noRegisters
                 then
                 let (* Push stack entry. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
@@ -1895,7 +1857,7 @@ struct
 
       |  _ =>
             let
-                val (topReg, topEntry, code) = loadEntry (table, entry, false);
+                val (topReg, topEntry, code) = loadEntryToSet(table, entry, generalRegisters, false)
                 val () = removeStackEntry(table, topEntry); (* Remove the entry for the register. *)
                 (* and push the indirection *)
                 (* Profiling shows that this search is where the compiler can spend most
@@ -1984,7 +1946,7 @@ struct
             if index < 0
             then
             let
-                val (_, newEntry, loadCode) = loadEntry (table, entry, false)
+                val (_, newEntry, loadCode) = loadEntryToSet(table, entry, generalRegisters, false)
             in
                 (newEntry, loadCode)
             end
@@ -1992,36 +1954,23 @@ struct
          
         |   _ => (entry, [])  (* return the original. *)
 
-    fun getRegisterSet (addr: machineWord): regSet =
-    (* The set of register modified by a function. *)
+    (* Get the register set for a function that has already been compiled or for an RTS function. *)
+    fun getRegisterSetForFunction addr =
     let
         val doCall: int*machineWord -> Word.word
-            = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+            = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific
 
         val rSet = doCall(103, addr) (* Get the bit pattern from the function. *)
-        (* It would be much better to use Word.word here rather than
-        this Address type.  The only reason we still use it is just
-        in case we ever need to bootstrap from an old database. *)
-        val andb = Word.andb and << = Word.<<
-        infix andb <<
-
-        fun decodeBits (i: int) (l: reg list) =
-            if i < 0 then l
-            else if (rSet andb (0w1 << Word.fromInt i)) <> 0w0
-            then decodeBits (i-1) (regN i :: l)
-            else decodeBits (i-1) l
-
-        val registers = decodeBits (regs-1) []
     in
-        listToSet registers
+        getRegisterSet rSet
     end
 
-  fun getRegisterSetForCode (cvec: code) : regSet =
-  (* Get the register set for a forward reference which may or may not
+    fun getRegisterSetForCode (cvec: code) : regSet =
+    (* Get the register set for a forward reference which may or may not
      have already been compiled. *)
     case codeAddress cvec of
         SOME addr => (* Now compiled - return the register set. *)
-            getRegisterSet (toMachineWord addr)
+            getRegisterSetForFunction (toMachineWord addr)
     |   NONE =>
          (* We haven't compiled this yet: assume worst case. *) allRegisters
 
@@ -2033,7 +1982,7 @@ struct
         val {ent = stacken, ...} = pstackRealEntry(transtab, index)
     in    
         case stacken of
-            Literal lit => getRegisterSet lit
+            Literal lit => getRegisterSetForFunction lit
         |   CodeRef code => getRegisterSetForCode code
         |   _ => allRegisters
     end;
@@ -2081,9 +2030,9 @@ struct
                     case (pStackRealEntry save savedTop) of
                       (_,{ent = Register reg, ...}) => reg
                 
-                    | (_,{cache = SOME cacheReg, ...}) => cacheReg
-
-                    | (_, {cache = NONE, ...}) => raise InternalError "setState: not a register"
+                    | (_,{cache, ...}) =>
+                        if cache = noRegisters then raise InternalError "setState: not a register"
+                        else oneOf cache
                 )
   in
         (* Clobber all entries above the "mark".
@@ -2107,18 +2056,10 @@ struct
              |  StackEntry {ent, cache, ...} =>
                   (
                     case ent of 
-                      Register reg =>
-                        freeRegister (table, reg)
-                
-                    | Direct {base, ...} =>
-                        freeRegister (table, base)
-              
-                    | _ => ()
-                    ;
-            
-                    case cache of
-                        SOME cache => freeRegister (table, cache)
-                    |   NONE => ()
+                      Register reg => freeRegister (table, reg)
+                    | Direct {base, ...} => freeRegister (table, base)
+                    | _ => () ;
+                    List.app (fn r => freeRegister (table, r)) (setToList cache)
                   )
               ;
       
@@ -2173,8 +2114,8 @@ struct
                 
                 | _ => ()
                 ;
-            
-                case cache of SOME cache => incr (regset table) cache | NONE => ();
+
+                List.app (incr (regset table)) (setToList cache);
 
               (* Propagate the destination stack offset information.  If the
                  saved offset is non-negative it must agree with the current
@@ -2328,10 +2269,9 @@ struct
                     val sTopReg = 
                         case (pStackRealEntry save savedTop) of
                             (_,{ent = Register reg, ...}) => reg
-                 
-                        |   (_,{cache = SOME cacheReg, ...}) => cacheReg
-
-                        |   (_,{cache = NONE, ...}) => raise InternalError "Not a register";
+                        |   (_,{cache, ...}) =>
+                                if cache = noRegisters then raise InternalError "Not a register"
+                                else oneOf cache
             
                     (* Load the value on the top of "table" into the same register
                         (it ought to be there anyway). *)
@@ -2397,9 +2337,7 @@ struct
                               these entries unless it is the same value and cached 
                               in the same register *)
                           then
-                            if case (tabCache, saveCache) of
-                                    (SOME tabCache, SOME saveCache) => tabCache <> saveCache
-                               |    _ => true
+                            if tabCache <> saveCache (* TODO: Handle non-empty intersection. *)
                             then removeEntry table s false
                             else 
                               case (tabEnt, saveEnt) of 
@@ -2535,29 +2473,29 @@ struct
           into the same register as before. *)
         local
             (* Put the table entry in a specified register and
-                   make it a register entry. *)
-            fun loadToReg (s, prefReg, tabEnt, tabCache: reg option, tabUses, tabDest) =
+               make it a register entry. *)
+            fun loadToReg (s, prefReg: reg option, tabEnt, tabCache: regSet, tabUses, tabDest) =
             let
                 val (dReg, dRegCode) =
-                    if prefReg = regStackPtr
-                    then (* No preference. *)
-                    let
-                        val (reg, regCode) = getAnyRegister table
-                    in
-                        (reg, loadPstackEntry(table, s, reg) @ regCode)
-                    end
-                    else  (* Put it in the preferred register. If it's already there
-                         we need to increment the use count because we will
-                         decrement it in "removeEntry". *)
+                    case prefReg of
+                        NONE =>
+                        let
+                            val (reg, regCode) = getAnyRegister table
+                        in
+                            (reg, loadPstackEntry(table, s, reg) @ regCode)
+                        end
+                    |   SOME prefReg => (* Put it in the preferred register. If it's already there
+                                           we need to increment the use count because we will
+                                           decrement it in "removeEntry". *)
                         if (case tabEnt of Register reg => reg = prefReg | _ => false) orelse
-                            (case tabCache of NONE => false | SOME tabCache => tabCache = prefReg)  (* Already there. *)
-                    then (addRegUse (table, prefReg); (prefReg, [])) (* Already there. *)
-                    else
-                    let
-                        val getRegCode = getRegister (table, prefReg)
-                    in
-                        (prefReg, loadPstackEntry(table, s, prefReg) @ getRegCode)
-                    end
+                            inSet(prefReg, tabCache) (* Already there. *)
+                        then (addRegUse (table, prefReg); (prefReg, [])) (* Already there. *)
+                        else
+                        let
+                            val getRegCode = getRegister (table, prefReg)
+                        in
+                            (prefReg, loadPstackEntry(table, s, prefReg) @ getRegCode)
+                        end
             in 
                   (* loadPstackEntry will have decremented the use count and may
                      have completely removed the entry.  If it hasn't we need to
@@ -2570,7 +2508,7 @@ struct
                     NoStackEntry => ()
                 |   StackEntry _ => removeEntry table s false;
                 stretchUpdate (pstack, s,
-                          makeStackEntry(Register dReg, NONE, tabUses, tabDest));
+                          makeStackEntry(Register dReg, noRegisters, tabUses, tabDest));
                 dRegCode
             end (* loadToReg *)
 
@@ -2585,7 +2523,7 @@ struct
 
                     |  (StackEntry {ent = tabEnt, cache, uses, destStack, ...},
                         StackEntry {ent = Register savedReg, ...}) =>
-                        loadToReg(s, savedReg, tabEnt, cache, uses, destStack)
+                        loadToReg(s, SOME savedReg, tabEnt, cache, uses, destStack)
 
                     |  (StackEntry{ent = tabEnt as Direct{base = tabBase, offset = tabOffset},
                                 cache = tabCache, uses, destStack, ...},
@@ -2604,10 +2542,9 @@ struct
                             then
                                 let
                                     val prefReg =
-                                        case (savedCache, tabCache) of
-                                            (SOME savedCache, _) => savedCache
-                                        |   (_, SOME tabCache) => tabCache
-                                        |   _ => regStackPtr; (* No preference. *)
+                                        if regSetIntersect(savedCache, tabCache) <> noRegisters
+                                        then SOME(oneOf(regSetIntersect(savedCache, tabCache)))
+                                        else NONE (* No preference. *)
                                 in
                                     loadToReg (s, prefReg, tabEnt, tabCache, uses, destStack)
                                 end
@@ -2633,30 +2570,21 @@ struct
                      StackEntry {cache = saveCache, ent = saveEnt, ...}) =>
                         let
                             fun flushCache () =
-                                case (tabCache, saveCache) of
-                                    (SOME tabCache, SOME saveCache) =>
-                                        if tabCache = saveCache
-                                        then () (* Can preserve the cache. *)
-                                        else
-                                        ( (* Must clear it. *)
-                                            free (regset table) tabCache;
-                                            stretchUpdate (pstack, s,
-                                                makeStackEntry(tabEnt, NONE, tabUses, tabDest))
-                                        )
-                                |   (SOME tabCache, NONE) =>
-                                        ( (* Must clear it. *)
-                                            free (regset table) tabCache;
-                                            stretchUpdate (pstack, s,
-                                                makeStackEntry(tabEnt, NONE, tabUses, tabDest))
-                                        )
-                                |   _ => ()
+                            let
+                                (* Remove all entries from the current cache that are not also in
+                                   the saved cache. *)
+                                val keep = regSetIntersect(tabCache, saveCache)
+                            in
+                                List.app (free (regset table)) (setToList(regSetMinus(tabCache, keep)));
+                                stretchUpdate (pstack, s,
+                                                makeStackEntry(tabEnt, keep, tabUses, tabDest))
+                            end
                         in
                         case tabEnt of
                             Register tabReg =>
                                 (
-                                (* It's fine if the saved value was cached in that
-                                   register. *)
-                                if case saveCache of NONE => false | SOME saveCache => saveCache = tabReg
+                                (* It's fine if the saved value was cached in that register. *)
+                                if inSet(tabReg, saveCache)
                                 then ()
                                 else case saveEnt of
                                     Register saveReg =>
@@ -2688,9 +2616,7 @@ struct
                                 (
                                 (* As with register entries these should have been
                                    merged but might have diverged again. *)
-                                if case (saveCache, tabCache) of
-                                        (SOME saveCache, SOME tabCache) => saveCache = tabCache
-                                    |   _ => false
+                                if saveCache = tabCache (* TODO: Should this be an intersection? *)
                                 then ()
                                 else
                                     case saveEnt of
@@ -2900,27 +2826,35 @@ struct
                 val {ent = stackEntry, cache, ...} = pstackRealEntry(table, entry);
                 val lastRef = lastReference table entry;
             in
-                case (cache, stackEntry) of
-                    (SOME cache, _) => (InRegister cache, lastRef)
-                |
-                    (_, Register reg) => (InRegister reg, lastRef)
+                if cache <> noRegisters
+                then
+                (
+                    if lastRef
+                    then ActInRegisterSet{modifiable=cache, readable=cache}
+                    else ActInRegisterSet{modifiable=noRegisters, readable=cache}
+                )
+                else case stackEntry of
+                    Register reg =>
+                        if lastRef
+                        then ActInRegisterSet{modifiable=singleton reg, readable=singleton reg}
+                        else ActInRegisterSet{modifiable=noRegisters, readable=singleton reg}
 
-                |   (_, Literal m) => (LiteralSource m, false)
+                |   Literal m => ActLiteralSource m
 
-                |   (_, Direct{base, offset}) => (BaseOffset(base, offset), lastRef)
+                |   Direct{base, offset} => ActBaseOffset(base, offset)
 
-                |   (_, StackW index) =>
-                            (BaseOffset(regStackPtr, (realstackVal table - 1 - index) * wordSize), lastRef)
+                |   StackW index =>
+                            ActBaseOffset(regStackPtr, (realstackVal table - 1 - index) * wordSize)
 
-                |   (_, Container l) =>
+                |   Container l =>
                     (
                         case pstackRealEntry(table, hd l) of
                             {ent = StackW index, ...} =>
-                                 (StackAddress ((realstackVal table - index -1) * wordSize), false)
+                                 ActStackAddress((realstackVal table - index -1) * wordSize)
                         |   _ => raise InternalError "argAsSource: container entry is not on stack"
                     )
 
-                |   (_, CodeRef code) => (CodeRefSource code, false)
+                |   CodeRef code => ActCodeRefSource code
 
             end
         in
@@ -3108,8 +3042,6 @@ struct
         branched table := true;
         exited table := true
     )
-
-    val allRegisters = allRegisters
 
     datatype argdest = ArgToRegister of reg | ArgToStack of int
 

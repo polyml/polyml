@@ -1945,6 +1945,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x8f: /* POP_A */
         case 0x8d: /* leal. */
         case 0xd3: /* Group2_CL_A */
+        case 0x87: // XCHNG
             pt++; skipea(&pt, process); break;
 
         case 0xf6: /* Group3_a */

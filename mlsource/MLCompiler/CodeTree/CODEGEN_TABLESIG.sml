@@ -57,14 +57,13 @@ sig
     val pushNonLocal: ttab * ttab * stackIndex * (unit -> stackIndex * operations list) -> stackIndex * operations list
     val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operations list
     val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operations list
-    val pushAll:      ttab -> operations list;
     val pushSpecificEntry: ttab * stackIndex -> operations list
     val incsp:        ttab -> stackIndex;
     val decsp:        ttab*int -> unit;
     val reserveStackSpace: ttab * int -> stackIndex * operations list
 
     (* Code entries *)
-    val loadEntry:         ttab * stackIndex * bool -> reg * stackIndex * operations list
+    val loadEntryToSet:    ttab * stackIndex * regSet * bool -> reg * stackIndex * operations list
     val loadToSpecificReg: ttab * reg * stackIndex * bool -> stackIndex * operations list
     val lockRegister:      ttab * reg -> unit;
     val unlockRegister:    ttab * reg -> unit;
@@ -121,7 +120,7 @@ sig
 
     val chooseRegister : ttab -> reg option
 
-    val getRegisterSet: machineWord -> regSet
+    val getRegisterSetForFunction: machineWord -> regSet
     val getRegisterSetForCode: code -> regSet
     val allRegisters : regSet
     val regSetUnion: regSet * regSet -> regSet
@@ -130,7 +129,7 @@ sig
     val getFunctionRegSet: stackIndex * ttab -> regSet
     val addModifiedRegSet: ttab * regSet -> unit
 
-    val getModifedRegSet: ttab -> reg list
+    val getModifedRegSet: ttab -> regSet
 
     datatype argdest = ArgToRegister of reg | ArgToStack of int
     val getLoopDestinations: stackIndex list * ttab -> argdest list

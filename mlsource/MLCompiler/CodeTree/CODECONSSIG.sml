@@ -37,28 +37,35 @@ sig
     val regHandler:  reg
     val regReturn:   reg option
 
-    val regs:    int     (* No of registers. *)
-    val argRegs: int     (* No of args in registers. *)
-
+    (* For vector indexing we provide a numbering for the registers. *)
+    val regs:   int
     val regN:   int -> reg
     val nReg:   reg -> int
-    val argReg: int -> reg
 
     val regRepr: reg -> string
 
+    val argRegs: int     (* No of args in registers. *)
+    val argReg: int -> reg
+
     structure RegSet:
     sig
-        type regSet
+        eqtype regSet
         val singleton: reg -> regSet
-        val allRegisters: regSet
+        val allRegisters: regSet (* All registers: data, address, floating pt. *)
+        val generalRegisters: regSet (* Registers checked by the GC. *)
         val noRegisters: regSet
         val isAllRegs: regSet->bool
-        val regSetUnion: regSet*regSet -> regSet
+        val regSetUnion: regSet * regSet -> regSet
+        val regSetIntersect: regSet * regSet -> regSet
         val listToSet: reg list -> regSet
-        val inverseSet: regSet -> regSet
+        val setToList: regSet -> reg list
+        val regSetMinus: regSet * regSet -> regSet
         val inSet: reg * regSet -> bool
         val cardinality: regSet -> int
+        val regSetRepr: regSet -> string
+        val oneOf: regSet -> reg
     end
+    val getRegisterSet: Word.word -> RegSet.regSet
 
     type addrs
     val addrZero: addrs
@@ -194,7 +201,14 @@ sig
 
     datatype regHint = UseReg of reg | NoHint | NoResult
 
-    type argReq = source * bool
+    (* These are almost the same as source values except that a value
+       may be in more than one register. *)
+    datatype actionSource =
+        ActLiteralSource of machineWord
+    |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
+    |   ActBaseOffset of reg * int
+    |   ActCodeRefSource of code (* The address of another function *)
+    |   ActStackAddress of int (* Offset within the stack. *)
 
     datatype argAction =
         ActionDone of (* The output register if any and the final operation. *)
@@ -206,7 +220,7 @@ sig
     |   ActionGetWorkReg of (* Get a work/result register. *)
             { regSet: RegSet.regSet, setReg: reg -> nextAction }
 
-    withtype nextAction = argReq list -> argAction
+    withtype nextAction = actionSource list -> argAction
 
     (* Negotiate arguments *)
     val negotiateArguments: instrs * regHint -> nextAction
@@ -214,7 +228,7 @@ sig
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
-    val copyCode: code * operations list * int * reg list -> address
+    val copyCode: code * operations list * int * RegSet.regSet -> address
 
     val codeAddress: code -> address option
 
