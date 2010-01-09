@@ -3912,13 +3912,18 @@ Calling conventions:
                 (* Push eax (any register would do), allocate memory into that, then
                    swap the value with the top of the stack, restoring the original
                    eax and puting the address of the store onto the stack. *)
+                (* This originally used the XCHNG instruction to do the swap but
+                   that is very expensive because it involves a lock.  This version is
+                   slightly more complicated but much quicker. *)
+                genPush(eax, code);
                 genPush(eax, code);
                 loadFpRegToStack(src, 0w0, code);
                 allocStore(8 div wordSize, F_bytes, eax, code);
                 genop(FPESC 0w5, code); (* FSTP [rd] *)
                 genop2(0, eax, 0wx3, code);
-                genop(XCHNG, code);
-                genEA (0, esp, eax, code)
+                genop (MOVL_R_A, code);
+                genEA (wordSize, esp, eax, code);
+                genop(POP_R eax, code)
             )
                 
         |   cgOp(PushToStack(InRegister HandlerReg)) = (* Not a real register. *)
