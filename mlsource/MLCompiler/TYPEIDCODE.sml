@@ -190,7 +190,8 @@ struct
                will never be called.  We may have to construct dummy type values
                by applying a polymorphic type constructor to them and if
                they don't have the right form the optimiser will complain. *)
-            val errorFunction = mkProc(CodeZero, 0, 1, "errorCode")
+            val errorFunction1 = mkProc(CodeZero, 0, 1, "errorCode1")
+            and errorFunction2 = mkProc(CodeZero, 0, 2, "errorCode2")
             val codeFn = mkProc(codePrettyString "fn", 0, 1, "print-function")
 
             local
@@ -221,9 +222,9 @@ struct
             val codeTuple =
                 mkTuple[
                     createTypeValue{ (* Unused type variable. *)
-                        eqCode=errorFunction, printCode=errorFunction, boxedCode=boxedEither, sizeCode=singleWord},
+                        eqCode=errorFunction2, printCode=errorFunction1, boxedCode=boxedEither, sizeCode=singleWord},
                     createTypeValue{ (* Function. *)
-                        eqCode=errorFunction, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
+                        eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
                     intCode, boolCode, stringCode, charCode
                 ]
             val code = genCode(codeTuple, [])()
