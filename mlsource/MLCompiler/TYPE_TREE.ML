@@ -2855,6 +2855,11 @@ struct
    | recordWidth _ =
         raise InternalError "entryNumber - not a record"
 
+    fun recordFieldMap f (LabelledType{recList, ...}) = List.map (f o (fn {typeof, ...} => typeof)) recList
+    |   recordFieldMap f (TypeVar tvar) = recordFieldMap f (tvValue tvar)
+    |   recordFieldMap f (TypeConstruction{constr, ...}) = recordFieldMap f (tcEquivalent constr)
+    |   recordFieldMap _ _ = raise InternalError "entryNumber - not a record"
+
     (* Unify two type variables which would otherwise be non-unifiable.
        Used when we have found a local type variable with the same name
        as a global one. *)
@@ -2997,6 +3002,21 @@ struct
 
         |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false)
     end
+
+    (* Test if this is floating point i.e. the "real" type. We could include
+       abbreviations of real as well but it's probably not worth it. *)
+    fun isFloatingPt t =
+        case eventual t of
+            TypeConstruction{args=[], constr, ...} =>
+                sameTypeId (tcIdentifier constr, tcIdentifier realConstr)
+        |   OverloadSet {typeset, ...} =>
+                (
+                    case preferredOverload typeset of
+                        SOME t => sameTypeId (tcIdentifier t, tcIdentifier realConstr)
+                    |   NONE => false
+                )
+        |   _ => false
+
 
     structure Sharing =
     struct

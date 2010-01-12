@@ -61,6 +61,7 @@ sig
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
     val recordWidth:        types -> int;
+    val recordFieldMap:     (types -> 'a) -> types -> 'a list
     val makeEquivalent:     typeConstrs * types list -> types;
     val firstArg:           types -> types;
 
@@ -169,6 +170,7 @@ sig
     val badType:    types;
     
     val isPointerEqType: typeId -> bool
+    val isFloatingPt: types -> bool
 
     val isUndefinedTypeConstr: typeConstrs -> bool
     val isBadType:  types -> bool
