@@ -5987,7 +5987,6 @@ struct
                     val resultTuple =
                         if (getParameter debugTag (debugParams lex)) then [GeneralType] else resultTuples
 
-
                     (* If there's a single argument return the type of that otherwise if we're tupling the
                        result is general. *)
                     val (resultType, extraArg) = case resultTuple of [one] => (one, 0) | _ => (GeneralType, 1)
@@ -6264,6 +6263,10 @@ struct
 
             val loaded = loadFunDecs(tlist, polyVarList, addressList)
 
+            (* Set the final addresses in case they have changed.  N.B.  Do this before
+               loading any debug references. *)
+            val () = ListPair.appEq (fn (t, a) => setValueAddress(t, a, level)) (tlist, addressList)
+
             (* Construct the debugging environment by loading all variables.
                This won't be available recursively in the
                functions but it will be in the rest of the scope. *)
@@ -6275,8 +6278,6 @@ struct
                 then reportUnreferencedValues(vars, lex)
                 else ()
 
-            (* Set the final addresses in case they have changed. *)
-            val () = ListPair.appEq (fn (t, a) => setValueAddress(t, a, level)) (tlist, addressList)
         in
             case loaded of
                 [singleton] => (singleton :: decEnv, newDebugEnv)
