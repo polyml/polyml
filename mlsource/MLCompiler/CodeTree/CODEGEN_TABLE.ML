@@ -754,8 +754,10 @@ struct
        either to clear all registers or just to free a particular one.
        `loadIfPoss' is true if it is sufficient to move the entry to
        another register. *)
-    fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}, setToFree, selectEntry, loadIfPoss) =
+    fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}, setToFree, selectEntry, loadIfPoss, dontCache) =
     let
+        fun freeSet rset = List.app (free (regset table)) (setToList rset)
+
         fun pushEntries(entry, instrList) =
         if not(entry < pstackVal table)
         then instrList (* Finished *)
@@ -784,13 +786,15 @@ struct
                             else pushToStack(BaseOffset(base, offset))
                   
                         val () = free (regset table) base
+                        val newCache =
+                            if dontCache then (freeSet cacheReg; noRegisters) else cacheReg
                   
                         (* Overwrite this entry with a reference to the stack. *)
                         val stackAddr = realstackVal table
                     
                         val () = 
                             stretchUpdate (pstack, entry,
-                                makeStackEntry(StackW stackAddr, cacheReg, uses, SOME stackAddr))
+                                makeStackEntry(StackW stackAddr, newCache, uses, SOME stackAddr))
                     in  
                         realstackptr table := realstackVal table + 1;
                     
@@ -805,8 +809,7 @@ struct
                         (* Free the base register. *)
                         val () = free (regset table) base
                         (* Free all cache registers except the destination, if it's in there. *)
-                        val () = List.app (free (regset table))
-                                    (setToList(regSetMinus(cacheReg, singleton destReg)));
+                        val () = freeSet(regSetMinus(cacheReg, singleton destReg))
 
                         val loadInstrs =
                             if inSet(destReg, cacheReg)
@@ -851,7 +854,10 @@ struct
 
                         (* Have pushed a register - can treat the register as caching
                            the stack location we have pushed it into. *)
-                        val newCache = regSetUnion(cacheReg, singleton reg)
+                        val newCache =
+                            if dontCache
+                            then (freeSet(regSetUnion(cacheReg, singleton reg)); noRegisters)
+                            else regSetUnion(cacheReg, singleton reg)
                         val stackAddr = realstackVal table
                     in
                         (* Overwrite this entry with a reference to the stack. *)
@@ -867,11 +873,9 @@ struct
                         pushInstr :: alignInstrs
                     end
               
-                    (* If we have any direct references using this register
-                     we can adjust them to use the new register. This is
-                     particularly important if we are moving values
-                     out of this register because we want to load it with
-                     something else. *)
+                    (* If we have any direct references using this register we can adjust them to
+                       use the new register. This is particularly important if we are moving values
+                       out of this register because we want to load it with something else. *)
                     fun saveRegInReg destReg =
                     let
                         fun regChanged entry =
@@ -879,12 +883,11 @@ struct
                         then
                         (
                             case pstackEntry(table, entry) of
-                                StackEntry {ent = Direct {base, offset},
-                                            cache, uses, destStack} =>
+                                StackEntry {ent = Direct {base, offset}, cache, uses, destStack} =>
                                     if base = reg
                                     then
                                     ( (* Decrement the use count for the source reg 
-                                     and increment it for the destination. *)
+                                         and increment it for the destination. *)
                                         free (regset table) reg;
                                         addRegUse (table, destReg);
                                         stretchUpdate (pstack, entry, 
@@ -902,8 +905,7 @@ struct
                         (* Free this register *)
                         val () = free (regset table) reg
                         (* Free all cache registers except the destination, if it's in there. *)
-                        val () = List.app (free (regset table))
-                                    (setToList(regSetMinus(cacheReg, singleton destReg)));
+                        val () = freeSet(regSetMinus(cacheReg, singleton destReg))
                 
                         val moveInstrs =
                             if inSet(destReg, cacheReg)
@@ -926,9 +928,16 @@ struct
                     else if regSetMinus(cacheReg, setToFree) <> noRegisters
                         (* It's cached in a register that we don't need - save it there. *)
                     then saveRegInReg(oneOf(regSetMinus(cacheReg, setToFree)))
-                    else case getAcceptableRegister (regset table, regSetMinus(generalRegisters, setToFree)) of
-                            SOME destReg => saveRegInReg destReg
-                        |   NONE =>saveRegOnStack ()
+                    else
+                    let
+                        val prefSet =
+                            if inSet(reg, floatingPtRegisters)
+                            then floatingPtRegisters else generalRegisters
+                    in
+                        case getAcceptableRegister (regset table, regSetMinus(prefSet, setToFree)) of
+                                SOME destReg => saveRegInReg destReg
+                            |   NONE =>saveRegOnStack ()
+                    end
                 end (* let for saveReg etc. *)
             
             | _ => [] (* neither Direct nor Register *) 
@@ -967,7 +976,7 @@ struct
                 then raise InternalError "pushAnyEntryAtCurrentSP: unpushed entry"
                 else destStack = currentSp (* Push it if we're there. *)
         val pushInstrs =
-            pushRegisters(table, allRegisters (* Any register *), selectEntry, false)
+            pushRegisters(table, allRegisters (* Any register *), selectEntry, false, false)
     in
         (* Return true if the stack pointer has changed. *)
         (realstackVal table <> currentSp, pushInstrs)
@@ -1039,7 +1048,7 @@ struct
        pushRegisters since at the moment it processes all the entries
        and only selects the particular one.  *)
     fun pushSpecificEntry (table, entry) =
-        pushRegisters(table, allRegisters, fn e => e = entry, false)
+        pushRegisters(table, allRegisters, fn e => e = entry, false, false)
 
     (* Used particularly before procedure calls where we want to ensure
      that anything in a register is pushed onto the stack unless its
@@ -1080,7 +1089,7 @@ struct
                                             makeStackEntry(ent, cache, uses, NONE));
                             false
                         ),
-            false)
+            false, false)
   end;
 
   (* Ensures that all values which need to be preserved across a function
@@ -1146,8 +1155,7 @@ struct
                             ),
                 (* If all the registers must be pushed there's no point in trying to
                  move to another register. *)
-                not (isAllRegs pushTheseRegs)
-                )
+                not (isAllRegs pushTheseRegs), false)
     in
         (getRegisterList first [], instrs)
     end;
@@ -1282,7 +1290,10 @@ struct
                     (* We seem to have run out.  First flush the cache, then if that
                        fails push all the registers. On the whole it seems to work better
                        to free a lot of registers rather then just freeing a few. We tend
-                       to either have more than enough registers, or much too few. *) 
+                       to either have more than enough registers, or much too few.
+                       This may be true for general registers but it's not true for FP
+                       registers where pushing values to the stack involves allocating
+                       memory. *) 
                     fun untilSomethingFree () =
                         case getReg () of NONE => true | SOME r => (free (regset table) r; false)
                     val () = removeFromCache(table, rSet, untilSomethingFree)
@@ -1298,10 +1309,13 @@ struct
                                relevant and stop as soon as we get an acceptable register
                                and allow it to be freed by moving the current contents to
                                another. *)
-                            val manyAcceptable = cardinality rSet >= 3
+                            val manyAcceptable =
+                                regSetIntersect(rSet, generalRegisters) <> noRegisters andalso
+                                    cardinality rSet >= 3
                             val pushInstrs =
                                 pushRegisters(table, rSet,
-                                    fn _ => manyAcceptable orelse untilSomethingFree(), not manyAcceptable)
+                                    fn _ => manyAcceptable orelse untilSomethingFree(), not manyAcceptable,
+                                    true (* Free it once it's been pushed *))
                             (* Pushed values stay in the cache. *)
                             val () = removeFromCache(table, rSet, untilSomethingFree)
                         in (* If we still haven't found anything we are in big trouble. *)
@@ -2465,7 +2479,7 @@ struct
         in
             (* Pushing one entry may result in others being pushed if
                 they have a lower "destStack". *)
-            val pushCode = pushRegisters(table, allRegisters, mustPush, false)
+            val pushCode = pushRegisters(table, allRegisters, mustPush, false, false)
         end;
 
         (* Third pass: Load any entry which is in a register in the saved state
