@@ -158,19 +158,7 @@ struct
   
   val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable);
 
-    type lambdaForm =
-     { (* Lambda expressions. *)
-       body          : codetree,
-       isInline      : inlineStatus,
-       name          : string,
-       closure       : codetree list,
-       numArgs       : int,
-       level         : int,
-       closureRefs   : int,
-       makeClosure   : bool
-      } 
-   
-   and casePair = 
+  type casePair = 
        (* Expressions and corresponding list of labels. *)
        codetree * int list
 
@@ -193,8 +181,10 @@ struct
   fun mkRecLoad level =
     Extract {level = level, addr = 0, fpRel = false, lastRef = false};
   
-  fun mkLoad (addr,level) =
-    Extract {level = level, addr = addr, fpRel = true, lastRef = false};
+    fun mkLoad (addr,level) =
+    if level < 0 then raise InternalError "mkLoad: level must be non-negative"
+    else Extract {level = level, addr = addr, fpRel = true, lastRef = false}
+
   fun mkClosLoad addr last =
     Extract {level = 0, addr = addr, fpRel = false, lastRef = last};
   val mkEnv    = Newenv;
@@ -209,50 +199,97 @@ struct
   (* generates a declaration operation *)
   fun mkDec (laddr, res) = mkDecRef res laddr 0;
 
+    (* Old form operations for backwards compatibility.  These all create
+       default GeneralType arguments and results. *)
 
-  (* lambda operation: returns a procedure *)
-  fun mkProc (lval, level, args, name) =
+    (* lambda operation: returns a procedure *)
+    fun mkProc (lval, (*level*)_, args, name) =
     Lambda
       {
         body          = lval,
-        isInline      = (*if isSmall lval then SmallFunction else *) NonInline,
+        isInline      = NonInline,
         name          = name,
         closure       = [],
-        numArgs       = args,
-        level         = level,
+        argTypes      = List.tabulate(args, fn _ => GeneralType),
+        resultType    = GeneralType,
+        level         = 0,
         closureRefs   = 0,
         makeClosure   = false
       }                     
 
-  (* inline lambda operation: returns an inline procedure *)
-  fun mkInlproc (lval, level, args, name) =
+    (* inline lambda operation: returns an inline procedure *)
+    fun mkInlproc (lval, (*level*)_, args, name) =
     Lambda
       {
         body          = lval,
         isInline      = MaybeInline,
         name          = name,
         closure       = [],
-        numArgs       = args,
-        level         = level,
+        argTypes      = List.tabulate(args, fn _ => GeneralType),
+        resultType    = GeneralType,
+        level         = 0,
         closureRefs   = 0,
         makeClosure   = false
       };
 
-  fun mkMacroProc (lval, level, args, name) =
+    (* OnlyInline: used for functors unless inlineFunctors is false. *)
+    fun mkMacroProc (lval, (*level*)_, args, name) =
     Lambda
       {
         body          = lval,
         isInline      = OnlyInline,
         name          = name,
         closure       = [],
-        numArgs       = args,
-        level         = level,
+        argTypes      = List.tabulate(args, fn _ => GeneralType),
+        resultType    = GeneralType,
+        level         = 0,
         closureRefs   = 0,
         makeClosure   = false
       };
 
-  fun mkEval (ct, clist, bl)   =
-    Eval {function = ct, argList = clist, earlyEval = bl};
+    fun mkEval (ct, clist, bl)   =
+    Eval {
+        function = ct,
+        argList = List.map(fn c => (c, GeneralType)) clist,
+        earlyEval = bl,
+        resultType=GeneralType
+    }
+
+    fun mkFunction(body, argsAndTypes, resultType, name) =
+    Lambda
+      {
+        body          = body,
+        isInline      = NonInline,
+        name          = name,
+        closure       = [],
+        argTypes      = argsAndTypes,
+        resultType    = resultType,
+        level         = 0,
+        closureRefs   = 0,
+        makeClosure   = false
+      }
+
+    fun mkInlineFunction(body, argsAndTypes, resultType, name) =
+    Lambda
+      {
+        body          = body,
+        isInline      = MaybeInline,
+        name          = name,
+        closure       = [],
+        argTypes      = argsAndTypes,
+        resultType    = resultType,
+        level         = 0,
+        closureRefs   = 0,
+        makeClosure   = false
+      }
+
+    fun mkCall(func, argsAndTypes, resultType) =
+    Eval {
+        function = func,
+        argList = argsAndTypes,
+        earlyEval = false,
+        resultType=resultType
+    }
 
   fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg], true);
 
@@ -536,7 +573,7 @@ struct
            a comparison. *)
     | sideEffectFree (Eval{function=Constnt w, argList, ...}) =
         isIoAddress(toAddress w) andalso sideEffectFreeRTSCall(w, argList)
-        andalso testList argList
+        andalso List.all (fn (c, _) => sideEffectFree c) argList
 
     | sideEffectFree(Container _) = true
         (* But since SetContainer has a side-effect we'll always create the
@@ -547,10 +584,9 @@ struct
     | sideEffectFree _ = false
              (* Rest are unsafe (or too rare to be worth checking) *)
 
-  and testList []       = true
-    | testList (h :: t) = sideEffectFree h andalso testList t
+    and testList t = List.all sideEffectFree t
 
-  and sideEffectFreeRTSCall(function: machineWord, args: codetree list): bool =
+  and sideEffectFreeRTSCall(function: machineWord, args: (codetree * argumentType) list): bool =
     let
       fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioCall)
     in
@@ -560,7 +596,7 @@ struct
            long arguments for the word operations. *)
         (List.foldl isInList false divisionOperations andalso
             (case args of
-               [_, Constnt c] => not (isShort c) orelse toShort c <> 0w0
+               [_, (Constnt c, _)] => not (isShort c) orelse toShort c <> 0w0
              | _ => false)
         )
     end;
@@ -575,7 +611,7 @@ struct
    It's quite safe to evaluate a function which results in an exception.
    It isn't safe to evaluate a function which might have a side-effect. *)
 
-   fun earlyRtsCall(function: machineWord, args: codetree list): bool =
+   fun earlyRtsCall(function: machineWord, args: (codetree * argumentType) list): bool =
    let
       val safeForImmutable =
         [POLY_SYS_get_flags, POLY_SYS_load_byte, POLY_SYS_load_word]
@@ -606,7 +642,7 @@ struct
          POLY_SYS_get_first_long_word]
 
       fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioOp ioCall)
-      fun isImmutable (Constnt w, sofar) =
+      fun isImmutable ((Constnt w, _), sofar) =
             sofar andalso (isShort w orelse not(isMutable(toAddress w)))
         | isImmutable _ = raise InternalError "isImmutable: arg not constant"
     in
@@ -674,13 +710,13 @@ struct
               handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
                    | _         => resultCode
 
-       fun loadArgs (argVec : address) ([]:codetree list) _ =
+       fun loadArgs (argVec : address, [],  _) =
           (
             lock argVec;
             callFunction (toMachineWord argVec)
           )
                
-         | loadArgs (argVec : address) (h :: t) locn =
+         | loadArgs (argVec : address, (h, _) :: t, locn) =
             (
             case evaluate h codegen of
                 arg as Raise _ => arg
@@ -688,7 +724,7 @@ struct
               | Constnt cv =>
                  ( 
                   assignWord (argVec, toShort locn, cv);
-                  loadArgs argVec t (locn + 1)
+                  loadArgs(argVec, t, locn + 1)
                  )
               | _ => raise InternalError "Result of evaluate is not a constant"
             )
@@ -700,7 +736,7 @@ struct
            let 
              val argVec = alloc (toShort (List.length argList), F_mutable_words, word0);
            in
-             loadArgs argVec argList 0
+             loadArgs(argVec, argList, 0)
            end
       end
     )
@@ -975,8 +1011,8 @@ DCJM 2000.
         (* It may need a full closure even if makeClosure is false if it    *)
         (* involves a recursive reference which will need a closure.        *)
         (* preCode.copyCode.insert.copyLambda *)
-        fun copyLambda ({body=lambdaBody, level=nesting, numArgs, isInline,
-                         name=lambdaName, ...}: lambdaForm) makeClosure =
+        fun copyLambda ({body=lambdaBody, level=nesting, argTypes, isInline,
+                         name=lambdaName, resultType, ...}: lambdaForm) makeClosure =
         let
           val newGrefs      = ref []; (* non-local references *)
           val newNorefs     = ref 0;  (* number of non-local refs *)
@@ -1088,7 +1124,8 @@ DCJM 2000.
                 end
             end
           end (* prev *);
-                
+
+          val numArgs = List.length argTypes
           (* This could be a fixed array rather than stretchArray.  The
              size is one more than the number of arguments because the
              arguments are numbered from ~1 .. ~n and we use the entries
@@ -1134,7 +1171,8 @@ DCJM 2000.
                   isInline      = isInline,
                   name          = lambdaName,
                   closure       = [],
-                  numArgs       = numArgs,
+                  argTypes      = argTypes,
+                  resultType    = resultType,
                   level         = nesting,
                   closureRefs   = if !refsToClosure then 1 else 0 (* was set to 0 *), 
                   makeClosure   = true
@@ -1153,7 +1191,8 @@ DCJM 2000.
                 isInline      = isInline,
                 name          = lambdaName,
                 closure       = !newGrefs,
-                numArgs       = numArgs,
+                argTypes      = argTypes,
+                resultType    = resultType,
                 level         = nesting,
                 closureRefs   = if !refsToClosure then 1 else 0,
                 makeClosure   = false
@@ -1163,8 +1202,8 @@ DCJM 2000.
         (* Copy the closure of a procedure which has previously been
             processed by copyLambda. *)
          (* preCode.copyCode.insert.copyProcClosure *)
-        fun copyProcClosure (Lambda{ body, isInline, name, numArgs, level,
-                                     closureRefs, closure, ...}) makeClosure =
+        fun copyProcClosure (Lambda{ body, isInline, name, argTypes, level,
+                                     closureRefs, closure, resultType, ...}) makeClosure =
           let
             (* process the non-locals in this procedure *)
             (* If a closure is needed then any procedures referred to
@@ -1180,7 +1219,8 @@ DCJM 2000.
                 isInline      = isInline,
                 name          = name,
                 closure       = copyRefs,
-                numArgs       = numArgs,
+                argTypes      = argTypes,
+                resultType    = resultType,
                 level         = level,
                 closureRefs   = closureRefs,
                 makeClosure   = makeClosure
@@ -1203,10 +1243,10 @@ DCJM 2000.
        
         | CodeNil => CodeNil
         
-        | Eval { function, argList, ...} =>
+        | Eval { function, argList, resultType, ...} =>
             let
               (* Process the arguments first. *)
-              val newargs = revmap insert argList
+              val newargs = revmap(fn (c, t) => (insert c, t)) argList
               val func  =
                 case function of
                     Extract ext => locaddr ext (* closure = *) false
@@ -1215,8 +1255,8 @@ DCJM 2000.
               (* If we are calling a procedure which has been declared this
                  does not require it to have a closure. Any other use of the
                  procedure would. *) 
-              mkEval (func, newargs, false)
-            end : codetree
+              Eval {function = func, argList = newargs, earlyEval = false, resultType=resultType}
+             end : codetree
 
         | Extract ext =>
           (* Load the value bound to an identifier. The closure flag is
@@ -1233,19 +1273,19 @@ DCJM 2000.
             let
                 (* Make entries in the tables for the arguments. I'm not sure
                    if this is essential. *)
-                fun declareArg(Declar{addr=caddr, ...}) =
+                fun declareArg(Declar{addr=caddr, ...}, _) =
                     (
                     update (localUses, caddr, false);
                     update (closuresForLocals, caddr, false);
                     update (localConsts, caddr, NONE)
                     )
                 |   declareArg _ = raise InternalError "declareArg: not a declaration"
-                val _ = List.app declareArg  argList
+                val _ = List.app declareArg argList
 
                 (* Process the body. *)
                 val insBody = insert body
                 (* Then the initial argument values. *)
-                fun copyDec(Declar{addr, value, ...}) =
+                fun copyDec(Declar{addr, value, ...}, _) =
                         (
                         (* Reset the uses for this entry since it's local. *)
                         update (localUses, addr, false);
@@ -1257,11 +1297,11 @@ DCJM 2000.
                    references" we find in the loop body are moved out to
                    beyond the loop. *)
             in
-                BeginLoop(insBody, newargs)
+                BeginLoop(insBody, ListPair.zipEq(newargs, List.map #2 argList))
             end
     
         | Loop argList => (* Jump back to start of tail-recursive function. *)
-            Loop(revmap insert argList)
+            Loop(List.map(fn (c, t) => (insert c, t)) argList)
 
         | Raise x => Raise (insert x) : codetree
 
@@ -1650,12 +1690,12 @@ DCJM 2000.
                 if isArbitrary orelse isWord
                 then  (* Should be just two arguments. *)
                 case argList of
-                    [Constnt c1, arg2] =>
+                    [(Constnt c1, _), (arg2, _)] =>
                     if isShort c1
                     then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
                     else NONE (* Not a short constant. *)
                     
-                 | [arg1, Constnt c2] =>
+                 | [(arg1, _), (Constnt c2, _)] =>
                     if isShort c2
                     then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
                     else NONE (* Not a short constant. *)
@@ -1803,7 +1843,7 @@ DCJM 2000.
         val locals = stretchArray (5 (* Initial size. *), false);
 
         fun cleanLambda(myAddr,
-            {body, isInline, name, numArgs, level=nestingDepth, ...}) =
+            {body, isInline, name, argTypes, resultType, level=nestingDepth, ...}) =
         let
             (* Start a new level. *)
             fun lookup(ext as {addr, fpRel, ...}, level, depth) =
@@ -1823,7 +1863,7 @@ DCJM 2000.
             val bodyCode = cleanProc(body, lookup, nestingDepth)
         in
             Lambda{body=bodyCode, isInline=isInline, name=name,
-                   closure=[], numArgs=numArgs, level=nestingDepth,
+                   closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
                    closureRefs=0, makeClosure=false}
         end
 
@@ -1951,9 +1991,9 @@ DCJM 2000.
          |  cleanCode (Indirect{base, offset}) =
                 Indirect{base=cleanCode base, offset=offset}
 
-         |  cleanCode (Eval{function, argList, earlyEval}) =
-                Eval{function=cleanCode function, argList = map cleanCode argList,
-                     earlyEval=earlyEval}
+         |  cleanCode (Eval{function, argList, earlyEval, resultType}) =
+                Eval{function=cleanCode function, argList = map (fn (c, t) => (cleanCode c, t)) argList,
+                     earlyEval=earlyEval, resultType=resultType}
 
          |  cleanCode(Cond(test, thenpt, elsept)) =
                 Cond(cleanCode test, cleanCode thenpt, cleanCode elsept)
@@ -1961,15 +2001,15 @@ DCJM 2000.
          |  cleanCode(BeginLoop(body, argList)) =
             let
                 val processedBody = cleanCode body
-                fun copyDec(Declar{addr, value, ...}) =
-                        mkDec(addr, cleanCode value)
+                fun copyDec(Declar{addr, value, ...}, typ) =
+                        (mkDec(addr, cleanCode value), typ)
                   | copyDec _ = raise InternalError "copyDec: not a declaration"
                 val newargs = map copyDec argList
             in
                 BeginLoop(processedBody, newargs)
             end
 
-         |  cleanCode(Loop args) = Loop(map cleanCode args)
+         |  cleanCode(Loop args) = Loop(map (fn (c, t) => (cleanCode c, t)) args)
 
          |  cleanCode(Raise r) = Raise(cleanCode r)
 
@@ -2055,17 +2095,17 @@ DCJM 2000.
             then ext (* It's local to the function(s) we're processing. *)
             else mkGenLoad (addr, level + correction, fpRel, false)
 
-        | changeL(Lambda{body, isInline, name, closure, numArgs,
+        | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
                          level, closureRefs, makeClosure}, nesting) =
             Lambda{body = changeL(body, nesting+1), isInline = isInline,
-                   name = name, closure = closure, numArgs = numArgs,
+                   name = name, closure = closure, argTypes = argTypes, resultType=resultType,
                    level = level + correction, closureRefs = closureRefs,
                    makeClosure = makeClosure }
 
-        | changeL(Eval{function, argList, earlyEval}, nesting) =
+        | changeL(Eval{function, argList, earlyEval, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
-                 argList = map (fn a => changeL(a, nesting)) argList,
-                 earlyEval = earlyEval}
+                 argList = map (fn (a, t) => (changeL(a, nesting), t)) argList,
+                 earlyEval = earlyEval, resultType=resultType}
 
         | changeL(Indirect{ base, offset }, nesting) =
             Indirect{base = changeL(base, nesting), offset = offset }
@@ -2124,7 +2164,7 @@ DCJM 2000.
      evaluate : codetree -> codetree,
      tailCallEntry: bool ref option,
      recursiveExpansions:
-        ((codetree list * bool * int -> codetree list) * bool ref) list,
+        (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
      maxInlineSize: int) =
   (* earlyInline is true if we are expanding a procedure declared 
      "early inline". *)
@@ -2286,7 +2326,7 @@ DCJM 2000.
     
      |  optimise (CodeNil, _) = simpleOptVal CodeNil
         
-     |  optimise (Eval{function, argList, earlyEval}, tailCall) =
+     |  optimise (Eval{function, argList, earlyEval, resultType}, tailCall) =
         let
           (* Get the function to be called and see if it is inline or
              a lambda expression. *)
@@ -2296,17 +2336,17 @@ DCJM 2000.
           (* There are essentially two cases to consider - the procedure
              may be "inline" in which case it must be expanded as a block,
              or it must be called. *)
-          fun notInlineCall recCall = 
+          fun notInlineCall(recCall:( ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref)option) = 
             let
             val argsAreConstants = ref true;
 
-            fun copyArg arg =
+            fun copyArg(arg, argType) =
               let
                  val copied = general arg;
               in
                 (* Check for early evaluation. *)
                 if not (isConstnt copied) then argsAreConstants := false else ();
-                copied 
+                (copied, argType)
              end
    
             val copiedArgs = map copyArg argList;
@@ -2323,15 +2363,14 @@ DCJM 2000.
                 (early orelse
                  (case optGeneral funct of
                     Constnt w =>
-                        isIoAddress(toAddress w) andalso
-                                    earlyRtsCall(w, copiedArgs)
+                        isIoAddress(toAddress w) andalso earlyRtsCall(w, copiedArgs)
                   | _ => false
                  )
                 )
             
             val evCopiedCode = 
               if evalEarly
-              then evaluate (mkEval (gen, copiedArgs, early))
+              then evaluate (Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType})
               else case recCall of
                 (* This is a recursive call to a function we're expanding.
                    Is it tail recursive?  We may have several levels of
@@ -2341,10 +2380,11 @@ DCJM 2000.
                             SOME tCall => optr = tCall (* same reference? *)
                         | NONE => false)
                     then Loop (filterArgs(copiedArgs, true, nestingOfThisProcedure))
-                    else mkEval (gen,
-                            filterArgs(copiedArgs, false, nestingOfThisProcedure), early)
+                    else Eval {function = gen,
+                            argList = filterArgs(copiedArgs, false, nestingOfThisProcedure),
+                            earlyEval = early, resultType=resultType}
                  (* Not a recursive expansion. *)
-               | NONE => mkEval (gen, copiedArgs, early)
+               | NONE => Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType}
          in
             optVal 
               {
@@ -2357,14 +2397,13 @@ DCJM 2000.
           end (* notInlineCall *)
 
         in
-          case (List.find (fn (_, r) => r = foptRec) recursiveExpansions,
-                optSpecial funct) of
-            (recCall as SOME _, _) =>
+          case (List.find (fn (_, r) => r = foptRec) recursiveExpansions, optSpecial funct) of
+             (recCall as SOME _, _) =>
                  (* We're already expanding this function - don't recursively expand
                     it.  Either loop or generate a function call. *)
                 notInlineCall recCall
-          | (_,
-            Lambda { isInline, body=lambdaBody, name=lambdaName, ...}) =>
+         | (_,
+            Lambda { isInline, body=lambdaBody, name=lambdaName, argTypes, resultType=lamResult, ...}) =>
             let
            (* Calling inline proc or a lambda expression which is just called.
               The procedure is replaced with a block containing declarations
@@ -2377,7 +2416,7 @@ DCJM 2000.
             
             (* copies the argument list. *)
             fun copy []     _          = [] : codetree list
-              | copy (h::t) argAddress =
+              | copy ((h, _)::t) argAddress =
               let
                 fun setTab (index, v) = update (paramVec, ~index, SOME v);
                 (* Make the declaration, picking out constants, inline
@@ -2389,6 +2428,15 @@ DCJM 2000.
               end (* end copy *);
 
             val nArgs = List.length argList
+            (* Consistency check: Check the argument types and results *)
+            fun argT GeneralType = "G" | argT FloatingPtType = "F"
+            val () =
+                if ListPair.allEq(fn ((_, t1), t2) => t1 = t2) (argList, argTypes)
+                then ()
+                else raise InternalError ("Argument type/length mismatch" ^ String.concat(List.map (fn(_, t1) => argT t1) argList) ^ "/" ^ String.concat(List.map argT argTypes))
+            val () =
+                if lamResult = resultType then ()
+                else raise InternalError ("Result type mismatch " ^ argT resultType ^ "/" ^ argT lamResult)
             val copiedArgs = copy argList (~nArgs);
             (* Create an immutable vector from the parameter array to reduce the
                amount of mutable data, *)
@@ -2502,7 +2550,7 @@ DCJM 2000.
                 *)
                     val needsBeginLoop = ref false
                     val needsRecursiveCall = ref false
-                    val argModificationVec = stretchArray (initTrans, false);
+                    val argModificationVec = BoolArray.array(nArgs, false);
                     (* Create addresses for the new variables for modified arguments.
                        If newdecl created a variable we might be able to reuse that
                        but it's easier to create new ones. *)
@@ -2510,12 +2558,12 @@ DCJM 2000.
     
                     (* filterArgs is called whenever a recursive call is made to
                        this function. *)
-                    fun filterArgs (argList, isTail, depth) =
+                    fun filterArgs (argList: (codetree * argumentType) list, isTail, depth) =
                     let
                         fun filterArgs' 0 [] = []
                           | filterArgs' _ [] =
                                 raise InternalError "filterArgs': wrong number of args"
-                          | filterArgs' n (arg :: rest) =
+                          | filterArgs' n ((arg, argType) :: rest) =
                             let
                                 (* Is this simply passing the original argument value?  *)
                                 val original = valOf (Vector.sub(frozenParams, n))
@@ -2534,12 +2582,12 @@ DCJM 2000.
                             in
                                 if unChanged
                                 then ()
-                                else update(argModificationVec, n, true);
+                                else BoolArray.update(argModificationVec, n-1, true);
                                 (* If any recursive call has changed it we need
                                    to include this argument even if it didn't
                                    change on this particular call. *)
-                                if argModificationVec sub n
-                                then arg :: filterArgs' (n-1) rest
+                                if BoolArray.sub(argModificationVec, n-1)
+                                then (arg, argType) :: filterArgs' (n-1) rest
                                 else (* Not modified *) filterArgs' (n-1) rest
                             end
                     in
@@ -2561,10 +2609,15 @@ DCJM 2000.
                     end
 
                     (* See how many arguments changed. *)
-                    fun countSet n 0 = n
-                      | countSet n i =
-                            if argModificationVec sub i then countSet (n+1) (i-1)
-                            else countSet n (i-1)
+                    fun countSet() =
+                    let
+                        fun countSet' n 0 = n
+                          | countSet' n i =
+                                if BoolArray.sub(argModificationVec, i-1) then countSet' (n+1) (i-1)
+                                else countSet' n (i-1)
+                    in
+                        countSet' 0 nArgs
+                    end
 
                     fun checkRecursiveCalls lastModCount =
                     (* We've found at least one non-tail recursive call so we're
@@ -2576,7 +2629,7 @@ DCJM 2000.
                         (* Find the parameter we're actually going to use. *)
                         fun getParamNo n =
                             if n = 0 then 0
-                            else if argModificationVec sub (~n)
+                            else if BoolArray.sub(argModificationVec, ~n -1)
                             then getParamNo (n+1) - 1
                             else getParamNo (n+1)
 
@@ -2600,7 +2653,7 @@ DCJM 2000.
                              if index > 0  (* locals *)
                              then changeLevel(valOf (localVec sub index)) (depth - nesting)
                              else (* index < 0 - parameters *)
-                                if argModificationVec sub ~index
+                                if BoolArray.sub(argModificationVec, ~index -1)
                              then (* This argument has changed - find the corresponding
                                      actual argument. *)
                                 simpleOptVal(mkLoad(getParamNo index, depth-nesting))
@@ -2651,18 +2704,27 @@ DCJM 2000.
                                (filterArgs, foptRec) :: recursiveExpansions,
                                maxInlineSize)
 
-                        val newModCount = countSet 0 nArgs
+                        val newModCount = countSet()
                     in
                         if newModCount > lastModCount
                         then (* We have some (more) arguments to include. *)
                             checkRecursiveCalls newModCount
-                        else optVal {
+                        else
+                        let
+                            fun filterArgTypes([], _) = []
+                            |   filterArgTypes(hd:: tl, n) =
+                                    if BoolArray.sub(argModificationVec, n-1)
+                                    then hd :: filterArgTypes(tl, n-1)
+                                    else filterArgTypes(tl, n-1)
+                            val newArgList = filterArgTypes(argTypes, nArgs)
+                        in
+                            optVal {
                                 general = Lambda {
                                     body = getGeneral copiedBody,
                                     isInline = NonInline,
                                     name = lambdaName,
                                     closure = [],
-                                    numArgs = lastModCount,
+                                    argTypes = newArgList, resultType=resultType,
                                     level = nestingOfThisProcedure + 1,
                                     closureRefs = 0,
                                     makeClosure = false },
@@ -2671,6 +2733,7 @@ DCJM 2000.
                                 recCall = ref false,
                                 environ = localNewAddr
                             }
+                        end
                     end
 
                     fun checkForLoopInstrs lastModCount =
@@ -2691,7 +2754,7 @@ DCJM 2000.
                              then stripDecs funct
                              else if index > 0
                              then valOf (localVec sub index)  (* locals *)
-                             else (* index < 0 *) if argModificationVec sub ~index
+                             else (* index < 0 *) if BoolArray.sub(argModificationVec, ~index-1)
                              then (* This argument changes - must use a variable even if
                                      the original argument was a constant. *)
                                 simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
@@ -2720,12 +2783,12 @@ DCJM 2000.
                     in
                         if ! needsRecursiveCall
                         then (* We need a fully recursive call. *)
-                            checkRecursiveCalls (countSet 0 nArgs)
+                            checkRecursiveCalls (countSet())
                         else if ! needsBeginLoop 
                         then (* We've found at least one recursive call which changes its
                                 argument value. *)
                         let
-                            val newModCount = countSet 0 nArgs
+                            val newModCount = countSet()
                         in
                             if newModCount > lastModCount
                             then checkForLoopInstrs newModCount
@@ -2738,10 +2801,10 @@ DCJM 2000.
 
                     (* If we need to make the declarations put them in at the
                        beginning of the loop. *)
-                    fun makeDecs 0 _ = []
-                      | makeDecs n isCall =
-                            if not (argModificationVec sub n)
-                            then makeDecs (n-1) isCall
+                    fun makeDecs(0, [], _) = []
+                      | makeDecs(n, (_, typ):: rest, isCall) =
+                            if not (BoolArray.sub(argModificationVec, n-1))
+                            then makeDecs (n-1, rest, isCall)
                             else
                             let
                                 val argVal = getGeneral(valOf (Vector.sub(frozenParams, n)))
@@ -2752,8 +2815,10 @@ DCJM 2000.
                                     then argVal
                                     else mkDec(argBaseAddr+nArgs-n, argVal)
                             in
-                                argDec :: makeDecs (n-1) isCall
+                                (argDec, typ) :: makeDecs (n-1, rest, isCall)
                             end
+                     |  makeDecs _ = raise InternalError "Unequal lengths"
+                    fun mkDecs isCall = makeDecs(nArgs, argList, isCall)
                 in
                     if ! needsRecursiveCall
                     then (* We need to put in a call to this function. *)
@@ -2764,7 +2829,8 @@ DCJM 2000.
                             spval := addr + 1;
                             optVal{
                                 general =
-                                    mkEval(mkLoad(addr, 0), makeDecs nArgs true, false),
+                                    Eval {function = mkLoad(addr, 0), argList = mkDecs true,
+                                          earlyEval = false, resultType=resultType},
                                 special = CodeNil,
                                 decs = [mkDec(addr, getGeneral procBody)],
                                 recCall = ref false,
@@ -2772,7 +2838,7 @@ DCJM 2000.
                             }
                         end
                     else if ! needsBeginLoop
-                    then simpleOptVal(BeginLoop(getGeneral procBody, makeDecs nArgs false))
+                    then simpleOptVal(BeginLoop(getGeneral procBody, mkDecs false))
                     else procBody
                 end           
           in
@@ -2802,7 +2868,7 @@ DCJM 2000.
             lookupOldAddr (ext, nestingOfThisProcedure, level)
 
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
-                          numArgs, ...}), _) =
+                          argTypes, resultType, ...}), _) =
         let
           (* The nesting of this new procedure is the current nesting level
              plus one. Normally this will be the same as lambda.level except
@@ -2940,7 +3006,8 @@ DCJM 2000.
                            isInline      = OnlyInline,
                            name          = lambdaName,
                            closure       = [],
-                           numArgs       = numArgs,
+                           argTypes      = argTypes,
+                           resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
                            makeClosure   = false
@@ -2963,7 +3030,8 @@ DCJM 2000.
                            isInline      = MaybeInline,
                            name          = lambdaName,
                            closure       = !nonLocals, (* Only looked at in MutualDecs. *)
-                           numArgs       = numArgs,
+                           argTypes      = argTypes,
+                           resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
                            makeClosure   = false
@@ -2995,7 +3063,8 @@ DCJM 2000.
                        isInline      = inlineType,
                        name          = lambdaName,
                        closure       = !nonLocals, (* Only looked at in MutualDecs. *)
-                       numArgs       = numArgs,
+                       argTypes      = argTypes,
+                       resultType    = resultType,
                        level         = nesting,
                        closureRefs   = 0,
                        makeClosure   = false
@@ -3016,7 +3085,8 @@ DCJM 2000.
                            isInline      = inlineType,
                            name          = lambdaName,
                            closure       = [],
-                           numArgs       = numArgs,
+                           argTypes      = argTypes,
+                           resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
                            makeClosure   = false
@@ -3052,7 +3122,7 @@ DCJM 2000.
                 set of declarations followed by an expression. *)
              val _ =
                 optimiseProc 
-                  (mkEnv(args @ [body]), lookupNewAddr, lookupOldAddr,
+                  (mkEnv(List.map #1 args @ [body]), lookupNewAddr, lookupOldAddr,
                    enterDec, enterNewDec, nestingOfThisProcedure,
                    spval, earlyInline, evaluate, SOME foptRec,
                    (filterArgs, foptRec) :: recursiveExpansions,
@@ -3062,12 +3132,12 @@ DCJM 2000.
             then (* The Loop instructions have been optimised away.  Since there's
                     no BeginLoop we can reprocess it with the surrounding
                     tail recursion. *)
-                optimise(mkEnv(args @ [body]), tailCall)
+                optimise(mkEnv(List.map #1 args @ [body]), tailCall)
             else (* It loops - have to reprocess. *)
             let
                 (* The arguments to the functions are Declar entries but they
                    must not be optimised. *)
-                fun declArg(Declar{addr, value, ...}) =
+                fun declArg(Declar{addr, value, ...}, typ) =
                     let
                         val optVal = optimise(value, NONE)
                         val decSpval = ! spval
@@ -3075,7 +3145,7 @@ DCJM 2000.
                         val optV = simpleOptVal(mkLoad (decSpval, 0))
                     in
                         enterDec(addr, optV);
-                        mkDec(decSpval, getGeneral optVal)
+                        (mkDec(decSpval, getGeneral optVal), typ)
                     end
                  |  declArg _ = raise InternalError "declArg: not Declar"
                  val declArgs = map declArg args
@@ -3095,10 +3165,13 @@ DCJM 2000.
                corresponding BeginLoop. *)
             case (tailCall, recursiveExpansions) of
                 (SOME fopt, (filterArgs, fopt') :: _) =>
-                    if fopt <> fopt'
-                    then raise InternalError "Loop: mismatched BeginLoop"
-                    else simpleOptVal (Loop (filterArgs((map general args),
-                            true, nestingOfThisProcedure)))
+                    let
+                        fun gen(c, t) = (general c, t)
+                    in
+                        if fopt <> fopt'
+                        then raise InternalError "Loop: mismatched BeginLoop"
+                        else simpleOptVal (Loop ((filterArgs(map gen args, true, nestingOfThisProcedure))))
+                    end
             |   _ => raise InternalError "Loop: not at tail of BeginLoop"
         )
           
@@ -4163,6 +4236,7 @@ DCJM 2000.
         type machineWord = machineWord
         type codetree    = codetree
         type pretty      = pretty
+        type argumentType=argumentType
     end
 
 end (* CODETREE functor body *);

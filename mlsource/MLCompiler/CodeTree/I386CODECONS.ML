@@ -462,7 +462,6 @@ struct
     val regNone    = NONE;  
     val regHandler = HandlerReg
 
-    val regResult   = eax; (* Result of function call goes in here. *)
     val regClosure  = edx; (* Addr. of closure for fn. call goes here. *)
     
     val regStackPtr = esp;
@@ -507,13 +506,25 @@ struct
       if r = fp5 then "fp5" else
          "r" ^ Word8.toString (getReg r);
     
-    (* Arguments are passed in eax and ebx. *)
-    val argRegs = 2;
+    datatype argType = ArgGeneral | ArgFP
 
-    fun argReg i =
-      if i = 0 then eax else
-      if i = 1 then ebx else
-        raise InternalError ("Not arg reg " ^ Int.toString i);
+    (* The first two general arguments are passed in eax and ebx, the first three floating point
+       args in fp0, fp1, fp2.  The cost of pushing floating point values to the stack is high
+       so it's almost certainly better to use registers if possible. *)
+    fun argRegs l =
+    let
+        fun allocReg ([], _, _) = []
+        |   allocReg (ArgGeneral :: l, genReg :: genRegs, fpRegs) =
+                SOME genReg :: allocReg(l, genRegs, fpRegs)
+        |   allocReg (ArgFP :: l, genRegs, fpReg :: fpRegs) =
+                SOME fpReg :: allocReg(l, genRegs, fpRegs)
+        |   allocReg (_ :: l, genRegs, fpRegs) = NONE :: allocReg(l, genRegs, fpRegs)
+    in
+        allocReg(l, [eax, ebx], [fp0, fp1, fp2])
+    end
+
+    fun resultReg ArgGeneral = eax (* Result is in eax *)
+    |   resultReg ArgFP = fp0 (* Result is in fp0 *)
 
     structure RegSet =
     struct
@@ -578,12 +589,19 @@ struct
     local
         val regMap =
         [
-            (eax, 0wx0001),
-            (ecx, 0wx0002),
-            (edx, 0wx0004),
-            (ebx, 0wx0008),
-            (esi, 0wx0010),
-            (edi, 0wx0020)
+            (eax, 0wx00001),
+            (ecx, 0wx00002),
+            (edx, 0wx00004),
+            (ebx, 0wx00008),
+            (esi, 0wx00010),
+            (edi, 0wx00020),
+            (* Floating point registers.  These are never modified by the RTS. *)
+            (fp0, 0wx02000),
+            (fp1, 0wx04000),
+            (fp2, 0wx08000),
+            (fp3, 0wx10000),
+            (fp4, 0wx20000),
+            (fp5, 0wx40000)
         ]
         (*
         #define     M_R8         64
@@ -1402,22 +1420,11 @@ SS-relative addressing modes:
         |   _ => ()
 
     (* movl offset(rb),rd. *)
-    fun genLoad (offset: int, rb: reg, HandlerReg(* Not a real register. *), cvec) : unit =
-        (
-            (* pushl offset(rb); popl 4(ebp) *)
-            (* This only happens when we are popping the handler so we
-              could simply pop it straight. *)
-            genop (Group5, cvec);
-            genop2 (offset, rb, 0w6 (* push *), cvec);
-       
-            genop (POP_A, cvec);
-            genop2 (MemRegHandlerRegister, ebp, 0w0, cvec)
-        )
-    | genLoad (offset: int, rb: reg, rd: reg, cvec) : unit =
-        (
-            genop (MOVL_A_R, cvec);
-            genEA (offset, rb, rd, cvec)
-        )
+    fun genLoad (offset: int, rb: reg, rd: reg, cvec) =
+    (
+        genop (MOVL_A_R, cvec);
+        genEA (offset, rb, rd, cvec)
+    )
 
   (* Store an immediate value at a given address and offset. *)
   fun genStoreIW (cnstnt: machineWord, offset: int, rb: reg, ri: reg option,
@@ -1883,14 +1890,19 @@ Calling conventions:
       exited := true
     )
 
+    fun genFloatingPt({escape, md, nnn, rm}, code) =
+    (
+        genop(FPESC escape, code); (* FLD ST(r1) *)
+        gen8u((md <<- 0w6) orb8 (nnn <<- 0w3) orb8 rm, code)
+    )
+
     (* Load a floating point register to the stack.  Because the positions are dependent on
        the number of items already pushed we may need to add an offset. *)
     fun loadFpRegToStack(fpReg, offset, code) =
     let
         val fp = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
     in
-        genop(FPESC 0w1, code); (* FLD ST(r1) *)
-        gen8u((0w3 <<- 0w6) orb8 (0w0 <<- 0w3) orb8 (fp + offset), code)
+        genFloatingPt({escape=0w1, md=0w3, nnn=0w0, rm= fp + offset}, code) (* FLD ST(r1) *)
     end
 
     (* Pops the top of the stack into a register.  This assumes that there is
@@ -1899,10 +1911,8 @@ Calling conventions:
     let
         val dest = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
     in
-        genop(FPESC 0w5, code); (* FSTP ST(n+1) *)
-        gen8u((0w3 <<- 0w6) orb8 (0w3 <<- 0w3) orb8 (dest+0w1(* One item *)), code)
+        genFloatingPt({escape=0w5, md=0w3, nnn=0w3, rm = dest+0w1(* One item *)}, code) (* FSTP ST(n+1) *)
     end
-    
 
     (* Allocate store and put the resulting pointer in the result register. *)
     fun allocStore (size, flag, resultReg, cvec) : unit =
@@ -2082,6 +2092,7 @@ Calling conventions:
     |   Wrd of opCode
     |   WrdConst of opCode * machineWord (* Both long and short. *)
     |   FloatingPt of opCode
+    |   FloatingPtConst of opCode * machineWord
     |   Length of opCode
   
     val Short = Length JNE
@@ -2443,7 +2454,13 @@ Calling conventions:
 
         |   checkAndReduceBranches(opc as Length _, args as [_], _) = SOME (opc, args)
         
-        |   checkAndReduceBranches(opc as FloatingPt _, args as [_, _], _) = SOME (opc, args)
+        |   checkAndReduceBranches(FloatingPt opcode, args as [arg1, arg2], mapper) =
+            (
+                case List.map mapper args of
+                    [_, SOME lit] => SOME (FloatingPtConst(opcode, lit), [arg1])
+                |   [SOME lit, _] =>  SOME (FloatingPtConst(reverseTestOp opcode, lit), [arg2])
+                |   _ => SOME (FloatingPt opcode, args)
+            )
 
         |   checkAndReduceBranches _ = raise InternalError "checkAndReduceBranches: bad arguments"
     end
@@ -2816,31 +2833,25 @@ Calling conventions:
                     next=getOneArgInReg(test, label)}
         |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"*)
 
-        fun unaryTestActions(test, label) [ActInRegisterSet{ readable, ...}] =
-                if regSetIntersect(readable, generalRegisters) <> noRegisters
+        fun unaryTestActions(test, label, registerSet) [ActInRegisterSet{ readable, ...}] =
+                if regSetIntersect(readable, registerSet) <> noRegisters
                 then
                 let
-                    val aReg = oneOf(regSetIntersect(readable, generalRegisters))
+                    val aReg = oneOf(regSetIntersect(readable, registerSet))
                 in (* It's in a register.  We're done. *)
                     ActionDone{
                         outReg=NONE,
                         operation= CondBranch { operands=[InRegister aReg], test=test, label=label }
                         }
                 end
-                else ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                   next=unaryTestActions(test, label)}
-        |   unaryTestActions(test, label) [_] =
-                ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                else ActionLoadArg{argNo=0, regSet=registerSet, willOverwrite=false,
+                                   next=unaryTestActions(test, label, registerSet)}
+        |   unaryTestActions(test, label, registerSet) [_] =
+                ActionLoadArg{argNo=0, regSet=generalRegisters(* In all cases*), willOverwrite=false,
                     (* Load into a register - won't modify it afterwards.  Next action is
                        to look at this again after it's been loaded. *)
-                    next=unaryTestActions(test, label)}
+                    next=unaryTestActions(test, label, registerSet)}
         |   unaryTestActions _ _ = raise InternalError "unaryTestActions: Wrong arguments"
-
-        (* Floating point comparisons all require the ax register.  The other arguments
-           are loaded into registers. *)
-        fun floatPtActions(test, label) _ =
-            ActionGetWorkReg{regSet=singleton eax,
-                setReg = fn _ => getArg(test, label, floatingPtRegisters, [])}
 
     in
         (* Select the argument negotiator. *)
@@ -2850,11 +2861,20 @@ Calling conventions:
         in
             case test of
                 Arb _ => (getArg(test, destLabel, generalRegisters, []), destLabel)
-            |   ArbConst _ => (unaryTestActions(test, destLabel), destLabel)
+            |   ArbConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
             |   Wrd _ => ((*getOneArgInReg*)getArg(test, destLabel, generalRegisters, []), destLabel)
-            |   WrdConst _ => (unaryTestActions(test, destLabel), destLabel)
-            |   Length _ => (unaryTestActions(test, destLabel), destLabel)
-            |   FloatingPt _ => (floatPtActions(test, destLabel), destLabel)
+            |   WrdConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
+            |   Length _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
+                (* Floating point comparisons all require the ax register.  The other arguments
+                   are loaded into registers. *)
+            |   FloatingPt _ =>
+                    (fn _ =>
+                        ActionGetWorkReg{regSet=singleton eax,
+                            setReg = fn _ => getArg(test, destLabel, floatingPtRegisters, [])}, destLabel)
+            |   FloatingPtConst _ =>
+                    (fn _ =>
+                        ActionGetWorkReg{regSet=singleton eax,
+                            setReg = fn _ => unaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
         end
     end
 
@@ -3764,11 +3784,16 @@ Calling conventions:
                             genop(FPESC 0w5, code); (* FSTP [rd] *)
                             genop2(0, output, 0wx3, code)
                         )
-                    |   (FPReg _, FPReg _) => raise InternalError "Move  between fp registers"
+                    |   (src as FPReg _, dest as FPReg _) =>
+                        (
+                            (* TODO: If one of these was actually ST(0) we could simplify this code. *)
+                            loadFpRegToStack(src, 0w0, code);
+                            storeFpRegFromStack(dest, code)
+                        )
                     |   _ => raise InternalError "Move to handler register"
                 )
 
-        |   cgOp(Move{ source=LiteralSource source, output }) =
+        |   cgOp(Move{ source=LiteralSource source, output as GenReg _ }) =
                 if isShort source
                 then
                    (* Load a constant into a register. rs is ignored. *)
@@ -3784,8 +3809,81 @@ Calling conventions:
                     addConstToVec (WVal source, false, code) (* Remember this constant and address. *)
                 )
 
-        |   cgOp(Move{ source=BaseOffset(base, offset), output }) =
+        |   cgOp(Move{ source=LiteralSource source, output as FPReg _ }) =
+                let
+                    val realValue: real =
+                        (* We seem to get a short zero here as a result of putting in a
+                           void value. *)
+                        if isShort source andalso toShort source = 0w0
+                        then 0.0
+                        else (* Check it's a valid real number *)
+                        if isShort source orelse getFlags(toAddress source) <> F_bytes
+                            orelse length(toAddress source) <> 0w8 div Word.fromInt wordSize
+                        then raise InternalError "Move LiteralSource to fp reg: invalid source"
+                        else unsafeCast source
+                    open Real
+                    infix ==
+                in
+                    (* Treat +/- 0,1 as special cases. *)
+                    if realValue == 0.0 (* This is also true for -0.0 *)
+                    then
+                    (
+                        genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w6}, code); (* FLDZ *)
+                        if signBit realValue
+                        then genFloatingPt({escape=0w1, md=0w3, nnn=0w4, rm=0w0}, code)
+                        else ()
+                    )
+                    else if realValue == 1.0
+                    then genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w0}, code) (* FLD1 *)
+                    else if realValue == ~1.0
+                    then
+                    (
+                        genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w0}, code); (* FLD1 *)
+                        genFloatingPt({escape=0w1, md=0w3, nnn=0w4, rm=0w0}, code) (* FCHS *)
+                    )
+                    else
+                    ( (* TODO: This should have been sorted out by an argument negotiator but we
+                           don't have one for Move. *)
+                        genPush(eax, code);
+                        genop(MOVL_32_R eax, code);
+                        addConstToVec (WVal source, false, code); (* Remember this constant and address. *)
+                        genop(FPESC 0w5, code); (* FLD [eax] *)
+                        genop2(0, eax, 0wx0, code);
+                        genop(POP_R eax, code)
+                    );
+                    storeFpRegFromStack(output, code)
+                end
+        
+        |   cgOp(Move{ source=LiteralSource _, output = HandlerReg}) =
+                raise InternalError "Move: LiteralSource to HandlerReg"
+
+        |   cgOp(Move{ source=BaseOffset(base, offset), output as GenReg _ }) =
                 genLoad(offset, base, output, code)
+
+        |   cgOp(Move{ source=BaseOffset(base, offset), output as FPReg _ }) =
+            ( (* TODO: This should have been sorted out by an argument negotiator but we
+                   don't have one for Move. *)
+                genPush(eax, code);
+                if base = esp
+                then genLoad(offset + wordSize, base, eax, code)
+                else genLoad(offset, base, eax, code);
+                genop(FPESC 0w5, code); (* FLD [r1] *)
+                genop2(0, eax, 0wx0, code);
+                storeFpRegFromStack(output, code);
+                genop(POP_R eax, code)
+            )
+
+        |   cgOp(Move{ source=BaseOffset(base, offset), output=HandlerReg }) =
+            (
+                (* pushl offset(rb); popl 4(ebp) *)
+                (* This only happens when we are popping the handler so we
+                  could simply pop it straight. *)
+                genop (Group5, code);
+                genop2 (offset, base, 0w6 (* push *), code);
+       
+                genop (POP_A, code);
+                genop2 (MemRegHandlerRegister, ebp, 0w0, code)
+            )
 
         |   cgOp(Move{ source=CodeRefSource refCode, output }) =
             (
@@ -3886,14 +3984,60 @@ Calling conventions:
                     |   _ => raise InternalError "FloatingPt"
             in
                 loadFpRegToStack(if revOrder then r2 else r1, 0w0, code);
-                genop(FPESC 0w4, code); (* FCOMP ST(r2+1) - compare and pop *)
-                gen8u((0w3 <<- 0w6) orb8 (0w3 <<- 0w3) orb8 (if revOrder then fp1+0w1 else fp2+0w1), code);
+                (* FCOMP ST(r+1)*)
+                genFloatingPt({escape=0w0, md=0w3, nnn=0w3, rm=if revOrder then fp1+0w1 else fp2+0w1}, code);
+                genop(FPESC 0w7, code); (* FNSTSW AX *)
+                gen8u(0wxe0, code);
+
+                genImmed(AND, eax, Word.toInt mask, code);
+                (* If this is (in)equality c3 will be set in the mask.
+                   Use XOR rather than CMP here because the RTS treats as immediate
+                   after a CMP as a potential address. *)
+                if opc = JE orelse opc = JNE
+                then genImmed (XOR, eax, Word.toInt c3, code)
+                else (* AND has set the condition codes. *) ();
+                (* EAX currently has an untagged value in it. Make it safe before
+                   doing anything else by moving ebx, which ought to be safe, into it. *)
+                genMove(eax, ebx, code);
+                label := [putConditional (if opc = JNE then JNE else JE, code)]
+            end
+
+        |   cgOp(CondBranch{ operands=[InRegister r], test=FloatingPtConst(opc, cnstnt), label }) =
+            let
+                val fp = case r of FPReg fp => fp | _ => raise InternalError "fpreg"
+                val c3 = 0wx4000 and c2 = 0wx0400 and c0 = 0wx0100
+                val revOrder = opc = JL orelse opc = JLE
+                val mask =
+                    case opc of
+                        JE => c2 orb c3
+                    |   JNE => c2 orb c3
+                    |   JL => c0 orb c2 orb c3
+                    |   JG => c0 orb c2 orb c3
+                    |   JLE => c0 orb c2
+                    |   JGE => c0 orb c2
+                    |   _ => raise InternalError "FloatingPt"
+            in
+                if revOrder
+                then
+                (
+                    genop(FPESC 0w5, code); (* FLD [constnt] *)
+                    genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
+                    addConstToVec(WVal cnstnt, false, code);
+                    genFloatingPt({escape=0w0, md=0w3, nnn=0w3, rm=fp + 0w1}, code) (* FCOMP ST(r+1)*)
+                )
+                else
+                (
+                    loadFpRegToStack(r, 0w0, code);
+                    genop(FPESC 0w4, code); (* FCOMP [constnt] *)
+                    genmodrm (Based0, 0w3, 0w5 (* constant address *), code);
+                    addConstToVec(WVal cnstnt, false, code)
+                );
                 genop(FPESC 0w7, code); (* FNSTSW AX *)
                 gen8u(0wxe0, code);
 
                 genImmed(AND, eax, Word.toInt mask, code);
                 if opc = JE orelse opc = JNE
-                then genImmed (CMP, eax, Word.toInt c3, code)
+                then genImmed (XOR, eax, Word.toInt c3, code)
                 else (* AND has set the condition codes. *) ();
                 (* EAX currently has an untagged value in it. Make it safe before
                    doing anything else by moving ebx, which ought to be safe, into it. *)
@@ -4519,6 +4663,8 @@ Calling conventions:
                 (
                     case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
                         (0w1, 0w4, 0w0) => print "fchs"
+                    |   (0w1, 0w5, 0w6) => print "fldz"
+                    |   (0w1, 0w5, 0w1) => print "flf1"
                     |   (0w7, 0w4, 0w0) => print "fnstsw\tax"
                     |   (0w1, 0w5, 0w0) => print "fld1"
                     |   (0w1, 0w6, 0w3) => print "fpatan"
@@ -4527,7 +4673,7 @@ Calling conventions:
                     |   (0w1, 0w7, 0w7) => print "fcos"
                     |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
                     |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w4, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ "), st")
+                    |   (0w0, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w0, rno) => print ("fadd\tst,st(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w1, rno) => print ("fmul\tst,st(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w4, rno) => print ("fsub\tst,st(" ^ Word8.toString rno ^ ")")

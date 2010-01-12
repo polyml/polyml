@@ -30,7 +30,11 @@ struct
         NonInline
     |   MaybeInline
     |   SmallFunction
-    |   OnlyInline;
+    |   OnlyInline
+
+    datatype argumentType =
+        GeneralType
+    |   FloatingPtType
     
     datatype codetree =
         MatchFail    (* Pattern-match failure *)
@@ -54,7 +58,8 @@ struct
     | Eval of (* Evaluate a function with an argument list. *)
     {
         function:  codetree,
-        argList:   codetree list,
+        argList:   (codetree * argumentType) list,
+        resultType: argumentType,
         earlyEval: bool
     }
     
@@ -72,9 +77,9 @@ struct
             default : codetree
         }
     
-    | BeginLoop of codetree * codetree list(* Start of tail-recursive inline function. *)
+    | BeginLoop of codetree * (codetree * argumentType) list(* Start of tail-recursive inline function. *)
 
-    | Loop of codetree list (* Jump back to start of tail-recursive function. *)
+    | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
     | Raise of codetree (* Raise an exception *)
 
@@ -156,7 +161,8 @@ struct
         isInline      : inlineStatus,
         name          : string,
         closure       : codetree list,
-        numArgs      : int,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
         level         : int,
         closureRefs   : int,
         makeClosure   : bool
@@ -195,9 +201,9 @@ struct
   
     fun pretty (pt : codetree) : pretty =
     let
-        fun pList ([]: 'b list) (_: string) (_: 'b->pretty) = []
-        | pList [h]    _ disp = [disp h]
-        | pList (h::t) sep disp =
+        fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
+        |   pList ([h],    _, disp) = [disp h]
+        |   pList (h::t, sep, disp) =
             PrettyBlock (0, false, [],
                 [
                     disp h,
@@ -206,12 +212,12 @@ struct
                 ]
             ) ::
             PrettyBreak (1, 0) ::
-            pList t sep disp
+            pList (t, sep, disp)
         
-        fun printList start lst sep : pretty =
+        fun printList(start, lst, sep) : pretty =
             PrettyBlock (1, true, [],
                 PrettyString (start ^ "(") ::
-                pList lst sep (fn x => (pretty x)) @
+                pList(lst, sep, fn x => (pretty x)) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
         
@@ -253,7 +259,19 @@ struct
                     PrettyString (")")
                 ]
             )
+
+        fun prettyArgType GeneralType = PrettyString "G"
+        |   prettyArgType FloatingPtType = PrettyString "F"
         
+        fun prettyArg (c, t) =
+                PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])
+
+        fun prettyArgs(start, lst, sep) : pretty =
+            PrettyBlock (1, true, [],
+                PrettyString (start ^ "(") ::
+                pList(lst, sep, prettyArg) @
+                [ PrettyBreak (0, 0), PrettyString (")") ]
+            )
     in
         case pt of
             CodeNil => PrettyString "NIL"
@@ -262,17 +280,26 @@ struct
         
         | AltMatch pair => printDiad "ALTMATCH" pair
         
-        | Eval {function, argList, earlyEval} =>
-            PrettyBlock (3, false, [],
-                pretty function ::
-                PrettyBreak (0, 0) ::
-                (
-                    if earlyEval
-                    then [ PrettyString "{early}", PrettyBreak (0, 0) ]
-                    else []
-                ) @
-                [ printList "$" argList "," ]
-            )
+        | Eval {function, argList, earlyEval, resultType} =>
+            let
+                val prettyArgs =
+                    PrettyBlock (1, true, [],
+                        PrettyString ("$(") ::
+                        pList(argList, ",", prettyArg) @
+                        [ PrettyBreak (0, 0), PrettyString (")") ]
+                    )
+            in
+                PrettyBlock (3, false, [],
+                    pretty function ::
+                    PrettyBreak (0, 0) ::
+                    (
+                        if earlyEval
+                        then [ PrettyString "{early}", PrettyBreak (0, 0) ]
+                        else []
+                    ) @
+                    [ PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
+                )
+            end
         
         | Declar {value, addr, references} =>
             PrettyBlock (1, false, [],
@@ -306,7 +333,7 @@ struct
                 )
             end
         
-        | Lambda {body, isInline, name, closure, numArgs, level, closureRefs, makeClosure} =>
+        | Lambda {body, isInline, name, closure, argTypes, level, closureRefs, makeClosure, resultType} =>
             let
                 val inl = 
                     case isInline of
@@ -314,6 +341,9 @@ struct
                     | MaybeInline => "INLINE"
                     | SmallFunction => "SMALL"
                     | OnlyInline  => "ONLYINLINE"
+                fun prettyArgTypes [] = []
+                |   prettyArgTypes [last] = [prettyArgType last]
+                |   prettyArgTypes (hd::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -324,8 +354,11 @@ struct
                         PrettyString ( "CL="  ^ Bool.toString makeClosure),
                         PrettyString (" CR="  ^ Int.toString closureRefs),
                         PrettyString (" LEV=" ^ Int.toString level),
-                        PrettyString (" ARGS=" ^ Int.toString numArgs),
-                        printList " CLOS=" closure ",",
+                        PrettyBreak(1, 0),
+                        PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
+                        PrettyBreak(1, 0),
+                        PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
+                        printList (" CLOS=", closure, ","),
                         PrettyBreak (1, 0),
                         pretty body,
                         PrettyString "){LAMBDA}"
@@ -337,12 +370,12 @@ struct
         
         | Cond triple => printTriad "IF" triple
         
-        | Newenv ptl => printList "BLOCK" ptl ";"
+        | Newenv ptl => printList ("BLOCK", ptl, ";")
         
         | BeginLoop(loopExp, args) =>
             PrettyBlock (3, false, [],
                 [
-                    printList "BEGINLOOP" args ",",
+                    prettyArgs("BEGINLOOP", args, ","),
                     PrettyBreak (0, 0),
                     PrettyString "(",
                     PrettyBreak (0, 0),
@@ -352,7 +385,7 @@ struct
                 ]
             )
         
-        | Loop ptl => printList "LOOP" ptl ","
+        | Loop ptl => prettyArgs("LOOP", ptl, ",")
         
         | Raise c => printMonad "RAISE" c
         
@@ -380,8 +413,8 @@ struct
                 PrettyBreak (1, 0) ::
                 PrettyString "(" ::
                 PrettyBreak (1, 0) ::
-                pList cases ","
-                    (fn (exp : codetree, label : word) =>
+                pList(cases, ",",
+                    fn (exp : codetree, label : word) =>
                         PrettyBlock (1, true, [],
                             [
                                 PrettyString (Word.toString label ^ ":"),
@@ -407,11 +440,9 @@ struct
                 [ PrettyBreak (1, 0), PrettyString (") {"^"CASE"^"}") ]
             )
         
-        | MutualDecs ptl =>
-            printList "MUTUAL" ptl " AND "
+        | MutualDecs ptl => printList("MUTUAL", ptl, " AND ")
         
-        | Recconstr ptl =>
-            printList "RECCONSTR" ptl ","
+        | Recconstr ptl => printList("RECCONSTR", ptl, ",")
         
         | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
         
@@ -450,7 +481,6 @@ struct
                     PrettyString ")"
                 ]
             )
-            
 
         | Global ov =>
             PrettyBlock (1, true, [],
@@ -500,12 +530,12 @@ struct
             | Constnt w                       => if isShort w then 0 else 1
             | Extract _                       => 1  (* optimistic *)
             | Indirect {base,...}             => size base + 1
-            | Lambda {body,numArgs,...}       => size body + numArgs
-            | Eval {function,argList,...}     => size function + sizeList argList + 2
+            | Lambda {body, argTypes, ...}    => size body + List.length argTypes
+            | Eval {function,argList,...}     => size function + sizeList(List.map #1 argList) + 2
             | MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
             | Cond (i,t,e)                    => size i + size t + size e + 2
-            | BeginLoop (b, args)             => size b + sizeList args
-            | Loop args                       => sizeList args + 1
+            | BeginLoop (b, args)             => size b + sizeList(List.map #1 args)
+            | Loop args                       => sizeList(List.map #1 args) + 1
             | Raise c                         => size c + 1
             | Ldexc                           => 1
             | Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist

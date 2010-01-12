@@ -29,9 +29,10 @@ sig
     type code
     type pretty
     eqtype reg   (* Machine registers *)
+    
+    datatype argType = ArgGeneral | ArgFP
 
     val regNone:     reg option
-    val regResult:   reg
     val regClosure:  reg
     val regStackPtr: reg
     val regHandler:  reg
@@ -44,8 +45,8 @@ sig
 
     val regRepr: reg -> string
 
-    val argRegs: int     (* No of args in registers. *)
-    val argReg: int -> reg
+    val argRegs: argType list -> reg option list
+    val resultReg: argType -> reg
 
     structure RegSet:
     sig
@@ -53,6 +54,7 @@ sig
         val singleton: reg -> regSet
         val allRegisters: regSet (* All registers: data, address, floating pt. *)
         val generalRegisters: regSet (* Registers checked by the GC. *)
+        val floatingPtRegisters: regSet
         val noRegisters: regSet
         val isAllRegs: regSet->bool
         val regSetUnion: regSet * regSet -> regSet

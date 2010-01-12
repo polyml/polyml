@@ -3918,10 +3918,6 @@ struct
     |   loadArgsFromTuple(types, arg) =
             ListPair.zip(List.tabulate(List.length types, fn num => mkInd (num, arg)), types)
 
-    datatype argumentType =
-        GeneralType
-    |   FloatingPtType
-
     (* Return the argument/result type which is currently just floating point or everything else. *)
     fun getCodeArgType t = if isFloatingPt t then FloatingPtType else GeneralType
 
@@ -6192,9 +6188,9 @@ struct
                             if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
                     in
                         val innerFun =
-                            mkProc(
+                            mkFunction(
                                 mkEnv(getCachedTypeValues newTypeVarMap @ appDecs @ [wrapped]),
-                                fnLevel, List.length argTypes, innerProcName)
+                                argTypes, resultType, innerProcName)
                     end;
   
                     (* We now have a function which can be applied to the
@@ -6216,7 +6212,7 @@ struct
                         in
                             (* Got to the bottom. - put in a call to the procedure. *)
                             if resTupleSize = 1
-                            then mkEval (loadInnerFun, List.map #1 (parms @ polyParms), false)
+                            then mkCall (loadInnerFun, parms @ polyParms, resultType)
                             else (* Create a container for the result, side-effect
                                     it in the function, then create a tuple from it.
                                     Most of the time this will be optimised away. *)
@@ -6228,7 +6224,7 @@ struct
                                 val ld = load(level + levelOffset)
                             in
                                 mkEnv(dec @
-                                   [mkEval (loadInnerFun, List.map #1 (parms @ polyParms @ [(ld, GeneralType)]), false),
+                                   [mkCall (loadInnerFun, parms @ polyParms @ [(ld, GeneralType)], GeneralType),
                                     mkTupleFromContainer(ld, resTupleSize)])
                             end
                         end

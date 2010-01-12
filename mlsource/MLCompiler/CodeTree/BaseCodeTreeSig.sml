@@ -28,8 +28,12 @@ sig
         NonInline
     |   MaybeInline
     |   SmallFunction
-    |   OnlyInline;
-    
+    |   OnlyInline
+
+    datatype argumentType =
+        GeneralType
+    |   FloatingPtType
+
     datatype codetree =
        MatchFail    (* Pattern-match failure *)
     
@@ -52,7 +56,8 @@ sig
     | Eval of (* Evaluate a function with an argument list. *)
     {
         function:  codetree,
-        argList:   codetree list,
+        argList:   (codetree * argumentType) list,
+        resultType: argumentType,
         earlyEval: bool
     }
     
@@ -70,9 +75,9 @@ sig
             default : codetree
         }
     
-    | BeginLoop of codetree * codetree list(* Start of tail-recursive inline function. *)
+    | BeginLoop of codetree * (codetree * argumentType) list(* Start of tail-recursive inline function. *)
 
-    | Loop of codetree list (* Jump back to start of tail-recursive function. *)
+    | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
     | Raise of codetree (* Raise an exception *)
 
@@ -154,11 +159,12 @@ sig
         isInline      : inlineStatus,
         name          : string,
         closure       : codetree list,
-        numArgs       : int,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
         level         : int,
         closureRefs   : int,
         makeClosure   : bool
-    };
+    }
 
     val isSmall : codetree * int -> bool
 

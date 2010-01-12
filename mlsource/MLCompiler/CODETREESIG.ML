@@ -22,12 +22,20 @@ sig
     type machineWord
     type codetree
     type pretty
+
+    datatype argumentType =
+        GeneralType
+    |   FloatingPtType
  
     val isCodeNil:          codetree -> bool;
     val CodeNil:            codetree; (* Empty codetree NOT the code for "nil" *)
     val CodeTrue:           codetree; (* code for "true"  *)
     val CodeFalse:          codetree; (* code for "false" *)
     val CodeZero:           codetree; (* code for 0, nil etc. *)
+
+    val mkFunction:         codetree * argumentType list * argumentType * string -> codetree
+    val mkInlineFunction:   codetree * argumentType list * argumentType * string -> codetree
+    val mkCall:             codetree * (codetree * argumentType) list * argumentType -> codetree
 
     val MatchFail:          codetree; (* pattern match has failed *)
     val mkAltMatch:         codetree * codetree -> codetree;
@@ -76,6 +84,7 @@ sig
         type machineWord = machineWord
         type codetree    = codetree
         type pretty      = pretty
+        type argumentType=argumentType
     end
 
 end;
