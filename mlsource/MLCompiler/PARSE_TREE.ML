@@ -186,7 +186,7 @@ struct
             (* Conditional *)
             { test: parsetree, thenpt: parsetree, elsept: parsetree, location: location } 
 
-    |   TupleTree           of parsetree list * location
+    |   TupleTree           of { fields: parsetree list, location: location, expType: types ref }
 
     |   ValDeclaration      of
         {
@@ -468,7 +468,7 @@ struct
          location = location
        };
        
-    val mkTupleTree : parsetree list * location -> parsetree = TupleTree;
+    fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
     
     fun mkValDeclaration (dec, explicit, implicit, location) : parsetree = 
         ValDeclaration 
@@ -537,10 +537,10 @@ struct
                    allowed because the arguments are supposed to just be "atpats".  Any
                    applications should have been parenthesised. *)
                     case (isInfix, arg) of
-                        (true, TupleTree([Applic _, _], location)) =>
+                        (true, TupleTree{fields=[Applic _, _], location, ...}) =>
                             errorMessage(lex, location,
                                 "Constructor applications in fun bindings must be parenthesised.")
-                    |   (true, TupleTree([_, Applic _], location)) =>
+                    |   (true, TupleTree{fields=[_, Applic _], location, ...}) =>
                             errorMessage(lex, location,
                                 "Constructor applications in fun bindings must be parenthesised.")
                     |   _ => ();
@@ -913,7 +913,7 @@ struct
              PrettyString lit
           end
 
-      | Applic { f, arg = TupleTree([left, right], _), isInfix = true, ...} =>
+      | Applic { f, arg = TupleTree{fields=[left, right], ...}, isInfix = true, ...} =>
             (* Infixed application. *)
             PrettyBlock (0, false, [],
                 [
@@ -951,12 +951,12 @@ struct
                 ]
             )
 
-      | TupleTree(ptl, _) =>
+      | TupleTree{fields, ...} =>
             PrettyBlock (3, true, [],
                 (
                     PrettyString "(" ::
                     PrettyBreak (0, 0) ::
-                    displayList (ptl, ",", depth - 1)
+                    displayList (fields, ",", depth - 1)
                 ) @ [PrettyBreak (0, 0), PrettyString ")"]
             )
 
@@ -1014,7 +1014,7 @@ struct
                     ]
                 )
             and printDec(
-                    { ident = { name, ... }, isInfix=true, args=[TupleTree([left, right], _)], constraint }, depth) =
+                    { ident = { name, ... }, isInfix=true, args=[TupleTree{fields=[left, right], ...}], constraint }, depth) =
                 (* Single infixed application. *)
                 PrettyBlock (0, false, [],
                     [
@@ -1027,7 +1027,7 @@ struct
                 )
             |   printDec(
                     { ident = { name, ... }, isInfix=true,
-                      args=TupleTree([left, right], _) :: args, constraint }, depth) =
+                      args=TupleTree{fields=[left, right], ...} :: args, constraint }, depth) =
                 (* Infixed application followed by other arguments. *)
                 PrettyBlock (0, false, [],
                     [
@@ -1485,7 +1485,7 @@ struct
 
             (* Infixed application.  For the purposes of navigation we treat this as
                three entries in order. *)
-        |   Applic{location, f, arg = TupleTree([left, right], _), isInfix = true, expType=ref expType, ...} =>
+        |   Applic{location, f, arg = TupleTree{fields=[left, right], ...}, isInfix = true, expType=ref expType, ...} =>
                 (location,
                     PTtype expType :: exportList(getExportTree, SOME asParent) [left, f, right] @ commonProps)
 
@@ -1496,8 +1496,8 @@ struct
         |   Cond{location, test, thenpt, elsept, ...} =>
                 (location, exportList(getExportTree, SOME asParent) [test, thenpt, elsept] @ commonProps)
 
-        |   TupleTree(entries, location) =>
-                (location, exportList(getExportTree, SOME asParent) entries @ commonProps)
+        |   TupleTree{fields, location, expType=ref expType, ...}=>
+                (location, PTtype expType :: exportList(getExportTree, SOME asParent) fields @ commonProps)
 
         |   ValDeclaration{location, dec, ...}  =>
             let
@@ -1564,8 +1564,8 @@ struct
                        the function (e.g. fun f o g = ...) then this is a subnode. *)
                     val funAndArgs =
                         case (isInfix, args) of
-                            (true, TupleTree([left, right], loc) :: otherArgs) => (* Infixed. *)
-                                FunInfixed([FunPtree left, FunIdent(ident, refs), FunPtree right], loc)
+                            (true, TupleTree{fields=[left, right], location, ...} :: otherArgs) => (* Infixed. *)
+                                FunInfixed([FunPtree left, FunIdent(ident, refs), FunPtree right], location)
                                     :: map FunPtree otherArgs
                         |   (_, args) => (* Normal prefixed form. *)
                                 FunIdent(ident, refs) :: map FunPtree args
@@ -2040,9 +2040,8 @@ struct
         |   nonExpansive (Constraint {value, ...}) = nonExpansive value
         |   nonExpansive (Literal _) = true
         |   nonExpansive (Unit _) = true
-        |   nonExpansive (TupleTree(elems, _)) = 
-                List.foldl (fn (v, a) => a andalso nonExpansive v)
-                        true elems
+        |   nonExpansive (TupleTree{fields, ...}) = 
+                List.foldl (fn (v, a) => a andalso nonExpansive v) true fields
         |   nonExpansive (Labelled{recList, ...}) =
                 List.foldl (fn ({valOrPat, ...}, a) => a andalso nonExpansive valOrPat)
                         true recList (* Every element must be non-expansive *)
@@ -2285,10 +2284,15 @@ struct
                     resultType
                 end (* Applic *)
 
-            |   TupleTree(ptl, _) =>
-                (* Construct the type obtained by mapping "processPattern"
-                   onto each element of the tuple. *)
-                mkProductType (mapProcessPattern ptl)
+            |   TupleTree{fields, expType, ...} =>
+                let
+                    (* Construct the type obtained by mapping "processPattern"
+                       onto each element of the tuple. *)
+                    val tupleType = mkProductType (mapProcessPattern fields)
+                in
+                    expType := tupleType;
+                    tupleType
+                end
 
             |   Labelled {recList, frozen, expType, ...} =>
                 let (* Process each item in the list. *)
@@ -2502,10 +2506,15 @@ struct
                     )
             end
 
-          | TupleTree(ptl, _) =>
-            (* Construct the type obtained by mapping "assignValue" onto
-               each element of the tuple. *)
-              mkProductType (map (assValues near) ptl) (* SPF 22/10/94 *)
+            |   TupleTree{fields, expType, ...} =>
+                let
+                    (* Construct the type obtained by mapping "assignValue" onto
+                       each element of the tuple. *)
+                    val tupleType = mkProductType (map (assValues near) fields)
+                in
+                    expType := tupleType;
+                    tupleType
+                end
           
           | Labelled {recList, frozen, expType, ...} =>
             let
@@ -3815,7 +3824,7 @@ struct
         |   leastGenExp(Cond{test, thenpt, elsept, ...}) =
                 (leastGenExp test; leastGenExp thenpt; leastGenExp elsept)
 
-        |   leastGenExp(TupleTree(entries, _)) = List.app leastGenExp entries
+        |   leastGenExp(TupleTree{fields, ...}) = List.app leastGenExp fields
 
         |   leastGenExp(Constraint{value, ...}) = leastGenExp value
 
@@ -3905,8 +3914,16 @@ struct
     end;
 
     (* Load args by selecting from a tuple. *)
-    fun loadArgsFromTuple(1, arg) = [arg](* "tuple" is a singleton *)
-    |   loadArgsFromTuple(size, arg) = List.tabulate(size, fn num => mkInd (num, arg))
+    fun loadArgsFromTuple([t], arg) = [(arg, t)](* "tuple" is a singleton *)
+    |   loadArgsFromTuple(types, arg) =
+            ListPair.zip(List.tabulate(List.length types, fn num => mkInd (num, arg)), types)
+
+    datatype argumentType =
+        GeneralType
+    |   FloatingPtType
+
+    (* Return the argument/result type which is currently just floating point or everything else. *)
+    fun getCodeArgType t = if isFloatingPt t then FloatingPtType else GeneralType
 
     (* tupleWidth returns the width of a tuple or record or 1 if it
        isn't one.  It is used to detect both argument tuples and results.
@@ -3923,24 +3940,23 @@ struct
        This version of the code assumes that if we create a tuple
        on one branch we're going to create one on others which may
        not be correct. *)
-    fun tupleWidth(TupleTree(l, _)) = List.length l
+    (* This now returns the argument type for each entry so returns a list rather
+       than a number. *)
+    fun tupleWidth(TupleTree{expType=ref expType, ...}) = recordFieldMap getCodeArgType expType
 
     |  tupleWidth(Labelled{expType=ref expType, ...}) =
        if recordNotFrozen expType (* An error, but reported elsewhere. *)
-       then 1 (* Safe enough *)
-       else recordWidth expType
+       then [GeneralType] (* Safe enough *)
+       else recordFieldMap getCodeArgType expType
 
     |  tupleWidth(Cond{thenpt, elsept, ...}) =
-        let
-            val w = tupleWidth thenpt
-        in
-            if w = 1
-            then tupleWidth elsept
-            else w
-        end
+        (
+            case tupleWidth thenpt of
+                [_] => tupleWidth elsept
+            |   w => w
+        )
 
-    |  tupleWidth(Constraint{value, ...}) =
-          tupleWidth value
+    |  tupleWidth(Constraint{value, ...}) = tupleWidth value
 
     |  tupleWidth(HandleTree{exp, ...}) =
           (* Look only at the expression and ignore
@@ -3949,8 +3965,8 @@ struct
            executed. *)
           tupleWidth exp
 
-    |  tupleWidth(Localdec{body=[], ...}) =
-          raise InternalError "tupleWidth: empty localdec"
+    |  tupleWidth(Localdec{body=[], ...}) = raise InternalError "tupleWidth: empty localdec"
+
     |  tupleWidth(Localdec{body, ...}) =
           (* We are only interested in the last expression. *)
           tupleWidth(List.last body)
@@ -3959,13 +3975,21 @@ struct
         let
             fun getWidth(MatchTree{exp, ...}) = tupleWidth exp
         in
-            List.foldl(fn(v, 1) => getWidth v | (_, s) => s)
-                      1 match
+            List.foldl(fn(v, [_]) => getWidth v | (_, s) => s)
+                      [GeneralType] match
         end
 
     |  tupleWidth(Parenthesised(p, _)) = tupleWidth p
 
-    |  tupleWidth _ = 1
+    |  tupleWidth(ExpSeq(p, _)) = tupleWidth(List.last p)
+
+    |  tupleWidth(Ident{ expType=ref expType, ...}) = [getCodeArgType expType]
+
+    |  tupleWidth(Literal{ expType=ref expType, ...}) = [getCodeArgType expType]
+
+    |  tupleWidth(Applic{ expType=ref expType, ...}) = [getCodeArgType expType]
+
+    |  tupleWidth _ = [GeneralType]
 
     (* Start of the code-generator itself. *)
     type debugenv = environEntry list * (int->codetree)
@@ -4480,29 +4504,30 @@ struct
                           addVar (addDefault tree patNo) ident
             end
 
-        | TupleTree(ptl, location) => (* Tree must be a wild card or a tuple. *)
-         (case treePatts of
-             Wild =>
-             let
-               val tlist =
-                 map (fn el => buildAot(el, wild tree, patNo, location, context)) ptl;
-             in
-              makeAot (TupleField tlist) treeDefaults 0 treeVars 
-             end
+        | TupleTree{fields, location, ...} => (* Tree must be a wild card or a tuple. *)
+             (
+             case treePatts of
+                 Wild =>
+                 let
+                    val tlist = map (fn el => buildAot(el, wild tree, patNo, location, context)) fields
+                 in
+                    makeAot (TupleField tlist) treeDefaults 0 treeVars 
+                 end
 
-      | TupleField pl =>
-            let (* Must be tuple already. *)
-            (* Merge each field of the tuple in with the corresponding
-               field of the existing tree. *)
-            fun mergel []       []     = [] (* Should both finish together *)
-              | mergel (t::tl) (a::al) = buildAot(t, a, patNo, line, context) :: mergel tl al
-              | mergel _       _       = raise InternalError "mergel";
-            val tlist = mergel ptl pl;
-          in
-            makeAot (TupleField tlist) treeDefaults 0 treeVars 
-          end
-      | _ => 
-         raise InternalError "pattern is not a tuple in a-o-t")
+              | TupleField pl =>
+                let (* Must be tuple already. *)
+                    (* Merge each field of the tuple in with the corresponding
+                       field of the existing tree. *)
+                    fun mergel []       []     = [] (* Should both finish together *)
+                      | mergel (t::tl) (a::al) = buildAot(t, a, patNo, line, context) :: mergel tl al
+                      | mergel _       _       = raise InternalError "mergel";
+                    val tlist = mergel fields pl;
+                in
+                    makeAot (TupleField tlist) treeDefaults 0 treeVars 
+                end
+              | _ => 
+                 raise InternalError "pattern is not a tuple in a-o-t"
+            )
 
         | Labelled {recList, expType=ref expType, location, ...} =>
           let
@@ -4545,7 +4570,7 @@ struct
             val tupleList = List.foldl enterLabel wilds recList;
           in
              (* And process it as a tuple. *)
-             buildAot (TupleTree(tupleList, location), tree, patNo, location, context)
+             buildAot (TupleTree{fields=tupleList, location=location, expType=ref expType}, tree, patNo, location, context)
           end
 
         | Applic{f = Ident{value = ref applVal, expType = ref expType, ...}, arg, location, ...} =>
@@ -4671,8 +4696,8 @@ struct
             else ident :: varl
           end
       
-        | TupleTree(ptl, _) =>
-            List.foldl (fn (v1, v2) => findVars v1 v2) varl ptl
+        | TupleTree{fields, ...} =>
+            List.foldl (fn (v1, v2) => findVars v1 v2) varl fields
       
         | Labelled {recList, ...} =>
             List.foldl (fn ({valOrPat, ...}, v) => findVars valOrPat v) varl recList
@@ -5374,14 +5399,14 @@ struct
         | Cond {test, thenpt, elsept, ...} =>
             mkIf (codegen (test, context), codegen (thenpt, context), codegen (elsept, context))
 
-        | TupleTree([(*pt*)_], _) =>
+        | TupleTree{fields=[(*pt*)_], ...} =>
             (* There was previously a special case to optimise unary tuples but I can't
                understand how they can occur.  Check this and remove the special case
                if it really doesn't. *)
             raise InternalError "codegen: Unary tuple" (*codegen (pt, context)*)
 
-        | TupleTree(ptl, _) => (* Construct a vector of objects. *)
-            mkTuple(map (fn x => codegen (x, context)) ptl)
+        | TupleTree{fields, ...} => (* Construct a vector of objects. *)
+            mkTuple(map (fn x => codegen (x, context)) fields)
 
         | Labelled {recList = [{valOrPat, ...}], ...} =>
             codegen (valOrPat, context) (* optimise unary records *)
@@ -5613,7 +5638,7 @@ struct
                 MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
             |   _ => raise InternalError "codeProc: body of fn is not a clause list";
 
-        val tupleSize = tupleWidth firstPat
+        val tupleSize = List.length(tupleWidth firstPat)
     in
         if tupleSize <> 1 andalso null polyVars
         then
@@ -5646,7 +5671,8 @@ struct
 
             val resProc =  (* Result procedure. *)
                 mkInlproc 
-                    (mkEval(#load thisDec fnLevel, loadArgsFromTuple(tupleSize, singleArg), false),
+                    (mkEval(#load thisDec fnLevel,
+                        List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg)), false),
                     fnLevel, 1, decName ^ "(1)");
         in
             #dec thisDec @ [if isRecursive then mkDec (!varAddr, resProc) else resProc]
@@ -5951,7 +5977,7 @@ struct
                        We don't have to worry about that here, because all we're doing
                        is untupling and retupling, taking care always to put the values
                        back at exactly the same offset we got them from. *)
-                    val tupleSeq : int list =
+                    val tupleSeq : argumentType list list =
                         case clauses of
                             (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
                         |   _ => raise InternalError "badly formed parse tree";
@@ -5959,22 +5985,26 @@ struct
                     fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
 
                     val resultTuples =
-                        List.foldl(fn(t, 1) => getResultTuple t  | (_, s) => s) 1 clauses
+                        List.foldl(fn(t, [_]) => getResultTuple t  | (_, s) => s) [GeneralType] clauses
 
-                    (* If we're debugging we want the result of the
-                       function so we don't do this optimisation. *)
-                    val resultTuple = if (getParameter debugTag (debugParams lex)) then 1 else resultTuples
+                    (* If we're debugging we want the result of the function so we don't do this optimisation. *)
+                    val resultTuple =
+                        if (getParameter debugTag (debugParams lex)) then [GeneralType] else resultTuples
 
-                    val extraArg = if resultTuple = 1 then 0 else 1
+
+                    (* If there's a single argument return the type of that otherwise if we're tupling the
+                       result is general. *)
+                    val (resultType, extraArg) = case resultTuple of [one] => (one, 0) | _ => (GeneralType, 1)
 
                     (* Count the total number of arguments needed. *)
-                    val totalArgs = List.foldl (op +) (extraArg+nPolyVars) tupleSeq
+                    val totalArgs = List.foldl (op +) (extraArg+nPolyVars) (List.map List.length tupleSeq)
 
                     (* The old test was "totalArgs = 1", but that's not really
                        right, because we could have one genuine arg plus a
                        lot of "()" patterns. We now use the normal inlining
                        mechanism to optimise this (unusual) case too. *)
-                    val noInlineFunction = numOfPats = 1 andalso totalArgs = 1
+                    val noInlineFunction =
+                        numOfPats = 1 andalso totalArgs = 1 andalso tupleSeq = [[GeneralType]] andalso resultType = GeneralType
 
                     (* If there is only one pattern and it is not a tuple we
                        generate only one function so we recurse directly.
@@ -5984,7 +6014,10 @@ struct
                     (* Turn the list of clauses into a match. *)
                     val matches = 
                         map (fn FValClause {dec={ args, ...}, exp, line, ...} =>
-                            mkMatchTree(if numOfPats = 1 then hd args else TupleTree(args, line), exp, line)
+                            mkMatchTree(
+                                if numOfPats = 1 then hd args
+                                else TupleTree{fields=args, location=line, expType=ref EmptyType},
+                                exp, line)
                             )
                         clauses;
 
@@ -6021,9 +6054,25 @@ struct
                    these have the lowest numbers.
 
                  *)
+                    local
+                        (* Create the argument type list.  I'm sure this can be combined with the
+                           next version of makeArgs but it's all too complicated. *)
+                        fun makeArgs(parms, []) =
+                            let
+                                val polyParms = List.tabulate(nPolyVars, fn _ => GeneralType)
+                                val resTupleSize = List.length resultTuple
+                            in
+                                if resTupleSize = 1
+                                then parms @ polyParms
+                                else parms @ polyParms @ [GeneralType]
+                            end
+                        |    makeArgs(parms, t::ts) = makeArgs (t @ parms, ts)
+                    in
+                        val argTypes = makeArgs ([], tupleSeq)
+                    end
 
                     fun makeArgs([],  _) = []
-                    |   makeArgs(h::t, n) = mkArgTuple(n + h, n + 1) :: makeArgs(t, n + h);
+                    |   makeArgs(h::t, n) = mkArgTuple(n + List.length h, n + 1) :: makeArgs(t, n + List.length h)
 
                     val argList : codetree =
                         if numOfPats = 1
@@ -6045,7 +6094,7 @@ struct
     
                         local
                             (* The poly args come after any result tuple. *)
-                            val tupleOffset = if resultTuple = 1 then 0 else 1
+                            val tupleOffset = if List.length resultTuple = 1 then 0 else 1
                             val argAddrs =
                                 List.tabulate(nPolyVars, fn n => fn l => mkLoad(n-nPolyVars-tupleOffset, l-fnLevel))
                             val mainTypeVars = ListPair.zipEq(polyVars, argAddrs)
@@ -6122,7 +6171,7 @@ struct
                            an extra argument to the inline function and setting this to
                            the result. *)
                         val bodyCode =
-                        if resultTuple = 1
+                        if List.length resultTuple = 1
                         then codeMatches
                         else
                             (* The function sets the extra argument to the result
@@ -6133,17 +6182,19 @@ struct
                                result this argument is more likely to have to be
                                pushed onto the stack within the function than an
                                argument which may have its last use early on. *)
-                            mkSetContainer(mkLoad(~1, 0), codeMatches, resultTuple)
+                            mkSetContainer(mkLoad(~1, 0), codeMatches, List.length resultTuple)
 
                         (* If we're debugging add the debug info before resetting the level. *)
                         val wrapped =
                             wrapFunctionInDebug(bodyCode, procName, argList,
                                              aType, resType, location, fnContext)
-                    in      
+                        val () =
+                            if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
+                    in
                         val innerFun =
-                            mkProc (
+                            mkProc(
                                 mkEnv(getCachedTypeValues newTypeVarMap @ appDecs @ [wrapped]),
-                                fnLevel, totalArgs, innerProcName)
+                                fnLevel, List.length argTypes, innerProcName)
                     end;
   
                     (* We now have a function which can be applied to the
@@ -6154,17 +6205,18 @@ struct
                        optimised away. *)
 
                     (* Make into curried functions *)
-                    fun makeFuns(_, _, parms, [], _) =
+                    fun makeFuns(_, _, parms, []) =
                         let
                             val levelOffset = numOfPats + (if null polyVars then 0 else 1)
                             (* Load a reference to the inner function. *)
                             val loadInnerFun = mkLoad (addr + 1, levelOffset)
                             val polyParms =
-                                List.tabulate(nPolyVars, fn n => mkLoad(n-nPolyVars, numOfPats))
+                                List.tabulate(nPolyVars, fn n => (mkLoad(n-nPolyVars, numOfPats), GeneralType))
+                            val resTupleSize = List.length resultTuple
                         in
                             (* Got to the bottom. - put in a call to the procedure. *)
-                            if resultTuple = 1
-                            then mkEval (loadInnerFun, parms @ polyParms, false)
+                            if resTupleSize = 1
+                            then mkEval (loadInnerFun, List.map #1 (parms @ polyParms), false)
                             else (* Create a container for the result, side-effect
                                     it in the function, then create a tuple from it.
                                     Most of the time this will be optimised away. *)
@@ -6172,24 +6224,21 @@ struct
                                 val localAddrs = ref 1
                                 fun newAddr () = (! localAddrs) before (localAddrs := !localAddrs+1)
                                 val {load, dec} =
-                                    multipleUses(mkContainer resultTuple, newAddr, level + levelOffset)
+                                    multipleUses(mkContainer resTupleSize, newAddr, level + levelOffset)
                                 val ld = load(level + levelOffset)
                             in
                                 mkEnv(dec @
-                                   [mkEval (loadInnerFun, parms @ polyParms @ [ld], false),
-                                    mkTupleFromContainer(ld, resultTuple)])
+                                   [mkEval (loadInnerFun, List.map #1 (parms @ polyParms @ [(ld, GeneralType)]), false),
+                                    mkTupleFromContainer(ld, resTupleSize)])
                             end
                         end
-                |    makeFuns(depth, decName, parms, t::ts, argCount) =
+                |    makeFuns(depth, decName, parms, t::ts) =
                         let (* Make a function. *)
-                            val newDecName : string = decName ^ "(1)";
- 
+                            val newDecName : string = decName ^ "(1)"
                             (* Arguments from this tuple precede older arguments,
                                but order of arguments within the tuple is preserved. *) 
-                            val nextParms = loadArgsFromTuple(t, mkLoad (~1, depth)) @ parms;
-    
-                            val body =
-                                makeFuns (depth - 1, newDecName, nextParms, ts, argCount + t);
+                            val nextParms = loadArgsFromTuple(t, mkLoad (~1, depth)) @ parms
+                            val body = makeFuns (depth - 1, newDecName, nextParms, ts)
                         in
                             mkInlproc (body, level + numOfPats - depth + (if null polyVars then 0 else 1), 1, newDecName)
                         end (* end makeFuns *);
@@ -6201,7 +6250,7 @@ struct
                     then mkDec (addr, innerFun) :: loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
                     else
                     let
-                        val baseFun = makeFuns (numOfPats - 1, procName, [], tupleSeq, 0)
+                        val baseFun = makeFuns (numOfPats - 1, procName, [], tupleSeq)
                         val polyFun =
                             case polyVars of
                                 [] => baseFun
