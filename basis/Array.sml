@@ -95,7 +95,7 @@ local
        equality to value equality. *)
     fun makeVector(v: 'a array, start, length): 'a vector =
         if length = 0 then RunCall.unsafeCast System_zero (* Special case for zero *)
-        else
+        else (* The size must have already been checked. *)
         let
             (* Make a vector initialised to zero. *)
             val new_vec = System_alloc(length, 0, 0)
@@ -110,10 +110,15 @@ struct
     type 'a array = 'a array
     type 'a vector = 'a Vector.vector
     
+    (* The maximum size of an array is one less than the maximum allocation
+       size to allow for the length word. *)
+    val maxLen = RunCall.unsafeCast(LibrarySupport.maxAllocation - 0w1)
+    
     (* Internal function: Construct an array initialised to zero. That's probably
        more efficient than the alternative of setting every word to the length. *)
     fun alloc len =
         let
+            val () = if len >= maxLen then raise General.Size else ()
             val vec = System_alloc(len+1, 0x40, 0)
         in
             System_setw(vec, 0, RunCall.unsafeCast len);
@@ -122,6 +127,7 @@ struct
      
     fun array(len, a) =
         let
+            val () = if len >= maxLen then raise General.Size else ()
             val vec = System_alloc(len+1, 0x40, RunCall.unsafeCast a)
         in
             System_setw(vec, 0, RunCall.unsafeCast len);
@@ -130,18 +136,6 @@ struct
 
     val listLength = length; (* Pick this up from the prelude. *)
     fun length (vec: 'a array): int = RunCall.unsafeCast(System_loadw(RunCall.unsafeCast vec, 0))
-    
-    (* The maximum array size is limited by the size of the length field. On a
-       32 bit machine we have 24 bits of length field and 8 bits of flags so
-       the maximum value is 2^24 - 1, less 1 for word that contains the array length.
-       This means that the maximum size of an array is one less than the maximum size
-       of a vector.  This could cause problems. *)
-    local
-        val doCall: int*unit -> int
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-    in
-        val maxLen = doCall(100, ()) - 1
-    end;
     
     fun op sub (vec: 'a array as v, i: int): 'a =
         if i < 0 orelse i >= length vec then raise General.Subscript

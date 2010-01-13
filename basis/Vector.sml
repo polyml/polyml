@@ -91,15 +91,9 @@ struct
        changing that. It's also used in the interface to the RTS in OS.Poll and Socket.select. *)
     type 'a vector = 'a vector
 
-    (* The maximum vector size is limited by the size of the length field. On a
-       32 bit machine we have 24 bits of length field and 8 bits of flags so
-       the maximum value is 2^24 - 1. *)
-    local
-        val doCall: int*unit -> int
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-    in
-        val maxLen = doCall(100, ())
-    end;
+    (* The maximum size of a vector is the maximum object size we can allocate.
+       This is one more than the maximum size of an array. *)
+    val maxLen = RunCall.unsafeCast LibrarySupport.maxAllocation
 
     infix 9 sub (* For what it's worth *)
   
@@ -127,6 +121,7 @@ struct
       | fromList (l : 'a list) : 'a vector =
         let
         val length = listLength l;
+        val () = if length >= maxLen then raise General.Size else ()
             
         (* Make a vector initialised to zero. *)
         val vec = alloc length;
@@ -149,7 +144,7 @@ struct
      |  tabulate (length: int , f : int->'a): 'a vector =
     let
         val vec =
-            if length > 0 then alloc length else raise General.Size;
+            if length > 0 andalso length < maxLen then alloc length else raise General.Size;
         (* Initialise it to the function values. *)
         fun init i = 
             if length <= i then ()
@@ -172,6 +167,7 @@ struct
         val total_len = total l 0
     in
         if total_len = 0 then wordAsVec System_zero
+        else if total_len >= maxLen then raise General.Size
         else
         let
             (* Allocate a new vector. *)

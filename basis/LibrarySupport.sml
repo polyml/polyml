@@ -51,6 +51,7 @@ sig
     val unsignedShortOrRaiseSubscript: int -> word
     val sizeAsWord      : string -> word
     val stringAsAddress : string -> address
+    val maxAllocation: word
 end
 =
 struct
@@ -121,6 +122,9 @@ struct
         val vecAsChar: string->char = RunCall.unsafeCast
         val charAsVec: char->string = RunCall.unsafeCast
     in
+        (* Get the maximum allocation size.  This is the maximum value that can
+           fit in the length field of a segment. *)
+        val maxAllocation = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env(100, ())
 
         val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
@@ -165,6 +169,7 @@ struct
                 (* The space is the number of characters plus space for the length word
                    plus rounding. *)
                 val words : word = (charsW + 0w2 * wordSize - 0w1) div wordSize
+                val () = if words >= maxAllocation then raise Size else ()
                 (* We are relying on the allocator initialising the store
                    since we only copy as many bytes as we have in the string,
                    possibly leaving bytes in the last word unset.  Generally that

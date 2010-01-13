@@ -54,6 +54,7 @@ struct
         val System_alloc =
             RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store
         val System_setw = RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word;
+        val () = if n < 0 orelse n >= Array.maxLen then raise Size else ()
         val arr = System_alloc(n+1, 0wx60, v)
     in
        System_setw(arr, 0, n);
