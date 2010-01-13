@@ -51,6 +51,8 @@ sig
   val assignWord: (address * Word.word * machineWord)  -> unit
 
   val alloc:  (short * Word8.word * machineWord) -> address
+  val maxAllocation: word
+
   val lock:   address -> unit
   val length: address -> short
   val flags:  address -> Word8.word
@@ -151,8 +153,15 @@ struct
   val assignWord: (address * Word.word * machineWord)  -> unit =
     RunCall.run_call3 POLY_SYS_assign_word;
 
-  val alloc:  (short * Word8.word * machineWord) -> address =
-    RunCall.run_call3 POLY_SYS_alloc_store;
+
+    val maxAllocation: word = RunCall.run_call2 POLY_SYS_process_env(100, ())
+
+    fun alloc(len: word, flags: Word8.word, initial: machineWord): address =
+        (* Zero sized-objects are not allowed.  Check that the size is within
+           the acceptable range. *)
+        if len = 0w0 orelse len >= maxAllocation
+        then raise Size
+        else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
   
   val lock:   address -> unit =
     RunCall.run_call1 POLY_SYS_lockseg;
