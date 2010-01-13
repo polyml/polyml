@@ -716,8 +716,8 @@ static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flag
     POLYUNSIGNED flags = get_C_ulong(taskData, DEREFWORD(flags_handle));
     POLYUNSIGNED usize = get_C_ulong(taskData, DEREFWORD(size));
     
-    if (usize == 0) usize = 1;
-    if (usize >= MAX_OBJECT_SIZE) raise_exception0(taskData, EXC_size);
+    if (usize == 0 || usize >= MAX_OBJECT_SIZE)
+        raise_exception0(taskData, EXC_size);
     
     PolyObject *vector = alloc(taskData, usize, flags| F_MUTABLE_BIT);
     

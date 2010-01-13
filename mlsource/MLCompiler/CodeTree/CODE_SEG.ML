@@ -109,12 +109,8 @@ struct
     then raise InternalError "csegAddr: not a code segment"
     else addr
     
-  (* The old comment said:
-        Copies the first "length" words from the start of "fromVec" to the
-        "offset" words in "toVec".
-     Which is right, except that it copies the first length BYTES, not words,
-     even though "offset" is in words!
-  *)
+    (* Copy a segment.  This can only be called while the code is being constructed when it
+       consists only of bytes.  Constants are not added to the vector at this stage. *)
     fun csegCopySeg (ref (Bytes, fromAddr), ref (Bytes, toAddr), lengthBytes : word, offsetWords : word) =
     let
         val fromLengthWords : word = objLength fromAddr
@@ -124,38 +120,18 @@ struct
         val toLengthBytes   : word = wordSize * toLengthWords
         val offsetBytes     : word = wordSize * offsetWords
  
-        (* Copy the data a byte at a time (rather than a word) because the
-           bytes copied might look like bad addresses.
-       
-           Note: this makes the rather rash assumption that we're copying
-           the "code" part of the cseg, not the "constants" part, which *should*
-           be copied a word at a time, since otherwise we could have a garbage
-           collection while we're half-way through copying a pointer. We need
-           to completely redesign this module to fix this problem. SPF 14/7/94.
-       
-           The redesign is that you shouldn't put ML constants into a codeseg
-           without calling csegConvertToCode first. SPF 13/2/97
-        *)
-        fun copyBytes (fromPtr, toPtr) =
-            if fromPtr = lengthBytes then ()
-            else
-            let
-                val byte = loadByte (fromAddr, fromPtr)
-            in
-                assignByte (toAddr, toPtr, byte);
-                copyBytes (fromPtr + 0w1, toPtr + 0w1)
-            end
+        val System_move_bytes:
+            address*word*address*word*word->unit = RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes
       
         val maxOffsetBytes = toLengthBytes - lengthBytes
     in
         (* Check the lengths are in the range. *)
         if fromLengthBytes < lengthBytes orelse maxOffsetBytes < offsetBytes
         then raise Subscript
-          
-        else copyBytes(0w0, offsetBytes)
+        else System_move_bytes(fromAddr, 0w0, toAddr, offsetBytes, lengthBytes)
     end
 
-    |   csegCopySeg _ =raise InternalError "csegCopySeg: can only copy between byte segements"
+    |   csegCopySeg _ = raise InternalError "csegCopySeg: can only copy between byte segements"
   
     (* Returns a value from the vector. *)
     fun csegGet (ref (_, addr), byteIndex : word) : Word8.word =

@@ -685,6 +685,7 @@ IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R13_OFF[Reax],R13
     MOVL    R14_OFF[Reax],R14
 ENDIF
+	cld										;# Clear this just in case
     MOVL    EAX_OFF[Reax],Reax
     POPFL                                   ;# reset flags
 IFDEF WINDOWS
@@ -1219,7 +1220,7 @@ CALLMACRO   INLINE_ROUTINE  alloc_store
     SHRL    CONST TAGSHIFT,Redi     ;# Remove tag
     jnz     allst0                  ;# (test for 0) Make zero sized objects 1
     MOVL    CONST 1,Redi            ;# because they mess up the g.c.
-    MOVL    CONST TAGGED(1),Reax
+    jmp     alloc_in_rts
 allst0:
 IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST Max_Length,Redi   ;# Length field must fit in 24 bits

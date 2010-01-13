@@ -68,7 +68,6 @@ struct
     open BASECODETREE;
 
     val F_mutable_words = Word8.orb (F_mutable, F_words);
-    val F_mutable_bytes = Word8.orb (F_mutable, F_bytes);
 
     val objLength = Address.length;
 
@@ -529,39 +528,34 @@ struct
             genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
 
         | Newenv vl =>
-          let (* Processes a list of entries. *)
-            fun codeList []    _ =
-              (* Either the list is empty or the previous entry was a 
-                declaration. Generate a value to represent void.empty so
-                that there is something on the stack. *)
-                if needsResult
-                then MergeIndex(pushConst (transtable, DummyValue))
-                else NoMerge (* Ignored *)
+            let (* Processes a list of entries. *)
+                fun codeList []    _ =
+                (* Either the list is empty or the previous entry was a 
+                   declaration. Generate a value to represent void.empty so
+                   that there is something on the stack. *)
+                    if needsResult
+                    then MergeIndex(pushConst (transtable, DummyValue))
+                    else NoMerge (* Ignored *)
                 
-              | codeList ((valu as Declar _) :: valus) whereto =
+                | codeList ((valu as Declar _) :: valus) whereto =
                   (* Declaration. *)
-                  let
-                    val _ =
-                      gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
-                  in
-                    codeList valus whereto
-                  end
+                    (
+                        gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
+                        codeList valus whereto
+                    )
 
-              | codeList [valu] whereto =
-                  (* Last entry is an expression. *)
-                  gencde (valu, true, whereto, tailKind, matchFailFn, loopAddr)
+                |   codeList [valu] whereto =
+                        (* Last entry is an expression. *)
+                        gencde (valu, true, whereto, tailKind, matchFailFn, loopAddr)
                 
-              | codeList (valu :: valus) whereto =
-                  (* Expression in a sequence. *)
-                  let
-                    val _ =
-                      gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
-                  in
-                    codeList valus whereto
-                  end
-
+                |   codeList (valu :: valus) whereto =
+                    (* Expression in a sequence. *)
+                    (
+                        gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
+                        codeList valus whereto
+                    )
           in
-            codeList vl whereto
+                codeList vl whereto
           end
 
         | BeginLoop(body, args) =>
@@ -2562,63 +2556,8 @@ struct
         case evalFun of
             Constnt (oper : machineWord) =>
             let
-                val args = List.map #1 argList;
-                val addr = toAddress oper;
-
-                (* Allocation of mutable segments.  These are initialised to a fixed value. *)
-                fun genAllocStore () : mergeResult =
-                    case args of
-                        [Constnt lengthCnst, Constnt flagsCnst, value] =>
-                            if isShort lengthCnst andalso isShort flagsCnst
-                            then
-                            let
-                                (* Allocstore always constructs mutable segments and sets the mutable bit. *)
-                                val flags = Word8.orb(Word8.fromLargeWord(Word.toLargeWord(toShort flagsCnst)), F_mutable);
-                            in
-                                if flags = F_mutable_words orelse flags = F_mutable_bytes
-                                then
-                                let (* only do easy cases *)
-                                    val length : int = Word.toInt (toShort lengthCnst);
-                                in
-                                    (* only in-line small allocations (principally refs) *)
-                                    if 0 < length andalso length < 5
-                                    then
-                                    let (* do it *)
-                                        val (locn, locnCode)   = genToStack (value, matchFailFn);
-                                        val (vec, vecCode)      = callgetvec (length, flags, whereto);
-                                        val () = codeGenerate(vecCode @ locnCode, cvec)
-                                        val (storeKind, multiple) =
-                                            if wordEq (flags, F_mutable_words)
-                                            then (instrStoreW, 1)
-                                            else (instrStoreB, wordSize)
-
-                                        fun fillVec offset =
-                                            if offset < 0 then ()
-                                            else
-                                            (
-                                                if offset = 0 then () else incrUseCount (transtable, locn, 1);
-                                                codeGenerate(moveToVec (vec, locn, offset, storeKind, transtable), cvec);
-                                                fillVec (offset - 1)
-                                            )
-                                    in
-                                        (* The length is in words so if we are filling this with bytes
-                                           we have to multiply the moves by the word size. *)
-                                        fillVec ((length - 1) * multiple);
-                                        MergeIndex vec
-                                    end
-                                 else (* too big to in-line (could use loop?) *)
-                                    callClosure (SOME evalFun)
-                                end
-                                else (* byte/code segments are too tricky to in-line *) 
-                                    callClosure (SOME evalFun)
-                            end
-     
-                            else (* crazy length or flag *)
-                                callClosure (SOME evalFun)
-
-                    |   _ => (* probably non-constant length *)
-                            callClosure (SOME evalFun);
-                    
+                val args = List.map #1 argList
+                val addr = toAddress oper
             in
                 if isIoAddress addr
                 then
@@ -2705,9 +2644,9 @@ struct
 
                     else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
                     then codeRTSFunction(instrAtomicDecr, args, whereto)
-      
+
                     else if wordEq (oper,ioOp POLY_SYS_alloc_store)
-                    then genAllocStore ()
+                    then codeRTSFunction(instrAllocStore, args, whereto)
 
                     else if wordEq (oper,ioOp POLY_SYS_assign_word)
                     then codeRTSFunction(instrStoreW, args, whereto)
@@ -2756,6 +2695,12 @@ struct
 
                     else if wordEq (oper,ioOp POLY_SYS_ln_real)
                     then codeRTSFunction(instrLnFP, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_move_bytes)
+                    then codeRTSFunction(instrMoveBytes, args, whereto)
+
+                    else if wordEq (oper,ioOp POLY_SYS_move_words)
+                    then codeRTSFunction(instrMoveWords, args, whereto)
 
                     (* The point of the following code is to call genCond, which will call genTest
                        which will hopefully use machine instructions for these operations.

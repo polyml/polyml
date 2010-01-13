@@ -115,6 +115,9 @@ sig
     and instrAtanFP: instrs
     and instrExpFP: instrs
     and instrLnFP: instrs
+    and instrAllocStore: instrs
+    and instrMoveBytes: instrs
+    and instrMoveWords: instrs
 
     (* Check whether an operation is implemented and, if appropriate, remove
        constant values into the instruction part. *)

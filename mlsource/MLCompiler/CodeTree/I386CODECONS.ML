@@ -704,6 +704,7 @@ struct
   | LOCK
   | FPESC of Word8.word
   | XCHNG
+  | REP (* Rep prefix *)
 
   fun opToInt opn: Word8.word =
     case opn of
@@ -752,6 +753,7 @@ struct
     |   LOCK        => 0wxF0
     |   FPESC n     => 0wxD8 orb8 n
     |   XCHNG       => 0wx87
+    |   REP         => 0wxf3
     ;
 
 (* ...
@@ -1412,6 +1414,10 @@ SS-relative addressing modes:
     );
       
     (* generate padding no-ops to align to n modulo 4 *)
+    (* The Intel 64 instruction manual recommends:
+       1 byte:  NOP
+       2 bytes: 66 NOP
+       3 bytes: 0F 1F 00 - Multibyte NOP probably not generally supported. *)
     fun align (n:word, cvec as Code{ic, ...}) =
         case (n - (!ic)) mod 0w4 of
             0w1 => genop    (NOP, cvec)
@@ -1947,7 +1953,7 @@ Calling conventions:
         genmodrm(Based8, 0w0, getReg resultReg, cvec);
         gen8s (~4, cvec);
         gen32u (lengthWord, cvec)
-    end;
+    end
 
     (* Operations. *)
     datatype instrs =
@@ -1995,6 +2001,10 @@ Calling conventions:
     |   InstrUnaryFP of Word8.word (* Unary floating point operations *)
     |   InstrBinaryFP of Word8.word (* Binary floating point operations *)
     |   InstrIntToFP (* Float an integer. *)
+    |   InstrAllocStore
+    |   InstrAllocStoreWordFixedLength of { length: word, flags: Word8.word }
+    |   InstrAllocStoreVarLength of { flags: Word8.word }
+    |   InstrMemMove of word (* Size of unit: either 0w1 or 0w4/0w8 *)
     |   InstrUnimplemented
 
     (* Exported instructions. *)
@@ -2039,6 +2049,9 @@ Calling conventions:
     and instrAtanFP = InstrUnaryFP 0wxF3
     and instrExpFP = InstrUnimplemented 
     and instrLnFP  = InstrUnimplemented
+    and instrAllocStore = InstrAllocStore
+    and instrMoveBytes = InstrMemMove 0w1
+    and instrMoveWords = InstrMemMove (Word.fromInt wordSize)
 
     fun prettyInstr(instr, _) =
         case instr of
@@ -2084,7 +2097,11 @@ Calling conventions:
         |   InstrUnaryFP w              => PrettyString ("InstrUnaryFP " ^ Word8.toString w)
         |   InstrBinaryFP w             => PrettyString ("InstrBinaryFP " ^ Word8.toString w)
         |   InstrIntToFP                => PrettyString "InstrIntToFP"
-        |   InstrUnimplemented          => PrettyString "InstrUnimplemented"
+        |   InstrAllocStore             => PrettyString "InstrAllocStore"
+        |   InstrAllocStoreWordFixedLength _ => PrettyString "InstrAllocStoreWordFixedLength"
+        |   InstrAllocStoreVarLength _   => PrettyString "InstrAllocStoreVarLength"
+        |   InstrMemMove w              => PrettyString ("InstrMemMove " ^ Word.toString w)
+        |   InstrUnimplemented           => PrettyString "InstrUnimplemented"
 
     datatype tests = 
         Arb of opCode
@@ -2401,6 +2418,36 @@ Calling conventions:
         |   checkAndReduce(instr as InstrBinaryFP _, args as [_,_], _) = SOME(instr, args)
         |   checkAndReduce(instr as InstrIntToFP, args as [_], _) = SOME(instr, args)
 
+        |   checkAndReduce(InstrAllocStore, [lengthArg, flagArg, initValArg], mapper) =
+            let
+                (* This is used to allocate memory for refs, arrays, strings etc.  The first
+                   arg is the length, the second the flags byte and the third the initial
+                   value used to initialise each word, for word segments, or byte for
+                   byte segs. *)
+                val len = (* We only use the fixed length version for small segments of words. *)
+                    case (mapper lengthArg, mapper flagArg) of
+                        (SOME constLength, SOME constFlags) =>
+                            if toShort constLength < 0w5 andalso
+                                Word8.fromLargeWord(Word.toLargeWord(toShort constFlags)) = F_mutable
+                            then SOME(toShort constLength)
+                            else NONE
+                    |   _ => NONE
+            in
+                case mapper flagArg of
+                    NONE => NONE (* Non-constant flags: leave it to the RTS. *)
+
+                |   SOME constFlags =>
+                    let
+                        val flags = Word8.fromLargeWord(Word.toLargeWord(toShort constFlags))
+                    in
+                        case len of
+                            SOME len => SOME(InstrAllocStoreWordFixedLength{length=len, flags=flags}, [initValArg])
+                        |   NONE => SOME(InstrAllocStoreVarLength{flags=flags}, [lengthArg, initValArg])
+                    end
+            end
+
+        |   checkAndReduce(instr as InstrMemMove _, args as [_,_,_,_,_], _) = SOME(instr, args)
+
         |   checkAndReduce(InstrUnimplemented, _, _) = NONE
 
         |   checkAndReduce _ = raise InternalError "checkAndReduce: bad arguments"
@@ -2551,6 +2598,22 @@ Calling conventions:
         in
             nextArg(operands, args, 0)
         end
+
+        (* Some cases require arguments in specific registers. *)
+        fun genToSpecificReg(specReg, overWrite, argNo, whenDone) args =
+        (
+            case List.nth(args, argNo) of
+                (ActInRegisterSet{ modifiable, readable, ...}) =>
+                    if inSet(specReg, if overWrite then modifiable else readable)
+                    then ActionLockRegister{argNo=argNo, reg=specReg, willOverwrite=overWrite, next=whenDone}
+                    else (* Not in the right register - move it. *)
+                            ActionLoadArg{argNo=argNo, regSet=singleton specReg, willOverwrite=overWrite,
+                                next=genToSpecificReg(specReg, overWrite, argNo, whenDone)}
+                |   _=>
+                        ActionLoadArg{argNo=argNo, regSet=singleton specReg, willOverwrite=overWrite,
+                             next=genToSpecificReg(specReg, overWrite, argNo, whenDone)}
+        )
+            
     in
         val noresultNegotiator = getInitialArg
         fun floatingPtNegotiator(instr, pref) = getInitialResultReg(instr, floatingPtRegisters, pref)
@@ -2597,22 +2660,8 @@ Calling conventions:
         
         local
             (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
-            val ecxSet = singleton ecx
-            fun loadShiftArg (instr, pref) [_, arg2] =
-            (
-                case arg2 of
-                    (ActInRegisterSet{ modifiable, ...}) =>
-                        if regSetIntersect(modifiable, ecxSet) <> noRegisters
-                        then ActionLockRegister{argNo=1, reg=ecx, willOverwrite=true,
-                                next=loadResultArg(instr, pref)}
-                        else (* Not in the right register - move it. *)
-                            ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
-                                next=loadShiftArg(instr, pref)}
-                |   _=>
-                        ActionLoadArg{argNo=1, regSet=ecxSet, willOverwrite=true,
-                             next=loadShiftArg(instr, pref)}
-            )
-            | loadShiftArg _ _ = raise InternalError "loadShiftArg: bad arguments"
+            fun loadShiftArg (instr, pref) =
+                genToSpecificReg(ecx, true, 1, loadResultArg(instr, pref))
 
             (* Load the first argument into a register we can use for the result. *)
             and loadResultArg (instr, pref) [arg1, _] =
@@ -2733,13 +2782,43 @@ Calling conventions:
         in
             val sharedArgNegotiator = loadDestArg
         end
+
+        local
+            (* When allocating vectors/arrays we have to initialise the store and the easiest way to
+               do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
+            fun loadLengthArg (instr, pref) =
+                genToSpecificReg(ecx, true, 0, loadInitValArg(instr, pref))
+            and loadInitValArg (instr, pref) =
+                (* We don't actually need this to be modifiable if we're initialising with words. *)
+                genToSpecificReg(eax, true, 1, getResultRegister(instr, pref))
+
+            and getResultRegister(instr, _) _ =
+                ActionGetWorkReg{regSet=singleton edi,
+                    setReg =
+                        fn reg => fn _ =>
+                            ActionDone{
+                                outReg=SOME reg,
+                                operation=
+                                    DataOp{ instr = instr, operands = [InRegister ecx, InRegister eax], output = SOME reg}
+                           }
+                   }
+        in
+            val allocStoreNegotiator = loadLengthArg
+        end
+
+        (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
+           The source and destination offsets can be any registers.  We can't add the offsets in
+           advance because that would create invalid addresses. *)
+        fun memMoveNegotiator instr =
+            genToSpecificReg(esi, true, 0,
+                genToSpecificReg(edi, true, 2,
+                    genToSpecificReg(ecx, true, 4,
+                        getArg(instr, generalRegisters, NONE,
+                            [SOME(InRegister esi), NONE, SOME(InRegister edi), NONE, SOME(InRegister ecx)]))))
     end
 
-
     (* Select the argument negotiator. *)
-    fun negotiateArguments(instr as InstrStoreB({ toStore=NONE(* Not storing a constant *), ...}), _) =
-            storeByteNegotiator instr
-    |   negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
+    fun negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
     |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(instr, pref)
     |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(instr, pref)
 
@@ -2758,6 +2837,8 @@ Calling conventions:
 
         (* Functions that don't return a result. *)
     |   negotiateArguments(instr as InstrStoreW _, _) = noresultNegotiator instr
+    |   negotiateArguments(instr as InstrStoreB({ toStore=NONE(* Not storing a constant *), ...}), _) =
+            storeByteNegotiator instr
     |   negotiateArguments(instr as InstrStoreB _, _) = noresultNegotiator instr
     |   negotiateArguments(instr as InstrLockSeg, _) = noresultNegotiator instr
     |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator instr
@@ -2766,6 +2847,10 @@ Calling conventions:
     |   negotiateArguments(instr as InstrUnaryFP _, pref) = floatingPtNegotiator(instr, pref)
     |   negotiateArguments(instr as InstrBinaryFP _, pref) = floatingPtNegotiator(instr, pref)
     |   negotiateArguments(instr as InstrIntToFP, pref) = intToFPNegotiator(instr, pref)
+    
+    |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) = allocStoreNegotiator(instr, pref)
+
+    |   negotiateArguments(instr as InstrMemMove _, _) = memMoveNegotiator instr
 
     |   negotiateArguments(instr, pref) = generalNegotiator(instr, pref)
  
@@ -3756,8 +3841,147 @@ Calling conventions:
                     gen8u(0wxff - 0wx40, code)
                 )
 
+        |   cgOp(DataOp{instr=InstrAllocStoreWordFixedLength{length, flags},
+                        operands=[InRegister initVal], output=SOME output}) =
+                let
+                    fun initWords wrd =
+                        if wrd = length then ()
+                        else (genStoreW (initVal, Word.toInt wrd * wordSize, output, regNone, code); initWords(wrd+0w1))
+                in
+                    allocStore(Word.toInt length, flags orb8 F_mutable, output, code);
+                    (* The memory has to be initialised. *)
+                    initWords 0w0
+                end
+
+        |   cgOp(DataOp{instr=InstrAllocStoreVarLength{flags},
+                        operands=[InRegister lengthReg, InRegister initVal], output=SOME output}) =
+                let
+                    val () =
+                        if lengthReg = ecx andalso initVal = eax andalso output = edi then ()
+                        else raise InternalError "InstrAllocStore: bad registers"
+                in
+                    (* Because we may get a garbage collection we need to put the untagged
+                       length in the edi register until we're sure we have the memory. *)
+                    genMove(edi, ecx, code);
+                    genop (Group2_1_A, code);
+                    genmodrm(Register, 0w5 (* shr *), getReg edi, code);
+                    (* Add one for the length word. *)
+                    genImmed (ADD, edi,  1, code);
+                    genop (Group2_8_A, code);
+                    (* Multiply by the word size. *)
+                    genmodrm(Register, 0w4 (* shl *), getReg edi, code);
+                    gen8s (if wordSize = 4 then 2 else 3, code);
+                    (* Turn this into a negative value. *)
+                    genop(Group3_A, code);
+                    genmodrm(Register, 0w3 (* neg *), getReg edi, code);
+                    (* Add this negative value to the current heap pointer. *)
+                    genop (Arith (ADD, 3 (* r/m to reg *)), code);
+                    genmodrm(Based8, getReg edi, getReg ebp, code);
+                    gen8s (MemRegLocalMPointer, code);
+                    (* Check there's space. *)
+                    genop (Arith (CMP, 3 (* r/m to reg *)), code);
+                    genmodrm(Based8, getReg edi, getReg ebp, code);
+                    gen8s (MemRegLocalMbottom, code);
+
+                    let
+                       val lab = [putConditional (JNB, code)]
+                    in
+                        (* If we don't have enough store for this allocation we call this
+                           function. *)
+                        genop (Group5, code);
+                        genmodrm(Based8, 0w2 (* call *), getReg ebp, code);
+                        gen8s (MemRegHeapOverflowCall, code);
+                        fixup (lab, code)
+                    end;
+                    (* Save the updated store pointer. *)
+                    genStoreW (edi, MemRegLocalMPointer, ebp, NONE, code);
+                    (* It's now safe to untag ecx *)
+                    genop (Group2_1_A, code);
+                    genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                    (* Store it as the length field. *)
+                    genStoreW (ecx, ~ wordSize, edi, NONE, code);
+                    (* Set the flags byte. *)
+                    genStoreIB(toMachineWord flags, ~1, edi, NONE, code);
+                    (* Now initialise the memory. *)
+                    (* Save edi before we start. *)
+                    genPush(edi, code);
+                    if (flags andb8 F_bytes) <> 0w0
+                    then
+                    (
+                        (* Convert the length, which is in words, to bytes. *)
+                        genop (Group2_8_A, code);
+                        (* Multiply by the word size. *)
+                        genmodrm(Register, 0w4 (* shl *), getReg ecx, code);
+                        gen8s (if wordSize = 4 then 2 else 3, code);
+                        (* Untag eax *)
+                        genop (Group2_1_A, code);
+                        genmodrm(Register, 0w5 (* shr *), getReg eax, code);
+                        genop(REP, code);
+                        gen8u(0wxaa (*stosb*), code)
+                    )
+                    else
+                    (
+                        genop(REP, code);
+                        gen8u(0wxab (*stosl*), code)
+                    );
+                    genop(POP_R edi, code);
+                    (* Finally copy the output value into ecx and eax so they're safe. *)
+                    genMove(ecx, edi, code);
+                    if (flags andb8 F_bytes) <> 0w0 then genMove(eax, edi, code) else ()
+                end
+
+        |   cgOp(DataOp{instr=InstrMemMove unitSize,
+                        operands=[InRegister sourceAddr, InRegister sourceOffset, InRegister destAddr,
+                                  InRegister destOffset, InRegister moveLength], output=NONE}) =
+                let
+                    val () =
+                        if sourceAddr = esi andalso destAddr = edi andalso moveLength = ecx then ()
+                        else raise InternalError "InstrMemMove: bad registers"
+                    val () = if unitSize = 0w1 orelse unitSize = Word.fromInt wordSize then ()
+                        else raise InternalError "InstrMemMove: bad size"
+                in
+                    (* Untag the length. *)
+                    genop (Group2_1_A, code);
+                    genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                    if unitSize = 0w1
+                    then (* Byte move.  The offsets are byte offsets. *)
+                    (
+                        (* We need to untag the offsets. *)
+                        genop (Group2_1_A, code);
+                        genmodrm(Register, 0w5 (* shr *), getReg sourceOffset, code);
+                        genop (Group2_1_A, code);
+                        genmodrm(Register, 0w5 (* shr *), getReg destOffset, code);
+                        (* Add the offsets and then retag the offsets. *)
+                        genReg(ADD, esi, sourceOffset, code);
+                        genReg(ADD, edi, destOffset, code);
+                        genop (LEAL, code);
+                        genIndexed (1, SOME sourceOffset, sourceOffset, Scale1, sourceOffset, code);
+                        genop (LEAL, code);
+                        genIndexed (1, SOME destOffset, destOffset, Scale1, destOffset, code);
+                        genop(REP, code);
+                        gen8u(0wxa4 (*movsb*), code)
+                    )
+                    else
+                    let
+                        (* Word move.  The offsets and the count are the number of words.
+                           We can compute the offset by using the LEAL instruction. *)
+                        val (scale, offset) =
+                            if wordSize = 4 then (Scale2, ~2) else (*8 byte *) (Scale4, ~4)
+                    in
+                        genop (LEAL, code);
+                        genIndexed (offset, SOME esi, sourceOffset, scale, esi, code);
+                        genop (LEAL, code);
+                        genIndexed (offset, SOME edi, destOffset, scale, edi, code);
+                        genop(REP, code);
+                        gen8u(0wxa5 (*movsl*), code)
+                    end;
+                    genMove(edi, eax, code);
+                    genMove(esi, eax, code);
+                    genMove(ecx, eax, code)
+                end
+
         |   cgOp(DataOp{ instr=_, operands=_, output=_ }) =
-                raise InternalError "Not implemented"
+                raise InternalError "Not implemented (DataOp)"
 
         |   cgOp(Move{ source=InRegister source, output=HandlerReg (* Not a real register. *) }) =
                 genStoreW (source, MemRegHandlerRegister, ebp, regNone, code)
@@ -4696,6 +4920,21 @@ Calling conventions:
                     printEA ()
                 )
             end
+
+            else if opByte = opToInt REP
+            then print "rep\t"
+
+            else if opByte = 0wxA4
+            then print "movsb\n"
+
+            else if opByte = 0wxAB
+            then print "movsl\n"
+
+            else if opByte = 0wxAA
+            then print "stosb\n"
+
+            else if opByte = 0wxAB
+            then print "stosl\n"
 
             else printHex(Word8.toInt opByte);
       
