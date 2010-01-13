@@ -1157,11 +1157,8 @@ in
                 new_vec
             end
     
-        (* Copy an array into another.  It's possible for the arrays
-           to be the same and for the source and destinations to overlap so we
-           have to take care of that.  We don't actually check that the source
-           and destination are the same but simply use either incrementing or
-           decrementing copy operations depending on the index values. *)
+        (* Copy an array into another.  It's possible for the arrays to be
+           the same but in that case diW must be zero and the copy is a no-op. *)
         fun copy {src=Array (len, s), dst=Array (dlen, d), di: int} =
             let
                 val diW = unsignedShortOrRaiseSubscript di
@@ -1169,7 +1166,7 @@ in
                 if diW+len > dlen
                 then raise General.Subscript
                 else System_move_bytesA(s, 0w0, d, diW, len)
-            end
+        end
     
         (* Copy avector into an array. *)
         (* Since the source is actually a string we have to start the
@@ -1604,14 +1601,27 @@ in
                 end
             end
 
-        (* Copy a slice into an array. *)
-        fun copy {src, dst as Array (_, d), di: int} =
+        (* Copy a slice into an array. N.B. The arrays could be the same. *)
+        fun copy {src, dst, di: int} =
         let
-            val (Array(_, s), start, length) = base src
+            val (src, start, length) = base src
         in
             if di < 0 orelse di+length > CharArray.length dst
             then raise General.Subscript
-            else System_move_bytesA(s, intAsWord start, d, intAsWord di, intAsWord length)
+            else (* We can't use System_move_bytes because of the potential overlap problem.
+                    Instead we use explicit copying choosing to copy up or down depending
+                    on the index whether the source and destination are the same or not. *)
+            let
+                fun copyUp n =
+                if n = length then ()
+                else (CharArray.update(dst, n+di, CharArray.sub(src, n+start)); copyUp(n+1))
+                
+                and copyDown n =
+                if n < 0 then ()
+                else (CharArray.update(dst, n+di, CharArray.sub(src, n+start)); copyDown(n-1))
+            in
+                if di > start then copyDown(length-1) else copyUp 0
+            end (* System_move_bytesA(s, intAsWord start, d, intAsWord di, intAsWord length) *)
         end
     
         (* Copy a vector slice into an array. *)

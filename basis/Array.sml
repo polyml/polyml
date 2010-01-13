@@ -188,10 +188,8 @@ struct
     fun vector (vec: 'a array): 'a vector = makeVector(vec, 0, length vec)
     
     (* Copy one array into another.  It's possible for the arrays
-       to be the same and for the source and destinations to overlap so we
-       have to take care of that.  We don't actually check that the source
-       and destination are the same but simply use either incrementing or
-       decrementing copy operations depending on the index values. *)
+       to be the same but in that case di would have to be zero otherwise the length
+       check would fail. *)
     fun copy {src: 'a array as s, dst: 'a array as d, di: int} =
         let
             val len = length src
@@ -314,13 +312,22 @@ struct
        have to take care of that.  We don't actually check that the source
        and destination are the same but simply use either incrementing or
        decrementing copy operations depending on the index values. *)
-    fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst as d, di: int} =
-        let
-        in
+    fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst, di: int} =
             if di < 0 orelse di+srcLen > Array.length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast d, di+1, srcLen)
-        end
+            else (* We can't use System_move_words because of the potential overlap problem. *)
+            let
+                fun copyUp n =
+                if n = srcLen then ()
+                else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyUp(n+1))
+                
+                and copyDown n =
+                if n < 0 then ()
+                else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyDown(n-1))
+            in
+                if di > srcStart then copyDown(srcLen-1) else copyUp 0
+            end
+            (*System_move_words(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast d, di+1, srcLen)*)
 
     (* Copy a vector into an array. *)
     fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as d, di: int} =
