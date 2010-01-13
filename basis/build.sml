@@ -42,7 +42,6 @@ Bootstrap.use "basis/Text.sml"; (* Declares Char, String, CharArray, CharVector 
 Bootstrap.use "basis/Bool.sml";
 Bootstrap.use "basis/ListPair.sml";
 Bootstrap.use "basis/Int.sml";
-Bootstrap.use "basis/Array.sml";
 Bootstrap.use "basis/LargeWord.sml";
 Bootstrap.use "basis/Word8.sml";
 if PolyML.architecture() = "X86_64"
