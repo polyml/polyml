@@ -247,9 +247,8 @@ struct
         fun defaultMonoTypePrinter _ = PrettyString "?"
         fun defaultPolyTypePrinter _ _ = PrettyString "?"
 
-        fun eqAndPrintCode (eqFun, nArgs, boxed) =
+        fun eqAndPrintCode (eqCode, nArgs, boxed) =
         let
-            val eqCode = CODETREE.rtsFunction eqFun
             val code =
                 if nArgs = 0
                 then createTypeValue{
@@ -271,12 +270,51 @@ struct
         fun makeConstr(name, eqFun, boxed) =
             makeTypeConstructor (name, [],
                 makeFreeId(eqAndPrintCode(eqFun, 0, boxed), true, basisDescription name),
-                0, [DeclaredAt inBasis]);
+                0, [DeclaredAt inBasis])
+        (* wordEq is used both for tagged words and for pointer equality *)
+        val wordEq = CODETREE.rtsFunction POLY_SYS_word_eq
+
+        (* Strings can be either tagged single characters or vectors whose first word is
+           the length. *)
+        local
+            val stringEquality =
+                mkInlproc(
+                    mkCor( (* Either they're equal... *)
+                        mkEval(wordEq, [mkLoad(~1, 0), mkLoad(~2, 0)], true),
+                        (* ... or they're both long and ...*)
+                        mkCand(
+                            mkCand(
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~1, 0)], true)], true),
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~2, 0)], true)], true)
+                            ),
+                            (* ... their contents are equal.  Because the first word contains the
+                               length if we include this in the test we will have tested the length
+                               as well and will stop immediately if the lengths are different. *)
+                            mkEval(rtsFunction POLY_SYS_bytevec_eq,
+                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero,
+                                    mkEval(rtsFunction POLY_SYS_plus_word,
+                                        [
+                                            mkConst(toMachineWord wordSize),
+                                            (* Use ~1 here rather than ~2.  We could use either but this works
+                                               better when we're using equality for pattern matching since it
+                                               gets the length of the constant string.  It also works better
+                                               for the, to me, more natural ordering of variable=constant. *)
+                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoad(~1, 0)], true)
+                                        ], true)
+                                ], true)
+                        )
+                    ),
+                    1, 2, "stringEquality")
+        in
+            val stringEquality = genCode(stringEquality, []) ()
+        end
     in
-        val intConstr    = makeConstr("int",    POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
-        val charConstr   = makeConstr("char",   POLY_SYS_word_eq, boxedNever) (* Always short *)
-        val stringConstr = makeConstr("string", POLY_SYS_teststreq, boxedEither (* Single chars are unboxed. *))
-        val wordConstr   = makeConstr("word",   POLY_SYS_word_eq, boxedNever)
+        val intConstr    = makeConstr("int",    CODETREE.rtsFunction POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
+        val charConstr   = makeConstr("char",   wordEq, boxedNever) (* Always short *)
+        val stringConstr = makeConstr("string", stringEquality, boxedEither (* Single chars are unboxed. *))
+        val wordConstr   = makeConstr("word",   wordEq, boxedNever)
 
         (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
            Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
@@ -284,27 +322,27 @@ struct
         val refConstr =
             makeTypeConstructor 
                 ("ref", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "ref"),
+                makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "ref"),
                 0, [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "Array.array"),
+                makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array.array"),
                 0, [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array", [makeTv (EmptyType, generalisable, false, false)],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 1, boxedAlways), true, basisDescription "Array2.array"),
+                makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array2.array"),
                 0, [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
                 ("byteArray", [],
-                makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 0, boxedAlways), true, basisDescription "byteArray"),
+                makeFreeId(eqAndPrintCode(wordEq, 0, boxedAlways), true, basisDescription "byteArray"),
                 0, [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", [], makeFreeId(eqAndPrintCode(POLY_SYS_word_eq, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", [], makeFreeId(eqAndPrintCode(wordEq, 0, boxedNever), true, basisDescription "bool"),
                 0, [DeclaredAt inBasis]);
     end
 

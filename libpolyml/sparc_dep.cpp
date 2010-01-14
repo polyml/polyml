@@ -312,6 +312,7 @@ extern int Net_dispatch_a();                /* DCJM 22/5/00 */
 extern int OS_spec_dispatch_a();            /* DCJM 22/5/00 */
 extern int Sig_dispatch_a();                /* DCJM 18/7/00 */
 extern int poly_dispatch_a();
+extern int bytevec_eq_a();
 
 extern void SparcAsmSwitchToPoly(MemRegisters *);
 extern int SparcAsmSaveStateAndReturn(void);
@@ -1200,6 +1201,7 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_os_specific, &OS_spec_dispatch_a); /* DCJM 8/5/00 */
     add_function_to_io_area(POLY_SYS_signal_handler, &Sig_dispatch_a); /* DCJM 18/7/00 */
     add_function_to_io_area(POLY_SYS_poly_specific, &poly_dispatch_a); /* DCJM 17/6/06 */
+    add_function_to_io_area(POLY_SYS_bytevec_eq, &bytevec_eq_a);
 
     // This is now a "closure" like all the other entries.
     add_function_to_io_area(POLY_SYS_raisex,           raisex);

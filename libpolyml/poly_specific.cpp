@@ -150,6 +150,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_set_string_length: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_get_first_long_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_poly_specific: return 0;
+    case POLY_SYS_bytevec_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_set_code_constant: return 0;
     case POLY_SYS_move_words: return PROPWORD_NORAISE;

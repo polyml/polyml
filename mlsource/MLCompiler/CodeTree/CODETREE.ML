@@ -516,7 +516,7 @@ struct
   val safeRTSCalls = map ioOp
     [POLY_SYS_get_length,
      POLY_SYS_get_flags, (* POLY_SYS_alloc_store, - can raise Size *)
-     POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
+     POLY_SYS_teststrgtr,
      POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
      POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
      POLY_SYS_aneg, POLY_SYS_xora,
@@ -537,7 +537,8 @@ struct
      POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
      POLY_SYS_word_geq, POLY_SYS_word_leq,
      POLY_SYS_word_gtr, POLY_SYS_word_lss, POLY_SYS_word_eq,
-     POLY_SYS_load_byte, POLY_SYS_load_word, POLY_SYS_get_first_long_word]
+     POLY_SYS_load_byte, POLY_SYS_load_word, POLY_SYS_get_first_long_word,
+     POLY_SYS_bytevec_eq]
   val divisionOperations = map ioOp
    [POLY_SYS_adiv, POLY_SYS_amod, POLY_SYS_div_word, POLY_SYS_mod_word]
 
@@ -617,7 +618,7 @@ struct
         [POLY_SYS_get_flags, POLY_SYS_load_byte, POLY_SYS_load_word]
       val safeCalls =
         [POLY_SYS_get_length,
-         POLY_SYS_teststreq, POLY_SYS_teststrneq, POLY_SYS_teststrgtr,
+         POLY_SYS_teststrgtr,
          POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
          POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
          POLY_SYS_adiv, POLY_SYS_amod, POLY_SYS_aneg, POLY_SYS_xora,
@@ -639,7 +640,7 @@ struct
          POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
          POLY_SYS_mod_word, POLY_SYS_word_geq, POLY_SYS_word_leq,
          POLY_SYS_word_gtr, POLY_SYS_word_lss, POLY_SYS_word_eq,
-         POLY_SYS_get_first_long_word]
+         POLY_SYS_get_first_long_word, POLY_SYS_bytevec_eq]
 
       fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioOp ioCall)
       fun isImmutable ((Constnt w, _), sofar) =

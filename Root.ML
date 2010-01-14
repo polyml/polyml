@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009 David C. J. Matthews
+    Copyright (c) 2009,2010 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,6 +21,7 @@
    It was constructed from the Poly/ML make files. *)
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
+use "basis/RuntimeCalls.ML";
 use "mlsource/MLCompiler/Boot/Address.ML";
 use "mlsource/MLCompiler/Boot/Misc.ML";
 use "mlsource/MLCompiler/Boot/HashTable.ML";

@@ -24,6 +24,8 @@
 
 PolyML.print_depth 0;
 
+PolyML.use "basis/RuntimeCalls";
+
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";
 

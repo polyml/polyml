@@ -1963,16 +1963,12 @@ struct
       (* May be an interface operation which can be put in line. *)
       let
         (* Generate a compare instruction. *)
-        fun genCompare (arg1, arg2, t, f) =
+        fun genCompare (args, t, f) =
         let
             val test    = if jumpOn then t else f;
         in
-            (* Check that the instruction is implemented.
-               N.B. if the first argument is a constant we will use
-               the reversed instruction.  It may only be implemented
-               for constant values so it is not sufficient to check that
-               the general form is implemented. *)
-            case checkAndReduceBranches(test, [arg1, arg2], fn (Constnt w) => SOME w | _ => NONE) of
+            (* Check that the instruction is implemented. *)
+            case checkAndReduceBranches(test, args, fn (Constnt w) => SOME w | _ => NONE) of
                 SOME (test, args) =>
                    let (* Generate the instruction and get the direction. *)
                         (* Code generate each argument to the pstack. *)
@@ -2030,60 +2026,65 @@ struct
         | [(arg1, _), (arg2, _)] =>
             (* binary special cases *)
             if wordEq (oper,ioOp POLY_SYS_word_eq)
-            then genCompare (arg1, arg2, testEqW, testNeqW)
+            then genCompare ([arg1, arg2], testEqW, testNeqW)
          
             else if wordEq (oper,ioOp POLY_SYS_word_neq)
-            then genCompare (arg1, arg2, testNeqW, testEqW)
+            then genCompare ([arg1, arg2], testNeqW, testEqW)
 
             else if wordEq (oper,ioOp POLY_SYS_equala)
-            then genCompare (arg1, arg2, testEqA, testNeqA)
+            then genCompare ([arg1, arg2], testEqA, testNeqA)
 
             else if wordEq (oper,ioOp POLY_SYS_int_geq)
-            then genCompare (arg1, arg2, testGeqA, testLtA)
+            then genCompare ([arg1, arg2], testGeqA, testLtA)
 
             else if wordEq (oper,ioOp POLY_SYS_int_leq)
-            then genCompare (arg1, arg2, testLeqA, testGtA)
+            then genCompare ([arg1, arg2], testLeqA, testGtA)
 
             else if wordEq (oper,ioOp POLY_SYS_int_gtr)
-            then genCompare (arg1, arg2, testGtA, testLeqA)
+            then genCompare ([arg1, arg2], testGtA, testLeqA)
 
             else if wordEq (oper,ioOp POLY_SYS_int_lss)
-            then genCompare (arg1, arg2, testLtA, testGeqA)
+            then genCompare ([arg1, arg2], testLtA, testGeqA)
 
             else if wordEq (oper,ioOp POLY_SYS_word_geq)
-            then genCompare (arg1, arg2, testGeqW, testLtW)
+            then genCompare ([arg1, arg2], testGeqW, testLtW)
 
             else if wordEq (oper,ioOp POLY_SYS_word_leq)
-            then genCompare (arg1, arg2, testLeqW, testGtW)
+            then genCompare ([arg1, arg2], testLeqW, testGtW)
 
             else if wordEq (oper,ioOp POLY_SYS_word_gtr)
-            then genCompare (arg1, arg2, testGtW, testLeqW)
+            then genCompare ([arg1, arg2], testGtW, testLeqW)
 
             else if wordEq (oper,ioOp POLY_SYS_word_lss)
-            then genCompare (arg1, arg2, testLtW, testGeqW)
+            then genCompare ([arg1, arg2], testLtW, testGeqW)
 
             else if wordEq (oper,ioOp POLY_SYS_Real_eq)
-            then genCompare (arg1, arg2, testEqFP, testNeqFP)
+            then genCompare ([arg1, arg2], testEqFP, testNeqFP)
          
             else if wordEq (oper,ioOp POLY_SYS_Real_neq)
-            then genCompare (arg1, arg2, testNeqFP, testEqFP)
+            then genCompare ([arg1, arg2], testNeqFP, testEqFP)
 
             else if wordEq (oper,ioOp POLY_SYS_Real_geq)
-            then genCompare (arg1, arg2, testGeqFP, testLtFP)
+            then genCompare ([arg1, arg2], testGeqFP, testLtFP)
 
             else if wordEq (oper,ioOp POLY_SYS_Real_leq)
-            then genCompare (arg1, arg2, testLeqFP, testGtFP)
+            then genCompare ([arg1, arg2], testLeqFP, testGtFP)
 
             else if wordEq (oper,ioOp POLY_SYS_Real_gtr)
-            then genCompare (arg1, arg2, testGtFP, testLeqFP)
+            then genCompare ([arg1, arg2], testGtFP, testLeqFP)
 
             else if wordEq (oper,ioOp POLY_SYS_Real_lss)
-            then genCompare (arg1, arg2, testLtFP, testGeqFP)
+            then genCompare ([arg1, arg2], testLtFP, testGeqFP)
 
-            else genOtherTests () (* Non-special binary function. *) 
+            else genOtherTests () (* Non-special binary function. *)
 
-     | _ => (* Functions with more than 2 arguments. *)
-       genOtherTests ()
+        |   [(arg1, _), (arg2, _), (arg3, _), (arg4, _), (arg5, _)] =>
+            if wordEq (oper,ioOp POLY_SYS_bytevec_eq)
+            then genCompare ([arg1, arg2, arg3, arg4, arg5], byteVecEq, byteVecNe)
+            else genOtherTests () (* Non-special function. *)
+
+        | _ => (* Functions with more than 2 arguments. *)
+            genOtherTests ()
       end (* constant functions *)
 
       | _ => (* Anything else *)

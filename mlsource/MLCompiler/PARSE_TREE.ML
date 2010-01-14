@@ -5080,9 +5080,11 @@ struct
                   else let
                 val constVal =
                     case #specVal v of NONE => CodeZero | SOME w => mkConst w
+                (* Compare for equality.  The order of the arguments ought to be irrelevant but
+                   this works better for string comparisons.  See comment on stringEquality
+                   in TYPE_TREE. *)
                 val testCode =
-                    mkEval(#eqFun v,
-                           [mkTuple[constVal, declLoad]], true)
+                    mkEval(#eqFun v, [mkTuple[declLoad, constVal]], true)
                    
                 (* If it is a binding we turn the test round - see
                     comment in genConstrs. *)

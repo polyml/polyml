@@ -689,6 +689,22 @@ static Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offs
     return taskData->saveVec.push(TAGGED(0));
 }
 
+static Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Handle y,
+                             Handle xOffset, Handle x)
+{
+    POLYUNSIGNED x_offset = get_C_ulong(taskData, DEREFWORDHANDLE(xOffset));
+    byte *xAddr = DEREFBYTEHANDLE(x) + x_offset;
+
+    POLYUNSIGNED y_offset = get_C_ulong(taskData, DEREFWORDHANDLE(yOffset));
+    byte *yAddr = DEREFBYTEHANDLE(y) + y_offset;
+
+    unsigned bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+
+    int res = memcmp(xAddr, yAddr, bytes);
+    if (res == 0) return taskData->saveVec.push(TAGGED(1));
+    else return taskData->saveVec.push(TAGGED(0));
+}
+
 static Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector */
 {
     POLYUNSIGNED length = vector->WordP()->Length();
@@ -1355,6 +1371,10 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_poly_specific:
                 machineDependent->CallIO2(taskData, &poly_dispatch_c);
+                break;
+
+            case POLY_SYS_bytevec_eq:
+                machineDependent->CallIO5(taskData, &testBytesEqual);
                 break;
 
             case POLY_SYS_set_code_constant:

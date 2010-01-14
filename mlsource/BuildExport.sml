@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2006-7  David C. J. Matthews
+    Copyright (c) 2006-10  David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,8 @@
    bootstrap process is then done when the portable file is imported. *)
 
 PolyML.print_depth 0;
+
+PolyML.use "basis/RuntimeCalls";
 
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";

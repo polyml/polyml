@@ -112,6 +112,7 @@
 #define POLY_SYS_set_string_length   151  /* DCJM 28/2/01 */
 #define POLY_SYS_get_first_long_word 152  /* DCJM 28/2/01 */
 #define POLY_SYS_poly_specific       153  /* DCJM 17/6/06 */
+#define POLY_SYS_bytevec_eq          154  /* DCJM 13/1/10 */
 #define POLY_SYS_io_operation        189
 #define POLY_SYS_set_code_constant   194  /* DCJM 2/1/01 */
 #define POLY_SYS_move_words          195  /* DCJM 9/10/99 */

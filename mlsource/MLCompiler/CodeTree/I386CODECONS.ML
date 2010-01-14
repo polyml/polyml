@@ -1995,8 +1995,8 @@ Calling conventions:
     |   InstrStringLength
     |   InstrThreadSelf
     |   InstrAtomicAdd of int
-    |   InstrStoreW of { offset: short option, toStore: machineWord option }
-    |   InstrStoreB of { offset: short option, toStore: machineWord option }
+    |   InstrStoreW
+    |   InstrStoreB
     |   InstrLockSeg
     |   InstrUnaryFP of Word8.word (* Unary floating point operations *)
     |   InstrBinaryFP of Word8.word (* Binary floating point operations *)
@@ -2032,8 +2032,8 @@ Calling conventions:
     and instrThreadSelf = InstrThreadSelf
     and instrAtomicIncr = InstrAtomicAdd 1
     and instrAtomicDecr = InstrAtomicAdd ~1
-    and instrStoreW = InstrStoreW { offset=NONE, toStore=NONE }
-    and instrStoreB = InstrStoreB { offset=NONE, toStore=NONE }
+    and instrStoreW = InstrStoreW
+    and instrStoreB = InstrStoreB
     and instrLockSeg = InstrLockSeg
     (* Floating point operations. *)
     and instrAddFP = InstrBinaryFP 0w0
@@ -2091,8 +2091,8 @@ Calling conventions:
         |   InstrStringLength           => PrettyString "StringLength"
         |   InstrThreadSelf             => PrettyString "ThreadSelf"
         |   InstrAtomicAdd i            => PrettyString ("AtomicAdd " ^ Int.toString i)
-        |   InstrStoreW _               => PrettyString "InstrStoreW"
-        |   InstrStoreB _               => PrettyString "InstrStoreB"
+        |   InstrStoreW                 => PrettyString "InstrStoreW"
+        |   InstrStoreB                 => PrettyString "InstrStoreB"
         |   InstrLockSeg                => PrettyString "InstrLockSeg"
         |   InstrUnaryFP w              => PrettyString ("InstrUnaryFP " ^ Word8.toString w)
         |   InstrBinaryFP w             => PrettyString ("InstrBinaryFP " ^ Word8.toString w)
@@ -2101,7 +2101,7 @@ Calling conventions:
         |   InstrAllocStoreWordFixedLength _ => PrettyString "InstrAllocStoreWordFixedLength"
         |   InstrAllocStoreVarLength _   => PrettyString "InstrAllocStoreVarLength"
         |   InstrMemMove w              => PrettyString ("InstrMemMove " ^ Word.toString w)
-        |   InstrUnimplemented           => PrettyString "InstrUnimplemented"
+        |   InstrUnimplemented          => PrettyString "InstrUnimplemented"
 
     datatype tests = 
         Arb of opCode
@@ -2111,9 +2111,13 @@ Calling conventions:
     |   FloatingPt of opCode
     |   FloatingPtConst of opCode * machineWord
     |   Length of opCode
+    |   ByteVec of opCode
   
     val Short = Length JNE
     val Long  = Length JE
+    
+    val byteVecEq = ByteVec JE
+    and byteVecNe = ByteVec JNE
 
     val testNeqW  = Wrd JNE
     val testEqW   = Wrd JE
@@ -2129,7 +2133,6 @@ Calling conventions:
     val testLeqA  = Arb JLE
     val testLtA   = Arb JL
 
-    
     val testNeqFP = FloatingPt JNE
     val testEqFP  = FloatingPt JE
     val testGeqFP = FloatingPt JGE
@@ -2347,7 +2350,6 @@ Calling conventions:
                 |   NONE => SOME(InstrLoadB, args)
             )
 
-            (* Shift operations are only implemented for constant shifts. *)
         |   checkAndReduce(InstrUpshiftW, args as [arg1, arg2], mapper) =
             (
                 case mapper arg2 of
@@ -2368,55 +2370,6 @@ Calling conventions:
                     SOME lit => SOME(InstrDownshiftArithWConst(toShort lit), [arg1])
                 |   NONE => SOME(InstrDownshiftArithW, args)
             )
-
-        |   checkAndReduce(InstrSetStringLength, [arg1, arg2], _) =
-                (* Don't treat constants specially: the string length is untagged so
-                   it's not safe to put it inline. *)
-                SOME(InstrSetStringLength, [arg1, arg2])
-
-        |   checkAndReduce(InstrVeclen, [arg1], _) = SOME(InstrVeclen, [arg1])
-
-        |   checkAndReduce(InstrVecflags, [arg1], _) = SOME(InstrVecflags, [arg1])
-
-        |   checkAndReduce(InstrGetFirstLong, [arg1], _) = SOME(InstrGetFirstLong, [arg1])
-
-        |   checkAndReduce(InstrStringLength, [arg1], _) = SOME(InstrStringLength, [arg1])
-
-        |   checkAndReduce(InstrThreadSelf, [], _) = SOME(InstrThreadSelf, [])
-
-        |   checkAndReduce(InstrAtomicAdd n, [arg], _) = SOME(InstrAtomicAdd n, [arg])
-
-        |   checkAndReduce(InstrStoreW _, args as [arg1, arg2, arg3], mapper) =
-            (
-                case List.map mapper args of
-                    [_, SOME constOffset, SOME toStore] =>
-                        SOME(InstrStoreW{offset=SOME(toShort constOffset), toStore=SOME toStore}, [arg1])
-                |   [_, NONE, SOME toStore] =>
-                        SOME(InstrStoreW{offset=NONE, toStore=SOME toStore}, [arg1, arg2])
-                |   [_, SOME constOffset, NONE] =>
-                        SOME(InstrStoreW{offset=SOME(toShort constOffset), toStore=NONE}, [arg1, arg3])
-                |   [_, NONE, NONE] => SOME(InstrStoreW{offset=NONE, toStore=NONE}, [arg1, arg2, arg3])
-                |   _ => raise InternalError "InstrStoreW: Wrong number of arguments"
-            )
-
-        |   checkAndReduce(InstrStoreB _, args as [arg1, arg2, arg3], mapper) =
-            (
-                case List.map mapper args of
-                    [_, SOME constOffset, SOME toStore] =>
-                        SOME(InstrStoreB{offset=SOME(toShort constOffset), toStore=SOME toStore}, [arg1])
-                |   [_, NONE, SOME toStore] =>
-                        SOME(InstrStoreB{offset=NONE, toStore=SOME toStore}, [arg1, arg2])
-                |   [_, SOME constOffset, NONE] =>
-                        SOME(InstrStoreB{offset=SOME(toShort constOffset), toStore=NONE}, [arg1, arg3])
-                |   [_, NONE, NONE] => SOME(InstrStoreB{offset=NONE, toStore=NONE}, [arg1, arg2, arg3])
-                |   _ => raise InternalError "InstrStoreB: Wrong number of arguments"
-            )
-
-        |   checkAndReduce(InstrLockSeg, [arg1], _) = SOME(InstrLockSeg, [arg1])
-
-        |   checkAndReduce(instr as InstrUnaryFP _, args as [_], _) = SOME(instr, args)
-        |   checkAndReduce(instr as InstrBinaryFP _, args as [_,_], _) = SOME(instr, args)
-        |   checkAndReduce(instr as InstrIntToFP, args as [_], _) = SOME(instr, args)
 
         |   checkAndReduce(InstrAllocStore, [lengthArg, flagArg, initValArg], mapper) =
             let
@@ -2446,11 +2399,9 @@ Calling conventions:
                     end
             end
 
-        |   checkAndReduce(instr as InstrMemMove _, args as [_,_,_,_,_], _) = SOME(instr, args)
-
         |   checkAndReduce(InstrUnimplemented, _, _) = NONE
-
-        |   checkAndReduce _ = raise InternalError "checkAndReduce: bad arguments"
+                (* The default is to return the instruction and arguments unchanged. *)
+        |   checkAndReduce(instr, args, _) = SOME(instr, args)
     end
 
         (* If we reverse the left and right arguments we reverse the sense of the jump. *)
@@ -2500,7 +2451,8 @@ Calling conventions:
             )
 
         |   checkAndReduceBranches(opc as Length _, args as [_], _) = SOME (opc, args)
-        
+        |   checkAndReduceBranches(opc as ByteVec _, args as [_, _, _, _, _], _) = SOME (opc, args)
+
         |   checkAndReduceBranches(FloatingPt opcode, args as [arg1, arg2], mapper) =
             (
                 case List.map mapper args of
@@ -2540,25 +2492,8 @@ Calling conventions:
 
     (* Default action for all operations. *)
     local
-        (* If we have specified a preferred register use that except when
-           it's a general register and we're producing floating point result. *)
-        fun prefAsSet(UseReg reg, regSet) =
-                if inSet(reg, regSet) then singleton reg else regSet
-        |   prefAsSet(_, regSet) = regSet
 
-        (* We get the output register first because we're going to lock that down. *)
-        fun getResultReg(instr, regSet, pref: regHint, operands) _ =
-            ActionGetWorkReg{regSet=prefAsSet(pref, regSet), (* Use the preferred destination. *)
-                setReg = fn reg => getArg(instr, regSet, SOME reg, operands)}
-        
-        and getInitialResultReg(instr, regSet, pref: regHint) args =
-            getResultReg(instr, regSet, pref: regHint, List.map(fn _ => NONE) args) args
-
-        (* The initial case if we don't need an output register. *)
-        and getInitialArg instr args =
-            getArg(instr, generalRegisters, NONE, List.map(fn _ => NONE) args) args
-
-        and getArg(instr, regSet, outputReg, operands) args =
+        fun getArg(instr, regSet, outputReg, operands) args =
         let
             (* Take each NONE in the operand list and replace it with the appropriate operand. *)
             fun nextArg([], [], _) =
@@ -2599,72 +2534,129 @@ Calling conventions:
             nextArg(operands, args, 0)
         end
 
-        (* Some cases require arguments in specific registers. *)
-        fun genToSpecificReg(specReg, overWrite, argNo, whenDone) args =
-        (
+        (* Replace an entry in the operand list, which should be NONE, with SOME operand. *)
+        fun replaceOperand(n, repWith) (operands, results) =
+            case List.nth(operands, n) of
+                NONE =>
+                    (List.take(operands, n) @ SOME repWith :: List.drop(operands, n+1), results)
+            |   SOME _ => raise InternalError "replaceOperand: Operand already present"
+
+        fun generateInstruction instr (operands, results) _ =
+            ActionDone{
+                outReg=results, operation=DataOp{ instr = instr, operands = List.map valOf operands, output = results}
+                }
+
+        fun generateBranch (test, label) (operands, _) _ =
+            ActionDone{
+                outReg=NONE, operation=CondBranch{ test=test, label=label, operands = List.map valOf operands}
+                }
+
+        (* If we have specified a preferred register use that unless it's already in use. *)
+        fun prefAsSet(UseReg reg, regSet, operands) =
+                if inSet(reg, regSet) andalso
+                    not (List.exists(fn SOME(InRegister r) => r = reg | _ => false) operands)
+                then singleton reg else regSet
+        |   prefAsSet(_, regSet, _) = regSet
+
+        (* Get a register for the results. *)
+        fun getResultRegister(regSet, pref: regHint, whenDone) (operands, _) _ =
+            ActionGetWorkReg{regSet=prefAsSet(pref, regSet, operands), (* Use the preferred destination. *)
+                setReg = fn reg => whenDone (operands, SOME reg)}
+
+        (* Load the argument to one of a set of possible registers. *)
+        fun loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults args =
             case List.nth(args, argNo) of
                 (ActInRegisterSet{ modifiable, readable, ...}) =>
-                    if inSet(specReg, if overWrite then modifiable else readable)
-                    then ActionLockRegister{argNo=argNo, reg=specReg, willOverwrite=overWrite, next=whenDone}
-                    else (* Not in the right register - move it. *)
-                            ActionLoadArg{argNo=argNo, regSet=singleton specReg, willOverwrite=overWrite,
-                                next=genToSpecificReg(specReg, overWrite, argNo, whenDone)}
-                |   _=>
-                        ActionLoadArg{argNo=argNo, regSet=singleton specReg, willOverwrite=overWrite,
-                             next=genToSpecificReg(specReg, overWrite, argNo, whenDone)}
-        )
-            
-    in
-        val noresultNegotiator = getInitialArg
-        fun floatingPtNegotiator(instr, pref) = getInitialResultReg(instr, floatingPtRegisters, pref)
-        fun generalNegotiator(instr, pref) = getInitialResultReg(instr, generalRegisters, pref)
-        (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
-        fun intToFPNegotiator(instr, pref) _ =
-            ActionGetWorkReg{regSet=prefAsSet(pref, floatingPtRegisters),
-                setReg = fn reg => getArg(instr, generalRegisters, SOME reg, [NONE])}
-        
-        local
-            (* Storing a byte is complicated because we can only store from some registers.
-               We get the value into one of the acceptable registers first. *)
-            val byteStoreRegs = listToSet[eax, ebx, ecx, edx]
-            fun loadStoreArg instr args =
-            let
-                val argNo = List.length args - 1 (* Last argument. *)
-            in
-                case List.last args of
-                    (ActInRegisterSet{ readable, ...}) =>
-                        (* Put it in the right register.  We might record here whether
-                           this is the last usage and only retag the result if we really
-                           have to. *)
-                        if regSetIntersect(readable, byteStoreRegs) <> noRegisters
+                    let
+                        val chooseFrom = if overWrite then modifiable else readable
+                    in
+                        if regSetIntersect(regSet, chooseFrom) <> noRegisters
                         then
                         let
-                            val aReg = oneOf(regSetIntersect(readable, generalRegisters))
+                            val aReg = oneOf(regSetIntersect(chooseFrom, regSet))
                         in
-                            ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
-                                next=getArg(instr, generalRegisters, NONE,
-                                                List.tabulate(argNo, fn _ => NONE) @ [SOME(InRegister aReg)])}
+                            ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=overWrite,
+                                                next=whenDone (replaceOperand(argNo, InRegister aReg) opAndResults)}
                         end
                         else (* Not in the right register - move it. *)
-                            ActionLoadArg{argNo=argNo, regSet=byteStoreRegs, willOverwrite=false,
-                                next=loadStoreArg instr}
-                |   _ =>
-                        ActionLoadArg{argNo=argNo, regSet=byteStoreRegs, willOverwrite=false,
-                            (* Load into a register - won't modify it afterwards.  Next action is
-                               to look at this again after it's been loaded. *)
-                            next=loadStoreArg instr}
-            end
+                                ActionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=overWrite,
+                                    next=loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults}
+                    end
+                |   _=>
+                    let
+                        (* We can't load directly into a floating point register so if the set
+                           does not include any general registers we first need to load the
+                           value into a floating point register and then once it's in a
+                           register move it over.  Actually, we're not loading from the general
+                           register to the floating point register: the "move" involves loading
+                           the boxed value that contains the real number into the fp register. *)
+                        val (loadSet, write) =
+                            if regSetIntersect(regSet, generalRegisters) <> noRegisters
+                            then (regSet, overWrite) else (generalRegisters, false)
+                    in
+                        ActionLoadArg{argNo=argNo, regSet=loadSet, willOverwrite=write,
+                             next=loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults}
+                    end
+
+        (* Load to a register (read-only) or, if it's a literal leave it. *)
+        fun loadToRegOrLiteral(regSet, argNo, whenDone) opAndResults args =
+            case List.nth(args, argNo) of
+                ActLiteralSource lit => whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
+            |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
+
+        (* Process all the remaining arguments i.e. those with NONE in the argument list. *)
+        fun allArgs (eachArg, whenDone) (operands as (opers, _)) =
+        let
+            (* Take each NONE in the operand list and replace it with the appropriate operand. *)
+            fun nextArg([], _) = (* All done *) whenDone operands
+            |   nextArg(NONE :: _, argNo) =
+                    eachArg (argNo, fn operands => allArgs (eachArg, whenDone) operands) operands
+            |   nextArg(SOME _ :: otherOps, argNo) = nextArg(otherOps, argNo+1)
         in
-            val storeByteNegotiator = loadStoreArg
+            nextArg(opers, 0)
         end
+
+        (* This deals with any remaining operands and puts them into registers.  It is the fall-back
+           in a lot of cases. *)
+        fun allInRegisters (regSet, whenDone) =
+            allArgs(fn (argNo, whenDone) => loadToOneOf(regSet, false, argNo, whenDone), whenDone)
+
+        fun allInRegsOrLiterals (regSet, whenDone) =
+            allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
+
+        (* Some cases require arguments in specific registers. *)
+        fun loadToSpecificReg(specReg, overWrite, argNo, whenDone) =
+            loadToOneOf(singleton specReg, overWrite, argNo, whenDone)
+            
+    in
+        (* Default if we don't need a result register. *)
+        fun noresultNegotiator instr args =
+            allInRegisters(generalRegisters, generateInstruction instr) (List.map(fn _ => NONE) args, NONE) args
+            
+        fun floatingPtNegotiator(instr, pref) args =
+            getResultRegister(floatingPtRegisters, pref,
+                allInRegisters(floatingPtRegisters, generateInstruction instr)
+                ) (List.map(fn _ => NONE) args, NONE) args
+
+        (* Default if we need a result which is different from the argument registers. *)
+        fun generalNegotiator(instr, pref) args =
+            getResultRegister(generalRegisters, pref,
+                allInRegisters(generalRegisters, generateInstruction instr)
+                ) (List.map(fn _ => NONE) args, NONE) args
+
+        (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
+        fun intToFPNegotiator(instr, pref) args =
+            getResultRegister(floatingPtRegisters, pref,
+                loadToOneOf(generalRegisters, false, 0, generateInstruction instr)
+                ) (List.map(fn _ => NONE) args, NONE) args
         
         local
             (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
-            fun loadShiftArg (instr, pref) =
-                genToSpecificReg(ecx, true, 1, loadResultArg(instr, pref))
+            fun loadShiftArg (instr, pref) opAndResult =
+                loadToSpecificReg(ecx, true, 1, loadResultArg(instr, pref)) opAndResult
 
             (* Load the first argument into a register we can use for the result. *)
-            and loadResultArg (instr, pref) [arg1, _] =
+            and loadResultArg (instr, pref) opAndResult [arg1, _] =
             (
                 case arg1 of
                     (ActInRegisterSet{ modifiable, ...}) =>
@@ -2678,12 +2670,12 @@ Calling conventions:
                         end
                         else (* Can't clobber this register - move the value. *)
                             ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                next=loadResultArg(instr, pref)}
+                                next=loadResultArg(instr, pref) opAndResult}
                 |   _ =>
                         ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                             next=loadResultArg(instr, pref)}
+                             next=loadResultArg(instr, pref) opAndResult}
             )
-            |   loadResultArg _ _ = raise InternalError "loadResultArg: bad arguments"
+            |   loadResultArg _ _ _ = raise InternalError "loadResultArg: bad arguments"
             
             and finished (instr, resReg) _ =
                 ActionDone{
@@ -2692,7 +2684,7 @@ Calling conventions:
                     }
 
         in
-            val shiftNegotiator = loadShiftArg
+            fun shiftNegotiator (instr, pref) = loadShiftArg (instr, pref) ([NONE, NONE], NONE)
         end
         
         local
@@ -2745,10 +2737,10 @@ Calling conventions:
                         ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
                                        next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg)])}
                     end
-                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
             |   loadDestArg(instr, pref) [_] = (* Not in a register. *)
-                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
                 
             |   loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}, _] = (* Double arguments *)
@@ -2760,7 +2752,7 @@ Calling conventions:
                         ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
                                        next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg), NONE])}
                     end
-                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
                 (* For most instructions we can use the second argument if it's in a register. *)
             |   loadDestArg(instr, pref) [_, ActInRegisterSet{ modifiable, ...}] = (* Could use the second argument *)
@@ -2772,10 +2764,10 @@ Calling conventions:
                         ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
                                        next=getArg(instr, generalRegisters, SOME aReg, [NONE, SOME(InRegister aReg)])}
                     end
-                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
             |   loadDestArg(instr, pref) [_, _] = (* Not in a register. *)
-                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters), willOverwrite=true,
+                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
                                   next=loadDestArg(instr, pref)}
 
             |   loadDestArg _ _ = raise InternalError "loadDestArg: not one or two arguments"
@@ -2783,183 +2775,113 @@ Calling conventions:
             val sharedArgNegotiator = loadDestArg
         end
 
-        local
-            (* When allocating vectors/arrays we have to initialise the store and the easiest way to
-               do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-            fun loadLengthArg (instr, pref) =
-                genToSpecificReg(ecx, true, 0, loadInitValArg(instr, pref))
-            and loadInitValArg (instr, pref) =
-                (* We don't actually need this to be modifiable if we're initialising with words. *)
-                genToSpecificReg(eax, true, 1, getResultRegister(instr, pref))
-
-            and getResultRegister(instr, _) _ =
-                ActionGetWorkReg{regSet=singleton edi,
-                    setReg =
-                        fn reg => fn _ =>
-                            ActionDone{
-                                outReg=SOME reg,
-                                operation=
-                                    DataOp{ instr = instr, operands = [InRegister ecx, InRegister eax], output = SOME reg}
-                           }
-                   }
-        in
-            val allocStoreNegotiator = loadLengthArg
-        end
-
-        (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
-           The source and destination offsets can be any registers.  We can't add the offsets in
-           advance because that would create invalid addresses. *)
-        fun memMoveNegotiator instr =
-            genToSpecificReg(esi, true, 0,
-                genToSpecificReg(edi, true, 2,
-                    genToSpecificReg(ecx, true, 4,
-                        getArg(instr, generalRegisters, NONE,
-                            [SOME(InRegister esi), NONE, SOME(InRegister edi), NONE, SOME(InRegister ecx)]))))
-    end
-
-    (* Select the argument negotiator. *)
-    fun negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(instr, pref)
-
-    |   negotiateArguments(instr as InstrSubW, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrOrW, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAndW, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAddAConst _, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrSubAConst _, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrOrWConst _, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrAndWConst _, pref) = sharedArgNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrXorWConst _, pref) = sharedArgNegotiator(instr, pref)
-    
-    (*|   negotiateArguments(instr as InstrMulA, _) = multiplyNegotiator instr*)
-        (* Only use the negotiator for word multiplication at the moment. *)
-    |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator instr
-
-        (* Functions that don't return a result. *)
-    |   negotiateArguments(instr as InstrStoreW _, _) = noresultNegotiator instr
-    |   negotiateArguments(instr as InstrStoreB({ toStore=NONE(* Not storing a constant *), ...}), _) =
-            storeByteNegotiator instr
-    |   negotiateArguments(instr as InstrStoreB _, _) = noresultNegotiator instr
-    |   negotiateArguments(instr as InstrLockSeg, _) = noresultNegotiator instr
-    |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator instr
-
-        (* Floating point functions. *)
-    |   negotiateArguments(instr as InstrUnaryFP _, pref) = floatingPtNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrBinaryFP _, pref) = floatingPtNegotiator(instr, pref)
-    |   negotiateArguments(instr as InstrIntToFP, pref) = intToFPNegotiator(instr, pref)
-    
-    |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) = allocStoreNegotiator(instr, pref)
-
-    |   negotiateArguments(instr as InstrMemMove _, _) = memMoveNegotiator instr
-
-    |   negotiateArguments(instr, pref) = generalNegotiator(instr, pref)
- 
-    (* Actions for comparisons and tests. *)
-    local
-        fun getArg(test, label, registerSet, operands) args =
-        if List.length operands = List.length args
-        then (* All done *)
-            ActionDone{
-                outReg=NONE,
-                operation= CondBranch { operands=operands, test=test, label=label }
-                }
-        else
-        let
-            val argNo = List.length operands
-        in
-            case List.nth(args, argNo) of (* Look at the next argument *)
-                (ActInRegisterSet{ readable, ...}) =>
-                    if regSetIntersect(readable, registerSet) <> noRegisters
-                    then
-                    let
-                        val aReg = oneOf(regSetIntersect(readable, registerSet))
-                    in
-                        (* It's in a register.  Lock it, record it and go on to the next arg. *)
-                        ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
-                            next=getArg(test, label, registerSet, operands @ [InRegister aReg])}
-                    end
-                    else ActionLoadArg{argNo=argNo, regSet=registerSet, willOverwrite=false,
-                                next=getArg(test, label, registerSet, operands)}
-            |   _ => (* If it's not currently in any register put it first into a general register
-                        even if we eventually want it in a floating point register. *)
-                    ActionLoadArg{argNo=argNo, regSet=generalRegisters, willOverwrite=false,
-                        (* Load into a register - won't modify it afterwards.  Next action is
-                           to look at this again after it's been loaded. *)
-                        next=getArg(test, label, registerSet, operands)}
-        end
-
-(*        fun getOneArgInReg(test, label) [(ActInRegisterSet{ readable, ...}), op2] =
-            if regSetIntersect(readable, generalRegisters) <> noRegisters
-            then
-            let
-                val aReg = oneOf(regSetIntersect(readable, generalRegisters))
-            in
-                ActionDone{
-                    outReg=NONE,
-                    operation= CondBranch { operands=[InRegister reg1, op2], test=test, label=label }
-                    }
-            end
-            else
-        |   getOneArgInReg(test, label) [(op1, (InRegister reg2, _)] =
-            let
-                fun reverse(Arb test) = Arb(reverseTestOp test)
-                |   reverse(Wrd test) = Wrd(reverseTestOp test)
-                |   reverse _ = raise InternalError "reverse"
-            in
-                ActionDone{
-                    outReg=NONE,
-                    operation= CondBranch { operands=[InRegister reg2, op1], test=reverse test, label=label }
-                    }
-            end
-        |   getOneArgInReg(test, label) [_, _] =
-                ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                    (* Load into a register - won't modify it afterwards.  Next action is
-                       to look at this again after it's been loaded. *)
-                    next=getOneArgInReg(test, label)}
-        |   getOneArgInReg _ _ = raise InternalError "getOneArgInReg: Wrong arguments"*)
-
-        fun unaryTestActions(test, label, registerSet) [ActInRegisterSet{ readable, ...}] =
-                if regSetIntersect(readable, registerSet) <> noRegisters
-                then
-                let
-                    val aReg = oneOf(regSetIntersect(readable, registerSet))
-                in (* It's in a register.  We're done. *)
-                    ActionDone{
-                        outReg=NONE,
-                        operation= CondBranch { operands=[InRegister aReg], test=test, label=label }
-                        }
-                end
-                else ActionLoadArg{argNo=0, regSet=registerSet, willOverwrite=false,
-                                   next=unaryTestActions(test, label, registerSet)}
-        |   unaryTestActions(test, label, registerSet) [_] =
-                ActionLoadArg{argNo=0, regSet=generalRegisters(* In all cases*), willOverwrite=false,
-                    (* Load into a register - won't modify it afterwards.  Next action is
-                       to look at this again after it's been loaded. *)
-                    next=unaryTestActions(test, label, registerSet)}
-        |   unaryTestActions _ _ = raise InternalError "unaryTestActions: Wrong arguments"
-
-    in
         (* Select the argument negotiator. *)
-        fun negotiateTestArguments test =
-        let
-            val destLabel = ref noJump
+        fun negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(instr, pref)
+
+        |   negotiateArguments(instr as InstrSubW, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrOrW, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrAndW, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrAddAConst _, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrSubAConst _, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrOrWConst _, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrAndWConst _, pref) = sharedArgNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrXorWConst _, pref) = sharedArgNegotiator(instr, pref)
+    
+        (*|   negotiateArguments(instr as InstrMulA, _) = multiplyNegotiator instr*)
+            (* Only use the negotiator for word multiplication at the moment. *)
+        |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator instr
+
+            (* Functions that don't return a result. *)
+        |   negotiateArguments(instr as InstrStoreW, _) =
+                (* The first argument, the address needs to be in a register.  The others may be
+                   literals.  It's possible the address could be a literal too. *)
+                loadToOneOf(generalRegisters, false, 0,
+                    loadToRegOrLiteral(generalRegisters, 1,
+                        loadToRegOrLiteral(generalRegisters, 2,
+                            generateInstruction instr))) ([NONE, NONE, NONE], NONE)
+
+        |   negotiateArguments(instr as InstrStoreB, _) =
+                (* We can only store from some regs.  The address must be in a register. *)
+                loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
+                    loadToOneOf(generalRegisters, false, 0,
+                        loadToRegOrLiteral(generalRegisters, 1,
+                            generateInstruction instr))) ([NONE, NONE, NONE], NONE)
+
+        |   negotiateArguments(instr as InstrLockSeg, _) = noresultNegotiator instr
+        |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator instr
+
+            (* Floating point functions. *)
+        |   negotiateArguments(instr as InstrUnaryFP _, pref) = floatingPtNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrBinaryFP _, pref) = floatingPtNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrIntToFP, pref) = intToFPNegotiator(instr, pref)
+    
+        |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) =
+                (* When allocating vectors/arrays we have to initialise the store and the easiest way to
+                   do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
+                 loadToSpecificReg(ecx, true, 0,
+                    (* We don't actually need this to be modifiable if we're initialising with words. *)
+                    loadToSpecificReg(eax, true, 1,
+                        getResultRegister(singleton edi, pref, generateInstruction instr)))
+                    ([NONE, NONE], NONE)
+
+        |   negotiateArguments(instr as InstrMemMove _, _) =
+                (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
+                   The source and destination offsets can be any registers.  We can't add the offsets in
+                   advance because that would create invalid addresses. *)
+                loadToSpecificReg(esi, true, 0,
+                    loadToSpecificReg(edi, true, 2,
+                        loadToSpecificReg(ecx, true, 4,
+                            allInRegsOrLiterals(generalRegisters, generateInstruction instr)
+                            ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
+
+        |   negotiateArguments(instr, pref) = generalNegotiator(instr, pref)
+ 
+        (* Actions for comparisons and tests. *)
+        local
+            fun unaryTestActions(test, label, registerSet) =
+                loadToOneOf(registerSet, false, 0, generateBranch(test, label)) ([NONE], NONE)
+        
+            fun binaryTestActions(test, label, registerSet) =
+                loadToOneOf(registerSet, false, 0,
+                    loadToOneOf(registerSet, false, 1,
+                        generateBranch(test, label))) ([NONE, NONE], NONE)
         in
-            case test of
-                Arb _ => (getArg(test, destLabel, generalRegisters, []), destLabel)
-            |   ArbConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-            |   Wrd _ => ((*getOneArgInReg*)getArg(test, destLabel, generalRegisters, []), destLabel)
-            |   WrdConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-            |   Length _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-                (* Floating point comparisons all require the ax register.  The other arguments
-                   are loaded into registers. *)
-            |   FloatingPt _ =>
-                    (fn _ =>
-                        ActionGetWorkReg{regSet=singleton eax,
-                            setReg = fn _ => getArg(test, destLabel, floatingPtRegisters, [])}, destLabel)
-            |   FloatingPtConst _ =>
-                    (fn _ =>
-                        ActionGetWorkReg{regSet=singleton eax,
-                            setReg = fn _ => unaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
+            (* Select the argument negotiator. *)
+            fun negotiateTestArguments test =
+            let
+                val destLabel = ref noJump
+            in
+                case test of
+                    Arb _ => (binaryTestActions(test, destLabel, generalRegisters), destLabel)
+                |   ArbConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
+                |   Wrd _ => ((*getOneArgInReg*)binaryTestActions(test, destLabel, generalRegisters), destLabel)
+                |   WrdConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
+                |   Length _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
+                    (* Floating point comparisons all require the ax register.  The other arguments
+                       are loaded into registers. *)
+                |   FloatingPt _ =>
+                        (fn _ =>
+                            ActionGetWorkReg{regSet=singleton eax,
+                                setReg = fn _ => binaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
+                |   FloatingPtConst _ =>
+                        (fn _ =>
+                            ActionGetWorkReg{regSet=singleton eax,
+                                setReg = fn _ => unaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
+                |   ByteVec _ =>
+                        (* The vectors to compare are in esi and edi and the count in ecx.  Since it doesn't
+                           matter which is in esi and which in edi it would be nice if we could leave that open
+                           but for the moment we require the first in esi and the second in edi.
+                           The offsets can be in any register. *)
+                        (loadToSpecificReg(esi, true, 0,
+                            loadToSpecificReg(edi, true, 2,
+                                loadToSpecificReg(ecx, true, 4,
+                                    loadToRegOrLiteral(generalRegisters, 1,
+                                        loadToRegOrLiteral(generalRegisters, 3,
+                                            generateBranch(test, destLabel))))))
+                                            ([NONE, NONE, NONE, NONE, NONE], NONE), destLabel)
+            end
         end
     end
 
@@ -3803,31 +3725,39 @@ Calling conventions:
             )
 
             (* Assignment operators. *)
-        |   cgOp(DataOp{ instr=InstrStoreW{offset=NONE, toStore=NONE},
-                         operands=[InRegister address, InRegister offset, InRegister toStore], output=_ }) =
-                genStoreW(toStore, 0, address, SOME offset, code)
-        |   cgOp(DataOp{ instr=InstrStoreW{offset=SOME lit, toStore=NONE},
-                         operands=[InRegister address, InRegister toStore], output=_ }) =
-                genStoreW(toStore, Word.toInt lit * wordSize, address, NONE, code)
-        |   cgOp(DataOp{ instr=InstrStoreW{offset=NONE, toStore=SOME toStore},
-                         operands=[InRegister address, InRegister offset], output=_ }) =
-                genStoreIW(toStore, 0, address, SOME offset, code)
-        |   cgOp(DataOp{ instr=InstrStoreW{offset=SOME constOffset, toStore=SOME toStore},
-                         operands=[InRegister address], output=_ }) =
-                genStoreIW(toStore, Word.toInt constOffset * wordSize, address, NONE, code)
+        |   cgOp(DataOp{ instr=InstrStoreW, operands, output=_ }) =
+            (
+                case operands of
+                    [InRegister address, InRegister offset, InRegister toStore] =>
+                        (* Value to store and index are in registers. *)
+                        genStoreW(toStore, 0, address, SOME offset, code)
+                |   [InRegister address, LiteralSource offset, InRegister toStore] =>
+                        (* Index is a constant. *)
+                        genStoreW(toStore, Word.toInt(toShort offset) * wordSize, address, NONE, code)
+                |   [InRegister address, InRegister offset, LiteralSource toStore] =>
+                        (* Value to store is a constant *)
+                        genStoreIW(toStore, 0, address, SOME offset, code)
+                |   [InRegister address, LiteralSource offset, LiteralSource toStore] =>
+                        genStoreIW(toStore, Word.toInt(toShort offset) * wordSize, address, NONE, code)
+                |   _ => raise InternalError "InstrStoreW: bad operands"
+            )
 
-        |   cgOp(DataOp{ instr=InstrStoreB{offset=NONE, toStore=NONE},
-                         operands=[InRegister address, InRegister offset, InRegister toStore], output=_ }) =
-                genStoreB(toStore, 0, address, SOME offset, code)
-        |   cgOp(DataOp{ instr=InstrStoreB{offset=SOME lit, toStore=NONE},
-                         operands=[InRegister address, InRegister toStore], output=_ }) =
-                genStoreB(toStore, Word.toInt lit, address, NONE, code)
-        |   cgOp(DataOp{ instr=InstrStoreB{offset=NONE, toStore=SOME toStore},
-                         operands=[InRegister address, InRegister offset], output=_ }) =
-                genStoreIB(toStore, 0, address, SOME offset, code)
-        |   cgOp(DataOp{ instr=InstrStoreB{offset=SOME constOffset, toStore=SOME toStore},
-                         operands=[InRegister address], output=_ }) =
-                genStoreIB(toStore, Word.toInt constOffset, address, NONE, code)
+        |   cgOp(DataOp{ instr=InstrStoreB, operands, output=_ }) =
+            (
+                case operands of
+                    [InRegister address, InRegister offset, InRegister toStore] =>
+                        (* Value to store and index are in registers. *)
+                        genStoreB(toStore, 0, address, SOME offset, code)
+                |   [InRegister address, LiteralSource offset, InRegister toStore] =>
+                        (* Index is a constant. *)
+                        genStoreB(toStore, Word.toInt(toShort offset), address, NONE, code)
+                |   [InRegister address, InRegister offset, LiteralSource toStore] =>
+                        (* Value to store is a constant *)
+                        genStoreIB(toStore, 0, address, SOME offset, code)
+                |   [InRegister address, LiteralSource offset, LiteralSource toStore] =>
+                        genStoreIB(toStore, Word.toInt(toShort offset), address, NONE, code)
+                |   _ => raise InternalError "InstrStoreB: bad operands"
+            )
         
         |   cgOp(DataOp{ instr=InstrThreadSelf, operands=[], output=SOME output }) =
                 genLoad (MemRegThreadSelf, ebp, output, code) (* movl 60(%ebp),r; *)
@@ -3931,8 +3861,8 @@ Calling conventions:
                 end
 
         |   cgOp(DataOp{instr=InstrMemMove unitSize,
-                        operands=[InRegister sourceAddr, InRegister sourceOffset, InRegister destAddr,
-                                  InRegister destOffset, InRegister moveLength], output=NONE}) =
+                        operands=[InRegister sourceAddr, sourceOffset(* Literal or register *), InRegister destAddr,
+                                  destOffset(* Literal or register *), InRegister moveLength], output=NONE}) =
                 let
                     val () =
                         if sourceAddr = esi andalso destAddr = edi andalso moveLength = ecx then ()
@@ -3945,33 +3875,52 @@ Calling conventions:
                     genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
                     if unitSize = 0w1
                     then (* Byte move.  The offsets are byte offsets. *)
-                    (
-                        (* We need to untag the offsets. *)
-                        genop (Group2_1_A, code);
-                        genmodrm(Register, 0w5 (* shr *), getReg sourceOffset, code);
-                        genop (Group2_1_A, code);
-                        genmodrm(Register, 0w5 (* shr *), getReg destOffset, code);
-                        (* Add the offsets and then retag the offsets. *)
-                        genReg(ADD, esi, sourceOffset, code);
-                        genReg(ADD, edi, destOffset, code);
-                        genop (LEAL, code);
-                        genIndexed (1, SOME sourceOffset, sourceOffset, Scale1, sourceOffset, code);
-                        genop (LEAL, code);
-                        genIndexed (1, SOME destOffset, destOffset, Scale1, destOffset, code);
+                    let
+                        fun getOffset(InRegister offsetReg, baseReg) =
+                            (
+                                (* If it's in a register untag it, add it and then retag. *)
+                                genop (Group2_1_A, code);
+                                genmodrm(Register, 0w5 (* shr *), getReg offsetReg, code);
+                                genReg(ADD, baseReg, offsetReg, code);
+                                genop (LEAL, code);
+                                genIndexed (1, SOME offsetReg, offsetReg, Scale1, offsetReg, code)
+                            )
+                        |   getOffset(LiteralSource lit, baseReg) =
+                            let
+                                val shortLit = toShort lit
+                            in
+                                if shortLit = 0w0 then () else genImmed(ADD, baseReg, Word.toInt shortLit, code)
+                            end
+                        |   getOffset _ = raise InternalError "getOffset"
+                    in
+                        getOffset(sourceOffset, esi);
+                        getOffset(destOffset, edi);
                         genop(REP, code);
                         gen8u(0wxa4 (*movsb*), code)
-                    )
+                    end
                     else
                     let
                         (* Word move.  The offsets and the count are the number of words.
                            We can compute the offset by using the LEAL instruction. *)
-                        val (scale, offset) =
-                            if wordSize = 4 then (Scale2, ~2) else (*8 byte *) (Scale4, ~4)
+                        fun getOffset(InRegister offsetReg, baseReg) =
+                            let
+                                val (scale, offset) =
+                                    if wordSize = 4 then (Scale2, ~2) else (*8 byte *) (Scale4, ~4)
+                            in
+                                genop (LEAL, code);
+                                genIndexed (offset, SOME baseReg, offsetReg, scale, esi, code)
+                            end
+                        |   getOffset(LiteralSource lit, baseReg) =
+                            let
+                                val shortLit = toShort lit
+                            in
+                                if shortLit = 0w0 then ()
+                                else genImmed(ADD, baseReg, Word.toInt shortLit  * wordSize, code)
+                            end
+                        |   getOffset _ = raise InternalError "getOffset"
                     in
-                        genop (LEAL, code);
-                        genIndexed (offset, SOME esi, sourceOffset, scale, esi, code);
-                        genop (LEAL, code);
-                        genIndexed (offset, SOME edi, destOffset, scale, edi, code);
+                        getOffset(sourceOffset, esi);
+                        getOffset(destOffset, edi);
                         genop(REP, code);
                         gen8u(0wxa5 (*movsl*), code)
                     end;
@@ -4267,6 +4216,43 @@ Calling conventions:
                    doing anything else by moving ebx, which ought to be safe, into it. *)
                 genMove(eax, ebx, code);
                 label := [putConditional (if opc = JNE then JNE else JE, code)]
+            end
+
+        |   cgOp(CondBranch{ operands=[InRegister addr1, offset1, InRegister addr2, offset2, InRegister len],
+                             test=ByteVec opc, label }) =
+            let
+                val () = if addr1 = esi andalso addr2 = edi andalso len = ecx then ()
+                         else raise InternalError "Incorrect registers"
+                fun getOffset(InRegister offsetReg, baseReg) =
+                    (
+                        (* If it's in a register untag it, add it and then retag. *)
+                        genop (Group2_1_A, code);
+                        genmodrm(Register, 0w5 (* shr *), getReg offsetReg, code);
+                        genReg(ADD, baseReg, offsetReg, code);
+                        genop (LEAL, code);
+                        genIndexed (1, SOME offsetReg, offsetReg, Scale1, offsetReg, code)
+                    )
+                |   getOffset(LiteralSource lit, baseReg) =
+                    let
+                        val shortLit = toShort lit
+                    in
+                        if shortLit = 0w0 then () else genImmed(ADD, baseReg, Word.toInt shortLit, code)
+                    end
+                |   getOffset _ = raise InternalError "getOffset"
+            in
+                getOffset(offset1, esi);
+                getOffset(offset2, edi);
+                (* Untag the length. *)
+                genop (Group2_1_A, code);
+                genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
+                (* Set the Z bit in the condition codes before we start by comparing a register with itself. *)
+                genReg (CMP, ecx, ecx, code);
+                genop(REP, code);
+                gen8u(0wxa6 (*cmpsb*), code);
+                genMove(ecx, eax, code); (* Set these to a valid value. EAX should be ok. *)
+                genMove(esi, eax, code);
+                genMove(edi, eax, code);
+                label := [putConditional (opc, code)]
             end
 
         |   cgOp(CondBranch{ operands=_, test=_, label=_ }) =
@@ -4926,6 +4912,9 @@ Calling conventions:
 
             else if opByte = 0wxA4
             then print "movsb\n"
+
+            else if opByte = 0wxA6
+            then print "cmpsb\n"
 
             else if opByte = 0wxAB
             then print "movsl\n"

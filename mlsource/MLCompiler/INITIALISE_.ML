@@ -731,42 +731,8 @@ struct
                             (* Test the lengths. *)
                             mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
                             (* Equal - test the contents. *)
-                            mkEnv
-                            [
-                                (* Compute the number of bytes.  This is the limit of the loop. *)
-                                mkDec(3,
-                                    mkEval(rtsFunction POLY_SYS_mul_word,
-                                        [
-                                            mkLoad(1, 0), (* One of the length words.  They're equal. *)
-                                            mkEval(rtsFunction POLY_SYS_bytes_per_word, [CodeZero], true)
-                                        ], false)
-                                ),
-                                mkDec(4, (* Loop function. *)
-                                    mkProc(
-                                        mkIf(
-                                            (* Finished? *)
-                                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(3, 1), mkLoad(~1, 0)], false),
-                                            CodeTrue, (* Yes, all equal. *)
-                                            mkIf(
-                                                mkEval(
-                                                    rtsFunction POLY_SYS_word_eq, (* Word equality *)
-                                                    [
-                                                        mkEval(rtsFunction POLY_SYS_load_byte,
-                                                            [mkLoad(~2, 1), mkLoad(~1, 0)], false),
-                                                        mkEval(rtsFunction POLY_SYS_load_byte,
-                                                            [mkLoad(~1, 1), mkLoad(~1, 0)], false)
-                                                    ], false),
-                                                mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
-                                                    [
-                                                        mkEval(rtsFunction POLY_SYS_plus_word,
-                                                            [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
-                                                    ], false),
-                                                CodeFalse (* Not equal elements - result false *)
-                                            )
-                                        ),
-                                    2, 1, "byteVector-loop")),
-                                mkEval(mkLoad(4, 0), [CodeZero], false)
-                            ],
+                            mkEval(rtsFunction POLY_SYS_bytevec_eq,
+                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero, mkLoad(1, 0)], false),
                             CodeFalse (* Not same length- result false *)
                         )
                     ],

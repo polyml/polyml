@@ -31,8 +31,8 @@ struct
   val POLY_SYS_get_length          = 15
   val POLY_SYS_get_flags           = 17
   val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
-  val POLY_SYS_teststreq           = 24
-  val POLY_SYS_teststrneq          = 25
+(* val POLY_SYS_teststreq          = 24*) (* Replaced by bytevec_eq *)
+(*val POLY_SYS_teststrneq          = 25*)
   val POLY_SYS_teststrgtr          = 26
   val POLY_SYS_teststrlss          = 27
   val POLY_SYS_teststrgeq          = 28
@@ -57,7 +57,7 @@ struct
   val POLY_SYS_timing_dispatch     = 94   (* DCJM 10/4/00 *)
   val POLY_SYS_objsize             = 99   (* MJC 27/04/88 *)
   val POLY_SYS_showsize            = 100  (* MJC 09/03/89 *)
-  val POLY_SYS_interrupt_console_processes = 103  (* MJC 01/08/90 *)
+(*val POLY_SYS_interrupt_console_processes = 103*)  (* MJC 01/08/90 *)
   val POLY_SYS_is_short            = 105
   val POLY_SYS_aplus               = 106
   val POLY_SYS_aminus              = 107
@@ -98,6 +98,7 @@ struct
   val POLY_SYS_set_string_length   = 151  (* DCJM 28/2/01 *)
   val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
   val POLY_SYS_poly_specific       = 153  (* DCJM 17/6/06 *)
+  val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_io_operation        = 189
   val POLY_SYS_set_code_constant   = 194  (* DCJM 2/1/01 *)
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)

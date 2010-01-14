@@ -146,6 +146,8 @@ sig
     val testGtFP:  tests
     val testLeqFP: tests
     val testLtFP:  tests
+    val byteVecEq: tests
+    and byteVecNe: tests
 
     type labels (* The source of a jump. *)
 

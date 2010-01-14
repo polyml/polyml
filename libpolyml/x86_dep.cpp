@@ -1700,6 +1700,9 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_poly_specific, codeAddr); /* DCJM 19/6/06 */
     add_word_to_io_area(POLY_SYS_poly_specific, PolyWord::FromCodePtr(codeAddr));
 
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_bytevec_eq, codeAddr);
+    add_word_to_io_area(POLY_SYS_bytevec_eq, PolyWord::FromCodePtr(codeAddr));
+
     add_function_to_io_area(POLY_SYS_move_bytes,       &move_bytes);        /* DCJM 10/10/99 */
     add_function_to_io_area(POLY_SYS_move_words,       &move_words);        /* DCJM 10/10/99 */
     add_function_to_io_area(POLY_SYS_mul_word,         &mul_word);        /* DCJM 10/10/99 */
