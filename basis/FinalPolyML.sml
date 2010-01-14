@@ -374,17 +374,27 @@ local
 
     (* Try to print the appropriate line from the file.  Used in the debugger
        and debug functions. *)
-    fun printSourceLine(fileName: string, line: int, funName: string) =
+    fun printSourceLine(fileName: string, line: int, funName: string, justLocation) =
     let
         open TextIO
+        open PolyML
+        (* Use the pretty printer here because that allows us to provide a link to the
+           function in the markup so the IDE can go straight to it. *)
+        val prettyOut = prettyPrintWithOptionalMarkup (printOut, !lineLength)
+        val lineInfo =
+            concat(
+                (if fileName = "" then [] else [fileName, " "]) @
+                (if line = 0 then [] else [" line:", Int.toString line, " "]) @
+                ["function:", funName])
     in
         (* First just print where we are. *)
-        if fileName = "" then () else printOut(concat[fileName, " "]);
-        if line = 0 then () else printOut(concat[" line:", Int.toString line, " "]);
-        printOut(concat["function:", funName, "\n"]);
+        prettyOut(
+            PrettyBlock(0, true,
+                [ContextLocation{file=fileName,startLine=line, endLine=line,startPosition=0,endPosition=0}],
+                [PrettyString lineInfo]));
         (* Try to print it.  This may fail if the file name was not a full path
            name and we're not in the correct directory. *)
-        if fileName = "" then ()
+        if justLocation orelse fileName = "" then ()
         else
         let
             val fd = openIn fileName
@@ -752,7 +762,7 @@ local
                 val () = breakNext := false;
                 val () =
                     case !stack of
-                        {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName)
+                        {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName, false)
                     |   [] => () (* Shouldn't happen. *)
 
                 val compositeNameSpace = (* Compose any debugEnv with the global environment *)
@@ -1484,7 +1494,7 @@ in
                     val _ = debugLevel := !debugLevel + 1;
                     val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
                 in
-                    printSourceLine(fileName, lineNo, funName)
+                    printSourceLine(fileName, lineNo, funName, false)
                 end
                 else TextIO.print "Top of stack.\n"
             end
@@ -1500,7 +1510,7 @@ in
                     val () = debugLevel := !debugLevel - 1;
                     val {funName, lineNo, fileName, ...} = List.nth(!stack, !debugLevel)
                 in
-                    printSourceLine(fileName, lineNo, funName)
+                    printSourceLine(fileName, lineNo, funName, false)
                 end
             end
 
@@ -1508,11 +1518,7 @@ in
             fun stack () : unit =
             let
                 fun printTrace {funName, lineNo, fileName, ...} =
-                (
-                    if fileName = "" then () else TextIO.print(concat[fileName, " "]);
-                    if lineNo = 0 then () else TextIO.print(concat[" line:", Int.toString lineNo, " "]);
-                    TextIO.print(concat["function:", funName, "\n"])
-                )
+                    printSourceLine(fileName, lineNo, funName, true)
             in
                 List.app printTrace (! (getStack()))
             end
