@@ -475,14 +475,17 @@ struct
     val regs = 14
 
     (* The nth register (counting from 0). *)
-    fun regN i =
-        if i < 0
-        then raise InternalError "Bad register number"
-        else if i < 8
-        then GenReg(Word8.fromInt i)
-        else if i < regs
-        then FPReg(Word8.fromInt(i-8))
-        else raise InternalError "Bad register number"
+    (* Profiling shows that applying the constructors here creates a lot of
+       garbage.  Create the entries once and then use vector indexing instead. *)
+    local
+        fun regN i =
+            if i < 8
+            then GenReg(Word8.fromInt i)
+            else FPReg(Word8.fromInt(i-8))
+        val regVec = Vector.tabulate(regs, regN)
+    in
+        fun regN i = Vector.sub(regVec, i) handle Subscript => raise InternalError "Bad register number"
+    end
  
     (* The number of the register. *)
     fun nReg(GenReg r) = Word8.toInt r
