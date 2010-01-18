@@ -166,7 +166,10 @@ sig
         makeClosure   : bool
     }
 
-    val isSmall : codetree * int -> bool
+    (* Return the "size" of the codetree used as a way of estimating whether to insert
+       the body inline.  If the bool is true this includes the size of sub-functions
+       in the calculation, if false they are excluded. *)
+    val codeSize : codetree * bool -> int
 
     type pretty
     val pretty : codetree -> pretty

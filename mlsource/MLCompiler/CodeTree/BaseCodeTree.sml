@@ -172,16 +172,140 @@ struct
 
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation;
 
+    local
+        open RuntimeCalls
+        val rtsTable =
+            [
+            (POLY_SYS_exit,"POLY_SYS_exit"),
+            (POLY_SYS_chdir,"POLY_SYS_chdir"),
+            (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
+            (POLY_SYS_raisex,"POLY_SYS_raisex"),
+            (POLY_SYS_get_length,"POLY_SYS_get_length"),
+            (POLY_SYS_get_flags,"POLY_SYS_get_flags"),
+            (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
+            (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
+            (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
+            (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
+            (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
+            (POLY_SYS_exception_trace,"POLY_SYS_exception_trace"),
+            (POLY_SYS_give_ex_trace,"POLY_SYS_give_ex_trace"),
+            (POLY_SYS_lockseg,"POLY_SYS_lockseg"),
+            (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
+            (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
+            (POLY_SYS_network,"POLY_SYS_network"),
+            (POLY_SYS_os_specific,"POLY_SYS_os_specific"),
+            (POLY_SYS_io_dispatch,"POLY_SYS_io_dispatch"),
+            (POLY_SYS_signal_handler,"POLY_SYS_signal_handler"),
+            (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
+            (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
+            (POLY_SYS_thread_self,"POLY_SYS_thread_self"),
+            (POLY_SYS_thread_dispatch,"POLY_SYS_thread_dispatch"),
+            (POLY_SYS_kill_self,"POLY_SYS_kill_self"),
+            (POLY_SYS_profiler,"POLY_SYS_profiler"),
+            (POLY_SYS_full_gc,"POLY_SYS_full_gc"),
+            (POLY_SYS_stack_trace,"POLY_SYS_stack_trace"),
+            (POLY_SYS_timing_dispatch,"POLY_SYS_timing_dispatch"),
+            (POLY_SYS_objsize,"POLY_SYS_objsize"),
+            (POLY_SYS_showsize,"POLY_SYS_showsize"),
+            (POLY_SYS_is_short,"POLY_SYS_is_short"),
+            (POLY_SYS_aplus,"POLY_SYS_aplus"),
+            (POLY_SYS_aminus,"POLY_SYS_aminus"),
+            (POLY_SYS_amul,"POLY_SYS_amul"),
+            (POLY_SYS_adiv,"POLY_SYS_adiv"),
+            (POLY_SYS_amod,"POLY_SYS_amod"),
+            (POLY_SYS_aneg,"POLY_SYS_aneg"),
+            (POLY_SYS_xora,"POLY_SYS_xora"),
+            (POLY_SYS_equala,"POLY_SYS_equala"),
+            (POLY_SYS_ora,"POLY_SYS_ora"),
+            (POLY_SYS_anda,"POLY_SYS_anda"),
+            (POLY_SYS_Real_str,"POLY_SYS_Real_str"),
+            (POLY_SYS_Real_geq,"POLY_SYS_Real_geq"),
+            (POLY_SYS_Real_leq,"POLY_SYS_Real_leq"),
+            (POLY_SYS_Real_gtr,"POLY_SYS_Real_gtr"),
+            (POLY_SYS_Real_lss,"POLY_SYS_Real_lss"),
+            (POLY_SYS_Real_eq,"POLY_SYS_Real_eq"),
+            (POLY_SYS_Real_neq,"POLY_SYS_Real_neq"),
+            (POLY_SYS_Real_Dispatch,"POLY_SYS_Real_Dispatch"),
+            (POLY_SYS_Add_real,"POLY_SYS_Add_real"),
+            (POLY_SYS_Sub_real,"POLY_SYS_Sub_real"),
+            (POLY_SYS_Mul_real,"POLY_SYS_Mul_real"),
+            (POLY_SYS_Div_real,"POLY_SYS_Div_real"),
+            (POLY_SYS_Neg_real,"POLY_SYS_Neg_real"),
+            (POLY_SYS_Repr_real,"POLY_SYS_Repr_real"),
+            (POLY_SYS_conv_real,"POLY_SYS_conv_real"),
+            (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
+            (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
+            (POLY_SYS_sqrt_real,"POLY_SYS_sqrt_real"),
+            (POLY_SYS_sin_real,"POLY_SYS_sin_real"),
+            (POLY_SYS_cos_real,"POLY_SYS_cos_real"),
+            (POLY_SYS_arctan_real,"POLY_SYS_arctan_real"),
+            (POLY_SYS_exp_real,"POLY_SYS_exp_real"),
+            (POLY_SYS_ln_real,"POLY_SYS_ln_real"),
+            (POLY_SYS_stdin,"POLY_SYS_stdin"),
+            (POLY_SYS_stdout,"POLY_SYS_stdout"),
+            (POLY_SYS_process_env,"POLY_SYS_process_env"),
+            (POLY_SYS_set_string_length,"POLY_SYS_set_string_length"),
+            (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
+            (POLY_SYS_poly_specific,"POLY_SYS_poly_specific"),
+            (POLY_SYS_bytevec_eq, "POLY_SYS_bytevec_eq"),
+            (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
+            (POLY_SYS_set_code_constant,"POLY_SYS_set_code_constant"),
+            (POLY_SYS_move_words,"POLY_SYS_move_words"),
+            (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
+            (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
+            (POLY_SYS_code_flags,"POLY_SYS_code_flags"),
+            (POLY_SYS_shrink_stack,"POLY_SYS_shrink_stack"),
+            (POLY_SYS_stderr,"POLY_SYS_stderr"),
+            (POLY_SYS_callcode_tupled,"POLY_SYS_callcode_tupled"),
+            (POLY_SYS_foreign_dispatch,"POLY_SYS_foreign_dispatch"),
+            (POLY_SYS_XWindows,"POLY_SYS_XWindows"),
+            (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
+            (POLY_SYS_bytes_per_word,"POLY_SYS_bytes_per_word"),
+            (POLY_SYS_offset_address,"POLY_SYS_offset_address"),
+            (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
+            (POLY_SYS_word_neq,"POLY_SYS_word_neq"),
+            (POLY_SYS_not_bool,"POLY_SYS_not_bool"),
+            (POLY_SYS_string_length,"POLY_SYS_string_length"),
+            (POLY_SYS_int_geq,"POLY_SYS_int_geq"),
+            (POLY_SYS_int_leq,"POLY_SYS_int_leq"),
+            (POLY_SYS_int_gtr,"POLY_SYS_int_gtr"),
+            (POLY_SYS_int_lss,"POLY_SYS_int_lss"),
+            (POLY_SYS_mul_word,"POLY_SYS_mul_word"),
+            (POLY_SYS_plus_word,"POLY_SYS_plus_word"),
+            (POLY_SYS_minus_word,"POLY_SYS_minus_word"),
+            (POLY_SYS_div_word,"POLY_SYS_div_word"),
+            (POLY_SYS_or_word,"POLY_SYS_or_word"),
+            (POLY_SYS_and_word,"POLY_SYS_and_word"),
+            (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
+            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
+            (POLY_SYS_mod_word,"POLY_SYS_mod_word"),
+            (POLY_SYS_word_geq,"POLY_SYS_word_geq"),
+            (POLY_SYS_word_leq,"POLY_SYS_word_leq"),
+            (POLY_SYS_word_gtr,"POLY_SYS_word_gtr"),
+            (POLY_SYS_word_lss,"POLY_SYS_word_lss"),
+            (POLY_SYS_word_eq,"POLY_SYS_word_eq"),
+            (POLY_SYS_load_byte,"POLY_SYS_load_byte"),
+            (POLY_SYS_load_word,"POLY_SYS_load_word"),
+            (POLY_SYS_assign_byte,"POLY_SYS_assign_byte"),
+            (POLY_SYS_assign_word,"POLY_SYS_assign_word")
+            ]
+    in
+        val rtsNames =
+            Vector.tabulate(256,
+                fn n => case List.find(fn (rtsNo, _) => rtsNo=n) rtsTable of
+                    SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
+    end
+
     fun stringOfWord w =
     if isShort w
-    then Word.toString (toShort w)
+    then "LIT" ^ Word.toString (toShort w)
     else if isIoAddress(toAddress w)
     then (* RTS call - print the number. *)
         let
             fun matchIo n =
                 if n = 256 then raise Misc.InternalError "Unknown RTS entry"
                 else if wordEq (w, ioOp n)
-                then " RTS" ^ Int.toString n
+                then Vector.sub(rtsNames, n)
                 else matchIo (n+1)
         in
             matchIo 0
@@ -194,10 +318,10 @@ struct
                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in
             if not (isShort firstWord) andalso isCode(toAddress firstWord)
-            then " (" ^ doCall(105, firstWord) ^ ")" (* Get the function name. *)
-            else "<long>"
+            then doCall(105, firstWord) (* Get the function name. *)
+            else "LIT <long>"
         end
-    else "<long>";
+    else "LIT <long>"
   
     fun pretty (pt : codetree) : pretty =
     let
@@ -366,7 +490,7 @@ struct
                 )
             end
         
-        | Constnt w => PrettyString ("LIT" ^ stringOfWord w)
+        | Constnt w => PrettyString (stringOfWord w)
         
         | Cond triple => printTriad "IF" triple
         
@@ -494,7 +618,7 @@ struct
                     PrettyString ") (*GLOBAL*)"
                 ]
             )
-        
+
         (* That list should be exhaustive! *)
     end (* pretty *)
    
@@ -504,21 +628,55 @@ struct
       
     and optSpecial (OptVal {special,...}) = special
       | optSpecial _                      = CodeNil
-    
-    (* Test whether a piece of code is "small".  This is used to decide whether a function
-       should be made inline.  *)
-    fun isSmall (pt, maxSize) = 
+
+
+    (* Map a function over the code-tree creating a new code tree from the results. *)
+    (* Not currently used so it's commented out. *)
+(*    fun mapCodeTreeNode _CodeNil = CodeNil
+    |   mapCodeTreeNode _ MatchFail = MatchFail
+    |   mapCodeTreeNode f (AltMatch(m1, m2)) = AltMatch(f m1, f m2)
+    |   mapCodeTreeNode f (Declar {value, addr, references}) =
+            Declar{value=f value, addr=addr, references=references}
+    |   mapCodeTreeNode f (Newenv cl) = Newenv(map f cl)
+    |   mapCodeTreeNode _ (c as Constnt _) = c
+    |   mapCodeTreeNode _ (c as Extract _) = c
+    |   mapCodeTreeNode f (Indirect{base, offset}) = Indirect{base=f base, offset=offset}
+    |   mapCodeTreeNode f (Eval{function, argList, resultType, earlyEval}) =
+            Eval{function=f function, argList=map(fn(c, t) => (f c, t)) argList,
+                 resultType=resultType, earlyEval=earlyEval}
+    |   mapCodeTreeNode f
+            (Lambda{ body, isInline, name, closure, argTypes, resultType, level, closureRefs, makeClosure}) =
+            Lambda{ body=f body, isInline=isInline, name=name, closure=closure, argTypes=argTypes,
+                    resultType=resultType, level=level, closureRefs=closureRefs, makeClosure=makeClosure}
+    |   mapCodeTreeNode f (MutualDecs decs) = MutualDecs(map f decs)
+    |   mapCodeTreeNode f (Cond(c, t, e)) = Cond(f c, f t, f e)
+    |   mapCodeTreeNode f (Case{cases, test, caseType, default}) =
+            Case{cases = map (fn (c, w) => (f c, w)) cases, test=f test, caseType=caseType, default=f default}
+    |   mapCodeTreeNode f (BeginLoop(c, l)) = BeginLoop(f c, map(fn(c, t) => (f c, t)) l)
+    |   mapCodeTreeNode f (Loop l) = Loop(map(fn(c, t) => (f c, t)) l)
+    |   mapCodeTreeNode f (Raise c) = Raise(f c)
+    |   mapCodeTreeNode _ Ldexc = Ldexc
+    |   mapCodeTreeNode f (Handle{exp, taglist, handler}) = Handle{exp=f exp, taglist = map f taglist, handler=f handler}
+    |   mapCodeTreeNode f (Recconstr l) = Recconstr(map f l)
+    |   mapCodeTreeNode _ (c as Container _) = c
+    |   mapCodeTreeNode f (SetContainer{container, tuple, size}) =
+            SetContainer{container=f container, tuple=f tuple, size=size}
+    |   mapCodeTreeNode f (TupleFromContainer(c, s)) = TupleFromContainer(f c, s)
+    |   mapCodeTreeNode f (TagTest{test, tag, maxTag}) = TagTest{test=f test, tag=tag, maxTag=maxTag}
+    |   mapCodeTreeNode _ (Global _) = raise Misc.InternalError "mapCodeTreeNode: Global"*)
+   
+    (* Return the "size" of a piece of code. *)
+    fun codeSize (pt, includeSubfunctions) = 
     let
-        fun sizeList [] = 0
-        |   sizeList (c::cs) = size c + sizeList cs
-        
+        fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
+
         and sizeCaseList []           = 0
         |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
 
         and sizeOptVal (OptVal {general,...})       = size general 
         |   sizeOptVal (ValWithDecs {general, ...}) = size general
         |   sizeOptVal (JustTheVal ct)              = size ct
-        
+
         (* some very rough size estimates *)
         and size pt =
             case pt of
@@ -530,7 +688,7 @@ struct
             | Constnt w                       => if isShort w then 0 else 1
             | Extract _                       => 1  (* optimistic *)
             | Indirect {base,...}             => size base + 1
-            | Lambda {body, argTypes, ...}    => size body + List.length argTypes
+            | Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
             | Eval {function,argList,...}     => size function + sizeList(List.map #1 argList) + 2
             | MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
             | Cond (i,t,e)                    => size i + size t + size e + 2
@@ -549,14 +707,8 @@ struct
             | TagTest { test, ... }           => 1 + size test
             | Case {test,default,cases,...}   =>
                 size test + size default + sizeCaseList cases
-            ;
         in
-        (* We previously treated functions which only contained Lambdas as always small.
-           I've now taken that out because it caused the code to blow up if the Lambda
-           turned out to be a large function (e.g. fun f x = fn y => ...BIGCODE...).
-           There may be a case for lifting the inner lambda out much as we already do
-           with fun declarations but this needs to be done in the front end.  DCJM 14/3/02.  *)
-        size pt < maxSize
+        size pt
     end;
 
     structure Sharing =

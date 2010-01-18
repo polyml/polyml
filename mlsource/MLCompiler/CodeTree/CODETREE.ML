@@ -2154,7 +2154,7 @@ DCJM 2000.
 (*                  optimiseProc                                             *)
 (*****************************************************************************)
   fun optimiseProc
-    (pt : codetree,
+    {pt : codetree,
      lookupNewAddr : loadForm * int * int -> optVal,
      lookupOldAddr : loadForm * int * int -> optVal,
      enterDec : int * optVal -> unit,
@@ -2166,7 +2166,7 @@ DCJM 2000.
      tailCallEntry: bool ref option,
      recursiveExpansions:
         (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
-     maxInlineSize: int) =
+     maxInlineSize: int, forceInline: bool} =
   (* earlyInline is true if we are expanding a procedure declared 
      "early inline". *)
   (* spval is the Declaration counter. Normally ref(1) except when expanding
@@ -2499,18 +2499,19 @@ DCJM 2000.
 
                  in
                      optimiseProc 
-                      (lambdaBody,
-                       lookupLocalNewAddr,
-                       lookupDec, 
-                       setTabForInline,
-                       setNewTabForInline,
-                       nestingOfThisProcedure,
-                       spval,
-                       earlyInline orelse earlyEval,
-                       evaluate,
-                       tailCall,
-                       recursiveExpansions,
-                       maxInlineSize)
+                      {pt=lambdaBody,
+                       lookupNewAddr=lookupLocalNewAddr,
+                       lookupOldAddr=lookupDec, 
+                       enterDec=setTabForInline,
+                       enterNewDec=setNewTabForInline,
+                       nestingOfThisProcedure=nestingOfThisProcedure,
+                       spval=spval,
+                       earlyInline=earlyInline orelse earlyEval,
+                       evaluate=evaluate,
+                       tailCallEntry=tailCall,
+                       recursiveExpansions=recursiveExpansions,
+                       maxInlineSize=maxInlineSize,
+                       forceInline=false}
                   end
 
                 else (* It's a "small" function. *)
@@ -2692,18 +2693,19 @@ DCJM 2000.
 
                         val copiedBody =
                              optimiseProc 
-                              (lambdaBody,
-                               localNewAddr,
-                               prev, 
-                               setTab,
-                               setNewTab,
-                               nesting,
-                               ref 1,
-                               earlyInline orelse earlyEval,
-                               evaluate,
-                               NONE, (* Don't generate loop instructions. *)
-                               (filterArgs, foptRec) :: recursiveExpansions,
-                               maxInlineSize)
+                              {pt=lambdaBody,
+                               lookupNewAddr=localNewAddr,
+                               lookupOldAddr=prev, 
+                               enterDec=setTab,
+                               enterNewDec=setNewTab,
+                               nestingOfThisProcedure=nesting,
+                               spval=ref 1,
+                               earlyInline=earlyInline orelse earlyEval,
+                               evaluate=evaluate,
+                               tailCallEntry=NONE, (* Don't generate loop instructions. *)
+                               recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
+                               maxInlineSize=maxInlineSize,
+                                forceInline=false}
 
                         val newModCount = countSet()
                     in
@@ -2769,18 +2771,18 @@ DCJM 2000.
 
                         val copiedBody =
                              optimiseProc 
-                              (lambdaBody,
-                               lookupLocalNewAddr,
-                               prev, 
-                               setTabForInline,
-                               setNewTabForInline,
-                               nestingOfThisProcedure,
-                               spval,
-                               earlyInline orelse earlyEval,
-                               evaluate,
-                               SOME foptRec,
-                               (filterArgs, foptRec) :: recursiveExpansions,
-                               maxInlineSize)
+                              {pt=lambdaBody,
+                               lookupNewAddr=lookupLocalNewAddr,
+                               lookupOldAddr=prev, 
+                               enterDec=setTabForInline,
+                               enterNewDec=setNewTabForInline,
+                               nestingOfThisProcedure=nestingOfThisProcedure,
+                               spval=spval,
+                               earlyInline=earlyInline orelse earlyEval,
+                               evaluate=evaluate,
+                               tailCallEntry=SOME foptRec,
+                               recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
+                               maxInlineSize=maxInlineSize, forceInline=forceInline}
                     in
                         if ! needsRecursiveCall
                         then (* We need a fully recursive call. *)
@@ -2879,6 +2881,11 @@ DCJM 2000.
           (* A new table for the new procedure. *)
           val oldAddrTab = stretchArray (initTrans, NONE);
           val newAddrTab = stretchArray (initTrans, NONE);
+
+          (* If this function itself is small, but possibly with large functions inside, force
+             the inner functions to be inline.  This effectively pushes this function into
+             the inner functions. I'm not entirely sure about this. *)
+          val isSmallWrapper = codeSize(lambdaBody, false) < maxInlineSize
           
           fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
               (* local declaration or argument. *)
@@ -2923,18 +2930,18 @@ DCJM 2000.
 
           val newCode =
              optimiseProc 
-               (lambdaBody,
-                localNewAddr,
-                localOldAddr, 
-                setTab,
-                setNewTab,
-                nesting,
-                ref 1,
-                false,
-                evaluate,
-                NONE,
-                recursiveExpansions,
-                maxInlineSize);
+               {pt=lambdaBody,
+                lookupNewAddr=localNewAddr,
+                lookupOldAddr=localOldAddr, 
+                enterDec=setTab,
+                enterNewDec=setNewTab,
+                nestingOfThisProcedure=nesting,
+                spval=ref 1,
+                earlyInline=false,
+                evaluate=evaluate,
+                tailCallEntry=NONE,
+                recursiveExpansions=recursiveExpansions,
+                maxInlineSize=maxInlineSize, forceInline=isSmallWrapper}
 
           (* nonLocals - a list of the non-local references made by this
              function.  If this is empty the function can be code-generated
@@ -3052,10 +3059,11 @@ DCJM 2000.
                         possible we're going to apply the function immediately and in
                         that case it's worth inlining it anyway. *)
               let
-                  val inlineType =
-                    if lambdaInline = NonInline andalso isSmall(cleanedBody, maxInlineSize)
-                    then SmallFunction
-                    else lambdaInline
+                    val inlineType =
+                        if lambdaInline = NonInline
+                        then if forceInline orelse (* Is it small? *) codeSize(cleanedBody, true) < maxInlineSize
+                        then SmallFunction else NonInline
+                        else lambdaInline
 
                   val copiedLambda =
                     Lambda 
@@ -3123,11 +3131,11 @@ DCJM 2000.
                 set of declarations followed by an expression. *)
              val _ =
                 optimiseProc 
-                  (mkEnv(List.map #1 args @ [body]), lookupNewAddr, lookupOldAddr,
-                   enterDec, enterNewDec, nestingOfThisProcedure,
-                   spval, earlyInline, evaluate, SOME foptRec,
-                   (filterArgs, foptRec) :: recursiveExpansions,
-                   maxInlineSize)
+                  {pt=mkEnv(List.map #1 args @ [body]), lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
+                   enterDec=enterDec, enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure,
+                   spval=spval, earlyInline=earlyInline, evaluate=evaluate, tailCallEntry=SOME foptRec,
+                   recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
+                   maxInlineSize=maxInlineSize, forceInline=forceInline}
         in
             if not (! loops)
             then (* The Loop instructions have been optimised away.  Since there's
@@ -3152,9 +3160,11 @@ DCJM 2000.
                  val declArgs = map declArg args
                  val beginBody =
                     optimiseProc 
-                      (body, lookupNewAddr, lookupOldAddr, enterDec, enterNewDec,
-                       nestingOfThisProcedure, spval, earlyInline, evaluate, SOME foptRec,
-                       (filterArgs, foptRec) :: recursiveExpansions, maxInlineSize)
+                      {pt=body, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
+                       enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure, spval=spval,
+                       earlyInline=earlyInline, evaluate=evaluate, tailCallEntry=SOME foptRec,
+                       recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
+                       maxInlineSize=maxInlineSize, forceInline=forceInline}
             in
                 simpleOptVal (BeginLoop (getGeneral beginBody, declArgs))
             end
@@ -3738,18 +3748,18 @@ DCJM 2000.
                 val specEntry = findEntryInBlock spec offset;
                 val newCode =
                  optimiseProc 
-                   (specEntry,
-                    errorEnv, (* We must always look up old addresses. *)
-                    optEnviron source,
-                    enterDec, (* should not be used *)
-                    enterNewDec, (* should not be used *)
-                    nestingOfThisProcedure,
-                    spval,
-                    earlyInline,
-                    evaluate,
-                    NONE,
-                    recursiveExpansions,
-                    maxInlineSize);
+                   {pt=specEntry,
+                    lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
+                    lookupOldAddr=optEnviron source,
+                    enterDec=enterDec, (* should not be used *)
+                    enterNewDec=enterNewDec, (* should not be used *)
+                    nestingOfThisProcedure=nestingOfThisProcedure,
+                    spval=spval,
+                    earlyInline=earlyInline,
+                    evaluate=evaluate,
+                    tailCallEntry=NONE,
+                    recursiveExpansions=recursiveExpansions,
+                    maxInlineSize=maxInlineSize, forceInline=forceInline}
             in
               optVal 
                 {
@@ -4011,18 +4021,10 @@ DCJM 2000.
 
       val resultCode =
           optimiseProc
-            (pt,
-             lookupNewAddr,
-             lookupOldAddr,
-             enterDec,
-             enterNewDec,
-             0, (* nesting *)
-             ref 1,
-             false, (*Not inline*)
-             eval,
-             NONE,
-             [],
-             maxInlineSize)
+            {pt=pt, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
+             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=ref 1, earlyInline=false,
+             evaluate=eval, tailCallEntry=NONE, recursiveExpansions=[], maxInlineSize=maxInlineSize,
+             forceInline=false}
     in
         (* Turn the arrays into vectors. *)
         StretchArray.freeze oldAddrTab;
