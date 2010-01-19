@@ -896,7 +896,7 @@ struct
   |  codeVal (Value{access = Formal _, ...}, _, _, _, _, _) =
           raise InternalError "codeVal - Formal"
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, _, [], lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, _, _, [], lex, _) =
         (* If this appears in a structure return a null printer function.
            It has to have the polymorphic form with an extra lambda outside. *)
         let
@@ -916,8 +916,8 @@ struct
                             false),
                         arg1 (* Returns its argument. *)
                     ],
-                    level+1, 1, "print()"),
-                level, 1, "print(P)")
+                    1, "print()"),
+                1, "print(P)")
         end
 
   |  codeVal (Value{access = Overloaded Print, ...}, level, typeVarMap, [argType], lex, _) =
@@ -948,17 +948,17 @@ struct
                         false),
                     arg1 (* Returns its argument. *)
                 ],
-                level, 1, "print()")
+                1, "print()")
         end
 
   |  codeVal (Value{access = Overloaded Print, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded Print - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, _, [], _, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, [], _, _) =
         (* If this appears in a structure produce a default version. *)
             mkInlproc(
-                mkProc(mkConst(toMachineWord "?"), level+1, 1, "makestring()"),
-                level, 1, "makestring(P)")
+                mkProc(mkConst(toMachineWord "?"), 1, "makestring()"),
+                1, "makestring(P)")
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, level, typeVarMap, [argType], _, _) =
         (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
@@ -974,14 +974,14 @@ struct
                         false)
                 ],
                 false),
-            level, 1, "makestring()")
+            1, "makestring()")
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded MakeString - wrong instance type"
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [], _, _) =
         (* If this appears in a structure return a default function. *)
-        mkProc(printerForType(badType, level+1, typeVarMap), level, 1, "getPretty")
+        mkProc(printerForType(badType, level+1, typeVarMap), 1, "getPretty")
 
   |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [argType], _, _) =
        (* Get the pretty code for the specified argument. *)
@@ -990,12 +990,12 @@ struct
   |  codeVal (Value{access = Overloaded GetPretty, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded GetPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [], _, _) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, [], _, _) =
         (* If this appears in a structure create a function that raises an exception if run. *)
         mkProc(
             mkConst (toMachineWord
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
-            level, 1, "AddPretty(P)")
+            1, "AddPretty(P)")
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [installType, argPrints], lex, loc) =
         let 
@@ -1088,7 +1088,7 @@ struct
                                                     [mkInd(1, arg1)] (* The depth *), false),
                                                 [CodeZero], (* Ignored args. *) false),
                                             [mkInd(0, arg1)] (* Value to print *), false),
-                                        level+1, 1, "addPP-1")
+                                        1, "addPP-1")
 
                             |   arity =>
                                 let
@@ -1107,8 +1107,8 @@ struct
                                                         [mkInd(1, arg1)] (* The depth *), false),
                                                     args, (* Base fns. *) false),
                                                 [mkInd(0, arg1)] (* Value to print *), false),
-                                            level+2, arity, "addPP-2"),
-                                        level+1, 1, "addPP-1")
+                                            arity, "addPP-2"),
+                                        1, "addPP-1")
                                 end
                     in
                         (* Generate a function that will set the "print" ref for the type to
@@ -1118,7 +1118,7 @@ struct
                                 rtsFunction POLY_SYS_assign_word,
                                 [TypeValue.extractPrinter(
                                     codeAccess(idAccess typeId, level+1)), CodeZero, printFunction],
-                                false), level, 1, "addPP")
+                                false), 1, "addPP")
                     end
 
             |   NONE =>
@@ -1129,11 +1129,11 @@ struct
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded AddPretty - wrong instance type"
 
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, level, _, [], _, _) =
+  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, [], _, _) =
         mkProc(
             mkConst (toMachineWord
                         (fn _ => raise Fail "installPP: The argument type was not a simple type construction")),
-            level, 1, "InstallPP(P)")
+            1, "InstallPP(P)")
 
   |  codeVal (Value{access = Overloaded InstallPP, typeOf, name, class, locations, references, instanceTypes, ...},
               level, typeVarMap, [installType, argPrints], lex, loc) =
@@ -1261,7 +1261,7 @@ struct
                                   locations=locations, references=references, instanceTypes=instanceTypes},
                             level+1, typeVarMap, [installType, argPrints], lex, loc),
                     [mkEval(mkConst(toMachineWord createPretty), [arg1], false)], false),
-                level+1, 1, "installPP")
+                1, "installPP")
         end
 
   |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, _, _, _) =
@@ -1278,9 +1278,7 @@ struct
 
   |  codeVal (value as Value{access = Overloaded _, ...}, level, typeVarMap, instance, lex, lineno) =
        (* AddOverload, Equal, NotEqual, TypeDep *)
-         mkProc
-           (applyFunction (value, arg1, level+1, typeVarMap, instance, lex, lineno),
-           level, 1, "")
+         mkProc(applyFunction (value, arg1, level+1, typeVarMap, instance, lex, lineno), 1, "")
      (* codeVal *)
 
  (* Some of these have a more efficient way of calling them as functions. *)
@@ -1435,7 +1433,7 @@ struct
     |   SOME _ =>
             mkProc 
               (applyFunction (value, arg1, level + 1, typeVarMap, instance, lex, lineno),
-                1, 1, ""); (* shouldn't this function be in-lined??? SPF 20/10/94 *)
+                1, ""); (* shouldn't this function be in-lined??? SPF 20/10/94 *)
 
     (* Operations to compile code from the representation of a constructor. *)
     (* Code to test whether a value matches a constructor.

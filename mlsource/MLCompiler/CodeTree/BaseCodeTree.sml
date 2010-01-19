@@ -77,7 +77,8 @@ struct
             default : codetree
         }
     
-    | BeginLoop of codetree * (codetree * argumentType) list(* Start of tail-recursive inline function. *)
+    | BeginLoop of (* Start of tail-recursive inline function. *)
+        { loop: codetree, arguments: (codetree * argumentType) list, kills: codetree list }
 
     | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
@@ -165,6 +166,7 @@ struct
         resultType    : argumentType,
         level         : int,
         closureRefs   : int,
+        localCount    : int,
         makeClosure   : bool
     };
 
@@ -457,7 +459,8 @@ struct
                 )
             end
         
-        | Lambda {body, isInline, name, closure, argTypes, level, closureRefs, makeClosure, resultType} =>
+        | Lambda {body, isInline, name, closure, argTypes, level, closureRefs,
+                  makeClosure, resultType, localCount} =>
             let
                 val inl = 
                     case isInline of
@@ -478,6 +481,7 @@ struct
                         PrettyString ( "CL="  ^ Bool.toString makeClosure),
                         PrettyString (" CR="  ^ Int.toString closureRefs),
                         PrettyString (" LEV=" ^ Int.toString level),
+                        PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
                         PrettyBreak(1, 0),
@@ -496,7 +500,7 @@ struct
         
         | Newenv ptl => printList ("BLOCK", ptl, ";")
         
-        | BeginLoop(loopExp, args) =>
+        | BeginLoop{loop=loopExp, arguments=args, kills } =>
             PrettyBlock (3, false, [],
                 [
                     prettyArgs("BEGINLOOP", args, ","),
@@ -505,6 +509,8 @@ struct
                     PrettyBreak (0, 0),
                     pretty loopExp,
                     PrettyBreak (0, 0),
+                    PrettyBreak (0, 0),
+                    printList (" KILL=", kills, ","),
                     PrettyString ")"
                 ]
             )
@@ -692,7 +698,7 @@ struct
             | Eval {function,argList,...}     => size function + sizeList(List.map #1 argList) + 2
             | MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
             | Cond (i,t,e)                    => size i + size t + size e + 2
-            | BeginLoop (b, args)             => size b + sizeList(List.map #1 args)
+            | BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
             | Loop args                       => sizeList(List.map #1 args) + 1
             | Raise c                         => size c + 1
             | Ldexc                           => 1

@@ -133,7 +133,7 @@ struct
                 fun getFields i =
                     if i < n then mkInd (i, arg1) :: getFields (i + 1) else [];
             in  
-                mkInlproc (mkTuple (mkTag tag :: getFields 0), 0, 1, name)
+                mkInlproc (mkTuple (mkTag tag :: getFields 0), 1, name)
             end;
 
             fun tagTupleApplyCode (tag: word, n:int, arg:codetree) : codetree =
@@ -194,7 +194,7 @@ struct
                 (* copy n data fields out of tagged record *)
                 fun getFields i = if i <= n then mkInd (i, arg1) :: getFields (i + 1) else [];
     
-                val proc = mkInlproc (mkTuple (getFields 1), 0, 1, "")
+                val proc = mkInlproc (mkTuple (getFields 1), 1, "")
             in  
                 mkEval (proc, [arg], true)
             end;
@@ -227,7 +227,7 @@ struct
 
         fun createNullaryConstructor (test, [], name) = (* Monotype *)
                 createNullaryConstr{
-                    testMatch = mkInlproc(constrMatch(test, arg1), 0, 1, name), (* Test function. *)
+                    testMatch = mkInlproc(constrMatch(test, arg1), 1, name), (* Test function. *)
                     constrValue = constrApply(test, CodeZero) (* Value. *)}
 
         |   createNullaryConstructor (test, tvs, name): codetree =
@@ -235,24 +235,24 @@ struct
                 val numTypes = List.length tvs
             in
                 createNullaryConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, 1, name), 0, numTypes, name),
-                    constrValue = mkInlproc(constrApply(test, CodeZero), 0, numTypes, name)}
+                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, name), numTypes, name),
+                    constrValue = mkInlproc(constrApply(test, CodeZero), numTypes, name)}
             end
     
         fun createUnaryConstructor(test: representations, [], name: string): codetree =
                 createValueConstr{
-                    testMatch = mkInlproc(constrMatch(test, arg1), 0, 1, name), (* Test function. *)
-                    injectValue = mkInlproc(constrApply(test, arg1), 0, 1, name), (* Injection function. *)
-                    projectValue = mkInlproc(constrDestruct(test, arg1), 0, 1, name) (* Projection function. *)}
+                    testMatch = mkInlproc(constrMatch(test, arg1), 1, name), (* Test function. *)
+                    injectValue = mkInlproc(constrApply(test, arg1), 1, name), (* Injection function. *)
+                    projectValue = mkInlproc(constrDestruct(test, arg1), 1, name) (* Projection function. *)}
 
         |   createUnaryConstructor(test: representations, tvs, name: string): codetree =
             let
                 val numTypes = List.length tvs
             in
                 createValueConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, 1, name), 0, numTypes, name),
-                    injectValue = mkInlproc(mkInlproc(constrApply(test, arg1), 1, 1, name), 0, numTypes, name),
-                    projectValue = mkInlproc(mkInlproc(constrDestruct(test, arg1), 1, 1, name), 0, numTypes, name)}
+                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, name), numTypes, name),
+                    injectValue = mkInlproc(mkInlproc(constrApply(test, arg1), 1, name), numTypes, name),
+                    projectValue = mkInlproc(mkInlproc(constrDestruct(test, arg1), 1, name), numTypes, name)}
             end
     end;
 
@@ -443,7 +443,7 @@ struct
                         chooseOptimisedRepr2(0w0, tvs, l) (* can use tagged tuples *)
                     end
             end;
-        fun makeFun c = mkInlproc(c, 0, List.length tvs, "boxed/size")
+        fun makeFun c = mkInlproc(c, List.length tvs, "boxed/size")
         val (boxed, size) =
             case tvs of
                 [] => (* Monotype *) (TypeValue.boxedEither, TypeValue.singleWord)
@@ -534,8 +534,8 @@ struct
             val consRepresentation = createUnaryConstructor(UnboxedForm, [alpha], "::")
         in
             ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
-            mkInlproc(TypeValue.boxedEither, 0, 1, "boxed-list"),
-            mkInlproc(TypeValue.singleWord, 0, 1, "size-list"))
+            mkInlproc(TypeValue.boxedEither, 1, "boxed-list"),
+            mkInlproc(TypeValue.singleWord, 1, "size-list"))
         end
     in
         val listConstr =
@@ -563,8 +563,8 @@ struct
             and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
             ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],
-             mkInlproc(TypeValue.boxedEither, 0, 1, "boxed-option"),
-             mkInlproc(TypeValue.singleWord, 0, 1, "size-option"))
+             mkInlproc(TypeValue.boxedEither, 1, "boxed-option"),
+             mkInlproc(TypeValue.singleWord, 1, "size-option"))
         end
     in
         val optionConstr=

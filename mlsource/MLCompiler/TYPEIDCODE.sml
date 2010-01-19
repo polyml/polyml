@@ -190,9 +190,9 @@ struct
                will never be called.  We may have to construct dummy type values
                by applying a polymorphic type constructor to them and if
                they don't have the right form the optimiser will complain. *)
-            val errorFunction1 = mkProc(CodeZero, 0, 1, "errorCode1")
-            and errorFunction2 = mkProc(CodeZero, 0, 2, "errorCode2")
-            val codeFn = mkProc(codePrettyString "fn", 0, 1, "print-function")
+            val errorFunction1 = mkProc(CodeZero, 1, "errorCode1")
+            and errorFunction2 = mkProc(CodeZero, 2, "errorCode2")
+            val codeFn = mkProc(codePrettyString "fn", 1, "print-function")
 
             local
                 fun typeValForMonotype typConstr =
@@ -204,7 +204,7 @@ struct
                             mkEval(
                                 mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
                                 [arg1], false),
-                            0, 1, "print-" ^ tcName typConstr)
+                            1, "print-" ^ tcName typConstr)
                 in
                     createTypeValue{
                         eqCode=extractEquality codedId, printCode=printFn,
@@ -416,7 +416,7 @@ struct
                                         mkEval(
                                             mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
                                             [arg1], false),
-                                        level+1, 1, "print-"^name)
+                                        1, "print-"^name)
                             |   _ =>  (* Construct a function, that when called, will extract the
                                          function from the reference and apply it first to the
                                          base printer functions and then to the pair of the value and depth. *)
@@ -426,11 +426,11 @@ struct
                                                 mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
                                                 argList, false),
                                             [arg1], false),
-                                        level+1, 1, "print-"^name)
+                                        1, "print-"^name)
                         end
 
                 |   LabelledType { recList=[], ...} =>
-                        (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 0, 1, "print-labelled")
+                        (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled")
 
                 |   LabelledType { recList, frozen, ...} =>
                     let
@@ -484,12 +484,12 @@ struct
                         mkProc(
                             codePrettyBlock(1, false, [],
                                 mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(recList, 0, 0)]),
-                            localLevel, 1, "print-labelled")
+                            1, "print-labelled")
                     end
 
                 |   FunctionType _ => raise InternalError "printerForType: should have been handled"
  
-                |   _ => mkProc(codePrettyString "<empty>", 0, 1, "print-empty")
+                |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty")
             )
     in
         printCode(ty, baseLevel)
@@ -579,7 +579,7 @@ struct
                             end
                         val tupleCode = combineEntries(recList, 0)
                      in
-                        mkProc(tupleCode, newLevel, 2, "eq{...}(2)")
+                        mkProc(tupleCode, 2, "eq{...}(2)")
                     end
 
                 |   _ => raise InternalError "Equality for function"
@@ -713,11 +713,11 @@ struct
                  |  _ => (* More than one constructor: should never be zero. *)
                         mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
             val eqFun =
-                mkProc(eqCode, baseLevel+polyAdd, 2, "eq-" ^ tcName tyConstr ^ "(2)")
+                mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")
             val code =
                 if polyAdd = 0
                 then eqFun
-                else mkProc(mkEnv(getCachedTypeValues argTypeMap @ [eqFun]), baseLevel, nTypeVars, "equality()")
+                else mkProc(mkEnv(getCachedTypeValues argTypeMap @ [eqFun]), nTypeVars, "equality()")
         in
             mkDec(addr, code)
         end
@@ -836,10 +836,10 @@ struct
     in
         (* Wrap this in the functions for the base types. *)
         if null argTypes
-        then mkProc(printerCode, level+1, 1, "print-"^name)
+        then mkProc(printerCode, 1, "print-"^name)
         else mkProc(mkEnv(getCachedTypeValues newTypeVarMap @
-                            [mkProc(printerCode, level+2, 1, "print-"^name)]),
-                    level+1, List.length argTypes, "print"^name^"()")
+                            [mkProc(printerCode, 1, "print-"^name)]),
+                    List.length argTypes, "print"^name^"()")
     end    
 
     (* Get the boxedness status for a type i.e. whether values of the type are always addresses,
@@ -976,7 +976,7 @@ struct
                     (* Wrap this in a function for the type arguments. *)
                     mkProc(
                         mkEnv(getCachedTypeValues argTypeMap @ [printCode]),
-                        level, nArgs, "print-helper()")
+                        nArgs, "print-helper()")
                 end
 
             val eqCode =
@@ -992,7 +992,7 @@ struct
 
                         val innerFnCode = makeEq(resType, level+1, getEqFnForID, argTypeMap)
                     in
-                        mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), level, nArgs, "equality()")
+                        mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "equality()")
                     end
             val boxedCode =
                 let
@@ -1003,7 +1003,7 @@ struct
                     val innerFnCode =
                         boxednessForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                 in
-                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), level, nArgs, "boxedness()")
+                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "boxedness()")
                 end
         in
             mkEnv(
@@ -1016,7 +1016,7 @@ struct
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          printCode],
                     false),
-                    sizeCode = mkInlproc(singleWord, level, nArgs, "size()") 
+                    sizeCode = mkInlproc(singleWord, nArgs, "size()") 
                 }])
         end
 
@@ -1099,7 +1099,7 @@ struct
     in
         (* We need to wrap this up in a new inline function. *)
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)], true),
-                  level, 1, "equality")
+                  1, "equality")
     end
 
     (* This code is used when the type checker has to construct a unique monotype
@@ -1109,7 +1109,7 @@ struct
     let
         open TypeValue
         fun monotypePrinter _ = PRETTY.PrettyString "?"
-        val alwaysTrue = mkProc(CodeTrue, 0, 2, "codeForUniqueId-equal")
+        val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal")
     in
         createTypeValue{
             eqCode = alwaysTrue, printCode = mkConst (toMachineWord (ref monotypePrinter)),
@@ -1155,9 +1155,9 @@ struct
                                    is side-effect free.  Maybe use the "early" flag?  *)
                                 mkInlproc(
                                     mkEval(makeEq(t, decLevel+1, getEqFnForID, polyVarMap), [arg2, arg1], true),
-                                    decLevel+1, 2, "extra-equality")
+                                    2, "extra-equality")
                             end
-                            else mkProc(CodeZero, 0, 2, "errorCode")
+                            else mkProc(CodeZero, 2, "errorCode")
                         val boxedCode =
                             boxednessForType(t, decLevel, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
                     in

@@ -1,5 +1,9 @@
 (*
-    Copyright David C. J. Matthews 1991, 2009
+    Copyright David C. J. Matthews 1991, 2009-10
+
+    Title:      General purpose code generator.
+    Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
+    Copyright   D.C.J. Matthews 1991
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -18,26 +22,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(*
-    Title:      General purpose code generator.
-    Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
-    Copyright   D.C.J. Matthews 1991
-*)
-
-(* Code is generated into a vector which is handled largely by the
-   "codecons" module, and then copied into a vector of the correct size when
-   complete.
-   There are two kinds of linkage conventions according to whether a procedure
-   requires a closure or only a static link. Procedures with no non-local
-   references are considered as closure calls but are optimised by combining
-   the closure into the code itself.
-
-  Note that the garbage collector assumes that all registers contain either
-  numbers (tagged) or valid addresses (the word before contains
-  length and flags).
-*)
-
 
 functor GENERATE_CODE (
     structure CODECONS : CODECONSSIG
@@ -116,7 +100,7 @@ struct
                 |   whereto => whereto
             )
 
-    fun codeToCgType GeneralType = ArgGeneral| codeToCgType FloatingPtType = ArgFP
+    fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
 
     (* Code generate a procedure or global declaration *)
     fun codegen
@@ -137,7 +121,98 @@ struct
         fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
         (* make the translation table *)
-        val transtable = ttabCreate debugSwitches;
+        val transtable = ttabCreate debugSwitches
+
+        (* Calculate the end-points for declarations.  The final declaration of each identifier is
+           added to the list and the position is incremented.  It is is essential that this traverses
+           the list in the same way as the code-generator. *)
+(*        fun declarationEndPoints code =
+        let
+            fun dep(Extract{addr, lastRef=true, fpRel=true, ...}, (posn, list)) =
+                    (* This is the last reference to a local or a parameter. *)
+                    if addr = 0 then raise InternalError "dep: zero address"
+                    else (posn+1, (addr, posn) :: list)
+
+            |   dep(Extract{lastRef=true, fpRel=false, ...}, (posn, list)) =
+                    (* This is the last reference to the closure (if it hasn't already been discarded). *)
+                    (posn+1, (0, posn)  :: list)
+
+            |   dep(AltMatch(a, b), pl) = (* TODO: Should these be treated as parallel? *)
+                    dep(b, dep(a, pl))
+
+            |   dep(Declar{value, ...}, pl) =
+                    dep(value, pl)
+
+            |   dep(Newenv cl, pl) = List.foldl dep pl cl
+
+            |   dep(Indirect{base, ...}, pl) =
+                    dep(base, pl)
+
+            |   dep(Lambda{makeClosure=true, closure, ...}, pl) =
+                    (* A function with a real closure: the items are loaded when the function is declared. *)
+                    List.foldl dep pl closure
+
+            |   dep(Lambda{makeClosure=false, closure, ...}, pl) =
+                    (* A static-link function.  Any declarations in the closure must be pushed before
+                       the function can be called.  We set the positions to zero to indicate that
+                       they should be pushed immediately.  This applies whether this is actually
+                       the last apparent reference or not.  Actually the real last reference could
+                       be as the result of the call to this function.  *)
+                let
+                    fun doSl(Extract{addr, fpRel=true, ...}, (posn, list)) = (posn, (addr, 0)::list)
+                    |   doSl(_, pl) = pl
+                in
+                    List.foldl doSl pl closure
+                end
+
+            |   dep(Eval{function,argList,...}, pl) =
+                    List.foldl (fn ((a, _), pl) => dep(a, pl))
+                        (dep(function, pl)) argList
+
+            |   dep(MutualDecs decs, pl) = List.foldl dep pl decs
+
+            |   dep(Cond(i, t, e), pl) =
+                let
+                    val (pos, l1) = dep(i, pl)
+                    (* These are done in parallel.  If either branch contains the last reference to a
+                       declaration there should also be one in the other branch.  There may also
+                       be local declarations in either arm.
+                       I'm not entirely happy with this.  We don't distinguish Extract entries that
+                       are only there as kill entries from those that are actually after some real
+                       code because we only count kill entries in calculating position. *)
+                    val (posT, listT) = dep(t, (pos, l1))
+                    val (posE, listE) = dep(e, (pos, listT))
+                in
+                    (Int.max(posT, posE), listE)
+                end
+
+            |   dep(_, pl) = raise InternalError "Still more to do" (*pl*)
+
+            val (_, l) = dep(code, (0, []))
+            (* Order the items in increasing address and within the same address
+               order the zero items first and the by decreasing position. *)
+            fun leq (addr1, posn1) (addr2, posn2) =
+                if addr1 < addr2 then true
+                else if addr1 > addr2 then false
+                else (* equal *) if posn1 = 0 then true
+                else if posn2 = 0 then false
+                else posn1 >= posn2
+            val sorted = quickSort leq l
+            (* Select the first item with a particular address.  Because the addresses are
+               not contiguous fill in missing entries with zeros. *)
+            fun filter(_, []) = []
+            |   filter(a, l as ((addr, posn) :: tail)) =
+                    if a < addr then 0 :: filter(a+1, l)
+                    else if a > addr then filter(a, tail)
+                    else posn :: filter(a+1, tail)
+        in
+            Vector.fromList(filter(0, sorted))
+        end*)
+
+        fun checkSimpleEntry(Extract _) = ()
+        |   checkSimpleEntry(Indirect{base, ...}) = checkSimpleEntry base
+        |   checkSimpleEntry(Constnt _) = ()
+        |   checkSimpleEntry _ = raise InternalError "bad"
 
         (* Header code for procedure. *)
     
@@ -310,90 +385,82 @@ struct
         end
          (* locaddr *);
     
-    (* For each load of a local in the tree it calls the `add' procedure. *)
-    fun identifyLoads (expList : codetree list, transtable) : (stackIndex -> unit) -> unit =
-      fn (add : stackIndex -> unit) =>
-      let 
-       (* Need to identify declarations within the current block.
-          The declaration numbers are reused so we have to identify
-          new declarations. *)
-        val newDecs : bool StretchArray.stretchArray =
-           StretchArray.stretchArray (4, false);
+        (* For each load of a local in the tree it calls the `add' procedure. *)
+        fun identifyLoads (expList : codetree list, transtable) add =
+        let 
+            (* Need to identify declarations within the current block.  This was originally
+               there because declaration addresses could at one time be reused.  That shouldn't
+               happen now. *)
+            val newDecs : bool StretchArray.stretchArray =
+               StretchArray.stretchArray (4, false)
            
-        fun loads (pt: codetree) : unit =
-          case pt of
-            MatchFail => ()
+            fun loads pt =
+            case pt of
+                MatchFail => ()
             
-          | AltMatch (exp1, exp2) =>
-            let
-              val () = loads exp1;
-            in
-              loads exp2
-            end
+            |   AltMatch (exp1, exp2) => (loads exp1; loads exp2 )
           
-          | Extract {fpRel = true, addr = locn, lastRef, ...} =>
-            if locn < 0 (* args - only look at those in the registers. *)
-            then
-            (
-                case Vector.sub(argRegTab, numOfArgs + locn) of
-                    ArgInReg regEntry => if lastRef then add regEntry else ()
-                |   _ => ()
-            )
-            else if not (StretchArray.sub (newDecs,locn)) andalso lastRef
-                (* Ignore new declarations. *)
-            then add (pstackForDec (transtable, locn))
-            else ()
-
-       (* If discardClosure is true, then we've already zeroed the
-          use-count for closureOrSlAddr, so don't adjust it now.
-          SPF 22/5/95 *)
-          | Extract {fpRel = false, addr = _, level = _, lastRef, ...} =>
-              if not discardClosure  (* Non-local *) andalso lastRef (* DCJM 1/12/99. *)
-              then add closureOrSlAddr (* Reference to the closure. *)
-              else ()
-          
-          | Eval {function, argList, ...} =>
-            let
-              val () = loads function;
-            in
-              List.app (fn (l, _) => loads l) argList
-            end
-            
-          | Declar {addr, value, ...} =>
-            let
-               (* Indicate that this is a new declaration. *)
-              val () = StretchArray.update (newDecs, addr, true);
-            in
-              loads value (* Check the expression. *)
-            end
-            
-          | Indirect {base, ...} => loads base
-            
-          | Newenv vl => List.app loads vl
-            
-          | Recconstr vl => List.app loads vl
-
-          | BeginLoop(body, args) => (List.app (fn (l, _) => loads l) args; loads body)
-
-          | Loop argList => List.app (fn (l, _) => loads l) argList
-
-          | Handle{exp, taglist, handler} =>
-                (List.app loads taglist; loads exp; loads handler)
-
-          | MutualDecs decs =>
+            |   Extract {fpRel = true, addr = locn, lastRef, ...} =>
+                if locn < 0 (* args - only look at those in the registers. *)
+                then
                 (
-                 (* First process the declarations to ensure that new declarations
+                    case Vector.sub(argRegTab, numOfArgs + locn) of
+                        ArgInReg regEntry => if lastRef then add regEntry else ()
+                    |   _ => ()
+                )
+                else if not (StretchArray.sub (newDecs,locn)) andalso lastRef
+                    (* Ignore new declarations. *)
+                then add (pstackForDec (transtable, locn))
+                else ()
+
+               (* If discardClosure is true, then we've already zeroed the
+                  use-count for closureOrSlAddr, so don't adjust it now.
+                  SPF 22/5/95 *)
+            |   Extract {fpRel = false, addr = _, level = _, lastRef, ...} =>
+                if not discardClosure  (* Non-local *) andalso lastRef (* DCJM 1/12/99. *)
+                then add closureOrSlAddr (* Reference to the closure. *)
+                else ()
+          
+            |   Eval {function, argList, ...} =>
+                (
+                    loads function;
+                    List.app (fn (l, _) => loads l) argList
+                )
+            
+            |   Declar {addr, value, ...} =>
+                (
+                    (* Indicate that this is a new declaration. *)
+                    StretchArray.update (newDecs, addr, true);
+                    loads value (* Check the expression. *)
+                )
+            
+            |   Indirect {base, ...} => loads base
+            
+            |   Newenv vl => List.app loads vl
+            
+            |   Recconstr vl => List.app loads vl
+
+            |   BeginLoop{loop, arguments, ...} => (List.app (fn (l, _) => loads l) arguments; loads loop)
+
+            |   Loop argList => List.app (fn (l, _) => loads l) argList
+
+            |   Handle{exp, taglist, handler} =>
+                    (List.app loads taglist; loads exp; loads handler)
+
+            |   MutualDecs decs =>
+                (
+                    (* First process the declarations to ensure that new declarations
                     are marked as such then process the values being declared. *)
-                 List.app(
-                    fn Declar{addr, ...} => StretchArray.update (newDecs, addr, true)
-                     | _ => raise InternalError "MutualDecs: not Declar") decs;
-                 List.app loads decs
+                    List.app(
+                        fn Declar{addr, ...} => StretchArray.update (newDecs, addr, true)
+                        |   _ => raise InternalError "MutualDecs: not Declar") decs;
+                    List.app loads decs
                 )
 
-          | _ => ();
-      in
-        List.app loads expList
-      end;
+            |   _ => ()
+        in
+            List.app loads expList
+        end
       
     (* code-generates code from the tree *)
     (* SPF 2/5/95 - primBoolOps added to prevent loop when
@@ -413,7 +480,7 @@ struct
      *)
     fun gencde (pt, primBoolOps, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
     let 
-      val needsResult : bool = not (isNoResult whereto);
+      val needsResult : bool = not (isNoResult whereto)
       
       val result : mergeResult = 
         case pt of
@@ -558,7 +625,7 @@ struct
                 codeList vl whereto
           end
 
-        | BeginLoop(body, args) =>
+        | BeginLoop{loop=body, arguments=args, kills} =>
           let
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
@@ -586,10 +653,8 @@ struct
                    reference to the initial value in which case we could reuse
                    its location. *)
                 val (index, indexCode) = genToStack(value, matchFailFn)
-                (* TODO: If this is actually a floating point value we would REALLY like this in
-                   a floating point register but we don't know here whether we have a floating point
-                   value until we do some floating point operations.  It could be worth looking through
-                   the code and seeing how we're going to use this. *)
+                (* Put this in a floating point register if it is a floating point value
+                   otherwise a fixed point register. *)
                 val prefSet =
                     case argType of
                         GeneralType => RegSet.generalRegisters
@@ -619,10 +684,21 @@ struct
             (* Start of loop *)
             val (startLoopCode, startLoop(* L1 *)) = backJumpLabel()
             val () = codeGenerate([startLoopCode], cvec)
-            val startSp            = realstackptr transtable;
+            val startSp            = realstackptr transtable
+            (* Compile the loop with the jumps back to the start. *)
+            val runLoop =
+                gencde (body, true, whereto, tailKind, matchFailFn,
+                    SOME(startLoop, startSp, argDestList))
+            (* If some outer declarations had their final reference inside the loop these will
+               appear as kill entries in the list. *)
+            local
+                fun cgKill toKill =
+                    (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
+            in
+                val () = List.app cgKill kills
+            end
           in
-            gencde (body, true, whereto, tailKind, matchFailFn,
-                SOME(startLoop, startSp, argDestList))
+            runLoop
           end
 
         | Loop argList =>
@@ -2174,776 +2250,778 @@ struct
           end
     end (* genCond *)
 
-    (* Call a function. Detects special cases of calls to the run-time system
-       to do simple operations such as int arithmetic and generates the
-       instructions directly. For ordinary calls it has to distinguish between
-       those called with a static-link and those called with a closure. *) 
-    and genEval (evalFun, argList: (codetree * argumentType) list, resultType, primBoolOps, whereto, tailKind, matchFailFn) : mergeResult =
-    let
-        (* This is used if we have a real function call rather than an RTS function we can
-           code-generate directly. *)
-        fun realFunctionCall(procLocn, modifiedRegisters, loadProc, isTail) =
+        (* Call a function. Detects special cases of calls to the run-time system
+           to do simple operations such as int arithmetic and generates the
+           instructions directly. For ordinary calls it has to distinguish between
+           those called with a static-link and those called with a closure. *) 
+        and genEval (evalFun, argList: (codetree * argumentType) list, resultType, primBoolOps, whereto, tailKind, matchFailFn) : mergeResult =
         let
-            val needsResult = not (isNoResult whereto)
-            (* If we're actually calling the function where do the arguments go? *)
-            val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
-            val regResult = resultReg(codeToCgType resultType)
-
-            (* Code-generate each entry to the pstack.  If this is a tail recursive call we have to
-               load any values that are currently used as arguments because we may overwrite them later. *)
-            local
-                fun loadArg((arg, _), argLocn) =
-                let
-                    val originalLocn =
-                        case argLocn of
-                            SOME argReg =>
-                            let (* Put into a register. *)
-                              (* If we are evaluating an expression we might as well put the
-                                 result in the register we want to use. They may not stay
-                                 there because loading other arguments may involve function
-                                 calls which will use these registers. For that reason we
-                                 don't put constants in yet. *)
-                              val whereto = case arg of Constnt _ => NoHint | _ => UseReg argReg
-                            in
-                                case gencde (arg, true, whereto, NotEnd, matchFailFn, NONE) of
-                                    MergeIndex index => index
-                                 |  NoMerge => raise InternalError "ldArgs: No result"
-                            end
-                        |   NONE => (* On the stack *)
-                            let
-                                val (argLocn, argCode) = genToStack (arg, matchFailFn)
-                                val () = codeGenerate(argCode, cvec)
-                            in
-                                argLocn
-                            end
-                in
-                    if isTail
-                    then
-                    let
-                        val (safeLocn, safeCode)= loadIfArg (transtable, originalLocn)
-                        val () = codeGenerate(safeCode, cvec)
-                    in
-                        safeLocn
-                    end
-                    else originalLocn
-                end
-            in
-                val argsOnPstack = ListPair.mapEq loadArg(argList, argLocations)
-            end
-        in
-            if isTail
-            then  (* Enter a procedure by jumping rather than calling. *)
+            (* This is used if we have a real function call rather than an RTS function we can
+               code-generate directly. *)
+            fun realFunctionCall(procLocn, modifiedRegisters, loadProc, isTail) =
             let
-                (* Now move the arguments to their final destination. argAddr is a negative value and
-                   is the address of the arguments in the original stack. *)
-                fun moveArgs ([], [], _) = []
-                |   moveArgs (arg::args, SOME argReg :: argTypes, argAddr) =
-                    let
-                        (* Do it in reverse order so that we can delay locking the register arguments. *)
-                        val argEntries = moveArgs(args, argTypes, argAddr)
-                        val (argEntry, argCode) = loadToSpecificReg (transtable, argReg, arg, false);
-                    in
-                        codeGenerate(argCode, cvec);
-                        lockRegister (transtable, argReg);
-                        argEntry :: argEntries
-                    end
-                |   moveArgs (arg::args, NONE :: argTypes, argAddr) =
-                    let
-                        (* *)
-                        (* Store it in the stack, reloading anything it displaces. *)
-                        val () = codeGenerate(storeInStack(transtable, arg, argAddr), cvec)
-                    in
-                        moveArgs(args, argTypes, argAddr+1);
-                        [] (* storeInStack removes its table entry *)
-                    end
-                |   moveArgs _ = raise InternalError "moveArgs: Length mismatch"
+                val needsResult = not (isNoResult whereto)
+                (* If we're actually calling the function where do the arguments go? *)
+                val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
+                val regResult = resultReg(codeToCgType resultType)
 
-                (* the arguments are now all in their rightful places *)
-                val argEntries = moveArgs(argsOnPstack, argLocations, ~numberOfArgsOnStack)
-    
-                (* Now load regClosure as appropriate. We delay this
-                   until now, because we don't want to zap regCode before
-                   we've loaded all the constant arguments. *)
-                val (codeAddrOpt, isIndirect, callEntries, registersLocked) = loadProc ()
-                (* Compute the number of stack arguments we're passing. *)
-                val stackArgCount = List.length(List.filter(not o isSome) argLocations)
-        
-                (* Get the return address. *)
-                val returnReg : reg option =
-                case regReturn of
-                    NONE =>
-                        (* The return address is on the stack.  Do we need to load it? *)
-                        (* Only if we're passing a different number of arguments on
-                           stack - this would change the offset of the return address. *)
-                        if stackArgCount = numberOfArgsOnStack
-                        then NONE (* Leave it there. *)
-                        else
-                        let
-                            val (reg, regIndex, loadCode) =
-                                loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
-                            val () = codeGenerate(loadCode, cvec)
-                        in
-                            removeStackEntry(transtable, regIndex);
-                            SOME reg
-                        end
-                |   SOME regReturn =>
-                        let
-                            (* Reload the return address into the return register. *)
-                            val (regIndex, regCode) =
-                                loadToSpecificReg (transtable, regReturn, returnAddress, false);
-                            val () = codeGenerate(regCode, cvec)
-                        in
-                            removeStackEntry(transtable, regIndex);
-                            SOME regReturn
-                        end
-
+                (* Code-generate each entry to the pstack.  If this is a tail recursive call we have to
+                   load any values that are currently used as arguments because we may overwrite them later. *)
                 local
-                    (* Move the stack pointer if necessary. *)           
-                    val diffInArgs = numberOfArgsOnStack - stackArgCount
-                    (* One more "arg" if the return address is passed on the stack. *)
-                    val adjust = case returnReg of NONE => 1 | SOME _ => 0
+                    fun loadArg((arg, _), argLocn) =
+                    let
+                        val originalLocn =
+                            case argLocn of
+                                SOME argReg =>
+                                let (* Put into a register. *)
+                                  (* If we are evaluating an expression we might as well put the
+                                     result in the register we want to use. They may not stay
+                                     there because loading other arguments may involve function
+                                     calls which will use these registers. For that reason we
+                                     don't put constants in yet. *)
+                                  val whereto = case arg of Constnt _ => NoHint | _ => UseReg argReg
+                                in
+                                    case gencde (arg, true, whereto, NotEnd, matchFailFn, NONE) of
+                                        MergeIndex index => index
+                                     |  NoMerge => raise InternalError "ldArgs: No result"
+                                end
+                            |   NONE => (* On the stack *)
+                                let
+                                    val (argLocn, argCode) = genToStack (arg, matchFailFn)
+                                    val () = codeGenerate(argCode, cvec)
+                                in
+                                    argLocn
+                                end
+                    in
+                        if isTail
+                        then
+                        let
+                            val (safeLocn, safeCode)= loadIfArg (transtable, originalLocn)
+                            val () = codeGenerate(safeCode, cvec)
+                        in
+                            safeLocn
+                        end
+                        else originalLocn
+                    end
                 in
-                    val stackMove= realstackptr transtable + diffInArgs - adjust
+                    val argsOnPstack = ListPair.mapEq loadArg(argList, argLocations)
                 end
             in
-                codeGenerate([resetStack stackMove], cvec);
-                (* Call the function.  If it's not recursive we have to get the
-                   entry point. *)
-                case codeAddrOpt of
-                    NONE =>
-                       codeGenerate([jumpToFunction{callKind=Recursive, returnReg=returnReg}], cvec)
-                |   SOME codeAddr => 
-                        codeGenerate(jumpToCode(codeAddr, isIndirect, returnReg, transtable), cvec);
-
-                (* Unlock any registers we locked. *)
-                List.app (fn r => unlockRegister (transtable, r)) registersLocked;
-                (* Remove the arguments and code/closure registers. *)
-                List.app (fn index => removeStackEntry(transtable, index))
-                    (argEntries @ callEntries)
-                (* Since we've exited we don't need to clear the cache. *)
-            end  (* jumpToProc *)
-
-            else (* Call a function.  Used in cases when it's not tail-recursive. *)
-            let
-                (* Save any values to the stack other than those that are being
-                   used in this call.  Values in registers not modified by the
-                   call are locked in their current registers. *)
-                val (lockedRegs, pushInstrs) =
-                    pushNonArguments(transtable, procLocn @ argsOnPstack, modifiedRegisters);
-                val () = codeGenerate(pushInstrs, cvec)
-
-                (* Push the arguments onto the real stack and/or load them
-                   into the argument registers. *)
-                (* Second phase of argument evaluation.  Push the values onto the real stack
-                     or load them into the argument registers.  The result is the stack base
-                     for stack arguments together with a list of pseudo-stack entries for
-                     the arguments. *)
-                fun pushArgs (argList : stackIndex list) : int * stackIndex list =
+                if isTail
+                then  (* Enter a procedure by jumping rather than calling. *)
                 let
-                    fun ldArgs ([], stackAddr, []) = (stackAddr, [])
-                    |   ldArgs (argLoc :: t, stackAddr, SOME argReg :: t') =
-                        let (* Put into a register. *)
-                            (* Load the first before putting these into the registers. *)
-                            val (rAddr : int, others) = ldArgs(t, stackAddr, t');
-                            val (regEntry, regCode) = loadToSpecificReg (transtable, argReg, argLoc, false);
-                        in
-                            codeGenerate(regCode, cvec);
-                            lockRegister (transtable, argReg);
-                            (rAddr, regEntry :: others)
-                        end
-                    |   ldArgs (argLoc::t, stackAddr : int, NONE :: t') =
-                        let (* Store on the real stack. *)
-                            (* We take the current stack pointer as the base for the stack args. *)
-                            val sAddr : int = 
-                            if stackAddr < 0 then realstackptr transtable else stackAddr;
-                            val (pushedEntry, pushCode) = pushValueToStack (transtable, argLoc, sAddr + 1)
-                            val () = codeGenerate(pushCode, cvec)
-                            val (rAddr, others) = ldArgs(t, sAddr + 1, t')
-                        in
-                            (rAddr, pushedEntry :: others)
-                        end (* ldArgs *)
-                    |   ldArgs _ = raise InternalError "ldArgs: Length mismatch"
-                in
-                    ldArgs(argList, ~1, argLocations)
-                end (* pushArgs *)
-
-                val (endOfArgs, argEntries) = pushArgs argsOnPstack
-              
-                (* load regClosure *)
-                val (codeAddrOpt, isIndirect, codeEntries, regsLocked) = loadProc ();
-          
-                val checkContiguous =
-                  (* Make sure that the arguments are contiguous on the
-                     stack and that there is nothing beyond them on it. *)
-                  if endOfArgs >= 0 then resetButReload (transtable, endOfArgs) else []
-                val callCode =
-                  case codeAddrOpt of
-                     NONE => [callFunction{callKind=Recursive}]
-                  |  SOME codeAddr => callCode(codeAddr, isIndirect, transtable)
-            in
-                codeGenerate(callCode @ checkContiguous, cvec);
-
-                (* Unlock any registers we locked. *)
-                List.app (fn r => unlockRegister (transtable, r)) (lockedRegs @ regsLocked);
-                (* Remove the arguments and code/closure registers. *)
-                List.app (fn index => removeStackEntry(transtable, index))
-                    (codeEntries @ argEntries);
-
-                (* Remove any registers from the cache which may have been modified
-                   by the function. *)
-                removeRegistersFromCache(transtable, modifiedRegisters)
-            end (* callProc *);
-
-            (* Set up the results of the function call. *)
-            (* Unlock  the argument registers. *)
-            List.app(fn SOME r => unlockRegister (transtable, r) | NONE => ()) argLocations;
-
-            (* Remove any stack arguments. For tail-calls, we mustn't do this, because
-               the stack arguments have already vanished from the pstack - that's
-               because storeInStack consumes its argument. Conversely, pushValueToStack,
-               used to set up stack arguments normal calls, does NOT consume its pstack
-               argument. This means that we mustn't call decsp for tail-calls, which
-               in turn means that the real stack pointer doesn't get correctly adjusted.
-               Fortunately, this is (just about) OK because this code is unreachable,
-               and CODEGEN_TABLE.mergeLab is clever enough to avoid merging unreachable states. 
-               This whole area is a right mess, which I must sort out some time.
-               SPF 13/3/97
-               Agreed.  I've tried to tidy this up a bit.  decsp now ONLY affects the
-               real stack pointer rather than popping items from the pstack as
-               well.  It still needs more work.
-               DCJM 25/11/99
-             *)
-            if isTail then exiting transtable else ();
-
-            List.app(fn SOME _ => () | NONE => decsp(transtable, 1)) argLocations;
-
-            if not needsResult
-            then NoMerge (* Unused *)
-            else
-            ( (* Result is returned in regResult. *)
-                addRegUse (transtable, regResult); (* Needed? *)
-                MergeIndex(pushReg (transtable, regResult))
-            )
-        end (* realFunctionCall *)
-
-        (* Call a closure function, i.e. not one that requires a static link. *)
-        fun callClosure (clos : codetree option): mergeResult =
-        let
-            val tailCall = isEndOfProc tailKind;
-            val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
-
-            (* Get the set of registers modified by this call.  We have to include
-               the argument, closure and code registers even if they're not actually
-               modified because otherwise we may find that we've locked them. *)
-            val registerSet =
-                case clos of
-                    SOME (Constnt w) =>
-                        regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
-                  | _ (* Recursive or not a constant. *) => allRegisters;
-
-            (* Add the registers to the set modified by this function.
-               We don't need to do this for recursive calls.  In that
-               case we must push all the registers (so we set registerSet
-               to allRegisters) but the modification set for this function
-               is simply the registers modified by everything else. *)
-            val _ =
-                case clos of
-                    NONE => ()
-                |   _ => addModifiedRegSet(transtable, registerSet);
-
-            (* Have to guarantee that the expression to return
-               the procedure is evaluated before the arguments. *)
-            (* In the recursive case the use count for closureOrSlAddr
-               is set by the caller. DCJM 1/12/99. *)
-            val (procLocn, procCode) = 
-              case clos of
-                SOME(Constnt _) => (noIndex, []) (* Unused. *)
-              | SOME c          => genToStack (c, matchFailFn) (* the closure *)
-              | NONE            => (noIndex, [])  (* Unused. *);
-        
-            val () = codeGenerate(procCode, cvec)
-
-            local
-                fun loadReg reg addr : stackIndex =
-                    let
-                      (* We don't need exclusive use of this value, because it
-                         only gets modified by the function call itself, not
-                         here. We either don't return from the function
-                         (tail-call: we set exited) or we explicitly clear
-                         the cache in setUpResult. *)
-                      val (regIndex, regCode) =
-                            loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
-                    in
-                        codeGenerate(regCode, cvec);
-                      (* Lock the register down so that it doesn't get
-                         used to move values onto the stack. *)
-                      lockRegister (transtable, reg);
-                      regIndex
-                    end
-            in
-                fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
-                  case clos of
-                     SOME(Constnt w) =>
-                        (* Do we need to load the closure register? *)
+                    (* Now move the arguments to their final destination. argAddr is a negative value and
+                       is the address of the arguments in the original stack. *)
+                    fun moveArgs ([], [], _) = []
+                    |   moveArgs (arg::args, SOME argReg :: argTypes, argAddr) =
                         let
-                            val addr = toAddress w;
+                            (* Do it in reverse order so that we can delay locking the register arguments. *)
+                            val argEntries = moveArgs(args, argTypes, argAddr)
+                            val (argEntry, argCode) = loadToSpecificReg (transtable, argReg, arg, false);
                         in
-                            if isIoAddress addr
-                            then (* We don't need the closure register but we can't
-                                    do the indirection here.  That's because the
-                                    code address isn't valid.  We have to do the
-                                    indirection at run time. *)
-                                (SOME(pushConst(transtable, w)), true, [], [])
+                            codeGenerate(argCode, cvec);
+                            lockRegister (transtable, argReg);
+                            argEntry :: argEntries
+                        end
+                    |   moveArgs (arg::args, NONE :: argTypes, argAddr) =
+                        let
+                            (* *)
+                            (* Store it in the stack, reloading anything it displaces. *)
+                            val () = codeGenerate(storeInStack(transtable, arg, argAddr), cvec)
+                        in
+                            moveArgs(args, argTypes, argAddr+1);
+                            [] (* storeInStack removes its table entry *)
+                        end
+                    |   moveArgs _ = raise InternalError "moveArgs: Length mismatch"
+
+                    (* the arguments are now all in their rightful places *)
+                    val argEntries = moveArgs(argsOnPstack, argLocations, ~numberOfArgsOnStack)
+    
+                    (* Now load regClosure as appropriate. We delay this
+                       until now, because we don't want to zap regCode before
+                       we've loaded all the constant arguments. *)
+                    val (codeAddrOpt, isIndirect, callEntries, registersLocked) = loadProc ()
+                    (* Compute the number of stack arguments we're passing. *)
+                    val stackArgCount = List.length(List.filter(not o isSome) argLocations)
+        
+                    (* Get the return address. *)
+                    val returnReg : reg option =
+                    case regReturn of
+                        NONE =>
+                            (* The return address is on the stack.  Do we need to load it? *)
+                            (* Only if we're passing a different number of arguments on
+                               stack - this would change the offset of the return address. *)
+                            if stackArgCount = numberOfArgsOnStack
+                            then NONE (* Leave it there. *)
                             else
                             let
-                                val code : machineWord = loadWord (addr, 0w0)
-                                val codeLocn = pushConst(transtable, code)
+                                val (reg, regIndex, loadCode) =
+                                    loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
+                                val () = codeGenerate(loadCode, cvec)
                             in
-                                if objLength addr = 0w1
-                                then (* The closure is just one word - we don't need to
-                                        put it in the closure register since the function
-                                        won't need it.  Do the indirection now. *)
-                                    (SOME codeLocn, false, [], [])
-                                else (* We need to load the closure register. 
-                                    We have a choice here.  We could either return
-                                    the closure register as the address as we do
-                                    in the general case, in which case we would do
-                                    an indirect call through the closure register,
-                                    or we can do the indirection here and do a
-                                    direct call.  On the i386 the latter is definitely
-                                    better but on the PPC it will generate longer
-                                    code, although possibly no slower if there was
-                                    a pipeline stall. *)
-                                    (SOME codeLocn, false,
-                                        [loadReg regClosure (pushConst(transtable, w))],
-                                        [regClosure])
+                                removeStackEntry(transtable, regIndex);
+                                SOME reg
                             end
-                        end
-                   | SOME _ =>
-                        (* Calling a non-constant - load the closure register and
-                           set the code address as this with the "indirection"
-                           flag set to true. *)
-                        (SOME(loadReg regClosure procLocn), true, [], [regClosure])
-                   | NONE => (* Recursive *)
-                      (* If this function requires a closure we need to reload
-                         the closure register with our original closure. *)
-                      if discardClosure then (NONE, false, [], [])
-                      else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
-            end
-        in
-            realFunctionCall([procLocn], registerSet, loadClosureProc, tailCall)
-        end (* callClosure *)
+                    |   SOME regReturn =>
+                            let
+                                (* Reload the return address into the return register. *)
+                                val (regIndex, regCode) =
+                                    loadToSpecificReg (transtable, regReturn, returnAddress, false);
+                                val () = codeGenerate(regCode, cvec)
+                            in
+                                removeStackEntry(transtable, regIndex);
+                                SOME regReturn
+                            end
 
-        fun codeRTSFunction(instr, arguments, whereto) =
-            case checkAndReduce(instr, arguments, fn (Constnt w) => SOME w | _ => NONE) of
-                SOME(i, args) =>
-                let
-                    (* Code generate each argument to the pstack. *)
-                    val argsAndCode = List.map (fn arg => genToStack (arg, matchFailFn)) args
-                    val argLocns = List.map #1 argsAndCode
-                    (* Return the code ordered with earlier arguments later in the list. *)
-                    val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
-                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                    val () = codeGenerate(opCode @ argCode, cvec)
+                    local
+                        (* Move the stack pointer if necessary. *)           
+                        val diffInArgs = numberOfArgsOnStack - stackArgCount
+                        (* One more "arg" if the return address is passed on the stack. *)
+                        val adjust = case returnReg of NONE => 1 | SOME _ => 0
+                    in
+                        val stackMove= realstackptr transtable + diffInArgs - adjust
+                    end
                 in
-                    (* Put in the result. *)
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
-                end
-            |   NONE => (* Have to use a function call *) callClosure (SOME evalFun)
+                    codeGenerate([resetStack stackMove], cvec);
+                    (* Call the function.  If it's not recursive we have to get the
+                       entry point. *)
+                    case codeAddrOpt of
+                        NONE =>
+                           codeGenerate([jumpToFunction{callKind=Recursive, returnReg=returnReg}], cvec)
+                    |   SOME codeAddr => 
+                            codeGenerate(jumpToCode(codeAddr, isIndirect, returnReg, transtable), cvec);
 
-    in (* body of genEval *)
-        case evalFun of
-            Constnt (oper : machineWord) =>
-            let
-                val args = List.map #1 argList
-                val addr = toAddress oper
-            in
-                if isIoAddress addr
-                then
-                (
-                    if wordEq (oper,ioOp POLY_SYS_thread_self)
-                    then codeRTSFunction(instrThreadSelf, args, whereto)
+                    (* Unlock any registers we locked. *)
+                    List.app (fn r => unlockRegister (transtable, r)) registersLocked;
+                    (* Remove the arguments and code/closure registers. *)
+                    List.app (fn index => removeStackEntry(transtable, index))
+                        (argEntries @ callEntries)
+                    (* Since we've exited we don't need to clear the cache. *)
+                end  (* jumpToProc *)
 
-                    else if wordEq (oper,ioOp POLY_SYS_get_length)
-                    then codeRTSFunction(instrVeclen, args, whereto)
+                else (* Call a function.  Used in cases when it's not tail-recursive. *)
+                let
+                    (* Save any values to the stack other than those that are being
+                       used in this call.  Values in registers not modified by the
+                       call are locked in their current registers. *)
+                    val (lockedRegs, pushInstrs) =
+                        pushNonArguments(transtable, procLocn @ argsOnPstack, modifiedRegisters);
+                    val () = codeGenerate(pushInstrs, cvec)
 
-                    else if wordEq (oper,ioOp POLY_SYS_get_flags)
-                    then codeRTSFunction(instrVecflags, args, whereto)
+                    (* Push the arguments onto the real stack and/or load them
+                       into the argument registers. *)
+                    (* Second phase of argument evaluation.  Push the values onto the real stack
+                         or load them into the argument registers.  The result is the stack base
+                         for stack arguments together with a list of pseudo-stack entries for
+                         the arguments. *)
+                    fun pushArgs (argList : stackIndex list) : int * stackIndex list =
+                    let
+                        fun ldArgs ([], stackAddr, []) = (stackAddr, [])
+                        |   ldArgs (argLoc :: t, stackAddr, SOME argReg :: t') =
+                            let (* Put into a register. *)
+                                (* Load the first before putting these into the registers. *)
+                                val (rAddr : int, others) = ldArgs(t, stackAddr, t');
+                                val (regEntry, regCode) = loadToSpecificReg (transtable, argReg, argLoc, false);
+                            in
+                                codeGenerate(regCode, cvec);
+                                lockRegister (transtable, argReg);
+                                (rAddr, regEntry :: others)
+                            end
+                        |   ldArgs (argLoc::t, stackAddr : int, NONE :: t') =
+                            let (* Store on the real stack. *)
+                                (* We take the current stack pointer as the base for the stack args. *)
+                                val sAddr : int = 
+                                if stackAddr < 0 then realstackptr transtable else stackAddr;
+                                val (pushedEntry, pushCode) = pushValueToStack (transtable, argLoc, sAddr + 1)
+                                val () = codeGenerate(pushCode, cvec)
+                                val (rAddr, others) = ldArgs(t, sAddr + 1, t')
+                            in
+                                (rAddr, pushedEntry :: others)
+                            end (* ldArgs *)
+                        |   ldArgs _ = raise InternalError "ldArgs: Length mismatch"
+                    in
+                        ldArgs(argList, ~1, argLocations)
+                    end (* pushArgs *)
 
-                    else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-                    then codeRTSFunction(instrGetFirstLong, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_string_length)
-                    then codeRTSFunction(instrStringLength, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_set_string_length)
-                    then codeRTSFunction(instrSetStringLength, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_aplus)
-                    then codeRTSFunction(instrAddA, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_aminus)
-                    then codeRTSFunction(instrSubA, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_amul)
-                    then codeRTSFunction(instrMulA, args, whereto)
-
-                    (* Negation is coded as 0 - X. *)
-                    else if wordEq (oper,ioOp POLY_SYS_aneg)
-                    then codeRTSFunction(instrSubA, Constnt Zero :: args, whereto)
-
-                    (* Boolean "not" is coded as xor with "true" *)
-                    else if wordEq (oper,ioOp POLY_SYS_not_bool)
-                    then codeRTSFunction(instrXorW, args @ [Constnt True], whereto)
-
-                    else if  wordEq (oper,ioOp POLY_SYS_or_word)
-                    then codeRTSFunction(instrOrW, args, whereto)
-
-                    else if  wordEq (oper,ioOp POLY_SYS_and_word)
-                    then codeRTSFunction(instrAndW, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_xor_word)
-                    then codeRTSFunction(instrXorW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
-                    then codeRTSFunction(instrUpshiftW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
-                    then codeRTSFunction(instrDownshiftW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
-                    then codeRTSFunction(instrDownshiftArithW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_xor_word)
-                    then codeRTSFunction(instrXorW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_mul_word)
-                    then codeRTSFunction(instrMulW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_plus_word)
-                    then codeRTSFunction(instrAddW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_minus_word)
-                    then codeRTSFunction(instrSubW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_div_word)
-                    then codeRTSFunction(instrDivW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_mod_word)
-                    then codeRTSFunction(instrModW, args, whereto)
-        
-                    else if wordEq (oper,ioOp POLY_SYS_load_byte)
-                    then codeRTSFunction(instrLoadB, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_load_word)
-                    then codeRTSFunction(instrLoad, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
-                    then codeRTSFunction(instrAtomicIncr, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
-                    then codeRTSFunction(instrAtomicDecr, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_alloc_store)
-                    then codeRTSFunction(instrAllocStore, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_assign_word)
-                    then codeRTSFunction(instrStoreW, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_assign_byte)
-                    then codeRTSFunction(instrStoreB, args, whereto)
-                    
-                    else if wordEq(oper, ioOp POLY_SYS_lockseg)
-                    then codeRTSFunction(instrLockSeg, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_Add_real)
-                    then codeRTSFunction(instrAddFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_Sub_real)
-                    then codeRTSFunction(instrSubFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_Mul_real)
-                    then codeRTSFunction(instrMulFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_Div_real)
-                    then codeRTSFunction(instrDivFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_Neg_real)
-                    then codeRTSFunction(instrNegFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_int_to_real)
-                    then codeRTSFunction(instrIntToRealFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_real_to_int)
-                    then codeRTSFunction(instrRealToIntFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
-                    then codeRTSFunction(instrSqrtFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_sin_real)
-                    then codeRTSFunction(instrSinFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_cos_real)
-                    then codeRTSFunction(instrCosFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_arctan_real)
-                    then codeRTSFunction(instrAtanFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_exp_real)
-                    then codeRTSFunction(instrExpFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_ln_real)
-                    then codeRTSFunction(instrLnFP, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_move_bytes)
-                    then codeRTSFunction(instrMoveBytes, args, whereto)
-
-                    else if wordEq (oper,ioOp POLY_SYS_move_words)
-                    then codeRTSFunction(instrMoveWords, args, whereto)
-
-                    (* The point of the following code is to call genCond, which will call genTest
-                       which will hopefully use machine instructions for these operations.
-                       We could avoid this by duplicating most of the body of genTest
-                       (the "jumping" boolean code generator) here, but we would like to
-                       avoid that. *)
-                    else if primBoolOps andalso
-                    (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
-                     wordEq (oper,ioOp POLY_SYS_word_neq) orelse
-                     wordEq (oper,ioOp POLY_SYS_equala)   orelse
-                     wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
-                     wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
-                     wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
-                     wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
-                     wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
-                     wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
-                     wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
-                     wordEq (oper,ioOp POLY_SYS_word_lss) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
-                     wordEq (oper,ioOp POLY_SYS_Real_lss) orelse
-                     wordEq (oper,ioOp POLY_SYS_is_short))
-                    then
-                        genCond
-                            (Eval {function = evalFun, argList = argList, earlyEval = false, resultType=resultType},
-                             constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
-                    else (* unoptimised I/O call *)
-                        callClosure (SOME evalFun)
-                )
-  
-                else (* All other constant functions. *) callClosure (SOME evalFun)
-            end
-
-        |   Extract {fpRel, addr, level, lastRef, ...} =>
-    let
-      (* The procedure is being loaded from the stack or closure
-         so it may be a static-link procedure. *)
-
-      (* DCJM 1/12/99.  TODO: We have a problem if the function is a
-         closure reference (e.g. a recursive call) and the last reference
-         to the closure is one of the arguments.  In some cases at any rate
-         we don't process the function until after we've processed the
-         arguments resulting in us not being able to find something.
-         I think it's probably only if we have static-linked functions
-         that there is a problem when the something is start of the static
-         link.  I think if the function requires a closure then the closure
-         is evaluated first even if it's a simple load. 
-         No, it's also needed in the recursive case at least. 
-         
-         There was a definite bug in the case of a static-link call to
-         a function where the last reference to the function was within
-         the argument.  DCJM 21/12/00.
-         *)
-
-      (* SPF 20/5/95 *)
-      val selfCall = not fpRel andalso level = 0 andalso addr = 0;
-      
-      val staticCall = 
-        if fpRel (* Local or parameter *)
-        then addr > 0 (* If not it must be a parameter - must be closure *)
-        andalso isProcB (transtable, addr) (* local - look in table *)
-        else isStaticLink addr;  (* Non-local or recursive. *)
-    in 
-      (* Is this a static link call? *)
-      if staticCall
-      then let
-         (* Cannot use a jump to local static-link procedures because 
-        we may want local declarations on the current stack. *)
-        val tailCall = isEndOfProc tailKind andalso not fpRel;
-  
-        (* Load and lock regClosure. Returns the indexes of
-           these entries in the stack. *)
-        fun loadStaticLinkProc (): (stackIndex option * bool * stackIndex list * reg list) =
-          if selfCall (* recursive *)
-          then let
-            (* Do we really need *exclusive* use of this register? 
-               Perhaps this is to force the old value onto the stack if
-               we haven't saved it yet, but we should have done this
-               in pushAllBut (below) unless we're in a tail-call in
-               which case we're not coming back. SPF 23/5/95 *)
-            val SL = closureOrSlAddr
-            val (closureIndex, closureCode) =
-              loadToSpecificReg (transtable, regClosure, SL, false);
-            val () = codeGenerate(closureCode, cvec)
-            val () = lockRegister (transtable, regClosure);
-          in
-            (NONE, false, [closureIndex], [regClosure])
-          end
-                 
-          else if fpRel (* Local *)
-          then
-            let
-                (* Load entry point - this must be a local not an argument. *)
-                val entryPt = pstackForDec (transtable, addr);
-                (* We have already incremented the reference count when
-                   this is not the last reference so we don't need to do
-                   anything here.  DCJM 21/12/00. *)
-            
-                (* Get the static link register. Will set its value later. *)
-                val () = codeGenerate(getRegister (transtable, regClosure), cvec);
-                val closureIndex = pushReg (transtable, regClosure);
-                val () = lockRegister (transtable, regClosure);
-            in 
-                (* Set value of static link register now. The static link entry
-                   is now the address of the frame.  DCJM 2/1/01. *)
-                codeGenerate([moveOp {output=regClosure, source=StackAddress((realstackptr transtable - 1)*wordSize)}], cvec);
-                (SOME entryPt, false, [closureIndex], [regClosure])
-          end
+                    val (endOfArgs, argEntries) = pushArgs argsOnPstack
+              
+                    (* load regClosure *)
+                    val (codeAddrOpt, isIndirect, codeEntries, regsLocked) = loadProc ();
           
-          else
-            let (* Non-local or recursive. *)
-                fun pushIt () = (closureOrSlAddr, [])
-                (* load SL register and return code address *)
-                val (entryPt, slIndex, code) = loadStaticLink (addr, pushIt, transtable)
-                val () = codeGenerate(code, cvec)
+                    val checkContiguous =
+                      (* Make sure that the arguments are contiguous on the
+                         stack and that there is nothing beyond them on it. *)
+                      if endOfArgs >= 0 then resetButReload (transtable, endOfArgs) else []
+                    val callCode =
+                      case codeAddrOpt of
+                         NONE => [callFunction{callKind=Recursive}]
+                      |  SOME codeAddr => callCode(codeAddr, isIndirect, transtable)
+                in
+                    codeGenerate(callCode @ checkContiguous, cvec);
+
+                    (* Unlock any registers we locked. *)
+                    List.app (fn r => unlockRegister (transtable, r)) (lockedRegs @ regsLocked);
+                    (* Remove the arguments and code/closure registers. *)
+                    List.app (fn index => removeStackEntry(transtable, index))
+                        (codeEntries @ argEntries);
+
+                    (* Remove any registers from the cache which may have been modified
+                       by the function. *)
+                    removeRegistersFromCache(transtable, modifiedRegisters)
+                end (* callProc *);
+
+                (* Set up the results of the function call. *)
+                (* Unlock  the argument registers. *)
+                List.app(fn SOME r => unlockRegister (transtable, r) | NONE => ()) argLocations;
+
+                (* Remove any stack arguments. For tail-calls, we mustn't do this, because
+                   the stack arguments have already vanished from the pstack - that's
+                   because storeInStack consumes its argument. Conversely, pushValueToStack,
+                   used to set up stack arguments normal calls, does NOT consume its pstack
+                   argument. This means that we mustn't call decsp for tail-calls, which
+                   in turn means that the real stack pointer doesn't get correctly adjusted.
+                   Fortunately, this is (just about) OK because this code is unreachable,
+                   and CODEGEN_TABLE.mergeLab is clever enough to avoid merging unreachable states. 
+                   This whole area is a right mess, which I must sort out some time.
+                   SPF 13/3/97
+                   Agreed.  I've tried to tidy this up a bit.  decsp now ONLY affects the
+                   real stack pointer rather than popping items from the pstack as
+                   well.  It still needs more work.
+                   DCJM 25/11/99
+                 *)
+                if isTail then exiting transtable else ();
+
+                List.app(fn SOME _ => () | NONE => decsp(transtable, 1)) argLocations;
+
+                if not needsResult
+                then NoMerge (* Unused *)
+                else
+                ( (* Result is returned in regResult. *)
+                    addRegUse (transtable, regResult); (* Needed? *)
+                    MergeIndex(pushReg (transtable, regResult))
+                )
+            end (* realFunctionCall *)
+
+            (* Call a closure function, i.e. not one that requires a static link. *)
+            fun callClosure (clos : codetree option): mergeResult =
+            let
+                val tailCall = isEndOfProc tailKind;
+                val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
+
+                (* Get the set of registers modified by this call.  We have to include
+                   the argument, closure and code registers even if they're not actually
+                   modified because otherwise we may find that we've locked them. *)
+                val registerSet =
+                    case clos of
+                        SOME (Constnt w) =>
+                            regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
+                      | _ (* Recursive or not a constant. *) => allRegisters;
+
+                (* Add the registers to the set modified by this function.
+                   We don't need to do this for recursive calls.  In that
+                   case we must push all the registers (so we set registerSet
+                   to allRegisters) but the modification set for this function
+                   is simply the registers modified by everything else. *)
+                val _ =
+                    case clos of
+                        NONE => ()
+                    |   _ => addModifiedRegSet(transtable, registerSet);
+
+                (* Have to guarantee that the expression to return
+                   the procedure is evaluated before the arguments. *)
+                (* In the recursive case the use count for closureOrSlAddr
+                   is set by the caller. DCJM 1/12/99. *)
+                val (procLocn, procCode) = 
+                  case clos of
+                    SOME(Constnt _) => (noIndex, []) (* Unused. *)
+                  | SOME c          => genToStack (c, matchFailFn) (* the closure *)
+                  | NONE            => (noIndex, [])  (* Unused. *);
+        
+                val () = codeGenerate(procCode, cvec)
+
+                local
+                    fun loadReg reg addr : stackIndex =
+                        let
+                          (* We don't need exclusive use of this value, because it
+                             only gets modified by the function call itself, not
+                             here. We either don't return from the function
+                             (tail-call: we set exited) or we explicitly clear
+                             the cache in setUpResult. *)
+                          val (regIndex, regCode) =
+                                loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
+                        in
+                            codeGenerate(regCode, cvec);
+                          (* Lock the register down so that it doesn't get
+                             used to move values onto the stack. *)
+                          lockRegister (transtable, reg);
+                          regIndex
+                        end
+                in
+                    fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
+                      case clos of
+                         SOME(Constnt w) =>
+                            (* Do we need to load the closure register? *)
+                            let
+                                val addr = toAddress w;
+                            in
+                                if isIoAddress addr
+                                then (* We don't need the closure register but we can't
+                                        do the indirection here.  That's because the
+                                        code address isn't valid.  We have to do the
+                                        indirection at run time. *)
+                                    (SOME(pushConst(transtable, w)), true, [], [])
+                                else
+                                let
+                                    val code : machineWord = loadWord (addr, 0w0)
+                                    val codeLocn = pushConst(transtable, code)
+                                in
+                                    if objLength addr = 0w1
+                                    then (* The closure is just one word - we don't need to
+                                            put it in the closure register since the function
+                                            won't need it.  Do the indirection now. *)
+                                        (SOME codeLocn, false, [], [])
+                                    else (* We need to load the closure register. 
+                                        We have a choice here.  We could either return
+                                        the closure register as the address as we do
+                                        in the general case, in which case we would do
+                                        an indirect call through the closure register,
+                                        or we can do the indirection here and do a
+                                        direct call.  On the i386 the latter is definitely
+                                        better but on the PPC it will generate longer
+                                        code, although possibly no slower if there was
+                                        a pipeline stall. *)
+                                        (SOME codeLocn, false,
+                                            [loadReg regClosure (pushConst(transtable, w))],
+                                            [regClosure])
+                                end
+                            end
+                       | SOME _ =>
+                            (* Calling a non-constant - load the closure register and
+                               set the code address as this with the "indirection"
+                               flag set to true. *)
+                            (SOME(loadReg regClosure procLocn), true, [], [regClosure])
+                       | NONE => (* Recursive *)
+                          (* If this function requires a closure we need to reload
+                             the closure register with our original closure. *)
+                          if discardClosure then (NONE, false, [], [])
+                          else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
+                end
             in
-                lockRegister (transtable, regClosure);
-                (SOME entryPt, false, [slIndex], [regClosure])
-            end (* loadStaticLinkProc *);
+                realFunctionCall([procLocn], registerSet, loadClosureProc, tailCall)
+            end (* callClosure *)
 
-        local
-            val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
-            val argRegs = listToSet(regClosure :: modifiedArgRegs)
-        in
-            val registerSet =
-                if selfCall then allRegisters (* Have to push everything. *)
-                else if fpRel (* Local *)
-                then if addr < 0
-                then raise InternalError "static link function is an argument"
-                else regSetUnion(argRegs,
-                        getFunctionRegSet(pstackForDec (transtable, addr), transtable))
-                else (* Non local *) regSetUnion(argRegs, staticLinkRegSet addr)
-        end
-      in
-        (* Add the registers modified by the function we're calling to those
-           modified by this function.  Don't need to do that in the recursive
-           case. *)
-        if selfCall then ()
-        else addModifiedRegSet(transtable, registerSet);
-        (* Set the use count on the static link.  I don't know whether this
-           is needed in all cases so it could result in us incrementing it
-           unnecessarily.  It isn't needed if this function is local.
-           DCJM 1/12/99. *)
-        (* Increment the reference on the code if it's local and this is
-           not the last reference.  If it's non-local we don't actually
-           change the reference count when we load it.
-           DCJM 21/12/00. *)
-        if lastRef 
-        then ()
-        else if fpRel (* It's local. *)
-        then incrUseCount(transtable, pstackForDec (transtable, addr), 1)
-        else incrUseCount(transtable, closureOrSlAddr, 1);
+            fun codeRTSFunction(instr, arguments, whereto) =
+                case checkAndReduce(instr, arguments, fn (Constnt w) => SOME w | _ => NONE) of
+                    SOME(i, args) =>
+                    let
+                        (* Code generate each argument to the pstack. *)
+                        val argsAndCode = List.map (fn arg => genToStack (arg, matchFailFn)) args
+                        val argLocns = List.map #1 argsAndCode
+                        (* Return the code ordered with earlier arguments later in the list. *)
+                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                        val () = codeGenerate(opCode @ argCode, cvec)
+                    in
+                        (* Put in the result. *)
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                    end
+                |   NONE => (* Have to use a function call *) callClosure (SOME evalFun)
 
-        realFunctionCall([], registerSet, loadStaticLinkProc, tailCall)
-      end
+        in (* body of genEval *)
+            case evalFun of
+                Constnt (oper : machineWord) =>
+                let
+                    val args = List.map #1 argList
+                    val addr = toAddress oper
+                in
+                    if isIoAddress addr
+                    then
+                    (
+                        if wordEq (oper,ioOp POLY_SYS_thread_self)
+                        then codeRTSFunction(instrThreadSelf, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_get_length)
+                        then codeRTSFunction(instrVeclen, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_get_flags)
+                        then codeRTSFunction(instrVecflags, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
+                        then codeRTSFunction(instrGetFirstLong, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_string_length)
+                        then codeRTSFunction(instrStringLength, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_set_string_length)
+                        then codeRTSFunction(instrSetStringLength, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_aplus)
+                        then codeRTSFunction(instrAddA, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_aminus)
+                        then codeRTSFunction(instrSubA, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_amul)
+                        then codeRTSFunction(instrMulA, args, whereto)
+
+                        (* Negation is coded as 0 - X. *)
+                        else if wordEq (oper,ioOp POLY_SYS_aneg)
+                        then codeRTSFunction(instrSubA, Constnt Zero :: args, whereto)
+
+                        (* Boolean "not" is coded as xor with "true" *)
+                        else if wordEq (oper,ioOp POLY_SYS_not_bool)
+                        then codeRTSFunction(instrXorW, args @ [Constnt True], whereto)
+
+                        else if  wordEq (oper,ioOp POLY_SYS_or_word)
+                        then codeRTSFunction(instrOrW, args, whereto)
+
+                        else if  wordEq (oper,ioOp POLY_SYS_and_word)
+                        then codeRTSFunction(instrAndW, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_xor_word)
+                        then codeRTSFunction(instrXorW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
+                        then codeRTSFunction(instrUpshiftW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
+                        then codeRTSFunction(instrDownshiftW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
+                        then codeRTSFunction(instrDownshiftArithW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_xor_word)
+                        then codeRTSFunction(instrXorW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_mul_word)
+                        then codeRTSFunction(instrMulW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_plus_word)
+                        then codeRTSFunction(instrAddW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_minus_word)
+                        then codeRTSFunction(instrSubW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_div_word)
+                        then codeRTSFunction(instrDivW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_mod_word)
+                        then codeRTSFunction(instrModW, args, whereto)
+        
+                        else if wordEq (oper,ioOp POLY_SYS_load_byte)
+                        then codeRTSFunction(instrLoadB, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_load_word)
+                        then codeRTSFunction(instrLoad, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
+                        then codeRTSFunction(instrAtomicIncr, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
+                        then codeRTSFunction(instrAtomicDecr, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_alloc_store)
+                        then codeRTSFunction(instrAllocStore, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_assign_word)
+                        then codeRTSFunction(instrStoreW, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_assign_byte)
+                        then codeRTSFunction(instrStoreB, args, whereto)
+                    
+                        else if wordEq(oper, ioOp POLY_SYS_lockseg)
+                        then codeRTSFunction(instrLockSeg, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_Add_real)
+                        then codeRTSFunction(instrAddFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_Sub_real)
+                        then codeRTSFunction(instrSubFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_Mul_real)
+                        then codeRTSFunction(instrMulFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_Div_real)
+                        then codeRTSFunction(instrDivFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_Neg_real)
+                        then codeRTSFunction(instrNegFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_int_to_real)
+                        then codeRTSFunction(instrIntToRealFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_real_to_int)
+                        then codeRTSFunction(instrRealToIntFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
+                        then codeRTSFunction(instrSqrtFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_sin_real)
+                        then codeRTSFunction(instrSinFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_cos_real)
+                        then codeRTSFunction(instrCosFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_arctan_real)
+                        then codeRTSFunction(instrAtanFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_exp_real)
+                        then codeRTSFunction(instrExpFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_ln_real)
+                        then codeRTSFunction(instrLnFP, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_move_bytes)
+                        then codeRTSFunction(instrMoveBytes, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_move_words)
+                        then codeRTSFunction(instrMoveWords, args, whereto)
+
+                        (* The point of the following code is to call genCond, which will call genTest
+                           which will hopefully use machine instructions for these operations.
+                           We could avoid this by duplicating most of the body of genTest
+                           (the "jumping" boolean code generator) here, but we would like to
+                           avoid that. *)
+                        else if primBoolOps andalso
+                        (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_word_neq) orelse
+                         wordEq (oper,ioOp POLY_SYS_equala)   orelse
+                         wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
+                         wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
+                         wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
+                         wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
+                         wordEq (oper,ioOp POLY_SYS_Real_lss) orelse
+                         wordEq (oper,ioOp POLY_SYS_is_short))
+                        then
+                            genCond
+                                (Eval {function = evalFun, argList = argList, earlyEval = false, resultType=resultType},
+                                 constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
+                        else (* unoptimised I/O call *)
+                            callClosure (SOME evalFun)
+                    )
+  
+                    else (* All other constant functions. *) callClosure (SOME evalFun)
+                end
+
+            |   Extract {fpRel, addr, level, lastRef, ...} =>
+                let (* Local function with non-empty closure. *)
+                    (* The procedure is being loaded from the stack or closure
+                       so it may be a static-link procedure. *)
+
+                    (* DCJM 1/12/99.  TODO: We have a problem if the function is a
+                     closure reference (e.g. a recursive call) and the last reference
+                     to the closure is one of the arguments.  In some cases at any rate
+                     we don't process the function until after we've processed the
+                     arguments resulting in us not being able to find something.
+                     I think it's probably only if we have static-linked functions
+                     that there is a problem when the something is start of the static
+                     link.  I think if the function requires a closure then the closure
+                     is evaluated first even if it's a simple load. 
+                     No, it's also needed in the recursive case at least. 
+         
+                     There was a definite bug in the case of a static-link call to
+                     a function where the last reference to the function was within
+                     the argument.  DCJM 21/12/00.
+                     *)
+
+                    (* SPF 20/5/95 *)
+                    val selfCall = not fpRel andalso level = 0 andalso addr = 0;
+      
+                    val staticCall = 
+                        if fpRel (* Local or parameter *)
+                        then addr > 0 (* If not it must be a parameter - must be closure *)
+                        andalso isProcB (transtable, addr) (* local - look in table *)
+                        else isStaticLink addr;  (* Non-local or recursive. *)
+                in 
+                     (* Is this a static link call? *)
+                    if staticCall
+                    then
+                    let
+                        (* Cannot use a jump to local static-link procedures because 
+                           we may want local declarations on the current stack. *)
+                        val tailCall = isEndOfProc tailKind andalso not fpRel;
+  
+                        (* Load and lock regClosure. Returns the indexes of
+                           these entries in the stack. *)
+                        fun loadStaticLinkProc (): (stackIndex option * bool * stackIndex list * reg list) =
+                        if selfCall (* recursive *)
+                        then
+                        let
+                            (* Do we really need *exclusive* use of this register? 
+                               Perhaps this is to force the old value onto the stack if
+                               we haven't saved it yet, but we should have done this
+                               in pushAllBut (below) unless we're in a tail-call in
+                               which case we're not coming back. SPF 23/5/95 *)
+                            val SL = closureOrSlAddr
+                            val (closureIndex, closureCode) =
+                              loadToSpecificReg (transtable, regClosure, SL, false);
+                            val () = codeGenerate(closureCode, cvec)
+                            val () = lockRegister (transtable, regClosure);
+                        in
+                            (NONE, false, [closureIndex], [regClosure])
+                        end
+                 
+                        else if fpRel (* Local *)
+                        then
+                        let
+                            (* Load entry point - this must be a local not an argument. *)
+                            val entryPt = pstackForDec (transtable, addr);
+                            (* We have already incremented the reference count when
+                               this is not the last reference so we don't need to do
+                               anything here.  DCJM 21/12/00. *)
+            
+                            (* Get the static link register. Will set its value later. *)
+                            val () = codeGenerate(getRegister (transtable, regClosure), cvec);
+                            val closureIndex = pushReg (transtable, regClosure);
+                            val () = lockRegister (transtable, regClosure);
+                        in 
+                            (* Set value of static link register now. The static link entry
+                               is now the address of the frame.  DCJM 2/1/01. *)
+                            codeGenerate([moveOp {output=regClosure, source=StackAddress((realstackptr transtable - 1)*wordSize)}], cvec);
+                            (SOME entryPt, false, [closureIndex], [regClosure])
+                        end
+          
+                        else
+                        let (* Non-local or recursive. *)
+                            fun pushIt () = (closureOrSlAddr, [])
+                            (* load SL register and return code address *)
+                            val (entryPt, slIndex, code) = loadStaticLink (addr, pushIt, transtable)
+                            val () = codeGenerate(code, cvec)
+                        in
+                            lockRegister (transtable, regClosure);
+                            (SOME entryPt, false, [slIndex], [regClosure])
+                        end (* loadStaticLinkProc *);
+
+                        local
+                            val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
+                            val argRegs = listToSet(regClosure :: modifiedArgRegs)
+                        in
+                            val registerSet =
+                                if selfCall then allRegisters (* Have to push everything. *)
+                                else if fpRel (* Local *)
+                                then if addr < 0
+                                then raise InternalError "static link function is an argument"
+                                else regSetUnion(argRegs,
+                                        getFunctionRegSet(pstackForDec (transtable, addr), transtable))
+                                else (* Non local *) regSetUnion(argRegs, staticLinkRegSet addr)
+                        end
+                    in
+                        (* Add the registers modified by the function we're calling to those
+                           modified by this function.  Don't need to do that in the recursive
+                           case. *)
+                        if selfCall then ()
+                        else addModifiedRegSet(transtable, registerSet);
+                        (* Set the use count on the static link.  I don't know whether this
+                           is needed in all cases so it could result in us incrementing it
+                           unnecessarily.  It isn't needed if this function is local.
+                           DCJM 1/12/99. *)
+                        (* Increment the reference on the code if it's local and this is
+                           not the last reference.  If it's non-local we don't actually
+                           change the reference count when we load it.
+                           DCJM 21/12/00. *)
+                        if lastRef 
+                        then ()
+                        else if fpRel (* It's local. *)
+                        then incrUseCount(transtable, pstackForDec (transtable, addr), 1)
+                        else incrUseCount(transtable, closureOrSlAddr, 1);
+
+                        realFunctionCall([], registerSet, loadStaticLinkProc, tailCall)
+                    end
    
-      (* Closure call - check for recursive calls. *)
-      else
-        (
-        (* Set the use count on the closure register if this is a
-           recursive call.  We have to do that for the recursive case
-           because we don't pass the Extract entry in to callClosure.
-           DCJM 1/12/99. *)
-        if selfCall andalso not lastRef andalso not discardClosure
-        then incrUseCount(transtable, closureOrSlAddr, 1)
-        else();
-        callClosure (if selfCall then NONE else SOME evalFun)
-        )
-    end
+                    (* Closure call - check for recursive calls. *)
+                    else
+                    (
+                        (* Set the use count on the closure register if this is a
+                           recursive call.  We have to do that for the recursive case
+                           because we don't pass the Extract entry in to callClosure.
+                           DCJM 1/12/99. *)
+                        if selfCall andalso not lastRef andalso not discardClosure
+                        then incrUseCount(transtable, closureOrSlAddr, 1)
+                        else();
+                        callClosure (if selfCall then NONE else SOME evalFun)
+                    )
+                end (* Extract *)
 
-      | _ => (* The procedure is not being found by simply loading a value
-              from the stack or the closure and is not a constant. *)
-        callClosure (SOME evalFun)
-    end (* genEval *);
+            |   _ => (* The procedure is not being found by simply loading a value
+                        from the stack or the closure and is not a constant. *)
+                    callClosure (SOME evalFun)
+        end (* genEval *)
 
 
-    val resType = codeToCgType resultType
-    val _ = genToRegister (pt, UseReg(resultReg resType), EndOfProc resType, matchFailed, NONE);
+        val resType = codeToCgType resultType
+        val _ = genToRegister (pt, UseReg(resultReg resType), EndOfProc resType, matchFailed, NONE);
 
-    val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
-  in
-    
-    (* Having code generated the body of the procedure,
-       it is copied into a new data segment. *)
-    (!cvec, maxstack transtable, getModifedRegSet transtable)
-  end (* codegen *);
-
-  fun gencode (Lambda { name, body, argTypes, resultType, ...}, debugSwitches) =
-    let (* We are compiling a procedure. *)
-      (* It is not essential to treat this specially, but it saves generating
-         a piece of code whose only function is to return the address of the
-         procedure. *)
-       
-      (* make the code buffer for the new procedure. *)
-      val newCode = codeCreate (false (* make a closure *), name, debugSwitches); 
-
-     (* The only non-local references will be references to the
-        closure itself. We have to fetch these from the constants
-        section because:
-        (1) we don't save the closure register in the function body
-        (2) we don't even initialise it if we use the PureCode
-        calling convention
-        SPF 2/1/97
-      *)
-      val (ops, maxStack, regList) =
-        codegen
-            (body,
-            fn (_ , _, newtab) => (pushCodeRef (newtab, newCode), []),
-            fn _ => false,
-            fn (_,  _, _) => raise InternalError "Not static link",
-            fn _ => raise InternalError "Not static link",
-            true, (* Discard regClosure *)
-            argTypes, resultType, debugSwitches)
-
-        val closureAddr = copyCode (newCode, ops, maxStack, regList)
-        val res : machineWord = toMachineWord closureAddr
+        val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
     in
-      (* Result is a procedure which returns the address of the procedure. *)
-      (fn () => res)
-    end
- 
-  | gencode (pt, debugSwitches) =
-    let (* Compile a top-level expression. *)
-        val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
+    
+        (* Having code generated the body of the procedure,
+          it is copied into a new data segment. *)
+        (!cvec, maxstack transtable, getModifedRegSet transtable)
+    end (* codegen *)
 
-        (* There should be *no* non-local references. *)
-        val (ops, maxStack, regList) =
-            codegen 
-                (pt,
-                fn _ => raise InternalError "top level reached",
-                fn _ => false,
-                fn _ => raise InternalError "Not static link",
-                fn _ => raise InternalError "Not static link",
-                true,  (* Discard regClosure *)
-                [],    (* No args. *) GeneralType, (* General result (if any?) *)
-                debugSwitches)
-        val closureAddr = copyCode (newCode, ops, maxStack, regList)
-    in (* Result is a procedure to execute the code. *)
-      fn () => call (closureAddr, toMachineWord ())
-    end (* gencode *);
+    fun gencode (Lambda { name, body, argTypes, resultType, ...}, debugSwitches) =
+        let (* We are compiling a procedure. *)
+            (* It is not essential to treat this specially, but it saves generating
+             a piece of code whose only function is to return the address of the
+             procedure. *)
+       
+            (* make the code buffer for the new procedure. *)
+            val newCode = codeCreate (false (* make a closure *), name, debugSwitches); 
+
+         (* The only non-local references will be references to the
+            closure itself. We have to fetch these from the constants
+            section because:
+            (1) we don't save the closure register in the function body
+            (2) we don't even initialise it if we use the PureCode
+            calling convention
+            SPF 2/1/97
+          *)
+            val (ops, maxStack, regList) =
+                codegen
+                    (body,
+                    fn (_ , _, newtab) => (pushCodeRef (newtab, newCode), []),
+                    fn _ => false,
+                    fn (_,  _, _) => raise InternalError "Not static link",
+                    fn _ => raise InternalError "Not static link",
+                    true, (* Discard regClosure *)
+                    argTypes, resultType, debugSwitches)
+
+            val closureAddr = copyCode (newCode, ops, maxStack, regList)
+            val res : machineWord = toMachineWord closureAddr
+        in
+            (* Result is a procedure which returns the address of the procedure. *)
+            (fn () => res)
+        end
+ 
+    |   gencode (pt, debugSwitches) =
+        let (* Compile a top-level expression. *)
+            val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
+
+            (* There should be *no* non-local references. *)
+            val (ops, maxStack, regList) =
+                codegen 
+                    (pt,
+                    fn _ => raise InternalError "top level reached",
+                    fn _ => false,
+                    fn _ => raise InternalError "Not static link",
+                    fn _ => raise InternalError "Not static link",
+                    true,  (* Discard regClosure *)
+                    [],    (* No args. *) GeneralType, (* General result (if any?) *)
+                    debugSwitches)
+            val closureAddr = copyCode (newCode, ops, maxStack, regList)
+        in (* Result is a procedure to execute the code. *)
+            fn () => call (closureAddr, toMachineWord ())
+        end (* gencode *)
     
 end; (* GCODE functor body *)

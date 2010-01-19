@@ -2504,7 +2504,7 @@ struct
                                                 mkProc 
                                                     (mkTuple[loadEx (localLevel + 1), mkStr name,
                                                         mkLoad (~1, 0), codeLocation nullLocation],
-                                                    1, 1, "")
+                                                    1, "")
                                     end
 
                                 |   ConstructorToValue =>
@@ -2572,7 +2572,7 @@ struct
                                     applyToInstance(sourceVars, localLevel, newTypeVarMap, loadCode)
                             in
                                 (mkProc(
-                                    mkEnv(getCachedTypeValues newTypeVarMap @ [application]), localLevel,
+                                    mkEnv(getCachedTypeValues newTypeVarMap @ [application]),
                                     List.length destVars, name ^ "(P)"), false)
                             end
                     end
@@ -2898,7 +2898,7 @@ struct
                         val functorCode = (* The function that implements the functor. *)
                             (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
                                 (mkEnv(fBindDebugDecs @ strCode @ [matchedCode]),
-                                level, 1, name);
+                                1, name);
                     end
 
                     (* Set the address of this variable. Because functors can only

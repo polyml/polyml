@@ -185,9 +185,9 @@ struct
     if level < 0 then raise InternalError "mkLoad: level must be non-negative"
     else Extract {level = level, addr = addr, fpRel = true, lastRef = false}
 
-  fun mkClosLoad addr last =
-    Extract {level = 0, addr = addr, fpRel = false, lastRef = last};
-  val mkEnv    = Newenv;
+    fun mkClosLoad(addr, last) = Extract {level = 0, addr = addr, fpRel = false, lastRef = last}
+
+    val mkEnv    = Newenv;
 
   (* Wrap up multiple entries.  Return a single item unless it is a
      declaration. *)
@@ -203,7 +203,7 @@ struct
        default GeneralType arguments and results. *)
 
     (* lambda operation: returns a procedure *)
-    fun mkProc (lval, (*level*)_, args, name) =
+    fun mkProc (lval, args, name) =
     Lambda
       {
         body          = lval,
@@ -214,11 +214,12 @@ struct
         resultType    = GeneralType,
         level         = 0,
         closureRefs   = 0,
+        localCount    = 0,
         makeClosure   = false
       }                     
 
     (* inline lambda operation: returns an inline procedure *)
-    fun mkInlproc (lval, (*level*)_, args, name) =
+    fun mkInlproc (lval, args, name) =
     Lambda
       {
         body          = lval,
@@ -229,11 +230,12 @@ struct
         resultType    = GeneralType,
         level         = 0,
         closureRefs   = 0,
+        localCount    = 0,
         makeClosure   = false
       };
 
     (* OnlyInline: used for functors unless inlineFunctors is false. *)
-    fun mkMacroProc (lval, (*level*)_, args, name) =
+    fun mkMacroProc (lval, args, name) =
     Lambda
       {
         body          = lval,
@@ -244,6 +246,7 @@ struct
         resultType    = GeneralType,
         level         = 0,
         closureRefs   = 0,
+        localCount    = 0,
         makeClosure   = false
       };
 
@@ -266,6 +269,7 @@ struct
         resultType    = resultType,
         level         = 0,
         closureRefs   = 0,
+        localCount    = 0,
         makeClosure   = false
       }
 
@@ -280,6 +284,7 @@ struct
         resultType    = resultType,
         level         = 0,
         closureRefs   = 0,
+        localCount    = 0,
         makeClosure   = false
       }
 
@@ -302,10 +307,10 @@ struct
   fun mkTestnull xp1       = mkTestptreq  (xp1, CodeZero);
   fun mkTestnotnull xp1    = mkTestptrneq (xp1, CodeZero);
 
-  val mkIf = Cond ;
-  fun mkWhile(b, e) =
-    (* Generated as   if b then (e; <loop>) else (). *)
-    BeginLoop(mkIf(b, mkEnv[e, Loop[]], CodeZero), [])
+    val mkIf = Cond
+
+    fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
+        BeginLoop{loop=mkIf(b, mkEnv[e, Loop[]], CodeZero), arguments=[], kills=[]}
 
   (* We previously had conditional-or and conditional-and as separate
      instructions.  I've taken them out since they can be implemented
@@ -362,8 +367,8 @@ struct
       {load = loadFn, dec = [mkDec (addr, code)]}
     end (* multipleUses *);
   
-  fun identityFunction (name : string) : codetree = 
-    mkInlproc (mkLoad (~1, 0), 0, 1, name) (* Returns its argument. *);
+    fun identityFunction (name : string) : codetree = 
+        mkInlproc (mkLoad (~1, 0), 1, name) (* Returns its argument. *);
 
   (* Set the container to the fields of the record.  Try to push this
      down as far as possible. *)
@@ -812,26 +817,34 @@ the above function would be rewritten as something like
 fun f (a, b) = if a then (b<last>; g (a<last>) + 1) else (a<last>; b<last>)
 DCJM 2000.
 *)
-  fun preCode (codegen, pt) =
+
+  fun preCode (codegen, pt, localAddressCount) =
   let
-    val initTrans = 5; (* Initial size of arrays. *)
 
     (* preCode.copyCode *)
-    fun copyCode (pt, previous, argUses, closureUses) =
+    fun copyCode (pt, previous, argUses, closureUses, localCount) =
     let 
        
-      (* Tables for local declarations. "localUses" is the use count,
-         and "closuresForLocals" a flag indicating that if the declaration
-         is a procedure a closure must be made for it. *)
-      val localUses         = stretchArray (initTrans, false);
-      val closuresForLocals = stretchArray (initTrans, false);
+        (* Tables for local declarations. "localUses" is the use count,
+           and "closuresForLocals" a flag indicating that if the declaration
+          is a procedure a closure must be made for it. *)
+        val localUses         = Array.array(localCount, false);
+        val closuresForLocals = Array.array(localCount, false);
 
-      (* used to indicate whether a local declaration is really
-         a constant, so that we can in-line it. SPF 16/5/95 *)
-      val localConsts       = stretchArray (initTrans, NONE);
+        (* used to indicate whether a local declaration is really
+         a constant, so that we can in-line it. *)
+        val localConsts       = Array.array (localCount, NONE)
+      
+        (* If we are inside a loop these entries indicate that
+           the declaration was made outside so the entries must
+           not be killed there. *)
+        val outsideLoop       = Array.array (localCount, false)
+        (* This also applies to all the parameters of the function which
+           could be passed in registers. *)
+        val outsideLoopRef = ref false
 
       abstype usageSet =
-        UsageSet of {locals: int list ref, args: int list ref, clos: bool ref}
+        UsageSet of {locals: int list, args: int list, clos: bool}
       with
       (* Used to give us a "kill set" for an expression.
          In the case of parallel flows of control (e.g. then- and else-parts
@@ -848,22 +861,22 @@ DCJM 2000.
                     fun tabul n l =
                         if n = size
                         then l
-                        else if StretchArray.sub(vec, n)
+                        else if Array.sub(vec, n)
                         then tabul (n+1) (n::l)
                         else tabul (n+1) l
                 in
                     tabul 0 []
                 end
-                val localLength = StretchArray.length localUses
-                and argLength = StretchArray.length argUses
+                val localLength = localCount
+                and argLength = Array.length argUses
                 val localSaved = tabulate(localLength, localUses)
                 and argSaved = tabulate(argLength, argUses)
             in
-                UsageSet{locals=ref localSaved, args=ref argSaved, clos=ref(!closureUses)}
+                UsageSet{locals=localSaved, args=argSaved, clos= !closureUses}
             end
 
           (* Restore the table to the saved values. *)
-          fun setToSaved(UsageSet{locals=ref locals, args=ref args, clos}): unit =
+          fun setToSaved(UsageSet{locals=locals, args=args, clos}): unit =
             let
                 fun copyArray i f t =
                     if i < 0
@@ -872,135 +885,142 @@ DCJM 2000.
                     else case f of
                         [] =>
                             (
-                                StretchArray.update(t, i, false);
+                                Array.update(t, i, false);
                                 copyArray (i-1) [] t
                             )
                     |   head :: tail =>
                         if head = i
                         then 
                             (
-                                StretchArray.update(t, i, true);
+                                Array.update(t, i, true);
                                 copyArray (i-1) tail t
                             )
                         else
                             (
-                                StretchArray.update(t, i, false);
+                                Array.update(t, i, false);
                                 copyArray (i-1) f t
                             )
             in
-                copyArray (StretchArray.length argUses -1) args argUses;
-                copyArray (StretchArray.length localUses -1) locals localUses;
-                closureUses := !clos
+                copyArray (Array.length argUses -1) args argUses;
+                copyArray (Array.length localUses -1) locals localUses;
+                closureUses := clos
             end;
 
           (* Similar to setToSaved except that it sets the current set
              to the union of the current set and the saved set. *)
-          fun addFromSaved(UsageSet{locals=ref locals, args=ref args, clos}): unit =
+          fun addFromSaved(UsageSet{locals=locals, args=args, clos}): unit =
             let
                 fun addArray [] _ = ()
                  |  addArray (head::tail) t =
                         (
-                        StretchArray.update(t, head, true);
+                        Array.update(t, head, true);
                         addArray tail t
                         )
             in
                 addArray args argUses;
                 addArray locals localUses;
-                if !clos then closureUses := true else ()
+                if clos then closureUses := true else ()
             end;
 
-          fun inSet(UsageSet{locals=ref locals, args=ref args, clos}, addr, level) =
-            if level > 0 then !clos
+          fun inSet(UsageSet{locals=locals, args=args, clos}, addr, level) =
+            if level > 0 then clos
             else if addr < 0
             then (* Argument *) List.exists(fn n => n = ~addr) args
             else (* Local *) List.exists(fn n => n = addr) locals;
 
-          fun removeItem(UsageSet{locals, args, clos}, addr, level) =
-                if level > 0 then clos := false
+            (* Returns the usage set with one item removed. *)
+            fun removeItem(UsageSet{locals, args, clos}, addr, level) =
+                if level > 0 then UsageSet{locals=locals, args=args, clos = false }
                 else if addr < 0
-                then args := List.filter (fn n => n <> ~addr) (!args)
-                else locals := List.filter (fn n => n <> addr) (!locals)
+                then UsageSet{locals=locals, args = List.filter (fn n => n <> ~addr) args, clos=clos}
+                else UsageSet{locals = List.filter (fn n => n <> addr) locals, args=args, clos=clos}
 
           (* Differences of two sets, used as kill entries.
              The differences are returned as Extract codetree entries. *)
           fun computeKillSets(
-                (* then*) UsageSet{locals=ref thenLoc, args=ref thenArgs, clos=thenClos},
-                (* else *) UsageSet{locals=ref elseLoc, args=ref elseArgs, clos=elseClos}) =
+                (* then*) UsageSet{locals=thenLoc, args=thenArgs, clos=thenClos},
+                (* else *) UsageSet{locals=elseLoc, args=elseArgs, clos=elseClos}) =
           let
-              fun killSets _ [] [] inThenOnly inElseOnly = (inThenOnly, inElseOnly)
+                fun createEntry(true, addr) =  (* Argument *)
+                    if ! outsideLoopRef then [] else [mkGenLoad(~addr, 0, true, true)]
+                |   createEntry(false, addr) = (* Local *)
+                    if Array.sub(outsideLoop, addr) then [] else [mkGenLoad(addr, 0, true, true)]
 
-                | killSets f [] (inElseH::inElseT) inThenOnly inElseOnly =
-                    killSets f [] inElseT inThenOnly
-                         (mkGenLoad(f inElseH, 0, true, true) :: inElseOnly)
+                fun killSets (_, [], [], inThenOnly, inElseOnly) = (inThenOnly, inElseOnly)
 
-                | killSets f (inThenH::inThenT) [] inThenOnly inElseOnly =
-                    killSets f inThenT []
-                        (mkGenLoad(f inThenH, 0, true, true) ::inThenOnly) inElseOnly
+                | killSets (isArg, [], inElseH::inElseT, inThenOnly, inElseOnly) =
+                    killSets(isArg, [], inElseT, inThenOnly, createEntry(isArg, inElseH) @ inElseOnly)
 
-                | killSets f (inThen as inThenH::inThenT)
-                             (inElse as inElseH::inElseT) inThenOnly inElseOnly =
+                | killSets(isArg, inThenH::inThenT, [], inThenOnly, inElseOnly) =
+                    killSets(isArg, inThenT, [], createEntry(isArg, inThenH) @ inThenOnly, inElseOnly)
+
+                | killSets(isArg, inThen as inThenH::inThenT,
+                             inElse as inElseH::inElseT, inThenOnly, inElseOnly) =
                     if inThenH = inElseH
                     then (* In both sets *)
-                        killSets f inThenT inElseT inThenOnly inElseOnly
+                        killSets(isArg, inThenT, inElseT, inThenOnly, inElseOnly)
                     else if inThenH < inElseH
                     then (* Only in Else part. *)
-                        killSets f inThen inElseT inThenOnly
-                         (mkGenLoad(f inElseH, 0, true, true) :: inElseOnly)
-                    else killSets f inThenT inElse
-                        (mkGenLoad(f inThenH, 0, true, true) ::inThenOnly) inElseOnly
+                        killSets(isArg, inThen, inElseT, inThenOnly, createEntry(isArg, inElseH) @  inElseOnly)
+                    else killSets(isArg, inThenT, inElse, createEntry(isArg, inThenH) @ inThenOnly, inElseOnly)
               val (argThen, argElse) =
-                 killSets (op ~) thenArgs elseArgs [] []
+                 killSets(true, thenArgs, elseArgs, [], [])
 
               val (localThen, localElse) =
-                 killSets (fn x=>x) thenLoc elseLoc argThen argElse
+                 killSets (false, thenLoc, elseLoc, argThen, argElse)
 
               val (closThen, closElse) =
-                    if !thenClos = !elseClos then (localThen, localElse)
-                    else if !thenClos
-                    then (mkClosLoad 0 true :: localThen, localElse)
-                    else (localThen, mkClosLoad 0 true :: localElse)
+                    if thenClos = elseClos orelse ! outsideLoopRef then (localThen, localElse)
+                    else if thenClos
+                    then (mkClosLoad(0, true) :: localThen, localElse)
+                    else (localThen, mkClosLoad(0, true) :: localElse)
 
           in
               (closThen, closElse)
           end;
       end;
 
-      (* returns the translated node *)
-      fun locaddr (ptr as { addr=laddr, level=lev, ...}: loadForm) (closure : bool) : codetree =
+        (* returns the translated node *)
+        fun locaddr (ptr as { addr=laddr, level=lev, ...}: loadForm) (closure : bool) : codetree =
         if lev <> 0 orelse laddr = 0
-           then (* non-local *) previous (ptr, lev, closure)
+        then (* non-local *) previous (ptr, lev, closure, !outsideLoopRef)
            
         else if laddr < 0
-        then let (* parameters *)
-          val argNo = ~ laddr;
-          val wasInUse = argUses sub argNo;
+        then
+        let (* parameters *)
+            val argNo = ~ laddr;
+            val lastReference =
+                not(Array.sub(argUses, argNo)) andalso not (!outsideLoopRef)
         in 
-          (* Mark the argument as used. *)
-          update (argUses, argNo, true);
-          mkGenLoad (laddr, 0, true, not wasInUse)
+            (* Mark the argument as used. *)
+            Array.update (argUses, argNo, true);
+            mkGenLoad (laddr, 0, true, lastReference)
         end
           
         (* isOnstack *)
-        else case (localConsts sub laddr) of (* SPF 16/5/95 *)
-          SOME c => c (* just return the constant *)
-        | NONE =>
-          let 
-           (* Mark as used and set closure flag if necessary. *)
-          val wasInUse = localUses sub laddr
-          in
-            if closure then update (closuresForLocals, laddr, true) else ();
-            update (localUses, laddr, true);
-            mkGenLoad (laddr, 0, true, not wasInUse)
-          end
+        else case Array.sub(localConsts, laddr) of
+            SOME c => c (* just return the constant *)
+        |   NONE =>
+            let 
+                (* Mark as used and set closure flag if necessary.
+                   If this was outside a loop we can't mark this as the last
+                   reference because it needs to be retained for the next time round. *)
+                val lastReference =
+                    not(Array.sub(localUses, laddr)) andalso not (Array.sub(outsideLoop, laddr))
+            in
+                if closure then Array.update (closuresForLocals, laddr, true) else ();
+                Array.update (localUses, laddr, true);
+                mkGenLoad (laddr, 0, true, lastReference)
+            end
       (* locaddr *);
 
      (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
         Generally used to map "insert" over a list where we need to
         ensure that last references to variables are detected correctly. *)
-     fun revmap _ [] = []
-       | revmap f (a::b) =
+     fun mapright _ [] = []
+       | mapright f (a::b) =
             let
-                val rest = revmap f b
+                val rest = mapright f b
             in
                 f a :: rest
             end
@@ -1013,7 +1033,7 @@ DCJM 2000.
         (* involves a recursive reference which will need a closure.        *)
         (* preCode.copyCode.insert.copyLambda *)
         fun copyLambda ({body=lambdaBody, level=nesting, argTypes, isInline,
-                         name=lambdaName, resultType, ...}: lambdaForm) makeClosure =
+                         name=lambdaName, resultType, localCount, ...}: lambdaForm) makeClosure =
         let
           val newGrefs      = ref []; (* non-local references *)
           val newNorefs     = ref 0;  (* number of non-local refs *)
@@ -1021,7 +1041,7 @@ DCJM 2000.
            
           (* A new table for the new procedure. *)
           (* preCode.copyCode.insert.copyLambda.prev *)
-          fun prev (ptr as { addr, fpRel, ...} : loadForm, lev : int, closure: bool) : codetree =
+          fun prev (ptr as { addr, fpRel, ...} : loadForm, lev : int, closure: bool, inLoop) : codetree =
           let 
             (* Returns the closure address of the non-local *)
             (* preCode.copyCode.insert.copyLambda.prev.makeClosureEntry *)
@@ -1032,14 +1052,14 @@ DCJM 2000.
                 val newAddr = !newNorefs + 1;
               in
                 newNorefs := newAddr; (* increment count *)
-                mkClosLoad newAddr (not wasRefed)
+                mkClosLoad(newAddr, not wasRefed andalso not inLoop)
               end
             
             | makeClosureEntry
                 (Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t)
                 newAddr wasRefed =
                 if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
-                then mkClosLoad newAddr (not wasRefed)
+                then mkClosLoad(newAddr, not wasRefed andalso not inLoop)
                 else makeClosureEntry t (newAddr - 1) wasRefed
 
             | makeClosureEntry (_ ::_) _ _ =
@@ -1066,7 +1086,7 @@ DCJM 2000.
               val wasRefed = ! refsToClosure
             in
               refsToClosure := true;
-              mkClosLoad 0 (not wasRefed)
+              mkClosLoad(0, not wasRefed andalso not inLoop)
             end
             
             else if lev = 1 andalso addr > 0
@@ -1076,13 +1096,13 @@ DCJM 2000.
                then raise InternalError "prev: badly-formed load"
                else ();
             in 
-              case localConsts sub addr of
+              case Array.sub(localConsts, addr) of
                 SOME c => c (* propagate constant, rather than using closure *)
               | NONE  =>
                 let
                   val () =
                     if closure 
-                    then update (closuresForLocals, addr, true)
+                    then Array.update (closuresForLocals, addr, true)
                     else ();
                 val wasRefed = ! refsToClosure
                 in
@@ -1112,7 +1132,7 @@ DCJM 2000.
                  definitions. But doesn't doing it this way risks
                  making the refsToClosure count too high? SPF 19/5/95 *)
                val outerLoad : codetree = 
-                 previous (ptr, lev - 1, closure)
+                 previous (ptr, lev - 1, closure, !outsideLoopRef)
             in
               case outerLoad of
                 Constnt _ => outerLoad
@@ -1131,16 +1151,16 @@ DCJM 2000.
              size is one more than the number of arguments because the
              arguments are numbered from ~1 .. ~n and we use the entries
              as ~arg. *)
-          val argUses      = stretchArray (numArgs+1, false);
+          val argUses      = Array.array(numArgs+1, false);
           
           (* process the body *)
-          val bodyCode = copyCode (lambdaBody, prev, argUses, refsToClosure);
+          val bodyCode = copyCode (lambdaBody, prev, argUses, refsToClosure, localCount);
 
           (* Add kill entries for unused arguments.  Typically a function
              taking a unit argument will not use it. *)
           fun addKills n =
              if n > numArgs then nil
-             else if not (StretchArray.sub(argUses, n))
+             else if not (Array.sub(argUses, n)) andalso not(! outsideLoopRef)
              then mkGenLoad(~n, 0, true, true) :: addKills (n+1)
              else addKills (n+1)
 
@@ -1175,7 +1195,8 @@ DCJM 2000.
                   argTypes      = argTypes,
                   resultType    = resultType,
                   level         = nesting,
-                  closureRefs   = if !refsToClosure then 1 else 0 (* was set to 0 *), 
+                  closureRefs   = if !refsToClosure then 1 else 0 (* was set to 0 *),
+                  localCount    = localCount,
                   makeClosure   = true
                 };
           in
@@ -1196,6 +1217,7 @@ DCJM 2000.
                 resultType    = resultType,
                 level         = nesting,
                 closureRefs   = if !refsToClosure then 1 else 0,
+                localCount    = localCount,
                 makeClosure   = false
               }
         end (* copyLambda *);
@@ -1204,7 +1226,7 @@ DCJM 2000.
             processed by copyLambda. *)
          (* preCode.copyCode.insert.copyProcClosure *)
         fun copyProcClosure (Lambda{ body, isInline, name, argTypes, level,
-                                     closureRefs, closure, resultType, ...}) makeClosure =
+                                     closureRefs, closure, resultType, localCount, ...}) makeClosure =
           let
             (* process the non-locals in this procedure *)
             (* If a closure is needed then any procedures referred to
@@ -1224,6 +1246,7 @@ DCJM 2000.
                 resultType    = resultType,
                 level         = level,
                 closureRefs   = closureRefs,
+                localCount    = localCount,
                 makeClosure   = makeClosure
               }
            end
@@ -1247,7 +1270,7 @@ DCJM 2000.
         | Eval { function, argList, resultType, ...} =>
             let
               (* Process the arguments first. *)
-              val newargs = revmap(fn (c, t) => (insert c, t)) argList
+              val newargs = mapright(fn (c, t) => (insert c, t)) argList
               val func  =
                 case function of
                     Extract ext => locaddr ext (* closure = *) false
@@ -1270,35 +1293,58 @@ DCJM 2000.
         | pt as Constnt _ => 
             pt : codetree (* Constants can be returned untouched. *)
 
-        | BeginLoop(body, argList) => (* Start of tail-recursive inline function. *)
+        | BeginLoop{loop=body, arguments=argList, ...} => (* Start of tail-recursive inline function. *)
             let
+                (* If we have declarations outside the loop that are last used inside it we
+                   must make sure they're not marked as last used within the loop.  That would
+                   cause the register containing the value to become available for reuse which
+                   could mean that when we jumped back to the start of the loop it was no
+                   longer there.  We lift all such last-uses out of the loop and add them
+                   after the loop. *)
+                (* Save the usage state before we process the loop.  Because we're processing
+                   the block tail first this indicates all the declarations that are in use
+                   AFTER the loop. *)
+                val usagesAfterLoop = saveUsages()
+                val oldLoopEntries = Array.vector outsideLoop
+                (* Set every entry to the "outsideLoop" array to true. *)
+                val () = Array.modify (fn _ => true) outsideLoop
+                val wasInLoop = ! outsideLoopRef
+                val () = outsideLoopRef := true;
+
                 (* Make entries in the tables for the arguments. I'm not sure
                    if this is essential. *)
                 fun declareArg(Declar{addr=caddr, ...}, _) =
-                    (
-                    update (localUses, caddr, false);
-                    update (closuresForLocals, caddr, false);
-                    update (localConsts, caddr, NONE)
-                    )
+                (
+                    Array.update (localUses, caddr, false);
+                    Array.update (closuresForLocals, caddr, false);
+                    Array.update (localConsts, caddr, NONE);
+                    Array.update (outsideLoop, caddr, false) (* Must do this. *)
+                )
                 |   declareArg _ = raise InternalError "declareArg: not a declaration"
                 val _ = List.app declareArg argList
 
                 (* Process the body. *)
                 val insBody = insert body
+
+                (* Set the arguments to "unreferenced".  These are effectively local to
+                   the loop so they can safely be killed inside it. *)
+                val () = List.app(
+                    fn(Declar{addr, ...}, _) => Array.update (localUses, addr, false) | _ =>()) argList
+
+                val usagesBeforeLoop = saveUsages()
                 (* Then the initial argument values. *)
                 fun copyDec(Declar{addr, value, ...}, _) =
-                        (
-                        (* Reset the uses for this entry since it's local. *)
-                        update (localUses, addr, false);
                         mkDecRef (insert value) addr 1
-                        )
-                  | copyDec _ = raise InternalError "copyDec: not a declaration"
-                val newargs = revmap copyDec argList
-                (* TODO: Perhaps we should modify this so that any "last
-                   references" we find in the loop body are moved out to
-                   beyond the loop. *)
+                |   copyDec _ = raise InternalError "copyDec: not a declaration"
+                val newargs = mapright copyDec argList
+                (* Restore the state. *)
+                val () = outsideLoopRef := wasInLoop
+                val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
+                val (killBefore, killAfter) = computeKillSets(usagesAfterLoop, usagesBeforeLoop)
+                val _ = null killBefore orelse raise InternalError "Not killBefore"
             in
-                BeginLoop(insBody, ListPair.zipEq(newargs, List.map #2 argList))
+                (* Add the kill entries on after the loop. *)
+                BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList), kills=killAfter}
             end
     
         | Loop argList => (* Jump back to start of tail-recursive function. *)
@@ -1323,16 +1369,14 @@ DCJM 2000.
 
            | copyDeclarations ((Declar{addr=caddr, value = pt, ...}) :: vs) : codetree list =
             let
-              (* Set the table entries. *)
-              (* DCJM 1/12/99.  I think the reason for this is in case we have
-                 reused the address in a different block. *)
-              val () = update (localUses, caddr, false); (* needed? *)
-              val () = update (closuresForLocals, caddr, false);
+              (* Set the table entries.  We don't reuse entries so this is just a check. *)
+              val _ = Array.sub(localUses, caddr) andalso raise InternalError "copyDeclarations: Already used"
+              val () = Array.update (outsideLoop, caddr, false) (* It's local *)
 
               val () =
                 case pt of
-                    Constnt _ => update (localConsts, caddr, SOME pt)
-                |  _ => update (localConsts, caddr, NONE); (* needed? *)
+                    Constnt _ => Array.update (localConsts, caddr, SOME pt)
+                |  _ => ()
 
               (* This must be done first, even for non-lambdas -  why? *)
               (* The first declarative might be a set of mutual declarations,
@@ -1340,7 +1384,7 @@ DCJM 2000.
                  compile them because we need to know whether they will
                  require closures. SPF 13/5/95 *)
               val rest = copyDeclarations vs;
-              val wasUsed = localUses sub caddr;
+              val wasUsed = Array.sub(localUses, caddr)
             in
                   (* It is never used and it has no side-effects
                      so we can ignore it. *)
@@ -1351,7 +1395,7 @@ DCJM 2000.
                     case pt of
                         Lambda lam =>
                       let 
-                        val closure      = ref (closuresForLocals sub caddr);
+                        val closure      = ref (Array.sub(closuresForLocals, caddr));
                         val copiedLambda = copyLambda lam closure;
                       in
                         (* Note: copyLambda may have set closure *)
@@ -1362,7 +1406,7 @@ DCJM 2000.
                    (* Set the use count back to free otherwise this local
                       declaration would become part of the kill set for the
                       surrounding expression. *)
-                   update (localUses, caddr, false);
+                   Array.update (localUses, caddr, false);
                    mkDecRef dec caddr (if wasUsed then 1 else 0) :: rest
                 end
             end (* copyDeclarations.isDeclar *)
@@ -1391,11 +1435,10 @@ DCJM 2000.
                 (
                   (* SPF 16/5/95 *)
                   case dv of
-                    Constnt _ => update (localConsts, caddr, SOME dv) 
+                    Constnt _ => Array.update (localConsts, caddr, SOME dv) 
                   | _ => ();
-                   
-                  update (localUses, caddr, false);
-                  update (closuresForLocals, caddr, false)
+                  Array.sub(localUses, caddr) andalso raise InternalError "applyFn: Already used";
+                  Array.update (outsideLoop, caddr, false) (* It's local *)
                 )
                 | applyFn _ = raise InternalError "applyFn: not a Declar"               
                   
@@ -1410,7 +1453,7 @@ DCJM 2000.
                  we don't copy the non-local lists of procedures. *)
               fun copyDec (Declar{addr=caddr, value=dv, ...}) = 
               let
-                val closure = ref (closuresForLocals sub caddr);
+                val closure = ref (Array.sub(closuresForLocals, caddr))
                 val dec     =
                     case dv of
                         Lambda lam => copyLambda lam closure
@@ -1418,12 +1461,11 @@ DCJM 2000.
                 (* SPF 18/5/95 - check whether we now have a constant *)
                 val () =
                     case dec of
-                        Constnt _ => update (localConsts, caddr, SOME dec)
-                      | _ => update (localConsts, caddr, NONE); (* needed? *)
+                        Constnt _ => Array.update (localConsts, caddr, SOME dec)
+                      | _ => Array.update (localConsts, caddr, NONE); (* needed? *)
 
                 (* copyLambda may set "closure" to true. *)
-                 val () =
-                   update (closuresForLocals, caddr, !closure);
+                 val () = Array.update (closuresForLocals, caddr, !closure);
                in
                  mkDec (caddr, dec)
                end
@@ -1458,7 +1500,7 @@ DCJM 2000.
                 end
                       
                | processClosures ((h as Declar{addr=caddr, value, ...})::t) outlist someFound =
-                  if closuresForLocals sub caddr 
+                  if Array.sub(closuresForLocals, caddr)
                   then let (* Must copy it. *)
                     val clos = copyProcClosure value true
                   in
@@ -1476,7 +1518,7 @@ DCJM 2000.
               fun copyEntries []      = []
                |  copyEntries (Declar{ addr, value, ...} ::ds) =
                 let
-                  val wasUsed = localUses sub addr;
+                  val wasUsed = Array.sub(localUses, addr)
                 in
                   if not wasUsed andalso sideEffectFree value
                   then copyEntries ds
@@ -1485,7 +1527,7 @@ DCJM 2000.
                      (* Set the use count back to false otherwise this
                         entry would become part of the kill set for the
                         surrounding expression. *)
-                     update(localUses, addr, false);
+                     Array.update(localUses, addr, false);
                      mkDecRef value addr (if wasUsed then 1 else 0) :: copyEntries ds
                      )
                 end
@@ -1525,7 +1567,7 @@ DCJM 2000.
           | recopyValue (v as Extract{level=lev, addr=laddr, ...}) : codetree = 
              if lev = 0 andalso laddr > 0
              then 
-               case (localConsts sub laddr) of
+               case Array.sub(localConsts, laddr) of
                  SOME c => c
                | NONE   => v
              else v
@@ -1536,8 +1578,8 @@ DCJM 2000.
                val pt' = recopyValue pt
              in
                if isConstnt pt'
-               then update (localConsts, caddr, SOME pt')
-               else update (localConsts, caddr, NONE); (* needed? *)
+               then Array.update (localConsts, caddr, SOME pt')
+               else Array.update (localConsts, caddr, NONE); (* needed? *)
                mkDecRef pt' caddr references
              end
      
@@ -1560,7 +1602,7 @@ DCJM 2000.
                 
         | Recconstr recs => (* perhaps it's a constant now? *)
           (* Recconstr (map insert (cRecconstr pt)) : codetree *)
-             mkTuple (revmap insert recs) : codetree 
+             mkTuple (mapright insert recs) : codetree 
 
         | (pt as Ldexc) => pt : codetree (* just a constant so return it *)
       
@@ -1580,18 +1622,20 @@ DCJM 2000.
               Handle {exp = exp, taglist = tags, handler = hand}
             end
       
-        | Case { cases, test, default, caseType } =>
+        | Case _ => raise InternalError "preCode: Case"
+
+(*        | Case { cases, test, default, caseType } =>
             let
               fun insertCasePair ((e,l)) = (insert e, l);
             in
               Case
                 {
-                  cases   = revmap insertCasePair cases,
+                  cases   = mapright insertCasePair cases,
                   default = insert default,
                   test    = insert test, (* Must be called last. *)
                   caseType = caseType
                 }
-            end : codetree
+            end : codetree*)
 
         | c as Container _ => c
 
@@ -1759,10 +1803,10 @@ DCJM 2000.
                             let (* Contains the last reference to the test variable. *)
                                 (* Remove this variable from the usage table for the else-part
                                    since we are lifting it up to the test. *)
-                                val () = removeItem(elseUsage, addr, level);
+                                val newElseUage = removeItem(elseUsage, addr, level);
                                 (* Compute the new kill sets. *)
                                 val (killThenOnly, killElseOnly) =
-                                    computeKillSets(thenUsage, elseUsage);
+                                    computeKillSets(thenUsage, newElseUage);
                                 val testCode =
                                     if inSet(thenUsage, addr, level)
                                     then caseTest (* Must be in the then-part. *)
@@ -1821,8 +1865,8 @@ DCJM 2000.
     val insertedCode = 
       copyCode (pt,
                 fn _ => raise InternalError "outer level reached in copyCode",
-                stretchArray (initTrans, false),
-                ref false);
+                Array.array(0, false),
+                ref false, localAddressCount);
   in
     insertedCode
   end (* preCode *);
@@ -1839,12 +1883,10 @@ DCJM 2000.
   (* This also ensures that recursive references are converted into
      the correct CLOS(0,0) form. DCJM 23/1/01. *)
    fun cleanProc (pt: codetree, prev: loadForm * int * int -> codetree,
-                  nestingDepth): codetree =
+                  nestingDepth, locals): codetree =
    let
-        val locals = stretchArray (5 (* Initial size. *), false);
-
         fun cleanLambda(myAddr,
-            {body, isInline, name, argTypes, resultType, level=nestingDepth, ...}) =
+            {body, isInline, name, argTypes, resultType, level=nestingDepth, localCount, ...}) =
         let
             (* Start a new level. *)
             fun lookup(ext as {addr, fpRel, ...}, level, depth) =
@@ -1855,17 +1897,18 @@ DCJM 2000.
                 else 
                 (
                     if addr >= 0 andalso fpRel
-                    then update(locals, addr, true)
+                    then Array.update(locals, addr, true)
                     else (); (* Recursive *)
                     Extract ext
                 )
                 else prev(ext, level-1, depth);
 
-            val bodyCode = cleanProc(body, lookup, nestingDepth)
+            val newLocals = Array.array (localCount (* Initial size. *), false);
+            val bodyCode = cleanProc(body, lookup, nestingDepth, newLocals)
         in
             Lambda{body=bodyCode, isInline=isInline, name=name,
                    closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-                   closureRefs=0, makeClosure=false}
+                   closureRefs=0, makeClosure=false, localCount=localCount}
         end
 
         and cleanCode (Newenv decs) =
@@ -1880,12 +1923,12 @@ DCJM 2000.
                         (* Clear the entry.  I think it's possible that
                            addresses have been reused in other blocks
                            so do this just in case. *)
-                        val _ = update(locals, addr, false)
+                        val _ = Array.update(locals, addr, false)
                         val processedRest = processDecs rest
                     in
                         (* If this is used or if it has side-effects we
                            must include it otherwise we can ignore it. *)
-                        if locals sub addr orelse not (sideEffectFree value)
+                        if Array.sub(locals, addr) orelse not (sideEffectFree value)
                         then Declar{value=cleanDec(addr, value), addr=addr,
                                     references=references} :: processedRest
                         else processedRest
@@ -1894,7 +1937,7 @@ DCJM 2000.
                  |  processDecs(MutualDecs decs :: rest) =
                     let
                         (* Clear the entries just in case the addresses are reused. *)
-                        fun setEntry(Declar{addr, ...}) = update(locals, addr, false)
+                        fun setEntry(Declar{addr, ...}) = Array.update(locals, addr, false)
                           | setEntry _ = raise InternalError "setEntry: unknown instr"
                         val _ = List.app setEntry decs
                         val processedRest = processDecs rest
@@ -1912,7 +1955,7 @@ DCJM 2000.
                          |  processMutuals(
                                 (this as Declar{addr, value, references}) :: rest)
                                         excluded added =
-                            if not (locals sub addr)
+                            if not (Array.sub(locals, addr))
                             then (* Put this on the excluded list. *)
                                 processMutuals rest (this::excluded) added
                             else
@@ -1973,7 +2016,7 @@ DCJM 2000.
                     (
                     (* On this level. *)
                     if addr >= 0 andalso fpRel
-                    then (* Local *) update(locals, addr, true)
+                    then (* Local *) Array.update(locals, addr, true)
                     else (); (* Argument or recursive - ignore it. *)
                     dec
                     )
@@ -1999,7 +2042,7 @@ DCJM 2000.
          |  cleanCode(Cond(test, thenpt, elsept)) =
                 Cond(cleanCode test, cleanCode thenpt, cleanCode elsept)
 
-         |  cleanCode(BeginLoop(body, argList)) =
+         |  cleanCode(BeginLoop{loop=body, arguments=argList, ...}) =
             let
                 val processedBody = cleanCode body
                 fun copyDec(Declar{addr, value, ...}, typ) =
@@ -2007,7 +2050,7 @@ DCJM 2000.
                   | copyDec _ = raise InternalError "copyDec: not a declaration"
                 val newargs = map copyDec argList
             in
-                BeginLoop(processedBody, newargs)
+                BeginLoop{loop=processedBody, arguments=newargs, kills=[]}
             end
 
          |  cleanCode(Loop args) = Loop(map (fn (c, t) => (cleanCode c, t)) args)
@@ -2031,7 +2074,7 @@ DCJM 2000.
                   val used =
                       case container of
                         Extract{addr, level=0, fpRel=true, ...} =>
-                            addr <= 0 orelse locals sub addr
+                            addr <= 0 orelse Array.sub(locals, addr)
                       | _ => true (* Assume it is. *)
                in
                 (* Disable this for the moment - it's probably not very useful
@@ -2097,11 +2140,11 @@ DCJM 2000.
             else mkGenLoad (addr, level + correction, fpRel, false)
 
         | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
-                         level, closureRefs, makeClosure}, nesting) =
+                         level, closureRefs, makeClosure, localCount}, nesting) =
             Lambda{body = changeL(body, nesting+1), isInline = isInline,
                    name = name, closure = closure, argTypes = argTypes, resultType=resultType,
                    level = level + correction, closureRefs = closureRefs,
-                   makeClosure = makeClosure }
+                   makeClosure = makeClosure, localCount=localCount}
 
         | changeL(Eval{function, argList, earlyEval, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
@@ -2404,7 +2447,7 @@ DCJM 2000.
                     it.  Either loop or generate a function call. *)
                 notInlineCall recCall
          | (_,
-            Lambda { isInline, body=lambdaBody, name=lambdaName, argTypes, resultType=lamResult, ...}) =>
+            Lambda { isInline, body=lambdaBody, name=lambdaName, argTypes, ...}) =>
             let
            (* Calling inline proc or a lambda expression which is just called.
               The procedure is replaced with a block containing declarations
@@ -2429,15 +2472,6 @@ DCJM 2000.
               end (* end copy *);
 
             val nArgs = List.length argList
-            (* Consistency check: Check the argument types and results *)
-            fun argT GeneralType = "G" | argT FloatingPtType = "F"
-            val () =
-                if ListPair.allEq(fn ((_, t1), t2) => t1 = t2) (argList, argTypes)
-                then ()
-                else raise InternalError ("Argument type/length mismatch" ^ String.concat(List.map (fn(_, t1) => argT t1) argList) ^ "/" ^ String.concat(List.map argT argTypes))
-            val () =
-                if lamResult = resultType then ()
-                else raise InternalError ("Result type mismatch " ^ argT resultType ^ "/" ^ argT lamResult)
             val copiedArgs = copy argList (~nArgs);
             (* Create an immutable vector from the parameter array to reduce the
                amount of mutable data, *)
@@ -2552,7 +2586,7 @@ DCJM 2000.
                 *)
                     val needsBeginLoop = ref false
                     val needsRecursiveCall = ref false
-                    val argModificationVec = BoolArray.array(nArgs, false);
+                    val argModificationVec = Array.array(nArgs, false);
                     (* Create addresses for the new variables for modified arguments.
                        If newdecl created a variable we might be able to reuse that
                        but it's easier to create new ones. *)
@@ -2584,11 +2618,11 @@ DCJM 2000.
                             in
                                 if unChanged
                                 then ()
-                                else BoolArray.update(argModificationVec, n-1, true);
+                                else Array.update(argModificationVec, n-1, true);
                                 (* If any recursive call has changed it we need
                                    to include this argument even if it didn't
                                    change on this particular call. *)
-                                if BoolArray.sub(argModificationVec, n-1)
+                                if Array.sub(argModificationVec, n-1)
                                 then (arg, argType) :: filterArgs' (n-1) rest
                                 else (* Not modified *) filterArgs' (n-1) rest
                             end
@@ -2615,7 +2649,7 @@ DCJM 2000.
                     let
                         fun countSet' n 0 = n
                           | countSet' n i =
-                                if BoolArray.sub(argModificationVec, i-1) then countSet' (n+1) (i-1)
+                                if Array.sub(argModificationVec, i-1) then countSet' (n+1) (i-1)
                                 else countSet' n (i-1)
                     in
                         countSet' 0 nArgs
@@ -2631,7 +2665,7 @@ DCJM 2000.
                         (* Find the parameter we're actually going to use. *)
                         fun getParamNo n =
                             if n = 0 then 0
-                            else if BoolArray.sub(argModificationVec, ~n -1)
+                            else if Array.sub(argModificationVec, ~n -1)
                             then getParamNo (n+1) - 1
                             else getParamNo (n+1)
 
@@ -2655,7 +2689,7 @@ DCJM 2000.
                              if index > 0  (* locals *)
                              then changeLevel(valOf (localVec sub index)) (depth - nesting)
                              else (* index < 0 - parameters *)
-                                if BoolArray.sub(argModificationVec, ~index -1)
+                                if Array.sub(argModificationVec, ~index -1)
                              then (* This argument has changed - find the corresponding
                                      actual argument. *)
                                 simpleOptVal(mkLoad(getParamNo index, depth-nesting))
@@ -2691,6 +2725,8 @@ DCJM 2000.
                           update (localVec, index, SOME v)
                           )
 
+                        val newAddressAllocator = ref 1 (* Starts at one. *)
+
                         val copiedBody =
                              optimiseProc 
                               {pt=lambdaBody,
@@ -2699,7 +2735,7 @@ DCJM 2000.
                                enterDec=setTab,
                                enterNewDec=setNewTab,
                                nestingOfThisProcedure=nesting,
-                               spval=ref 1,
+                               spval=newAddressAllocator,
                                earlyInline=earlyInline orelse earlyEval,
                                evaluate=evaluate,
                                tailCallEntry=NONE, (* Don't generate loop instructions. *)
@@ -2716,7 +2752,7 @@ DCJM 2000.
                         let
                             fun filterArgTypes([], _) = []
                             |   filterArgTypes(hd:: tl, n) =
-                                    if BoolArray.sub(argModificationVec, n-1)
+                                    if Array.sub(argModificationVec, n-1)
                                     then hd :: filterArgTypes(tl, n-1)
                                     else filterArgTypes(tl, n-1)
                             val newArgList = filterArgTypes(argTypes, nArgs)
@@ -2730,6 +2766,7 @@ DCJM 2000.
                                     argTypes = newArgList, resultType=resultType,
                                     level = nestingOfThisProcedure + 1,
                                     closureRefs = 0,
+                                    localCount = ! newAddressAllocator + 1,
                                     makeClosure = false },
                                 special = CodeNil,
                                 decs = [],
@@ -2757,7 +2794,7 @@ DCJM 2000.
                              then stripDecs funct
                              else if index > 0
                              then valOf (localVec sub index)  (* locals *)
-                             else (* index < 0 *) if BoolArray.sub(argModificationVec, ~index-1)
+                             else (* index < 0 *) if Array.sub(argModificationVec, ~index-1)
                              then (* This argument changes - must use a variable even if
                                      the original argument was a constant. *)
                                 simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
@@ -2806,7 +2843,7 @@ DCJM 2000.
                        beginning of the loop. *)
                     fun makeDecs(0, [], _) = []
                       | makeDecs(n, (_, typ):: rest, isCall) =
-                            if not (BoolArray.sub(argModificationVec, n-1))
+                            if not (Array.sub(argModificationVec, n-1))
                             then makeDecs (n-1, rest, isCall)
                             else
                             let
@@ -2841,7 +2878,7 @@ DCJM 2000.
                             }
                         end
                     else if ! needsBeginLoop
-                    then simpleOptVal(BeginLoop(getGeneral procBody, mkDecs false))
+                    then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=mkDecs false, kills=[]})
                     else procBody
                 end           
           in
@@ -2928,6 +2965,8 @@ DCJM 2000.
             update (oldAddrTab, index, SOME v)
             )
 
+          val newAddressAllocator = ref 1
+
           val newCode =
              optimiseProc 
                {pt=lambdaBody,
@@ -2936,7 +2975,7 @@ DCJM 2000.
                 enterDec=setTab,
                 enterNewDec=setNewTab,
                 nestingOfThisProcedure=nesting,
-                spval=ref 1,
+                spval=newAddressAllocator,
                 earlyInline=false,
                 evaluate=evaluate,
                 tailCallEntry=NONE,
@@ -2988,7 +3027,8 @@ DCJM 2000.
               |  res => res (* We may have a constant in this table. *)
 
           val cleanedBody =
-            cleanProc(getGeneral newCode, checkRecursion, nesting)
+            cleanProc(getGeneral newCode, checkRecursion, nesting,
+                      Array.array (! newAddressAllocator + 1, false))
 
           val resultCode =
             case lambdaInline of
@@ -3018,6 +3058,7 @@ DCJM 2000.
                            resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
+                           localCount    = ! newAddressAllocator + 1,
                            makeClosure   = false
                          },
                       environ = lookupNewAddr, (* new addresses with cleanedBody. *)
@@ -3042,6 +3083,7 @@ DCJM 2000.
                            resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
+                           localCount    = ! newAddressAllocator + 1,
                            makeClosure   = false
                          },
                       special = original,
@@ -3076,6 +3118,7 @@ DCJM 2000.
                        resultType    = resultType,
                        level         = nesting,
                        closureRefs   = 0,
+                       localCount    = ! newAddressAllocator + 1,
                        makeClosure   = false
                      };
                  val general = 
@@ -3098,6 +3141,7 @@ DCJM 2000.
                            resultType    = resultType,
                            level         = nesting,
                            closureRefs   = 0,
+                           localCount    = ! newAddressAllocator + 1,
                            makeClosure   = false
                          },
                       environ = lookupNewAddr,
@@ -3114,7 +3158,7 @@ DCJM 2000.
      |  optimise (pt as Constnt _, _) =
             simpleOptVal pt (* Return the original constant. *)
            
-     |  optimise (BeginLoop(body, args), tailCall) =
+     |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall) =
         let
              (* We could try extracting redundant loop variables but for
                 the time being we just see whether we actually need a loop
@@ -3166,7 +3210,7 @@ DCJM 2000.
                        recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
                        maxInlineSize=maxInlineSize, forceInline=forceInline}
             in
-                simpleOptVal (BeginLoop (getGeneral beginBody, declArgs))
+                simpleOptVal (BeginLoop {loop=getGeneral beginBody, arguments=declArgs, kills=[]})
             end
         end
 
@@ -3956,12 +4000,14 @@ DCJM 2000.
     val codeGenAndPrint =
         if printCodeTreeAfter
         then fn code => (compilerOut(pretty code); codegen(code, debugSwitches))
-        else fn code => codegen(code, debugSwitches);
+        else fn code => codegen(code, debugSwitches)
+
+    val localAddressAllocator = ref 1
     
     fun preCodeAndPrint code =
     (
         if printCodeTree then compilerOut(pretty code) else ();
-        preCode (codeGenAndPrint, code)
+        preCode (codeGenAndPrint, code, !localAddressAllocator+1)
     )
 
     (* Optimise it. *)
@@ -4022,7 +4068,7 @@ DCJM 2000.
       val resultCode =
           optimiseProc
             {pt=pt, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
-             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=ref 1, earlyInline=false,
+             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=localAddressAllocator, earlyInline=false,
              evaluate=eval, tailCallEntry=NONE, recursiveExpansions=[], maxInlineSize=maxInlineSize,
              forceInline=false}
     in

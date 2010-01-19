@@ -5181,7 +5181,7 @@ struct
             (* Make it an inline function if it only used once. *)
             val theCode = 
               (if pattUses = 1 then mkInlproc else mkProc)
-              (functionBody, level, noOfArgs, decName ^ "/" ^ Int.toString patNo);
+              (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo);
           in
             mkDec (base + patNoIndex, theCode) ::
               cgExps(al, vll, base, patNo + 1, uses, cgExpression,
@@ -5458,11 +5458,11 @@ struct
                     end
             in    (* Make an inline function. *)
                 case getPolyTypeVars(typeof, mapTypeVars typeVarMap) of
-                    [] => mkInlproc (selectorBody, level + 1, 1, decName ^ "#" ^ name)
+                    [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name)
                 |   polyVars => (* This may be polymorphic. *)
                         mkInlproc(
-                            mkInlproc (selectorBody, level + 2, 1, decName ^ "#" ^ name),
-                            level+1, List.length polyVars, decName ^ "#" ^ name ^ "(P)")
+                            mkInlproc (selectorBody, 1, decName ^ "#" ^ name),
+                            List.length polyVars, decName ^ "#" ^ name ^ "(P)")
             end
 
         | Unit _ => (* Use zero.  It is possible to have () = (). *)
@@ -5659,7 +5659,7 @@ struct
                     (wrapFunctionInDebug
                         (codeAlt (c, f, argumentCode, newContext),
                         newDecName, argumentCode, argType, resType, location, newContext), 
-                    fnLevel, tupleSize, newDecName);
+                    tupleSize, newDecName);
     
             (* Now make a block containing the procedure which expects
                multiple arguments and an inline procedure which expects
@@ -5671,7 +5671,7 @@ struct
                 mkInlproc 
                     (mkEval(#load thisDec fnLevel,
                         List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg)), false),
-                    fnLevel, 1, decName ^ "(1)");
+                    1, decName ^ "(1)");
         in
             #dec thisDec @ [if isRecursive then mkDec (!varAddr, resProc) else resProc]
         end
@@ -5692,11 +5692,11 @@ struct
                 wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
                     location, newContext)
             val () = varAddr   := addr;        (* Reset the address *)
-            val pr = mkProc (wrapped, fnLevel, 1, newDecName);
+            val pr = mkProc (wrapped, 1, newDecName);
             val polyPr =
                 case polyVars of
                     [] => pr
-                |   _ => mkProc(pr, fnLevel-1, List.length polyVars, newDecName^"(P)")
+                |   _ => mkProc(pr, List.length polyVars, newDecName^"(P)")
         in
             [if isRecursive then mkDec (addr, polyPr) else polyPr]
         end
@@ -6237,7 +6237,7 @@ struct
                             val nextParms = loadArgsFromTuple(t, mkLoad (~1, depth)) @ parms
                             val body = makeFuns (depth - 1, newDecName, nextParms, ts)
                         in
-                            mkInlproc (body, level + numOfPats - depth + (if null polyVars then 0 else 1), 1, newDecName)
+                            mkInlproc (body, 1, newDecName)
                         end (* end makeFuns *);
 
                     (* Reset the address of the variable. *)
@@ -6251,7 +6251,7 @@ struct
                         val polyFun =
                             case polyVars of
                                 [] => baseFun
-                            |   _ => mkInlproc(baseFun, level+1, List.length polyVars, procName ^ "(P)")
+                            |   _ => mkInlproc(baseFun, List.length polyVars, procName ^ "(P)")
                     in
                         (* Return the `inner' procedure and the inline
                           functions as a mutually recursive pair. Try putting
@@ -6418,7 +6418,7 @@ struct
                                 mkInlproc(
                                     mkEnv(getCachedTypeValues typeVarMap @ #dec decCode
                                           @ #code code @ [mkTuple(List.map loadVal vars)]),
-                                    level, nPolyVars, "(P)"))
+                                    nPolyVars, "(P)"))
 
                         (* Apply the general function to the set of type variables using either the
                            actual type variables if they are in this particular variable or defaults
@@ -6453,7 +6453,7 @@ struct
                                     |   _ => (* polymorphic *)
                                         mkInlproc(
                                             mkInd(n, application(polyV, outerLevel+1)),
-                                            outerLevel+1, List.length polyV, "(P)")
+                                            List.length polyV, "(P)")
                                 ) :: loadFunctions(vars, polyVs, n+1)
                             end
                         |   loadFunctions _ = []

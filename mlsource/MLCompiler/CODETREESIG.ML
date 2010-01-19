@@ -45,9 +45,9 @@ sig
     val mkConst:            machineWord -> codetree;
     val mkDec:              int * codetree -> codetree;
     val mkInd:              int * codetree -> codetree;
-    val mkProc:             codetree * int * int * string -> codetree;
-    val mkInlproc:          codetree * int * int * string -> codetree;
-    val mkMacroProc:        codetree * int * int * string -> codetree;
+    val mkProc:             codetree * int * string -> codetree;
+    val mkInlproc:          codetree * int * string -> codetree;
+    val mkMacroProc:        codetree * int * string -> codetree;
     val mkIf:               codetree * codetree * codetree -> codetree;
     val mkWhile:            codetree * codetree -> codetree;
     val mkEnv:              codetree list -> codetree;

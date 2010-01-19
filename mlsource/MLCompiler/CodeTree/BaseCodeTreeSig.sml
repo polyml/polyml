@@ -75,7 +75,8 @@ sig
             default : codetree
         }
     
-    | BeginLoop of codetree * (codetree * argumentType) list(* Start of tail-recursive inline function. *)
+    | BeginLoop of (* Start of tail-recursive inline function. *)
+        { loop: codetree, arguments: (codetree * argumentType) list, kills: codetree list }
 
     | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
@@ -163,6 +164,7 @@ sig
         resultType    : argumentType,
         level         : int,
         closureRefs   : int,
+        localCount    : int,
         makeClosure   : bool
     }
 

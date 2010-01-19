@@ -198,7 +198,7 @@ struct
             fun isCode n =
                 mkInlproc(
                     mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoad(~1, 0), make n], true),
-                    0, 1, "test-box")
+                    1, "test-box")
         in
             val boxedNever  = make boxedRepNever
             and boxedAlways = make boxedRepAlways
@@ -258,10 +258,10 @@ struct
                         sizeCode = singleWord
                         }
                 else createTypeValue{
-                        eqCode=mkInlproc(eqCode, 0, nArgs, "eq-helper()"),
+                        eqCode=mkInlproc(eqCode, nArgs, "eq-helper()"),
                         printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter)),
-                        boxedCode = mkInlproc(boxed, 0, nArgs, "boxed-helper()"),
-                        sizeCode = mkInlproc(singleWord, 0, nArgs, "size-helper()")
+                        boxedCode = mkInlproc(boxed, nArgs, "boxed-helper()"),
+                        sizeCode = mkInlproc(singleWord, nArgs, "size-helper()")
                         }
         in
             Global (genCode(code, []) ())
@@ -306,7 +306,7 @@ struct
                                 ], true)
                         )
                     ),
-                    1, 2, "stringEquality")
+                    2, "stringEquality")
         in
             val stringEquality = genCode(stringEquality, []) ()
         end

@@ -220,7 +220,7 @@ struct
             val mkTypeConstruction = mkTypeConstruction;
         end;
 
-        fun makePolymorphic(tvs, c) = mkInlproc(c, 0, List.length tvs, "")
+        fun makePolymorphic(tvs, c) = mkInlproc(c, List.length tvs, "")
 
         (* Function to make a type identifier with a pretty printer that just prints "?".
            None of the types are equality types so the equality function is empty. *)
@@ -354,7 +354,7 @@ struct
             val plingCode = (* we load the zero'th word from the parameter *)
                 mkInlproc
                     (mkEval (rtsFunction POLY_SYS_load_word, [(loadArg 1), CodeZero],
-                        false) (* NOT early *), 0, 1, "!(1)");
+                        false) (* NOT early *), 1, "!(1)");
             val a = makeTV ()
             val plingType = Ref a ->> a
             val plingVal  = mkGvar ("!", plingType, makePolymorphic([a], plingCode), declInBasis);
@@ -403,11 +403,10 @@ struct
             val unsafeCastEntry : codetree =
             let 
                 val name = "unsafeCast(1)";
-                val level = 1;
                 val args  = 1;
                 val body  = mkLoad (~1, 0)  (* just the parameter *)
             in
-                mkInlproc (body, level, args, name)
+                mkInlproc (body, args, name)
             end;
         in
             val () =
@@ -452,12 +451,11 @@ struct
             let 
                 val name = "run_call1(1)";
                 val ioOpEntry = rtsFunction POLY_SYS_io_operation;
-                val level = 1;
                 val args  = 1;
                 val n     = mkLoad (~1, 0)                 (* the outer parameter *)
                 val body  = mkEval (ioOpEntry, [n], true); (* early! *)
             in
-                makePolymorphic([a, b], mkInlproc (body, level, args, name))
+                makePolymorphic([a, b], mkInlproc (body, args, name))
             end;
     
             fun makeRunCallTupled (width:int) : codetree =
@@ -492,10 +490,9 @@ struct
                 
                 val innerLambda : codetree  =
                 let
-                    val level = 2;
                     val args  = 1;
                 in
-                    mkInlproc (innerBody, level, args, name ^ "(1)")
+                    mkInlproc (innerBody, args, name ^ "(1)")
                 end;
                 
                 val outerBody : codetree  =
@@ -512,10 +509,9 @@ struct
                 
                 val outerLambda : codetree  =
                 let
-                    val level = 1;
                     val args  = 1;
                 in
-                    mkInlproc (outerBody, level, args, name)
+                    mkInlproc (outerBody, args, name)
                 end;
             in
                 outerLambda
@@ -685,7 +681,7 @@ struct
                                             CodeFalse (* Not equal elements - result false *)
                                         )
                                     ),
-                                2, 1, "vector-loop")),
+                                1, "vector-loop")),
                             mkIf(
                                 (* Test the lengths. *)
                                 mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
@@ -694,8 +690,8 @@ struct
                                 CodeFalse (* Not same length- result false *)
                             )
                         ],
-                        1, 2, "vector-eq"),
-                    0, 1, "vector-eq()")
+                        2, "vector-eq"),
+                    1, "vector-eq()")
 
             val idCode = (* Polytype *)
                 let
@@ -703,8 +699,8 @@ struct
                     val code =
                         createTypeValue{
                             eqCode=eqCode, printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                            boxedCode=mkInlproc(boxedAlways, 0, 1, "boxed-vector"),
-                            sizeCode=mkInlproc(singleWord, 0, 1, "size-vector")}
+                            boxedCode=mkInlproc(boxedAlways, 1, "boxed-vector"),
+                            sizeCode=mkInlproc(singleWord, 1, "size-vector")}
                 in
                     Global (genCode(code, []) ())
                 end
@@ -736,7 +732,7 @@ struct
                             CodeFalse (* Not same length- result false *)
                         )
                     ],
-                    1, 2, "byteVector-eq")
+                    2, "byteVector-eq")
 
             val idCode = (* Polytype *)
                 let
@@ -1003,8 +999,8 @@ struct
                         createTypeValue{
                                 eqCode=CodeZero, (* Not an equality type *)
                                 printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 0, 1, "boxed-tag"),
-                                sizeCode=mkInlproc(singleWord, 0, 1, "size-tag")}
+                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 1, "boxed-tag"),
+                                sizeCode=mkInlproc(singleWord, 1, "size-tag")}
                 in
                     Global (genCode(code, []) ())
                 end
