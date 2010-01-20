@@ -574,8 +574,18 @@ struct
 
         val cardinality = List.length o setToList
 
-        (* Choose one of the set. *)
-        val oneOf = hd o setToList
+        (* Choose one of the set.  This chooses the least value which means that
+           the ordering of the registers is significant.  This is a hot-spot
+           so is coded directly with the word operations. *)
+        fun oneOf regSet =
+        let
+            fun find(n, bit) =
+                if n = Word.fromInt regs then raise InternalError "oneOf: empty"
+                else if Word.andb(bit, regSet) <> 0w0 then n
+                else find(n+0w1, Word.<<(bit, 0w1))
+        in
+            regN(Word.toInt(find(0w0, 0w1)))
+        end
         
         fun regSetRepr regSet =
         let
@@ -4916,11 +4926,11 @@ Calling conventions:
             else if opByte = 0wxA4
             then print "movsb\n"
 
+            else if opByte = 0wxA5
+            then print "movsl\n"
+
             else if opByte = 0wxA6
             then print "cmpsb\n"
-
-            else if opByte = 0wxAB
-            then print "movsl\n"
 
             else if opByte = 0wxAA
             then print "stosb\n"
