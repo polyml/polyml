@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008
+    Modified David C. J. Matthews 2008-2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -167,8 +167,9 @@ struct
         level         : int,
         closureRefs   : int,
         localCount    : int,
-        makeClosure   : bool
-    };
+        makeClosure   : bool,
+        argLifetimes  : int list
+    }
 
     open Pretty
 
@@ -320,7 +321,7 @@ struct
                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in
             if not (isShort firstWord) andalso isCode(toAddress firstWord)
-            then doCall(105, firstWord) (* Get the function name. *)
+            then "FUN \"" ^ doCall(105, firstWord) ^ "\"" (* Get the function name. *)
             else "LIT <long>"
         end
     else "LIT <long>"
@@ -460,7 +461,7 @@ struct
             end
         
         | Lambda {body, isInline, name, closure, argTypes, level, closureRefs,
-                  makeClosure, resultType, localCount} =>
+                  makeClosure, resultType, localCount, argLifetimes} =>
             let
                 val inl = 
                     case isInline of
@@ -471,6 +472,9 @@ struct
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
                 |   prettyArgTypes (hd::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
+                fun prettyArgLife [] = []
+                |   prettyArgLife [last] = [PrettyString(Int.toString last)]
+                |   prettyArgLife (hd::tl) = PrettyString(Int.toString hd) :: PrettyBreak(1, 0) :: prettyArgLife tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -484,6 +488,8 @@ struct
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
+                        PrettyBreak(1, 0),
+                        PrettyBlock (1, false, [], PrettyString "ARGLIVES=" :: prettyArgLife argLifetimes),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
                         printList (" CLOS=", closure, ","),

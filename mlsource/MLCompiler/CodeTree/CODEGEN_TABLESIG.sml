@@ -80,7 +80,8 @@ sig
     val realstackptr:     ttab -> int;
     val maxstack:         ttab -> int;
     val pstackForDec:     ttab * int -> stackIndex;
-    val makeEntry:        ttab * stackIndex * int * int * bool -> unit;
+    val localDeclaration: ttab * stackIndex * int * int * bool -> unit
+    val parameterInRegister: reg * int * ttab -> stackIndex
     val incrUseCount:     ttab * stackIndex * int -> unit;
 
     type stackMark;

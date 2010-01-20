@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008
+    Modified David C. J. Matthews 2008-2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,29 +39,53 @@ sig
     
     |  AltMatch of codetree * codetree(* Pattern-match alternative choices *)
 
-    | Declar of declarForm (* Make a local declaration or push an argument *)
+    | Declar of (* Make a local declaration or push an argument *)
+        { (* Declare a value or push an argument. *)
+            value:      codetree,
+            addr:       int,
+            references: int
+        }
      
     | Newenv of codetree list (* Start a block *)
 
     | Constnt of machineWord (* Load a constant *)
 
-    | Extract of loadForm (* Get a local variable, an argument or a closure value *)
+    | Extract of (* Get a local variable, an argument or a closure value *)
+        { (* Load a value. *)
+            addr : int, 
+            level: int, 
+            fpRel: bool,
+            lastRef: bool
+        }
     
     | Indirect of 
-    { (* Load a value from a heap record *)
-        base:   codetree,
-        offset: int
-    }
+        { (* Load a value from a heap record *)
+            base:   codetree,
+            offset: int
+        }
     
     | Eval of (* Evaluate a function with an argument list. *)
-    {
-        function:  codetree,
-        argList:   (codetree * argumentType) list,
-        resultType: argumentType,
-        earlyEval: bool
-    }
+        {
+            function:  codetree,
+            argList:   (codetree * argumentType) list,
+            resultType: argumentType,
+            earlyEval: bool
+        }
     
-    | Lambda of lambdaForm (* Lambda expressions. *)
+    | Lambda of (* Lambda expressions. *)
+        { (* Lambda expressions. *)
+            body          : codetree,           (* The body of the function. *)
+            isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
+            name          : string,             (* Text name for profiling etc. *)
+            closure       : codetree list,      (* List of items for closure/static link.  Added by preCode. *)
+            argTypes      : argumentType list,  (* "Types" of arguments. *)
+            resultType    : argumentType,       (* Result "type" of the function. *)
+            level         : int,                (* Nesting depth.  Added by optimiser. *)
+            closureRefs   : int,                (* Lifetime data for the closure. 0 = no closure. Added by preCode. *)
+            localCount    : int,                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
+            makeClosure   : bool,               (* Whether it has a full closure.  Added by preCode. *)
+            argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
+        }
     
     | MutualDecs of codetree list (* Set of mutually recursive declarations. *)
 
@@ -123,7 +147,7 @@ sig
            value - either an inline procedure, a type constructor or a tuple. *)
         special : codetree,
         (* Environment for the special value. *)
-        environ : loadForm * int * int -> optVal,
+        environ : { addr : int,  level: int, fpRel: bool, lastRef: bool } * int * int -> optVal,
         (* Declarations to precede the value - Always nil for global values. *)
         decs : codetree list,
         (* A reference which is used to detect recursive inline expansions. *)
@@ -134,39 +158,6 @@ sig
         CaseInt
     |   CaseWord
     |   CaseTag of word
-    
-    withtype loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool,
-        lastRef: bool
-    }
-    
-    and declarForm = 
-    { (* Declare a value or push an argument. *)
-        value:      codetree,
-        addr:       int,
-        references: int
-    }
-    
-    and diadic = codetree * codetree
-    
-    and triadic =  codetree * codetree * codetree
-    
-    and lambdaForm =
-    { (* Lambda expressions. *)
-        body          : codetree,
-        isInline      : inlineStatus,
-        name          : string,
-        closure       : codetree list,
-        argTypes      : argumentType list,
-        resultType    : argumentType,
-        level         : int,
-        closureRefs   : int,
-        localCount    : int,
-        makeClosure   : bool
-    }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert
        the body inline.  If the bool is true this includes the size of sub-functions

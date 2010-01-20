@@ -88,6 +88,37 @@ struct
   val isConstnt    = fn (Constnt _)    => true | _ => false;
   val isCodeNil    = fn CodeNil        => true | _ => false; (* Exported *)
 
+    type loadForm = 
+    { (* Load a value. *)
+        addr : int, 
+        level: int, 
+        fpRel: bool,
+        lastRef: bool
+    }
+    
+    and declarForm = 
+    { (* Declare a value or push an argument. *)
+        value:      codetree,
+        addr:       int,
+        references: int
+    }
+   
+    and lambdaForm =
+    { (* Lambda expressions. *)
+        body          : codetree,
+        isInline      : inlineStatus,
+        name          : string,
+        closure       : codetree list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        level         : int,
+        closureRefs   : int,
+        localCount    : int,
+        makeClosure   : bool,
+        argLifetimes  : int list
+    }
+
+
 (*****************************************************************************)
 (*                         optVal functions                                  *)
 (*****************************************************************************)
@@ -165,11 +196,11 @@ struct
 (*************************** end of copied code *****************************)  
   
 
-  fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
+    fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
 
-  fun mkDecRef ct i1 i2 = Declar  {value = ct, addr = i1, references = i2};
-  fun mkGenLoad  (i1, i2, bl, lf) =
-    Extract {addr  = i1, level = i2, fpRel = bl, lastRef = lf};
+    fun mkDecRef(ct, i1, i2) = Declar{value = ct, addr = i1, references = i2};
+    fun mkGenLoad  (i1, i2, bl, lf) =
+        Extract {addr  = i1, level = i2, fpRel = bl, lastRef = lf};
   
   (* Used for recursive functions - setting the "closure" flag
      is a real hack. We also have to adjust the level number by
@@ -197,7 +228,7 @@ struct
     | wrapEnv multiple = mkEnv multiple
   
   (* generates a declaration operation *)
-  fun mkDec (laddr, res) = mkDecRef res laddr 0;
+  fun mkDec (laddr, res) = mkDecRef(res, laddr, 0)
 
     (* Old form operations for backwards compatibility.  These all create
        default GeneralType arguments and results. *)
@@ -215,7 +246,8 @@ struct
         level         = 0,
         closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false
+        makeClosure   = false,
+        argLifetimes  = []
       }                     
 
     (* inline lambda operation: returns an inline procedure *)
@@ -231,7 +263,8 @@ struct
         level         = 0,
         closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false
+        makeClosure   = false,
+        argLifetimes  = []
       };
 
     (* OnlyInline: used for functors unless inlineFunctors is false. *)
@@ -247,7 +280,8 @@ struct
         level         = 0,
         closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false
+        makeClosure   = false,
+        argLifetimes  = []
       };
 
     fun mkEval (ct, clist, bl)   =
@@ -270,7 +304,8 @@ struct
         level         = 0,
         closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false
+        makeClosure   = false,
+        argLifetimes  = []
       }
 
     fun mkInlineFunction(body, argsAndTypes, resultType, name) =
@@ -285,7 +320,8 @@ struct
         level         = 0,
         closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false
+        makeClosure   = false,
+        argLifetimes  = []
       }
 
     fun mkCall(func, argsAndTypes, resultType) =
@@ -818,1058 +854,969 @@ fun f (a, b) = if a then (b<last>; g (a<last>) + 1) else (a<last>; b<last>)
 DCJM 2000.
 *)
 
-  fun preCode (codegen, pt, localAddressCount) =
-  let
+    fun preCode (codegen, pt, localAddressCount) =
+    let
+        (* preCode.copyCode *)
+        fun copyCode (pt, previous, argUses, localCount) =
+        let
+            (* Tables for local declarations. "localUses" is the last reference
+               for the declaration.  If zero it means it hasn't been referenced.
+               "closuresForLocals" is a flag indicating that if the declaration
+               is a procedure a closure must be made for it. *)
+            val localUses         = Array.array(localCount, 0);
+            val closuresForLocals = Array.array(localCount, false);
 
-    (* preCode.copyCode *)
-    fun copyCode (pt, previous, argUses, closureUses, localCount) =
-    let 
-       
-        (* Tables for local declarations. "localUses" is the use count,
-           and "closuresForLocals" a flag indicating that if the declaration
-          is a procedure a closure must be made for it. *)
-        val localUses         = Array.array(localCount, false);
-        val closuresForLocals = Array.array(localCount, false);
+            (* Because we count instructions from the end smaller values mean
+               further away and we want to count the smallest non-zero value. *)
+            fun maxUse(m, 0) = m
+            |   maxUse(0, m) = m
+            |   maxUse(m, n) = Int.min(m, n)
 
-        (* used to indicate whether a local declaration is really
-         a constant, so that we can in-line it. *)
-        val localConsts       = Array.array (localCount, NONE)
+            (* used to indicate whether a local declaration is really
+             a constant, so that we can in-line it. *)
+            val localConsts       = Array.array (localCount, NONE)
       
-        (* If we are inside a loop these entries indicate that
-           the declaration was made outside so the entries must
-           not be killed there. *)
-        val outsideLoop       = Array.array (localCount, false)
-        (* This also applies to all the parameters of the function which
-           could be passed in registers. *)
-        val outsideLoopRef = ref false
+            (* If we are inside a loop these entries indicate that
+               the declaration was made outside so the entries must
+               not be killed there. *)
+            val outsideLoop       = Array.array (localCount, false)
+            (* This also applies to all the parameters of the function which
+               could be passed in registers. *)
+            val outsideLoopRef = ref false
 
-      abstype usageSet =
-        UsageSet of {locals: int list, args: int list, clos: bool}
-      with
-      (* Used to give us a "kill set" for an expression.
-         In the case of parallel flows of control (e.g. then- and else-parts
-         of an if-then-else) we can explicitly kill variables if they
-         appear in the kill set for one branch but not in another.
-         e.g. in  if x then y else z  assuming that x, y, z are not
-         used in subsequent expressions we can kill z in the then-branch
-         and y in the else-branch.  The advantage of this is that we don't
-         need to save variables if they are never used. *)
-          fun saveUsages() =
-            let
-                fun tabulate(size, vec) =
-                let
-                    fun tabul n l =
-                        if n = size
-                        then l
-                        else if Array.sub(vec, n)
-                        then tabul (n+1) (n::l)
-                        else tabul (n+1) l
-                in
-                    tabul 0 []
-                end
-                val localLength = localCount
-                and argLength = Array.length argUses
-                val localSaved = tabulate(localLength, localUses)
-                and argSaved = tabulate(argLength, argUses)
-            in
-                UsageSet{locals=localSaved, args=argSaved, clos= !closureUses}
-            end
+            (* This counts the number of "instructions" from the end of the code (because
+               we process it depth first) to give a measure of how long a declaration is in
+               use.  This is used to control register spilling in the code-generator. *)
+            val instrCount = ref 1
 
-          (* Restore the table to the saved values. *)
-          fun setToSaved(UsageSet{locals=locals, args=args, clos}): unit =
-            let
-                fun copyArray i f t =
-                    if i < 0
-                        (* Put in a check here temporarily. *)
-                    then (case f of [] => () | _ => raise InternalError "setToSaved: not empty")
-                    else case f of
-                        [] =>
-                            (
-                                Array.update(t, i, false);
-                                copyArray (i-1) [] t
-                            )
-                    |   head :: tail =>
-                        if head = i
-                        then 
-                            (
-                                Array.update(t, i, true);
-                                copyArray (i-1) tail t
-                            )
-                        else
-                            (
-                                Array.update(t, i, false);
-                                copyArray (i-1) f t
-                            )
-            in
-                copyArray (Array.length argUses -1) args argUses;
-                copyArray (Array.length localUses -1) locals localUses;
-                closureUses := clos
-            end;
+            abstype usageSet = UsageSet of {locals: int Vector.vector, args: int Vector.vector}
+            with
+              (* Used to give us a "kill set" for an expression.
+                 In the case of parallel flows of control (e.g. then- and else-parts
+                 of an if-then-else) we can explicitly kill variables if they
+                 appear in the kill set for one branch but not in another.
+                 e.g. in  if x then y else z  assuming that x, y, z are not
+                 used in subsequent expressions we can kill z in the then-branch
+                 and y in the else-branch.  The advantage of this is that we don't
+                 need to save variables if they are never used. *)
+                fun saveUsages() =
+                    UsageSet{locals=Array.vector localUses, args=Array.vector argUses}
 
-          (* Similar to setToSaved except that it sets the current set
-             to the union of the current set and the saved set. *)
-          fun addFromSaved(UsageSet{locals=locals, args=args, clos}): unit =
-            let
-                fun addArray [] _ = ()
-                 |  addArray (head::tail) t =
-                        (
-                        Array.update(t, head, true);
-                        addArray tail t
-                        )
-            in
-                addArray args argUses;
-                addArray locals localUses;
-                if clos then closureUses := true else ()
-            end;
+                (* Restore the table to the saved values. *)
+                fun setToSaved(UsageSet{locals, args}): unit =
+                (
+                    Array.copyVec{src=locals, dst=localUses, di=0};
+                    Array.copyVec{src=args, dst=argUses, di=0}
+                )
 
-          fun inSet(UsageSet{locals=locals, args=args, clos}, addr, level) =
-            if level > 0 then clos
-            else if addr < 0
-            then (* Argument *) List.exists(fn n => n = ~addr) args
-            else (* Local *) List.exists(fn n => n = addr) locals;
+                (* Similar to setToSaved except that it sets the current set
+                   to the union of the current set and the saved set. *)
+                fun addFromSaved(UsageSet{locals=locals, args=args}): unit =
+                (
+                    Array.modifyi(fn(i, v) => maxUse(v, Vector.sub(args, i))) argUses;
+                    Array.modifyi(fn(i, v) => maxUse(v, Vector.sub(locals, i))) localUses
+                )
 
-            (* Returns the usage set with one item removed. *)
-            fun removeItem(UsageSet{locals, args, clos}, addr, level) =
-                if level > 0 then UsageSet{locals=locals, args=args, clos = false }
+                fun inSet(UsageSet{locals=locals, args=args}, addr, level) =
+                if level > 0 then (* Closure *) Vector.sub(args, 0) <> 0
                 else if addr < 0
-                then UsageSet{locals=locals, args = List.filter (fn n => n <> ~addr) args, clos=clos}
-                else UsageSet{locals = List.filter (fn n => n <> addr) locals, args=args, clos=clos}
+                then (* Argument *) Vector.sub(args, ~addr) <> 0
+                else (* Local *) Vector.sub(locals, addr) <> 0
 
-          (* Differences of two sets, used as kill entries.
-             The differences are returned as Extract codetree entries. *)
-          fun computeKillSets(
-                (* then*) UsageSet{locals=thenLoc, args=thenArgs, clos=thenClos},
-                (* else *) UsageSet{locals=elseLoc, args=elseArgs, clos=elseClos}) =
-          let
-                fun createEntry(true, addr) =  (* Argument *)
-                    if ! outsideLoopRef then [] else [mkGenLoad(~addr, 0, true, true)]
-                |   createEntry(false, addr) = (* Local *)
-                    if Array.sub(outsideLoop, addr) then [] else [mkGenLoad(addr, 0, true, true)]
+                (* Returns the usage set with one item removed. *)
+                fun removeItem(UsageSet{locals, args}, addr, level) =
+                    if level > 0 then  (* Closure *) UsageSet{locals=locals, args=Vector.update(args, 0, 0) }
+                    else if addr < 0
+                    then UsageSet{locals=locals, args = Vector.update(args, ~addr, 0)}
+                    else UsageSet{locals = Vector.update(locals, addr, 0), args=args}
 
-                fun killSets (_, [], [], inThenOnly, inElseOnly) = (inThenOnly, inElseOnly)
-
-                | killSets (isArg, [], inElseH::inElseT, inThenOnly, inElseOnly) =
-                    killSets(isArg, [], inElseT, inThenOnly, createEntry(isArg, inElseH) @ inElseOnly)
-
-                | killSets(isArg, inThenH::inThenT, [], inThenOnly, inElseOnly) =
-                    killSets(isArg, inThenT, [], createEntry(isArg, inThenH) @ inThenOnly, inElseOnly)
-
-                | killSets(isArg, inThen as inThenH::inThenT,
-                             inElse as inElseH::inElseT, inThenOnly, inElseOnly) =
-                    if inThenH = inElseH
-                    then (* In both sets *)
-                        killSets(isArg, inThenT, inElseT, inThenOnly, inElseOnly)
-                    else if inThenH < inElseH
-                    then (* Only in Else part. *)
-                        killSets(isArg, inThen, inElseT, inThenOnly, createEntry(isArg, inElseH) @  inElseOnly)
-                    else killSets(isArg, inThenT, inElse, createEntry(isArg, inThenH) @ inThenOnly, inElseOnly)
-              val (argThen, argElse) =
-                 killSets(true, thenArgs, elseArgs, [], [])
-
-              val (localThen, localElse) =
-                 killSets (false, thenLoc, elseLoc, argThen, argElse)
-
-              val (closThen, closElse) =
-                    if thenClos = elseClos orelse ! outsideLoopRef then (localThen, localElse)
-                    else if thenClos
-                    then (mkClosLoad(0, true) :: localThen, localElse)
-                    else (localThen, mkClosLoad(0, true) :: localElse)
-
-          in
-              (closThen, closElse)
-          end;
-      end;
-
-        (* returns the translated node *)
-        fun locaddr (ptr as { addr=laddr, level=lev, ...}: loadForm) (closure : bool) : codetree =
-        if lev <> 0 orelse laddr = 0
-        then (* non-local *) previous (ptr, lev, closure, !outsideLoopRef)
-           
-        else if laddr < 0
-        then
-        let (* parameters *)
-            val argNo = ~ laddr;
-            val lastReference =
-                not(Array.sub(argUses, argNo)) andalso not (!outsideLoopRef)
-        in 
-            (* Mark the argument as used. *)
-            Array.update (argUses, argNo, true);
-            mkGenLoad (laddr, 0, true, lastReference)
-        end
-          
-        (* isOnstack *)
-        else case Array.sub(localConsts, laddr) of
-            SOME c => c (* just return the constant *)
-        |   NONE =>
-            let 
-                (* Mark as used and set closure flag if necessary.
-                   If this was outside a loop we can't mark this as the last
-                   reference because it needs to be retained for the next time round. *)
-                val lastReference =
-                    not(Array.sub(localUses, laddr)) andalso not (Array.sub(outsideLoop, laddr))
-            in
-                if closure then Array.update (closuresForLocals, laddr, true) else ();
-                Array.update (localUses, laddr, true);
-                mkGenLoad (laddr, 0, true, lastReference)
-            end
-      (* locaddr *);
-
-     (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
-        Generally used to map "insert" over a list where we need to
-        ensure that last references to variables are detected correctly. *)
-     fun mapright _ [] = []
-       | mapright f (a::b) =
-            let
-                val rest = mapright f b
-            in
-                f a :: rest
-            end
-
-     (* preCode.copyCode.insert *)
-      fun insert (pt:codetree) : codetree =
-      let
-        (* If "makeClosure" is true the procedure will need a full closure. *)
-        (* It may need a full closure even if makeClosure is false if it    *)
-        (* involves a recursive reference which will need a closure.        *)
-        (* preCode.copyCode.insert.copyLambda *)
-        fun copyLambda ({body=lambdaBody, level=nesting, argTypes, isInline,
-                         name=lambdaName, resultType, localCount, ...}: lambdaForm) makeClosure =
-        let
-          val newGrefs      = ref []; (* non-local references *)
-          val newNorefs     = ref 0;  (* number of non-local refs *)
-          val refsToClosure = ref false;  (* Number of references to the closure. *)
-           
-          (* A new table for the new procedure. *)
-          (* preCode.copyCode.insert.copyLambda.prev *)
-          fun prev (ptr as { addr, fpRel, ...} : loadForm, lev : int, closure: bool, inLoop) : codetree =
-          let 
-            (* Returns the closure address of the non-local *)
-            (* preCode.copyCode.insert.copyLambda.prev.makeClosureEntry *)
-            fun makeClosureEntry [] _ wasRefed = (* not found - construct new entry *)
-              let
-                val () =
-                  newGrefs := mkGenLoad (addr, lev - 1, fpRel, false) ::  !newGrefs;
-                val newAddr = !newNorefs + 1;
-              in
-                newNorefs := newAddr; (* increment count *)
-                mkClosLoad(newAddr, not wasRefed andalso not inLoop)
-              end
-            
-            | makeClosureEntry
-                (Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t)
-                newAddr wasRefed =
-                if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
-                then mkClosLoad(newAddr, not wasRefed andalso not inLoop)
-                else makeClosureEntry t (newAddr - 1) wasRefed
-
-            | makeClosureEntry (_ ::_) _ _ =
-                raise InternalError "makeClosureEntry: closure is not Extract";
-    
-          in
-            (* If we use a procedure on another level in a way that will
-               require it to have a real closure we must make one for it.
-               (i.e. we must set the "closure" flag.) This is necessary
-               because we may, for example, pass an outer procedure as a
-               parameter from within an inner procedure. The inner procedure
-               may not itself need a closure so the non-local references 
-               it makes will not be forced to have closures, but the outer
-               procedure will need one. *)
-            if lev = 0 (* Reference to the closure itself. *)
-            then let
-              val () =
-                if addr <> 0 orelse fpRel
-                then raise InternalError "prev: badly-formed load"
-                else ();
-                
-              val () = 
-                if closure then makeClosure := true else ();
-              val wasRefed = ! refsToClosure
-            in
-              refsToClosure := true;
-              mkClosLoad(0, not wasRefed andalso not inLoop)
-            end
-            
-            else if lev = 1 andalso addr > 0
-            then let (* local at this level *)
-              val () =
-               if not fpRel
-               then raise InternalError "prev: badly-formed load"
-               else ();
-            in 
-              case Array.sub(localConsts, addr) of
-                SOME c => c (* propagate constant, rather than using closure *)
-              | NONE  =>
+                (* Differences of two sets, used as kill entries.
+                   The differences are returned as Extract codetree entries. *)
+                fun computeKillSets(
+                    (* then*) UsageSet{locals=thenLoc, args=thenArgs},
+                    (* else *) UsageSet{locals=elseLoc, args=elseArgs}) =
                 let
-                  val () =
-                    if closure 
-                    then Array.update (closuresForLocals, addr, true)
-                    else ();
-                val wasRefed = ! refsToClosure
-                in
-                   refsToClosure := true;
-                   makeClosureEntry (!newGrefs) (!newNorefs) wasRefed
-                end
-            end
-            
-            else if lev = 1 andalso addr < 0
-            then let (* parameter at this level *)
-              val () =
-                if not fpRel
-                then raise InternalError "prev: badly-formed load"
-                else ();
-              val wasRefed = ! refsToClosure
-            in 
-              refsToClosure := true;
-              makeClosureEntry (!newGrefs) (!newNorefs) wasRefed
-            end
-            
-            else let (* lev > 1 orelse (lev = 1 andalso addr = 0) *)
-              (* Discard the result, unless it's a constant.
-                 We fix up the old (fp-relative) address in the
-                 closure list on the second pass. Why not now?
-                 That would make it harder to set the makeClosure
-                 flag for the closure lists of mutually-recursive
-                 definitions. But doesn't doing it this way risks
-                 making the refsToClosure count too high? SPF 19/5/95 *)
-               val outerLoad : codetree = 
-                 previous (ptr, lev - 1, closure, !outsideLoopRef)
-            in
-              case outerLoad of
-                Constnt _ => outerLoad
-                | _ =>
-                let
-                  val wasRefed = ! refsToClosure
-                in
-                  refsToClosure := true;
-                  makeClosureEntry (!newGrefs) (!newNorefs) wasRefed
-                end
-            end
-          end (* prev *);
-
-          val numArgs = List.length argTypes
-          (* This could be a fixed array rather than stretchArray.  The
-             size is one more than the number of arguments because the
-             arguments are numbered from ~1 .. ~n and we use the entries
-             as ~arg. *)
-          val argUses      = Array.array(numArgs+1, false);
-          
-          (* process the body *)
-          val bodyCode = copyCode (lambdaBody, prev, argUses, refsToClosure, localCount);
-
-          (* Add kill entries for unused arguments.  Typically a function
-             taking a unit argument will not use it. *)
-          fun addKills n =
-             if n > numArgs then nil
-             else if not (Array.sub(argUses, n)) andalso not(! outsideLoopRef)
-             then mkGenLoad(~n, 0, true, true) :: addKills (n+1)
-             else addKills (n+1)
-
-          val insertedCode = (* Wrap the lot up if necessary. *)
-            case addKills 1 of
-                nil => bodyCode
-            |   kills => Newenv(kills @ [bodyCode])
-
-        in  (* body of preCode.copyCode.insert.copyLambda *)
-          if null (!newGrefs) (* no external references *)
-          then let
-           (* 
-              Since we are code-generating the procedure before we
-              have done a full analysis of any mutually-recursive
-              functions, we have to conservatively assume that it
-              will require a closure, even if all the uses of the
-              procedure within its body are kosher. SPF 20/5/95.
-              
-              We now want recursive calls to be code-generated using
-              the saved closure register, rather than by loading the
-              address of the closure from the constants vector. This
-              means that we can no longer set closureRefs to 0, since
-              we will actually be *using* the closure. SPF 20/5/95
-            *) 
-            val copiedProc =
-              Lambda
-                {
-                  body          = insertedCode,
-                  isInline      = isInline,
-                  name          = lambdaName,
-                  closure       = [],
-                  argTypes      = argTypes,
-                  resultType    = resultType,
-                  level         = nesting,
-                  closureRefs   = if !refsToClosure then 1 else 0 (* was set to 0 *),
-                  localCount    = localCount,
-                  makeClosure   = true
-                };
-          in
-           (* Code generate it now so we get a constant. *)
-            evaluate copiedProc codegen
-          end
-          
-          else
-            (* External references present. The closure will be copied
-               later with copyProcClosure. *)
-            Lambda 
-              {
-                body          = insertedCode,
-                isInline      = isInline,
-                name          = lambdaName,
-                closure       = !newGrefs,
-                argTypes      = argTypes,
-                resultType    = resultType,
-                level         = nesting,
-                closureRefs   = if !refsToClosure then 1 else 0,
-                localCount    = localCount,
-                makeClosure   = false
-              }
-        end (* copyLambda *);
-
-        (* Copy the closure of a procedure which has previously been
-            processed by copyLambda. *)
-         (* preCode.copyCode.insert.copyProcClosure *)
-        fun copyProcClosure (Lambda{ body, isInline, name, argTypes, level,
-                                     closureRefs, closure, resultType, localCount, ...}) makeClosure =
-          let
-            (* process the non-locals in this procedure *)
-            (* If a closure is needed then any procedures referred to
-               from the closure also need closures.*)
-            fun makeLoads (Extract ext) = locaddr ext makeClosure 
-             |  makeLoads _ = raise InternalError "makeLoads - not an Extract"
-               
-            val copyRefs = rev (map makeLoads closure);
-          in
-            Lambda
-              {
-                body          = body,
-                isInline      = isInline,
-                name          = name,
-                closure       = copyRefs,
-                argTypes      = argTypes,
-                resultType    = resultType,
-                level         = level,
-                closureRefs   = closureRefs,
-                localCount    = localCount,
-                makeClosure   = makeClosure
-              }
-           end
-        |  copyProcClosure pt _ = pt (* may now be a constant *)
-        (* end copyProcClosure *);
-
-      in  (* body of preCode.copyCode.insert *)
-        case pt of
-            (pt as MatchFail) => pt : codetree
-          
-        | AltMatch(x, y) =>
-            let
-                val insY = insert y
-                val insX = insert x
-            in
-                AltMatch (insX, insY) : codetree
-            end
-       
-        | CodeNil => CodeNil
-        
-        | Eval { function, argList, resultType, ...} =>
-            let
-              (* Process the arguments first. *)
-              val newargs = mapright(fn (c, t) => (insert c, t)) argList
-              val func  =
-                case function of
-                    Extract ext => locaddr ext (* closure = *) false
-                  | first => insert first
-            in
-              (* If we are calling a procedure which has been declared this
-                 does not require it to have a closure. Any other use of the
-                 procedure would. *) 
-              Eval {function = func, argList = newargs, earlyEval = false, resultType=resultType}
-             end : codetree
-
-        | Extract ext =>
-          (* Load the value bound to an identifier. The closure flag is
-             set to true since the only cases where a closure is not needed,
-             eval and load-andStore, are handled separately. *)
-          locaddr ext (* closure = *) true  : codetree
-
-        | Indirect {base, offset} => Indirect {base = insert base, offset = offset}
-
-        | pt as Constnt _ => 
-            pt : codetree (* Constants can be returned untouched. *)
-
-        | BeginLoop{loop=body, arguments=argList, ...} => (* Start of tail-recursive inline function. *)
-            let
-                (* If we have declarations outside the loop that are last used inside it we
-                   must make sure they're not marked as last used within the loop.  That would
-                   cause the register containing the value to become available for reuse which
-                   could mean that when we jumped back to the start of the loop it was no
-                   longer there.  We lift all such last-uses out of the loop and add them
-                   after the loop. *)
-                (* Save the usage state before we process the loop.  Because we're processing
-                   the block tail first this indicates all the declarations that are in use
-                   AFTER the loop. *)
-                val usagesAfterLoop = saveUsages()
-                val oldLoopEntries = Array.vector outsideLoop
-                (* Set every entry to the "outsideLoop" array to true. *)
-                val () = Array.modify (fn _ => true) outsideLoop
-                val wasInLoop = ! outsideLoopRef
-                val () = outsideLoopRef := true;
-
-                (* Make entries in the tables for the arguments. I'm not sure
-                   if this is essential. *)
-                fun declareArg(Declar{addr=caddr, ...}, _) =
-                (
-                    Array.update (localUses, caddr, false);
-                    Array.update (closuresForLocals, caddr, false);
-                    Array.update (localConsts, caddr, NONE);
-                    Array.update (outsideLoop, caddr, false) (* Must do this. *)
-                )
-                |   declareArg _ = raise InternalError "declareArg: not a declaration"
-                val _ = List.app declareArg argList
-
-                (* Process the body. *)
-                val insBody = insert body
-
-                (* Set the arguments to "unreferenced".  These are effectively local to
-                   the loop so they can safely be killed inside it. *)
-                val () = List.app(
-                    fn(Declar{addr, ...}, _) => Array.update (localUses, addr, false) | _ =>()) argList
-
-                val usagesBeforeLoop = saveUsages()
-                (* Then the initial argument values. *)
-                fun copyDec(Declar{addr, value, ...}, _) =
-                        mkDecRef (insert value) addr 1
-                |   copyDec _ = raise InternalError "copyDec: not a declaration"
-                val newargs = mapright copyDec argList
-                (* Restore the state. *)
-                val () = outsideLoopRef := wasInLoop
-                val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
-                val (killBefore, killAfter) = computeKillSets(usagesAfterLoop, usagesBeforeLoop)
-                val _ = null killBefore orelse raise InternalError "Not killBefore"
-            in
-                (* Add the kill entries on after the loop. *)
-                BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList), kills=killAfter}
-            end
-    
-        | Loop argList => (* Jump back to start of tail-recursive function. *)
-            Loop(List.map(fn (c, t) => (insert c, t)) argList)
-
-        | Raise x => Raise (insert x) : codetree
-
-        (* See if we can use a case-instruction. Arguably this belongs
-           in the optimiser but it is only really possible when we have
-           removed redundant declarations. *)
-        | Cond (condTest, condThen, condElse) =>
-            copyCond (condTest, condThen, condElse)
-
-        | Newenv ptElist =>
-        let
-                
-          (* Process the body. Recurses down the list of declarations
-             and expressions processing each, and then reconstructs the
-             list on the way back. *)
-         (* body of preCode.copyCode.insert(isNewenv).copyDeclarations *)
-         fun copyDeclarations ([]: codetree list) : codetree list  = []
-
-           | copyDeclarations ((Declar{addr=caddr, value = pt, ...}) :: vs) : codetree list =
-            let
-              (* Set the table entries.  We don't reuse entries so this is just a check. *)
-              val _ = Array.sub(localUses, caddr) andalso raise InternalError "copyDeclarations: Already used"
-              val () = Array.update (outsideLoop, caddr, false) (* It's local *)
-
-              val () =
-                case pt of
-                    Constnt _ => Array.update (localConsts, caddr, SOME pt)
-                |  _ => ()
-
-              (* This must be done first, even for non-lambdas -  why? *)
-              (* The first declarative might be a set of mutual declarations,
-                 and we have to copy all their uses before we can successfully
-                 compile them because we need to know whether they will
-                 require closures. SPF 13/5/95 *)
-              val rest = copyDeclarations vs;
-              val wasUsed = Array.sub(localUses, caddr)
-            in
-                  (* It is never used and it has no side-effects
-                     so we can ignore it. *)
-               if not wasUsed andalso sideEffectFree pt
-               then rest
-               else let
-                  val dec =
-                    case pt of
-                        Lambda lam =>
-                      let 
-                        val closure      = ref (Array.sub(closuresForLocals, caddr));
-                        val copiedLambda = copyLambda lam closure;
-                      in
-                        (* Note: copyLambda may have set closure *)
-                        copyProcClosure copiedLambda (! (closure))
-                      end
-                    | _ => insert pt
-                in
-                   (* Set the use count back to free otherwise this local
-                      declaration would become part of the kill set for the
-                      surrounding expression. *)
-                   Array.update (localUses, caddr, false);
-                   mkDecRef dec caddr (if wasUsed then 1 else 0) :: rest
-                end
-            end (* copyDeclarations.isDeclar *)
-
-           | copyDeclarations (MutualDecs mutualDecs :: vs) : codetree list =
-            let
-              (* Mutually recursive declarations. Any of the declarations
-                 may refer to any of the others. This causes several problems
-                 in working out the use-counts and whether the procedures 
-                 (they should be procedures) need closures. A procedure will
-                 need a closure if any reference would require one (i.e. does
-                 anything other than call it). The reference may be from one
-                 of the other mutually recursive declarations and may be 
-                 because that procedure requires a full closure. This means
-                 that once we have dealt with any references in the rest of
-                 the containing block we have to repeatedly scan the list of
-                 declarations removing those which need closures until we
-                 are left with those that do not. The use-counts can only be
-                 obtained when all the non-local lists have been copied. *)
-                      
-               (* First go down the list making a declaration for each entry.
-                  This makes sure there is a table entry for all the
-                  declarations. *)
-                  
-              fun applyFn (Declar{addr=caddr, value=dv, ...}) =     
-                (
-                  (* SPF 16/5/95 *)
-                  case dv of
-                    Constnt _ => Array.update (localConsts, caddr, SOME dv) 
-                  | _ => ();
-                  Array.sub(localUses, caddr) andalso raise InternalError "applyFn: Already used";
-                  Array.update (outsideLoop, caddr, false) (* It's local *)
-                )
-                | applyFn _ = raise InternalError "applyFn: not a Declar"               
-                  
-              val () = apply applyFn mutualDecs;
-                      
-              (* Process the rest of the block. Identifies all other
-                 references to these declarations. *)
-              val restOfBlock = copyDeclarations vs;
-                      
-              (* We now want to find out which of the declarations require
-                 closures. First we copy all the declarations, except that
-                 we don't copy the non-local lists of procedures. *)
-              fun copyDec (Declar{addr=caddr, value=dv, ...}) = 
-              let
-                val closure = ref (Array.sub(closuresForLocals, caddr))
-                val dec     =
-                    case dv of
-                        Lambda lam => copyLambda lam closure
-                      | _ => insert dv;
-                (* SPF 18/5/95 - check whether we now have a constant *)
-                val () =
-                    case dec of
-                        Constnt _ => Array.update (localConsts, caddr, SOME dec)
-                      | _ => Array.update (localConsts, caddr, NONE); (* needed? *)
-
-                (* copyLambda may set "closure" to true. *)
-                 val () = Array.update (closuresForLocals, caddr, !closure);
-               in
-                 mkDec (caddr, dec)
-               end
-                | copyDec _ = raise InternalError "copyDec: not a Declar"               
-
-              val copiedDecs = map copyDec mutualDecs;
-                       
-              (* We now have identified all possible references to the
-                 procedures apart from those of the closures themselves.
-                 Any of closures may refer to any other procedure so we must 
-                 iterate until all the procedures which need full closures
-                 have been processed. *)
-              fun processClosures [] outlist true =
-                  (* Sweep completed. - Must repeat. *)
-                  processClosures outlist [] false
-                
-                | processClosures [] outlist false =
-                (* We have processed the whole of the list without finding
-                  anything which needs a closure. The remainder do not
-                  need full closures. *)
-                let
-                  fun mkLightClosure (Declar{value, addr, ...}) = 
+                    fun killSets(isArg, thenVec, elseVec) inputs =
                     let
-                      val clos = copyProcClosure value false;
+                        fun createEntry(true, addr) =  (* Argument or the closure. *)
+                            if ! outsideLoopRef then [] else
+                            if addr = 0 then [mkClosLoad(0, true)] else [mkGenLoad(~addr, 0, true, true)]
+                        |   createEntry(false, addr) = (* Local *)
+                            if Array.sub(outsideLoop, addr) then [] else [mkGenLoad(addr, 0, true, true)]
                     in
-                      mkDec (addr, clos)
-                    end
-                   | mkLightClosure _ = 
-                        raise InternalError "mkLightClosure: not a Declar"               
-                in
-                  map mkLightClosure outlist
-                end
-                      
-               | processClosures ((h as Declar{addr=caddr, value, ...})::t) outlist someFound =
-                  if Array.sub(closuresForLocals, caddr)
-                  then let (* Must copy it. *)
-                    val clos = copyProcClosure value true
-                  in
-                    mkDec (caddr, clos) :: processClosures t outlist true
-                  end
-                  
-                  (* Leave it for the moment. *)
-                  else processClosures t  (h :: outlist) someFound
-
-               | processClosures _ _ _ =
-                    raise InternalError "processClosures: not a Declar"               
-              
-              (* Now we know all the references we can complete
-                 the declaration and put on the use-count. *)
-              fun copyEntries []      = []
-               |  copyEntries (Declar{ addr, value, ...} ::ds) =
-                let
-                  val wasUsed = Array.sub(localUses, addr)
-                in
-                  if not wasUsed andalso sideEffectFree value
-                  then copyEntries ds
-                  else 
-                     (
-                     (* Set the use count back to false otherwise this
-                        entry would become part of the kill set for the
-                        surrounding expression. *)
-                     Array.update(localUses, addr, false);
-                     mkDecRef value addr (if wasUsed then 1 else 0) :: copyEntries ds
-                     )
-                end
-               |  copyEntries (_::_) =
-                    raise InternalError "copyEntries: Not a Declar";
-                      
-              val decs = copyEntries (processClosures copiedDecs [] false);
-            in
-              (* Return the mutual declarations and the rest of the block. *)
-              case decs of
-                []   => restOfBlock         (* None left *)
-              | [d]  => d :: restOfBlock    (* Just one *)
-              | _    => mkMutualDecs decs :: restOfBlock
-            end (* copyDeclarations.isMutualDecs *)
-              
-           | copyDeclarations (v :: vs) : codetree list =
-            let (* Not a declaration - process this and the rest. *)
-                (* Must process later expressions before earlier
-                   ones so that the last references to variables
-                   are found correctly. DCJM 30/11/99. *)
-              val copiedRest = copyDeclarations vs;
-              val copiedNode = insert v;
-            in
-               (* Expand out blocks *)
-              case copiedNode of
-                Newenv decs => decs @ copiedRest
-               | _ => copiedNode :: copiedRest
-            end (* copyDeclarations *);
-
-         (* Can we optimise a tuple to a constant? It would be nice
-             to adjust the local use counts when we find a constant,
-             but I think we're already committed to the values we
-             found on the previous pass. SPF 13/6/95. *)
-         fun recopyValue (Recconstr recs) : codetree = 
-            mkTuple (map recopyValue recs)
-           
-          | recopyValue (v as Extract{level=lev, addr=laddr, ...}) : codetree = 
-             if lev = 0 andalso laddr > 0
-             then 
-               case Array.sub(localConsts, laddr) of
-                 SOME c => c
-               | NONE   => v
-             else v
-          | recopyValue v = v;
-
-         fun recopyDeclaration (Declar{addr=caddr, value=pt as Recconstr _, references}) : codetree = 
-             let
-               val pt' = recopyValue pt
-             in
-               if isConstnt pt'
-               then Array.update (localConsts, caddr, SOME pt')
-               else Array.update (localConsts, caddr, NONE); (* needed? *)
-               mkDecRef pt' caddr references
-             end
-     
-          | recopyDeclaration (v as Declar _) : codetree = v
-
-          | recopyDeclaration (MutualDecs decs) : codetree = 
-             mkMutualDecs (map recopyDeclaration decs)
-             
-          | recopyDeclaration (v : codetree) : codetree = recopyValue v;
-
-          (* recopy declarations to remove constant tuples SPF 13/6/95 *)
-          val insElist = map recopyDeclaration (copyDeclarations ptElist);
-        in
-          (* If there is only one item then return that item (unless it is
-            a declaration - this can occur if we have a block which contains
-            a declaration to discard the result of a function call and 
-            only do its side-effects). *)
-          wrapEnv insElist
-        end : codetree (* isNewEnv *)
-                
-        | Recconstr recs => (* perhaps it's a constant now? *)
-          (* Recconstr (map insert (cRecconstr pt)) : codetree *)
-             mkTuple (mapright insert recs) : codetree 
-
-        | (pt as Ldexc) => pt : codetree (* just a constant so return it *)
-      
-        | Lambda lam =>
-           (* Must make a closure for this procedure because
-              it is not a simple declaration. *)
-           copyProcClosure (copyLambda lam (ref true)) true : codetree
-     
-        | Handle { exp, taglist, handler } =>
-            let
-                (* The order here is important.  We want to make sure that
-                   the last reference to a variable really is the last. *)
-               val hand = insert handler;
-               val exp = insert exp;
-               val tags = map insert taglist
-            in
-              Handle {exp = exp, taglist = tags, handler = hand}
-            end
-      
-        | Case _ => raise InternalError "preCode: Case"
-
-(*        | Case { cases, test, default, caseType } =>
-            let
-              fun insertCasePair ((e,l)) = (insert e, l);
-            in
-              Case
-                {
-                  cases   = mapright insertCasePair cases,
-                  default = insert default,
-                  test    = insert test, (* Must be called last. *)
-                  caseType = caseType
-                }
-            end : codetree*)
-
-        | c as Container _ => c
-
-        | SetContainer {container, tuple, size} =>
-            SetContainer{container = insert container, tuple = insert tuple, size = size}
-
-        | TupleFromContainer(container, size) =>
-            TupleFromContainer(insert container, size)
-         
-        | Global g =>
-           (* Should have been taken off by the optimiser. *)
-           optGeneral g : codetree
-
-        |   TagTest{test, tag, maxTag} => TagTest{test=insert test, tag=tag, maxTag=maxTag}
-
-        | _ => raise InternalError "unknown instruction"
-
-      end
-      
-      and copyCond (condTest, condThen, condElse) =
-        let
-          (* Process each of the arms, computing the kill sets for
-             each arm. *)
-          (* Save the current usage set.  Because we process the
-             codetree in reverse order to the control flow entries
-             in here show the variables which are in use after the
-             if-expression has completed. *)
-          val usagesAfterIf = saveUsages();
-
-          (* Process the then-part.  Save the usage set which
-             corresponds to variables which are in use in the
-             flow of control through the then-part and afterwards. *)
-          val insThen = insert condThen;
-          val thenUsage = saveUsages();
-
-          (* Reset the use-counts to the saved value. *)
-          val () = setToSaved usagesAfterIf;
-
-          (* Process the else-part. *)
-          val insElse = insert condElse;
-          val elseUsage = saveUsages();
-
-          (* Now compute the differences of the sets.
-             The differences are returned as Extract codetree entries. *)
-          val (killThenOnly, killElseOnly) =
-            computeKillSets(thenUsage, elseUsage);
-          (* Now ensure that all the variables that were used in the
-             then-part are marked as used.  It may be that they have already
-             been set if they also appeared in the else-part.
-             This sets the usage sets to the union of the then-part,
-             the else-part and code after the if-expression. *)
-          val () = addFromSaved thenUsage;
-
-          (* Add kill entries to the other branch.  We simply add
-             Extract entries with lastRef=true before the appropriate
-             branch.  This does what we want since the code-generator
-             does not generate any code for them but it might make
-             the intermediate code easier to read if we used a different
-             instruction. *)
-          fun addKillSet(original, []) = original (* No change *)
-           |  addKillSet(Newenv decs, killSet) = Newenv(killSet @ decs)
-           |  addKillSet(original, killSet) = Newenv(killSet @ [original]);
-
-          (* Process the condition AFTER the then- and else-parts. *)
-          val insFirst = insert condTest;
-          
-          type caseVal =
-            { tag: word, test: codetree, caseType: caseType } option;
-        
-          (* True if both instructions are loads or indirections with the
-             same effect. More complicated cases could be considered but
-             function calls must always be treated as different.
-             Now returns the variable, choosing the one which has lastRef set
-             if possible.  Note: the reason we consider Indirect entries here
-             as well as Extract is because we (used to) defer Indirect entries.  *)
-          datatype similarity = Different | Similar of loadForm;
-
-          fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}),
-                       Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
-                if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
-                then if aRef then Similar a else Similar b
-                else Different
-              
-           |  similar (Indirect{offset=aOff, base=aBase}, Indirect{offset=bOff, base=bBase}) =
-                if aOff <> bOff then Different else similar (aBase, bBase)
-              
-           |  similar _ = Different;
-
-            (* If we have a call to the int equality operation *)
-            (* then we may be able to use a case statement. *)
-            (* preCode.copyCode.insert.findCase *)
-            fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
-            let
-                val isArbitrary = wordEq (cv, ioOp POLY_SYS_equala)
-                val isWord = wordEq (cv, ioOp POLY_SYS_word_eq)
-            in
-                if isArbitrary orelse isWord
-                then  (* Should be just two arguments. *)
-                case argList of
-                    [(Constnt c1, _), (arg2, _)] =>
-                    if isShort c1
-                    then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
-                    else NONE (* Not a short constant. *)
-                    
-                 | [(arg1, _), (Constnt c2, _)] =>
-                    if isShort c2
-                    then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
-                    else NONE (* Not a short constant. *)
-                    
-                | _ => NONE
-                   (* Wrong number of arguments - should raise exception? *)
-                
-                else NONE (* Function is not a comparison. *)
-            end
-
-         |  findCase(TagTest { test, tag, maxTag }) =
-                SOME { tag=tag, test=test, caseType=CaseTag maxTag }
-
-         |  findCase _ = NONE 
-           (* end findCase *);
-        
-          val testCase  : caseVal  = findCase insFirst;
-        in  (* body of preCode.copyCode.insert(isCond) *)
-
-          case testCase of
-                NONE => (* Can't use a case *)
-                    mkIf (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
-            |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
-                    (* Can use a case. Can we combine two cases?
-                      If we have an expression like 
-                           "if x = a then .. else if x = b then ..."
-                      we can combine them into a single "case". *)
-                    case insElse of
-                        Case { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
-                        (
-                        case (similar(nextTest, caseTest), caseCaseTest = nextCaseType) of
-                          (* Note - it is legal (though completely redundant) for the
-                             same case to appear more than once in the list. This is not
-                              checked for at this stage. *)
-                          (* We have to take care to get the "last-reference" flags
-                             and the kill-set right when "nextTest" is the last
-                             reference to the variable.  (N.B. This means that it does
-                             not appear anywhere else in the case). 
-                             There are two cases to consider:
-                             1. If the then-part contains the variable
-                                e.g. if a = 1 then a<lastRef>
-                                     else (case a<lastRef> of 2 => x | _ => y)
-                                Note: because the last reference for a appears in
-                                both the branches it will not be in either kill set.
-                             2. If the then-part does not contain the variable
-                                e.g. if a = 1 then x
-                                     else (case a<lastRef> of 2 => x | _ => y)
-                                Note: because the last reference to a appears only
-                                in the else-part it will be in killElseOnly.
-                             In 1 we transform this into
-                                case a of 1 => a<lastRef> 
-                                | 2 => <kill a> x | 3 => <kill a> y
-                             i.e. the test is NOT the last reference but a must be
-                             killed on the other branches.
-                             In 2 we transform it into
-                                 case a<last> of 1 => x | 2 => y | 3 => z
-                             i.e. the test IS the last reference.
-                           *)
-                            (Similar({lastRef = true, addr, level, ...}), true) =>
-                            let (* Contains the last reference to the test variable. *)
-                                (* Remove this variable from the usage table for the else-part
-                                   since we are lifting it up to the test. *)
-                                val newElseUage = removeItem(elseUsage, addr, level);
-                                (* Compute the new kill sets. *)
-                                val (killThenOnly, killElseOnly) =
-                                    computeKillSets(thenUsage, newElseUage);
-                                val testCode =
-                                    if inSet(thenUsage, addr, level)
-                                    then caseTest (* Must be in the then-part. *)
-                                    else nextTest (* Last reference *)
+                        Vector.foldli (
+                            fn (i, tVal, (tList, eList)) =>
+                            let
+                                val eVal = Vector.sub(elseVec, i)
                             in
-                                Case
-                                {
-                                    cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
-                                                map (fn (c, l) =>
-                                                    (addKillSet(c, killThenOnly), l)) nextCases,
-                                    test    = testCode,
-                                    default = addKillSet(nextDefault, killThenOnly),
-                                    caseType = caseCaseTest
-                                }
-                            end
+                                if tVal <> 0
+                                then if eVal <> 0
+                                then (tList, eList) else (createEntry(isArg, i) @ tList, eList)
+                                else if eVal <> 0 then (tList, createEntry(isArg, i) @ eList)
+                                else (tList, eList)
+                            end) inputs thenVec
+                    end
+                in
+                    killSets(true, thenArgs, elseArgs) (killSets(false, thenLoc, elseLoc)([], []))
+                end
+            end
 
-                        | (Similar _, true) =>
-                            (* Does not contain the last reference to the test variable or
-                               the test variable is non-local.
-                               Add the kill sets to appropriate cases. *)
-                          Case 
-                            {
-                              cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
-                                        map (fn (c, l) =>
-                                            (addKillSet(c, killThenOnly), l)) nextCases,
-                              test    = nextTest,
-                              default = addKillSet(nextDefault, killThenOnly),
-                              caseType = caseCaseTest
-                            }
+            (* returns the translated node *)
+            fun locaddr (ptr as { addr=laddr, level=lev, ...}, closure) =
+            (
+                instrCount := !instrCount+1;
+
+                if lev <> 0 orelse laddr = 0
+                then (* non-local *) previous (ptr, lev, closure, !instrCount, !outsideLoopRef)
+           
+                else if laddr < 0
+                then
+                let (* parameters *)
+                    val argNo = ~ laddr;
+                    val lastReference =
+                        Array.sub(argUses, argNo) = 0 andalso not (!outsideLoopRef)
+                in 
+                    (* Mark the argument as used. *)
+                    Array.update (argUses, argNo, maxUse(! instrCount, Array.sub(argUses, argNo)));
+                    mkGenLoad (laddr, 0, true, lastReference)
+                end
+          
+                (* isOnstack *)
+                else case Array.sub(localConsts, laddr) of
+                    SOME c => c (* just return the constant *)
+                |   NONE =>
+                    let 
+                        (* Mark as used and set closure flag if necessary.
+                           If this was outside a loop we can't mark this as the last
+                           reference because it needs to be retained for the next time round. *)
+                        val lastReference =
+                            Array.sub(localUses, laddr) = 0 andalso not (Array.sub(outsideLoop, laddr))
+                    in
+                        if closure then Array.update (closuresForLocals, laddr, true) else ();
+                        Array.update (localUses, laddr, maxUse(! instrCount, Array.sub(localUses, laddr)));
+                        mkGenLoad (laddr, 0, true, lastReference)
+                    end
+            )
+          (* locaddr *)
+
+            (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
+               Generally used to map "insert" over a list where we need to
+               ensure that last references to variables are detected correctly. *)
+            fun mapright _ [] = []
+            |   mapright f (a::b) =
+                let
+                    val rest = mapright f b
+                in
+                    f a :: rest
+                end
+
+            (* preCode.copyCode.insert *)
+            fun insert (pt as MatchFail) = pt
+          
+            |   insert(AltMatch(x, y)) =
+                let
+                    val insY = insert y
+                    val insX = insert x
+                in
+                    AltMatch (insX, insY)
+                end
+       
+            |   insert CodeNil = CodeNil
+        
+            |   insert(Eval { function, argList, resultType, ...}) =
+                let
+                    (* Process the arguments first. *)
+                    val newargs = mapright(fn (c, t) => (insert c, t)) argList
+                    val func  =
+                    case function of
+                        Extract ext => locaddr(ext, (* closure = *) false)
+                    |   first => insert first
+                in
+                    (* If we are calling a procedure which has been declared this
+                       does not require it to have a closure. Any other use of the
+                       procedure would. *) 
+                    Eval {function = func, argList = newargs, earlyEval = false, resultType=resultType}
+                end
+
+            |   insert(Extract ext) =
+                    (* Load the value bound to an identifier. The closure flag is
+                       set to true since the only cases where a closure is not needed,
+                       eval and load-andStore, are handled separately. *)
+                    locaddr(ext, (* closure = *) true)
+
+            |   insert(Indirect {base, offset}) = Indirect {base = insert base, offset = offset}
+
+            |   insert(pt as Constnt _) = 
+                    pt (* Constants can be returned untouched. *)
+
+            |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
+                let
+                    (* If we have declarations outside the loop that are last used inside it we
+                       must make sure they're not marked as last used within the loop.  That would
+                       cause the register containing the value to become available for reuse which
+                       could mean that when we jumped back to the start of the loop it was no
+                       longer there.  We lift all such last-uses out of the loop and add them
+                       after the loop. *)
+                    (* Save the usage state before we process the loop.  Because we're processing
+                       the block tail first this indicates all the declarations that are in use
+                       AFTER the loop. *)
+                    val usagesAfterLoop = saveUsages()
+                    val oldLoopEntries = Array.vector outsideLoop
+                    (* Set every entry to the "outsideLoop" array to true. *)
+                    val () = Array.modify (fn _ => true) outsideLoop
+                    val wasInLoop = ! outsideLoopRef
+                    val () = outsideLoopRef := true;
+
+                    (* Make entries in the tables for the arguments. I'm not sure
+                       if this is essential. *)
+                    fun declareArg(Declar{addr=caddr, ...}, _) =
+                    (
+                        Array.update (localUses, caddr, 0);
+                        Array.update (closuresForLocals, caddr, false);
+                        Array.update (localConsts, caddr, NONE);
+                        Array.update (outsideLoop, caddr, false) (* Must do this. *)
+                    )
+                    |   declareArg _ = raise InternalError "declareArg: not a declaration"
+                    val _ = List.app declareArg argList
+
+                    (* Process the body. *)
+                    val insBody = insert body
+
+                    (* Set the arguments to "unreferenced".  These are effectively local to
+                       the loop so they can safely be killed inside it. *)
+                    val () = List.app(
+                        fn(Declar{addr, ...}, _) => Array.update (localUses, addr, 0) | _ =>()) argList
+
+                    val usagesBeforeLoop = saveUsages()
+                    (* Then the initial argument values. *)
+                    fun copyDec(Declar{addr, value, ...}, _) =
+                            mkDecRef(insert value, addr, Int.max(1, Array.sub(localUses, addr)))
+                    |   copyDec _ = raise InternalError "copyDec: not a declaration"
+                    val newargs = mapright copyDec argList
+                    (* Restore the state. *)
+                    val () = outsideLoopRef := wasInLoop
+                    val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
+                    val (killBefore, killAfter) = computeKillSets(usagesAfterLoop, usagesBeforeLoop)
+                    val _ = null killBefore orelse raise InternalError "Not killBefore"
+                in
+                    (* Add the kill entries on after the loop. *)
+                    BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList), kills=killAfter}
+                end
     
-                        | _ => (* Two case expressions but they test different
-                                          variables. We can't combine them. *)
-                          Case
-                            {
-                              cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
-                              test    = caseTest,
-                              default = addKillSet(insElse, killThenOnly),
-                              caseType=caseCaseTest
-                            }
-                         )
-                    | _ => (* insElse is not a case *)
-                  Case
-                    {
-                      cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
-                      test    = caseTest,
-                      default = addKillSet(insElse, killThenOnly),
-                      caseType=caseCaseTest
-                    }
-        end  : codetree (* body of preCode.copyCode.insert(isCond) *)
+            |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
+                        Loop(List.map(fn (c, t) => (insert c, t)) argList)
 
+            |   insert(Raise x) = Raise (insert x)
 
-    in     
-      insert pt
-    end (* copyCode *);
+                (* See if we can use a case-instruction. Arguably this belongs
+                   in the optimiser but it is only really possible when we have
+                   removed redundant declarations. *)
+            |   insert(Cond(condTest, condThen, condElse)) =
+                        copyCond (condTest, condThen, condElse)
+
+            |   insert(Newenv ptElist) =
+                let
+                    (* Process the body. Recurses down the list of declarations
+                       and expressions processing each, and then reconstructs the
+                       list on the way back. *)
+                    (* body of preCode.copyCode.insert(isNewenv).copyDeclarations *)
+                    fun copyDeclarations ([])   = []
+
+                    |   copyDeclarations ((Declar{addr=caddr, value = pt, ...}) :: vs)  =
+                        let
+                            (* Set the table entries.  We don't reuse entries so this is just a check. *)
+                            val _ = Array.sub(localUses, caddr) <> 0
+                                       andalso raise InternalError "copyDeclarations: Already used"
+                            val () = Array.update (outsideLoop, caddr, false) (* It's local *)
+
+                            val () =
+                                case pt of
+                                    Constnt _ => Array.update (localConsts, caddr, SOME pt)
+                                |  _ => ()
+
+                            (* This must be done first, even for non-lambdas -  why? *)
+                            (* The first declarative might be a set of mutual declarations,
+                               and we have to copy all their uses before we can successfully
+                               compile them because we need to know whether they will
+                               require closures. *)
+                            val rest = copyDeclarations vs
+                            val wasUsed = Array.sub(localUses, caddr)
+                            val () = instrCount := !instrCount+1
+                        in
+                            (* It is never used and it has no side-effects so we can ignore it. *)
+                            if wasUsed = 0 andalso sideEffectFree pt
+                            then rest
+                            else
+                            let
+                                val dec =
+                                    case pt of
+                                        Lambda lam =>
+                                        let 
+                                            val closure      = ref (Array.sub(closuresForLocals, caddr));
+                                            val copiedLambda = copyLambda lam closure;
+                                        in
+                                            (* Note: copyLambda may have set closure *)
+                                            copyProcClosure copiedLambda (! (closure))
+                                        end
+                                    |   _ => insert pt
+                            in
+                                (* Set the use count back to free otherwise this local
+                                   declaration would become part of the kill set for the
+                                   surrounding expression. *)
+                                Array.update (localUses, caddr, 0);
+                                mkDecRef(dec, caddr, wasUsed) :: rest
+                            end
+                        end (* copyDeclarations.isDeclar *)
+
+                    |   copyDeclarations (MutualDecs mutualDecs :: vs)  =
+                        let
+                          (* Mutually recursive declarations. Any of the declarations
+                             may refer to any of the others. This causes several problems
+                             in working out the use-counts and whether the procedures 
+                             (they should be procedures) need closures. A procedure will
+                             need a closure if any reference would require one (i.e. does
+                             anything other than call it). The reference may be from one
+                             of the other mutually recursive declarations and may be 
+                             because that procedure requires a full closure. This means
+                             that once we have dealt with any references in the rest of
+                             the containing block we have to repeatedly scan the list of
+                             declarations removing those which need closures until we
+                             are left with those that do not. The use-counts can only be
+                             obtained when all the non-local lists have been copied. *)
+                  
+                           (* First go down the list making a declaration for each entry.
+                              This makes sure there is a table entry for all the
+                              declarations. *)
+              
+                            fun applyFn (Declar{addr=caddr, value=dv, ...}) =     
+                                (
+                                    case dv of
+                                        Constnt _ => Array.update (localConsts, caddr, SOME dv) 
+                                    |   _ => ();
+                                    Array.sub(localUses, caddr) <> 0 andalso raise InternalError "applyFn: Already used";
+                                    Array.update (outsideLoop, caddr, false) (* It's local *)
+                                )
+                            |   applyFn _ = raise InternalError "applyFn: not a Declar"               
+              
+                            val () = apply applyFn mutualDecs;
+                  
+                            (* Process the rest of the block. Identifies all other
+                               references to these declarations. *)
+                            val restOfBlock = copyDeclarations vs
+
+                            val () = instrCount := !instrCount+1
+
+                            (* We now want to find out which of the declarations require
+                               closures. First we copy all the declarations, except that
+                               we don't copy the non-local lists of procedures. *)
+                            fun copyDec (Declar{addr=caddr, value=dv, ...}) = 
+                                let
+                                    val closure = ref (Array.sub(closuresForLocals, caddr))
+                                    val dec     =
+                                        case dv of
+                                            Lambda lam => copyLambda lam closure
+                                        |   _ => insert dv;
+                                    (* Check whether we now have a constant *)
+                                    val () =
+                                        case dec of
+                                            Constnt _ => Array.update (localConsts, caddr, SOME dec)
+                                        |   _ => Array.update (localConsts, caddr, NONE); (* needed? *)
+
+                                    (* copyLambda may set "closure" to true. *)
+                                    val () = Array.update (closuresForLocals, caddr, !closure);
+                                in
+                                    mkDec (caddr, dec)
+                                end
+                            |   copyDec _ = raise InternalError "copyDec: not a Declar"               
+
+                            val copiedDecs = map copyDec mutualDecs;
+                   
+                            (* We now have identified all possible references to the
+                               procedures apart from those of the closures themselves.
+                               Any of closures may refer to any other procedure so we must 
+                               iterate until all the procedures which need full closures
+                               have been processed. *)
+                            fun processClosures [] outlist true =
+                                (* Sweep completed. - Must repeat. *)
+                                processClosures outlist [] false
+            
+                            |   processClosures [] outlist false =
+                                (* We have processed the whole of the list without finding
+                                   anything which needs a closure. The remainder do not
+                                   need full closures. *)
+                                let
+                                    fun mkLightClosure (Declar{value, addr, ...}) = 
+                                        let
+                                            val clos = copyProcClosure value false;
+                                        in
+                                            mkDec (addr, clos)
+                                        end
+                                    | mkLightClosure _ = raise InternalError "mkLightClosure: not a Declar"               
+                                in
+                                    map mkLightClosure outlist
+                                end
+                  
+                            |   processClosures ((h as Declar{addr=caddr, value, ...})::t) outlist someFound =
+                                if Array.sub(closuresForLocals, caddr)
+                                then
+                                let (* Must copy it. *)
+                                    val clos = copyProcClosure value true
+                                in
+                                    mkDec (caddr, clos) :: processClosures t outlist true
+                                end
+                                    (* Leave it for the moment. *)
+                                else processClosures t  (h :: outlist) someFound
+
+                            |   processClosures _ _ _ =
+                                    raise InternalError "processClosures: not a Declar"               
+          
+                            (* Now we know all the references we can complete
+                               the declaration and put on the use-count. *)
+                            fun copyEntries []      = []
+                            |   copyEntries (Declar{ addr, value, ...} ::ds) =
+                                let
+                                    val wasUsed = Array.sub(localUses, addr)
+                                in
+                                    if wasUsed = 0 andalso sideEffectFree value
+                                    then copyEntries ds
+                                    else 
+                                    (
+                                        (* Set the use count back to false otherwise this
+                                           entry would become part of the kill set for the
+                                           surrounding expression. *)
+                                        Array.update(localUses, addr, 0);
+                                        mkDecRef(value, addr, wasUsed) :: copyEntries ds
+                                    )
+                                end
+                            |  copyEntries (_::_) =
+                                    raise InternalError "copyEntries: Not a Declar";
+                  
+                            val decs = copyEntries (processClosures copiedDecs [] false);
+                        in
+                            (* Return the mutual declarations and the rest of the block. *)
+                            case decs of
+                                []   => restOfBlock         (* None left *)
+                            |   [d]  => d :: restOfBlock    (* Just one *)
+                            |   _    => mkMutualDecs decs :: restOfBlock
+                        end (* copyDeclarations.isMutualDecs *)
+          
+                    |   copyDeclarations (v :: vs)  =
+                        let (* Not a declaration - process this and the rest. *)
+                           (* Must process later expressions before earlier
+                               ones so that the last references to variables
+                               are found correctly. DCJM 30/11/99. *)
+                            val copiedRest = copyDeclarations vs;
+                            val copiedNode = insert v;
+                        in
+                            (* Expand out blocks *)
+                            case copiedNode of
+                                Newenv decs => decs @ copiedRest
+                            |   _ => copiedNode :: copiedRest
+                        end (* copyDeclarations *)
+
+                    (* Can we optimise a tuple to a constant? It would be nice
+                         to adjust the local use counts when we find a constant,
+                         but I think we're already committed to the values we
+                         found on the previous pass. SPF 13/6/95. *)
+                    fun recopyValue (Recconstr recs) =  mkTuple (map recopyValue recs)
+       
+                    |   recopyValue (v as Extract{level=lev, addr=laddr, ...}) = 
+                        if lev = 0 andalso laddr > 0
+                        then case Array.sub(localConsts, laddr) of
+                            SOME c => c
+                        |   NONE   => v
+                        else v
+
+                    | recopyValue v = v
+
+                    fun recopyDeclaration (Declar{addr=caddr, value=pt as Recconstr _, references}) = 
+                        let
+                            val pt' = recopyValue pt
+                        in
+                            if isConstnt pt'
+                            then Array.update (localConsts, caddr, SOME pt')
+                            else Array.update (localConsts, caddr, NONE); (* needed? *)
+                            mkDecRef(pt', caddr, references)
+                        end
+ 
+                    |   recopyDeclaration (v as Declar _) = v
+
+                    |   recopyDeclaration (MutualDecs decs) = mkMutualDecs (map recopyDeclaration decs)
          
-    val insertedCode = 
-      copyCode (pt,
-                fn _ => raise InternalError "outer level reached in copyCode",
-                Array.array(0, false),
-                ref false, localAddressCount);
-  in
-    insertedCode
-  end (* preCode *);
+                    |   recopyDeclaration v = recopyValue v
+
+                    (* recopy declarations to remove constant tuples *)
+                    val insElist = map recopyDeclaration (copyDeclarations ptElist);
+                in
+                    (* If there is only one item then return that item (unless it is
+                       a declaration - this can occur if we have a block which contains
+                       a declaration to discard the result of a function call and 
+                       only do its side-effects). *)
+                    wrapEnv insElist
+                end (* isNewEnv *)
+                
+            |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
+                    mkTuple (mapright insert recs) 
+
+            |   insert(pt as Ldexc) = pt (* just a constant so return it *)
+      
+            |   insert(Lambda lam)=
+                    (* Must make a closure for this procedure because
+                        it is not a simple declaration. *)
+                        copyProcClosure (copyLambda lam (ref true)) true
+     
+            |   insert(Handle { exp, taglist, handler }) =
+                let
+                    (* The order here is important.  We want to make sure that
+                       the last reference to a variable really is the last. *)
+                   val hand = insert handler;
+                   val exp = insert exp;
+                   val tags = map insert taglist
+                in
+                  Handle {exp = exp, taglist = tags, handler = hand}
+                end
+
+            |   insert(c as Container _) = c
+
+            |   insert(SetContainer {container, tuple, size}) =
+                    SetContainer{container = insert container, tuple = insert tuple, size = size}
+
+            |   insert(TupleFromContainer(container, size)) =
+                    TupleFromContainer(insert container, size)
+         
+            |   insert(Global g) =
+                   (* Should have been taken off by the optimiser. *)
+                   optGeneral g : codetree
+
+            |   insert(TagTest{test, tag, maxTag}) = TagTest{test=insert test, tag=tag, maxTag=maxTag}
+
+            |   insert _ = raise InternalError "unknown instruction"
+
+          and copyCond (condTest, condThen, condElse) =
+            let
+              (* Process each of the arms, computing the kill sets for
+                 each arm. *)
+              (* Save the current usage set.  Because we process the
+                 codetree in reverse order to the control flow entries
+                 in here show the variables which are in use after the
+                 if-expression has completed. *)
+              val usagesAfterIf = saveUsages();
+
+              (* Process the then-part.  Save the usage set which
+                 corresponds to variables which are in use in the
+                 flow of control through the then-part and afterwards. *)
+              val insThen = insert condThen;
+              val thenUsage = saveUsages();
+
+              (* Reset the use-counts to the saved value. *)
+              val () = setToSaved usagesAfterIf;
+
+              (* Process the else-part. *)
+              val insElse = insert condElse;
+              val elseUsage = saveUsages();
+
+              (* Now compute the differences of the sets.
+                 The differences are returned as Extract codetree entries. *)
+              val (killThenOnly, killElseOnly) =
+                computeKillSets(thenUsage, elseUsage);
+              (* Now ensure that all the variables that were used in the
+                 then-part are marked as used.  It may be that they have already
+                 been set if they also appeared in the else-part.
+                 This sets the usage sets to the union of the then-part,
+                 the else-part and code after the if-expression. *)
+              val () = addFromSaved thenUsage;
+
+              (* Add kill entries to the other branch.  We simply add
+                 Extract entries with lastRef=true before the appropriate
+                 branch.  This does what we want since the code-generator
+                 does not generate any code for them but it might make
+                 the intermediate code easier to read if we used a different
+                 instruction. *)
+              fun addKillSet(original, []) = original (* No change *)
+               |  addKillSet(Newenv decs, killSet) = Newenv(killSet @ decs)
+               |  addKillSet(original, killSet) = Newenv(killSet @ [original]);
+
+              (* Process the condition AFTER the then- and else-parts. *)
+              val insFirst = insert condTest;
+          
+              type caseVal =
+                { tag: word, test: codetree, caseType: caseType } option;
+        
+              (* True if both instructions are loads or indirections with the
+                 same effect. More complicated cases could be considered but
+                 function calls must always be treated as different.
+                 Now returns the variable, choosing the one which has lastRef set
+                 if possible.  Note: the reason we consider Indirect entries here
+                 as well as Extract is because we (used to) defer Indirect entries.  *)
+              datatype similarity = Different | Similar of loadForm;
+
+              fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}),
+                           Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
+                    if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
+                    then if aRef then Similar a else Similar b
+                    else Different
+              
+               |  similar (Indirect{offset=aOff, base=aBase}, Indirect{offset=bOff, base=bBase}) =
+                    if aOff <> bOff then Different else similar (aBase, bBase)
+              
+               |  similar _ = Different;
+
+                (* If we have a call to the int equality operation *)
+                (* then we may be able to use a case statement. *)
+                (* preCode.copyCode.insert.findCase *)
+                fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
+                let
+                    val isArbitrary = wordEq (cv, ioOp POLY_SYS_equala)
+                    val isWord = wordEq (cv, ioOp POLY_SYS_word_eq)
+                in
+                    if isArbitrary orelse isWord
+                    then  (* Should be just two arguments. *)
+                    case argList of
+                        [(Constnt c1, _), (arg2, _)] =>
+                        if isShort c1
+                        then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
+                        else NONE (* Not a short constant. *)
+                    
+                     | [(arg1, _), (Constnt c2, _)] =>
+                        if isShort c2
+                        then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
+                        else NONE (* Not a short constant. *)
+                    
+                    | _ => NONE
+                       (* Wrong number of arguments - should raise exception? *)
+                
+                    else NONE (* Function is not a comparison. *)
+                end
+
+             |  findCase(TagTest { test, tag, maxTag }) =
+                    SOME { tag=tag, test=test, caseType=CaseTag maxTag }
+
+             |  findCase _ = NONE 
+               (* end findCase *);
+        
+              val testCase  : caseVal  = findCase insFirst;
+            in  (* body of preCode.copyCode.insert(isCond) *)
+
+              case testCase of
+                    NONE => (* Can't use a case *)
+                        mkIf (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
+                |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
+                        (* Can use a case. Can we combine two cases?
+                          If we have an expression like 
+                               "if x = a then .. else if x = b then ..."
+                          we can combine them into a single "case". *)
+                        case insElse of
+                            Case { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
+                            (
+                            case (similar(nextTest, caseTest), caseCaseTest = nextCaseType) of
+                              (* Note - it is legal (though completely redundant) for the
+                                 same case to appear more than once in the list. This is not
+                                  checked for at this stage. *)
+                              (* We have to take care to get the "last-reference" flags
+                                 and the kill-set right when "nextTest" is the last
+                                 reference to the variable.  (N.B. This means that it does
+                                 not appear anywhere else in the case). 
+                                 There are two cases to consider:
+                                 1. If the then-part contains the variable
+                                    e.g. if a = 1 then a<lastRef>
+                                         else (case a<lastRef> of 2 => x | _ => y)
+                                    Note: because the last reference for a appears in
+                                    both the branches it will not be in either kill set.
+                                 2. If the then-part does not contain the variable
+                                    e.g. if a = 1 then x
+                                         else (case a<lastRef> of 2 => x | _ => y)
+                                    Note: because the last reference to a appears only
+                                    in the else-part it will be in killElseOnly.
+                                 In 1 we transform this into
+                                    case a of 1 => a<lastRef> 
+                                    | 2 => <kill a> x | 3 => <kill a> y
+                                 i.e. the test is NOT the last reference but a must be
+                                 killed on the other branches.
+                                 In 2 we transform it into
+                                     case a<last> of 1 => x | 2 => y | 3 => z
+                                 i.e. the test IS the last reference.
+                               *)
+                                (Similar({lastRef = true, addr, level, ...}), true) =>
+                                let (* Contains the last reference to the test variable. *)
+                                    (* Remove this variable from the usage table for the else-part
+                                       since we are lifting it up to the test. *)
+                                    val newElseUage = removeItem(elseUsage, addr, level);
+                                    (* Compute the new kill sets. *)
+                                    val (killThenOnly, killElseOnly) =
+                                        computeKillSets(thenUsage, newElseUage);
+                                    val testCode =
+                                        if inSet(thenUsage, addr, level)
+                                        then caseTest (* Must be in the then-part. *)
+                                        else nextTest (* Last reference *)
+                                in
+                                    Case
+                                    {
+                                        cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
+                                                    map (fn (c, l) =>
+                                                        (addKillSet(c, killThenOnly), l)) nextCases,
+                                        test    = testCode,
+                                        default = addKillSet(nextDefault, killThenOnly),
+                                        caseType = caseCaseTest
+                                    }
+                                end
+
+                            | (Similar _, true) =>
+                                (* Does not contain the last reference to the test variable or
+                                   the test variable is non-local.
+                                   Add the kill sets to appropriate cases. *)
+                              Case 
+                                {
+                                  cases   = (addKillSet(insThen, killElseOnly), caseTags) ::
+                                            map (fn (c, l) =>
+                                                (addKillSet(c, killThenOnly), l)) nextCases,
+                                  test    = nextTest,
+                                  default = addKillSet(nextDefault, killThenOnly),
+                                  caseType = caseCaseTest
+                                }
+    
+                            | _ => (* Two case expressions but they test different
+                                              variables. We can't combine them. *)
+                              Case
+                                {
+                                  cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
+                                  test    = caseTest,
+                                  default = addKillSet(insElse, killThenOnly),
+                                  caseType=caseCaseTest
+                                }
+                             )
+                        | _ => (* insElse is not a case *)
+                      Case
+                        {
+                          cases   = [(addKillSet(insThen, killElseOnly), caseTags)],
+                          test    = caseTest,
+                          default = addKillSet(insElse, killThenOnly),
+                          caseType=caseCaseTest
+                        }
+            end (* body of preCode.copyCode.insert(isCond) *)
+
+            (* If "makeClosure" is true the procedure will need a full closure. *)
+            (* It may need a full closure even if makeClosure is false if it    *)
+            (* involves a recursive reference which will need a closure.        *)
+            (* preCode.copyCode.insert.copyLambda *)
+            and copyLambda ({body=lambdaBody, level=nesting, argTypes, isInline,
+                             name=lambdaName, resultType, localCount, ...}: lambdaForm) makeClosure =
+            let
+              val newGrefs      = ref []; (* non-local references *)
+              val newNorefs     = ref 0;  (* number of non-local refs *)
+
+              val numArgs = List.length argTypes
+              (* The size is one more than the number of arguments because the
+                 arguments are numbered from ~1 .. ~n and we use the entries
+                 as ~arg.  Entry zero is used for the closure. *)
+              val argUses      = Array.array(numArgs+1, 0);
+       
+              (* A new table for the new procedure. *)
+              (* preCode.copyCode.insert.copyLambda.prev *)
+              fun prev (ptr as { addr, fpRel, ...}, lev, closure: bool, instrPosn, inLoop) : codetree =
+              let 
+                    (* Returns the closure address of the non-local *)
+                    (* preCode.copyCode.insert.copyLambda.prev.makeClosureEntry *)
+                    fun makeClosureEntry([], _, wasRefed) = (* not found - construct new entry *)
+                        let
+                            val () = newGrefs := mkGenLoad (addr, lev - 1, fpRel, false) ::  !newGrefs;
+                            val newAddr = !newNorefs + 1;
+                        in
+                            newNorefs := newAddr; (* increment count *)
+                            mkClosLoad(newAddr, not wasRefed andalso not inLoop)
+                        end
+        
+                    |   makeClosureEntry(Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t,
+                                         newAddr, wasRefed) =
+                        if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
+                        then mkClosLoad(newAddr, not wasRefed andalso not inLoop)
+                        else makeClosureEntry(t, newAddr - 1, wasRefed)
+
+                    | makeClosureEntry _ =
+                        raise InternalError "makeClosureEntry: closure is not Extract";
+              in
+                (* If we use a procedure on another level in a way that will
+                   require it to have a real closure we must make one for it.
+                   (i.e. we must set the "closure" flag.) This is necessary
+                   because we may, for example, pass an outer procedure as a
+                   parameter from within an inner procedure. The inner procedure
+                   may not itself need a closure so the non-local references 
+                   it makes will not be forced to have closures, but the outer
+                   procedure will need one. *)
+                if lev = 0 (* Reference to the closure itself. *)
+                then
+                let
+                    val () =
+                        if addr <> 0 orelse fpRel
+                        then raise InternalError "prev: badly-formed load"
+                        else ();
+            
+                    val () = if closure then makeClosure := true else ();
+                    val wasRefed = Array.sub(argUses, 0)
+                in
+                    Array.update(argUses, 0, maxUse(wasRefed, instrPosn));
+                    mkClosLoad(0, wasRefed = 0 andalso not inLoop)
+                end
+        
+                else if lev = 1 andalso addr > 0
+                then
+                let (* local at this level *)
+                    val () =
+                        if not fpRel
+                        then raise InternalError "prev: badly-formed load"
+                        else ()
+                in 
+                    case Array.sub(localConsts, addr) of
+                        SOME c => c (* propagate constant, rather than using closure *)
+                    |   NONE  =>
+                        let
+                            val () =
+                                if closure 
+                                then Array.update (closuresForLocals, addr, true)
+                                else ()
+                            val wasRefed = Array.sub(argUses, 0)
+                        in
+                            Array.update(argUses, 0, maxUse(wasRefed, instrPosn));
+                            makeClosureEntry (!newGrefs, !newNorefs, wasRefed <> 0)
+                        end
+                end
+        
+                else  if lev = 1 andalso addr < 0
+                then
+                let (* parameter at this level *)
+                    val () =
+                        if not fpRel
+                        then raise InternalError "prev: badly-formed load"
+                        else ();
+                    val wasRefed = Array.sub(argUses, 0)
+                in 
+                    Array.update(argUses, 0, maxUse(wasRefed, instrPosn));
+                    makeClosureEntry (!newGrefs, !newNorefs, wasRefed <> 0)
+                end
+        
+                else
+                let (* lev > 1 orelse (lev = 1 andalso addr = 0) *)
+                    (* Discard the result, unless it's a constant.
+                       We fix up the old (fp-relative) address in the
+                       closure list on the second pass. Why not now?
+                       That would make it harder to set the makeClosure
+                       flag for the closure lists of mutually-recursive
+                       definitions. But doesn't doing it this way risks
+                       making the refsToClosure count too high? SPF 19/5/95 *)
+                    val outerLoad = previous (ptr, lev - 1, closure, !instrCount, !outsideLoopRef)
+                in
+                    case outerLoad of
+                        Constnt _ => outerLoad
+                        |   _ =>
+                        let
+                            val wasRefed = Array.sub(argUses, 0)
+                        in
+                            Array.update(argUses, 0, maxUse(wasRefed, instrPosn));
+                            makeClosureEntry (!newGrefs, !newNorefs, wasRefed <> 0)
+                        end
+               end
+              end (* prev *);
+      
+              (* process the body *)
+              val insertedCode = copyCode (lambdaBody, prev, argUses, localCount);
+                
+              val argUseList = Array.foldr(op ::) [] argUses
+
+            in  (* body of preCode.copyCode.insert.copyLambda *)
+              if null (!newGrefs) (* no external references *)
+              then let
+               (* 
+                  Since we are code-generating the procedure before we
+                  have done a full analysis of any mutually-recursive
+                  functions, we have to conservatively assume that it
+                  will require a closure, even if all the uses of the
+                  procedure within its body are kosher. SPF 20/5/95.
+          
+                  We now want recursive calls to be code-generated using
+                  the saved closure register, rather than by loading the
+                  address of the closure from the constants vector. This
+                  means that we can no longer set closureRefs to 0, since
+                  we will actually be *using* the closure. SPF 20/5/95
+                *) 
+                val copiedProc =
+                  Lambda
+                    {
+                      body          = insertedCode,
+                      isInline      = isInline,
+                      name          = lambdaName,
+                      closure       = [],
+                      argTypes      = argTypes,
+                      resultType    = resultType,
+                      level         = nesting,
+                      closureRefs   = hd argUseList,
+                      localCount    = localCount,
+                      makeClosure   = true,
+                      argLifetimes  = List.rev(tl argUseList)
+                    };
+              in
+               (* Code generate it now so we get a constant. *)
+                evaluate copiedProc codegen
+              end
+      
+              else
+                (* External references present. The closure will be copied
+                   later with copyProcClosure. *)
+                Lambda 
+                  {
+                    body          = insertedCode,
+                    isInline      = isInline,
+                    name          = lambdaName,
+                    closure       = !newGrefs,
+                    argTypes      = argTypes,
+                    resultType    = resultType,
+                    level         = nesting,
+                    closureRefs   = hd argUseList,
+                    localCount    = localCount,
+                    makeClosure   = false,
+                    argLifetimes  = List.rev(tl argUseList)
+                  }
+            end (* copyLambda *)
+
+                (* Copy the closure of a procedure which has previously been
+                processed by copyLambda. *)
+                (* preCode.copyCode.insert.copyProcClosure *)
+            and copyProcClosure (Lambda{ body, isInline, name, argTypes, level, closureRefs,
+                                         closure, resultType, localCount, argLifetimes, ...}) makeClosure =
+                let
+                    (* process the non-locals in this procedure *)
+                    (* If a closure is needed then any procedures referred to
+                       from the closure also need closures.*)
+                    fun makeLoads (Extract ext) = locaddr(ext, makeClosure)
+                     |  makeLoads _ = raise InternalError "makeLoads - not an Extract"
+               
+                    val copyRefs = rev (map makeLoads closure);
+                in
+                    Lambda
+                      {
+                        body          = body,
+                        isInline      = isInline,
+                        name          = name,
+                        closure       = copyRefs,
+                        argTypes      = argTypes,
+                        resultType    = resultType,
+                        level         = level,
+                        closureRefs   = closureRefs,
+                        localCount    = localCount,
+                        makeClosure   = makeClosure,
+                        argLifetimes  = argLifetimes
+                      }
+                end
+            |  copyProcClosure pt _ = pt (* may now be a constant *)
+            (* end copyProcClosure *)
+        in     
+            insert pt
+        end (* copyCode *)
+         
+        val insertedCode = 
+            copyCode (pt, fn _ => raise InternalError "outer level reached in copyCode",
+                      Array.array(0, 0), localAddressCount);
+    in
+        insertedCode
+    end (* preCode *);
 
   (* Remove redundant declarations from the code.  This reduces
      the size of the data structure we retain for inline functions
@@ -1908,7 +1855,7 @@ DCJM 2000.
         in
             Lambda{body=bodyCode, isInline=isInline, name=name,
                    closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-                   closureRefs=0, makeClosure=false, localCount=localCount}
+                   closureRefs=0, makeClosure=false, localCount=localCount, argLifetimes = []}
         end
 
         and cleanCode (Newenv decs) =
@@ -2140,11 +2087,11 @@ DCJM 2000.
             else mkGenLoad (addr, level + correction, fpRel, false)
 
         | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
-                         level, closureRefs, makeClosure, localCount}, nesting) =
+                         level, closureRefs, makeClosure, localCount, ...}, nesting) =
             Lambda{body = changeL(body, nesting+1), isInline = isInline,
                    name = name, closure = closure, argTypes = argTypes, resultType=resultType,
                    level = level + correction, closureRefs = closureRefs,
-                   makeClosure = makeClosure, localCount=localCount}
+                   makeClosure = makeClosure, localCount=localCount, argLifetimes = []}
 
         | changeL(Eval{function, argList, earlyEval, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
@@ -2343,7 +2290,7 @@ DCJM 2000.
             
             val () = setTab (addrs, optV);
           in
-            optDecs ins @ [mkDecRef gen decSpval 0]
+            optDecs ins @ [mkDecRef(gen, decSpval, 0)]
           end
     end (* newDecl *);
 
@@ -2767,7 +2714,7 @@ DCJM 2000.
                                     level = nestingOfThisProcedure + 1,
                                     closureRefs = 0,
                                     localCount = ! newAddressAllocator + 1,
-                                    makeClosure = false },
+                                    makeClosure = false, argLifetimes = [] },
                                 special = CodeNil,
                                 decs = [],
                                 recCall = ref false,
@@ -3059,7 +3006,7 @@ DCJM 2000.
                            level         = nesting,
                            closureRefs   = 0,
                            localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false
+                           makeClosure   = false, argLifetimes = []
                          },
                       environ = lookupNewAddr, (* new addresses with cleanedBody. *)
                       decs    = [],
@@ -3084,7 +3031,7 @@ DCJM 2000.
                            level         = nesting,
                            closureRefs   = 0,
                            localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false
+                           makeClosure   = false, argLifetimes = []
                          },
                       special = original,
                       environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
@@ -3119,7 +3066,7 @@ DCJM 2000.
                        level         = nesting,
                        closureRefs   = 0,
                        localCount    = ! newAddressAllocator + 1,
-                       makeClosure   = false
+                       makeClosure   = false, argLifetimes = []
                      };
                  val general = 
                    (* If this has no free variables we can code-generate it now. *)
@@ -3142,7 +3089,7 @@ DCJM 2000.
                            level         = nesting,
                            closureRefs   = 0,
                            localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false
+                           makeClosure   = false, argLifetimes = []
                          },
                       environ = lookupNewAddr,
                       decs    = [],
