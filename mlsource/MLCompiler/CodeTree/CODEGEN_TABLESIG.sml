@@ -33,6 +33,7 @@ sig
     type savedState;
     type regSet
     type operations
+    type loopPush
 
     val ttabCreate: Universal.universal list -> ttab;
 
@@ -118,14 +119,13 @@ sig
 
     val saveState : ttab -> savedState
     val startCase : ttab * savedState -> addrs ref * operations list
+    val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
+    val restoreLoopState: ttab * savedState * regSet * loopPush list -> operations list
 
     val chooseRegister : ttab -> reg option
 
     val getRegisterSetForFunction: machineWord -> regSet
     val getRegisterSetForCode: code -> regSet
-    val allRegisters : regSet
-    val regSetUnion: regSet * regSet -> regSet
-    val listToSet: reg list -> regSet
 
     val getFunctionRegSet: stackIndex * ttab -> regSet
     val addModifiedRegSet: ttab * regSet -> unit
@@ -156,5 +156,6 @@ sig
         and  handler    = handler
         and  regHint    = regHint
         and  argdest    = argdest
+        and  loopPush   = loopPush
     end
 end;

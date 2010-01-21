@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2000-2001, 2009
+    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10
 
     Derived from code
 
@@ -687,58 +687,59 @@ struct
        |    _ => search (s + 1)
     in
         search first
-    end;
+    end
+
+    fun clearCacheEntry(table as Ttab{pstack, ...}, regSet, entry) =
+        case pstackEntry(table, entry) of
+            NoStackEntry => ()
+      
+        |   StackEntry {ent = stacken, cache, uses, destStack, lifeTime} =>
+            if cache = noRegisters
+            then ()
+            else
+            let
+                val keep = regSetMinus(cache, regSet)
+                val remove = regSetIntersect(cache, regSet)
+            in
+                if uses = 0 andalso
+                    (* If it has a zero use count we are keeping it only because of the cache.
+                       We completely remove an entry, which frees all the registers both in the
+                       cache and the entry, either if the cache is now empty or if the entry
+                       itself contains a register we want. *)
+                    (keep = noRegisters orelse
+                    (case stacken of
+                         Register reg      => inSet(reg, regSet)
+                       | Direct {base,...} => inSet(base, regSet)
+                       | _                 => false)
+                    )
+                then removeEntry table entry false
+                else
+                (
+                    List.app(free (regset table)) (setToList remove);
+                    stretchUpdate (pstack, entry,
+                        StackEntry {ent = stacken, cache=keep, uses=uses,
+                                    destStack=destStack, lifeTime=lifeTime})
+                )
+            end
 
     (* Remove registers from the cache. *)
-    fun removeFromCache (table as Ttab{pstack, pstackTrace, ...}, regSet, continue: unit -> bool) =
+    fun removeFromCache (table as Ttab{pstackTrace, ...}, regSet, continue: unit -> bool) =
     let
         fun clear (entry: stackIndex, limit: stackIndex) =
         if entry < limit
         then
-        let
-            val stackent = pstackEntry(table, entry);
-        in
-            case stackent of
-                NoStackEntry => ()
-          
-            |   StackEntry {ent = stacken, cache, uses, destStack, lifeTime} =>
-                if cache = noRegisters
-                then ()
-                else
-                let
-                    val keep = regSetMinus(cache, regSet)
-                    val remove = regSetIntersect(cache, regSet)
-                in
-                    if uses = 0 andalso
-                        (* If it has a zero use count we are keeping it only because of the cache.
-                           We completely remove an entry, which frees all the registers both in the
-                           cache and the entry, either if the cache is now empty or if the entry
-                           itself contains a register we want. *)
-                        (keep = noRegisters orelse
-                        (case stacken of
-                             Register reg      => inSet(reg, regSet)
-                           | Direct {base,...} => inSet(base, regSet)
-                           | _                 => false)
-                        )
-                    then removeEntry table entry false
-                    else
-                    (
-                        List.app(free (regset table)) (setToList remove);
-                        stretchUpdate (pstack, entry,
-                            StackEntry {ent = stacken, cache=keep, uses=uses,
-                                        destStack=destStack, lifeTime=lifeTime})
-                    )
-                end;
+        (
+            clearCacheEntry(table, regSet, entry);
             if continue () then clear (entry + 1, limit) else ()
-        end
-        else (); (* end clear *)
+        )
+        else ()
     in
         clear (first, pstackVal table);
         if pstackTrace then printStack(table, "removeFromCache"^regSetRepr regSet, []) else () 
     end;
 
     (* Remove everything from the cache. *)
-    fun clearCache table = removeFromCache(table, allRegisters, fn () => true);
+    fun clearCache table = removeFromCache(table, allRegisters, fn () => true)
 
     fun removeRegistersFromCache (table, regs) = removeFromCache(table, regs, fn () => true);
 
@@ -1198,47 +1199,37 @@ struct
         (getRegisterList first [], instrs)
     end
 
-  type savedState =
-    {
-      pStackPtr: stackIndex,
-      realStackPtr: int,
-      pStack: stackEntry stretchArray,
-      context: string
-    };
+    type savedState = { pStackPtr: stackIndex, realStackPtr: int, pStack: stackEntry Vector.vector }
   
-  fun pStackPtr    ({pStackPtr   ,...}:savedState) = pStackPtr;
-  fun realStackPtr ({realStackPtr,...}:savedState) = realStackPtr;
-  fun pStack       ({pStack      ,...}:savedState) = pStack;
+    fun pStackPtr    ({pStackPtr   ,...}:savedState) = pStackPtr;
+    fun realStackPtr ({realStackPtr,...}:savedState) = realStackPtr;
+    fun pStack       ({pStack      ,...}:savedState) = pStack;
  
-  (* compare with the similar functions for ttabs!!! *)
-  fun pStackEntry (table : savedState) (locn:stackIndex) : stackEntry = 
-    stretchSub (pStack table, locn);
+    fun saveStateEntry ({pStack, ...}: savedState, locn) = 
+        if locn >= Vector.length pStack then NoStackEntry
+        else Vector.sub(pStack, locn)
   
-  fun printState printStream (save: savedState as {pStackPtr, realStackPtr, context, ... }) name =
+  fun printState printStream (save: savedState as {pStackPtr, realStackPtr, ... }) name =
   ( printStream name;
     printStream "\n";
-    printStream "context="; printStream context;
     printStream " psp=";
     printStream(Int.toString(pStackPtr));
     printStream " rsp=";
     printStream(Int.toString realStackPtr);
     printStream "\n";
-    forIndDownTo(pStackPtr, first, fn i => printEntry printStream (pStackEntry save i) i)
+    forIndDownTo(pStackPtr, first, fn i => printEntry printStream (saveStateEntry(save, i)) i)
   );
 
-  (* Returns the real entry from a chain of "copy" entries. 
-     Now that "copy" entries have been removed this just returns
-     the entry. *)
-  fun pStackRealEntry (table:savedState) (locn:stackIndex) =
-  let
-    val pstack = pStack table
-  in
-      case (stretchSub (pstack, locn)) of
+    fun pStackRealEntry (table:savedState, locn:stackIndex) =
+    let
+        val pstack = pStack table
+    in
+      case (Vector.sub(pstack, locn)) of
         NoStackEntry =>
           raise InternalError "pStackRealEntry: no entry"
           
       | StackEntry record => (locn,record)
-  end;
+    end
 
 
   (* Sets the pseudo stack into a state to which it can be restored later.
@@ -1247,26 +1238,14 @@ struct
     fun saveState (table as Ttab{pstackTrace, printStream, ...}) : savedState =
     let
         val maxIndex  = (pstackVal table);
-        val saveStack = stretchArray (maxIndex, NoStackEntry);
-     
-        fun copyState s =   (* copy the state. *)
-        ( if s < pstackVal table
-          then
-          ( stretchUpdate (saveStack, s, pstackEntry(table, s));
-            copyState (s + 1)
-          )
-          else ()
-        );
     
         val state =
             { 
               pStackPtr    = pstackVal table, 
               realStackPtr = realstackVal table,
-              pStack       = saveStack,
-              context      = ""
+              pStack       = Vector.tabulate(maxIndex, fn n => pstackEntry(table, n))
             }
     in
-        copyState first;
         if pstackTrace then printState printStream state "saveState" else ();
         state
     end
@@ -2017,7 +1996,7 @@ struct
                 NoMerge => regClosure (* Unused *)
               | MergeIndex savedTop =>
                 (
-                    case (pStackRealEntry save savedTop) of
+                    case pStackRealEntry(save, savedTop) of
                       (_,{ent = Register reg, ...}) => reg
                 
                     | (_,{cache, ...}) =>
@@ -2074,7 +2053,7 @@ struct
         if s >= pStackPtr save
         then ()
         else let
-          val saveEntry = pStackEntry save s;
+          val saveEntry = saveStateEntry(save, s)
           val (tabUseCount, tabDestStack) =
             (* Get the use-count and stack destination in the table. *)
             if s >= oldPstackptr then (0, NONE)
@@ -2258,7 +2237,7 @@ struct
                 (MergeIndex savedTop, MergeIndex currentTop) =>
                 let
                     val sTopReg = 
-                        case (pStackRealEntry save savedTop) of
+                        case pStackRealEntry (save, savedTop) of
                             (_,{ent = Register reg, ...}) => reg
                         |   (_,{cache, ...}) =>
                                 if cache = noRegisters then raise InternalError "Not a register"
@@ -2298,7 +2277,7 @@ struct
              real stack. *)
         val () = forIndDownTo (pstackVal table - 1, first,
              fn s =>
-                case (pstackEntry(table, s), pStackEntry save s) of
+                case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (NoStackEntry, _) => () (* No entry in table. *)
 
                 |   (StackEntry _, NoStackEntry) =>
@@ -2388,7 +2367,7 @@ struct
                 there are no such entries we return the stack pointer
                 from the saved state. *)
              fun getMinStack s i =
-                case (pstackEntry(table, s), pStackEntry save s) of
+                case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (StackEntry {ent = StackW _, ...}, _) => i
                 |   (StackEntry _, StackEntry{ent = StackW addr, ...}) =>
                         (* We have an entry which has been pushed in
@@ -2448,7 +2427,7 @@ struct
          The current approach is to move values to the stack.  *)
         local
             fun mustPush s =
-                case (pstackEntry(table, s), pStackEntry save s) of
+                case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (StackEntry {ent = StackW _, ...}, StackEntry {ent = StackW _, ...}) =>
                         false (* both on stack *)
                 |   (StackEntry _, StackEntry {ent = StackW _, ...}) =>
@@ -2510,7 +2489,7 @@ struct
             then
             let
                 val thisItem =
-                    case (pstackEntry(table, s), pStackEntry save s) of
+                    case (pstackEntry(table, s), saveStateEntry(save, s)) of
                         (StackEntry {ent = StackW _, ...}, _) =>
                         (* If it's in the stack we don't try reloading it. *) []
 
@@ -2557,7 +2536,7 @@ struct
               can finally merge.  Also flush mismatched items from the cache. *)
         local
             fun checkEntries s =
-                 case (pstackEntry(table, s), pStackEntry save s) of
+                 case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (StackEntry {uses = tabUses, cache = tabCache, ent = tabEnt,
                                  destStack = tabDest, lifeTime},
                      StackEntry {cache = saveCache, ent = saveEnt, ...}) =>
@@ -3024,19 +3003,6 @@ struct
         (destLabel, jumpCode :: code)
     end
 
-    (* These are exported as read-only. *)
-    val maxstack     = maxstackVal;
-    val realstackptr = realstackVal;
-    val haveExited = exitedVal
-
-    (* This is called when we have either made a tail-recursive call,
-     returned from a function or raised an exception. *)
-    fun exiting table =
-    (
-        branched table := true;
-        exited table := true
-    )
-
     datatype argdest = ArgToRegister of reg | ArgToStack of int
 
     (* Get the destination for the argument of a loop instruction.  This
@@ -3052,6 +3018,88 @@ struct
         in
             map getLoopDest indices
         end
+
+    type loopPush = stackIndex
+
+    (* Compare the saved state at the start of the loop with the current state at the
+       point we're looping and see whether we need to modify the original state and
+       reprocess the loop.  We look for differences in the cache and values that have
+       been pushed to the stack. *)
+    fun compareLoopStates(table as Ttab{ ...}, state, argIndexes) =
+    let
+        fun processTables(entry, cacheSet, pushList: loopPush list) =
+            if entry = pstackVal table
+            then (cacheSet, pushList)
+            else if List.exists(fn e => entry = e) argIndexes
+            then (* It's an argument.  These can be modified in the loop. *)
+                processTables(entry+1, cacheSet, pushList)
+            else case (pstackEntry(table, entry), saveStateEntry(state, entry)) of
+                (StackEntry{ent=tabEnt, cache=tabCache, ...}, StackEntry{ent=saveEnt, cache=saveCache, ...}) =>
+                let
+                    (* Add any registers that were cached before but aren't now.  It's ok if we have loaded
+                       something in the loop and are currently caching it. *)
+                    val newCacheSet =
+                        regSetUnion(cacheSet, regSetMinus(saveCache, tabCache))
+                    (* Put this on the push list if there are entries that were in registers or
+                       were direct entries and are now on the stack or in registers.
+                       TODO: If we just loaded an entry or moved it to a different register
+                       we might be able to put it in that register rather than having to
+                       push it to the stack. *)
+                    val newPushList =
+                        case (tabEnt, saveEnt) of
+                            (StackW _, Register _) => entry :: pushList
+                        |   (StackW _, Direct _) => entry :: pushList
+                        |   (Register _, Direct _) => entry :: pushList
+                        |   (Register tabReg, Register saveReg) => (* Was moved to a different reg. *)
+                                if tabReg = saveReg then pushList else entry :: pushList
+                        |   (StackW _, StackW _) => pushList
+                        |   (Literal _, Literal _) => pushList
+                        |   (CodeRef _, CodeRef _) => pushList
+                        |   (Direct _, Direct _) => pushList
+                        |   (Container _, Container _) => pushList
+                        |   _ => raise InternalError "Funny entries"
+                in
+                    processTables(entry+1, newCacheSet, newPushList)
+                end
+            |   (NoStackEntry, StackEntry{cache, ...}) =>
+                (
+                    (* We could have entries that started out being cached but which were
+                       subsquently cleared out.  We add them here if only to indicate that
+                       we need to reprocess the loop. *)
+                    processTables(entry+1, regSetUnion(cacheSet, cache), pushList)
+                )
+            |   _ => processTables(entry+1, cacheSet, pushList)
+    in
+        processTables(first, noRegisters, [])
+    end
+
+    (* Restore the state if we're reprocessing a loop. *)
+    fun restoreLoopState(table, state, cacheSet, pushes: loopPush list) =
+    let
+        val (_, code) = setState (state, table, NoMerge, pstackVal table, false);
+        (* Remove entries from the cache if they've been changed in the loop. *)
+        val () = removeFromCache(table, cacheSet, fn () => true);
+        (* Push items to the stack that are pushed in the loop.  Don't move them into other
+           registers but allow them to be cached. *)
+        val pushes = pushRegisters(table, allRegisters, fn e => List.exists(fn e' => e=e') pushes, false, false);
+        val () = exited table := false;
+        val () = branched table := false;
+    in
+        pushes @ code
+    end
+
+    (* These are exported as read-only. *)
+    val maxstack     = maxstackVal;
+    val realstackptr = realstackVal;
+    val haveExited = exitedVal
+
+    (* This is called when we have either made a tail-recursive call,
+     returned from a function or raised an exception. *)
+    fun exiting table =
+    (
+        branched table := true;
+        exited table := true
+    )
 
     fun localDeclaration(table as Ttab{pstackTrace, printStream, ...}, index, locn, lifeTime, isP) : unit =
     (
@@ -3121,6 +3169,7 @@ struct
         and  handler    = handler
         and  regHint    = regHint
         and  argdest    = argdest
+        and  loopPush   = loopPush
     end
 
 end;

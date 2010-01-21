@@ -50,6 +50,8 @@ struct
     open Misc; (* after address, so we get Misc.length, not Address.length *)
     open RuntimeCalls; (* for POLY_SYS numbers *)
     open BASECODETREE;
+    
+    open RegSet
 
     val F_mutable_words = Word8.orb (F_mutable, F_words);
 
@@ -540,12 +542,6 @@ struct
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
                will drop through. *)
-            (* We must ensure that everything apart from the arguments has been
-               pushed onto the stack.  This may be unnecessary if the loop body
-               is simple but is the only way to ensure that when we jump back to
-               the start we have the same state as when we started. *)
-            val () =
-                codeGenerate(pushAllBut(transtable, identifyLoads (List.map #1 args, transtable), allRegisters), cvec);
             (* Load the arguments.  We put them into registers at this stage
                to ensure that constants and "direct" entries are loaded.  They
                may go onto the stack, which is fine. It could be worth doing
@@ -583,22 +579,61 @@ struct
             end
             |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
             val argIndexList = map genLoopArg args;
-            (* Now we have loaded the registers we can find out the destinations
-               i.e. the register or stack location they were in at the start of
-               the loop.  We have to do this after we've loaded all the arguments
-               because we may have pushed some onto the stack as we loaded the
-               later ones.  That's fine so long as when we loop we put the new
-               values in the same place.  *)
-            val () = clearCache transtable;
-            val argDestList = getLoopDestinations(argIndexList, transtable)
-            (* Start of loop *)
-            val (startLoopCode, startLoop(* L1 *)) = backJumpLabel()
-            val () = codeGenerate([startLoopCode], cvec)
-            val startSp            = realstackptr transtable
-            (* Compile the loop with the jumps back to the start. *)
-            val runLoop =
-                gencde (body, true, whereto, tailKind, matchFailFn,
-                    SOME(startLoop, startSp, argDestList))
+            (* We need to ensure that the state we return to after the loop is the same
+               as it was at the start.  If we find inside the loop that we need to spill
+               values from registers that were declared outside we need to move those
+               spills to before the loop.  We first process the loop optimistically and
+               then reprocess it we find we've had to spill. *)
+            fun reprocessLoop n =
+            let
+                (* Include a check that we don't loop too many times. *)
+                val _ = n > 3 andalso raise InternalError "reprocessLoop"
+                (* Record the code at the start.  If we have to reprocess we discard everything
+                   after this. *)
+                val codeAtStart = !cvec
+                val initialState = saveState transtable
+                (* Now we have loaded the registers we can find out the destinations
+                   i.e. the register or stack location they were in at the start of
+                   the loop.  We have to do this after we've loaded all the arguments
+                   because we may have pushed some onto the stack as we loaded the
+                   later ones.  That's fine so long as when we loop we put the new
+                   values in the same place.  *)
+                val argDestList = getLoopDestinations(argIndexList, transtable)
+                (* Start of loop.  This is where we jump to if the loop is taken. *)
+                val (startLoopCode, startLoop) = backJumpLabel()
+                val () = codeGenerate([startLoopCode], cvec)
+                val startSp = realstackptr transtable
+                val cacheSet = ref noRegisters and pushList = ref []
+
+                fun onLoop () =
+                (* This function is called whenever we loop.  The state here is the
+                   state at the point we take the loop.  We need to record the state
+                   at each of those points to produce a composite.  *)
+                let
+                    val (caches, pushes) = compareLoopStates(transtable, initialState, argIndexList)
+                    val () = cacheSet := regSetUnion(caches, !cacheSet)
+                    and () = pushList := pushes @ !pushList
+                in
+                    (* We have to make sure that the real stack pointer is consistent.
+                       We may have pushed local values within the loop and these need
+                       to be removed. *)
+                    codeGenerate([resetStack (realstackptr transtable - startSp)], cvec)
+                end
+                (* Compile the loop with the jumps back to the start. *)
+                val runLoop =
+                    gencde (body, true, whereto, tailKind, matchFailFn,
+                        SOME(startLoop, onLoop, argDestList))
+                (* The state we have here is the state when we haven't taken the loop. *)
+            in
+                if ! cacheSet = noRegisters andalso null (! pushList) then runLoop
+                else
+                (
+                    cvec := codeAtStart;
+                    codeGenerate(restoreLoopState(transtable, initialState, ! cacheSet, ! pushList), cvec);
+                    reprocessLoop(n+1)
+                )
+            end
+            val runLoop = reprocessLoop 0
             (* If some outer declarations had their final reference inside the loop these will
                appear as kill entries in the list. *)
             local
@@ -613,7 +648,7 @@ struct
 
         | Loop argList =>
             let
-                val (startLoop, startSp, argDestList) =
+                val (startLoop, onLoop, argDestList) =
                     case loopAddr of
                         SOME l => l
                     |   NONE =>
@@ -668,11 +703,7 @@ struct
                       | _ => ()) argDestList;
                 List.app (fn index => removeStackEntry(transtable, index))
                     argEntries;
-                (* We have to make sure that the real stack pointer is consistent.
-                   Don't have to record any change on the pseudo-stack because we
-                   are about to do a fixup and that will set
-                   the state to whatever it was when the test was done. *)
-                codeGenerate([resetStack (realstackptr transtable - startSp)], cvec);
+                onLoop();
             
                 (* Repeat. *)
                 codeGenerate(jumpBack (startLoop, transtable), cvec);
