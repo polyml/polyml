@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009
+    Copyright David C. J. Matthews 1989, 2000, 2009-10
     
     Based on original code:    
     Copyright (c) 2000
@@ -448,15 +448,15 @@ struct
     val edi = GenReg  0w7;
 
     (* Floating point "registers".  Actually entries on the floating point stack.
-       The X86 has a floating point stack with eight entries.  We treat six of
-       them as registers and push the appropriate register(s) onto the top of
-       the stack if we need them as operands. *)
+       The X86 has a floating point stack with eight entries. *)
     val fp0 = FPReg 0w0
     and fp1 = FPReg 0w1
     and fp2 = FPReg 0w2
     and fp3 = FPReg 0w3
     and fp4 = FPReg 0w4
     and fp5 = FPReg 0w5
+    and fp6 = FPReg 0w6
+    and fp7 = FPReg 0w7
 
      (* Not real registers. *)
     val regNone    = NONE;  
@@ -471,8 +471,12 @@ struct
     |   getReg _ = raise InternalError "getReg: not a general register"
     fun mkReg   n      = GenReg n;  (* reg.up   *)
   
-    (* The maximum size of the register vectors and masks. *)
-    val regs = 14
+    (* The maximum size of the register vectors and masks.  Although the
+       X86/32 has a floating point stack with eight entries it's much simpler
+       to treat it as having seven "real" registers.  Items are pushed to the
+       stack and then stored and popped into the current location.  It may be
+       possible to improve the code by some peephole optimisation. *)
+    val regs = 15
 
     (* The nth register (counting from 0). *)
     (* Profiling shows that applying the constructors here creates a lot of
@@ -507,6 +511,8 @@ struct
       if r = fp3 then "fp3" else
       if r = fp4 then "fp4" else
       if r = fp5 then "fp5" else
+      if r = fp6 then "fp6" else
+      if r = fp7 then "fp7" else
          "r" ^ Word8.toString (getReg r);
     
     datatype argType = ArgGeneral | ArgFP
@@ -556,7 +562,7 @@ struct
             listToSet [eax, ecx, edx, ebx, esi, edi]
         
         val floatingPtRegisters =
-            listToSet [fp0, fp1, fp2, fp3, fp4, fp5]
+            listToSet [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)]
 
         fun isAllRegs rs = rs = allRegisters
 
@@ -598,23 +604,25 @@ struct
     open RegSet
 
     (* Encode and decode the mask of modified registers stored in compiled code and
-       maintained for the RTS.  N.B. This encoding is built into x87asm.asm in the RTS. *)
+       maintained for the RTS.  N.B. This encoding is built into x86asm.asm in the RTS. *)
     local
         val regMap =
         [
-            (eax, 0wx00001),
-            (ecx, 0wx00002),
-            (edx, 0wx00004),
-            (ebx, 0wx00008),
-            (esi, 0wx00010),
-            (edi, 0wx00020),
-            (* Floating point registers.  These are never modified by the RTS. *)
-            (fp0, 0wx02000),
-            (fp1, 0wx04000),
-            (fp2, 0wx08000),
-            (fp3, 0wx10000),
-            (fp4, 0wx20000),
-            (fp5, 0wx40000)
+            (eax, 0wx000001),
+            (ecx, 0wx000002),
+            (edx, 0wx000004),
+            (ebx, 0wx000008),
+            (esi, 0wx000010),
+            (edi, 0wx000020),
+            (* Floating point registers. *)
+            (fp0, 0wx002000),
+            (fp1, 0wx004000),
+            (fp2, 0wx008000),
+            (fp3, 0wx010000),
+            (fp4, 0wx020000),
+            (fp5, 0wx040000),
+            (fp6, 0wx080000),
+            (fp7, 0wx100000)
         ]
         (*
         #define     M_R8         64
@@ -718,6 +726,7 @@ struct
   | FPESC of Word8.word
   | XCHNG
   | REP (* Rep prefix *)
+  | SAHF
 
   fun opToInt opn: Word8.word =
     case opn of
@@ -767,7 +776,7 @@ struct
     |   FPESC n     => 0wxD8 orb8 n
     |   XCHNG       => 0wx87
     |   REP         => 0wxf3
-    ;
+    |   SAHF        => 0wx9e
 
 (* ...
 
@@ -1911,7 +1920,7 @@ Calling conventions:
 
     fun genFloatingPt({escape, md, nnn, rm}, code) =
     (
-        genop(FPESC escape, code); (* FLD ST(r1) *)
+        genop(FPESC escape, code);
         gen8u((md <<- 0w6) orb8 (nnn <<- 0w3) orb8 rm, code)
     )
 
@@ -2012,6 +2021,7 @@ Calling conventions:
     |   InstrStoreB
     |   InstrLockSeg
     |   InstrUnaryFP of Word8.word (* Unary floating point operations *)
+    |   InstrArctan (* Requires special treatment *)
     |   InstrBinaryFP of Word8.word (* Binary floating point operations *)
     |   InstrIntToFP (* Float an integer. *)
     |   InstrAllocStore
@@ -2059,7 +2069,7 @@ Calling conventions:
     and instrSqrtFP = InstrUnaryFP 0wxFA
     and instrSinFP = InstrUnaryFP 0wxFE
     and instrCosFP = InstrUnaryFP 0wxFF
-    and instrAtanFP = InstrUnaryFP 0wxF3
+    and instrAtanFP = InstrArctan
     and instrExpFP = InstrUnimplemented 
     and instrLnFP  = InstrUnimplemented
     and instrAllocStore = InstrAllocStore
@@ -2108,6 +2118,7 @@ Calling conventions:
         |   InstrStoreB                 => PrettyString "InstrStoreB"
         |   InstrLockSeg                => PrettyString "InstrLockSeg"
         |   InstrUnaryFP w              => PrettyString ("InstrUnaryFP " ^ Word8.toString w)
+        |   InstrArctan                 => PrettyString "InstrArctan"
         |   InstrBinaryFP w             => PrettyString ("InstrBinaryFP " ^ Word8.toString w)
         |   InstrIntToFP                => PrettyString "InstrIntToFP"
         |   InstrAllocStore             => PrettyString "InstrAllocStore"
@@ -2576,6 +2587,9 @@ Calling conventions:
             ActionGetWorkReg{regSet=prefAsSet(pref, regSet, operands), (* Use the preferred destination. *)
                 setReg = fn reg => whenDone (operands, SOME reg)}
 
+        fun getWorkingRegister(regSet, whenDone) opAndResults _ =
+            ActionGetWorkReg{regSet=regSet, setReg = fn reg => whenDone reg opAndResults}
+
         (* Load the argument to one of a set of possible registers. *)
         fun loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults args =
             case List.nth(args, argNo) of
@@ -2645,22 +2659,11 @@ Calling conventions:
         (* Default if we don't need a result register. *)
         fun noresultNegotiator instr args =
             allInRegisters(generalRegisters, generateInstruction instr) (List.map(fn _ => NONE) args, NONE) args
-            
-        fun floatingPtNegotiator(instr, pref) args =
-            getResultRegister(floatingPtRegisters, pref,
-                allInRegisters(floatingPtRegisters, generateInstruction instr)
-                ) (List.map(fn _ => NONE) args, NONE) args
 
         (* Default if we need a result which is different from the argument registers. *)
         fun generalNegotiator(instr, pref) args =
             getResultRegister(generalRegisters, pref,
                 allInRegisters(generalRegisters, generateInstruction instr)
-                ) (List.map(fn _ => NONE) args, NONE) args
-
-        (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
-        fun intToFPNegotiator(instr, pref) args =
-            getResultRegister(floatingPtRegisters, pref,
-                loadToOneOf(generalRegisters, false, 0, generateInstruction instr)
                 ) (List.map(fn _ => NONE) args, NONE) args
         
         local
@@ -2826,9 +2829,29 @@ Calling conventions:
         |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator instr
 
             (* Floating point functions. *)
-        |   negotiateArguments(instr as InstrUnaryFP _, pref) = floatingPtNegotiator(instr, pref)
-        |   negotiateArguments(instr as InstrBinaryFP _, pref) = floatingPtNegotiator(instr, pref)
-        |   negotiateArguments(instr as InstrIntToFP, pref) = intToFPNegotiator(instr, pref)
+        |   negotiateArguments(instr as InstrUnaryFP _, pref) =
+                getResultRegister(floatingPtRegisters, pref,
+                        loadToOneOf(floatingPtRegisters, false, 0, generateInstruction instr)
+                            ) ([NONE], NONE)
+
+        |   negotiateArguments(instr as InstrArctan, pref) =
+                (* Arctan requires two items on the stack.  The effect is to overwrite fp6 *)
+                getWorkingRegister(singleton fp6,
+                        fn _ =>
+                            getResultRegister(floatingPtRegisters, pref,
+                            loadToOneOf(floatingPtRegisters, false, 0, generateInstruction instr))
+                            ) ([NONE], NONE)
+
+        |   negotiateArguments(instr as InstrBinaryFP _, pref) =
+                getResultRegister(floatingPtRegisters, pref,
+                    allInRegisters(floatingPtRegisters, generateInstruction instr)
+                    ) ([NONE, NONE], NONE)
+
+        |   negotiateArguments(instr as InstrIntToFP, pref) =
+                (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
+                getResultRegister(floatingPtRegisters, pref,
+                    loadToOneOf(generalRegisters, false, 0, generateInstruction instr)
+                    ) ([NONE], NONE)
     
         |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) =
                 (* When allocating vectors/arrays we have to initialise the store and the easiest way to
@@ -3661,11 +3684,21 @@ Calling conventions:
         |   cgOp(DataOp{ instr=InstrUnaryFP opn, operands=[InRegister reg], output=SOME rd }) =
             (
                 loadFpRegToStack(reg, 0w0, code); (* FLD r1 *)
-                (* If this is the FPATAN function we need to push 1.0 here. *)
-                if opn = 0wxF3 then (genop(FPESC 0w1, code); gen8u(0wxE8, code)) else ();
                 (* We use the change-sign operation here so that this works correctly for +/- zero. *)
                 genop(FPESC 0w1, code); (* FCHS/FSIN etc *)
                 gen8u(opn, code);
+                storeFpRegFromStack(rd, code)
+            )
+
+        |   cgOp(DataOp{ instr=InstrArctan, operands=[InRegister reg], output=SOME rd }) =
+            (
+                loadFpRegToStack(reg, 0w0, code); (* FLD r1 *)
+                (* The FPATAN function takes two arguments so we need to push 1.0.
+                   We must invalidate FP7 before we do that otherwise we may get a stack
+                   overflow. *)
+                genFloatingPt({escape=0w5, md=0w3, nnn=0w0, rm=0w7(* FP7*)}, code); (* FFREE FP(7) *)
+                genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w0}, code); (* FLD1 *)
+                genFloatingPt({escape=0w1, md=0w3, nnn=0w6, rm=0w3}, code); (* FPATAN *)
                 storeFpRegFromStack(rd, code)
             )
 
@@ -4030,12 +4063,9 @@ Calling conventions:
                     else
                     ( (* TODO: This should have been sorted out by an argument negotiator but we
                            don't have one for Move. *)
-                        genPush(eax, code);
-                        genop(MOVL_32_R eax, code);
-                        addConstToVec (WVal source, false, code); (* Remember this constant and address. *)
                         genop(FPESC 0w5, code); (* FLD [eax] *)
-                        genop2(0, eax, 0wx0, code);
-                        genop(POP_R eax, code)
+                        genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
+                        addConstToVec(WVal source, false, code)
                     );
                     storeFpRegFromStack(output, code)
                 end
@@ -4278,7 +4308,7 @@ Calling conventions:
                    general register first. *)
                 (* Push eax (any register would do), allocate memory into that, then
                    swap the value with the top of the stack, restoring the original
-                   eax and puting the address of the store onto the stack. *)
+                   eax and putting the address of the store onto the stack. *)
                 (* This originally used the XCHNG instruction to do the swap but
                    that is very expensive because it involves a lock.  This version is
                    slightly more complicated but much quicker. *)
@@ -4894,8 +4924,12 @@ Calling conventions:
                     |   (0w1, 0w7, 0w2) => print "fsqrt"
                     |   (0w1, 0w7, 0w6) => print "fsin"
                     |   (0w1, 0w7, 0w7) => print "fcos"
+                    |   (0w1, 0w6, 0w7) => print "fincstp"
+                    |   (0w1, 0w6, 0w6) => print "fdecstp"
+                    |   (0w5, 0w2, rno) => print ("fst \tst(" ^ Word8.toString rno ^ ")")
                     |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
                     |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
+                    |   (0w1, 0w1, rno) => print ("fxch\tst(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w0, rno) => print ("fadd\tst,st(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w1, rno) => print ("fmul\tst,st(" ^ Word8.toString rno ^ ")")
@@ -4914,11 +4948,15 @@ Calling conventions:
                     |   (0w4, 0w4) => print "fsub\t"
                     |   (0w4, 0w6) => print "fdiv\t"
                     |   (0w5, 0w0) => print "fld \t"
+                    |   (0w5, 0w2) => print "fst\t"
                     |   (0w5, 0w3) => print "fstp\t"
                     |   _ => (printHex(Word8.toInt opByte); printHex(Word8.toInt opByte2));
                     printEA ()
                 )
             end
+            
+            else if opByte = opToInt SAHF
+            then print "sahf\n"
 
             else if opByte = opToInt REP
             then print "rep\t"
