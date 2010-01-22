@@ -2173,7 +2173,7 @@ Calling conventions:
     |   CodeRefSource of code (* The address of another function *)
     |   StackAddress of int (* Offset within the stack. *)
 
-    datatype operations =
+    datatype operation =
         DataOp of { instr: instrs, operands: source list, output: reg option }
     |   Move of { source: source, output: reg }
     |   CondBranch of { operands: source list, test: tests, label: labels ref }
@@ -2196,6 +2196,8 @@ Calling conventions:
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
     |   FillJumpTable of
             { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word }
+
+    type operations = operation list
 
     fun prettyOperation(operation, depth) =
         case operation of
@@ -2524,7 +2526,7 @@ Calling conventions:
                 (* All done *)
                 ActionDone{
                     outReg=outputReg,
-                    operation=DataOp{ instr = instr, operands = List.map valOf operands, output = outputReg}
+                    operation=[DataOp{ instr = instr, operands = List.map valOf operands, output = outputReg}]
                     }
             |   nextArg(NONE :: otherOps, arg :: _, argNo) =
                 (
@@ -2567,12 +2569,14 @@ Calling conventions:
 
         fun generateInstruction instr (operands, results) _ =
             ActionDone{
-                outReg=results, operation=DataOp{ instr = instr, operands = List.map valOf operands, output = results}
+                outReg=results,
+                operation=[DataOp{ instr = instr, operands = List.map valOf operands, output = results}]
                 }
 
         fun generateBranch (test, label) (operands, _) _ =
             ActionDone{
-                outReg=NONE, operation=CondBranch{ test=test, label=label, operands = List.map valOf operands}
+                outReg=NONE,
+                operation=[CondBranch{ test=test, label=label, operands = List.map valOf operands}]
                 }
 
         (* If we have specified a preferred register use that unless it's already in use. *)
@@ -2696,7 +2700,7 @@ Calling conventions:
             and finished (instr, resReg) _ =
                 ActionDone{
                     outReg=SOME resReg,
-                    operation=DataOp{ instr = instr, operands = [InRegister resReg, InRegister ecx], output = SOME resReg}
+                    operation=[DataOp{ instr = instr, operands = [InRegister resReg, InRegister ecx], output = SOME resReg}]
                     }
 
         in
@@ -2734,7 +2738,7 @@ Calling conventions:
             and finished instr _ =
                 ActionDone{
                     outReg=SOME eax,
-                    operation=DataOp{ instr = instr, operands = [InRegister eax, InRegister edx], output = SOME eax}
+                    operation=[DataOp{ instr = instr, operands = [InRegister eax, InRegister edx], output = SOME eax}]
                     }
         in
             val multiplyNegotiator = loadArg1
@@ -5336,34 +5340,35 @@ itself.
 
 
     (* Exported versions of operations datatype *)
-    val moveOp = Move
-    and pushToStack = PushToStack
-    val storeToMemory = StoreToMemory
-    val allocStore = AllocStore
-    val callFunction = CallFunction
-    val jumpToFunction = JumpToFunction
-    val returnFromFunction = ReturnFromFunction
-    val raiseException = RaiseException
-    val resetStack = ResetStack
-    val jumpBack = JumpBack
-    val forwardJumpLabel = ForwardJumpLabel
-    val loadHandlerAddress = LoadHandlerAddress
-    val startHandler = StartHandler
-    val indexedCase = IndexedCase
-    val fillJumpTable = FillJumpTable
+    fun moveOp v = [Move v]
+    and pushToStack v = [PushToStack v]
+    and storeToMemory v = [StoreToMemory v]
+    and allocStore v = [AllocStore v]
+    and callFunction v = [CallFunction v]
+    and jumpToFunction v = [JumpToFunction v]
+    and returnFromFunction v = [ReturnFromFunction v]
+    and resetStack v = [ResetStack v]
+    and jumpBack v = [JumpBack v]
+    and forwardJumpLabel v = [ForwardJumpLabel v]
+    and loadHandlerAddress v = [LoadHandlerAddress v]
+    and startHandler v = [StartHandler v]
+    and indexedCase v = [IndexedCase v]
+    and fillJumpTable v = [FillJumpTable v]
+
+    val raiseException = [RaiseException]
 
     fun uncondBranch() =
     let
         val label = ref noJump
     in
-        (UncondBranch{label=label}, label)
+        ([UncondBranch{label=label}], label)
     end
 
     fun backJumpLabel() =
     let
         val loopLabel: addrs ref = ref addrZero
     in
-        (BackJumpLabel{dest=loopLabel}, loopLabel)
+        ([BackJumpLabel{dest=loopLabel}], loopLabel)
     end
 
     structure Sharing =
@@ -5373,7 +5378,7 @@ itself.
         and  reg        = reg
         and  tests      = tests
         and  addrs      = addrs
-        and  operations = operations
+        and  operation  = operation
         and  source     = source
         and  regHint    = regHint
         and  argAction  = argAction

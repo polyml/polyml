@@ -181,7 +181,8 @@ sig
     |   CodeRefSource of code (* The address of another function *)
     |   StackAddress of int (* Offset within the stack. *)
 
-    type operations
+    type operation
+    type operations = operation list
 
     val moveOp: { source: source, output: reg } -> operations
     val pushToStack: source -> operations
@@ -204,7 +205,7 @@ sig
     val fillJumpTable:
             { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word } -> operations
 
-    val prettyOperation: operations * int -> pretty
+    val prettyOperation: operation * int -> pretty
 
     datatype regHint = UseReg of reg | NoHint | NoResult
 
@@ -235,7 +236,7 @@ sig
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
-    val copyCode: code * operations list * int * RegSet.regSet -> address
+    val copyCode: code * operations * int * RegSet.regSet -> address
 
     val codeAddress: code -> address option
 
@@ -248,7 +249,7 @@ sig
         and  reg        = reg
         and  tests      = tests
         and  addrs      = addrs
-        and  operations = operations
+        and  operation  = operation
         and  source     = source
         and  regHint    = regHint
         and  argAction  = argAction

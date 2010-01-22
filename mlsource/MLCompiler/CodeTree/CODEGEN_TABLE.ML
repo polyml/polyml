@@ -757,11 +757,11 @@ struct
         end
 
         fun pushEntries([], instrList) = (* Finished *) instrList
-        |   pushEntries((_, entry)::entries, instrList) =
+        |   pushEntries((_, entry)::entries, instrList: operation list) =
         let
             val stackent = pstackEntry(table, entry);
             
-            val pushThis =
+            val pushThis: operation list =
             case stackent of
                StackEntry {uses, ent = Direct {base, offset}, cache = cacheReg,
                            destStack, lifeTime} =>
@@ -798,7 +798,7 @@ struct
                         if realstackVal table > maxstackVal table
                         then maxstack table := realstackVal table
                         else ();
-                        pushInstr :: alignInstrs
+                        pushInstr @ alignInstrs
                     end;
               
                     fun saveDirectInReg destReg =
@@ -813,9 +813,9 @@ struct
                             then [] (* already cached in destination register. *)
                             else if regSetIntersect(cacheReg, generalRegisters) <> noRegisters
                             then (* Cached in a different register - move it there and free the cache. *)
-                                [moveRR(oneOf(regSetIntersect(cacheReg, generalRegisters)), destReg)]
+                                moveRR(oneOf(regSetIntersect(cacheReg, generalRegisters)), destReg)
                             else (* Not in a suitable cache register. *)
-                                [moveOp{source=BaseOffset(base, offset), output=destReg}]
+                                moveOp{source=BaseOffset(base, offset), output=destReg}
                     in
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
@@ -869,7 +869,7 @@ struct
                         then maxstack table := realstackVal table
                         else ();
 
-                        pushInstr :: alignInstrs
+                        pushInstr @ alignInstrs
                     end
               
                     (* If we have any direct references using this register we can adjust them to
@@ -909,7 +909,7 @@ struct
                         val moveInstrs =
                             if inSet(destReg, cacheReg)
                             then [] (* already cached in destination register *)
-                            else [moveRR(reg, destReg)]
+                            else moveRR(reg, destReg)
                     in
                         regChanged entry; (* Start from this entry not from the bottom *)
 
@@ -952,7 +952,7 @@ struct
         code
     end
 
-    and pushAnyEntryAtCurrentSP table: (bool * operations list) =
+    and pushAnyEntryAtCurrentSP table: (bool * operation list) =
     (* Check that the next stack location is not the destination of an entry
        which has not yet been pushed and pushes it if it is. *)
     let
@@ -1037,7 +1037,7 @@ struct
                 else (* Push any register simply to align the stack. *)
                 (
                     realstackptr table := realstackVal table + 1;
-                    pushToStack(InRegister (regN 0)) :: (pushInstrs @ previous)
+                    pushToStack(InRegister (regN 0)) @ pushInstrs @ previous
                 )
         in
             alignStack(table, alignInstrs, destAddr) (* Keep going. *)
@@ -1096,7 +1096,7 @@ struct
   (* Ensures that all values which need to be preserved across a function
      call are pushed onto the stack or are in registers that will not
      be modified. *)
-    fun pushNonArguments (table as Ttab{pstack, ...}, args, pushTheseRegs) : (reg list * operations list) =
+    fun pushNonArguments (table as Ttab{pstack, ...}, args, pushTheseRegs) : (reg list * operation list) =
     let
 
         fun checkAddress [] _ = false
@@ -1216,7 +1216,7 @@ struct
 
 
     (* Extract one of the acceptable registers. *)
-    fun getRegisterInSet(table as Ttab{pstackTrace, ...}, rSet) : reg * operations list =
+    fun getRegisterInSet(table as Ttab{pstackTrace, ...}, rSet) : reg * operation list =
     let
         fun getReg() = getAcceptableRegister(regset table, rSet)
         (* First see if there is one free and grab that. *)
@@ -1272,12 +1272,12 @@ struct
      spill a register after, say, pushing one parameter and while computing
      another, we must reload any spilled values and set the real stack pointer
      correctly before continuing. *)
-    fun resetButReload (table as Ttab{pstack, pstackTrace, ...}, stackOffset) : operations list =
+    fun resetButReload (table as Ttab{pstack, pstackTrace, ...}, stackOffset) : operation list =
     let
         val oldSp = realstackVal table;
     
         (* Load any values above "stackOffset". *)
-        fun loadEntries(entry, otherCode) =
+        fun loadEntries(entry, otherCode): operation list =
             if entry < first
             then otherCode
             else
@@ -1298,7 +1298,7 @@ struct
                                         val (reg, code) = getAnyRegister table
                                         val stackOffset = (addr - realstackVal table + 1) * ~wordSize
                                         val fullCode =
-                                            moveOp{source=BaseOffset(regStackPtr, stackOffset), output=reg} :: code
+                                            moveOp{source=BaseOffset(regStackPtr, stackOffset), output=reg} @ code
                                     in
                                         (reg, fullCode)
                                     end;
@@ -1327,7 +1327,7 @@ struct
             then raise InternalError "resetButReload: must have pushed something more"
             else ();
 
-        val finalCode = resetStack (realstackVal table - stackOffset) :: loadCode
+        val finalCode = resetStack (realstackVal table - stackOffset) @ loadCode
     in
         (* Now reset the stack pointer. *)
         realstackptr table := stackOffset;
@@ -1386,28 +1386,28 @@ struct
             if inSet(destReg, cacheReg)
             then []
             else if cacheReg <> noRegisters
-            then [moveRR(oneOf cacheReg, destReg)]
+            then moveRR(oneOf cacheReg, destReg)
             else case ent of
 
                Register reg =>
                     if reg <> destReg
-                    then [moveRR(reg, destReg)]
+                    then moveRR(reg, destReg)
                     else []
           
             |   Literal lit =>
-                    [moveOp{source=LiteralSource lit, output=destReg}]
+                    moveOp{source=LiteralSource lit, output=destReg}
 
             |   CodeRef code =>
-                    [moveOp{source=CodeRefSource code, output=destReg}]
+                    moveOp{source=CodeRefSource code, output=destReg}
 
             |   Direct {base, offset} =>
-                    [moveOp{source=BaseOffset(base, offset), output=destReg}]
+                    moveOp{source=BaseOffset(base, offset), output=destReg}
 
             |   StackW index =>
                 let
                     val stackOffset = (realstackVal table - index - 1) * wordSize
                 in
-                    [moveOp{source=BaseOffset(regStackPtr, stackOffset), output=destReg}]
+                    moveOp{source=BaseOffset(regStackPtr, stackOffset), output=destReg}
                 end
     
             |   Container l => (* The first entry in the container gives us the address. *)
@@ -1416,7 +1416,7 @@ struct
                         let
                             val stackOffset = (realstackVal table - index -1) * wordSize
                         in
-                            [moveOp{source=StackAddress stackOffset, output=destReg}]
+                            moveOp{source=StackAddress stackOffset, output=destReg}
                         end
                 |   _ => raise InternalError "loadPstackEntry: container entry is not on stack";
     in
@@ -1574,7 +1574,7 @@ struct
                                         val (reg, regCode) = getAnyRegister table
                                         val off = (realstackVal table - 1 - addr) * wordSize;
                                     in
-                                        (reg, moveOp{source=BaseOffset(regStackPtr, off), output=reg} :: regCode)
+                                        (reg, moveOp{source=BaseOffset(regStackPtr, off), output=reg} @ regCode)
                                     end;
                   
                             (* Free all cache registers except the destination, if it's in there. *)
@@ -1612,7 +1612,7 @@ struct
        overwriting entries in the argument area, but we may have had to push
        some of the registers while doing the load, so those entries will have
        to be saved. *)
-    fun storeInStack (table, entry, locn) : operations list =
+    fun storeInStack (table, entry, locn) : operation list =
     let
         (* Move it to the stack, using a move-immediate if possible. *)
         fun inc x = (x := !x + 1);
@@ -1643,7 +1643,7 @@ struct
         in
             unlockRegister (table, reg);
             removeStackEntry(table, regEntry);
-            pushCode :: (loadCode @ code)
+            pushCode @ loadCode @ code
         end;
 
         val isPush = (realstackVal table = locn);
@@ -1663,7 +1663,7 @@ struct
                     (* Push-immediate. *)
                     incrUseCount (table, entry, ~1);
                     inc (realstackptr table);
-                    pushToStack(LiteralSource lit) :: loadCode
+                    pushToStack(LiteralSource lit) @ loadCode
                 end
        
                 else if false (* isStoreI(lit, false) *) (* TEMPORARILY *)
@@ -1674,7 +1674,7 @@ struct
                 in
                     (* Remove the entry for the literal. *)
                     incrUseCount (table, entry, ~1);
-                    storeToMemory{toStore=LiteralSource lit, offset=locn, base=regStackPtr, index=NONE} :: loadCode
+                    storeToMemory{toStore=LiteralSource lit, offset=locn, base=regStackPtr, index=NONE} @ loadCode
                 end
 
                 else generalStoreInStack () 
@@ -1687,7 +1687,7 @@ struct
                 in
                     incrUseCount (table, entry, ~1);
                     inc (realstackptr table);
-                    pushToStack(BaseOffset(base, offset)) :: loadCode
+                    pushToStack(BaseOffset(base, offset)) @ loadCode
                 end
                 else generalStoreInStack ()
 
@@ -1701,7 +1701,7 @@ struct
                 in
                     incrUseCount (table, entry, ~1);
                     inc (realstackptr table);
-                    pushToStack(BaseOffset(regStackPtr, locn)) :: loadCode
+                    pushToStack(BaseOffset(regStackPtr, locn)) @ loadCode
                 end
           
                 else generalStoreInStack ()
@@ -1719,7 +1719,7 @@ struct
      real stack and is at the correct position. stackOffset contains the
      stack offset it should have. Primarily used to push arguments to
      procedures. *)
-    fun pushValueToStack (table, entry, stackOffset) : stackIndex * operations list =
+    fun pushValueToStack (table, entry, stackOffset) : stackIndex * operation list =
     let 
         val storeCode = storeInStack (table, entry, stackOffset - 1)
   
@@ -1738,7 +1738,7 @@ struct
         (result, clearCode @ storeCode)
     end;
 
-    fun reserveStackSpace(table: ttab, space: int): stackIndex * operations list =
+    fun reserveStackSpace(table: ttab, space: int): stackIndex * operation list =
     (* Reserve space on the stack for a tuple. *)
     let
         (* We must first make sure that the space we're going to allocate
@@ -1757,7 +1757,7 @@ struct
                 (* We could push a constant but on many architectures it's easier to
                    push a register.  It doesn't matter which provided it contains a
                    valid tagged value or pointer. *)
-                (stackLocn :: pushRest, pushToStack(InRegister(regN 0)) :: pushCode)
+                (stackLocn :: pushRest, pushToStack(InRegister(regN 0)) @ pushCode)
             end;
         val (entries, code) = pushEntries(space, alignCode)
     in
@@ -1765,7 +1765,7 @@ struct
     end
     
     (* Generates an indirection on an item on the pseudo-stack. *)
-    fun indirect (wordOffset, entry, table) : stackIndex * operations list =
+    fun indirect (wordOffset, entry, table) : stackIndex * operation list =
         case pstackRealEntry(table, entry) of
             {ent = Container l, ...} =>
                 (* If we are indirecting off a container we can simply load the entry. *)
@@ -1847,7 +1847,7 @@ struct
        the address relative to that. The only values should be either
        literals (i.e. the address of a static-link called procedure)
        or a stack value. *)
-    fun pushNonLocal (fromTable, toTable, locn, makeSl: unit-> stackIndex * operations list) : stackIndex * operations list =
+    fun pushNonLocal (fromTable, toTable, locn, makeSl: unit-> stackIndex * operation list) : stackIndex * operation list =
     let
         val {ent = stacken, uses = use, ...} =  pstackRealEntry(fromTable, locn)
     in
@@ -1882,7 +1882,7 @@ struct
      for tail-recursive calls. "storeInStack" checks for overwriting
      entries elsewhere on the stack, but because the argument area is not
      represented by entries on the pstack it won't work for them. *)
-    fun loadIfArg (table, entry) : stackIndex * operations list =
+    fun loadIfArg (table, entry) : stackIndex * operation list =
         case pstackRealEntry(table, entry) of
             {ent = StackW index, ...} =>
             if index < 0
@@ -1951,7 +1951,7 @@ struct
 
     (* Set the state to the saved values. *) 
     fun setState (save : savedState, table as Ttab{pstack, pstackTrace, printStream, ...},
-                carry, mark, isMerge): mergeResult * operations list =
+                carry, mark, isMerge): mergeResult * operation list =
     let 
         val () = 
           if pstackTrace then printState printStream save "setState" else ()
@@ -2115,7 +2115,7 @@ struct
   end
 
 
-    fun unconditionalBranch (result, table) : labels * operations list =
+    fun unconditionalBranch (result, table) : labels * operation list =
     if branchedVal table then (noJump, [])
     else
     let
@@ -2123,13 +2123,13 @@ struct
         val (branchCode, label) = uncondBranch()
     in
         branched table := true;
-        (makeLabels(result, label, state), [branchCode])
+        (makeLabels(result, label, state), branchCode)
     end;
 
-    fun jumpBack(start, table): operations list =
+    fun jumpBack(start, table): operation list =
     (
         branched table := true;
-        [CODECONS.jumpBack{dest=start, addStackCheck=true}]
+        CODECONS.jumpBack{dest=start, addStackCheck=true}
     )
 
     (* Record the stack limit when we diverge and then use it when we merge
@@ -2172,7 +2172,7 @@ struct
      *)
     fun mergeState (save : savedState, savedResult: mergeResult,
                   table as Ttab{pstack, pstackTrace, printStream, ...}, currentResult: mergeResult, mark)
-                  : bool * mergeResult * operations list =
+                  : bool * mergeResult * operation list =
     let
         val needOtherWay = ref false;
 
@@ -2360,7 +2360,7 @@ struct
                 if maxStack < realstackVal table
                 then
                 let
-                    val reset = [resetStack (realstackVal table - maxStack)]
+                    val reset = resetStack (realstackVal table - maxStack)
                 in
                     realstackptr table := maxStack;
                     reset
@@ -2616,7 +2616,7 @@ struct
                         saved but this will do for the moment. *)
                     (
                         realstackptr table := realstackVal table + 1;
-                        addAlign(pushToStack(InRegister(regN 0)) :: (pushInstrs @ others))
+                        addAlign(pushToStack(InRegister(regN 0)) @ pushInstrs @ others)
                     )
                 end
             in
@@ -2633,7 +2633,7 @@ struct
     end
 
     (* Fix up a label after an unconditional branch. *)
-    fun fixup (lab, table) : operations list =
+    fun fixup (lab, table) : operation list =
     if not (branchedVal table) then raise InternalError "Not branched"
     else if isEmptyLabel lab then []
     else
@@ -2642,13 +2642,13 @@ struct
     in
         branched table := false;
         exited table := false;
-        forwardJumpLabel{label=labs lab} :: code
+        forwardJumpLabel{label=labs lab} @ code
     end
     
     local
         (* Fix up a label.  If this follows an unconditional branch we replace the
            existing state with the saved state, otherwise we have to merge in. *)
-        fun mergeLab (lab, table, currentResult: mergeResult, mark) : mergeResult * operations list =
+        fun mergeLab (lab, table, currentResult: mergeResult, mark) : mergeResult * operation list =
             if isEmptyLabel lab then (currentResult, [])
             else if ! (branched table)
             then
@@ -2657,7 +2657,7 @@ struct
             in
                 branched table := false;
                 exited table := false;
-                (newResult, forwardJumpLabel{label=labs lab} :: newCode)
+                (newResult, forwardJumpLabel{label=labs lab} @ newCode)
             end
             else
             let
@@ -2678,9 +2678,9 @@ struct
                         mergeLab (lab1, table, newResult, mark)
                 in
                     (mergeResult, otherMerge @
-                        [forwardJumpLabel{label=labs lab}] @ newCode @ lab1Code @ mergeCode)
+                        forwardJumpLabel{label=labs lab} @ newCode @ lab1Code @ mergeCode)
                 end
-                else (mergeRes, forwardJumpLabel{label=labs lab} :: mergeCode)
+                else (mergeRes, forwardJumpLabel{label=labs lab} @ mergeCode)
             end
     in
         (* Fix up a label.  If this follows an unconditional branch we replace the
@@ -2713,7 +2713,7 @@ struct
     type handler = { lab: addrs ref, oldps: stackIndex };
   
     (* Push the address of a handler. *)
-    fun pushAddress (table, offset) : handler * operations list =
+    fun pushAddress (table, offset) : handler * operation list =
     let
         (* This is just after a mark. *)
         val (reg, regCode) = getAnyRegister table
@@ -2729,7 +2729,7 @@ struct
     in
         (* Remove the pstack entry because we don't want it. *)
         removeStackEntry(table, pushedEntry);
-        ({lab = labelRef, oldps = oldps}, pushCode @ (loadCode :: regCode))
+        ({lab = labelRef, oldps = oldps}, pushCode @ loadCode @ regCode)
     end;
 
     (* Fixup the address at the start of a handler. *)
@@ -2746,7 +2746,7 @@ struct
         forIndDownTo (pstackVal table - 1, oldps,
             fn (s: stackIndex) => removeEntry table s false);
 
-        [startHandler{ handlerLab=lab}]
+        startHandler{ handlerLab=lab}
     )
 
     (* Generate operations.  Negotiates the arguments and results with the machine-specific
@@ -2809,9 +2809,9 @@ struct
                     val result = finish outReg (* Set the result. *)
                     val () = List.app (fn reg => unlockRegister(table, reg)) lockedRegs
                     val () = List.app (fn arg => incrUseCount (table, arg, ~1)) args
-                    val () = if pstackTrace then printStack(table, "performActions", operation :: loadOps) else ()
+                    val () = if pstackTrace then printStack(table, "performActions", operation @ loadOps) else ()
                 in
-                    (result, operation :: loadOps)
+                    (result, operation @ loadOps)
                 end
 
             |   untilDone(ActionLockRegister{argNo=_, reg, willOverwrite, next}, args, loadOps, lockedRegs) =
@@ -2867,7 +2867,7 @@ struct
         end
 
         (* Comparison and test operations that make a conditional branch. *)
-        and compareAndBranch(args, test, table) : labels * operations list =
+        and compareAndBranch(args, test, table) : labels * operation list =
             let
                 val (startActions, destLabel) = negotiateTestArguments test
                 val ((), code) = performActions(startActions, fn _ => (), args, table)
@@ -2879,7 +2879,7 @@ struct
         (* Moves an expression into a newly created vector or into a container.
            The offset is the number of bytes if this a byte store and the number of
            words if this is word store. *)
-        and moveToVec (vecEntry, valueEntry, offset: int, instr, table) : operations list =
+        and moveToVec (vecEntry, valueEntry, offset: int, instr, table) : operation list =
             let
                 val () = incrUseCount (table, vecEntry, 1) (* This must be kept. *)
                 (* Turn this into an assignment operation. *)
@@ -2909,17 +2909,17 @@ struct
         val code =
         case ent of
             Literal lit =>
-                [jumpToFunction{callKind=ConstantFun(lit, isIndirect), returnReg=returnReg}]
+                jumpToFunction{callKind=ConstantFun(lit, isIndirect), returnReg=returnReg}
 
         |  CodeRef code =>
             if isIndirect
             then raise InternalError "jumpToCode: indirect call to codeRef"
-            else [jumpToFunction{callKind=CodeFun code, returnReg=returnReg}]
+            else jumpToFunction{callKind=CodeFun code, returnReg=returnReg}
 
         |  Register reg => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
-            then [jumpToFunction{callKind=FullCall, returnReg=returnReg}]
+            then jumpToFunction{callKind=FullCall, returnReg=returnReg}
             else raise InternalError "jumpToCode: Not indirection through closure reg"
 
         |  _ => (* Anything else shouldn't happen. *)
@@ -2936,17 +2936,17 @@ struct
         val code =
         case ent of
             Literal lit =>
-                [callFunction{callKind=ConstantFun(lit, isIndirect)}]
+                callFunction{callKind=ConstantFun(lit, isIndirect)}
 
         |  CodeRef code =>
             if isIndirect
             then raise InternalError "callCode: indirect call to codeRef"
-            else [callFunction{callKind=CodeFun code}]
+            else callFunction{callKind=CodeFun code}
 
         |  Register reg => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
-            then [callFunction{callKind=FullCall}]
+            then callFunction{callKind=FullCall}
             else raise InternalError "callCode: Not indirection through closure reg"
 
         |  _ => (* Anything else shouldn't happen. *)
@@ -2957,14 +2957,14 @@ struct
         code
     end;
 
-    fun startCase (table, state) : addrs ref * operations list =
+    fun startCase (table, state) : addrs ref * operation list =
     let
         val (_, code) = setState (state, table, NoMerge, pstackVal table, false);
         val (jumpCode, destLabel) = backJumpLabel()
     in
         exited table := false;
         branched table := false;
-        (destLabel, jumpCode :: code)
+        (destLabel, jumpCode @ code)
     end
 
     datatype argdest = ArgToRegister of reg | ArgToStack of int
@@ -3122,7 +3122,7 @@ struct
         and  reg        = reg
         and  tests      = tests
         and  addrs      = addrs
-        and  operations = operations
+        and  operation  = operation
         and  machineWord = machineWord
         and  ttab       = ttab
         and  savedState = savedState

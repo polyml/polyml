@@ -107,19 +107,19 @@ struct
     (* Code generate a procedure or global declaration *)
     fun codegen
        (pt               : codetree,
-        declOnPrevLevel  : int * (unit -> stackIndex * operations list) * ttab -> stackIndex * operations list,
+        declOnPrevLevel  : int * (unit -> stackIndex * operations) * ttab -> stackIndex * operations,
         isStaticLink     : int -> bool,
-        loadStaticLink   : int * (unit -> stackIndex * operations list) * ttab -> stackIndex * stackIndex * operations list,
+        loadStaticLink   : int * (unit -> stackIndex * operations) * ttab -> stackIndex * stackIndex * operations,
         staticLinkRegSet : int -> regSet,
         closureLifetime  : int,
         argTypes         : argumentType list,
         argLifetimes     : int list,
         resultType       : argumentType,
-        debugSwitches    : Universal.universal list) : operations list * int * regSet =
+        debugSwitches    : Universal.universal list) : operations * int * regSet =
     let
         val numOfArgs = List.length argTypes
-        val cvec = ref []
-        fun codeGenerate(ops, cvec) = cvec := ops @ ! cvec
+        val cvec: operations ref = ref []
+        fun codeGenerate(ops: operations, cvec) = cvec := ops @ ! cvec
 
         fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
@@ -208,18 +208,16 @@ struct
             val exitCode =
                 case regReturn of
                     NONE => (* Reset to just above the return address. *)
-                        [
-                            returnFromFunction{returnReg=NONE, argsToRemove=stackArgs},
+                            returnFromFunction{returnReg=NONE, argsToRemove=stackArgs} @
                             resetStack (realstackptr transtable - 1)
-                        ]
                 |   SOME _ =>
                     let
                         val (returnReg, returnOffset, returnCode) =
                             loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false);
                         val () = removeStackEntry (transtable, returnOffset)
                     in
-                        returnFromFunction{returnReg=SOME returnReg, argsToRemove=stackArgs} ::
-                        resetStack (realstackptr transtable) ::
+                        returnFromFunction{returnReg=SOME returnReg, argsToRemove=stackArgs} @
+                        resetStack (realstackptr transtable) @
                         returnCode
                     end;
         in
@@ -228,7 +226,7 @@ struct
         end
 
         (* Allocate a segment of the required size. *)
-        fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex * operations list =
+        fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex * operations =
         let
            (* Get a register for the result. We cannot use the local ptr. for the
               result because it's supposed always to point to the bottom of the
@@ -244,7 +242,7 @@ struct
         
             val resAddr = pushReg (transtable, resultReg);
         in
-            (resAddr, allocStore {size=csize, flags=flag, output=resultReg} :: regCode)
+            (resAddr, allocStore {size=csize, flags=flag, output=resultReg} @ regCode)
         end;
 
         (*infix 9 sub;*)
@@ -601,7 +599,7 @@ struct
                 val argDestList = getLoopDestinations(argIndexList, transtable)
                 (* Start of loop.  This is where we jump to if the loop is taken. *)
                 val (startLoopCode, startLoop) = backJumpLabel()
-                val () = codeGenerate([startLoopCode], cvec)
+                val () = codeGenerate(startLoopCode, cvec)
                 val startSp = realstackptr transtable
                 val cacheSet = ref noRegisters and pushList = ref []
 
@@ -617,7 +615,7 @@ struct
                     (* We have to make sure that the real stack pointer is consistent.
                        We may have pushed local values within the loop and these need
                        to be removed. *)
-                    codeGenerate([resetStack (realstackptr transtable - startSp)], cvec)
+                    codeGenerate(resetStack (realstackptr transtable - startSp), cvec)
                 end
                 (* Compile the loop with the jumps back to the start. *)
                 val runLoop =
@@ -726,7 +724,7 @@ struct
                loadToSpecificReg (transtable, resultReg ArgGeneral, excVal, true);
 
           in
-            codeGenerate(raiseException :: (resultCode @ excCode), cvec);
+            codeGenerate(raiseException @ resultCode @ excCode, cvec);
             
             removeStackEntry(transtable, resultIndex);
             
@@ -761,7 +759,7 @@ struct
           val mark : stackMark = markStack transtable
 
           (* Save old handler - push regHandler *)
-          val () = codeGenerate([pushToStack(InRegister regHandler)], cvec)
+          val () = codeGenerate(pushToStack(InRegister regHandler), cvec)
           val oldIndex = incsp transtable;
           
           (* Now it's on the real stack we can remove it from the pstack. *)
@@ -801,7 +799,7 @@ struct
           val handlerList : CODEGEN_TABLE.handler list = rev (map genTag (rev taglist));
       
           (* Initialise regHandler from regStackPtr *)
-          val () = codeGenerate([moveOp{source=InRegister regStackPtr, output=regHandler}], cvec)
+          val () = codeGenerate(moveOp{source=InRegister regStackPtr, output=regHandler}, cvec)
 
           (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
           val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
@@ -813,8 +811,8 @@ struct
           (* Reload the old value of regHandler i.e. remove handler. *)
           val () =
             codeGenerate(
-                [moveOp { source=BaseOffset(regStackPtr, (realstackptr transtable - startOfHandler - 1) * wordSize),
-                        output=regHandler}], cvec)
+                moveOp { source=BaseOffset(regStackPtr, (realstackptr transtable - startOfHandler - 1) * wordSize),
+                        output=regHandler}, cvec)
 
           (* Optimisation: return immediately, if possible, rather than
              jumping and then returning. This may turn the following
@@ -947,8 +945,8 @@ struct
                                     indexedCase
                                         {testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
                                         isArbitrary = case caseType of CaseInt => true | _ => false,
-                                        isExhaustive=isExhaustive, tableAddrRef = caseInstr} ::
-                                    (regCode @ testCode), cvec);
+                                        isExhaustive=isExhaustive, tableAddrRef = caseInstr} @
+                                    regCode @ testCode, cvec);
        
                             val startOfCase = saveState transtable
   
@@ -1008,9 +1006,9 @@ struct
                                 then
                                 (
                                     (*  Finished. *)
-                                    codeGenerate([
+                                    codeGenerate(
                                         fillJumpTable {tableAddr=caseInstr, cases=newCaseList, default=defaultCase,
-                                                       min=min, max=max}], cvec);
+                                                       min=min, max=max}, cvec);
                                     expResult (* Last expression. *)
                                 )
                                 else
@@ -1312,7 +1310,7 @@ struct
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : codetree, matchFailFn) : stackIndex * operations list =
+    and genToStack (pt : codetree, matchFailFn) : stackIndex * operations =
         let
             val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
         in
@@ -1407,7 +1405,7 @@ struct
         val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
         
         (* Generates code for non-local references or recursive references. *)
-        fun previous (prevloc, makeSl: unit->stackIndex * operations list, newtab): stackIndex * operations list =
+        fun previous (prevloc, makeSl: unit->stackIndex * operations, newtab): stackIndex * operations =
         (* Although directly-recursive references do not involve calls to
           `previous' (the only directly-recursive references are recursive
           calls and they are dealt with in `loadSl') they may be produced
@@ -1498,7 +1496,7 @@ struct
          
         (* Loads the static link if the procedure is called with one
            and returns the entry point of the procedure on the stack. *)
-        fun loadSl (0, makeSl, callingTab): stackIndex*stackIndex * operations list =
+        fun loadSl (0, makeSl, callingTab): stackIndex*stackIndex * operations =
             let (* Recursive call. *)
                 val (sl, slCode) = makeSl(); (* Push the static link. *)
                 val (closureIndex, loadClosure) =  (* Load into regClosure *)
@@ -1699,7 +1697,7 @@ struct
        here? Probably, but I'm not yet entirely sure that it would be safe.
        SPF 6/5/97
      *)
-        fun previous (locn, makeSl: unit-> stackIndex * operations list, newtab) =
+        fun previous (locn, makeSl: unit-> stackIndex * operations, newtab) =
           if locn = 0
           then makeSl () (* load the address of the closure itself *)
           else let
@@ -2330,12 +2328,12 @@ struct
                         val stackMove= realstackptr transtable + diffInArgs - adjust
                     end
                 in
-                    codeGenerate([resetStack stackMove], cvec);
+                    codeGenerate(resetStack stackMove, cvec);
                     (* Call the function.  If it's not recursive we have to get the
                        entry point. *)
                     case codeAddrOpt of
                         NONE =>
-                           codeGenerate([jumpToFunction{callKind=Recursive, returnReg=returnReg}], cvec)
+                           codeGenerate(jumpToFunction{callKind=Recursive, returnReg=returnReg}, cvec)
                     |   SOME codeAddr => 
                             codeGenerate(jumpToCode(codeAddr, isIndirect, returnReg, transtable), cvec);
 
@@ -2402,7 +2400,7 @@ struct
                       if endOfArgs >= 0 then resetButReload (transtable, endOfArgs) else []
                     val callCode =
                       case codeAddrOpt of
-                         NONE => [callFunction{callKind=Recursive}]
+                         NONE => callFunction{callKind=Recursive}
                       |  SOME codeAddr => callCode(codeAddr, isIndirect, transtable)
                 in
                     codeGenerate(callCode @ checkContiguous, cvec);
@@ -2833,7 +2831,9 @@ struct
                         in 
                             (* Set value of static link register now. The static link entry
                                is now the address of the frame.  DCJM 2/1/01. *)
-                            codeGenerate([moveOp {output=regClosure, source=StackAddress((realstackptr transtable - 1)*wordSize)}], cvec);
+                            codeGenerate(
+                                moveOp {output=regClosure, source=StackAddress((realstackptr transtable - 1)*wordSize)},
+                                cvec);
                             (SOME entryPt, false, [closureIndex], [regClosure])
                         end
           
