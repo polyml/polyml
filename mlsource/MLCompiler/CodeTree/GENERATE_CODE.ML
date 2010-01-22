@@ -82,13 +82,13 @@ struct
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
     (* Are we at the end of the procedure. *)
-    datatype tail = EndOfProc of argType | NotEnd;
+    datatype tail = EndOfProc of reg | NotEnd;
 
     fun isEndOfProc (EndOfProc _) = true | isEndOfProc _ = false;
 
     fun chooseMergeRegister (transtable: ttab, whereto : regHint, tailKind : tail) : regHint =
         case tailKind of
-            EndOfProc res => UseReg(resultReg res)
+            EndOfProc res => UseReg res
         |   NotEnd    =>
             (
                 case whereto of
@@ -587,7 +587,7 @@ struct
             fun reprocessLoop n =
             let
                 (* Include a check that we don't loop too many times. *)
-                val _ = n > 3 andalso raise InternalError "reprocessLoop"
+                val _ = n > 20 andalso raise InternalError "reprocessLoop"
                 (* Record the code at the start.  If we have to reprocess we discard everything
                    after this. *)
                 val codeAtStart = !cvec
@@ -823,7 +823,7 @@ struct
              SPF 25/11/96
            *)
           val () =
-            if (isEndOfProc tailKind) andalso not (haveExited transtable)
+            if isEndOfProc tailKind andalso not (haveExited transtable)
             then codeGenerate(exit (), cvec)
             else ();
     
@@ -968,7 +968,7 @@ struct
                                    SPF 25/11/96
                                  *)
                                 val () =
-                                   if (isEndOfProc tailKind) andalso not (haveExited transtable)
+                                   if isEndOfProc tailKind andalso not (haveExited transtable)
                                    then codeGenerate(exit (), cvec)
                                    else ();
           
@@ -1000,7 +1000,7 @@ struct
                                     genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
        
                                 val () =
-                                    if (isEndOfProc tailKind) andalso not (haveExited transtable)
+                                    if isEndOfProc tailKind andalso not (haveExited transtable)
                                     then codeGenerate(exit (), cvec)
                                     else ();
                             in
@@ -2201,10 +2201,17 @@ struct
         let
             (* This is used if we have a real function call rather than an RTS function we can
                code-generate directly. *)
-            fun realFunctionCall(procLocn, modifiedRegisters, loadProc, argLocations, isTail) =
+            fun realFunctionCall(procLocn, modifiedRegisters, loadProc, argLocations, canTail) =
             let
                 val needsResult = not (isNoResult whereto)
                 val regResult = resultReg(codeToCgType resultType)
+                (* Can use a jump if we're at the end, not in a local static-link function and
+                   and the result is in the right register (we don't need to convert floating point
+                   to fixed point or vice versa). *)
+                val isTail =
+                    case tailKind of
+                        EndOfProc reg => canTail andalso regResult = reg
+                    |   _ => false
 
                 (* Code-generate each entry to the pstack.  If this is a tail recursive call we have to
                    load any values that are currently used as arguments because we may overwrite them later. *)
@@ -2446,7 +2453,6 @@ struct
             (* Call a closure function, i.e. not one that requires a static link. *)
             fun callClosure (clos : codetree option): mergeResult =
             let
-                val tailCall = isEndOfProc tailKind;
                 (* If we're actually calling the function where do the arguments go? *)
                 val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
                 val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
@@ -2550,7 +2556,7 @@ struct
                           else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
                 end
             in
-                realFunctionCall([procLocn], registerSet, loadClosureProc, argLocations, tailCall)
+                realFunctionCall([procLocn], registerSet, loadClosureProc, argLocations, true)
             end (* callClosure *)
 
             fun codeRTSFunction(instr, arguments, whereto) =
@@ -2790,11 +2796,7 @@ struct
                      (* Is this a static link call? *)
                     if staticCall
                     then
-                    let
-                        (* Cannot use a jump to local static-link procedures because 
-                           we may want local declarations on the current stack. *)
-                        val tailCall = isEndOfProc tailKind andalso not fpRel;
-  
+                    let  
                         (* Load and lock regClosure. Returns the indexes of
                            these entries in the stack. *)
                         fun loadStaticLinkProc (): (stackIndex option * bool * stackIndex list * reg list) =
@@ -2881,8 +2883,9 @@ struct
                         else if fpRel (* It's local. *)
                         then incrUseCount(transtable, pstackForDec (transtable, addr), 1)
                         else incrUseCount(transtable, closureOrSlAddr, 1);
-
-                        realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, tailCall)
+                        (* Cannot use a jump to local static-link procedures because 
+                           we may want local declarations on the current stack. *)
+                        realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, not fpRel)
                     end
    
                     (* Closure call - check for recursive calls. *)
@@ -2905,8 +2908,8 @@ struct
         end (* genEval *)
 
 
-        val resType = codeToCgType resultType
-        val _ = genToRegister (pt, UseReg(resultReg resType), EndOfProc resType, matchFailed, NONE);
+        val resReg = resultReg(codeToCgType resultType)
+        val _ = genToRegister (pt, UseReg resReg, EndOfProc resReg, matchFailed, NONE);
 
         val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
     in
