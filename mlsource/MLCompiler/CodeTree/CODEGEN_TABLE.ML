@@ -163,67 +163,31 @@ struct
      We assume that if a register is allocated it has been modified.
      DCJM 26/11/00. *)
      
-    type rset = {vec: int array, modSet: regSet ref, freeRegs: int ref};
+    type rset = {vec: int array, modSet: regSet ref, freeRegs: regSet ref};
 
     fun Vec   ({vec  ,...}:rset) = vec;
     
     val vecSize = regs;
   
-    (* Returns the first free register.  The start of the sequence is different
-       each time to try to achieve a spread of usage. *)
-    (* findFree seems to be biggest hot-spot in the whole compiler so we
-       have to code it quite carefully. *)
+    (* Returns the first free register. *)
+    (* This is a major hotspot in the compiler. *)
     fun getAcceptableRegister ({vec, modSet, freeRegs}:rset, acceptable: regSet) =
     let
-        val nextReg = 0; 
-
-        fun isAcceptable r = inSet(r, acceptable)       
-    
-        fun next n = if n = 0 then (vecSize - 1) else (n - 1);
-    
-        fun allocReg r =
-        (* Mark the register as in use. *)
-        let
-            val i = nReg r
-        in
-            update (vec, i, 1); (* Set the register use-count to 1 *)
-            modSet := regSetUnion(singleton r, ! modSet); (* Mark as used *)
-            freeRegs := !freeRegs - 1;
-            r
-        end
-    
-        (* Pick a modified register if possible to keep the set small.
-           N.B.  This is a hot-spot so this has been optimised. *)
-        fun findFree (i : int, firstChoice: reg option) : reg option =
-        let
-            val useCount = sub (vec, i)
-        in
-            if useCount = 0 andalso inSet(regN i, !modSet) andalso isAcceptable(regN i)
-            then (* Free and it's been modified already - use it. *)
-                SOME(allocReg (regN i))
-            else
-            let (* Either it's in use or it hasn't been modified yet. *)
-                val n = next i;
-                val nextChoice =
-                    (* If we haven't found a register before and this is
-                       free pick this one. *)
-                    if not (isSome firstChoice) andalso useCount = 0 andalso isAcceptable(regN i)
-                    then SOME(regN i)
-                    else firstChoice
-            in
-                if n <> nextReg
-                then findFree(n, nextChoice)
-                else (* None free or the only one we found was unmodified. *)
-                case nextChoice of
-                    NONE => NONE (* Not found. *)
-                |   SOME nextChoice => SOME(allocReg nextChoice)
-            end
-        end
+        val available = regSetIntersect(!freeRegs, acceptable)
     in
-        if !freeRegs = 0
+        if available = noRegisters
         then NONE
-        else findFree (nextReg, NONE)
-    end;
+        else (* Mark the register as in use. *)
+            let
+                val r = oneOf available
+                val i = nReg r
+            in
+                update (vec, i, 1); (* Set the register use-count to 1 *)
+                modSet := regSetUnion(singleton r, ! modSet); (* Mark as used *)
+                freeRegs := regSetMinus(!freeRegs, singleton r);
+                SOME r
+            end
+    end
 
     (* Print the allocated registers. *)
     fun printRegs printStream regs =
@@ -255,7 +219,7 @@ struct
         else
         (
             if useCount = 1
-            then freeRegs := !freeRegs + 1
+            then freeRegs := regSetUnion(!freeRegs, singleton reg)
             else ();
             update (v, r, useCount - 1)
         )
@@ -264,16 +228,16 @@ struct
     (* Increment use count. *)
     fun incr (regs as {freeRegs, ...}) reg =
     let
-        val r = nReg reg; (* SPF 7/6/94 - fixed off-by-one *)
-        val v = Vec regs;
+        val r = nReg reg
+        val v = Vec regs
         val useCount = sub (v, r)
     in
         if useCount = 0
-        then freeRegs := !freeRegs - 1 else ();
+        then freeRegs := regSetMinus(!freeRegs, singleton reg) else ();
         update (v, r, useCount + 1)
     end;
 
-    fun rsetMake () : rset = {vec = array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref regs}
+    fun rsetMake () : rset = {vec = array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
   
  (* This table maps declaration numbers for a particular procedure or      *)
  (* inline procedure block into pseudo-stack offsets. The pseudo-stack     *)
