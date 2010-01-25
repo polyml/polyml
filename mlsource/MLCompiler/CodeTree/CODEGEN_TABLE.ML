@@ -75,8 +75,7 @@ struct
     open DEBUG;
     open MISC;
     open Address;
-    open Array;
-    structure STRETCHARRAY = StretchArray
+    structure StretchArray = StretchArray
 
     open RegSet
     
@@ -85,21 +84,8 @@ struct
 
     nonfix sub; (* was only 5 - gave subtle bugs (SPF 11/8/94 *)
 
-    (* local definitions, for brevity *)
-    type 'a stretchArray = 'a STRETCHARRAY.stretchArray;
-    val stretchArray  = STRETCHARRAY.stretchArray;
-    val stretchSub    = STRETCHARRAY.sub;
-    val stretchUpdate = STRETCHARRAY.update;
-  
-(* ...
-  type baseOffset = {base: reg, offset: int};
-  
-  fun base   ({base  ,...}:baseOffset) = base;
-  fun offset ({offset,...}:baseOffset) = offset; 
-  
-  fun makeBaseOffset (base: reg) (offset: int) = {base = base, offset = offset};
-... *)
-
+(*    type 'a stretchArray = 'a StretchArray.stretchArray;*)
+ 
     type stackIndex = int 
 
     val first: stackIndex = 0
@@ -139,12 +125,6 @@ struct
                    need to. *)
         }
 
-(*    fun makeStackEntry(union, reg, i, dest) =
-      StackEntry { ent = union, cache = reg, uses  = i, destStack = dest }*)
-
-    val initTrans = 5; (* Initial size of tables. *)
-    val initStack = 10;
-
     fun forIndDownTo(i, finishInd, perform: stackIndex->unit) =
         if i >= finishInd
         then (perform i; forIndDownTo (i - 1, finishInd, perform))
@@ -182,7 +162,7 @@ struct
                 val r = oneOf available
                 val i = nReg r
             in
-                update (vec, i, 1); (* Set the register use-count to 1 *)
+                Array.update (vec, i, 1); (* Set the register use-count to 1 *)
                 modSet := regSetUnion(singleton r, ! modSet); (* Mark as used *)
                 freeRegs := regSetMinus(!freeRegs, singleton r);
                 SOME r
@@ -194,7 +174,7 @@ struct
     let
         fun printReg i =
         let
-            val useCount = sub (Vec regs, i)
+            val useCount = Array.sub (Vec regs, i)
         in
             if useCount > 0
             then
@@ -212,7 +192,7 @@ struct
     let
         val r = nReg reg
         val v = Vec regs;
-        val useCount = sub (v, r)
+        val useCount = Array.sub (v, r)
     in
         if useCount = 0
         then raise InternalError ("free: register already free #" ^ Int.toString r)
@@ -221,7 +201,7 @@ struct
             if useCount = 1
             then freeRegs := regSetUnion(!freeRegs, singleton reg)
             else ();
-            update (v, r, useCount - 1)
+            Array.update (v, r, useCount - 1)
         )
     end;
   
@@ -230,14 +210,14 @@ struct
     let
         val r = nReg reg
         val v = Vec regs
-        val useCount = sub (v, r)
+        val useCount = Array.sub (v, r)
     in
         if useCount = 0
         then freeRegs := regSetMinus(!freeRegs, singleton reg) else ();
-        update (v, r, useCount + 1)
+        Array.update (v, r, useCount + 1)
     end;
 
-    fun rsetMake () : rset = {vec = array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
+    fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
   
  (* This table maps declaration numbers for a particular procedure or      *)
  (* inline procedure block into pseudo-stack offsets. The pseudo-stack     *)
@@ -248,10 +228,8 @@ struct
  datatype ttab = 
    Ttab of
      {
-       decToPstack:  stackIndex stretchArray,
-       isProc:       bool stretchArray,
        regset:       rset,
-       pstack:       stackEntry stretchArray, (* Pseudo-stack *)
+       pstack:       stackEntry StretchArray.stretchArray, (* Pseudo-stack *)
        pstackptr:    stackIndex ref,
        realstackptr: int ref,
        maxstack:     int ref,
@@ -262,19 +240,17 @@ struct
        pstackTrace:  bool,
        printStream:  string->unit,
        outStream: PRETTY.pretty->unit
-     };
+     }
      
-    fun ttabCreate debugSwitches =
+    fun ttabCreate(localCount, debugSwitches) =
     let
         val printStream = PRETTY.getSimplePrinter debugSwitches
         val outStream = PRETTY.getPrintOutput debugSwitches
     in
         Ttab
         {
-            decToPstack  = stretchArray (initTrans,noIndex),
-            isProc       = stretchArray (initTrans,false),
             regset       = rsetMake(),
-            pstack       = stretchArray (initStack,NoStackEntry),
+            pstack       = StretchArray.stretchArray ((* Hint *)localCount,NoStackEntry),
             pstackptr    = ref first,
             realstackptr = ref 0,
             maxstack     = ref 1,
@@ -288,30 +264,11 @@ struct
             }
     end
 
-  fun decToPstack  (Ttab {decToPstack ,...}) = decToPstack;
-  fun isProc       (Ttab {isProc      ,...}) = isProc;
-  fun regset       (Ttab {regset      ,...}) = regset;
-  (*fun pstack       (Ttab {pstack      ,...}) = pstack;*)
-  fun pstackptr    (Ttab {pstackptr   ,...}) = pstackptr;
-  fun realstackptr (Ttab {realstackptr,...}) = realstackptr;
-  fun maxstack     (Ttab {maxstack    ,...}) = maxstack;
-  fun exited       (Ttab {exited      ,...}) = exited;
-  fun branched     (Ttab {branched    ,...}) = branched;
-  fun marker       (Ttab {marker      ,...}) = marker;
-  fun lowestDirect (Ttab {lowestDirect,...}) = lowestDirect;
-  
-    val pstackVal    = ! o pstackptr;
-    val realstackVal = ! o realstackptr;
-    val maxstackVal  = ! o maxstack;
-    val exitedVal    = ! o exited;
-    val branchedVal  = ! o branched;
-    val markerVal    = ! o marker;
-
-    fun pstackEntry (Ttab{pstack, ...}, locn) = stretchSub (pstack, locn);
+    fun pstackEntry (Ttab{pstack, ...}, locn) = StretchArray.sub (pstack, locn)
 
     (* Returns the entry after removing the option type. *)
     fun pstackRealEntry (Ttab{pstack, ...}, locn) =
-    case (stretchSub (pstack, locn)) of
+    case (StretchArray.sub (pstack, locn)) of
         StackEntry record => record
     |   NoStackEntry                    =>
            raise InternalError ("pstackRealEntry: not entry: " ^ Int.toString(locn))
@@ -320,7 +277,7 @@ struct
    (* An iterator over the pseudo stack. Returns only entries which are not nil,
       but it will return entries whose use counts have gone to zero, but which
       still have useful values in their caches. *)
-  fun overStack table downwards =
+  fun overStack (table as Ttab{pstackptr, ...}) downwards =
     if downwards
     then let
       (* The basis is an index to the stack *)
@@ -344,7 +301,7 @@ struct
              next     = fn () => mkIter (next i)
           };
     in
-      mkIter (next ((pstackVal table)))
+      mkIter (next (! pstackptr))
     end
 
     else let (* upwards *)
@@ -352,7 +309,7 @@ struct
       let
         val nxt = i + 1;
       in 
-        if nxt >= (pstackVal table)
+        if nxt >= (! pstackptr)
           then nxt
         else 
           case (pstackEntry(table, nxt)) of
@@ -363,7 +320,7 @@ struct
               nxt
       end;
   
-      fun mkIter i = Iter { continue = i < (pstackVal table),
+      fun mkIter i = Iter { continue = i < (! pstackptr),
                             value    = fn () => i,
                             next     = fn () => mkIter (next i) };
     in
@@ -445,45 +402,46 @@ struct
         outStream prettyInstrs
     end
 
-    fun printStack (table as Ttab {printStream, ...}, why, recentInstrs) =
+    fun printStack (table as Ttab {printStream, realstackptr=ref realstackVal, pstackptr, marker, regset, ...},
+                    why, recentInstrs) =
     ( 
         printStream ("\n" ^ why ^"\n");
         printInstrs(table, recentInstrs);
         printStream "psp=";
-        printStream(Int.toString((pstackVal table)));
+        printStream(Int.toString(! pstackptr));
         printStream " lim=";
-        printStream(Int.toString((markerVal table)));
+        printStream(Int.toString(!marker));
         printStream " rsp="; 
-        printStream (Int.toString(realstackVal table));
+        printStream (Int.toString realstackVal);
         printStream "\n";
         printStream "regs=";
-        printRegs printStream (regset table);
+        printRegs printStream regset;
         printStream "\n";
         for (overStack table true (* downwards *))
             (fn entry => printEntry printStream (pstackEntry(table, entry)) entry)
     )
   
-  (* Removes empty entries from the top of the stack. *)
-  fun clearOff table =
-  let
-    val newIndex = (pstackVal table) - 1
-  in
-    if newIndex >= (markerVal table)
-     then
-       case pstackEntry(table, newIndex) of
-         NoStackEntry => 
-           (
-             pstackptr table := newIndex;
-             clearOff table 
-           )
-       | StackEntry _ => ()
-     else ()
-  end;  (* clearOff *)
+    (* Removes empty entries from the top of the stack. *)
+    fun clearOff(table as Ttab{pstackptr, marker, ...}) =
+    let
+        val newIndex = ! pstackptr - 1
+    in
+        if newIndex >= ! marker
+        then
+        case pstackEntry(table, newIndex) of
+            NoStackEntry => 
+            (
+                pstackptr := newIndex;
+                clearOff table 
+            )
+        |   StackEntry _ => ()
+        else ()
+    end  (* clearOff *)
 
   (* Removes an entry which is no longer required. If the entry is cached it *)
   (* may be retained unless it refers to the stack or another register when  *)
   (* it MUST be removed. *)
-  fun removeEntry (table as Ttab{pstack, ...}) entry keepIfCache =
+  fun removeEntry (table as Ttab{pstack, regset, ...}) entry keepIfCache =
     case pstackEntry(table, entry) of
       NoStackEntry => () 
        (* now handles this case, so we don't have to check 
@@ -505,7 +463,7 @@ struct
                       | _          => false)
                 then (* Clear cache. *)
                 (
-                    List.app (free (regset table)) (setToList cache);
+                    List.app (free regset) (setToList cache);
                     noRegisters
                 )
                 else (* Retain cache value. *) cache;
@@ -514,11 +472,11 @@ struct
             then (* If the cache is (now) empty we can remove the entry completely. *)
             ( 
              (* clobber the entry. *)
-              stretchUpdate (pstack, entry, NoStackEntry);
+              StretchArray.update (pstack, entry, NoStackEntry);
               
               case stacken of
-                Register reg       => free (regset table) reg
-              | Direct {base, ...} => free (regset table) base
+                Register reg       => free regset reg
+              | Direct {base, ...} => free regset base
               | Container l        => List.app (fn i => incrUseCount(table, i, ~1)) l
               | _                  => ()
               ;
@@ -528,7 +486,7 @@ struct
             )
          
           (* otherwise we just leave the entry there. *)
-          else stretchUpdate (pstack, entry,
+          else StretchArray.update (pstack, entry,
                 StackEntry { ent = stacken, cache = cacheRegs, uses = 0, destStack = NONE, lifeTime=lifeTime })
         end (* end removeEntry *)
 
@@ -544,7 +502,7 @@ struct
         if newUses <=  0
         then removeEntry table entry true
         else 
-          stretchUpdate (pstack, entry,
+          StretchArray.update (pstack, entry,
             StackEntry {ent=ent, cache=cache, uses=newUses, destStack=destStack, lifeTime=lifeTime})
       end
 
@@ -552,7 +510,7 @@ struct
         case pstackEntry(table, entry) of
             NoStackEntry => raise InternalError ("setLifetime: no entry " ^ Int.toString(entry))
         |   StackEntry {ent, cache, uses, destStack, ...} =>
-                stretchUpdate (pstack, entry,
+                StretchArray.update (pstack, entry,
                     StackEntry {ent=ent, cache=cache, uses=uses, destStack=destStack, lifeTime=life})
                 
 
@@ -566,32 +524,32 @@ struct
 
 
     (* Push a value on the stack and return its location. *)
-    fun pushPstack (table as Ttab{pstack, pstackTrace, ...}) entry name =
+    fun pushPstack (table as Ttab{pstack, pstackTrace, pstackptr, ...}) entry name =
     let
-        val stacktop = pstackVal table;
+        val stacktop = ! pstackptr;
         val psp      = stacktop;
         val destStack =
             case entry of
                 StackW addr => SOME addr
             |   _ => NONE
     in
-        stretchUpdate (pstack, psp,
+        StretchArray.update (pstack, psp,
             StackEntry {ent=entry, cache=noRegisters, uses=1, destStack=destStack, lifeTime=0});
-        pstackptr table := stacktop + 1;
+        pstackptr := stacktop + 1;
         if pstackTrace then printStack(table, name, []) else ();
         stacktop
     end
 
 
     (* Push a value onto the real stack. *)
-    fun incsp table =
+    fun incsp(table as Ttab{maxstack, realstackptr, ...}) =
     let
-        val stackaddr = realstackVal table
+        val stackaddr = ! realstackptr
     in
-        realstackptr table := realstackVal table + 1;
+        realstackptr := ! realstackptr + 1;
     
-        if realstackVal table > maxstackVal table
-        then maxstack table := realstackVal table
+        if ! realstackptr > ! maxstack
+        then maxstack := ! realstackptr
         else ();
     
         pushPstack table (StackW stackaddr) "incsp"
@@ -610,7 +568,7 @@ struct
   fun pushCodeRef (table, rf : code) : stackIndex =
     pushPstack table (CodeRef rf) "pushCodeRef";
 
-  fun addRegUse (table, reg) : unit = incr (regset table) reg;
+    fun addRegUse (Ttab{regset, ...}, reg) = incr regset reg
 
   (* If we load a value into the last available register and then need to
      load another value (e.g. a second argument), it is possible for the
@@ -626,19 +584,19 @@ struct
      if pstackTrace then printStack(table, "lockRegister:"^regRepr reg, []) else ()
    end;
 
-   fun unlockRegister (table as Ttab{pstackTrace, ...}, reg) : unit =
+   fun unlockRegister (table as Ttab{pstackTrace, regset, ...}, reg) : unit =
    let
-     val () = free (regset table) reg;
+     val () = free regset reg
    in
      if pstackTrace then printStack(table, "unlockRegister:"^regRepr reg, []) else ()
    end;
 
     (* Puts a value in the real stack onto the pseudo-stack.
        Used for references to arguments that have not been passed in registers. *)
-    fun pushStack (table, addr : int) : stackIndex =
+    fun pushStack (table as Ttab{pstackptr, ...}, addr : int) : stackIndex =
     let (* Enter it only if it is not already there. *)
         fun search s =
-        if s >= pstackVal table
+        if s >= ! pstackptr
         then pushPstack table (StackW addr) "pushStack"
         
         else 
@@ -653,7 +611,7 @@ struct
         search first
     end
 
-    fun clearCacheEntry(table as Ttab{pstack, ...}, regSet, entry) =
+    fun clearCacheEntry(table as Ttab{pstack, regset, ...}, regSet, entry) =
         case pstackEntry(table, entry) of
             NoStackEntry => ()
       
@@ -679,15 +637,15 @@ struct
                 then removeEntry table entry false
                 else
                 (
-                    List.app(free (regset table)) (setToList remove);
-                    stretchUpdate (pstack, entry,
+                    List.app(free regset) (setToList remove);
+                    StretchArray.update (pstack, entry,
                         StackEntry {ent = stacken, cache=keep, uses=uses,
                                     destStack=destStack, lifeTime=lifeTime})
                 )
             end
 
     (* Remove registers from the cache. *)
-    fun removeFromCache (table as Ttab{pstackTrace, ...}, regSet, continue: unit -> bool) =
+    fun removeFromCache (table as Ttab{pstackTrace, pstackptr, ...}, regSet, continue: unit -> bool) =
     let
         fun clear (entry: stackIndex, limit: stackIndex) =
         if entry < limit
@@ -698,7 +656,7 @@ struct
         )
         else ()
     in
-        clear (first, pstackVal table);
+        clear (first, ! pstackptr);
         if pstackTrace then printStack(table, "removeFromCache"^regSetRepr regSet, []) else () 
     end;
 
@@ -713,15 +671,11 @@ struct
         incrUseCount(table, index, ~1)
 
     (* Reset the real stack stack pointer after a function call. *)
-    fun decsp (table as Ttab{pstackTrace, ...}, args) = 
+    fun decsp (table as Ttab{pstackTrace, realstackptr, ...}, args) = 
     (
-        realstackptr table := realstackVal table - args;
+        realstackptr := ! realstackptr - args;
         if pstackTrace then printStack(table, "decsp", []) else () 
-    );
-
-    (* Returns the pstack offset for a particular declaration number. *)
-    fun pstackForDec (table, locn) : stackIndex = 
-        stretchSub (decToPstack table, locn);
+    )
 
     (* Register to register move. *)
     fun moveRR(rs, rd) = moveOp{source=InRegister rs, output=rd};
@@ -732,15 +686,16 @@ struct
        either to clear all registers or just to free a particular one.
        `loadIfPoss' is true if it is sufficient to move the entry to
        another register. *)
-    fun pushRegisters (table as Ttab{pstack, pstackTrace, ...}, setToFree, selectEntry, loadIfPoss, dontCache) =
+    fun pushRegisters (table as Ttab{pstack, pstackTrace, maxstack, realstackptr, pstackptr, regset, ...},
+                       setToFree, selectEntry, loadIfPoss, dontCache) =
     let
-        fun freeSet rset = List.app (free (regset table)) (setToList rset)
+        fun freeSet rset = List.app (free regset) (setToList rset)
 
         (* Sort the items by the longest lifetime first.  The idea is to push items with a
            longer time to go before those with shorter lifetimes. *)
         local
             fun enumerate(n, l) =
-                if n >= pstackVal table
+                if n >= ! pstackptr
                 then l
                 else case pstackEntry(table, n) of
                     StackEntry{lifeTime, ent=Direct _, ...} => enumerate(n+1, (lifeTime, n) :: l)
@@ -781,22 +736,22 @@ struct
                             then pushToStack(InRegister(oneOf(regSetIntersect(cacheReg, generalRegisters))))
                             else pushToStack(BaseOffset(base, offset))
                   
-                        val () = free (regset table) base
+                        val () = free regset base
                         val newCache =
                             if dontCache then (freeSet cacheReg; noRegisters) else cacheReg
                   
                         (* Overwrite this entry with a reference to the stack. *)
-                        val stackAddr = realstackVal table
+                        val stackAddr = ! realstackptr
                     
                         val () = 
-                            stretchUpdate (pstack, entry,
+                            StretchArray.update (pstack, entry,
                                 StackEntry{ent=StackW stackAddr, cache=newCache, uses=uses,
                                            destStack=SOME stackAddr, lifeTime=lifeTime})
                     in  
-                        realstackptr table := realstackVal table + 1;
+                        realstackptr := ! realstackptr + 1;
                     
-                        if realstackVal table > maxstackVal table
-                        then maxstack table := realstackVal table
+                        if ! realstackptr > !maxstack
+                        then maxstack := ! realstackptr
                         else ();
                         pushInstr @ alignInstrs
                     end;
@@ -804,7 +759,7 @@ struct
                     fun saveDirectInReg destReg =
                     let
                         (* Free the base register. *)
-                        val () = free (regset table) base
+                        val () = free regset base
                         (* Free all cache registers except the destination, if it's in there. *)
                         val () = freeSet(regSetMinus(cacheReg, singleton destReg))
 
@@ -819,7 +774,7 @@ struct
                     in
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
-                        stretchUpdate (pstack, entry,
+                        StretchArray.update (pstack, entry,
                                 StackEntry{ent=Register destReg, cache=noRegisters, uses=uses,
                                            destStack=destStack, lifeTime=lifeTime});
                         loadInstrs
@@ -833,7 +788,7 @@ struct
                     (* It's cached in an acceptable register i.e. one NOT in setToFree. *)
                     then saveDirectInReg(oneOf(regSetMinus(cacheReg, setToFree)))
                     else (* Is there an acceptable register free?  If so load it into that. *)
-                        case getAcceptableRegister (regset table, regSetMinus(generalRegisters, setToFree)) of
+                        case getAcceptableRegister (regset, regSetMinus(generalRegisters, setToFree)) of
                             SOME destReg => saveDirectInReg destReg
                         |   NONE => saveDirectOnStack ()
                 end
@@ -856,17 +811,17 @@ struct
                             if dontCache
                             then (freeSet(regSetUnion(cacheReg, singleton reg)); noRegisters)
                             else regSetUnion(cacheReg, singleton reg)
-                        val stackAddr = realstackVal table
+                        val stackAddr = ! realstackptr
                     in
                         (* Overwrite this entry with a reference to the stack. *)
-                        stretchUpdate (pstack, entry,
+                        StretchArray.update (pstack, entry,
                             StackEntry {ent=StackW stackAddr, cache=newCache, uses=uses,
                                         destStack=SOME stackAddr, lifeTime=lifeTime});
 
-                        realstackptr table := realstackVal table + 1;
+                        realstackptr := ! realstackptr + 1;
                     
-                        if realstackVal table > maxstackVal table
-                        then maxstack table := realstackVal table
+                        if ! realstackptr > ! maxstack
+                        then maxstack := ! realstackptr
                         else ();
 
                         pushInstr @ alignInstrs
@@ -878,7 +833,7 @@ struct
                     fun saveRegInReg destReg =
                     let
                         fun regChanged entry =
-                        if entry < pstackVal table
+                        if entry < ! pstackptr
                         then
                         (
                             case pstackEntry(table, entry) of
@@ -887,9 +842,9 @@ struct
                                     then
                                     ( (* Decrement the use count for the source reg 
                                          and increment it for the destination. *)
-                                        free (regset table) reg;
+                                        free regset reg;
                                         addRegUse (table, destReg);
-                                        stretchUpdate (pstack, entry,
+                                        StretchArray.update (pstack, entry,
                                             StackEntry {ent = Direct {base = destReg, offset = offset},
                                                 cache=cache, uses=uses, destStack=destStack, lifeTime=lifeTime})
                                     )
@@ -902,7 +857,7 @@ struct
                         else ();
 
                         (* Free this register *)
-                        val () = free (regset table) reg
+                        val () = free regset reg
                         (* Free all cache registers except the destination, if it's in there. *)
                         val () = freeSet(regSetMinus(cacheReg, singleton destReg))
                 
@@ -915,7 +870,7 @@ struct
 
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
-                        stretchUpdate (pstack, entry,
+                        StretchArray.update (pstack, entry,
                             StackEntry {ent = Register destReg, cache=noRegisters, uses=uses,
                                         destStack=destStack, lifeTime=lifeTime});
                         moveInstrs
@@ -934,7 +889,7 @@ struct
                             if inSet(reg, floatingPtRegisters)
                             then floatingPtRegisters else generalRegisters
                     in
-                        case getAcceptableRegister (regset table, regSetMinus(prefSet, setToFree)) of
+                        case getAcceptableRegister (regset, regSetMinus(prefSet, setToFree)) of
                                 SOME destReg => saveRegInReg destReg
                             |   NONE =>saveRegOnStack ()
                     end
@@ -952,11 +907,11 @@ struct
         code
     end
 
-    and pushAnyEntryAtCurrentSP table: (bool * operation list) =
+    and pushAnyEntryAtCurrentSP(table as Ttab{realstackptr, ...}): (bool * operation list) =
     (* Check that the next stack location is not the destination of an entry
        which has not yet been pushed and pushes it if it is. *)
     let
-        val currentSp = realstackVal table
+        val currentSp = ! realstackptr
         fun selectEntry addr =
             case pstackEntry(table, addr) of
                 NoStackEntry => raise InternalError "pushAnyEntryAtCurrentSP: no entry"
@@ -979,10 +934,10 @@ struct
             pushRegisters(table, allRegisters (* Any register *), selectEntry, false, false)
     in
         (* Return true if the stack pointer has changed. *)
-        (realstackVal table <> currentSp, pushInstrs)
+        (! realstackptr <> currentSp, pushInstrs)
     end
 
-    and alignStack (table, previous, NONE) = (* Can use any offset. *)
+    and alignStack (table as Ttab{realstackptr, pstackptr, ...}, previous, NONE) = (* Can use any offset. *)
          (* There is a problem when we have gaps where we have
             reserved addresses which are not consecutive.
             This can arise if we have something like:
@@ -1015,18 +970,18 @@ struct
             |   StackEntry {destStack=SOME destStack, ...} => Int.max(destStack+1, i)
             |   _ => i
         val newAddr =
-            revfoldIndDownTo(minReserved, realstackVal table, (pstackVal table) - 1, first)
+            revfoldIndDownTo(minReserved, ! realstackptr, ! pstackptr - 1, first)
     in
         alignStack (table, previous, SOME newAddr)
     end
-    | alignStack (table, previous, destAddr as SOME addr) = (* Can use any offset. *)
+    | alignStack (table as Ttab{realstackptr, ...}, previous, destAddr as SOME addr) = (* Can use any offset. *)
     (* We have an explicit offset *)
     (
-        if addr < realstackVal table
+        if addr < ! realstackptr
         then raise InternalError "pushRegisters: unpushed register"
         else ();
 
-        if addr = realstackVal table
+        if addr = ! realstackptr
         then previous (* Got there. *)
         else
         let
@@ -1036,7 +991,7 @@ struct
                 if pushIt then pushInstrs @ previous
                 else (* Push any register simply to align the stack. *)
                 (
-                    realstackptr table := realstackVal table + 1;
+                    realstackptr := ! realstackptr + 1;
                     pushToStack(InRegister (regN 0)) @ pushInstrs @ previous
                 )
         in
@@ -1053,16 +1008,16 @@ struct
     (* Used particularly before procedure calls where we want to ensure
      that anything in a register is pushed onto the stack unless its
      last reference is in the call itself.  Also used before a handler. *)
-    fun pushAllBut (table as Ttab{pstack, ...}, but, pushTheseRegs) =
+    fun pushAllBut (table as Ttab{pstack, pstackptr, ...}, but, pushTheseRegs) =
     let
-        val useTab = stretchArray (initStack, 0);
+        val useTab = Array.array(!pstackptr, 0)
     in
         but
          (fn addr => 
           let
                 val ind = addr
           in
-                stretchUpdate (useTab, ind, stretchSub (useTab, ind) + 1)
+                Array.update (useTab, ind, Array.sub (useTab, ind) + 1)
           end);
 
         pushRegisters(table,
@@ -1075,7 +1030,7 @@ struct
                         raise InternalError "pushAllBut: no entry"
              
                 |   StackEntry {uses, destStack, ent, cache, lifeTime} =>
-                        if uses > stretchSub (useTab, addr)
+                        if uses > Array.sub (useTab, addr)
                         then true
                         else
                         (
@@ -1086,7 +1041,7 @@ struct
                             case destStack of
                                 NONE => ()
                             |   SOME _ =>
-                                    stretchUpdate (pstack, addr,
+                                    StretchArray.update (pstack, addr,
                                         StackEntry {ent=ent, cache=cache, uses=uses, destStack=NONE, lifeTime=lifeTime});
                             false
                         ),
@@ -1096,7 +1051,7 @@ struct
   (* Ensures that all values which need to be preserved across a function
      call are pushed onto the stack or are in registers that will not
      be modified. *)
-    fun pushNonArguments (table as Ttab{pstack, ...}, args, pushTheseRegs) : (reg list * operation list) =
+    fun pushNonArguments (table as Ttab{pstack, pstackptr, ...}, args, pushTheseRegs) : (reg list * operation list) =
     let
 
         fun checkAddress [] _ = false
@@ -1108,7 +1063,7 @@ struct
            pushing the arguments.  Actually I'm not sure this achieves what
            we want. *)
         fun getRegisterList entry regs =
-        if entry < pstackVal table
+        if entry < ! pstackptr
         then if onList entry (* Is it an argument? *)
         then (* Ignore this. *) getRegisterList (entry + 1) regs
         else
@@ -1151,7 +1106,7 @@ struct
                                    but it shouldn't do any harm. *)
                                 case destStack of NONE => ()
                                 |   SOME _ =>
-                                        stretchUpdate (pstack, addr,
+                                        StretchArray.update (pstack, addr,
                                             StackEntry {ent=ent, cache=cache, uses=uses,
                                                         destStack=NONE, lifeTime=lifeTime });
                                 false
@@ -1199,14 +1154,14 @@ struct
   (* Sets the pseudo stack into a state to which it can be restored later.
      It is used when there are conditional branches to ensure that the state
      is the same if the branch falls through or is taken. *)
-    fun saveState (table as Ttab{pstackTrace, printStream, ...}) : savedState =
+    fun saveState (table as Ttab{pstackTrace, printStream, realstackptr, pstackptr, ...}) : savedState =
     let
-        val maxIndex  = (pstackVal table);
+        val maxIndex  = ! pstackptr
     
         val state =
             { 
-              pStackPtr    = pstackVal table, 
-              realStackPtr = realstackVal table,
+              pStackPtr    = ! pstackptr, 
+              realStackPtr = ! realstackptr,
               pStack       = Vector.tabulate(maxIndex, fn n => pstackEntry(table, n))
             }
     in
@@ -1216,9 +1171,9 @@ struct
 
 
     (* Extract one of the acceptable registers. *)
-    fun getRegisterInSet(table as Ttab{pstackTrace, ...}, rSet) : reg * operation list =
+    fun getRegisterInSet(table as Ttab{pstackTrace, regset, ...}, rSet) : reg * operation list =
     let
-        fun getReg() = getAcceptableRegister(regset table, rSet)
+        fun getReg() = getAcceptableRegister(regset, rSet)
         (* First see if there is one free and grab that. *)
         val rAndCode =
             case getReg () of
@@ -1233,7 +1188,7 @@ struct
                        registers where pushing values to the stack involves allocating
                        memory. *) 
                     fun untilSomethingFree () =
-                        case getReg () of NONE => true | SOME r => (free (regset table) r; false)
+                        case getReg () of NONE => true | SOME r => (free regset r; false)
                     val () = removeFromCache(table, rSet, untilSomethingFree)
                 in
                     case getReg () of
@@ -1272,9 +1227,10 @@ struct
      spill a register after, say, pushing one parameter and while computing
      another, we must reload any spilled values and set the real stack pointer
      correctly before continuing. *)
-    fun resetButReload (table as Ttab{pstack, pstackTrace, ...}, stackOffset) : operation list =
+    fun resetButReload (
+            table as Ttab{pstack, pstackTrace, realstackptr, pstackptr, regset, ...}, stackOffset) : operation list =
     let
-        val oldSp = realstackVal table;
+        val oldSp = ! realstackptr
     
         (* Load any values above "stackOffset". *)
         fun loadEntries(entry, otherCode): operation list =
@@ -1296,17 +1252,17 @@ struct
                                 else
                                     let
                                         val (reg, code) = getAnyRegister table
-                                        val stackOffset = (addr - realstackVal table + 1) * ~wordSize
+                                        val stackOffset = (addr - ! realstackptr + 1) * ~wordSize
                                         val fullCode =
                                             moveOp{source=BaseOffset(regStackPtr, stackOffset), output=reg} @ code
                                     in
                                         (reg, fullCode)
                                     end;
                             (* Free all cache registers except the destination, if it's in there. *)
-                            val () = List.app (free (regset table))
+                            val () = List.app (free regset)
                                         (setToList(regSetMinus(cache, singleton reg)))
                         in (* Clear out the cache and overwrite this entry with a reference to the register. *)
-                            stretchUpdate (pstack, entry,
+                            StretchArray.update (pstack, entry,
                                 StackEntry {ent = Register reg, cache=noRegisters, uses=uses,
                                             destStack=NONE, lifeTime=lifeTime});
                             regCode
@@ -1318,27 +1274,27 @@ struct
                 loadEntries (entry - 1, thisCode @ otherCode)
             end (* loadEntries *);
 
-        val loadCode = loadEntries ((pstackVal table) - 1, []);
+        val loadCode = loadEntries ((! pstackptr) - 1, []);
     
          (* If the real stack ptr has changed we must have pushed something,
             so our check has been useless. *)
         val () =
-            if realstackVal table <> oldSp
+            if ! realstackptr <> oldSp
             then raise InternalError "resetButReload: must have pushed something more"
             else ();
 
-        val finalCode = resetStack (realstackVal table - stackOffset) @ loadCode
+        val finalCode = resetStack (! realstackptr - stackOffset) @ loadCode
     in
         (* Now reset the stack pointer. *)
-        realstackptr table := stackOffset;
+        realstackptr := stackOffset;
         if pstackTrace then printStack(table, "resetButReload", finalCode) else ();
         finalCode
     end;
 
-    fun freeRegister (table, reg) : unit = free (regset table) reg;
+    fun freeRegister (Ttab{regset, ...}, reg) : unit = free regset reg
 
     (* Choose a register to be used to hold the result e.g. of a "case". *)
-    fun chooseRegister (table : ttab) : reg option =
+    fun chooseRegister (Ttab{regset, ...}) : reg option =
     let
         fun chooseReg ({vec, ...}:rset) =
         let
@@ -1347,7 +1303,7 @@ struct
             fun next n = if n = 0 then (vecSize - 1) else (n - 1);
       
             fun findFree (i : int) : reg option =
-            if sub (vec, i) = 0 andalso inSet(regN i, generalRegisters)
+            if Array.sub (vec, i) = 0 andalso inSet(regN i, generalRegisters)
             then SOME(regN i)
             else
             let
@@ -1360,7 +1316,7 @@ struct
             findFree nextReg
         end
     in
-        chooseReg (regset table)
+        chooseReg regset
     end
 
     (* Return the set of modified registers for this function. *)
@@ -1379,7 +1335,7 @@ struct
     (* Generates code for an entry on the pseudo-stack. *)
     (* Moves the entry (at locn) into destReg, decrementing the
        use-count for entry. Doesn't push anything new on the pstack. *)
-    fun loadPstackEntry (table as Ttab{pstackTrace, ...}, locn (* Offset on the stack *), destReg) =
+    fun loadPstackEntry (table as Ttab{pstackTrace, realstackptr, ...}, locn (* Offset on the stack *), destReg) =
     let
         val {cache = cacheReg, ent, ...} = pstackRealEntry(table, locn)
         val loadCode =
@@ -1405,7 +1361,7 @@ struct
 
             |   StackW index =>
                 let
-                    val stackOffset = (realstackVal table - index - 1) * wordSize
+                    val stackOffset = (! realstackptr - index - 1) * wordSize
                 in
                     moveOp{source=BaseOffset(regStackPtr, stackOffset), output=destReg}
                 end
@@ -1414,7 +1370,7 @@ struct
                 case pstackRealEntry(table, hd l) of
                     {ent = StackW index, ...} =>
                         let
-                            val stackOffset = (realstackVal table - index -1) * wordSize
+                            val stackOffset = (! realstackptr - index -1) * wordSize
                         in
                             moveOp{source=StackAddress stackOffset, output=destReg}
                         end
@@ -1476,7 +1432,7 @@ struct
                        that the cache does not indicate a register which has been changed. *)
                     val () = 
                         if willTrample
-                        then stretchUpdate (pstack, realLoc,
+                        then StretchArray.update (pstack, realLoc,
                                 StackEntry{ent=stackEntry, cache=regSetMinus(cacheReg, singleton destReg),
                                            uses=uses, destStack=destStack, lifeTime=lifeTime})
                         else addRegUse (table, destReg)
@@ -1528,7 +1484,7 @@ struct
                     then
                     (
                         (* put in the cache and restore use-count. *)
-                        stretchUpdate (pstack, realLoc,
+                        StretchArray.update (pstack, realLoc,
                             StackEntry {ent=ent, cache=regSetUnion(cache, singleton resultReg),
                                         uses=uses, destStack=destStack, lifeTime=lifeTime});
                         addRegUse (table, resultReg);
@@ -1550,8 +1506,8 @@ struct
 
     (* Checks if we are going to overwrite the stack, and loads the entry
        into a register. *)
-    fun loadEntryBeforeOverwriting (table as Ttab{pstack, ...}, offset:int) =
-    if 0 <= offset andalso offset < realstackVal table
+    fun loadEntryBeforeOverwriting (table as Ttab{pstack, realstackptr, pstackptr, regset, ...}, offset:int) =
+    if 0 <= offset andalso offset < ! realstackptr
     then
     let (* May have to reload something. *)
         fun findTheEntry (entry: stackIndex, previousCode) =
@@ -1572,13 +1528,13 @@ struct
                                 else
                                     let
                                         val (reg, regCode) = getAnyRegister table
-                                        val off = (realstackVal table - 1 - addr) * wordSize;
+                                        val off = (! realstackptr - 1 - addr) * wordSize;
                                     in
                                         (reg, moveOp{source=BaseOffset(regStackPtr, off), output=reg} @ regCode)
                                     end;
                   
                             (* Free all cache registers except the destination, if it's in there. *)
-                            val () = List.app (free (regset table))
+                            val () = List.app (free regset)
                                         (setToList(regSetMinus(cache, singleton reg)))
                             val newStackent =
                                 (* Make a new entry with a NEW stack destination.
@@ -1591,7 +1547,7 @@ struct
                         in
                             (* Clear out the cache and overwrite this entry with a
                                reference to the register. *)
-                            stretchUpdate (pstack, entry, newStackent);
+                            StretchArray.update (pstack, entry, newStackent);
                             code
                         end
                         else [] (* not this entry *)
@@ -1601,7 +1557,7 @@ struct
             findTheEntry (entry - 1, thisCode @ previousCode)
         end (*  findTheEntry *) 
     in
-        findTheEntry ((pstackVal table) - 1, [])
+        findTheEntry ((! pstackptr) - 1, [])
     end
     else [] (* end of loadEntryBeforeOverwriting *)
       
@@ -1612,7 +1568,7 @@ struct
        overwriting entries in the argument area, but we may have had to push
        some of the registers while doing the load, so those entries will have
        to be saved. *)
-    fun storeInStack (table, entry, locn) : operation list =
+    fun storeInStack (table as Ttab{maxstack, realstackptr, ...}, entry, locn) : operation list =
     let
         (* Move it to the stack, using a move-immediate if possible. *)
         fun inc x = (x := !x + 1);
@@ -1628,15 +1584,15 @@ struct
             (* N.B. loadEntry may push values onto the stack,
                so we cannot use isPush. *)
             val pushCode =
-                if (realstackVal table) = locn
+                if ! realstackptr = locn
                 then
                 (
-                    inc (realstackptr table);
+                    inc realstackptr;
                     pushToStack(InRegister reg)
                 )
                 else
                 let
-                    val loc = (realstackVal table - locn - 1) * wordSize
+                    val loc = (! realstackptr - locn - 1) * wordSize
                 in
                     storeToMemory{toStore=InRegister reg, offset=loc, base=regStackPtr, index=NONE}
                 end
@@ -1646,7 +1602,7 @@ struct
             pushCode @ loadCode @ code
         end;
 
-        val isPush = (realstackVal table = locn);
+        val isPush = ! realstackptr = locn
 
         val {ent = valEnt, cache = cacheReg, ...} = pstackRealEntry(table, entry);
 
@@ -1662,7 +1618,7 @@ struct
                 in
                     (* Push-immediate. *)
                     incrUseCount (table, entry, ~1);
-                    inc (realstackptr table);
+                    inc realstackptr;
                     pushToStack(LiteralSource lit) @ loadCode
                 end
        
@@ -1670,7 +1626,7 @@ struct
                 then
                 let (* Store immediate. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
-                    val locn = (realstackVal table - locn - 1) * wordSize
+                    val locn = (! realstackptr - locn - 1) * wordSize
                 in
                     (* Remove the entry for the literal. *)
                     incrUseCount (table, entry, ~1);
@@ -1686,7 +1642,7 @@ struct
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
                 in
                     incrUseCount (table, entry, ~1);
-                    inc (realstackptr table);
+                    inc realstackptr;
                     pushToStack(BaseOffset(base, offset)) @ loadCode
                 end
                 else generalStoreInStack ()
@@ -1697,10 +1653,10 @@ struct
                 then
                 let (* Push stack entry. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
-                    val locn     = (realstackVal table - 1 - index) * wordSize;
+                    val locn     = (! realstackptr - 1 - index) * wordSize;
                 in
                     incrUseCount (table, entry, ~1);
-                    inc (realstackptr table);
+                    inc realstackptr;
                     pushToStack(BaseOffset(regStackPtr, locn)) @ loadCode
                 end
           
@@ -1709,8 +1665,8 @@ struct
         |   _ => generalStoreInStack ();
         
     in 
-        if realstackVal table > maxstackVal table
-        then maxstack table := realstackVal table
+        if ! realstackptr > ! maxstack
+        then maxstack := ! realstackptr
         else ();
         code
     end (* storeInStack *);
@@ -1719,12 +1675,12 @@ struct
      real stack and is at the correct position. stackOffset contains the
      stack offset it should have. Primarily used to push arguments to
      procedures. *)
-    fun pushValueToStack (table, entry, stackOffset) : stackIndex * operation list =
+    fun pushValueToStack (table as Ttab{realstackptr, ...}, entry, stackOffset) : stackIndex * operation list =
     let 
         val storeCode = storeInStack (table, entry, stackOffset - 1)
   
         val clearCode = (* Remove any entries above the stack offset we need. *)
-            if realstackVal table > stackOffset
+            if ! realstackptr > stackOffset
             then resetButReload (table, stackOffset)
             else []
   
@@ -1732,7 +1688,7 @@ struct
         val result : stackIndex = pushPstack table (StackW stackAddr) "pushValueToStack";
     in
         (* The stack pointer should now be the required value. *)
-        if realstackVal table <> stackOffset
+        if ! realstackptr <> stackOffset
         then raise InternalError "pushValueToStack: Couldn't push to stack"
         else ();
         (result, clearCode @ storeCode)
@@ -1765,7 +1721,7 @@ struct
     end
     
     (* Generates an indirection on an item on the pseudo-stack. *)
-    fun indirect (wordOffset, entry, table) : stackIndex * operation list =
+    fun indirect (wordOffset, entry, table as Ttab{pstackptr, lowestDirect, ...}) : stackIndex * operation list =
         case pstackRealEntry(table, entry) of
             {ent = Container l, ...} =>
                 (* If we are indirecting off a container we can simply load the entry. *)
@@ -1779,23 +1735,22 @@ struct
                 end
 
         |   {ent = Literal i, ...} =>
-            (* We won't normally get this because it will have been optimised out.
-               The exception is when we have SetContainer with a tuple which is a constant. 
-               For safety we check that we have a valid address here although
-               unlike in findEntryInBlock we should never actually get an invalid one. *)
-            (* Actually, we can, in cases such as val (a,b) = raise ...  where we will
-               do an indirection on the dummyValue put on the pstack to represent the
-               non-existent result of the "raise".  In that case we put in a dummy result
-               of zero. *)
+            (
+                removeStackEntry(table, entry); (* Remove the container entry. *)
+                (* We won't normally get this because it will have been optimised out.
+                   The exception is when we have SetContainer with a tuple which is a constant. 
+                   For safety we check that we have a valid address here although
+                   unlike in findEntryInBlock we should never actually get an invalid one. *)
+                (* Actually, we can, in cases such as val (a,b) = raise ...  where we will
+                   do an indirection on the dummyValue put on the pstack to represent the
+                   non-existent result of the "raise".  In that case we put in a dummy result
+                   of zero. *)
                 if isShort i andalso toShort i = 0w0
                 then (pushConst(table, toMachineWord 0), [])
                 else if isShort i orelse Address.length (toAddress i) <= Word.fromInt wordOffset
                 then raise InternalError "indirect - invalid constant address"
-                else
-                (
-                    removeStackEntry(table, entry); (* Remove the container entry. *)
-                    (pushConst (table, loadWord (toAddress i, toShort wordOffset)), [])
-                )
+                else (pushConst (table, loadWord (toAddress i, toShort wordOffset)), [])
+            )
 
       |  _ =>
             let
@@ -1813,8 +1768,8 @@ struct
                     (* Not there. *)
                     addRegUse (table, topReg);
                     (* If this is below the previous lower limit we need to reset it. *)
-                    if !(lowestDirect table) > (pstackVal table)
-                    then lowestDirect table := pstackVal table
+                    if ! lowestDirect > ! pstackptr
+                    then lowestDirect := ! pstackptr
                     else ();
             
                     pushPstack table (Direct {base = topReg, offset = wordOffset * wordSize}) "indirect"
@@ -1825,7 +1780,7 @@ struct
                     (
                         (* If we found no direct entries below here 
                          then remember this as the first. *)
-                        if not foundD then lowestDirect table := s else ();
+                        if not foundD then lowestDirect := s else ();
               
                         if base = topReg andalso offset = wordOffset * wordSize
                         then (* Found it *)
@@ -1838,7 +1793,7 @@ struct
      
                 |   _ => search (s + 1, max, foundD); (* end search *)
             in
-                (search (! (lowestDirect table), pstackVal table, false), code)
+                (search (! lowestDirect, ! pstackptr, false), code)
             end;
 
     (* Copies an item which is in another procedure, and therefore on a
@@ -1874,9 +1829,7 @@ struct
             end    
        
         | _ => raise InternalError "pushNonLocal: not Literal, CodeRef or Stack"
-    end;
-
-    fun isProcB (table, locn) : bool = stretchSub (isProc table, locn);
+    end
          
     (* Loads a value into a register if it is in the argument area.  Used
      for tail-recursive calls. "storeInStack" checks for overwriting
@@ -1950,8 +1903,10 @@ struct
 
 
     (* Set the state to the saved values. *) 
-    fun setState (save : savedState, table as Ttab{pstack, pstackTrace, printStream, ...},
-                carry, mark, isMerge): mergeResult * operation list =
+    fun setState (save : savedState,
+                  table as
+                    Ttab{pstack, pstackTrace, printStream, exited, pstackptr, realstackptr, regset, ...},
+                  carry, mark, isMerge): mergeResult * operation list =
     let 
         val () = 
           if pstackTrace then printState printStream save "setState" else ()
@@ -1972,13 +1927,13 @@ struct
             This will remove the result register if there is one. *)
         (* TODO: I don't like this.  I think we should explicitly remove it.
            DCJM 30/11/99. *)
-        forIndDownTo(pstackVal table - 1, mark, fn s => removeEntry table s true);
+        forIndDownTo(! pstackptr - 1, mark, fn s => removeEntry table s true);
   
         let
           (* Set up the saved state. Need to set the register set.
              Free the registers from the table. *)
           fun frees s =
-            if s >= pstackVal table
+            if s >= ! pstackptr
             then ()
             else let
               val stacken = pstackEntry(table, s)
@@ -2002,11 +1957,11 @@ struct
           frees first 
         end;
 
-    realstackptr table := realStackPtr save;
+    realstackptr := realStackPtr save;
     
     let
-      val oldPstackptr = pstackVal table;
-      val () = pstackptr table := pStackPtr save;
+      val oldPstackptr = ! pstackptr;
+      val () = pstackptr := pStackPtr save;
 
       (* Go up the entries putting them onto the table from the saved
          state, then come back setting the use-counts where appropriate.
@@ -2025,11 +1980,11 @@ struct
               case pstackEntry(table, s) of
                 NoStackEntry           => (0, NONE)
               | StackEntry {uses, destStack, ...} =>
-                    (uses, if exitedVal table then NONE else destStack)
+                    (uses, if ! exited then NONE else destStack)
               ;
         in
           (* Put the saved entry into the table. *)
-          stretchUpdate (pstack, s, saveEntry);
+          StretchArray.update (pstack, s, saveEntry);
           
           case saveEntry of
             NoStackEntry =>
@@ -2040,15 +1995,15 @@ struct
                 (* Compute the new register set. *)
                 case ent of
                   Register reg => 
-                    incr (regset table) reg
+                    incr regset reg
                 
                 | Direct {base, ...} =>
-                    incr (regset table) base
+                    incr regset base
                 
                 | _ => ()
                 ;
 
-                List.app (incr (regset table)) (setToList cache);
+                List.app (incr regset) (setToList cache);
 
               (* Propagate the destination stack offset information.  If the
                  saved offset is non-negative it must agree with the current
@@ -2060,7 +2015,7 @@ struct
                         then raise InternalError "Different stack destinations"
                         else ()
                 |   (tabDestStack, NONE) =>
-                        stretchUpdate (pstack, s,
+                        StretchArray.update (pstack, s,
                             StackEntry {ent=ent, cache=cache, uses=uses,
                                         destStack=tabDestStack, lifeTime=lifeTime});
               
@@ -2084,7 +2039,7 @@ struct
               then
                   let
                     val currUseCount =
-                      if s >= (pstackVal table) then 0
+                      if s >= (! pstackptr) then 0
                       else 
                         case pstackEntry(table, s) of
                           NoStackEntry           => 0
@@ -2115,20 +2070,20 @@ struct
   end
 
 
-    fun unconditionalBranch (result, table) : labels * operation list =
-    if branchedVal table then (noJump, [])
+    fun unconditionalBranch (result, table as Ttab { branched, ...}) : labels * operation list =
+    if ! branched then (noJump, [])
     else
     let
         val state = saveState table
         val (branchCode, label) = uncondBranch()
     in
-        branched table := true;
+        branched := true;
         (makeLabels(result, label, state), branchCode)
     end;
 
-    fun jumpBack(start, table): operation list =
+    fun jumpBack(start, Ttab { branched, ...}): operation list =
     (
-        branched table := true;
+        branched := true;
         CODECONS.jumpBack{dest=start, addStackCheck=true}
     )
 
@@ -2142,16 +2097,16 @@ struct
     fun makeStackMark (newM: stackIndex) (oldM: stackIndex) = 
     { newMark = newM, oldMark = oldM };
   
-    fun markStack table =
+    fun markStack(Ttab{pstackptr, marker, ...}) =
     let
-        val oldMark = markerVal table;
-        val newMark = pstackVal table;
+        val oldMark = ! marker
+        val newMark = ! pstackptr;
     in
-        marker table := newMark;
+        marker := newMark;
         makeStackMark newMark oldMark
     end;
 
-  fun unmarkStack(table, mark) = marker table := oldMark mark;
+    fun unmarkStack(Ttab{marker, ...}, mark) = marker := oldMark mark
 
   (* mergeState is used when two flows of control merge e.g. at the end of
      the else-part of an if-then-else when the state saved at the end of the
@@ -2171,8 +2126,9 @@ struct
      DCJM 29/6/2000.
      *)
     fun mergeState (save : savedState, savedResult: mergeResult,
-                  table as Ttab{pstack, pstackTrace, printStream, ...}, currentResult: mergeResult, mark)
-                  : bool * mergeResult * operation list =
+                    table as
+                        Ttab{pstack, pstackTrace, printStream, realstackptr, pstackptr, marker, regset, ...},
+                    currentResult: mergeResult, mark) : bool * mergeResult * operation list =
     let
         val needOtherWay = ref false;
 
@@ -2185,7 +2141,7 @@ struct
             ) 
             else ();
         val () =
-            if (markerVal table) <> (newMark mark)
+            if ! marker <> newMark mark
             then raise InternalError "Marker"
             else ();
     
@@ -2226,7 +2182,7 @@ struct
            local to the block since the split and so are no longer required.
            They should normally have been removed as soon as they were no
            longer required.  *)
-        val () = forIndDownTo (pstackVal table - 1, newMark mark, fn s => removeEntry table s true);
+        val () = forIndDownTo (! pstackptr - 1, newMark mark, fn s => removeEntry table s true);
          
         (* First pass: get rid of entries which are no longer required.
               Also propagate stack destination info.  That probably isn't
@@ -2239,7 +2195,7 @@ struct
              from the merged state. The common entries may differ if we
              have had to push some values that were in registers onto the
              real stack. *)
-        val () = forIndDownTo (pstackVal table - 1, first,
+        val () = forIndDownTo (! pstackptr - 1, first,
              fn s =>
                 case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (NoStackEntry, _) => () (* No entry in table. *)
@@ -2292,7 +2248,7 @@ struct
                           else (* We need to retain this entry. *)
                              (
                              if tabDest <> mergedDest
-                             then stretchUpdate (pstack, s,
+                             then StretchArray.update (pstack, s,
                                     StackEntry{ent=tabEnt, cache=tabCache, uses=tabUses,
                                                destStack=mergedDest, lifeTime=lifeTime})
                              else ()
@@ -2323,7 +2279,7 @@ struct
              (* This is the highest used stack location, but we may have a
                 handler above it so we can't necessarily reset the stack
                 to here. *)
-                revfoldIndDownTo(getInUse, 0, (pstackVal table) - 1, first)
+                revfoldIndDownTo(getInUse, 0, (! pstackptr) - 1, first)
 
              (* Examine the saved stack to see those entries which have
                 been pushed in the saved state but not in the current
@@ -2349,7 +2305,7 @@ struct
                         end
                 |   _ => i;
              val minStack =
-                revfoldIndDownTo(getMinStack, realStackPtr save, (pstackVal table) - 1, first)
+                revfoldIndDownTo(getMinStack, realStackPtr save, (! pstackptr) - 1, first)
 
              (* We can reset the stack to the maximum of the entries
                 currently in use and those which need to be pushed or
@@ -2357,12 +2313,12 @@ struct
              val maxStack = Int.max(stackInUse, minStack)
        in
             val resetCode =
-                if maxStack < realstackVal table
+                if maxStack < ! realstackptr
                 then
                 let
-                    val reset = resetStack (realstackVal table - maxStack)
+                    val reset = resetStack (! realstackptr - maxStack)
                 in
-                    realstackptr table := maxStack;
+                    realstackptr := maxStack;
                     reset
                 end
                 else []
@@ -2442,7 +2398,7 @@ struct
                 case (pstackEntry(table, s)) of
                     NoStackEntry => ()
                 |   StackEntry _ => removeEntry table s false;
-                stretchUpdate (pstack, s,
+                StretchArray.update (pstack, s,
                     StackEntry{ent=Register dReg, cache=noRegisters, uses=tabUses,
                                destStack=tabDest, lifeTime=tabLife});
                 dRegCode
@@ -2492,7 +2448,7 @@ struct
              end
             else others
        in
-            val loadRegCode = loadEntries (pstackVal table - 1, [])
+            val loadRegCode = loadEntries (! pstackptr - 1, [])
        end;
 
            (* Final pass: Check to see if we need to do a "reverse merge" i.e.
@@ -2511,8 +2467,8 @@ struct
                                    the saved cache. *)
                                 val keep = regSetIntersect(tabCache, saveCache)
                             in
-                                List.app (free (regset table)) (setToList(regSetMinus(tabCache, keep)));
-                                stretchUpdate (pstack, s,
+                                List.app (free regset) (setToList(regSetMinus(tabCache, keep)));
+                                StretchArray.update (pstack, s,
                                     StackEntry {ent=tabEnt, cache=keep, uses=tabUses,
                                                 destStack=tabDest, lifeTime=lifeTime})
                             end
@@ -2586,7 +2542,7 @@ struct
                         end
                   | _ => ()
         in
-              val () = forIndDownTo (pstackVal table - 1, first, checkEntries)
+              val () = forIndDownTo (! pstackptr - 1, first, checkEntries)
         end;
            (* Last of all, try to align the stack. If the current stack pointer
               is greater than the saved value we must have live values on the
@@ -2595,7 +2551,7 @@ struct
               we just push some dummy values rather than doing a reverse merge.
               I may change this later. *)
         val () =
-            if realStackPtr save < realstackVal table
+            if realStackPtr save < ! realstackptr
             then needOtherWay := true
             else ();
 
@@ -2604,7 +2560,7 @@ struct
             else
             let
                 fun addAlign others =
-                if realStackPtr save <= realstackVal table
+                if realStackPtr save <= ! realstackptr
                 then others
                 else
                 let
@@ -2615,7 +2571,7 @@ struct
                         be better to push a register that wasn't currently
                         saved but this will do for the moment. *)
                     (
-                        realstackptr table := realstackVal table + 1;
+                        realstackptr := ! realstackptr + 1;
                         addAlign(pushToStack(InRegister(regN 0)) @ pushInstrs @ others)
                     )
                 end
@@ -2633,30 +2589,30 @@ struct
     end
 
     (* Fix up a label after an unconditional branch. *)
-    fun fixup (lab, table) : operation list =
-    if not (branchedVal table) then raise InternalError "Not branched"
+    fun fixup (lab, table as Ttab { branched, exited, pstackptr, ...}) : operation list =
+    if not (! branched) then raise InternalError "Not branched"
     else if isEmptyLabel lab then []
     else
     let 
-        val (_, code) = setState (state lab, table, NoMerge, pstackVal table, false)
+        val (_, code) = setState (state lab, table, NoMerge, ! pstackptr, false)
     in
-        branched table := false;
-        exited table := false;
+        branched := false;
+        exited := false;
         forwardJumpLabel{label=labs lab} @ code
     end
     
     local
         (* Fix up a label.  If this follows an unconditional branch we replace the
            existing state with the saved state, otherwise we have to merge in. *)
-        fun mergeLab (lab, table, currentResult: mergeResult, mark) : mergeResult * operation list =
+        fun mergeLab (lab, table as Ttab { branched, exited, ...}, currentResult: mergeResult, mark) =
             if isEmptyLabel lab then (currentResult, [])
-            else if ! (branched table)
+            else if ! branched
             then
             let
                 val (newResult, newCode) = setState (state lab, table, result lab, newMark mark, true);
             in
-                branched table := false;
-                exited table := false;
+                branched := false;
+                exited := false;
                 (newResult, forwardJumpLabel{label=labs lab} @ newCode)
             end
             else
@@ -2672,8 +2628,8 @@ struct
                     (* Have to jump round to get the states the same. *)
                     val (lab1, lab1Code) = unconditionalBranch (mergeRes, table)
                     val (newResult, newCode) = setState (state lab, table, result lab, newMark mark, true)
-                    val () = exited table := false;
-                    val () = branched table := false;
+                    val () = exited := false;
+                    val () = branched := false;
                     val (mergeResult, otherMerge) = (* Merge the other way. *)
                         mergeLab (lab1, table, newResult, mark)
                 in
@@ -2713,11 +2669,11 @@ struct
     type handler = { lab: addrs ref, oldps: stackIndex };
   
     (* Push the address of a handler. *)
-    fun pushAddress (table, offset) : handler * operation list =
+    fun pushAddress (table as Ttab{pstackptr, ...}, offset) : handler * operation list =
     let
         (* This is just after a mark. *)
         val (reg, regCode) = getAnyRegister table
-        val oldps = pstackVal table
+        val oldps = ! pstackptr
         val labelRef = ref addrZero
 
         (* Load the address of the handler into a register. *)
@@ -2733,17 +2689,17 @@ struct
     end;
 
     (* Fixup the address at the start of a handler. *)
-    fun fixupH ({lab, oldps}, oldsp, table) =
+    fun fixupH ({lab, oldps}, oldsp, table as Ttab{branched, exited, pstackptr, realstackptr, ...}) =
     ( 
         clearCache table; (* Don't know the registers here. *)
-        realstackptr table := oldsp;
-        exited table := false;
-        branched table := false;
+        realstackptr := oldsp;
+        exited := false;
+        branched := false;
 
         (* Remove any entries above the old pstack pointer. If the expression
            whose exceptions we are handling contained static-link functions
            there may be entries whose use-counts have not gone to zero. *)
-        forIndDownTo (pstackVal table - 1, oldps,
+        forIndDownTo (! pstackptr - 1, oldps,
             fn (s: stackIndex) => removeEntry table s false);
 
         startHandler{ handlerLab=lab}
@@ -2756,7 +2712,7 @@ struct
     local
         (* We have to re-evaluate this after each action because we may have
            had to push values to the stack that were previously in registers. *)
-        fun argsAsSources(table, args) =
+        fun argsAsSources(table as Ttab{realstackptr, ...}, args) =
         let
             fun argAsSource entry =
             let
@@ -2781,13 +2737,13 @@ struct
                 |   Direct{base, offset} => ActBaseOffset(base, offset)
 
                 |   StackW index =>
-                            ActBaseOffset(regStackPtr, (realstackVal table - 1 - index) * wordSize)
+                            ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
 
                 |   Container l =>
                     (
                         case pstackRealEntry(table, hd l) of
                             {ent = StackW index, ...} =>
-                                 ActStackAddress((realstackVal table - index -1) * wordSize)
+                                 ActStackAddress((! realstackptr - index -1) * wordSize)
                         |   _ => raise InternalError "argAsSource: container entry is not on stack"
                     )
 
@@ -2957,13 +2913,13 @@ struct
         code
     end;
 
-    fun startCase (table, state) : addrs ref * operation list =
+    fun startCase (table as Ttab{branched, exited, pstackptr, ...}, state) : addrs ref * operation list =
     let
-        val (_, code) = setState (state, table, NoMerge, pstackVal table, false);
+        val (_, code) = setState (state, table, NoMerge, ! pstackptr, false);
         val (jumpCode, destLabel) = backJumpLabel()
     in
-        exited table := false;
-        branched table := false;
+        exited := false;
+        branched := false;
         (destLabel, jumpCode @ code)
     end
 
@@ -2989,10 +2945,10 @@ struct
        point we're looping and see whether we need to modify the original state and
        reprocess the loop.  We look for differences in the cache and values that have
        been pushed to the stack. *)
-    fun compareLoopStates(table as Ttab{ ...}, state, argIndexes) =
+    fun compareLoopStates(table as Ttab{ pstackptr, ...}, state, argIndexes) =
     let
         fun processTables(entry, cacheSet, pushList: loopPush list) =
-            if entry = pstackVal table
+            if entry = ! pstackptr
             then (cacheSet, pushList)
             else if List.exists(fn e => entry = e) argIndexes
             then (* It's an argument.  These can be modified in the loop. *)
@@ -3038,53 +2994,31 @@ struct
     end
 
     (* Restore the state if we're reprocessing a loop. *)
-    fun restoreLoopState(table, state, cacheSet, pushes: loopPush list) =
+    fun restoreLoopState(table as Ttab{branched, exited, pstackptr, ...}, state, cacheSet, pushes: loopPush list) =
     let
-        val (_, code) = setState (state, table, NoMerge, pstackVal table, false);
+        val (_, code) = setState (state, table, NoMerge, ! pstackptr, false);
         (* Remove entries from the cache if they've been changed in the loop. *)
         val () = removeFromCache(table, cacheSet, fn () => true);
         (* Push items to the stack that are pushed in the loop.  Don't move them into other
            registers but allow them to be cached. *)
         val pushes = pushRegisters(table, allRegisters, fn e => List.exists(fn e' => e=e') pushes, false, false);
-        val () = exited table := false;
-        val () = branched table := false;
+        val () = exited := false;
+        val () = branched := false;
     in
         pushes @ code
     end
 
     (* These are exported as read-only. *)
-    val maxstack     = maxstackVal;
-    val realstackptr = realstackVal;
-    val haveExited = exitedVal
+    fun maxstack(Ttab{maxstack=ref maxstackVal, ...}) = maxstackVal
+    fun realstackptr(Ttab{realstackptr=ref realstackVal, ...}) = realstackVal
+    fun haveExited(Ttab{exited=ref exitedVal, ...}) = exitedVal
 
     (* This is called when we have either made a tail-recursive call,
      returned from a function or raised an exception. *)
-    fun exiting table =
+    fun exiting(Ttab{branched, exited, ...}) =
     (
-        branched table := true;
-        exited table := true
-    )
-
-    fun localDeclaration(table as Ttab{pstackTrace, printStream, ...}, index, locn, lifeTime, isP) : unit =
-    (
-        stretchUpdate (isProc table, locn, isP);
-        stretchUpdate (decToPstack table, locn, index);
-        (* If the lifetime is zero remove the item. *)
-        if lifeTime = 0
-        then incrUseCount (table, index, ~1)
-        else setLifetime(table, index, lifeTime);
-        if pstackTrace
-        then
-           (
-            printStream "localDeclaration: index=";
-            printStream(Int.toString(index));
-            printStream " locn=";
-            printStream(Int.toString locn);
-            printStream " lifeTime=";
-            printStream(Int.toString lifeTime);
-            printStream "\n"
-            )
-        else ()
+        branched := true;
+        exited := true
     )
 
     (* Put the arguments and closure/static link register onto the pseudo-stack.
@@ -3114,6 +3048,31 @@ struct
         addrInd
     end
     else noIndex
+
+    (* Check that the only item on the stack after the block is the result.
+       We could have removed items and replaced them with something else.
+       We could have pushed values that were previously in registers.
+       This is purely validation and could be removed. *)
+    fun checkBlockResult(table as Ttab{pstackptr, marker, ...}, result) =
+    let
+        fun checkStack entry =
+        if entry = ! pstackptr
+        then ()
+        else
+        (
+            case pstackEntry(table, entry) of
+                NoStackEntry => ()
+            |   StackEntry {uses = 0, ...} => () (* May be a cache entry. *)
+            |   StackEntry _ =>
+                if (case result of NoMerge => true | MergeIndex m => m <> entry)
+                then raise InternalError "checkBlockResult: Entry not removed"
+                else ();
+            checkStack(entry+1)
+        )
+    in
+        checkStack(!marker)
+    end
+
 
     structure Sharing =
     struct

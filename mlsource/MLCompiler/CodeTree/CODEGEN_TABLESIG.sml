@@ -35,7 +35,7 @@ sig
     type operation
     type loopPush
 
-    val ttabCreate: Universal.universal list -> ttab;
+    val ttabCreate: int * Universal.universal list -> ttab
 
     (* Register allocation *)
     val getRegister:    ttab * reg -> operation list;
@@ -77,13 +77,12 @@ sig
     val resetButReload:   ttab * int -> operation list
     val pushValueToStack: ttab * stackIndex * int -> stackIndex * operation list
     val storeInStack:     ttab * stackIndex * int -> operation list
-    val isProcB:          ttab * int -> bool;
-    val realstackptr:     ttab -> int;
-    val maxstack:         ttab -> int;
-    val pstackForDec:     ttab * int -> stackIndex;
-    val localDeclaration: ttab * stackIndex * int * int * bool -> unit
+    val realstackptr:     ttab -> int
+    val maxstack:         ttab -> int
     val parameterInRegister: reg * int * ttab -> stackIndex
-    val incrUseCount:     ttab * stackIndex * int -> unit;
+    val incrUseCount:     ttab * stackIndex * int -> unit
+    
+    val setLifetime:      ttab * stackIndex * int -> unit
 
     type stackMark;
 
@@ -121,6 +120,9 @@ sig
     val startCase : ttab * savedState -> addrs ref * operation list
     val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
     val restoreLoopState: ttab * savedState * regSet * loopPush list -> operation list
+
+    (* Temporary checking that the stack has been emptied. *)
+    val checkBlockResult: ttab * mergeResult -> unit
 
     val chooseRegister : ttab -> reg option
 

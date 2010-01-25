@@ -37,7 +37,7 @@ functor GENERATE_CODE (
 sig
   type codetree
   type machineWord
-  val gencode: codetree * Universal.universal list -> unit -> machineWord;
+  val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
 end =
 
 (*****************************************************************************)
@@ -115,6 +115,7 @@ struct
         argTypes         : argumentType list,
         argLifetimes     : int list,
         resultType       : argumentType,
+        localCount       : int,
         debugSwitches    : Universal.universal list) : operations * int * regSet =
     let
         val numOfArgs = List.length argTypes
@@ -124,12 +125,22 @@ struct
         fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
 
         (* make the translation table *)
-        val transtable = ttabCreate debugSwitches
+        val transtable = ttabCreate(localCount, debugSwitches)
+        (* Map from declaration location to pstack entry. *)
+        val decToPstack  = Array.array (localCount, noIndex)
+        (* Indicates if a declaration location is a static-link function and contains
+           a function to free the static link entries if it is. *)
+        val staticLinkEntries: (unit->unit) option array = Array.array (localCount, NONE)
 
-        fun checkSimpleEntry(Extract _) = ()
-        |   checkSimpleEntry(Indirect{base, ...}) = checkSimpleEntry base
-        |   checkSimpleEntry(Constnt _) = ()
-        |   checkSimpleEntry _ = raise InternalError "bad"
+        fun localDeclaration(index, locn, lifeTime, slRelease) =
+        (
+            Array.update (staticLinkEntries, locn, slRelease);
+            Array.update (decToPstack, locn, index);
+            (* If the lifetime is zero remove the item. *)
+            if lifeTime = 0
+            then incrUseCount (transtable, index, ~1)
+            else setLifetime(transtable, index, lifeTime)
+        )
 
         (* Header code for procedure. *)
 
@@ -141,8 +152,7 @@ struct
                 let
                     (* The return address has already been pushed onto the stack,
                        probably because the normal call sequence does it. *)
-                    val addr = incsp transtable;
-                    val () = incrUseCount (transtable, addr, 1000000);
+                    val addr = incsp transtable
                 in
                     addr
                 end
@@ -151,7 +161,6 @@ struct
                     (* The return address has already been pushed onto the stack,
                        probably because the normal call sequence does it. *)
                     val addr = parameterInRegister(regReturn, 1, transtable)
-                    val () = incrUseCount (transtable, addr, 1000000);
                 in
                     addr
                 end
@@ -271,9 +280,22 @@ struct
         (* positive address - reference to entry on the pstack. *)
         else
         let
-            val resIndex = pstackForDec (transtable, addr)
+            val resIndex = Array.sub(decToPstack, addr)
         in
-            if lastRef then () else incrUseCount(transtable, resIndex, 1);
+            if lastRef
+            then
+                (* Last reference.  When we've finished with this entry it will be discarded.
+                   If this is a statically linked function we discard the closure entries.
+                   This case will only occur in a "kill" entry.  The only real references
+                   to statically linked functions is to call them and that case is handled
+                   in genEval. *)
+            (
+                case Array.sub(staticLinkEntries, addr) of
+                    NONE => ()
+                |   SOME discard => discard()
+            )
+            else (* There's at least one more reference after this. *)
+                incrUseCount(transtable, resIndex, 1);
             (resIndex, [])
         end
 
@@ -296,7 +318,7 @@ struct
          (* locaddr *);
     
         (* For each load of a local in the tree it calls the `add' procedure. *)
-        fun identifyLoads (expList : codetree list, transtable) add =
+        fun identifyLoads expList add =
         let 
             (* Need to identify declarations within the current block.  This was originally
                there because declaration addresses could at one time be reused.  That shouldn't
@@ -320,7 +342,7 @@ struct
                 )
                 else if not (StretchArray.sub (newDecs,locn)) andalso lastRef
                     (* Ignore new declarations. *)
-                then add (pstackForDec (transtable, locn))
+                then add (Array.sub(decToPstack, locn))
                 else ()
 
                (* If discardClosure is true, then we've already zeroed the
@@ -455,21 +477,24 @@ struct
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind, matchFailFn)
           
         | Declar {addr, value, references} =>
-          let
-            val (decl, decCode) = genToStack (value, matchFailFn)
-            val () = codeGenerate(decCode, cvec)
-
-            (* Put the entry for this declaration in the table and set its use-count. *)
-            (* Is it a procedure which can be called with a static link? *)
-            val slProc : bool = 
-              case value of
-                Lambda {makeClosure = false, ...} => true
-              | _ => false;
-              
-            val ()= localDeclaration (transtable, decl, addr, references, slProc);
-          in
-            MergeIndex decl
-          end
+            (
+                case value of
+                    Lambda lam =>
+                    let
+                        fun nextMutual(dec, slRelease) =
+                            localDeclaration (dec, addr, references, slRelease)
+                        val _ = genProc (lam, nextMutual, true, whereto, matchFailFn)
+                    in
+                        ()
+                    end
+                |   _ =>
+                    let
+                        val decl = genToStack (value, matchFailFn)
+                    in
+                        localDeclaration (decl, addr, references, NONE)
+                    end;
+                NoMerge
+            )
 
         | Extract ext =>
             let
@@ -480,33 +505,33 @@ struct
                 then MergeIndex loc
                 else (* If the result is not required discard it.  This is used
                         to remove variables which are not used on this path. *)
-                    (
+                (
                     removeStackEntry(transtable, loc);
                     NoMerge
-                    )
+                )
             end
 
         | Indirect {base, offset} =>
             let
-                val (baseCode, baseC) = genToStack (base, matchFailFn)
+                val baseCode = genToStack (base, matchFailFn)
                 val (index, indCode) = indirect (offset, baseCode, transtable)
-                val () = codeGenerate(indCode @ baseC, cvec)
+                val () = codeGenerate(indCode, cvec)
             in  (* Get the value to be indirected on. *)
                 MergeIndex index
             end
 
-        | Lambda lam =>
-            MergeIndex(genProc (lam, fn _ => (), true, whereto, matchFailFn))
+        | Lambda lam => MergeIndex(genProc (lam, fn _ => (), true, whereto, matchFailFn))
 
-        | Constnt w =>
-            MergeIndex(pushConst (transtable, w))
+        | Constnt w => MergeIndex(pushConst (transtable, w))
 
         | Cond (testPart, thenPart, elsePart) =>
             genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
 
         | Newenv vl =>
             let (* Processes a list of entries. *)
-                fun codeList []    _ =
+                val startMark = markStack transtable
+
+                fun codeList ([], _) =
                 (* Either the list is empty or the previous entry was a 
                    declaration. Generate a value to represent void.empty so
                    that there is something on the stack. *)
@@ -514,26 +539,29 @@ struct
                     then MergeIndex(pushConst (transtable, DummyValue))
                     else NoMerge (* Ignored *)
                 
-                | codeList ((valu as Declar _) :: valus) whereto =
+                | codeList ((valu as Declar _) :: valus, whereto) =
                   (* Declaration. *)
                     (
                         gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
-                        codeList valus whereto
+                        codeList(valus, whereto)
                     )
 
-                |   codeList [valu] whereto =
+                |   codeList ([valu], whereto) =
                         (* Last entry is an expression. *)
                         gencde (valu, true, whereto, tailKind, matchFailFn, loopAddr)
                 
-                |   codeList (valu :: valus) whereto =
+                |   codeList (valu :: valus, whereto) =
                     (* Expression in a sequence. *)
                     (
                         gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
-                        codeList valus whereto
+                        codeList(valus, whereto)
                     )
-          in
-                codeList vl whereto
-          end
+                val resultPosn = codeList(vl, whereto)
+                val () = checkBlockResult(transtable, resultPosn)
+                val () = unmarkStack(transtable, startMark)
+            in
+                resultPosn
+            end
 
         | BeginLoop{loop=body, arguments=args, kills} =>
           let
@@ -556,7 +584,7 @@ struct
                    a register.  We could do better if we are loading the last
                    reference to the initial value in which case we could reuse
                    its location. *)
-                val (index, indexCode) = genToStack(value, matchFailFn)
+                val index = genToStack(value, matchFailFn)
                 (* Put this in a floating point register if it is a floating point value
                    otherwise a fixed point register. *)
                 val prefSet =
@@ -564,7 +592,7 @@ struct
                         GeneralType => RegSet.generalRegisters
                     |   FloatingPtType => RegSet.floatingPtRegisters
                 val (_, decl, decCode) = loadEntryToSet(transtable, index, prefSet, true)
-                val () = codeGenerate(decCode @ indexCode, cvec)
+                val () = codeGenerate(decCode, cvec)
                 (* It should not be a static-link function - just check. *) 
                 val _ = 
                   case value of
@@ -572,7 +600,7 @@ struct
                         raise InternalError "LoopArg: static link function"
                   | _ => ()
             in
-                localDeclaration (transtable, decl, addr, references, false);
+                localDeclaration (decl, addr, references, NONE);
                 decl
             end
             |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
@@ -718,13 +746,13 @@ struct
                   we are tracing exceptions. *)
                codeGenerate(pushSpecificEntry (transtable, returnAddress), cvec);
                
-            val (excVal, excCode) = genToStack (exp, matchFailFn);
+            val excVal = genToStack (exp, matchFailFn);
             
             val (resultIndex, resultCode) = 
                loadToSpecificReg (transtable, resultReg ArgGeneral, excVal, true);
 
           in
-            codeGenerate(raiseException @ resultCode @ excCode, cvec);
+            codeGenerate(raiseException @ resultCode, cvec);
             
             removeStackEntry(transtable, resultIndex);
             
@@ -744,7 +772,7 @@ struct
           (* i.e. Push all registers except those whose last use occurs in the expression
              we're handling or in the set of exceptions we're catching. *) 
           val () = 
-            codeGenerate(pushAllBut (transtable, identifyLoads (exp :: taglist, transtable), allRegisters), cvec);
+            codeGenerate(pushAllBut (transtable, identifyLoads (exp :: taglist), allRegisters), cvec);
           (* It's not clear what registers will be modified as a result of raising
              and handling an exception.  Many functions may result in exceptions
              being raised and rather than add the registers to the register set of
@@ -774,9 +802,9 @@ struct
     
             (* Push the exception to be caught. Ensure that it is the
                only item added to the stack. *)
-            val (locn, locCode)        = genToStack (tag, matchFailFn)
+            val locn        = genToStack (tag, matchFailFn)
             val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
-            val () = codeGenerate(stackCode @ locCode, cvec)
+            val () = codeGenerate(stackCode, cvec)
     
             (* Now it's on the real stack we can remove it from the pstack. *)
             val ()    = removeStackEntry(transtable, stackLocn);
@@ -923,8 +951,7 @@ struct
                         if useIndexedCase {min=min, max=max, number=numberOfCases, isExhaustive=isExhaustive}
                         then
                         let
-                            val (testValue, testCode) = genToStack (test, matchFailFn)
-                            val () = codeGenerate(testCode, cvec)
+                            val testValue = genToStack (test, matchFailFn)
                             val mark = markStack transtable
      
                             (* Get exclusive use so that
@@ -1072,14 +1099,11 @@ struct
                                                     removeLasts arg
                                                 end
                                             (* Code generate each argument to the pstack. *)
-                                            val argsAndCode =
+                                            val argLocns =
                                                 List.map (fn arg => genToStack (correctedArg arg, matchFailFn)) args
-                                            val argLocns = List.map #1 argsAndCode
-                                            (* Return the code ordered with earlier arguments later in the list. *)
-                                            val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
                                             val (label, testCode) =
                                                 compareAndBranch (argLocns, testType, transtable)
-                                            val () = codeGenerate(testCode @ argCode, cvec)
+                                            val () = codeGenerate(testCode, cvec)
                                         in
                                             label
                                         end
@@ -1120,51 +1144,46 @@ struct
             end      
 
         | MutualDecs dl =>
-          let
-            (* Mutually recursive declarations. For the moment assume
-               that these can only be procedures. Recurse down the list
-               pushing the addresses of the closure vectors or forward
-               references to the code, then unwind the recursion and fill
-               in closures or compile the code. *)
-            fun genMutualDecs []      = ()
-              | genMutualDecs ((Declar{value=dec, addr, references, ...})::ds) =
-              (
-                case dec of
-                    Lambda (lam as { makeClosure,...}) =>
-                  let
-                  val _ =
-                    genProc
-                      (lam,
-                       (* This procedure is called once the closure has been
-                          created but before the entries have been filled in. *) 
-                       fn (r : stackIndex) =>
-                         let
-                           val () = localDeclaration (transtable, r, addr, references, not makeClosure);
-                         in (* Now time to do the other closures. *)
-                            genMutualDecs ds
-                         end,
-                       null ds, (* Last one? *)
-                       NoHint,
-                       matchFailFn)
-                    in
-                      ()
-                    end
-                 | _ =>
-                    let (* should only be constants i.e. procedures already compiled. *)
-                        val (decEntry, decCode) = genToStack (dec, matchFailFn)
-                        val () = codeGenerate(decCode, cvec)
-                        val () = localDeclaration (transtable, decEntry, addr, references, false);
-                    in
-                      genMutualDecs ds
-                    end
-              ) (* genMutualDecs *)
-              | genMutualDecs (_) =
-                raise InternalError "genMutualDecs - Not a declaration";
+            let
+                (* Mutually recursive declarations. For the moment assume
+                   that these can only be procedures. Recurse down the list
+                   pushing the addresses of the closure vectors or forward
+                   references to the code, then unwind the recursion and fill
+                   in closures or compile the code. *)
+                fun genMutualDecs []      = ()
+                |   genMutualDecs ((Declar{value=dec, addr, references, ...})::ds) =
+                (
+                    case dec of
+                        Lambda lam =>
+                        let
+                            (* This procedure is called once the closure has been
+                               created but before the entries have been filled in. *) 
+                            fun nextMutual(r, slEntries) =
+                            let
+                                val () = localDeclaration (r, addr, references, slEntries)
+                            in (* Now time to do the other closures. *)
+                                genMutualDecs ds
+                            end
+                            val _ =
+                                genProc(lam, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
+                        in
+                            ()
+                        end
+                        |   _ =>
+                        let (* should only be constants i.e. procedures already compiled. *)
+                            val decEntry = genToStack (dec, matchFailFn)
+                            val () = localDeclaration (decEntry, addr, references, NONE)
+                        in
+                          genMutualDecs ds
+                        end
+                ) (* genMutualDecs *)
+                | genMutualDecs _ =
+                    raise InternalError "genMutualDecs - Not a declaration";
               
-            val () = genMutualDecs dl;
-          in
-            NoMerge (* Unused. *)
-          end
+                val () = genMutualDecs dl;
+            in
+                NoMerge (* Unused. *)
+            end
 
         | Recconstr reclist =>
             let
@@ -1178,11 +1197,11 @@ struct
                 fun loadSmallVector ([], _) = callgetvec (vecsize, F_words, whereto)
                 |   loadSmallVector (h::t, wordOffset) =
                     let
-                        val (v, valueCode)   = genToStack (h, matchFailFn);
+                        val v = genToStack (h, matchFailFn);
                         val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
                         val moveCode = moveToVec (vec, v, wordOffset, instrStoreW, transtable)
                     in
-                        (vec, moveCode @ vecCode @ valueCode)
+                        (vec, moveCode @ vecCode)
                     end;
                 val (vec, code) = loadSmallVector(reclist, 0)
                 val () = codeGenerate(code, cvec)
@@ -1203,8 +1222,7 @@ struct
         | SetContainer{container, tuple, size} =>
             (* Copy the contents of a tuple into a container. *)
             let
-                val (vec, vecCode) = genToStack (container, matchFailFn);
-                val () = codeGenerate(vecCode, cvec)
+                val vec = genToStack (container, matchFailFn);
             in
                 case tuple of
                     Recconstr cl =>
@@ -1212,8 +1230,7 @@ struct
                     let
                         fun setValue(v, wordOffset) =
                         let
-                            val (entry, entryCode) = genToStack (v, matchFailFn)
-                            val () = codeGenerate(entryCode, cvec)
+                            val entry = genToStack (v, matchFailFn)
                         in
                             (* Move the entry into the container.  Does not affect the
                                use count for the container entry. *)
@@ -1227,8 +1244,7 @@ struct
 
                 |   _ =>
                     let
-                        val (tup, tupCode) = genToStack (tuple, matchFailFn);
-                        val () = codeGenerate(tupCode, cvec)
+                        val tup = genToStack (tuple, matchFailFn);
         
                         fun copy n =
                         if n = size
@@ -1261,9 +1277,9 @@ struct
         | TupleFromContainer(container, size) =>
             (* Create a tuple from the contents of a container. *)
             let
-                val (vec, vecCode) = genToStack (container, matchFailFn);
+                val vec = genToStack (container, matchFailFn);
                 val (tup, tupleCode) = callgetvec (size, F_words, whereto);
-                val () = codeGenerate(tupleCode @ vecCode, cvec)
+                val () = codeGenerate(tupleCode, cvec)
 
                 fun copy n =
                     if n = size
@@ -1304,18 +1320,23 @@ struct
 
         | Global _ =>
             raise InternalError "gencde: can't code-generate Global value";
-    in 
-      result
+    in
+        (* Various cases create results even if they're not required.  Remove them. *)
+        case (result, whereto) of
+            (NoMerge, NoResult) => NoMerge
+        |   (NoMerge, _) => raise InternalError "gencde: Result wanted but none supplied"
+        |   (MergeIndex m, NoResult) => (incrUseCount(transtable, m, ~1); NoMerge)
+        |   (MergeIndex _, _) => result
     end (* gencde *) 
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : codetree, matchFailFn) : stackIndex * operations =
+    and genToStack (pt : codetree, matchFailFn) : stackIndex =
         let
             val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
         in
             case res of
-                MergeIndex index => (index, [])
+                MergeIndex index => index
               | NoMerge => raise InternalError "genToStack: no result"
         end
 (* ...
@@ -1375,230 +1396,216 @@ struct
        not procedure address has been pushed but before the code is generated. 
        `lastDec' is true if there are no more mutually recursive declarations.
     *)
-    and genProc ({ closure=closureList, makeClosure, name=lambdaName,
-                   body=lambdaBody, argTypes, resultType, closureRefs, argLifetimes, ... },
-                 mutualRecursive, lastDec, whereto, matchFailFn) =
+    and genProc ({ closure=closureList, makeClosure, name=lambdaName, body=lambdaBody,
+                   argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
+                 mutualRecursive: stackIndex * (unit->unit) option -> unit, lastDec, whereto, matchFailFn) =
     let
-      fun allConstnt [] = true
-        | allConstnt (Constnt _ :: t) = allConstnt t
-        | allConstnt _ = false;
+        fun allConstnt [] = true
+        |   allConstnt (Constnt _ :: t) = allConstnt t
+        |   allConstnt _ = false;
 
-      (* Finds the nth. item in the closure and returns the entry *)
-      fun findClosure (h::_) 1 = (* found it *) h
-        | findClosure (_::t) n = findClosure t (n - 1) 
-        | findClosure _      _ = raise InternalError "findClosure"
+        (* Finds the nth. item in the closure and returns the entry *)
+        fun findClosure (h::_) 1 = (* found it *) h
+        |   findClosure (_::t) n = findClosure t (n - 1) 
+        |   findClosure _      _ = raise InternalError "findClosure"
         
     in
-      if not makeClosure
-      then let (* static link form *)
-        (* If a procedure can be called by static link references then
-           non-locals can be loaded by following the static chain. The offset
-           is the entry in the (pseudo-)closure as with a procedure that
-           requires a closure, but these can be translated into real stack
-           offsets. A stack value which is loaded into a real or pseudo closure
-           always has that load treated as one reference as far as the use
-           counts are concerned, even though it may be loaded several times
-           in an inner procedure or by different calls. `pushNonLocal' must
-           not decrement the use count so that the stack values remain on the
-           stack to be referenced by the procedure, and are only removed when
-           the containing block is removed. *)
-        val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
+        if not makeClosure
+        then
+        let (* static link form *)
+            (* If a procedure can be called by static link references then
+               non-locals can be loaded by following the static chain. The offset
+               is the entry in the (pseudo-)closure as with a procedure that
+               requires a closure, but these can be translated into real stack
+               offsets. A stack value which is loaded into a real or pseudo closure
+               always has that load treated as one reference as far as the use
+               counts are concerned, even though it may be loaded several times
+               in an inner procedure or by different calls. `pushNonLocal' must
+               not decrement the use count so that the stack values remain on the
+               stack to be referenced by the procedure, and are only removed when
+               the containing block is removed. *)
+            val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
         
-        (* Generates code for non-local references or recursive references. *)
-        fun previous (prevloc, makeSl: unit->stackIndex * operations, newtab): stackIndex * operations =
-        (* Although directly-recursive references do not involve calls to
-          `previous' (the only directly-recursive references are recursive
-          calls and they are dealt with in `loadSl') they may be produced
-          as "kill entries" whose only effect is to indicate that the
-          closure/static-link register is no longer required on a particular
-          flow of control.  DCJM 2/12/99. *)
-        if prevloc = 0 then makeSl()
-        else
-        let
-          (* The closure entry will usually be an Extract, but may have been
-             compiled down to a real constant. This wouldn't happen if earlier
-             phases were better at keeping constants out of closures (but that
-             requires "sophisticated" analysis of mutually recursive
-             declarations). SPF 8/3/96
-             
-             We have to ensure that the constant value gets pushed onto
-             "newtab" NOT "transtable", as otherwise we get very confusing
-             bugs - as I found out the hard way! SPF 12/3/96
-          *)
-          val closureEntry = findClosure closureList prevloc;
-        in
-          case closureEntry of
-            Constnt w =>
-          (* Should we decrement the use count for closureOrSlAddr here?
-             Probably, but I'm not yet absolutely convinced that it's
-             safe, so I'm going to do nothing (carefully). I'll have
-             to come back and look at this again later.
-             SPF 2/5/97
-           *)
-              (pushConst (newtab, w), [])
-              
-          | Extract {fpRel = true, addr = locn, ...} => (* argument or on stack *)
-                if locn < 0 (* argument *)
-                then
-                (
-                    case Vector.sub (argRegTab, numOfArgs + locn) of
-                        ArgInReg regEntry => pushNonLocal (transtable, newtab, regEntry, makeSl)
-                    |   ArgOnStack actualAddr =>
-                        let
-                            val (sl, slCode) = makeSl ()
-                            val (entry, indCode) = indirect (~actualAddr, sl, newtab)
-                        in
-                            (entry, indCode @ slCode)
-                        end
-                )
-                else (* on the stack *)
-                    pushNonLocal (transtable, newtab, pstackForDec (transtable, locn), makeSl)
-     
-          | Extract {fpRel = false, addr = locn, ...} => (* Try the next level *)
+            (* Generates code for non-local references or recursive references. *)
+            fun previous (prevloc, makeSl: unit->stackIndex * operations, newtab): stackIndex * operations =
+            (* Although directly-recursive references do not involve calls to
+              `previous' (the only directly-recursive references are recursive
+              calls and they are dealt with in `loadSl') they may be produced
+              as "kill entries" whose only effect is to indicate that the
+              closure/static-link register is no longer required on a particular
+              flow of control. *)
+            if prevloc = 0 then makeSl()
+            else
+            let
+                (* The closure entry will usually be an Extract, but may have been
+                   compiled down to a real constant. This wouldn't happen if earlier
+                   phases were better at keeping constants out of closures (but that
+                   requires "sophisticated" analysis of mutually recursive declarations). *)
+                val closureEntry = findClosure closureList prevloc;
+            in
+                case closureEntry of
+                    Constnt w => (pushConst (newtab, w), [])
+          
+                |   Extract {fpRel = true, addr = locn, ...} => (* argument or on stack *)
+                    if locn < 0 (* argument *)
+                    then
+                    (
+                        case Vector.sub (argRegTab, numOfArgs + locn) of
+                            ArgInReg regEntry => pushNonLocal (transtable, newtab, regEntry, makeSl)
+                        |   ArgOnStack actualAddr =>
+                            let
+                                val (sl, slCode) = makeSl ()
+                                val (entry, indCode) = indirect (~actualAddr, sl, newtab)
+                            in
+                                (entry, indCode @ slCode)
+                            end
+                    )
+                    else (* on the stack *)
+                        pushNonLocal (transtable, newtab, Array.sub(decToPstack, locn), makeSl)
+ 
+                |   Extract {fpRel = false, addr = locn, ...} => (* Try the next level *)
                         declOnPrevLevel(locn,
                             fn () => pushNonLocal (transtable, newtab, closureOrSlAddr, makeSl),
                             newtab)
-         
-          | _ =>
-             raise InternalError "previous: bad codetree in closure"
-        end;
-
-        (* Returns true if the procedure is to be called with a static link *)
-        fun isSl prevloc =
-          if prevloc = 0 then true (* Recursive call. It's this procedure *)
-          else let (* Not directly recursive. *)
-            val closureEntry = findClosure closureList prevloc;
-          in
-            (* 
-               We may have already compiled a "mutually recursive" function
-               to a constant, if it doesn't actually depend on this one.
-               (This wouldn't occur if the earlier stages were better at
-               removing such fake dependencies.)
-               SPF 8/3/96
-               
-               If the constant is a closure, it doesn't need a static link;
-               if it's a pure code segment, it may do. Is it safe to
-               assume that it does?
-               SPF 10/4/96
-            *)
-            case closureEntry of
-              Constnt (w : machineWord) => isCode (toAddress w)
-
-            | Extract {fpRel = true, addr = correctedLoc, ...} =>
-                correctedLoc > 0 andalso isProcB (transtable, correctedLoc)
-              
-            | Extract {fpRel = false, addr = correctedLoc, ...} =>
-                isStaticLink correctedLoc (* Non-local *)
-            
-            | _ =>
-               raise InternalError "isSl: bad codetree in function closure"
-          end;
-         
-        (* Loads the static link if the procedure is called with one
-           and returns the entry point of the procedure on the stack. *)
-        fun loadSl (0, makeSl, callingTab): stackIndex*stackIndex * operations =
-            let (* Recursive call. *)
-                val (sl, slCode) = makeSl(); (* Push the static link. *)
-                val (closureIndex, loadClosure) =  (* Load into regClosure *)
-                    loadToSpecificReg (callingTab, regClosure, sl, false);
-            in
-                (* And push the address of this procedure as the entry point. *)
-                (pushCodeRef (callingTab, newCode), closureIndex, loadClosure @ slCode)
+     
+                |   _ => raise InternalError "previous: bad codetree in closure"
             end
 
-        | loadSl (prevloc, makeSl, callingTab) = (* Non-recursive. *)
-            case findClosure closureList prevloc of
-                Extract { addr=correctedLoc, fpRel, ...} =>
-                if fpRel
-                then (* On this level *)
-                    let
-                        val (sl, slCode) = makeSl()
-                        val (closureIndex, closureCode) =
-                            (* Load closure/sl register with the static link. *)
-                            loadToSpecificReg (callingTab, regClosure, sl, false)
-                        val (procAddr, prevCode) = (* Get the address of the procedure. *)
-                            previous (prevloc, makeSl, callingTab)
-                    in
-                        (procAddr, closureIndex, prevCode @ closureCode @ slCode)
-                    end
-                else (* Non-local *)
-                    let
-                        val (procAddr, staticLink, code) =
-                            loadStaticLink(correctedLoc,
-                                fn () => pushNonLocal (transtable, callingTab, closureOrSlAddr, makeSl),
-                                callingTab)
-                    in
-                        (procAddr, staticLink, code)
-                    end
-            | _ => raise InternalError "loadSl - closure not extract"
-          (* loadSl *);
+            (* Returns true if the procedure is to be called with a static link *)
+            fun isSl prevloc =
+            if prevloc = 0 then true (* Recursive call. It's this procedure *)
+            else
+            let (* Not directly recursive. *)
+                val closureEntry = findClosure closureList prevloc;
+            in
+                (* We may have already compiled a "mutually recursive" function
+                   to a constant, if it doesn't actually depend on this one.
+                   (This wouldn't occur if the earlier stages were better at
+                   removing such fake dependencies.) *)
+                case closureEntry of
+                    Constnt (w : machineWord) => isCode (toAddress w)
 
-        (* Returns the register set for a static link function. *)
-        fun slRegSet prevloc =
-          if prevloc = 0 then allRegisters (* Recursive call - all registers. *)
-          else let (* Not directly recursive. *)
-            val closureEntry = findClosure closureList prevloc;
-          in
-            case closureEntry of
-              Constnt (w : machineWord) => getRegisterSetForFunction w
-            | Extract {fpRel = true, addr, ...} =>
-                if addr > 0
-                then getFunctionRegSet(pstackForDec (transtable, addr), transtable)
-                else raise InternalError "slRegSet: argument"
-            | Extract {fpRel = false, addr, ...} =>
-                staticLinkRegSet addr (* Non-local *)
-            | _ =>
-               raise InternalError "slRegSet: bad codetree in function closure"
-          end;
-        
-        (* Make sure all the closure values in registers are on the stack,
-           in case they are used as non-locals.  Changed this from the
-           original code which pushed everything. DCJM 30/11/00. *)
-        local
-            fun pushClosure (Extract{fpRel=true, addr, ...}) =
-                (* Local *)
-                if addr < 0
-                then
-                (
-                    case Vector.sub (argRegTab, numOfArgs + addr) of
-                        ArgInReg regEntry => codeGenerate(pushSpecificEntry(transtable, regEntry), cvec)
-                    |   _ => ()
-                )
-                else (* on the stack *)
-                    codeGenerate(pushSpecificEntry(transtable, pstackForDec (transtable, addr)), cvec)
-            |   pushClosure (Extract{fpRel=false, ...}) =
-                    (* Non-local or recursive reference: make sure the closure/static
-                       link pointer is on the stack. *)
-                    if closureLifetime = 0 
-                    then () (* May not have a closure/sl. *)
-                    else codeGenerate(pushSpecificEntry(transtable, closureOrSlAddr), cvec)
-            | pushClosure _ = () (* Constant. *)
-        in
-            val _ = List.app pushClosure closureList
-        end;
+                |   Extract {fpRel = true, addr = correctedLoc, ...} =>
+                        correctedLoc > 0 andalso isSome(Array.sub(staticLinkEntries, correctedLoc))
+              
+                |   Extract {fpRel = false, addr = correctedLoc, ...} =>
+                        isStaticLink correctedLoc (* Non-local *)
+            
+                | _ => raise InternalError "isSl: bad codetree in function closure"
+            end
          
-        (* Push a forward reference to the code in case of mutually
-           recursive references.  This is left as the result for normal
-           references. *)
-        val result = pushCodeRef (transtable, newCode);
-        val () = mutualRecursive result; (* Any recursive references. *)
-        (* Now code-generate the procedure, throwing away the result which
-           will be put into the forward reference. *)
-        val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
-        val (ops, maxStack, regList) = 
-          codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
-                argTypes, argLifetimes, resultType, debugSwitches)
-        val _ = copyCode (newCode, ops, maxStack, regList)
-        (* Note: we could sometimes discard the static link, but it's difficult
-           to work out when this would be safe. That's because it would be unsafe
-           if loadSl were ever called. This is in contrast to the "closure" case below,
-           where loadSl is never called, so we can just check that the immediate closure
-           contains only constants. 
-           SPF 2/5/97
-        *)
-      in
-        result
-      end
+            (* Loads the static link if the procedure is called with one
+               and returns the entry point of the procedure on the stack. *)
+            fun loadSl (0, makeSl, callingTab): stackIndex*stackIndex * operations =
+                let (* Recursive call. *)
+                    val (sl, slCode) = makeSl(); (* Push the static link. *)
+                    val (closureIndex, loadClosure) =  (* Load into regClosure *)
+                        loadToSpecificReg (callingTab, regClosure, sl, false);
+                in
+                    (* And push the address of this procedure as the entry point. *)
+                    (pushCodeRef (callingTab, newCode), closureIndex, loadClosure @ slCode)
+                end
+
+            |   loadSl (prevloc, makeSl, callingTab) = (* Non-recursive. *)
+                case findClosure closureList prevloc of
+                    Extract { addr=correctedLoc, fpRel, ...} =>
+                    if fpRel
+                    then (* On this level *)
+                        let
+                            val (sl, slCode) = makeSl()
+                            val (closureIndex, closureCode) =
+                                (* Load closure/sl register with the static link. *)
+                                loadToSpecificReg (callingTab, regClosure, sl, false)
+                            val (procAddr, prevCode) = (* Get the address of the procedure. *)
+                                previous (prevloc, makeSl, callingTab)
+                        in
+                            (procAddr, closureIndex, prevCode @ closureCode @ slCode)
+                        end
+                    else (* Non-local *)
+                        let
+                            val (procAddr, staticLink, code) =
+                                loadStaticLink(correctedLoc,
+                                    fn () => pushNonLocal (transtable, callingTab, closureOrSlAddr, makeSl),
+                                    callingTab)
+                        in
+                            (procAddr, staticLink, code)
+                        end
+                |   _ => raise InternalError "loadSl - closure not extract"
+
+            (* Returns the register set for a static link function. *)
+            fun slRegSet prevloc =
+            if prevloc = 0 then allRegisters (* Recursive call - all registers. *)
+            else
+            let (* Not directly recursive. *)
+                val closureEntry = findClosure closureList prevloc;
+            in
+                case closureEntry of
+                    Constnt (w : machineWord) => getRegisterSetForFunction w
+                |   Extract {fpRel = true, addr, ...} =>
+                    if addr > 0
+                    then getFunctionRegSet(Array.sub(decToPstack, addr), transtable)
+                    else raise InternalError "slRegSet: argument"
+                |   Extract {fpRel = false, addr, ...} =>
+                    staticLinkRegSet addr (* Non-local *)
+                |   _ => raise InternalError "slRegSet: bad codetree in function closure"
+            end
+        
+            (* Make sure all the closure values in registers are on the stack,
+               in case they are used as non-locals.  Changed this from the
+               original code which pushed everything. *)
+            local
+                fun pushClosure (Extract{fpRel=true, addr, ...}) =
+                    (* Local *)
+                    if addr < 0
+                    then
+                    (
+                        case Vector.sub (argRegTab, numOfArgs + addr) of
+                            ArgInReg regEntry => codeGenerate(pushSpecificEntry(transtable, regEntry), cvec)
+                        |   _ => ()
+                    )
+                    else (* on the stack *)
+                        codeGenerate(pushSpecificEntry(transtable, Array.sub(decToPstack, addr)), cvec)
+                |   pushClosure (Extract{fpRel=false, ...}) =
+                        (* Non-local or recursive reference: make sure the closure/static
+                           link pointer is on the stack. *)
+                        if closureLifetime = 0 
+                        then () (* May not have a closure/sl. *)
+                        else codeGenerate(pushSpecificEntry(transtable, closureOrSlAddr), cvec)
+                | pushClosure _ = () (* Constant. *)
+            in
+                val () = List.app pushClosure closureList
+            end
+
+            (* This function is called when the last reference is found to this function.
+               Loading an entry into the closure counts as one reference but we don't
+               consider any final references at the point when the function is declared
+               because we need the entries to remain until the last call to the function. *)
+            fun releaseClosure () =
+            let
+                fun releaseEntry(Extract(ext as {lastRef=true, ...})) =
+                        incrUseCount(transtable, #1(locaddr ext), ~1)
+                |   releaseEntry _ = ()
+            in
+                List.app releaseEntry closureList
+            end
+
+            (* Push a forward reference to the code in case of mutually
+               recursive references.  This is left as the result for normal
+               references. *)
+            val result = pushCodeRef (transtable, newCode)
+            (* Make this declaration and handle any recursive references. *)
+            val () = mutualRecursive(result, SOME releaseClosure)
+
+            (* Now code-generate the procedure, throwing away the result which
+               will be put into the forward reference. *)
+            val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
+            val (ops, maxStack, regList) = 
+              codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
+                    argTypes, argLifetimes, resultType, localCount, debugSwitches)
+            val _ = copyCode (newCode, ops, maxStack, regList)
+        in
+            result
+        end
      
       (* This is how DCJM optimises self-calls - rather than use
          "previous" to find out-of-scope references, he knows
@@ -1658,12 +1665,12 @@ struct
             codegen (lambdaBody, previous, fn _ => false,
               fn _ => raise InternalError "Not static link",
               fn _ => raise InternalError "Not static link",
-              0, (* Discard regClosure *) argTypes, argLifetimes, resultType, debugSwitches);
+              0, (* Discard regClosure *) argTypes, argLifetimes, resultType, localCount, debugSwitches);
                 
             val closureAddr = copyCode (newCode, ops, maxStack, regList)
             val result = pushConst (transtable, toMachineWord closureAddr);
           
-          val () = mutualRecursive result;
+          val () = mutualRecursive(result, NONE)
         in
           result
         end
@@ -1724,7 +1731,7 @@ struct
           codegen (lambdaBody, previous, fn _ => false,
             fn _ => raise InternalError "Not static link",
             fn _ => raise InternalError "Not static link",
-            closureRefs, argTypes, argLifetimes, resultType, debugSwitches)
+            closureRefs, argTypes, argLifetimes, resultType, localCount, debugSwitches)
 
         val codeAddr = copyCode (newCode, ops, maxStack, regList)
         
@@ -1753,8 +1760,7 @@ struct
 
             | loadItems (h :: t) offset =
               let
-                val (valIndex : stackIndex, valCode) = genToStack (h, matchFailFn);
-                val () = codeGenerate(valCode, cvec)
+                val valIndex = genToStack (h, matchFailFn);
                 val vec = loadItems t (offset + 1)
               in
                 codeGenerate(moveToVec (vec, valIndex, offset, instrStoreW, transtable), cvec);
@@ -1765,7 +1771,7 @@ struct
           
         in
           (* Have to call this mutualRecursive to register the address. *)
-          mutualRecursive vector; 
+          mutualRecursive(vector, NONE); 
           vector
         end
          
@@ -1813,16 +1819,16 @@ struct
             val () = incrUseCount (transtable, vector, 1);
     
               (* Any mutually recursive references. *)
-            val () = mutualRecursive vector;
+            val () = mutualRecursive(vector, NONE)
            
               (* Load items for the closure. *)
             fun loadItems []     _ = ()
             |   loadItems (Constnt _ ::t) addr = loadItems t addr (* constants don't belong in the physical closure *)
             |   loadItems (h::t) addr =
             let
-                val (loadEntry, loadCode) = genToStack (h, matchFailed)
+                val loadEntry = genToStack (h, matchFailed)
                 val moveCode = moveToVec (vector, loadEntry, addr, instrStoreW, transtable)
-                val () = codeGenerate(moveCode @ loadCode, cvec);
+                val () = codeGenerate(moveCode, cvec)
             in
                 loadItems t (addr + 1)
             end;
@@ -1989,13 +1995,10 @@ struct
                 SOME (test, args) =>
                    let (* Generate the instruction and get the direction. *)
                         (* Code generate each argument to the pstack. *)
-                        val argsAndCode =
+                        val argLocns =
                             List.map (fn arg => genToStack (arg, matchFailFn)) args
-                        val argLocns = List.map #1 argsAndCode
-                        (* Return the code ordered with earlier arguments later in the list. *)
-                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
                         val (label, testCode) = compareAndBranch (argLocns, test, transtable)
-                        val () = codeGenerate(testCode @ argCode, cvec)
+                        val () = codeGenerate(testCode, cvec)
                    in
                      label
                    end
@@ -2027,9 +2030,9 @@ struct
                                                 fn (Constnt w) => SOME w | _ => NONE) of
                         SOME (testOp, [arg]) =>
                         let
-                            val (locnOfArg1, arg1Code) = genToStack (arg, matchFailFn);
+                            val locnOfArg1 = genToStack (arg, matchFailFn);
                             val (label, testCode) = compareAndBranch([locnOfArg1], testOp, transtable)
-                            val () = codeGenerate(testCode @ arg1Code, cvec)
+                            val () = codeGenerate(testCode, cvec)
                         in
                             label
                         end
@@ -2231,13 +2234,7 @@ struct
                                         MergeIndex index => index
                                      |  NoMerge => raise InternalError "ldArgs: No result"
                                 end
-                            |   NONE => (* On the stack *)
-                                let
-                                    val (argLocn, argCode) = genToStack (arg, matchFailFn)
-                                    val () = codeGenerate(argCode, cvec)
-                                in
-                                    argLocn
-                                end
+                            |   NONE => (* On the stack *) genToStack (arg, matchFailFn)
                     in
                         if isTail
                         then
@@ -2478,13 +2475,11 @@ struct
                    the procedure is evaluated before the arguments. *)
                 (* In the recursive case the use count for closureOrSlAddr
                    is set by the caller. DCJM 1/12/99. *)
-                val (procLocn, procCode) = 
+                val procLocn = 
                   case clos of
-                    SOME(Constnt _) => (noIndex, []) (* Unused. *)
+                    SOME(Constnt _) => noIndex (* Unused. *)
                   | SOME c          => genToStack (c, matchFailFn) (* the closure *)
-                  | NONE            => (noIndex, [])  (* Unused. *);
-        
-                val () = codeGenerate(procCode, cvec)
+                  | NONE            => noIndex  (* Unused. *);
 
                 local
                     fun loadReg reg addr : stackIndex =
@@ -2562,12 +2557,9 @@ struct
                     SOME(i, args) =>
                     let
                         (* Code generate each argument to the pstack. *)
-                        val argsAndCode = List.map (fn arg => genToStack (arg, matchFailFn)) args
-                        val argLocns = List.map #1 argsAndCode
-                        (* Return the code ordered with earlier arguments later in the list. *)
-                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
+                        val argLocns = List.map (fn arg => genToStack (arg, matchFailFn)) args
                         val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val () = codeGenerate(opCode @ argCode, cvec)
+                        val () = codeGenerate(opCode, cvec)
                     in
                         (* Put in the result. *)
                         case whereto of
@@ -2788,8 +2780,8 @@ struct
                     val staticCall = 
                         if fpRel (* Local or parameter *)
                         then addr > 0 (* If not it must be a parameter - must be closure *)
-                        andalso isProcB (transtable, addr) (* local - look in table *)
-                        else isStaticLink addr;  (* Non-local or recursive. *)
+                        andalso isSome(Array.sub(staticLinkEntries, addr)) (* local - look in table *)
+                        else isStaticLink addr  (* Non-local or recursive. *)
                 in 
                      (* Is this a static link call? *)
                     if staticCall
@@ -2819,7 +2811,7 @@ struct
                         then
                         let
                             (* Load entry point - this must be a local not an argument. *)
-                            val entryPt = pstackForDec (transtable, addr);
+                            val entryPt = Array.sub(decToPstack, addr);
                             (* We have already incremented the reference count when
                                this is not the last reference so we don't need to do
                                anything here.  DCJM 21/12/00. *)
@@ -2861,7 +2853,7 @@ struct
                                 then if addr < 0
                                 then raise InternalError "static link function is an argument"
                                 else regSetUnion(argRegs,
-                                        getFunctionRegSet(pstackForDec (transtable, addr), transtable))
+                                        getFunctionRegSet(Array.sub(decToPstack, addr), transtable))
                                 else (* Non local *) regSetUnion(argRegs, staticLinkRegSet addr)
                         end
                     in
@@ -2873,16 +2865,16 @@ struct
                         (* Set the use count on the static link.  I don't know whether this
                            is needed in all cases so it could result in us incrementing it
                            unnecessarily.  It isn't needed if this function is local.
-                           DCJM 1/12/99. *)
-                        (* Increment the reference on the code if it's local and this is
+                           Increment the reference on the code if it's local and this is
                            not the last reference.  If it's non-local we don't actually
-                           change the reference count when we load it.
-                           DCJM 21/12/00. *)
-                        if lastRef 
-                        then ()
-                        else if fpRel (* It's local. *)
-                        then incrUseCount(transtable, pstackForDec (transtable, addr), 1)
-                        else incrUseCount(transtable, closureOrSlAddr, 1);
+                           change the reference count when we load it. 
+                           If this is the last reference we can decrement the uses on
+                           all the entries in the "closure". *)
+                        if fpRel
+                        then (* Local *) if lastRef
+                        then valOf(Array.sub(staticLinkEntries, addr)) ()
+                        else incrUseCount(transtable, Array.sub(decToPstack, addr), 1)
+                        else (* Non-local *) incrUseCount(transtable, closureOrSlAddr, 1);
                         (* Cannot use a jump to local static-link procedures because 
                            we may want local declarations on the current stack. *)
                         realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, not fpRel)
@@ -2919,7 +2911,7 @@ struct
         (!cvec, maxstack transtable, getModifedRegSet transtable)
     end (* codegen *)
 
-    fun gencode (Lambda { name, body, argTypes, resultType, argLifetimes, ...}, debugSwitches) =
+    fun gencode (Lambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
         let (* We are compiling a procedure. *)
             (* It is not essential to treat this specially, but it saves generating
              a piece of code whose only function is to return the address of the
@@ -2944,7 +2936,7 @@ struct
                     fn (_,  _, _) => raise InternalError "Not static link",
                     fn _ => raise InternalError "Not static link",
                     0, (* Discard regClosure *)
-                    argTypes, argLifetimes, resultType, debugSwitches)
+                    argTypes, argLifetimes, resultType, localCount, debugSwitches)
 
             val closureAddr = copyCode (newCode, ops, maxStack, regList)
             val res : machineWord = toMachineWord closureAddr
@@ -2953,7 +2945,7 @@ struct
             (fn () => res)
         end
  
-    |   gencode (pt, debugSwitches) =
+    |   gencode (pt, debugSwitches, localCount) =
         let (* Compile a top-level expression. *)
             val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
 
@@ -2967,6 +2959,7 @@ struct
                     fn _ => raise InternalError "Not static link",
                     0,  (* Discard regClosure *)
                     [], [], (* No args. *) GeneralType, (* General result (if any?) *)
+                    localCount,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList)
         in (* Result is a procedure to execute the code. *)

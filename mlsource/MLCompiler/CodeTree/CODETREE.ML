@@ -36,7 +36,7 @@ structure GCODE :
 sig
     type machineWord = Address.machineWord
     type codetree
-    val gencode: codetree * Universal.universal list -> unit -> machineWord;
+    val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
 end (* GCODE *);
 
 (*****************************************************************************)
@@ -165,8 +165,6 @@ struct
           [] => JustTheVal general
         | _  => ValWithDecs {general = general, decs = decs}
           else OptVal ov;
-  
-  val codegen = gencode;
 
   (* gets a value from the run-time system *)
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
@@ -1088,16 +1086,16 @@ DCJM 2000.
                         fn(Declar{addr, ...}, _) => Array.update (localUses, addr, 0) | _ =>()) argList
 
                     val usagesBeforeLoop = saveUsages()
-                    (* Then the initial argument values. *)
-                    fun copyDec(Declar{addr, value, ...}, _) =
-                            mkDecRef(insert value, addr, Int.max(1, Array.sub(localUses, addr)))
-                    |   copyDec _ = raise InternalError "copyDec: not a declaration"
-                    val newargs = mapright copyDec argList
                     (* Restore the state. *)
                     val () = outsideLoopRef := wasInLoop
                     val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
                     val (killBefore, killAfter) = computeKillSets(usagesAfterLoop, usagesBeforeLoop)
                     val _ = null killBefore orelse raise InternalError "Not killBefore"
+                    (* Finally the initial argument values. *)
+                    fun copyDec(Declar{addr, value, ...}, _) =
+                            mkDecRef(insert value, addr, Int.max(1, Array.sub(localUses, addr)))
+                    |   copyDec _ = raise InternalError "copyDec: not a declaration"
+                    val newargs = mapright copyDec argList
                 in
                     (* Add the kill entries on after the loop. *)
                     BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList), kills=killAfter}
@@ -3942,14 +3940,15 @@ DCJM 2000.
     and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
     and compilerOut        = PRETTY.getCompilerOutput debugSwitches
 
+    val localAddressAllocator = ref 1
+
     (* This ensures that everything is printed just before
        it is code-generated. *)
-    val codeGenAndPrint =
-        if printCodeTreeAfter
-        then fn code => (compilerOut(pretty code); codegen(code, debugSwitches))
-        else fn code => codegen(code, debugSwitches)
-
-    val localAddressAllocator = ref 1
+    fun codeGenAndPrint code =
+    (
+        if printCodeTreeAfter then compilerOut(pretty code) else ();
+        GCODE.gencode(code, debugSwitches, !localAddressAllocator+1)
+    )
     
     fun preCodeAndPrint code =
     (
