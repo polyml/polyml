@@ -271,14 +271,24 @@ ENDIF
 ENDIF
 
 
-;# Register mask entries - must match coding used in codeCons.ML
+;# Register mask entries - must match coding used in I386CODECONS.ML
 IFDEF WINDOWS
-M_Reax      EQU     1
-M_Recx      EQU     2
-M_Redx      EQU     4
-M_Rebx      EQU     8
-M_Resi      EQU     16
-M_Redi      EQU     32
+M_Reax      EQU     000001H
+M_Recx      EQU     000002H
+M_Redx      EQU     000004H
+M_Rebx      EQU     000008H
+M_Resi      EQU     000010H
+M_Redi      EQU     000020H
+M_FP0       EQU     002000H
+M_FP1       EQU     004000H
+M_FP2       EQU     008000H
+M_FP3       EQU     010000H
+M_FP4       EQU     020000H
+M_FP5       EQU     040000H
+M_FP6       EQU     080000H
+M_FP7       EQU     100000H
+
+Mask_all    EQU     1FFFFFH
 
 ;# Set the register mask entry
 RegMask     MACRO   name,mask
@@ -287,13 +297,14 @@ Mname       TEXTEQU <Mask_&name&>
             ENDM
 
 ELSE
-;# Register mask entries - must match coding used in codeCons.ML
-#define     M_Reax      1
-#define     M_Recx      2
-#define     M_Redx      4
-#define     M_Rebx      8
-#define     M_Resi      16
-#define     M_Redi      32
+;# Register mask entries - must match coding used in I386CODECONS.ML
+#define     M_Reax  0x000001
+#define     M_Recx  0x000002
+#define     M_Redx  0x000004
+#define     M_Rebx  0x000008
+#define     M_Resi  0x000010
+#define     M_Redi  0x000020
+
 IFDEF HOSTARCHITECTURE_X86_64
 #define     M_R8         64
 #define     M_R9        128
@@ -303,24 +314,23 @@ IFDEF HOSTARCHITECTURE_X86_64
 #define     M_R13      2048
 #define     M_R14      4096
 ENDIF
+            ;# Floating point registers.
+#define     M_FP0   0x002000
+#define     M_FP1   0x004000
+#define     M_FP2   0x008000
+#define     M_FP3   0x010000
+#define     M_FP4   0x020000
+#define     M_FP5   0x040000
+#define     M_FP6   0x080000
+#define     M_FP7   0x100000
+
+#define     Mask_all 0x1FFFFF
 
 #define     RegMask(name,mask) \
 .set        Mask_##name,    mask
 
 #define     OR  |
 
-ENDIF
-;# Default mask for unused entries.  This is set to all the registers
-;# for safety in case a new function is added without adding an entry
-;# here.
-IFNDEF HOSTARCHITECTURE_X86_64
-CALLMACRO   RegMask all,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Resi OR M_Redi)
-ELSE
-CALLMACRO   RegMask all,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Resi OR M_Redi OR M_R8 OR M_R9 OR M_R10 OR M_R11 OR M_R12 OR M_R13 OR M_R14)
-
-;# When we perform an IO call we modify the return register and may also modify the "closure" register
-;# in order to do a retry.
-CALLMACRO   RegMask ioCall,(M_Reax OR M_Redx)
 ENDIF
 
 ;#
@@ -1937,8 +1947,9 @@ ENDIF
 
 real_add_1:
 	CALLMACRO   CALL_IO    POLY_SYS_Add_real
-
-CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+;# The mask includes FP7 rather than FP0 because this pushes a value which
+;# overwrites the bottom of the stack.
+CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 
@@ -1962,7 +1973,7 @@ ENDIF
 real_sub_1:
 	CALLMACRO   CALL_IO    POLY_SYS_Sub_real
 
-CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_mul
@@ -1985,7 +1996,7 @@ ENDIF
 real_mul_1:
 	CALLMACRO   CALL_IO    POLY_SYS_Mul_real
 
-CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_div
@@ -2008,7 +2019,7 @@ ENDIF
 real_div_1:
 	CALLMACRO   CALL_IO    POLY_SYS_Div_real
 
-CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_neg
@@ -2032,7 +2043,7 @@ ENDIF
 real_neg_1:
 	CALLMACRO   CALL_IO    POLY_SYS_Neg_real
 
-CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 
@@ -2051,7 +2062,7 @@ ENDIF
         CMPL    CONST 16384,Reax ;# 0x4000
 	je      RetTrue
 	jmp     RetFalse
-CALLMACRO   RegMask real_eq,(M_Reax)
+CALLMACRO   RegMask real_eq,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_neq
@@ -2068,7 +2079,7 @@ ENDIF
 	jne     RetTrue
 	jmp     RetFalse
 
-CALLMACRO   RegMask real_neq,(M_Reax)
+CALLMACRO   RegMask real_neq,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_lss
@@ -2088,7 +2099,7 @@ ENDIF
 	je      RetTrue
 	jmp     RetFalse
 
-CALLMACRO   RegMask real_lss,(M_Reax)
+CALLMACRO   RegMask real_lss,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_gtr
@@ -2107,7 +2118,7 @@ ENDIF
 	je      RetTrue
 	jmp     RetFalse
 
-CALLMACRO   RegMask real_gtr,(M_Reax)
+CALLMACRO   RegMask real_gtr,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_leq
@@ -2126,7 +2137,7 @@ ENDIF
 	je      RetTrue
 	jmp     RetFalse
 
-CALLMACRO   RegMask real_leq,(M_Reax)
+CALLMACRO   RegMask real_leq,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_geq
@@ -2144,7 +2155,7 @@ ENDIF
 	je      RetTrue
 	jmp     RetFalse
 
-CALLMACRO   RegMask real_geq,(M_Reax)
+CALLMACRO   RegMask real_geq,(M_Reax OR M_FP7)
 
 CALLMACRO INLINE_ROUTINE real_from_int
     TESTL   CONST TAG,Reax   ;# Is it long ?
@@ -2170,7 +2181,7 @@ ENDIF
 real_float_1:
 	CALLMACRO   CALL_IO    POLY_SYS_int_to_real
 
-CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 ;# Register mask vector. - extern int registerMaskVector[];
