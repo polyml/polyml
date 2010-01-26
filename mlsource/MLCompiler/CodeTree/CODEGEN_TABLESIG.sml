@@ -34,16 +34,16 @@ sig
     type regSet
     type operation
     type loopPush
+    type backwardLabel
 
     val ttabCreate: int * Universal.universal list -> ttab
 
     (* Register allocation *)
-    val getRegister:    ttab * reg -> operation list;
-    val getAnyRegister: ttab -> reg * operation list;
-    val freeRegister:   ttab * reg -> unit;
-    val addRegUse:      ttab * reg -> unit;
-    val clearCache:     ttab -> unit;
-    val removeRegistersFromCache: ttab * regSet -> unit;
+    val getRegister:    ttab * reg -> operation list
+    val getAnyRegister: ttab -> reg * operation list
+    val freeRegister:   ttab * reg -> operation list
+    val addRegUse:      ttab * reg -> operation list
+    val removeRegistersFromCache: ttab * regSet -> operation list
 
     (* Stack handling *)
     type stackIndex;
@@ -66,13 +66,13 @@ sig
     (* Code entries *)
     val loadEntryToSet:    ttab * stackIndex * regSet * bool -> reg * stackIndex * operation list
     val loadToSpecificReg: ttab * reg * stackIndex * bool -> stackIndex * operation list
-    val lockRegister:      ttab * reg -> unit;
-    val unlockRegister:    ttab * reg -> unit;
+    val lockRegister:      ttab * reg -> unit
+    val unlockRegister:    ttab * reg -> operation list
     val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
     val indirect:          int * stackIndex * ttab -> stackIndex * operation list
     val moveToVec:         stackIndex * stackIndex * int * instrs * ttab -> operation list
 
-    val removeStackEntry: ttab*stackIndex -> unit;
+    val removeStackEntry: ttab*stackIndex -> operation list
 
     val resetButReload:   ttab * int -> operation list
     val pushValueToStack: ttab * stackIndex * int -> stackIndex * operation list
@@ -80,7 +80,7 @@ sig
     val realstackptr:     ttab -> int
     val maxstack:         ttab -> int
     val parameterInRegister: reg * int * ttab -> stackIndex
-    val incrUseCount:     ttab * stackIndex * int -> unit
+    val incrUseCount:     ttab * stackIndex * int -> operation list
     
     val setLifetime:      ttab * stackIndex * int -> unit
 
@@ -97,7 +97,7 @@ sig
     datatype mergeResult = NoMerge | MergeIndex of stackIndex;
 
     val unconditionalBranch: mergeResult * ttab -> labels * operation list
-    val jumpBack: addrs ref * ttab -> operation list
+    val jumpBack: backwardLabel * ttab -> operation list
 
     val fixup: labels * ttab -> operation list
     val merge: labels * ttab * mergeResult * stackMark -> mergeResult * operation list
@@ -117,7 +117,7 @@ sig
     val compareAndBranch: stackIndex list * tests * ttab -> labels * operation list
 
     val saveState : ttab -> savedState
-    val startCase : ttab * savedState -> addrs ref * operation list
+    val startCase : ttab * savedState -> backwardLabel * operation list
     val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
     val restoreLoopState: ttab * savedState * regSet * loopPush list -> operation list
 
@@ -159,5 +159,6 @@ sig
         and  regHint    = regHint
         and  argdest    = argdest
         and  loopPush   = loopPush
+        and  backwardLabel = backwardLabel
     end
 end;

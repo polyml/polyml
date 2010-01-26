@@ -130,7 +130,7 @@ struct
         val decToPstack  = Array.array (localCount, noIndex)
         (* Indicates if a declaration location is a static-link function and contains
            a function to free the static link entries if it is. *)
-        val staticLinkEntries: (unit->unit) option array = Array.array (localCount, NONE)
+        val staticLinkEntries: (unit->operation list) option array = Array.array (localCount, NONE)
 
         fun localDeclaration(index, locn, lifeTime, slRelease) =
         (
@@ -139,7 +139,7 @@ struct
             (* If the lifetime is zero remove the item. *)
             if lifeTime = 0
             then incrUseCount (transtable, index, ~1)
-            else setLifetime(transtable, index, lifeTime)
+            else (setLifetime(transtable, index, lifeTime); [])
         )
 
         (* Header code for procedure. *)
@@ -161,6 +161,7 @@ struct
                     (* The return address has already been pushed onto the stack,
                        probably because the normal call sequence does it. *)
                     val addr = parameterInRegister(regReturn, 1, transtable)
+                    val () = codeGenerate(activeRegister regReturn, cvec)
                 in
                     addr
                 end
@@ -190,6 +191,8 @@ struct
            SPF 2/1/97
         *)
         val closureOrSlAddr = parameterInRegister(regClosure, closureLifetime, transtable)
+        val () = codeGenerate(activeRegister regClosure, cvec)
+
 
         (* Find out which arguments are in which registers. *)
         val argLocations = argRegs (List.map codeToCgType argTypes)
@@ -203,7 +206,10 @@ struct
             |   mapArgs(SOME reg :: l, life:: lives) =
                     let
                         val (l', n) = mapArgs(l, lives)
-                    in (ArgInReg(parameterInRegister (reg, life, transtable)) :: l', n) end
+                        val () = codeGenerate(activeRegister reg, cvec)
+                    in
+                        (ArgInReg(parameterInRegister (reg, life, transtable)) :: l', n)
+                    end
             |   mapArgs(NONE :: l, _::lives) = let val (l', n) = mapArgs(l, lives) in (ArgOnStack(n-1) :: l', n-1) end
             |   mapArgs _ = raise InternalError "Mismatched argument types/lifetimes"
             val (args, _) = mapArgs(argLocations, argLifetimes)
@@ -223,10 +229,10 @@ struct
                     let
                         val (returnReg, returnOffset, returnCode) =
                             loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false);
-                        val () = removeStackEntry (transtable, returnOffset)
+                        val freeCode = removeStackEntry (transtable, returnOffset)
                     in
                         returnFromFunction{returnReg=SOME returnReg, argsToRemove=stackArgs} @
-                        resetStack (realstackptr transtable) @
+                        resetStack (realstackptr transtable) @ freeCode @
                         returnCode
                     end;
         in
@@ -272,7 +278,7 @@ struct
                 (
                     (* If this is NOT the last reference we need to increment the
                        use count on the entry. *)
-                    if lastRef then () else incrUseCount(transtable, regEntry, 1);
+                    if lastRef then () else (incrUseCount(transtable, regEntry, 1); ());
                     (regEntry, [])
                 )
             |   ArgOnStack actualAddr => (pushStack (transtable, actualAddr), [])
@@ -281,22 +287,23 @@ struct
         else
         let
             val resIndex = Array.sub(decToPstack, addr)
+            val freeCode =
+                if lastRef
+                then
+                    (* Last reference.  When we've finished with this entry it will be discarded.
+                       If this is a statically linked function we discard the closure entries.
+                       This case will only occur in a "kill" entry.  The only real references
+                       to statically linked functions is to call them and that case is handled
+                       in genEval. *)
+                (
+                    case Array.sub(staticLinkEntries, addr) of
+                        NONE => []
+                    |   SOME discard => discard()
+                )
+                else (* There's at least one more reference after this. *)
+                    incrUseCount(transtable, resIndex, 1)
         in
-            if lastRef
-            then
-                (* Last reference.  When we've finished with this entry it will be discarded.
-                   If this is a statically linked function we discard the closure entries.
-                   This case will only occur in a "kill" entry.  The only real references
-                   to statically linked functions is to call them and that case is handled
-                   in genEval. *)
-            (
-                case Array.sub(staticLinkEntries, addr) of
-                    NONE => ()
-                |   SOME discard => discard()
-            )
-            else (* There's at least one more reference after this. *)
-                incrUseCount(transtable, resIndex, 1);
-            (resIndex, [])
+            (resIndex, freeCode)
         end
 
         else  (* cp relative *)
@@ -310,10 +317,11 @@ struct
                 declOnPrevLevel(addr,
                     fn () => (incrUseCount(transtable, closureOrSlAddr, 1); (closureOrSlAddr, [])),
                     transtable)
+            val freeCode =
+                if lastRef andalso closureLifetime <> 0 
+                then incrUseCount(transtable, closureOrSlAddr, ~1) else []
         in
-            if lastRef andalso closureLifetime <> 0 
-            then incrUseCount(transtable, closureOrSlAddr, ~1) else ();
-            (dec, code)
+            (dec, freeCode @ code)
         end
          (* locaddr *);
     
@@ -482,7 +490,7 @@ struct
                     Lambda lam =>
                     let
                         fun nextMutual(dec, slRelease) =
-                            localDeclaration (dec, addr, references, slRelease)
+                            codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
                         val _ = genProc (lam, nextMutual, true, whereto, matchFailFn)
                     in
                         ()
@@ -491,7 +499,7 @@ struct
                     let
                         val decl = genToStack (value, matchFailFn)
                     in
-                        localDeclaration (decl, addr, references, NONE)
+                        codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
                     end;
                 NoMerge
             )
@@ -506,7 +514,7 @@ struct
                 else (* If the result is not required discard it.  This is used
                         to remove variables which are not used on this path. *)
                 (
-                    removeStackEntry(transtable, loc);
+                    codeGenerate(removeStackEntry(transtable, loc), cvec);
                     NoMerge
                 )
             end
@@ -725,9 +733,9 @@ struct
                    be unnecessary to remove the entries because we're about
                    to fix up a jump but there's no harm in it. *)
                 List.app (
-                    fn (ArgToRegister reg) => unlockRegister(transtable, reg)
+                    fn (ArgToRegister reg) => codeGenerate(unlockRegister(transtable, reg), cvec)
                       | _ => ()) argDestList;
-                List.app (fn index => removeStackEntry(transtable, index))
+                List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
                     argEntries;
                 onLoop();
             
@@ -753,13 +761,11 @@ struct
 
           in
             codeGenerate(raiseException @ resultCode, cvec);
-            
-            removeStackEntry(transtable, resultIndex);
-            
+            codeGenerate(removeStackEntry(transtable, resultIndex), cvec);
             exiting transtable; (* Nothing further *)
 
-            (* Generate a value to represent void.empty so that there *)
-            (* is something on the stack. *)
+            (* Put a dummy value on the stack so that subsequent merge code works
+               It really ought to ignore this since we've exited. *)
             if needsResult
             then MergeIndex(pushConst (transtable, DummyValue))
             else NoMerge (* Unused. *)
@@ -791,7 +797,7 @@ struct
           val oldIndex = incsp transtable;
           
           (* Now it's on the real stack we can remove it from the pstack. *)
-          val () = removeStackEntry(transtable, oldIndex);
+          val () = codeGenerate(removeStackEntry(transtable, oldIndex), cvec)
           
           fun genTag (tag : codetree) : CODEGEN_TABLE.handler =
           let
@@ -807,7 +813,7 @@ struct
             val () = codeGenerate(stackCode, cvec)
     
             (* Now it's on the real stack we can remove it from the pstack. *)
-            val ()    = removeStackEntry(transtable, stackLocn);
+            val ()    = codeGenerate(removeStackEntry(transtable, stackLocn), cvec)
           in
             handlerLab
           end;
@@ -862,7 +868,7 @@ struct
              (It probably should do, though the state is fairly simple). *)
           val () =
             case bodyResult of
-                MergeIndex bodyIndex => removeStackEntry(transtable, bodyIndex)
+                MergeIndex bodyIndex => codeGenerate(removeStackEntry(transtable, bodyIndex), cvec)
               | NoMerge => ();
      
           (* Fix up the handler entry point - this resets the stack pointer
@@ -886,6 +892,7 @@ struct
                 (* Exception packet is returned in result register. *)
             in
                 codeGenerate(getRegister (transtable, regResult), cvec);
+                codeGenerate(activeRegister regResult, cvec);
                 MergeIndex(pushReg (transtable, regResult))
             end
 
@@ -958,13 +965,8 @@ struct
                                indexedCase can modify the registers. *)
                             val (testReg, testIndex, testCode)  =
                                 loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
-                            val () = removeStackEntry (transtable, testIndex);
-  
                             (* Need a work register. *)
-                            val () = lockRegister (transtable, testReg);
                             val (workReg, regCode) = getAnyRegister transtable
-                            val () = freeRegister (transtable, workReg);
-                            val () = unlockRegister (transtable, testReg);
 
                             val caseInstr = ref addrZero
                             val () =
@@ -974,6 +976,8 @@ struct
                                         isArbitrary = case caseType of CaseInt => true | _ => false,
                                         isExhaustive=isExhaustive, tableAddrRef = caseInstr} @
                                     regCode @ testCode, cvec);
+                            val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
+                            val () = codeGenerate(freeRegister (transtable, workReg), cvec)
        
                             val startOfCase = saveState transtable
   
@@ -1003,7 +1007,7 @@ struct
                                 val () =
                                     case defaultRes of
                                         MergeIndex defaultIndex =>
-                                            removeStackEntry (transtable, defaultIndex)
+                                            codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
                                     |   NoMerge => ()
                             in
                                 lab
@@ -1045,7 +1049,8 @@ struct
            
                                     val () =
                                         case expResult of
-                                            MergeIndex expIndex => removeStackEntry(transtable, expIndex)
+                                            MergeIndex expIndex =>
+                                                codeGenerate(removeStackEntry(transtable, expIndex), cvec)
                                         |   NoMerge => ();
   
                                     val lastResult = genCases cps newCaseList;
@@ -1125,7 +1130,7 @@ struct
                             (* remove result of this case from pstack *)
                             val () =
                               case thisCaseRes of
-                                MergeIndex resIndex => removeStackEntry(transtable, resIndex)
+                                MergeIndex resIndex => codeGenerate(removeStackEntry(transtable, resIndex), cvec)
                               | NoMerge => ();
   
                             (* Do the other cases. *)
@@ -1160,7 +1165,7 @@ struct
                                created but before the entries have been filled in. *) 
                             fun nextMutual(r, slEntries) =
                             let
-                                val () = localDeclaration (r, addr, references, slEntries)
+                                val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
                             in (* Now time to do the other closures. *)
                                 genMutualDecs ds
                             end
@@ -1172,7 +1177,7 @@ struct
                         |   _ =>
                         let (* should only be constants i.e. procedures already compiled. *)
                             val decEntry = genToStack (dec, matchFailFn)
-                            val () = localDeclaration (decEntry, addr, references, NONE)
+                            val () = codeGenerate(localDeclaration (decEntry, addr, references, NONE), cvec)
                         in
                           genMutualDecs ds
                         end
@@ -1257,7 +1262,7 @@ struct
                             val _ =
                                 if n = size - 1
                                 then ()
-                                else incrUseCount(transtable, tup, 1)
+                                else codeGenerate(incrUseCount(transtable, tup, 1), cvec)
                             val (entry, entryCode) = indirect (wordOffset, tup, transtable)
                             val () = codeGenerate(entryCode, cvec)
                         in
@@ -1268,7 +1273,7 @@ struct
                         copy 0
                     end;
 
-                removeStackEntry(transtable, vec); (* Free the container entry. *)
+                codeGenerate(removeStackEntry(transtable, vec), cvec); (* Free the container entry. *)
                 (* Return a void result if necessary. *)
                 if isNoResult whereto then NoMerge
                 else MergeIndex(pushConst (transtable, DummyValue))
@@ -1291,7 +1296,7 @@ struct
                         val _ =
                             if n = size - 1
                             then ()
-                            else incrUseCount(transtable, vec, 1)
+                            else codeGenerate(incrUseCount(transtable, vec, 1), cvec)
                         val (entry, entryCode) = indirect (n, vec, transtable)
                         val () = codeGenerate(entryCode, cvec)
                     in
@@ -1359,37 +1364,33 @@ struct
 ... *)
 
    (* Used when the result must be put in a register. *)
-   and genToRegister (pt, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
-   let
-     val result : mergeResult =
-        gencde (pt, true, whereto, tailKind, matchFailFn, loopAddr);
-   in
-     (* If we need a result put it in the result reg.  We request exclusive use
-    of it because otherwise there is a problem when merging the results
-    of an if-then-else if the result register is somewhere else on the
-    pstack (e.g. let a == ...; if ... then a else ...),
-    
-    If we're at the end of a function, we're not merging, so we don't need
-    exclusive use. However, I don't think we actually save anything by trying
-    to make use of this fact so let's just be naive.
-    SPF 27/11/96
-      *)
-      case whereto of
-        NoResult => NoMerge
-      | UseReg rr =>
-          (
-            case result of
-                MergeIndex index =>
+    and genToRegister (pt, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
+    let
+        val result = gencde (pt, true, whereto, tailKind, matchFailFn, loopAddr)
+    in
+        case (whereto, result) of
+            (NoResult, _) => NoMerge
+        |   (UseReg rr, MergeIndex index) =>
+                if haveExited transtable (* If we've raised an exception we can ignore this. *)
+                then MergeIndex index
+                else
                 let
+                    (* If we need a result put it in the result reg.  We request exclusive use
+                       of it because otherwise there is a problem when merging the results
+                       of an if-then-else if the result register is somewhere else on the
+                       pstack (e.g. let a == ...; if ... then a else ...),
+    
+                       If we're at the end of a function, we're not merging, so we don't need
+                       exclusive use. However, I don't think we actually save anything by trying
+                       to make use of this fact so let's just be naive. SPF 27/11/96 *)
                     val (mergeItem, mergeCode) = loadToSpecificReg (transtable, rr, index, true)
                 in
                     codeGenerate(mergeCode, cvec);
                     MergeIndex mergeItem
                 end
-              | NoMerge => raise InternalError "genToRegister: no result"
-          )
-      | NoHint => raise InternalError "genToRegister: not a register"
-   end (* genToRegister *)
+        |   (UseReg _, NoMerge) => raise InternalError "genToRegister: no result"
+        |   (NoHint, _) => raise InternalError "genToRegister: not a register"
+    end (* genToRegister *)
 
     (* `mutualRecursive' is only used for mutually recursive procedures
        where a procedure may not be able to fill in its closure if it does
@@ -1398,7 +1399,7 @@ struct
     *)
     and genProc ({ closure=closureList, makeClosure, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->unit) option -> unit, lastDec, whereto, matchFailFn) =
+                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, lastDec, whereto, matchFailFn) =
     let
         fun allConstnt [] = true
         |   allConstnt (Constnt _ :: t) = allConstnt t
@@ -1582,11 +1583,11 @@ struct
                because we need the entries to remain until the last call to the function. *)
             fun releaseClosure () =
             let
-                fun releaseEntry(Extract(ext as {lastRef=true, ...})) =
-                        incrUseCount(transtable, #1(locaddr ext), ~1)
-                |   releaseEntry _ = ()
+                fun releaseEntry(Extract(ext as {lastRef=true, ...}), l) =
+                       incrUseCount(transtable, #1(locaddr ext), ~1) @ l
+                |   releaseEntry (_, l) = l
             in
-                List.app releaseEntry closureList
+                List.foldl releaseEntry [] closureList
             end
 
             (* Push a forward reference to the code in case of mutually
@@ -1793,7 +1794,7 @@ struct
             local
                 val locn = pushConst (transtable, res);
             in
-                val () = codeGenerate(moveToVec (vector, locn, 0, instrStoreW, transtable), cvec);
+                val () = codeGenerate(moveToVec (vector, locn, 0, instrStoreW, transtable), cvec)
             end;
 
             local
@@ -1801,7 +1802,7 @@ struct
                    garbage collection. *)
                 val locn = pushConst (transtable, DummyValue);
                 val wordsToClear : int = closureSize - 1;
-                val () = incrUseCount (transtable, locn, wordsToClear -1);
+                val () = codeGenerate(incrUseCount (transtable, locn, wordsToClear -1), cvec)
            
                 (* N.B. moveToVec doesn't count as a use of vector. *)
                 fun storeWord i = 
@@ -1816,7 +1817,7 @@ struct
                could be zero when `mutualRecursive' returns. Have to  increment
                the use-count and then decrement it afterwards to make sure it
                 is still on the stack. *)
-            val () = incrUseCount (transtable, vector, 1);
+            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
     
               (* Any mutually recursive references. *)
             val () = mutualRecursive(vector, NONE)
@@ -1834,10 +1835,10 @@ struct
             end;
     
             val () = loadItems closureList 1
-            val () = incrUseCount (transtable, vector, 1) (* Increment the use count before the lock. *)
+            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec) (* Increment the use count before the lock. *)
             val (_, lockCode) = dataOp([vector], instrLockSeg, transtable, NoResult)
             val () = codeGenerate(lockCode, cvec)
-            val () = incrUseCount (transtable, vector, ~1)
+            val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
         in
             vector
         end
@@ -1901,7 +1902,6 @@ struct
              )
           else
           let
-              
               (* Now the `then-part' *)
               val b : labels = genTest (thenPart, jumpOn, matchFailFn);
               
@@ -2180,7 +2180,7 @@ struct
                then the "else-part" will push it. *)
             val () =
                 case thenResult of
-                    MergeIndex thenIndex => removeStackEntry(transtable, thenIndex)
+                    MergeIndex thenIndex => codeGenerate(removeStackEntry(transtable, thenIndex), cvec)
                   | NoMerge => ();
               
             (* start of "else part" *)
@@ -2302,7 +2302,7 @@ struct
                                     loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
                                 val () = codeGenerate(loadCode, cvec)
                             in
-                                removeStackEntry(transtable, regIndex);
+                                codeGenerate(removeStackEntry(transtable, regIndex), cvec);
                                 SOME reg
                             end
                     |   SOME regReturn =>
@@ -2312,7 +2312,7 @@ struct
                                     loadToSpecificReg (transtable, regReturn, returnAddress, false);
                                 val () = codeGenerate(regCode, cvec)
                             in
-                                removeStackEntry(transtable, regIndex);
+                                codeGenerate(removeStackEntry(transtable, regIndex), cvec);
                                 SOME regReturn
                             end
 
@@ -2335,9 +2335,9 @@ struct
                             codeGenerate(jumpToCode(codeAddr, isIndirect, returnReg, transtable), cvec);
 
                     (* Unlock any registers we locked. *)
-                    List.app (fn r => unlockRegister (transtable, r)) registersLocked;
+                    List.app (fn r => codeGenerate(unlockRegister (transtable, r), cvec)) registersLocked;
                     (* Remove the arguments and code/closure registers. *)
-                    List.app (fn index => removeStackEntry(transtable, index))
+                    List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
                         (argEntries @ callEntries)
                     (* Since we've exited we don't need to clear the cache. *)
                 end  (* jumpToProc *)
@@ -2403,19 +2403,19 @@ struct
                     codeGenerate(callCode @ checkContiguous, cvec);
 
                     (* Unlock any registers we locked. *)
-                    List.app (fn r => unlockRegister (transtable, r)) (lockedRegs @ regsLocked);
+                    List.app (fn r => codeGenerate(unlockRegister (transtable, r), cvec)) (lockedRegs @ regsLocked);
                     (* Remove the arguments and code/closure registers. *)
-                    List.app (fn index => removeStackEntry(transtable, index))
+                    List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
                         (codeEntries @ argEntries);
 
                     (* Remove any registers from the cache which may have been modified
                        by the function. *)
-                    removeRegistersFromCache(transtable, modifiedRegisters)
+                    codeGenerate(removeRegistersFromCache(transtable, modifiedRegisters), cvec)
                 end (* callProc *);
 
                 (* Set up the results of the function call. *)
                 (* Unlock  the argument registers. *)
-                List.app(fn SOME r => unlockRegister (transtable, r) | NONE => ()) argLocations;
+                List.app(fn SOME r => codeGenerate(unlockRegister (transtable, r), cvec) | NONE => ()) argLocations;
 
                 (* Remove any stack arguments. For tail-calls, we mustn't do this, because
                    the stack arguments have already vanished from the pstack - that's
@@ -2440,7 +2440,7 @@ struct
                 then NoMerge (* Unused *)
                 else
                 ( (* Result is returned in regResult. *)
-                    addRegUse (transtable, regResult); (* Needed? *)
+                    codeGenerate(addRegUse (transtable, regResult), cvec); (* Needed? *)
                     MergeIndex(pushReg (transtable, regResult))
                 )
             end (* realFunctionCall *)
@@ -2888,8 +2888,8 @@ struct
                            because we don't pass the Extract entry in to callClosure.
                            DCJM 1/12/99. *)
                         if selfCall andalso not lastRef andalso closureLifetime <>0 
-                        then incrUseCount(transtable, closureOrSlAddr, 1)
-                        else();
+                        then codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
+                        else ();
                         callClosure (if selfCall then NONE else SOME evalFun)
                     )
                 end (* Extract *)

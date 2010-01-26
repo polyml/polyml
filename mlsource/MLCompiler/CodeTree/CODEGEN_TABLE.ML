@@ -186,7 +186,7 @@ struct
         end (* printReg *);
     in
         forLoop printReg 0 (vecSize - 1)
-    end (* printRegs *);
+    end
 
     fun free (regs as {freeRegs, ...}) reg =
     let
@@ -198,12 +198,19 @@ struct
         then raise InternalError ("free: register already free #" ^ Int.toString r)
         else
         (
+            Array.update (v, r, useCount - 1);
             if useCount = 1
-            then freeRegs := regSetUnion(!freeRegs, singleton reg)
-            else ();
-            Array.update (v, r, useCount - 1)
+            then
+            (
+                freeRegs := regSetUnion(!freeRegs, singleton reg);
+                freeRegister reg
+            )
+            else []
         )
-    end;
+    end
+
+    fun freeSet(regs, regSet) =
+        List.foldl (fn (r, l) => free regs r @ l) [] (setToList regSet)
   
     (* Increment use count. *)
     fun incr (regs as {freeRegs, ...}) reg =
@@ -212,10 +219,15 @@ struct
         val v = Vec regs
         val useCount = Array.sub (v, r)
     in
+        Array.update (v, r, useCount + 1);
         if useCount = 0
-        then freeRegs := regSetMinus(!freeRegs, singleton reg) else ();
-        Array.update (v, r, useCount + 1)
-    end;
+        then
+        (
+            freeRegs := regSetMinus(!freeRegs, singleton reg);
+            activeRegister reg
+        )
+        else []
+    end
 
     fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
   
@@ -238,14 +250,12 @@ struct
        marker:       stackIndex ref,
        lowestDirect: stackIndex ref,
        pstackTrace:  bool,
-       printStream:  string->unit,
-       outStream: PRETTY.pretty->unit
+       printStream:  string->unit
      }
      
     fun ttabCreate(localCount, debugSwitches) =
     let
         val printStream = PRETTY.getSimplePrinter debugSwitches
-        val outStream = PRETTY.getPrintOutput debugSwitches
     in
         Ttab
         {
@@ -259,8 +269,7 @@ struct
             marker       = ref first,
             lowestDirect = ref first,
             pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
-            printStream  = printStream,
-            outStream    = outStream
+            printStream  = printStream
             }
     end
 
@@ -391,22 +400,11 @@ struct
         printStream "\n"
     )
 
-    fun printInstrs(Ttab{outStream, ...}, instrs) =
-    let
-        open PRETTY
-        val prettyInstrs =
-            PrettyBlock(0, true, [],
-                List.map (fn i => prettyOperation(i, 20)) instrs
-            )
-    in
-        outStream prettyInstrs
-    end
-
     fun printStack (table as Ttab {printStream, realstackptr=ref realstackVal, pstackptr, marker, regset, ...},
                     why, recentInstrs) =
     ( 
         printStream ("\n" ^ why ^"\n");
-        printInstrs(table, recentInstrs);
+        List.app(fn i => printOperation(i, printStream)) (List.rev recentInstrs);
         printStream "psp=";
         printStream(Int.toString(! pstackptr));
         printStream " lim=";
@@ -418,7 +416,8 @@ struct
         printRegs printStream regset;
         printStream "\n";
         for (overStack table true (* downwards *))
-            (fn entry => printEntry printStream (pstackEntry(table, entry)) entry)
+            (fn entry => printEntry printStream (pstackEntry(table, entry)) entry);
+        printStream "-\n" (* Extra line break between entries. *)
     )
   
     (* Removes empty entries from the top of the stack. *)
@@ -441,9 +440,9 @@ struct
   (* Removes an entry which is no longer required. If the entry is cached it *)
   (* may be retained unless it refers to the stack or another register when  *)
   (* it MUST be removed. *)
-  fun removeEntry (table as Ttab{pstack, regset, ...}) entry keepIfCache =
+  fun removeEntry (table as Ttab{pstack, regset, ...}, entry, keepIfCache): operation list =
     case pstackEntry(table, entry) of
-      NoStackEntry => () 
+      NoStackEntry => []
        (* now handles this case, so we don't have to check 
           before calling "removeEntry" (SPF 19/11/94) *)
       
@@ -453,58 +452,61 @@ struct
            location. Actual parameters to procedures are not use-counted in
            the same way as locals so it is worth keeping them cached. *)
         let
-            val cacheRegs =
+            val (cacheRegs, code) =
                 if cache = noRegisters
-                then noRegisters
+                then (noRegisters, [])
                 else if not keepIfCache orelse 
                      (case stacken of
                         Register _ => true
                       | StackW i   => i > 0 (* Parameters on the stack have -ve address. *)
                       | _          => false)
                 then (* Clear cache. *)
-                (
-                    List.app (free regset) (setToList cache);
-                    noRegisters
-                )
-                else (* Retain cache value. *) cache;
+                    (noRegisters, freeSet(regset, cache))
+                else (* Retain cache value. *) (cache, [])
         in
             if cacheRegs = noRegisters
             then (* If the cache is (now) empty we can remove the entry completely. *)
-            ( 
-             (* clobber the entry. *)
-              StretchArray.update (pstack, entry, NoStackEntry);
-              
-              case stacken of
-                Register reg       => free regset reg
-              | Direct {base, ...} => free regset base
-              | Container l        => List.app (fn i => incrUseCount(table, i, ~1)) l
-              | _                  => ()
-              ;
-              
-                
-              clearOff table
-            )
+            let
+                (* clobber the entry. *)
+                val () = StretchArray.update (pstack, entry, NoStackEntry)
+                val freeCode =
+                    case stacken of
+                        Register reg       => free regset reg
+                    |   Direct {base, ...} => free regset base
+                    |   Container l        => List.foldl(fn (i, f) => incrUseCount(table, i, ~1) @ f) [] l
+                    |   _                  => []
+                val () = clearOff table
+            in
+                code @ freeCode
+            end
          
-          (* otherwise we just leave the entry there. *)
-          else StretchArray.update (pstack, entry,
-                StackEntry { ent = stacken, cache = cacheRegs, uses = 0, destStack = NONE, lifeTime=lifeTime })
+            (* otherwise we just leave the entry there. *)
+            else
+            (
+                StretchArray.update (pstack, entry,
+                StackEntry { ent = stacken, cache = cacheRegs, uses = 0, destStack = NONE, lifeTime=lifeTime });
+                code
+            )
         end (* end removeEntry *)
 
-  (* Add the number of uses to the use count of an item on the stack. *)
-  and incrUseCount (table as Ttab{pstack, ...}, entry, incr) : unit =
-    case pstackEntry(table, entry) of
-      NoStackEntry => raise InternalError ("incrUseCount: no entry " ^ Int.toString(entry))
+    (* Add the number of uses to the use count of an item on the stack. *)
+    and incrUseCount (table as Ttab{pstack, ...}, entry, incr) : operation list =
+        case pstackEntry(table, entry) of
+            NoStackEntry => raise InternalError ("incrUseCount: no entry " ^ Int.toString(entry))
       
-    | StackEntry {ent, cache, uses, destStack, lifeTime} =>
-      let
-        val newUses = uses + incr;
-      in
-        if newUses <=  0
-        then removeEntry table entry true
-        else 
-          StretchArray.update (pstack, entry,
-            StackEntry {ent=ent, cache=cache, uses=newUses, destStack=destStack, lifeTime=lifeTime})
-      end
+        |   StackEntry {ent, cache, uses, destStack, lifeTime} =>
+            let
+                val newUses = uses + incr;
+            in
+                if newUses <=  0
+                then removeEntry(table, entry, true)
+                else
+                (
+                    StretchArray.update (pstack, entry,
+                        StackEntry {ent=ent, cache=cache, uses=newUses, destStack=destStack, lifeTime=lifeTime});
+                    []
+                )
+            end
 
     and setLifetime(table as Ttab{pstack, ...}, entry, life) =
         case pstackEntry(table, entry) of
@@ -524,7 +526,7 @@ struct
 
 
     (* Push a value on the stack and return its location. *)
-    fun pushPstack (table as Ttab{pstack, pstackTrace, pstackptr, ...}) entry name =
+    fun pushPstack (table as Ttab{pstack, pstackTrace, pstackptr, ...}, entry, name, ops) =
     let
         val stacktop = ! pstackptr;
         val psp      = stacktop;
@@ -536,7 +538,7 @@ struct
         StretchArray.update (pstack, psp,
             StackEntry {ent=entry, cache=noRegisters, uses=1, destStack=destStack, lifeTime=0});
         pstackptr := stacktop + 1;
-        if pstackTrace then printStack(table, name, []) else ();
+        if pstackTrace then printStack(table, name, ops) else ();
         stacktop
     end
 
@@ -552,21 +554,18 @@ struct
         then maxstack := ! realstackptr
         else ();
     
-        pushPstack table (StackW stackaddr) "incsp"
+        pushPstack(table, StackW stackaddr, "incsp", [])
     end;
 
-  (* The top of the pseudo-stack is held in a register *)
-  fun pushReg (table, reg) : stackIndex = 
-        pushPstack table (Register reg) "pushReg";
+    (* The top of the pseudo-stack is held in a register *)
+    fun pushReg (table, reg) = pushPstack(table, Register reg, "pushReg", [])
 
-  (* The top of the pseudo-stack is a constant *)
-  fun pushConst (table, v : machineWord) : stackIndex = 
-    pushPstack table (Literal v) "pushConst";
+    (* The top of the pseudo-stack is a constant *)
+    fun pushConst (table, v : machineWord) = pushPstack(table, Literal v, "pushConst", [])
 
 
-  (* The top of the pseudo-stack is a forward reference to a procedure. *)
-  fun pushCodeRef (table, rf : code) : stackIndex =
-    pushPstack table (CodeRef rf) "pushCodeRef";
+    (* The top of the pseudo-stack is a forward reference to a procedure. *)
+    fun pushCodeRef (table, rf : code) = pushPstack(table, CodeRef rf, "pushCodeRef", [])
 
     fun addRegUse (Ttab{regset, ...}, reg) = incr regset reg
 
@@ -579,17 +578,18 @@ struct
      reused. *)
    fun lockRegister (table as Ttab{pstackTrace, ...}, reg) = 
    let
-     val () = addRegUse (table, reg);
+     val _ = addRegUse (table, reg);
    in
      if pstackTrace then printStack(table, "lockRegister:"^regRepr reg, []) else ()
    end;
 
-   fun unlockRegister (table as Ttab{pstackTrace, regset, ...}, reg) : unit =
+   fun unlockRegister (table as Ttab{pstackTrace, regset, ...}, reg) : operation list =
    let
-     val () = free regset reg
+        val code = free regset reg
    in
-     if pstackTrace then printStack(table, "unlockRegister:"^regRepr reg, []) else ()
-   end;
+        if pstackTrace then printStack(table, "unlockRegister:"^regRepr reg, []) else ();
+        code
+   end
 
     (* Puts a value in the real stack onto the pseudo-stack.
        Used for references to arguments that have not been passed in registers. *)
@@ -597,7 +597,7 @@ struct
     let (* Enter it only if it is not already there. *)
         fun search s =
         if s >= ! pstackptr
-        then pushPstack table (StackW addr) "pushStack"
+        then pushPstack(table, StackW addr, "pushStack", [])
         
         else 
         case pstackEntry(table, s) of
@@ -611,13 +611,13 @@ struct
         search first
     end
 
-    fun clearCacheEntry(table as Ttab{pstack, regset, ...}, regSet, entry) =
+    fun clearCacheEntry(table as Ttab{pstack, regset, ...}, regSet, entry): operation list =
         case pstackEntry(table, entry) of
-            NoStackEntry => ()
+            NoStackEntry => []
       
         |   StackEntry {ent = stacken, cache, uses, destStack, lifeTime} =>
             if cache = noRegisters
-            then ()
+            then []
             else
             let
                 val keep = regSetMinus(cache, regSet)
@@ -634,13 +634,13 @@ struct
                        | Direct {base,...} => inSet(base, regSet)
                        | _                 => false)
                     )
-                then removeEntry table entry false
+                then removeEntry(table, entry, false)
                 else
                 (
-                    List.app(free regset) (setToList remove);
                     StretchArray.update (pstack, entry,
                         StackEntry {ent = stacken, cache=keep, uses=uses,
-                                    destStack=destStack, lifeTime=lifeTime})
+                                    destStack=destStack, lifeTime=lifeTime});
+                    freeSet(regset, remove)
                 )
             end
 
@@ -649,16 +649,14 @@ struct
     let
         fun clear (entry: stackIndex, limit: stackIndex) =
         if entry < limit
-        then
-        (
-            clearCacheEntry(table, regSet, entry);
-            if continue () then clear (entry + 1, limit) else ()
-        )
-        else ()
+        then clearCacheEntry(table, regSet, entry) @
+                (if continue () then clear (entry + 1, limit) else [])
+        else []
+        val clearRegs = clear (first, ! pstackptr);
     in
-        clear (first, ! pstackptr);
-        if pstackTrace then printStack(table, "removeFromCache"^regSetRepr regSet, []) else () 
-    end;
+        if pstackTrace then printStack(table, "removeFromCache"^regSetRepr regSet, clearRegs) else ();
+        clearRegs
+    end
 
     (* Remove everything from the cache. *)
     fun clearCache table = removeFromCache(table, allRegisters, fn () => true)
@@ -689,7 +687,7 @@ struct
     fun pushRegisters (table as Ttab{pstack, pstackTrace, maxstack, realstackptr, pstackptr, regset, ...},
                        setToFree, selectEntry, loadIfPoss, dontCache) =
     let
-        fun freeSet rset = List.app (free regset) (setToList rset)
+        (*fun freeSet rset = List.app (free regset) (setToList rset)*)
 
         (* Sort the items by the longest lifetime first.  The idea is to push items with a
            longer time to go before those with shorter lifetimes. *)
@@ -736,9 +734,9 @@ struct
                             then pushToStack(InRegister(oneOf(regSetIntersect(cacheReg, generalRegisters))))
                             else pushToStack(BaseOffset(base, offset))
                   
-                        val () = free regset base
-                        val newCache =
-                            if dontCache then (freeSet cacheReg; noRegisters) else cacheReg
+                        val freeCode1 = free regset base
+                        val (newCache, freeCode2) =
+                            if dontCache then (noRegisters, freeSet(regset, cacheReg)) else (cacheReg, [])
                   
                         (* Overwrite this entry with a reference to the stack. *)
                         val stackAddr = ! realstackptr
@@ -753,15 +751,15 @@ struct
                         if ! realstackptr > !maxstack
                         then maxstack := ! realstackptr
                         else ();
-                        pushInstr @ alignInstrs
-                    end;
+                        freeCode2 @ freeCode1 @ pushInstr @ alignInstrs
+                    end
               
                     fun saveDirectInReg destReg =
                     let
                         (* Free the base register. *)
-                        val () = free regset base
+                        val freeCode1 = free regset base
                         (* Free all cache registers except the destination, if it's in there. *)
-                        val () = freeSet(regSetMinus(cacheReg, singleton destReg))
+                        val freeCode2 = freeSet(regset, regSetMinus(cacheReg, singleton destReg))
 
                         val loadInstrs =
                             if inSet(destReg, cacheReg)
@@ -777,11 +775,11 @@ struct
                         StretchArray.update (pstack, entry,
                                 StackEntry{ent=Register destReg, cache=noRegisters, uses=uses,
                                            destStack=destStack, lifeTime=lifeTime});
-                        loadInstrs
+                        freeCode2 @ freeCode1 @ loadInstrs
                     end
                 in
                     if not (inSet(base, setToFree)) then []
-                    else if uses = 0 then (* discardDirect () *) (removeEntry table entry false; [])
+                    else if uses = 0 then (* discardDirect () *) (removeEntry(table, entry, false); [])
                     else if not loadIfPoss (* Not allowed to move it to another register. *)
                     then saveDirectOnStack ()
                     else if regSetMinus(cacheReg, setToFree) <> noRegisters
@@ -807,10 +805,10 @@ struct
 
                         (* Have pushed a register - can treat the register as caching
                            the stack location we have pushed it into. *)
-                        val newCache =
+                        val (newCache, freeCode) =
                             if dontCache
-                            then (freeSet(regSetUnion(cacheReg, singleton reg)); noRegisters)
-                            else regSetUnion(cacheReg, singleton reg)
+                            then (noRegisters, freeSet(regset, regSetUnion(cacheReg, singleton reg)))
+                            else (regSetUnion(cacheReg, singleton reg), [])
                         val stackAddr = ! realstackptr
                     in
                         (* Overwrite this entry with a reference to the stack. *)
@@ -824,7 +822,7 @@ struct
                         then maxstack := ! realstackptr
                         else ();
 
-                        pushInstr @ alignInstrs
+                        freeCode @ pushInstr @ alignInstrs
                     end
               
                     (* If we have any direct references using this register we can adjust them to
@@ -835,50 +833,52 @@ struct
                         fun regChanged entry =
                         if entry < ! pstackptr
                         then
-                        (
-                            case pstackEntry(table, entry) of
-                                StackEntry {ent = Direct {base, offset}, cache, uses, destStack, lifeTime} =>
-                                    if base = reg
-                                    then
-                                    ( (* Decrement the use count for the source reg 
-                                         and increment it for the destination. *)
-                                        free regset reg;
-                                        addRegUse (table, destReg);
-                                        StretchArray.update (pstack, entry,
-                                            StackEntry {ent = Direct {base = destReg, offset = offset},
-                                                cache=cache, uses=uses, destStack=destStack, lifeTime=lifeTime})
-                                    )
-                                    else ()
+                        let
+                            val freeCode =
+                                case pstackEntry(table, entry) of
+                                    StackEntry {ent = Direct {base, offset}, cache, uses, destStack, lifeTime} =>
+                                        if base = reg
+                                        then
+                                        let(* Decrement the use count for the source reg 
+                                             and increment it for the destination. *)
+                                            val freeCode = free regset reg;
+                                            val _ = addRegUse (table, destReg);
+                                        in
+                                            StretchArray.update (pstack, entry,
+                                                StackEntry {ent = Direct {base = destReg, offset = offset},
+                                                    cache=cache, uses=uses, destStack=destStack, lifeTime=lifeTime});
+                                            freeCode
+                                        end
+                                        else []
                         
-                            |   _ => ();
-                      
-                            regChanged (entry + 1)
-                        )
-                        else ();
+                                |   _ => []
+                        in
+                            regChanged (entry + 1) @ freeCode
+                        end
+                        else []
 
-                        (* Free this register *)
-                        val () = free regset reg
-                        (* Free all cache registers except the destination, if it's in there. *)
-                        val () = freeSet(regSetMinus(cacheReg, singleton destReg))
-                
                         val moveInstrs =
                             if inSet(destReg, cacheReg)
                             then [] (* already cached in destination register *)
                             else moveRR(reg, destReg)
+                        (* Free this register *)
+                        val freeCode1 = free regset reg
+                        (* Free all cache registers except the destination, if it's in there. *)
+                        val freeCode2 = freeSet(regset, regSetMinus(cacheReg, singleton destReg))
+                        val freeCode3 = regChanged entry (* Start from this entry not from the bottom *)
                     in
-                        regChanged entry; (* Start from this entry not from the bottom *)
 
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
                         StretchArray.update (pstack, entry,
                             StackEntry {ent = Register destReg, cache=noRegisters, uses=uses,
                                         destStack=destStack, lifeTime=lifeTime});
-                        moveInstrs
+                        freeCode3 @ freeCode2 @ freeCode1 @ moveInstrs
                     end
                 in
                     if not (inSet(reg, setToFree)) then []
                     else if uses = 0
-                    then (* discardReg () *) (removeEntry table entry false; [])
+                    then (* discardReg () *) (removeEntry(table, entry, false); [])
                     else if not loadIfPoss then saveRegOnStack ()
                     else if regSetMinus(cacheReg, setToFree) <> noRegisters
                         (* It's cached in a register that we don't need - save it there. *)
@@ -992,7 +992,7 @@ struct
                 else (* Push any register simply to align the stack. *)
                 (
                     realstackptr := ! realstackptr + 1;
-                    pushToStack(InRegister (regN 0)) @ pushInstrs @ previous
+                    pushToReserveSpace @ pushInstrs @ previous
                 )
         in
             alignStack(table, alignInstrs, destAddr) (* Keep going. *)
@@ -1181,18 +1181,13 @@ struct
             |   NONE =>
                 let
                     (* We seem to have run out.  First flush the cache, then if that
-                       fails push all the registers. On the whole it seems to work better
-                       to free a lot of registers rather then just freeing a few. We tend
-                       to either have more than enough registers, or much too few.
-                       This may be true for general registers but it's not true for FP
-                       registers where pushing values to the stack involves allocating
-                       memory. *) 
+                       fails push a register. *) 
                     fun untilSomethingFree () =
-                        case getReg () of NONE => true | SOME r => (free regset r; false)
-                    val () = removeFromCache(table, rSet, untilSomethingFree)
+                        case getReg () of NONE => true | SOME r => let val _ = free regset r in false end
+                    val clearAll = removeFromCache(table, rSet, untilSomethingFree)
                 in
                     case getReg () of
-                        SOME r => (r, [])
+                        SOME r => (r, clearAll)
                     |   NONE =>
                         let
                             val pushInstrs =
@@ -1200,10 +1195,10 @@ struct
                                     fn _ => untilSomethingFree(), true (* Allow moves *),
                                     true (* Free it once it's been pushed *))
                             (* Pushed values stay in the cache. *)
-                            val () = removeFromCache(table, rSet, untilSomethingFree)
+                            val clearPush = removeFromCache(table, rSet, untilSomethingFree)
                         in (* If we still haven't found anything we are in big trouble. *)
                             case getReg () of
-                                SOME r => (r, pushInstrs)
+                                SOME r => (r, clearPush @ pushInstrs @ clearAll)
                             |   NONE => raise InternalError("No free registers: " ^ regSetRepr rSet)
                         end
                 end
@@ -1259,13 +1254,12 @@ struct
                                         (reg, fullCode)
                                     end;
                             (* Free all cache registers except the destination, if it's in there. *)
-                            val () = List.app (free regset)
-                                        (setToList(regSetMinus(cache, singleton reg)))
+                            val freeCode = freeSet(regset, regSetMinus(cache, singleton reg))
                         in (* Clear out the cache and overwrite this entry with a reference to the register. *)
                             StretchArray.update (pstack, entry,
                                 StackEntry {ent = Register reg, cache=noRegisters, uses=uses,
                                             destStack=NONE, lifeTime=lifeTime});
-                            regCode
+                            freeCode @ regCode
                         end
                         else []
             
@@ -1291,7 +1285,7 @@ struct
         finalCode
     end;
 
-    fun freeRegister (Ttab{regset, ...}, reg) : unit = free regset reg
+    fun freeRegister (Ttab{regset, ...}, reg) = free regset reg
 
     (* Choose a register to be used to hold the result e.g. of a "case". *)
     fun chooseRegister (Ttab{regset, ...}) : reg option =
@@ -1435,7 +1429,7 @@ struct
                         then StretchArray.update (pstack, realLoc,
                                 StackEntry{ent=stackEntry, cache=regSetMinus(cacheReg, singleton destReg),
                                            uses=uses, destStack=destStack, lifeTime=lifeTime})
-                        else addRegUse (table, destReg)
+                        else (addRegUse (table, destReg); ())
                     val newEntry = pushReg (table, destReg)
                 in
                     (* Must decrement the use-count of the entry we are loading as though
@@ -1476,24 +1470,24 @@ struct
                                | StackW index  => (0 >= index orelse not lastRef)
                                | _             => false
                         (* If we are going to cache it we musn't let it be removed. *)
-                        val () = if cacheIt then incrUseCount (table, entry, 1) else ()
+                        val freeCode1 = if cacheIt then incrUseCount (table, entry, 1) else []
                         val loadEntry = loadPstackEntry(table, entry, resultReg)
                         val newEntry = pushReg (table, resultReg)
+                        val freeCode2 =
+                            if cacheIt
+                            then
+                            (
+                                (* put in the cache and restore use-count. *)
+                                StretchArray.update (pstack, realLoc,
+                                    StackEntry {ent=ent, cache=regSetUnion(cache, singleton resultReg),
+                                                uses=uses, destStack=destStack, lifeTime=lifeTime});
+                                addRegUse (table, resultReg);
+                                incrUseCount (table, entry, ~1)
+                            ) 
+                            else []
                     in
-                    if cacheIt
-                    then
-                    (
-                        (* put in the cache and restore use-count. *)
-                        StretchArray.update (pstack, realLoc,
-                            StackEntry {ent=ent, cache=regSetUnion(cache, singleton resultReg),
-                                        uses=uses, destStack=destStack, lifeTime=lifeTime});
-                        addRegUse (table, resultReg);
-                        incrUseCount (table, entry, ~1)
-                    ) 
-                    else ();
-            
-                    (resultReg, newEntry, loadEntry @ regCode)
-                end
+                        (resultReg, newEntry, freeCode2 @ loadEntry @ freeCode1 @ regCode)
+                    end
              end (* useNewRegister *)
     end
 
@@ -1534,8 +1528,7 @@ struct
                                     end;
                   
                             (* Free all cache registers except the destination, if it's in there. *)
-                            val () = List.app (free regset)
-                                        (setToList(regSetMinus(cache, singleton reg)))
+                            val freeCode = freeSet(regset, regSetMinus(cache, singleton reg))
                             val newStackent =
                                 (* Make a new entry with a NEW stack destination.
                                    If we have to push it we have to use a new location.
@@ -1548,7 +1541,7 @@ struct
                             (* Clear out the cache and overwrite this entry with a
                                reference to the register. *)
                             StretchArray.update (pstack, entry, newStackent);
-                            code
+                            freeCode @ code
                         end
                         else [] (* not this entry *)
                
@@ -1685,7 +1678,7 @@ struct
             else []
   
         val stackAddr = (stackOffset - 1)
-        val result : stackIndex = pushPstack table (StackW stackAddr) "pushValueToStack";
+        val result : stackIndex = pushPstack(table, StackW stackAddr, "pushValueToStack", [])
     in
         (* The stack pointer should now be the required value. *)
         if ! realstackptr <> stackOffset
@@ -1710,14 +1703,12 @@ struct
                 val (pushRest, pushCode) = pushEntries (n-1, code)
                 val stackLocn = incsp table
             in
-                (* We could push a constant but on many architectures it's easier to
-                   push a register.  It doesn't matter which provided it contains a
-                   valid tagged value or pointer. *)
-                (stackLocn :: pushRest, pushToStack(InRegister(regN 0)) @ pushCode)
+                (* Reserve space on the stac. *)
+                (stackLocn :: pushRest, pushToReserveSpace @ pushCode)
             end;
         val (entries, code) = pushEntries(space, alignCode)
     in
-        (pushPstack table (Container entries) "reserveStackSpace", code)
+        (pushPstack(table, Container entries, "reserveStackSpace", code), code)
     end
     
     (* Generates an indirection on an item on the pseudo-stack. *)
@@ -1755,7 +1746,7 @@ struct
       |  _ =>
             let
                 val (topReg, topEntry, code) = loadEntryToSet(table, entry, generalRegisters, false)
-                val () = removeStackEntry(table, topEntry); (* Remove the entry for the register. *)
+                val _ = removeStackEntry(table, topEntry) (* Remove the entry for the register. *)
                 (* and push the indirection *)
                 (* Profiling shows that this search is where the compiler can spend most
                    of its time. To speed it up we keep a lower limit pointer which saves
@@ -1772,7 +1763,7 @@ struct
                     then lowestDirect := ! pstackptr
                     else ();
             
-                    pushPstack table (Direct {base = topReg, offset = wordOffset * wordSize}) "indirect"
+                    pushPstack(table, Direct {base = topReg, offset = wordOffset * wordSize}, "indirect", code)
                 )
           
                 else case pstackEntry(table, s) of
@@ -1880,36 +1871,34 @@ struct
             Literal lit => getRegisterSetForFunction lit
         |   CodeRef code => getRegisterSetForCode code
         |   _ => allRegisters
-    end;
+    end
 
+    (* An optional result. i.e. if the code before the jump has returned a result
+       this is the offset in the table of the result. *)
+    datatype mergeResult = NoMerge | MergeIndex of stackIndex;
 
-  (* An optional result. i.e. if the code before the jump has returned a result
-     this is the offset in the table of the result. *)
-  datatype mergeResult = NoMerge | MergeIndex of stackIndex;
-
-  (* A code label packaged up with a saved state. *)
-  abstype labels =
-     NoLabels
-   | Labels of {result: mergeResult, lab: CODECONS.labels ref, state: savedState}
-  with
-    val noJump = NoLabels;
-    fun isEmptyLabel NoLabels = true | isEmptyLabel _ = false;
-    fun makeLabels(res, cLab, sState) = Labels {result=res, lab = cLab, state = sState};
+    (* A code label packaged up with a saved state. *)
+    abstype labels =
+        NoLabels
+    |   Labels of {result: mergeResult, lab: CODECONS.forwardLabel, state: savedState}
+    with
+        val noJump = NoLabels;
+        fun isEmptyLabel NoLabels = true | isEmptyLabel _ = false;
+        fun makeLabels(res, cLab, sState) = Labels {result=res, lab = cLab, state = sState};
   
-    fun labs  (Labels {lab  ,...}) = lab   | labs  _ = raise Match;
-    fun state (Labels {state,...}) = state | state _ = raise Match;
-    fun result (Labels {result,...}) = result | result _ = raise Match;
-  end;
+        fun labs  (Labels {lab  ,...}) = lab   | labs  _ = raise Match;
+        fun state (Labels {state,...}) = state | state _ = raise Match;
+        fun result (Labels {result,...}) = result | result _ = raise Match;
+    end
 
-
-    (* Set the state to the saved values. *) 
+    (* Set the state to the saved values.  This could almost certainly be radically simplified.
+       Most of the complicating factors have now been removed. *) 
     fun setState (save : savedState,
                   table as
                     Ttab{pstack, pstackTrace, printStream, exited, pstackptr, realstackptr, regset, ...},
                   carry, mark, isMerge): mergeResult * operation list =
     let 
-        val () = 
-          if pstackTrace then printState printStream save "setState" else ()
+        val () = if pstackTrace then printState printStream save "setState" else ()
         val topReg: reg =
             case carry of
                 NoMerge => regClosure (* Unused *)
@@ -1922,153 +1911,152 @@ struct
                         if cache = noRegisters then raise InternalError "setState: not a register"
                         else oneOf cache
                 )
-  in
         (* Clobber all entries above the "mark".
             This will remove the result register if there is one. *)
-        (* TODO: I don't like this.  I think we should explicitly remove it.
-           DCJM 30/11/99. *)
-        forIndDownTo(! pstackptr - 1, mark, fn s => removeEntry table s true);
-  
-        let
+        (* TODO: I don't like this.  I think we should explicitly remove it. *)
+        fun freeAbove i =
+            if i < mark then []
+            else removeEntry(table, i, true) @ freeAbove(i-1)
+        val freeTop = freeAbove(! pstackptr - 1)
+
           (* Set up the saved state. Need to set the register set.
              Free the registers from the table. *)
-          fun frees s =
+        fun frees s =
             if s >= ! pstackptr
-            then ()
-            else let
-              val stacken = pstackEntry(table, s)
+            then []
+            else
+            let
+                val stacken = pstackEntry(table, s)
+                val freeEntry =
+                 case stacken of
+                    NoStackEntry => []
+      
+                 |  StackEntry {ent, cache, ...} =>
+                    let
+                        val freeThis =
+                            case ent of 
+                                Register reg => freeRegister (table, reg)
+                            |   Direct {base, ...} => freeRegister (table, base)
+                            |   _ => []
+                    in
+                        freeSet(regset, cache) @ freeThis
+                    end
             in
-              case stacken of
-                NoStackEntry => ()
-      
-             |  StackEntry {ent, cache, ...} =>
-                  (
-                    case ent of 
-                      Register reg => freeRegister (table, reg)
-                    | Direct {base, ...} => freeRegister (table, base)
-                    | _ => () ;
-                    List.app (fn r => freeRegister (table, r)) (setToList cache)
-                  )
-              ;
-      
-              frees (s + 1)
-            end;
-        in
-          frees first 
-        end;
+                frees(s + 1) @ freeEntry
+            end
 
-    realstackptr := realStackPtr save;
+        val freeTable = frees first 
+
+        val () = realstackptr := realStackPtr save;
     
-    let
-      val oldPstackptr = ! pstackptr;
-      val () = pstackptr := pStackPtr save;
+        local
+            val oldPstackptr = ! pstackptr;
+            val () = pstackptr := pStackPtr save;
 
-      (* Go up the entries putting them onto the table from the saved
-         state, then come back setting the use-counts where appropriate.
-         We have to do it this way because of copy entries. *)
-      (* But we don't have copy entries any longer so this could
-         be improved. DCJM 30/11/99. *)
-      fun putOnEntries s =
-        if s >= pStackPtr save
-        then ()
-        else let
-          val saveEntry = saveStateEntry(save, s)
-          val (tabUseCount, tabDestStack) =
-            (* Get the use-count and stack destination in the table. *)
-            if s >= oldPstackptr then (0, NONE)
-            else 
-              case pstackEntry(table, s) of
-                NoStackEntry           => (0, NONE)
-              | StackEntry {uses, destStack, ...} =>
-                    (uses, if ! exited then NONE else destStack)
-              ;
-        in
-          (* Put the saved entry into the table. *)
-          StretchArray.update (pstack, s, saveEntry);
-          
-          case saveEntry of
-            NoStackEntry =>
-              putOnEntries (s + 1)
-      
-          | StackEntry {ent, cache, destStack, uses, lifeTime, ...} =>
-              (
-                (* Compute the new register set. *)
-                case ent of
-                  Register reg => 
-                    incr regset reg
-                
-                | Direct {base, ...} =>
-                    incr regset base
-                
-                | _ => ()
-                ;
-
-                List.app (incr regset) (setToList cache);
-
-              (* Propagate the destination stack offset information.  If the
-                 saved offset is non-negative it must agree with the current
-                 information.  *)
-                case (tabDestStack, destStack) of
-                    (NONE, _) => ()
-                |   (SOME tabDestStack, SOME destStack) =>
-                        if destStack <> tabDestStack
-                        then raise InternalError "Different stack destinations"
-                        else ()
-                |   (tabDestStack, NONE) =>
-                        StretchArray.update (pstack, s,
-                            StackEntry {ent=ent, cache=cache, uses=uses,
-                                        destStack=tabDestStack, lifeTime=lifeTime});
-              
-              putOnEntries (s + 1);
-              
-              (* Can now set the use counts. The use-counts may have changed
-                 and entries may have been removed because the use-counts of
-                 copy entries have been decremented. *)
-              (* This no longer applies now that copy entries have been
-                 removed.  Continue to do it that way for the moment.
-                 Note that with the change from use-counts to last-references
-                 we no longer reduce the use count to the lower of the
-                 saved and current values in the case where we are setting
-                 the state at the start of a parallel flow of control (e.g.
-                 at the start of the else-part of an if-then-else) but only
-                 when this is being used to "merge" flows of control where
-                 one flow has actually exited.  In that case the use counts should
-                 normally agree but there may be cases where they don't, maybe
-                 associated with statically-linked functions. *)
-              if isMerge
-              then
-                  let
-                    val currUseCount =
-                      if s >= (! pstackptr) then 0
-                      else 
-                        case pstackEntry(table, s) of
-                          NoStackEntry           => 0
-                        | StackEntry {uses, ...} => uses
-                  in
-                    if tabUseCount < currUseCount
-                    then incrUseCount (table, s, tabUseCount - currUseCount)
-                    else ()
-                  end
-              else ()
-            )
-        end;
-      val () = putOnEntries first;
-
-      val result =
-          case carry of
-            MergeIndex _ =>(* Put the result register onto the stack. *)
+            (* Go up the entries putting them onto the table from the saved
+             state, then come back setting the use-counts where appropriate.
+             We have to do it this way because of copy entries. *)
+            (* But we don't have copy entries any longer so this could
+             be improved. DCJM 30/11/99. *)
+            fun putOnEntries s =
+                if s >= pStackPtr save
+                then []
+                else
                 let
-                    val regCode = getRegister (table, topReg)
+                    val saveEntry = saveStateEntry(save, s)
+                    val (tabUseCount, tabDestStack) =
+                        (* Get the use-count and stack destination in the table. *)
+                        if s >= oldPstackptr then (0, NONE)
+                        else 
+                          case pstackEntry(table, s) of
+                            NoStackEntry           => (0, NONE)
+                          | StackEntry {uses, destStack, ...} =>
+                                (uses, if ! exited then NONE else destStack)
                 in
-                    (MergeIndex(pushReg (table, topReg)), regCode)
-                end
-            | NoMerge => (NoMerge, [])
-    in
-      if pstackTrace then printStack(table, "setState", []) else ();
-      result
-    end
-  end
+                    (* Put the saved entry into the table. *)
+                    StretchArray.update (pstack, s, saveEntry);
+          
+                    case saveEntry of
+                        NoStackEntry => putOnEntries (s + 1)
+      
+                    |   StackEntry {ent, cache, destStack, uses, lifeTime, ...} =>
+                        let
+                            (* Compute the new register set. *)
+                            val loadReg =
+                                case ent of
+                                    Register reg => incr regset reg
+                                |   Direct {base, ...} => incr regset base
+                                |   _ => []
+                            val cacheRegs = List.foldl(fn (r, l) => incr regset r @ l) [] (setToList cache)
 
+                            (* Propagate the destination stack offset information.  If the
+                               saved offset is non-negative it must agree with the current
+                               information.  *)
+                            val () =
+                                case (tabDestStack, destStack) of
+                                    (NONE, _) => ()
+                                |   (SOME tabDestStack, SOME destStack) =>
+                                        if destStack <> tabDestStack
+                                        then raise InternalError "Different stack destinations"
+                                        else ()
+                                |   (tabDestStack, NONE) =>
+                                        StretchArray.update (pstack, s,
+                                            StackEntry {ent=ent, cache=cache, uses=uses,
+                                                        destStack=tabDestStack, lifeTime=lifeTime});
+                            val otherEntries = putOnEntries (s + 1)
+              
+                            (* Can now set the use counts. The use-counts may have changed
+                             and entries may have been removed because the use-counts of
+                             copy entries have been decremented. *)
+                            (* This no longer applies now that copy entries have been
+                             removed.  Continue to do it that way for the moment.
+                             Note that with the change from use-counts to last-references
+                             we no longer reduce the use count to the lower of the
+                             saved and current values in the case where we are setting
+                             the state at the start of a parallel flow of control (e.g.
+                             at the start of the else-part of an if-then-else) but only
+                             when this is being used to "merge" flows of control where
+                             one flow has actually exited.  In that case the use counts should
+                             normally agree but there may be cases where they don't, maybe
+                             associated with statically-linked functions. *)
+                            val () =
+                                if isMerge
+                                then
+                                let
+                                    val currUseCount =
+                                    if s >= (! pstackptr) then 0
+                                    else 
+                                    case pstackEntry(table, s) of
+                                        NoStackEntry           => 0
+                                    |   StackEntry {uses, ...} => uses
+                                in
+                                    if tabUseCount < currUseCount
+                                    then (incrUseCount (table, s, tabUseCount - currUseCount); ())
+                                    else ()
+                                end
+                                else ()
+                        in
+                            otherEntries @ cacheRegs @ loadReg
+                        end
+                end
+        in
+            val addRegs = putOnEntries first
+        end
+
+        val regLoadFree = addRegs @ freeTable @ freeTop
+        val result =
+            case carry of
+                MergeIndex _ =>(* Put the result register onto the stack. *)
+                    let
+                        val regCode = getRegister (table, topReg)
+                    in
+                        (MergeIndex(pushReg (table, topReg)), activeRegister topReg @ regCode @ regLoadFree)
+                    end
+            |   NoMerge => (NoMerge, regLoadFree)
+    in
+        if pstackTrace then printStack(table, "setState", #2 result) else ();
+        result
+    end
 
     fun unconditionalBranch (result, table as Ttab { branched, ...}) : labels * operation list =
     if ! branched then (noJump, [])
@@ -2084,7 +2072,8 @@ struct
     fun jumpBack(start, Ttab { branched, ...}): operation list =
     (
         branched := true;
-        CODECONS.jumpBack{dest=start, addStackCheck=true}
+        (* Check for interrupts when jumping backwards. *)
+        CODECONS.jumpBack start @ interruptCheck
     )
 
     (* Record the stack limit when we diverge and then use it when we merge
@@ -2166,13 +2155,12 @@ struct
                     (* Load the value on the top of "table" into the same register
                         (it ought to be there anyway). *)
                     val (regEntry, loadCode) = loadToSpecificReg (table, sTopReg, currentTop, true);
-                in
-                   (* Because this register will be at a different offset in
+                    (* Because this register will be at a different offset in
                       the table from in the saved state it is easier to remove
                       the register and put it on later. *)
-                   removeStackEntry(table, regEntry);
-                   
-                   (sTopReg, getRegister (table, sTopReg) @ loadCode)
+                    val removeEntry = removeStackEntry(table, regEntry);
+                in
+                   (sTopReg, removeEntry @ getRegister (table, sTopReg) @ loadCode)
                 end
              | (NoMerge, NoMerge) => (regClosure (* Unused *), [])
              | _ => (* They should agree on whether they will return a result or not. *)
@@ -2182,7 +2170,8 @@ struct
            local to the block since the split and so are no longer required.
            They should normally have been removed as soon as they were no
            longer required.  *)
-        val () = forIndDownTo (! pstackptr - 1, newMark mark, fn s => removeEntry table s true);
+        val freeEntries0 =
+            revfoldIndDownTo (fn s => fn l => removeEntry(table, s, true) @ l, [], ! pstackptr - 1, newMark mark)
          
         (* First pass: get rid of entries which are no longer required.
               Also propagate stack destination info.  That probably isn't
@@ -2195,66 +2184,72 @@ struct
              from the merged state. The common entries may differ if we
              have had to push some values that were in registers onto the
              real stack. *)
-        val () = forIndDownTo (! pstackptr - 1, first,
-             fn s =>
-                case (pstackEntry(table, s), saveStateEntry(save, s)) of
-                    (NoStackEntry, _) => () (* No entry in table. *)
+        fun fixEntry s l =
+        let
+            val entry =
+            case (pstackEntry(table, s), saveStateEntry(save, s)) of
+                (NoStackEntry, _) => [] (* No entry in table. *)
 
-                |   (StackEntry _, NoStackEntry) =>
-                         (* table entry could be non-empty if it is a cache entry
-                            or if we are doing a backwards merge. If we do a
-                            backwards merge we can have entries in the table 
-                            with non-zero use counts, but those can be removed. *)                 
-                          removeEntry table s false
+            |   (StackEntry _, NoStackEntry) =>
+                     (* table entry could be non-empty if it is a cache entry
+                        or if we are doing a backwards merge. If we do a
+                        backwards merge we can have entries in the table 
+                        with non-zero use counts, but those can be removed. *)                 
+                      removeEntry(table, s, false)
 
-                |   (StackEntry {uses = tabUses, cache = tabCache, ent = tabEnt,
-                                 destStack = tabDest, lifeTime},
-                     StackEntry {uses = saveUses, cache = saveCache, ent = saveEnt,
-                                 destStack = saveDest, ...}) =>
-                        let
-                          val mergedDest =
-                            case (tabDest, saveDest) of
-                                (tb as SOME tabDest, SOME saveDest) =>
-                                    if tabDest <> saveDest
-                                    then raise InternalError "merge: mismatched destination"
-                                    else tb
-                            |   (NONE, saveDest) => saveDest
-                            |   (tabDest, _) => tabDest
-                        in
-                          if tabUses = 0 orelse saveUses = 0
-                           (* The use-counts may be zero if we have retained an
-                              entry because it is cached in a register. We remove
-                              these entries unless it is the same value and cached 
-                              in the same register *)
-                          then
-                            if tabCache <> saveCache (* TODO: Handle non-empty intersection. *)
-                            then removeEntry table s false
-                            else 
-                              case (tabEnt, saveEnt) of 
-                                (Direct {base = tabBase,  offset = tabOffset},
-                                 Direct {base = saveBase, offset = saveOffset}) =>
-                                   if tabBase = saveBase andalso tabOffset = saveOffset
-                                   then ()
-                                   else removeEntry table s false
-                               
-                              | (StackW tabIndex, StackW saveIndex) =>
-                                    if tabIndex = saveIndex
-                                    then ()
-                                    else removeEntry table s false
-                                
-                              | _ => 
-                                    removeEntry table s false
-            
-                          else (* We need to retain this entry. *)
-                             (
-                             if tabDest <> mergedDest
-                             then StretchArray.update (pstack, s,
-                                    StackEntry{ent=tabEnt, cache=tabCache, uses=tabUses,
-                                               destStack=mergedDest, lifeTime=lifeTime})
-                             else ()
-                             )
-                        end
-             );
+            |   (StackEntry {uses = tabUses, cache = tabCache, ent = tabEnt,
+                             destStack = tabDest, lifeTime},
+                 StackEntry {uses = saveUses, cache = saveCache, ent = saveEnt,
+                             destStack = saveDest, ...}) =>
+                    let
+                      val mergedDest =
+                        case (tabDest, saveDest) of
+                            (tb as SOME tabDest, SOME saveDest) =>
+                                if tabDest <> saveDest
+                                then raise InternalError "merge: mismatched destination"
+                                else tb
+                        |   (NONE, saveDest) => saveDest
+                        |   (tabDest, _) => tabDest
+                    in
+                      if tabUses = 0 orelse saveUses = 0
+                       (* The use-counts may be zero if we have retained an
+                          entry because it is cached in a register. We remove
+                          these entries unless it is the same value and cached 
+                          in the same register *)
+                      then
+                        if tabCache <> saveCache (* TODO: Handle non-empty intersection. *)
+                        then removeEntry(table, s, false)
+                        else 
+                          case (tabEnt, saveEnt) of 
+                            (Direct {base = tabBase,  offset = tabOffset},
+                             Direct {base = saveBase, offset = saveOffset}) =>
+                               if tabBase = saveBase andalso tabOffset = saveOffset
+                               then []
+                               else removeEntry(table, s, false)
+                           
+                          | (StackW tabIndex, StackW saveIndex) =>
+                                if tabIndex = saveIndex
+                                then []
+                                else removeEntry(table, s, false)
+                            
+                          | _ => 
+                                removeEntry(table, s, false)
+        
+                      else (* We need to retain this entry. *)
+                         (
+                         if tabDest <> mergedDest
+                         then StretchArray.update (pstack, s,
+                                StackEntry{ent=tabEnt, cache=tabCache, uses=tabUses,
+                                           destStack=mergedDest, lifeTime=lifeTime})
+                         else ();
+                         []
+                         )
+                    end
+        in
+            entry @ l
+        end
+
+        val freeEntries1 = revfoldIndDownTo (fixEntry, [], ! pstackptr - 1, first)
 
         local
            (* Try to align the real stack pointer by popping unused values.
@@ -2310,7 +2305,7 @@ struct
              (* We can reset the stack to the maximum of the entries
                 currently in use and those which need to be pushed or
                 the saved sp if there aren't any. *)
-             val maxStack = Int.max(stackInUse, minStack)
+            val maxStack = Int.max(stackInUse, minStack)
        in
             val resetCode =
                 if maxStack < ! realstackptr
@@ -2387,7 +2382,6 @@ struct
                         in
                             (prefReg, loadPstackEntry(table, s, prefReg) @ getRegCode)
                         end
-            in 
                   (* loadPstackEntry will have decremented the use count and may
                      have completely removed the entry.  If it hasn't we need to
                      remove it before we replace it with the loaded register.
@@ -2395,13 +2389,15 @@ struct
                      the value in the correct register) we have to call removeEntry
                      to decrement the register use count (we incremented it above)
                      and so restore it to the original value. *)
-                case (pstackEntry(table, s)) of
-                    NoStackEntry => ()
-                |   StackEntry _ => removeEntry table s false;
+                val freeCode =
+                    case (pstackEntry(table, s)) of
+                        NoStackEntry => []
+                    |   StackEntry _ => removeEntry(table, s, false);
+            in 
                 StretchArray.update (pstack, s,
                     StackEntry{ent=Register dReg, cache=noRegisters, uses=tabUses,
                                destStack=tabDest, lifeTime=tabLife});
-                dRegCode
+                freeCode @ dRegCode
             end (* loadToReg *)
 
             fun loadEntries(s, others) =
@@ -2455,8 +2451,10 @@ struct
               operations that have to be done on the saved state before we
               can finally merge.  Also flush mismatched items from the cache. *)
         local
-            fun checkEntries s =
-                 case (pstackEntry(table, s), saveStateEntry(save, s)) of
+            fun checkEntries s l =
+            let
+                val entry =
+                case (pstackEntry(table, s), saveStateEntry(save, s)) of
                     (StackEntry {uses = tabUses, cache = tabCache, ent = tabEnt,
                                  destStack = tabDest, lifeTime},
                      StackEntry {cache = saveCache, ent = saveEnt, ...}) =>
@@ -2467,31 +2465,32 @@ struct
                                    the saved cache. *)
                                 val keep = regSetIntersect(tabCache, saveCache)
                             in
-                                List.app (free regset) (setToList(regSetMinus(tabCache, keep)));
                                 StretchArray.update (pstack, s,
                                     StackEntry {ent=tabEnt, cache=keep, uses=tabUses,
-                                                destStack=tabDest, lifeTime=lifeTime})
+                                                destStack=tabDest, lifeTime=lifeTime});
+                                freeSet(regset, regSetMinus(tabCache, keep))
                             end
                         in
                         case tabEnt of
                             Register tabReg =>
                                 (
-                                (* It's fine if the saved value was cached in that register. *)
-                                if inSet(tabReg, saveCache)
-                                then ()
-                                else case saveEnt of
-                                    Register saveReg =>
-                                        (* We should have moved these into the same
-                                           register.  It's possible it got moved again
-                                           as a result of loading something else. *)
-                                        if tabReg <> saveReg
-                                        then needOtherWay := true else ()
-                                |   StackW _ =>
-                                        (* We should have pushed it in the second pass. *)
-                                        raise InternalError "merge: unpushed entry"
-                                |   _ => (* Maybe a Direct entry which has to be
-                                            loaded in a reverse merge. *)
-                                        needOtherWay := true
+                                    (* It's fine if the saved value was cached in that register. *)
+                                    if inSet(tabReg, saveCache)
+                                    then ()
+                                    else case saveEnt of
+                                        Register saveReg =>
+                                            (* We should have moved these into the same
+                                               register.  It's possible it got moved again
+                                               as a result of loading something else. *)
+                                            if tabReg <> saveReg
+                                            then needOtherWay := true else ()
+                                    |   StackW _ =>
+                                            (* We should have pushed it in the second pass. *)
+                                            raise InternalError "merge: unpushed entry"
+                                    |   _ => (* Maybe a Direct entry which has to be
+                                                loaded in a reverse merge. *)
+                                            needOtherWay := true;
+                                    []
                                 )
                         |   Literal _ =>
                                 (
@@ -2510,13 +2509,13 @@ struct
                                 (* As with register entries these should have been
                                    merged but might have diverged again. *)
                                 if saveCache = tabCache (* TODO: Should this be an intersection? *)
-                                then ()
+                                then []
                                 else
                                     case saveEnt of
                                         Direct{base=saveBase, ...} =>
                                            if tabBase = saveBase
                                            then flushCache() (* Ok but must flush cache. *)
-                                           else needOtherWay := true
+                                           else (needOtherWay := true; [])
                                     |   _ =>
                                             raise InternalError "merge: mismatched Direct"
                                 )
@@ -2531,18 +2530,21 @@ struct
                                         flushCache()
                                         )
                                     | _ => (* Need to push this in a reverse merge. *)
-                                        needOtherWay := true
+                                        (needOtherWay := true; [])
                                 )
                         |   Container _ =>
                                 (
                                 case saveEnt of
-                                    Container _ => ()
+                                    Container _ => []
                                 |   _ => raise InternalError "merge: mismatched Container"
                                 )
                         end
-                  | _ => ()
+                  | _ => []
+            in
+                entry @ l
+            end
         in
-              val () = forIndDownTo (! pstackptr - 1, first, checkEntries)
+              val freeEntries2 = revfoldIndDownTo (checkEntries, [], ! pstackptr - 1, first)
         end;
            (* Last of all, try to align the stack. If the current stack pointer
               is greater than the saved value we must have live values on the
@@ -2572,20 +2574,22 @@ struct
                         saved but this will do for the moment. *)
                     (
                         realstackptr := ! realstackptr + 1;
-                        addAlign(pushToStack(InRegister(regN 0)) @ pushInstrs @ others)
+                        addAlign pushToReserveSpace @ pushInstrs @ others
                     )
                 end
             in
                 addAlign []
             end
 
-        val result = (* Push any result. *)
+        val (result, resultCode) = (* Push any result. *)
             case currentResult of
-                MergeIndex _ => MergeIndex(pushReg (table, topReg))
-              | NoMerge => NoMerge
+                MergeIndex _ => (MergeIndex(pushReg (table, topReg)), activeRegister topReg)
+              | NoMerge => (NoMerge, [])
     in
         if pstackTrace then printStack(table, "mergeState", []) else ();
-        (!needOtherWay, result, alignCode @ loadRegCode @ pushCode @ resetCode @ topRegCode)
+        (!needOtherWay, result,
+            resultCode @ alignCode @ freeEntries2 @ loadRegCode @ pushCode @ resetCode @
+            freeEntries1 @ freeEntries0 @ topRegCode)
     end
 
     (* Fix up a label after an unconditional branch. *)
@@ -2598,7 +2602,7 @@ struct
     in
         branched := false;
         exited := false;
-        forwardJumpLabel{label=labs lab} @ code
+        code @ forwardJumpLabel(labs lab)
     end
     
     local
@@ -2613,7 +2617,7 @@ struct
             in
                 branched := false;
                 exited := false;
-                (newResult, forwardJumpLabel{label=labs lab} @ newCode)
+                (newResult, forwardJumpLabel(labs lab) @ newCode)
             end
             else
             let
@@ -2634,9 +2638,9 @@ struct
                         mergeLab (lab1, table, newResult, mark)
                 in
                     (mergeResult, otherMerge @
-                        forwardJumpLabel{label=labs lab} @ newCode @ lab1Code @ mergeCode)
+                        forwardJumpLabel(labs lab) @ newCode @ lab1Code @ mergeCode)
                 end
-                else (mergeRes, forwardJumpLabel{label=labs lab} @ mergeCode)
+                else (mergeRes, forwardJumpLabel(labs lab) @ mergeCode)
             end
     in
         (* Fix up a label.  If this follows an unconditional branch we replace the
@@ -2690,8 +2694,9 @@ struct
 
     (* Fixup the address at the start of a handler. *)
     fun fixupH ({lab, oldps}, oldsp, table as Ttab{branched, exited, pstackptr, realstackptr, ...}) =
-    ( 
-        clearCache table; (* Don't know the registers here. *)
+    let 
+        val clear = clearCache table (* Don't know the registers here. *)
+    in
         realstackptr := oldsp;
         exited := false;
         branched := false;
@@ -2699,11 +2704,10 @@ struct
         (* Remove any entries above the old pstack pointer. If the expression
            whose exceptions we are handling contained static-link functions
            there may be entries whose use-counts have not gone to zero. *)
-        forIndDownTo (! pstackptr - 1, oldps,
-            fn (s: stackIndex) => removeEntry table s false);
-
-        startHandler{ handlerLab=lab}
-    )
+        startHandler{ handlerLab=lab} @
+            revfoldIndDownTo(fn s => fn l => removeEntry(table, s, false) @ l, [], ! pstackptr - 1, oldps) @
+                clear
+    end
 
     (* Generate operations.  Negotiates the arguments and results with the machine-specific
        code-generator. This module knows where the arguments are as a result of previous operations
@@ -2763,11 +2767,11 @@ struct
                     (* If we have an output register increment its use-count first. *)
                     val () = case outReg of SOME reg => lockRegister(table, reg) | NONE => ()
                     val result = finish outReg (* Set the result. *)
-                    val () = List.app (fn reg => unlockRegister(table, reg)) lockedRegs
-                    val () = List.app (fn arg => incrUseCount (table, arg, ~1)) args
+                    val freeLock = List.foldl (fn(reg, l) => unlockRegister(table, reg) @ l) [] lockedRegs
+                    val freeEntries = List.foldl (fn(arg, l) => incrUseCount (table, arg, ~1) @ l) [] args
                     val () = if pstackTrace then printStack(table, "performActions", operation @ loadOps) else ()
                 in
-                    (result, operation @ loadOps)
+                    (result, freeEntries @ freeLock @ operation @ loadOps)
                 end
 
             |   untilDone(ActionLockRegister{argNo=_, reg, willOverwrite, next}, args, loadOps, lockedRegs) =
@@ -2776,12 +2780,12 @@ struct
                     (* We only use ActionLockRegister if the entry has been detected as being in a
                        register but this may be because the entry is a Register or a cache entry. *)
                     val () = lockRegister (table, reg)
-                    val () =
+                    val clear =
                         if willOverwrite
                         then removeRegistersFromCache(table, listToSet [reg])
-                        else ()
+                        else []
                 in
-                    untilDone(next(argsAsSources(table, args)), args, loadOps, reg :: lockedRegs)
+                    untilDone(next(argsAsSources(table, args)), args, clear @ loadOps, reg :: lockedRegs)
                 end
 
             |   untilDone(ActionLoadArg{argNo, regSet, willOverwrite, next}, args, loadOps, lockedRegs) =
@@ -2837,7 +2841,7 @@ struct
            words if this is word store. *)
         and moveToVec (vecEntry, valueEntry, offset: int, instr, table) : operation list =
             let
-                val () = incrUseCount (table, vecEntry, 1) (* This must be kept. *)
+                val freeCode1 = incrUseCount (table, vecEntry, 1) (* This must be kept. *)
                 (* Turn this into an assignment operation. *)
                 val arguments = [vecEntry, pushConst(table, toMachineWord offset), valueEntry]
                 fun mapLiteral ent =
@@ -2849,10 +2853,10 @@ struct
                     SOME(ins, args) =>
                         let
                             (* Decrement the use counts for entries that we're not using. *)
-                            val () = List.app(fn a => incrUseCount (table, a, 1)) args
-                            val () = List.app(fn a => incrUseCount (table, a, ~1)) arguments
+                            val freeCode2 = List.foldl(fn (a, l) => incrUseCount (table, a, 1) @ l) [] args
+                            val freeCode3 = List.foldl(fn (a, l) => incrUseCount (table, a, ~1) @ l) [] arguments
                         in
-                            #2(dataOp(args, ins, table, NoResult))
+                            #2(dataOp(args, ins, table, NoResult)) @ freeCode3 @ freeCode2 @ freeCode1
                         end
                 |   NONE => raise InternalError "moveToVec: Not implemented"
             end
@@ -2913,7 +2917,7 @@ struct
         code
     end;
 
-    fun startCase (table as Ttab{branched, exited, pstackptr, ...}, state) : addrs ref * operation list =
+    fun startCase (table as Ttab{branched, exited, pstackptr, ...}, state) : backwardLabel * operation list =
     let
         val (_, code) = setState (state, table, NoMerge, ! pstackptr, false);
         val (jumpCode, destLabel) = backJumpLabel()
@@ -2996,16 +3000,18 @@ struct
     (* Restore the state if we're reprocessing a loop. *)
     fun restoreLoopState(table as Ttab{branched, exited, pstackptr, ...}, state, cacheSet, pushes: loopPush list) =
     let
-        val (_, code) = setState (state, table, NoMerge, ! pstackptr, false);
+        (* We're restoring the state to what it was before the loop and we don't generate
+           the previous loop code so we can simply discard the "free" instructions here. *)
+        val (_, _) = setState (state, table, NoMerge, ! pstackptr, false);
         (* Remove entries from the cache if they've been changed in the loop. *)
-        val () = removeFromCache(table, cacheSet, fn () => true);
+        val _ = removeFromCache(table, cacheSet, fn () => true);
         (* Push items to the stack that are pushed in the loop.  Don't move them into other
            registers but allow them to be cached. *)
         val pushes = pushRegisters(table, allRegisters, fn e => List.exists(fn e' => e=e') pushes, false, false);
         val () = exited := false;
         val () = branched := false;
     in
-        pushes @ code
+        pushes
     end
 
     (* These are exported as read-only. *)
@@ -3093,6 +3099,7 @@ struct
         and  regHint    = regHint
         and  argdest    = argdest
         and  loopPush   = loopPush
+        and  backwardLabel = backwardLabel
     end
 
 end;

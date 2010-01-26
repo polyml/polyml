@@ -27,7 +27,6 @@ sig
     type short = Address.short
     type address = Address.address
     type code
-    type pretty
     eqtype reg   (* Machine registers *)
     
     datatype argType = ArgGeneral | ArgFP
@@ -149,15 +148,12 @@ sig
     val byteVecEq: tests
     and byteVecNe: tests
 
-    type labels (* The source of a jump. *)
-
-    val noJump: labels
+    type forwardLabel
+    and  backwardLabel
 
     (* Compare and branch for fixed and arbitrary precision. *)
     val checkAndReduceBranches: tests * 'a list * ('a -> machineWord option) -> (tests * 'a list) option
 
-(*    val isIndexedStore: unit -> bool
-    val isStoreI:       machineWord * storeWidth * bool -> bool*)
     val preferLoadPush: bool
 
     datatype callKinds =
@@ -172,7 +168,7 @@ sig
 
     type cases
 
-    val constrCases : word * addrs ref -> cases
+    val constrCases : word * backwardLabel -> cases
 
     datatype source =
         LiteralSource of machineWord
@@ -192,20 +188,24 @@ sig
     val jumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
     val returnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations
     val raiseException: operations
-    val uncondBranch: unit -> operations * labels ref
+    val uncondBranch: unit -> operations * forwardLabel
     val resetStack: int -> operations
-    val backJumpLabel: unit -> operations * addrs ref
-    val jumpBack: { dest: addrs ref, addStackCheck: bool } -> operations
-    val forwardJumpLabel: { label: labels ref } -> operations
+    val backJumpLabel: unit -> operations * backwardLabel
+    val jumpBack: backwardLabel -> operations
+    val interruptCheck: operations
+    val forwardJumpLabel: forwardLabel -> operations
     val loadHandlerAddress: { handlerLab: addrs ref, output: reg } -> operations
     val startHandler: { handlerLab: addrs ref } -> operations
     val indexedCase:
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref } -> operations
     val fillJumpTable:
-            { tableAddr: addrs ref, cases: cases list, default: addrs ref, min: word, max: word } -> operations
+            { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word } -> operations
+    val activeRegister: reg -> operations
+    val freeRegister: reg -> operations
+    val pushToReserveSpace: operations
 
-    val prettyOperation: operation * int -> pretty
+    val printOperation: operation * (string -> unit) -> unit
 
     datatype regHint = UseReg of reg | NoHint | NoResult
 
@@ -232,7 +232,7 @@ sig
 
     (* Negotiate arguments *)
     val negotiateArguments: instrs * regHint -> nextAction
-    val negotiateTestArguments: tests -> nextAction * labels ref
+    val negotiateTestArguments: tests -> nextAction * forwardLabel
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
@@ -254,6 +254,7 @@ sig
         and  regHint    = regHint
         and  argAction  = argAction
         and  regSet     = RegSet.regSet
-        and  pretty     = pretty
+        and  backwardLabel = backwardLabel
+        and  forwardLabel = forwardLabel
     end
 end;
