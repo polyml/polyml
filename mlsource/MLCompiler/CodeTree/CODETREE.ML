@@ -1080,10 +1080,16 @@ DCJM 2000.
                     (* Process the body. *)
                     val insBody = insert body
 
-                    (* Set the arguments to "unreferenced".  These are effectively local to
-                       the loop so they can safely be killed inside it. *)
-                    val () = List.app(
-                        fn(Declar{addr, ...}, _) => Array.update (localUses, addr, 0) | _ =>()) argList
+                    (* We want to set the arguments to "unreferenced".  These are effectively local to
+                       the loop so they can safely be killed inside it.  However we want to record
+                       the final references so we can attach them to the declarations. *)
+                    local
+                        fun processDec(Declar{addr, ...}, _) =
+                            Array.sub(localUses, addr) before Array.update (localUses, addr, 0)
+                        |   processDec _ = raise InternalError "processDec"
+                    in
+                        val argUses = List.map processDec argList
+                    end
 
                     val usagesBeforeLoop = saveUsages()
                     (* Restore the state. *)
@@ -1091,11 +1097,12 @@ DCJM 2000.
                     val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
                     val (killBefore, killAfter) = computeKillSets(usagesAfterLoop, usagesBeforeLoop)
                     val _ = null killBefore orelse raise InternalError "Not killBefore"
+
                     (* Finally the initial argument values. *)
-                    fun copyDec(Declar{addr, value, ...}, _) =
-                            mkDecRef(insert value, addr, Int.max(1, Array.sub(localUses, addr)))
+                    fun copyDec((Declar{addr, value, ...}, _), uses) =
+                            mkDecRef(insert value, addr, uses)
                     |   copyDec _ = raise InternalError "copyDec: not a declaration"
-                    val newargs = mapright copyDec argList
+                    val newargs = mapright copyDec (ListPair.zipEq(argList, argUses))
                 in
                     (* Add the kill entries on after the loop. *)
                     BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList), kills=killAfter}
