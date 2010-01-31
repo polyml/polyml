@@ -507,6 +507,10 @@ struct
           "%r" ^ Word8.toString (getReg r)
     |   regRepr(FPReg n) = "fp" ^ Word8.toString n
     |   regRepr HandlerReg = "Handler[%ebp]"
+
+    (* Install a pretty printer.  This is simply for when this code is being
+       run under the debugger.  N.B. We need PolyML.PrettyString here. *)
+    val () = PolyML.addPrettyPrinter(fn _ => fn _ => fn r => PolyML.PrettyString(regRepr r))
     
     datatype argType = ArgGeneral | ArgFP
 
@@ -531,25 +535,25 @@ struct
     structure RegSet =
     struct
         (* Implement a register set as a bit mask. *)
-        type regSet = word
-        fun singleton r = Word.<<(0w1, Word.fromInt(nReg r))
-        val regSetUnion = Word.orb
-        val regSetIntersect = Word.andb
+        datatype regSet = RegSet of word
+        fun singleton r = RegSet(Word.<<(0w1, Word.fromInt(nReg r)))
+        fun regSetUnion(RegSet r1, RegSet r2) = RegSet(Word.orb(r1, r2))
+        fun regSetIntersect(RegSet r1, RegSet r2) = RegSet(Word.andb(r1, r2))
 
         local
             fun addReg(acc, n) =
                 if n = regs then acc else addReg(regSetUnion(acc, singleton(regN n)), n+1)
         in
-            val allRegisters = addReg(0w0, 0)
+            val allRegisters = addReg(RegSet 0w0, 0)
         end
-        
-        val noRegisters = 0w0
 
-        fun inSet(r, rs) = Word.andb(singleton r, rs) <> 0w0
+        val noRegisters = RegSet 0w0
+
+        fun inSet(r, rs) = regSetIntersect(singleton r, rs) <> noRegisters
         
-        fun regSetMinus(s1, s2) = Word.andb(s1, Word.notb s2)
+        fun regSetMinus(RegSet s1, RegSet s2) = RegSet(Word.andb(s1, Word.notb s2))
         
-        val listToSet = List.foldl (fn(r, rs) => Word.orb(singleton r, rs)) 0w0
+        val listToSet = List.foldl (fn(r, rs) => regSetUnion(singleton r, rs)) noRegisters
 
         val generalRegisters = (* Registers checked by the GC. *)
             listToSet [eax, ecx, edx, ebx, esi, edi]
@@ -576,7 +580,7 @@ struct
         (* Choose one of the set.  This chooses the least value which means that
            the ordering of the registers is significant.  This is a hot-spot
            so is coded directly with the word operations. *)
-        fun oneOf regSet =
+        fun oneOf(RegSet regSet) =
         let
             fun find(n, bit) =
                 if n = Word.fromInt regs then raise InternalError "oneOf: empty"
@@ -592,6 +596,9 @@ struct
         in
             "[" ^ String.concatWith "," (List.map regRepr regs) ^ "]"
         end
+        
+        (* Install a pretty printer for when this code is being debugged. *)
+        val () = PolyML.addPrettyPrinter(fn _ => fn _ => fn r => PolyML.PrettyString(regSetRepr r))
      end
 
     open RegSet
@@ -982,9 +989,13 @@ SS-relative addressing modes:
        for a marker word. *)
     fun checkLabs []          = []
       | checkLabs ((lab as ref (Jump8From addr))::labs) =
-            if !ic addrMinus addr = 1
+            if !ic addrMinus addr = 1 andalso !ic <> !branchCheck
             then
              (
+                (* It now seems that we can have a !ic = !branchCheck in the situation where
+                   we have a handler that does nothing.  Setting the handler entry point sets
+                   branchCheck but the branch round the empty handler does nothing.
+                   This should be tidied up by peep-hole optimisation. *)
                if !ic <= !branchCheck
                then raise InternalError "Backing up too far (8bit)"
                else ();
@@ -5495,7 +5506,9 @@ itself.
     (* Exported versions of operations datatype *)
     fun moveOp v = [Move v]
     and pushToStack v = [PushToStack v]
-    and storeToMemory v = [StoreToMemory v]
+    and storeToMemory(v as {base, offset, ... }) =
+            if base = esp andalso offset < 0 then raise InternalError "storeToMemory: Negative stack offset"
+            else [StoreToMemory v]
     and allocStore v = [AllocStore v]
     and callFunction v = [CallFunction v]
     and jumpToFunction v = [JumpToFunction v]
@@ -5531,6 +5544,11 @@ itself.
     in
         ([BackJumpLabel loopLabel], loopLabel)
     end
+
+    val pushCurrentHandler = pushToStack(InRegister regHandler)
+    and setHandlerToCurrentSP = moveOp{source=InRegister regStackPtr, output=regHandler}
+    fun reloadHandlerFromStack stackOffset =
+        moveOp{source=BaseOffset(regStackPtr, stackOffset), output=regHandler}
 
     structure Sharing =
     struct

@@ -34,7 +34,6 @@ sig
     val regNone:     reg option
     val regClosure:  reg
     val regStackPtr: reg
-    val regHandler:  reg
     val regReturn:   reg option
 
     (* For vector indexing we provide a numbering for the registers. *)
@@ -204,6 +203,9 @@ sig
     val activeRegister: reg -> operations
     val freeRegister: reg -> operations
     val pushToReserveSpace: operations
+    val pushCurrentHandler: operations
+    val setHandlerToCurrentSP: operations
+    val reloadHandlerFromStack: int -> operations
 
     val printOperation: operation * (string -> unit) -> unit
 

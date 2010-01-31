@@ -78,9 +78,11 @@ struct
         }
     
     | BeginLoop of (* Start of tail-recursive inline function. *)
-        { loop: codetree, arguments: (codetree * argumentType) list, kills: codetree list }
+        { loop: codetree, arguments: (codetree * argumentType) list }
 
     | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
+
+    | KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
 
     | Raise of codetree (* Raise an exception *)
 
@@ -406,7 +408,7 @@ struct
         | MatchFail => PrettyString "MATCHFAIL"
         
         | AltMatch pair => printDiad "ALTMATCH" pair
-        
+
         | Eval {function, argList, earlyEval, resultType} =>
             let
                 val prettyArgs =
@@ -427,6 +429,18 @@ struct
                     [ PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
                 )
             end
+
+        | KillItems {expression, killSet, killBefore} =>
+            PrettyBlock(1, false, [],
+                [
+                    PrettyString(if killBefore then "KILLBEFORE(" else "KILLAFTER("),
+                    PrettyBreak(1, 0),
+                    pretty expression,
+                    PrettyBreak(1, 0),
+                    printList (" KILL=", killSet, ","),
+                    PrettyString ")"
+                ]
+            )
         
         | Declar {value, addr, references} =>
             PrettyBlock (1, false, [],
@@ -506,7 +520,7 @@ struct
         
         | Newenv ptl => printList ("BLOCK", ptl, ";")
         
-        | BeginLoop{loop=loopExp, arguments=args, kills } =>
+        | BeginLoop{loop=loopExp, arguments=args } =>
             PrettyBlock (3, false, [],
                 [
                     prettyArgs("BEGINLOOP", args, ","),
@@ -515,8 +529,6 @@ struct
                     PrettyBreak (0, 0),
                     pretty loopExp,
                     PrettyBreak (0, 0),
-                    PrettyBreak (0, 0),
-                    printList (" KILL=", kills, ","),
                     PrettyString ")"
                 ]
             )
@@ -676,11 +688,13 @@ struct
     |   mapCodeTreeNode f (TupleFromContainer(c, s)) = TupleFromContainer(f c, s)
     |   mapCodeTreeNode f (TagTest{test, tag, maxTag}) = TagTest{test=f test, tag=tag, maxTag=maxTag}
     |   mapCodeTreeNode _ (Global _) = raise Misc.InternalError "mapCodeTreeNode: Global"*)
-   
+
+ 
     (* Return the "size" of a piece of code. *)
     fun codeSize (pt, includeSubfunctions) = 
     let
         fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
+
 
         and sizeCaseList []           = 0
         |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
@@ -692,36 +706,98 @@ struct
         (* some very rough size estimates *)
         and size pt =
             case pt of
-              CodeNil                         => 0
-            | MatchFail                       => 1
-            | AltMatch (m1, m2)               => size m1 + size m2 + 1
-            | Declar {value, ...}             => size value
-            | Newenv cl                       => sizeList cl
-            | Constnt w                       => if isShort w then 0 else 1
-            | Extract _                       => 1  (* optimistic *)
-            | Indirect {base,...}             => size base + 1
-            | Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
-            | Eval {function,argList,...}     => size function + sizeList(List.map #1 argList) + 2
-            | MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
-            | Cond (i,t,e)                    => size i + size t + size e + 2
-            | BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
-            | Loop args                       => sizeList(List.map #1 args) + 1
-            | Raise c                         => size c + 1
-            | Ldexc                           => 1
-            | Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
-            | Recconstr cl                    => sizeList cl + 2 (* optimistic *)
-            | Container _                     => 1 (* optimistic *)
-            | SetContainer{container, tuple = Recconstr cl, ...} =>
+                CodeNil                         => 0
+            |   MatchFail                       => 1
+            |   AltMatch (m1, m2)               => size m1 + size m2 + 1
+            |   Declar {value, ...}             => size value
+            |   Newenv cl                       => sizeList cl
+            |   Constnt w                       => if isShort w then 0 else 1
+            |   Extract {level=0, fpRel=true, ...} => 0 (* Probably in a register*)
+            |   Extract _                       => 1
+            |   Indirect {base,...}             => size base + 1
+            |   Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
+            |   Eval {function=Constnt w ,argList,...}     =>
+                    (* If this is an RTS call it's probably really an instruction that
+                       the code-generator will inline and if it isn't we're not going
+                       to greatly wrong.  *)
+                    if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
+                    else sizeList(List.map #1 argList) + 2
+            |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
+            |   KillItems{expression, ...}     => size expression
+            |   MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
+            |   Cond (i,t,e)                    => size i + size t + size e + 2
+            |   BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
+            |   Loop args                       => sizeList(List.map #1 args) + 1
+            |   Raise c                         => size c + 1
+            |   Ldexc                           => 1
+            |   Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
+            |   Recconstr cl                    => sizeList cl + 2 (* optimistic *)
+            |   Container _                     => 1 (* optimistic *)
+            |   SetContainer{container, tuple = Recconstr cl, ...} =>
                             (* We can optimise this. *) sizeList cl + size container
-            | SetContainer{container, tuple, size=len} => size container + size tuple + len
-            | TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
-            | Global glob                     => sizeOptVal glob
-            | TagTest { test, ... }           => 1 + size test
-            | Case {test,default,cases,...}   =>
-                size test + size default + sizeCaseList cases
-        in
+            |   SetContainer{container, tuple, size=len} => size container + size tuple + len
+            |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
+            |   Global glob                     => sizeOptVal glob
+            |   TagTest { test, ... }           => 1 + size test
+            |   Case {test,default,cases,...}   =>
+                    size test + size default + sizeCaseList cases
+    in
         size pt
-    end;
+    end
+
+    (* Tests if the function is non-tail recursive.  Since this is only used as an indication as
+       to whether to inline the function it doesn't matter if it's not precise. *)
+(*    fun isRecursive(pt, baseLevel) =
+    let
+        fun checkList l = List.foldl (fn (p, s) => s orelse check (p, false)) false l
+
+        and check(pt, tail) =
+            case pt of
+                CodeNil                         => false
+            |   MatchFail                       => false
+            |   AltMatch (m1, m2)               => check(m1, tail) orelse check (m2, tail)
+            |   Declar {value, ...}             => check(value, false)
+            |   Newenv cl                       =>
+                let
+                    fun checkList([], t) = t
+                    |   checkList([last], t) = t orelse check(last, tail)
+                    |   checkList(hd::tl, t) = t orelse check(hd, false) orelse checkList(tl, false)
+                in
+                    checkList(cl, false)
+                end
+            |   Constnt _                       => false
+            |   Extract _                       => false
+            |   Indirect {base,...}             => check (base, false)
+            |   Lambda {body, ...}              => check (body, false)
+            |   Eval {function=Extract{level, addr, ...}, argList, ...} =>
+                       if level > 0 orelse level = 0 andalso addr=0 andalso not tail
+                       then true else checkList(List.map #1 argList)
+            |   Eval {function, argList,...}     => check(function, false) orelse checkList(List.map #1 argList)
+            |   MutualDecs decs                 => checkList decs
+            |   Cond (i,t,e)                    => check (i, false) orelse check (t, tail) orelse check (e, tail)
+            |   BeginLoop {loop, arguments, ...}=> check (loop, false) orelse checkList(List.map #1 arguments)
+            |   Loop args                       => checkList(List.map #1 args)
+            |   Raise c                         => check (c, false)
+            |   Ldexc                           => false
+            |   Handle {exp,taglist,handler}    => check (exp, tail) orelse check (handler, tail) orelse checkList taglist
+            |   Recconstr cl                    => checkList cl
+            |   Container _                     => false
+            |   SetContainer{container, tuple = Recconstr cl, ...} =>
+                            (* We can optimise this. *) checkList cl orelse check (container, false)
+            |   SetContainer{container, tuple, ...} => check (container, false) orelse check (tuple, false)
+            |   TupleFromContainer(container, _) => check (container, false)
+            |   Global _                         => false
+            |   TagTest { test, ... }           => check (test, false)
+            |   Case {test,default,cases,...}   =>
+                let
+                    fun sizeCaseList []           = false
+                    |   sizeCaseList ((c,_)::cs) = check(c, tail) orelse sizeCaseList cs
+                in
+                    check (test, false) orelse check (default, tail) orelse sizeCaseList cases
+                end
+    in
+        check(pt, true)
+    end*)
 
     structure Sharing =
     struct

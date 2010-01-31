@@ -76,7 +76,7 @@ sig
 
     val resetButReload:   ttab * int -> operation list
     val pushValueToStack: ttab * stackIndex * int -> stackIndex * operation list
-    val storeInStack:     ttab * stackIndex * int -> operation list
+    val storeInStack:     ttab * stackIndex * int -> stackIndex * operation list
     val realstackptr:     ttab -> int
     val maxstack:         ttab -> int
     val parameterInRegister: reg * int * ttab -> stackIndex
@@ -105,8 +105,9 @@ sig
 
     type handler;
 
-    val pushAddress: ttab * int -> handler * operation list
+    val pushAddress: ttab * int -> stackIndex * handler * operation list
     val fixupH:      handler * int * ttab -> operation list
+    val reloadHandler: ttab * stackIndex -> operation list
 
     val exiting: ttab -> unit;
     val haveExited: ttab -> bool

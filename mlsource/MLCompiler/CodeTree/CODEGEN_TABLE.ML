@@ -248,6 +248,7 @@ struct
        exited:       bool ref,
        branched:     bool ref,
        marker:       stackIndex ref,
+       markReal:     int ref,
        lowestDirect: stackIndex ref,
        pstackTrace:  bool,
        printStream:  string->unit
@@ -267,6 +268,7 @@ struct
             exited       = ref false,
             branched     = ref false,
             marker       = ref first,
+            markReal     = ref 0,
             lowestDirect = ref first,
             pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
             printStream  = printStream
@@ -437,14 +439,31 @@ struct
         else ()
     end  (* clearOff *)
 
-  (* Removes an entry which is no longer required. If the entry is cached it *)
-  (* may be retained unless it refers to the stack or another register when  *)
-  (* it MUST be removed. *)
-  fun removeEntry (table as Ttab{pstack, regset, ...}, entry, keepIfCache): operation list =
+    (* Reset the real stack pointer iff there are items that are no longer referenced.
+       This has been added since much of the other code was written and that assumed
+       that the stack wouldn't be popped so there are only a few places where this
+       is safe to use. *)
+    fun removeOldItemsFromRealStack(
+           table as Ttab{realstackptr as ref current, markReal=ref markReal, pstackptr=ref pstackptr, ...}) =
+    let
+        fun maxStack(i, n) =
+        if i = pstackptr then n
+        else case pstackEntry(table, i) of
+            StackEntry{ent=StackW addr, ...} => maxStack(i+1, Int.max(addr+1, n))
+        |   _ => maxStack(i+1, n)
+        val stackMax = maxStack(first, markReal)
+    in
+        if current > stackMax
+        then (realstackptr := stackMax; resetStack (current-stackMax))
+        else []
+    end
+
+    (* Removes an entry which is no longer required. If the entry is cached it
+       may be retained unless it refers to the stack or another register when
+       it MUST be removed. *)
+    fun removeEntry (table as Ttab{pstack, regset, ...}, entry, keepIfCache): operation list =
     case pstackEntry(table, entry) of
       NoStackEntry => []
-       (* now handles this case, so we don't have to check 
-          before calling "removeEntry" (SPF 19/11/94) *)
       
     | StackEntry {ent = stacken, cache, lifeTime, ...} =>
         (* If we are removing an entry from the real stack it must not be
@@ -1389,7 +1408,7 @@ struct
         (* If we find an entry in the cache or already in a register we can use
            it provided it will not be modified or this is its last use. Otherwise
            we must make a copy of it. *)
-        val lastRef = lastReference table entry;
+        val lastRef = lastReference table entry
 
         val acceptable =
             case stackEntry of
@@ -1486,7 +1505,8 @@ struct
                             ) 
                             else []
                     in
-                        (resultReg, newEntry, freeCode2 @ loadEntry @ freeCode1 @ regCode)
+                        (resultReg, newEntry, removeOldItemsFromRealStack table @ freeCode2
+                                @ loadEntry @ freeCode1 @ regCode)
                     end
              end (* useNewRegister *)
     end
@@ -1561,7 +1581,7 @@ struct
        overwriting entries in the argument area, but we may have had to push
        some of the registers while doing the load, so those entries will have
        to be saved. *)
-    fun storeInStack (table as Ttab{maxstack, realstackptr, ...}, entry, locn) : operation list =
+    fun storeInStack (table as Ttab{maxstack, realstackptr, ...}, entry, locn) =
     let
         (* Move it to the stack, using a move-immediate if possible. *)
         fun inc x = (x := !x + 1);
@@ -1656,13 +1676,16 @@ struct
                 else generalStoreInStack ()
 
         |   _ => generalStoreInStack ();
-        
+
+        val stackEntry = pushPstack(table, StackW locn, "pushValueToStack", [])
     in 
         if ! realstackptr > ! maxstack
         then maxstack := ! realstackptr
         else ();
-        code
+        (stackEntry, code)
     end (* storeInStack *);
+
+    fun genError() = raise InternalError "pushValueToStack: Couldn't push to stack"
 
     (* Ensures that the top of the pseudo stack has been copied onto the
      real stack and is at the correct position. stackOffset contains the
@@ -1670,21 +1693,19 @@ struct
      procedures. *)
     fun pushValueToStack (table as Ttab{realstackptr, ...}, entry, stackOffset) : stackIndex * operation list =
     let 
-        val storeCode = storeInStack (table, entry, stackOffset - 1)
+        val stackAddr = stackOffset - 1
+        val (storeLocn, storeCode) = storeInStack (table, entry, stackAddr)
   
         val clearCode = (* Remove any entries above the stack offset we need. *)
             if ! realstackptr > stackOffset
             then resetButReload (table, stackOffset)
             else []
-  
-        val stackAddr = (stackOffset - 1)
-        val result : stackIndex = pushPstack(table, StackW stackAddr, "pushValueToStack", [])
     in
         (* The stack pointer should now be the required value. *)
         if ! realstackptr <> stackOffset
-        then raise InternalError "pushValueToStack: Couldn't push to stack"
+        then genError()
         else ();
-        (result, clearCode @ storeCode)
+        (storeLocn, clearCode @ storeCode)
     end;
 
     fun reserveStackSpace(table: ttab, space: int): stackIndex * operation list =
@@ -2077,25 +2098,22 @@ struct
     )
 
     (* Record the stack limit when we diverge and then use it when we merge
-     back again. *)
-    type stackMark = { newMark: stackIndex, oldMark: stackIndex };
+       back again. *)
+    type stackMark =
+    {
+        newMark: stackIndex,
+        oldMark: stackIndex,
+        oldReal: int
+    }
   
-    fun newMark ({newMark,...}: stackMark) = newMark;
-    fun oldMark ({oldMark,...}: stackMark) = oldMark;
-  
-    fun makeStackMark (newM: stackIndex) (oldM: stackIndex) = 
-    { newMark = newM, oldMark = oldM };
-  
-    fun markStack(Ttab{pstackptr, marker, ...}) =
-    let
-        val oldMark = ! marker
-        val newMark = ! pstackptr;
-    in
-        marker := newMark;
-        makeStackMark newMark oldMark
-    end;
+    fun newMark ({newMark,...}: stackMark) = newMark
+    
+    fun markStack(Ttab{pstackptr, marker, markReal, realstackptr, ...}) =
+        { newMark = ! pstackptr, oldMark = ! marker, oldReal = ! markReal } before
+            (marker := ! pstackptr; markReal := ! realstackptr)
 
-    fun unmarkStack(Ttab{marker, ...}, mark) = marker := oldMark mark
+    fun unmarkStack(Ttab{marker, markReal, ...}, {oldMark, oldReal, ...}) =
+        ( marker := oldMark; markReal := oldReal )
 
   (* mergeState is used when two flows of control merge e.g. at the end of
      the else-part of an if-then-else when the state saved at the end of the
@@ -2673,7 +2691,7 @@ struct
     type handler = { lab: addrs ref, oldps: stackIndex };
   
     (* Push the address of a handler. *)
-    fun pushAddress (table as Ttab{pstackptr, ...}, offset) : handler * operation list =
+    fun pushAddress (table as Ttab{pstackptr, ...}, offset) =
     let
         (* This is just after a mark. *)
         val (reg, regCode) = getAnyRegister table
@@ -2687,10 +2705,8 @@ struct
         (* Push it onto the stack at the specific offset. *)
         val (pushedEntry, pushCode) = pushValueToStack (table, regEntry, offset)
     in
-        (* Remove the pstack entry because we don't want it. *)
-        removeStackEntry(table, pushedEntry);
-        ({lab = labelRef, oldps = oldps}, pushCode @ loadCode @ regCode)
-    end;
+        (pushedEntry, {lab = labelRef, oldps = oldps}, pushCode @ loadCode @ regCode)
+    end
 
     (* Fixup the address at the start of a handler. *)
     fun fixupH ({lab, oldps}, oldsp, table as Ttab{branched, exited, pstackptr, realstackptr, ...}) =
@@ -2707,6 +2723,27 @@ struct
         startHandler{ handlerLab=lab} @
             revfoldIndDownTo(fn s => fn l => removeEntry(table, s, false) @ l, [], ! pstackptr - 1, oldps) @
                 clear
+    end
+
+    (* Reload the handler "register" from an entry on the real stack. *)
+    fun reloadHandler(table as Ttab{pstackTrace, realstackptr, ...} , hIndex) =
+    let
+        val { ent, ...} = pstackRealEntry(table, hIndex)
+        val loadCode =
+            case ent of
+                StackW index =>
+                    let
+                        val stackOffset = (! realstackptr - index - 1) * wordSize
+                        val code = reloadHandlerFromStack stackOffset
+                    in
+                        incrUseCount (table, hIndex, ~1);
+                        if pstackTrace then printStack(table, "reloadHandler", code) else ();
+                        code
+                    end
+            |   _ => raise InternalError "reloadHandler: Not on stack"
+        val clearCode = removeOldItemsFromRealStack table
+    in
+        clearCode @ loadCode
     end
 
     (* Generate operations.  Negotiates the arguments and results with the machine-specific
@@ -3071,7 +3108,7 @@ struct
             |   StackEntry {uses = 0, ...} => () (* May be a cache entry. *)
             |   StackEntry _ =>
                 if (case result of NoMerge => true | MergeIndex m => m <> entry)
-                then raise InternalError "checkBlockResult: Entry not removed"
+                then print "checkBlockResult: Entry not removed\n"
                 else ();
             checkStack(entry+1)
         )

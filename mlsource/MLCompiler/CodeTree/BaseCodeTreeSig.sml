@@ -100,9 +100,11 @@ sig
         }
     
     | BeginLoop of (* Start of tail-recursive inline function. *)
-        { loop: codetree, arguments: (codetree * argumentType) list, kills: codetree list }
+        { loop: codetree, arguments: (codetree * argumentType) list }
 
     | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
+
+    | KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
 
     | Raise of codetree (* Raise an exception *)
 

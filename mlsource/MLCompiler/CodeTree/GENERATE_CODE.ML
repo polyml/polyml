@@ -94,6 +94,11 @@ struct
                 case whereto of
                     NoHint =>
                         (
+                            (* TODO: This is almost certainly a bad idea now.  With the
+                               current code we'll probably use this register for the first
+                               temporary value in the branch we're processing and then find
+                               we have to move it out before we can put the result into
+                               this choice. *)
                             case chooseRegister transtable of
                                 NONE => (* No register is free *)
                                     UseReg(resultReg ArgGeneral)(* So choose an arbitrary register *)
@@ -571,7 +576,7 @@ struct
                 resultPosn
             end
 
-        | BeginLoop{loop=body, arguments=args, kills} =>
+        | BeginLoop{loop=body, arguments=args} =>
           let
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
@@ -667,17 +672,8 @@ struct
                     reprocessLoop(n+1)
                 )
             end
-            val runLoop = reprocessLoop 0
-            (* If some outer declarations had their final reference inside the loop these will
-               appear as kill entries in the list. *)
-            local
-                fun cgKill toKill =
-                    (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
-            in
-                val () = List.app cgKill kills
-            end
           in
-            runLoop
+            reprocessLoop 0
           end
 
         | Loop argList =>
@@ -719,10 +715,12 @@ struct
                         argEntry :: argEntries
                     end
                 |   moveArgs(arg :: args, ArgToStack offset :: dests) =
-                    (
-                        codeGenerate(storeInStack(transtable, arg, offset), cvec);
-                        moveArgs(args, dests) (* storeInStack removes its table entry *)
-                    )
+                    let
+                        val (argEntry, code) = storeInStack(transtable, arg, offset)
+                    in
+                        codeGenerate(code, cvec);
+                        argEntry :: moveArgs(args, dests)
+                    end
                 |   moveArgs _ =
                         raise InternalError "moveArgs: Mismatched arguments"
 
@@ -772,119 +770,115 @@ struct
           end
 
         | Handle {exp, taglist, handler} =>
-        let
-          (* Push all regs - we don't know what the state will be when 
-             we reach the handler. *)
-          (* i.e. Push all registers except those whose last use occurs in the expression
-             we're handling or in the set of exceptions we're catching. *) 
-          val () = 
-            codeGenerate(pushAllBut (transtable, identifyLoads (exp :: taglist), allRegisters), cvec);
-          (* It's not clear what registers will be modified as a result of raising
-             and handling an exception.  Many functions may result in exceptions
-             being raised and rather than add the registers to the register set of
-             those functions it's probably better to include them in the modification
-             set here. DCJM 26/11/00. *)
-          val _ = addModifiedRegSet(transtable, allRegisters);
+            let
+                (* Push all regs - we don't know what the state will be when 
+                   we reach the handler. *)
+                (* i.e. Push all registers except those whose last use occurs in the expression
+                   we're handling or in the set of exceptions we're catching. *) 
+                val () = 
+                    codeGenerate(pushAllBut (transtable, identifyLoads (exp :: taglist), allRegisters), cvec);
+                (* It's not clear what registers will be modified as a result of raising
+                 and handling an exception.  Many functions may result in exceptions
+                 being raised and rather than add the registers to the register set of
+                 those functions it's probably better to include them in the modification
+                 set here. DCJM 26/11/00. *)
+                val _ = addModifiedRegSet(transtable, allRegisters);
 
-          (* This is the real stack state at the start of the handler *)
-          val startOfHandler = realstackptr transtable;
+                (* This is the real stack state at the start of the handler *)
+                val startOfHandler = realstackptr transtable;
           
-          (* Remember this pseudo-stack position for later merge *)
-          val mark : stackMark = markStack transtable
+                (* Remember this pseudo-stack position for later merge *)
+                val mark = markStack transtable
 
-          (* Save old handler - push regHandler *)
-          val () = codeGenerate(pushToStack(InRegister regHandler), cvec)
-          val oldIndex = incsp transtable;
+                (* Save old handler - push regHandler *)
+                val () = codeGenerate(pushCurrentHandler, cvec)
+                val oldIndex = incsp transtable;
           
-          (* Now it's on the real stack we can remove it from the pstack. *)
-          val () = codeGenerate(removeStackEntry(transtable, oldIndex), cvec)
+                (* Now it's on the real stack we can remove it from the pstack. *)
           
-          fun genTag (tag : codetree) : CODEGEN_TABLE.handler =
-          let
-            (* Push address of new handler. *)
-            val rsp         = realstackptr transtable;
-            val (handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
-            val () = codeGenerate(handlerCode, cvec)
+                fun genTag tag =
+                let
+                    (* Push address of new handler. *)
+                    val rsp         = realstackptr transtable;
+                    val (handlerEntry, handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
+                    val () = codeGenerate(handlerCode, cvec)
     
-            (* Push the exception to be caught. Ensure that it is the
-               only item added to the stack. *)
-            val locn        = genToStack (tag, matchFailFn)
-            val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
-            val () = codeGenerate(stackCode, cvec)
-    
-            (* Now it's on the real stack we can remove it from the pstack. *)
-            val ()    = codeGenerate(removeStackEntry(transtable, stackLocn), cvec)
-          in
-            handlerLab
-          end;
+                    (* Push the exception to be caught. Ensure that it is the
+                       only item added to the stack. *)
+                    val locn        = genToStack (tag, matchFailFn)
+                    val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
+                    val () = codeGenerate(stackCode, cvec)
+                in
+                    (handlerLab, handlerEntry, stackLocn)
+                end
 
-          (* Generate the list of tags and handler addreses. We reverse
-             the taglist so the tags that are first in the list are
-             put on the stack last, so they are checked first.
-             We reverse the result so that they get fixed up in
-             stack order. (I don't think this is important, but
-             I'm not sure.) Did you get all that? SPF 26/11/96 *)
-          (* The checking order is important because we might have
-             duplicate tags (unless the higher levels have removed them)
-             e.g. exception X = Y ... handle X => ...| Y => ... .
-             I don't think the fix-up order matters now.  I think it had
-             something to do with avoiding converting short branches into
-             long ones.  DCJM June 2000. *)
-          val handlerList : CODEGEN_TABLE.handler list = rev (map genTag (rev taglist));
+                (* Generate the list of tags and handler addreses. We reverse the taglist so
+                   the tags that are first in the list are put on the stack last.
+                   We reverse the result so that they get fixed up in
+                   stack order. The checking order is important because we might have
+                   duplicate tags e.g. exception X = Y ... handle X => ...| Y => ... .
+                   I don't think the fix-up order matters now.  I think it had
+                   something to do with avoiding converting short branches into
+                   long ones. *)
+                val tagAndLocnList = map genTag (rev taglist)
+                val handlerList = rev (map #1 tagAndLocnList)
       
-          (* Initialise regHandler from regStackPtr *)
-          val () = codeGenerate(moveOp{source=InRegister regStackPtr, output=regHandler}, cvec)
+                (* Initialise regHandler from regStackPtr *)
+                val () = codeGenerate(setHandlerToCurrentSP, cvec)
 
-          (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
-          val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
+                val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
  
-          (* Code generate body, putting the result in result register. *)
-          (* "NotEnd" because we have to come back to remove the handler. *)
-          val bodyResult = genToRegister (exp, whereto, NotEnd, matchFailFn, loopAddr);
- 
-          (* Reload the old value of regHandler i.e. remove handler. *)
-          val () =
-            codeGenerate(
-                moveOp { source=BaseOffset(regStackPtr, (realstackptr transtable - startOfHandler - 1) * wordSize),
-                        output=regHandler}, cvec)
+                (* Code generate body, putting the result in result register. *)
+                (* "NotEnd" because we have to come back to remove the handler. *)
+                val bodyResult = genToRegister (exp, whereto, NotEnd, matchFailFn, loopAddr);
+                (* Reload the old value of regHandler i.e. remove handler. *)
+                (* Remove the handler entries. *)
+                local
+                    fun remove(_, i, j) =
+                        codeGenerate(
+                            removeStackEntry(transtable, i) @
+                                removeStackEntry(transtable, j), cvec)
+                in
+                    val () = List.app remove tagAndLocnList
+                end
+                val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
+                (*val () = codeGenerate(removeStackEntry(transtable, oldIndex), cvec)*)
 
-          (* Optimisation: return immediately, if possible, rather than
-             jumping and then returning. This may turn the following
-             unconditional branch into dead code, in which case it
-             will be removed by the lower-level code generator.
-             SPF 25/11/96
-           *)
-          val () =
-            if isEndOfProc tailKind andalso not (haveExited transtable)
-            then codeGenerate(exit (), cvec)
-            else ();
+                (* Optimisation: return immediately, if possible, rather than
+                   jumping and then returning. This may turn the following
+                   unconditional branch into dead code, in which case it
+                   will be removed by the lower-level code generator. *)
+                val () =
+                    if isEndOfProc tailKind andalso not (haveExited transtable)
+                    then codeGenerate(exit (), cvec)
+                    else ()
     
-          (* Skip over the handler. *)
-          val (skipHandler, skipCode) = unconditionalBranch (bodyResult, transtable)
-          val () = codeGenerate(skipCode, cvec)
+                (* Skip over the handler. *)
+                val (skipHandler, skipCode) = unconditionalBranch (bodyResult, transtable)
+                val () = codeGenerate(skipCode, cvec)
           
-          (* Remove any result at the start of the handler.
-             Need this because fixupH does not do setState.
-             (It probably should do, though the state is fairly simple). *)
-          val () =
-            case bodyResult of
-                MergeIndex bodyIndex => codeGenerate(removeStackEntry(transtable, bodyIndex), cvec)
-              | NoMerge => ();
+                (* Remove any result at the start of the handler.
+                   Need this because fixupH does not do setState.
+                   (It probably should do, though the state is fairly simple). *)
+                val () =
+                    case bodyResult of
+                        MergeIndex bodyIndex => codeGenerate(removeStackEntry(transtable, bodyIndex), cvec)
+                    |   NoMerge => ()
      
-          (* Fix up the handler entry point - this resets the stack pointer
-             and clears the cache since the state is not known. *)
-          val _ = 
-            map (fn handlerLab => codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec))
-              handlerList;
+                (* Fix up the handler entry point - this resets the stack pointer
+                   and clears the cache since the state is not known. *)
+                val _ = 
+                    map (fn handlerLab => codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec))
+                        handlerList
           
-          (* The code for the handler body itself *)
-          val handlerRes =  genToRegister (handler, whereto, tailKind, matchFailFn, loopAddr)
-          (* Merge the results. *)
-          val (mergeRes, mergeCode) = merge (skipHandler, transtable, handlerRes, mark)
-          val () = codeGenerate(mergeCode, cvec)
-          in
-            mergeRes
-          end
+                (* The code for the handler body itself *)
+                val handlerRes =  genToRegister (handler, whereto, tailKind, matchFailFn, loopAddr)
+                (* Merge the results. *)
+                val (mergeRes, mergeCode) = merge (skipHandler, transtable, handlerRes, mark)
+                val () = codeGenerate(mergeCode, cvec)
+            in
+                mergeRes
+            end
         
         | Ldexc =>
             let
@@ -1320,11 +1314,34 @@ struct
                 gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
             end
 
+        |   KillItems { expression, killSet, killBefore } =>
+            let 
+                (* This is inserted by the higher level code to get the use-counts
+                   correct.  Kill entries are Extract entries with lastRef true. *)
+                fun cgKill toKill =
+                    (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
+            in
+                if killBefore
+                then (* Process the kill set before the expression. *)
+                (
+                    List.app cgKill killSet;
+                    gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                )
+                else (* Process the expression first, then kill the items *)
+                let
+                    val result =
+                        gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                in
+                    List.app cgKill killSet;
+                    result
+                end
+            end
+
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
 
         | Global _ =>
-            raise InternalError "gencde: can't code-generate Global value";
+            raise InternalError "gencde: can't code-generate Global value"
     in
         (* Various cases create results even if they're not required.  Remove them. *)
         case (result, whereto) of
@@ -1701,9 +1718,6 @@ struct
        
        If we're accessing a known constant in the closure, load it
        from the constants section rather than from the closure itself.
-       Should we decrement the reference count for closureOrSlAddr
-       here? Probably, but I'm not yet entirely sure that it would be safe.
-       SPF 6/5/97
      *)
         fun previous (locn, makeSl: unit-> stackIndex * operations, newtab) =
           if locn = 0
@@ -2268,12 +2282,11 @@ struct
                         end
                     |   moveArgs (arg::args, NONE :: argTypes, argAddr) =
                         let
-                            (* *)
                             (* Store it in the stack, reloading anything it displaces. *)
-                            val () = codeGenerate(storeInStack(transtable, arg, argAddr), cvec)
+                            val (argEntry, argCode) = storeInStack(transtable, arg, argAddr)
+                            val () = codeGenerate(argCode, cvec)
                         in
-                            moveArgs(args, argTypes, argAddr+1);
-                            [] (* storeInStack removes its table entry *)
+                            argEntry :: moveArgs(args, argTypes, argAddr+1)
                         end
                     |   moveArgs _ = raise InternalError "moveArgs: Length mismatch"
 
@@ -2741,7 +2754,8 @@ struct
                          wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
                          wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
                          wordEq (oper,ioOp POLY_SYS_Real_lss) orelse
-                         wordEq (oper,ioOp POLY_SYS_is_short))
+                         wordEq (oper,ioOp POLY_SYS_is_short) orelse
+                         wordEq (oper,ioOp POLY_SYS_bytevec_eq))
                         then
                             genCond
                                 (Eval {function = evalFun, argList = argList, earlyEval = false, resultType=resultType},
@@ -2753,7 +2767,7 @@ struct
                     else (* All other constant functions. *) callClosure (SOME evalFun)
                 end
 
-            |   Extract {fpRel, addr, level, lastRef, ...} =>
+            |   Extract {fpRel, addr, lastRef, ...} =>
                 let (* Local function with non-empty closure. *)
                     (* The procedure is being loaded from the stack or closure
                        so it may be a static-link procedure. *)
@@ -2774,10 +2788,9 @@ struct
                      the argument.  DCJM 21/12/00.
                      *)
 
-                    (* SPF 20/5/95 *)
-                    val selfCall = not fpRel andalso level = 0 andalso addr = 0;
+                    val selfCall = not fpRel andalso addr = 0 
       
-                    val staticCall = 
+        ;            val staticCall = 
                         if fpRel (* Local or parameter *)
                         then addr > 0 (* If not it must be a parameter - must be closure *)
                         andalso isSome(Array.sub(staticLinkEntries, addr)) (* local - look in table *)
@@ -2856,28 +2869,36 @@ struct
                                         getFunctionRegSet(Array.sub(decToPstack, addr), transtable))
                                 else (* Non local *) regSetUnion(argRegs, staticLinkRegSet addr)
                         end
-                    in
                         (* Add the registers modified by the function we're calling to those
                            modified by this function.  Don't need to do that in the recursive
                            case. *)
-                        if selfCall then ()
-                        else addModifiedRegSet(transtable, registerSet);
+                        val () =
+                            if selfCall then ()
+                            else addModifiedRegSet(transtable, registerSet)
                         (* Set the use count on the static link.  I don't know whether this
                            is needed in all cases so it could result in us incrementing it
                            unnecessarily.  It isn't needed if this function is local.
                            Increment the reference on the code if it's local and this is
                            not the last reference.  If it's non-local we don't actually
-                           change the reference count when we load it. 
-                           If this is the last reference we can decrement the uses on
-                           all the entries in the "closure". *)
-                        if fpRel
-                        then (* Local *) if lastRef
-                        then valOf(Array.sub(staticLinkEntries, addr)) ()
-                        else incrUseCount(transtable, Array.sub(decToPstack, addr), 1)
-                        else (* Non-local *) incrUseCount(transtable, closureOrSlAddr, 1);
+                           change the reference count when we load it. *)
+                        val () =
+                            if lastRef
+                            then ()
+                            else if fpRel
+                            then codeGenerate(incrUseCount(transtable, Array.sub(decToPstack, addr), 1), cvec)
+                            else (* Non-local *) codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
                         (* Cannot use a jump to local static-link procedures because 
                            we may want local declarations on the current stack. *)
-                        realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, not fpRel)
+                        val result =
+                            realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, not fpRel);
+                        (* If this is the last reference we can decrement the uses on
+                           all the entries in the "closure".  We need to do that last in case the
+                           entries are also used as parameters and accidentaly get popped. *)
+                    in
+                        if fpRel andalso lastRef
+                        then codeGenerate(valOf(Array.sub(staticLinkEntries, addr)) (), cvec)
+                        else ();
+                        result
                     end
    
                     (* Closure call - check for recursive calls. *)
