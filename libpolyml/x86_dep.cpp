@@ -211,6 +211,7 @@ public:
     void HeapOverflowTrap(TaskData *taskData);
     void ArbitraryPrecisionTrap(TaskData *taskData);
     PolyWord *get_reg(TaskData *taskData, int n);
+    PolyWord *getArgument(TaskData *taskData, unsigned int opByte, unsigned int rexPrefix);
     void do_compare(TaskData *taskData, PolyWord v1, PolyWord v2);
     void do_op(TaskData *taskData, int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle));
     bool emulate_instrs(TaskData *taskData);
@@ -1054,6 +1055,84 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
     }
 }
 
+PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsigned int rexPrefix)
+{
+    unsigned int md = modRm >> 6;
+    unsigned int rm = modRm & 7;
+    if (md == 3) // Register
+        return get_reg(taskData, rm + (rexPrefix & 0x1)*8);
+    else if (rm == 4)
+    {
+        // s-i-b present.  Used for stack addresses as well as indexing.
+        unsigned int sib = PSP_IC(taskData->stack)[0];
+        unsigned int index = (sib >> 3) & 7;
+        unsigned int ss = (sib >> 6) & 3;
+        unsigned int base = sib & 7;
+        PSP_INCR_PC(taskData->stack, 1);
+        if (md == 0 && base == 5) 
+        {
+            Crash("Absolute address???");
+            /* An immediate address. */
+            PSP_INCR_PC(taskData->stack, 4);
+        }
+        else
+        {
+            int offset = 0;
+            if (md == 1)
+            {
+                // One byte offset
+                offset = PSP_IC(taskData->stack)[0];
+                if (offset >= 128) offset -= 256;
+                PSP_INCR_PC(taskData->stack, 1);
+            }
+            else if (md == 2)
+            {
+                // Four byte offset
+                offset = PSP_IC(taskData->stack)[3];
+                if (offset >= 128) offset -= 256;
+                offset = offset*256 + PSP_IC(taskData->stack)[2];
+                offset = offset*256 + PSP_IC(taskData->stack)[1];
+                offset = offset*256 + PSP_IC(taskData->stack)[0];
+                PSP_INCR_PC(taskData->stack, 4);
+            }
+            if (ss != 0 || index != 4) Crash("Index register present");
+            byte *ea;
+            if (base == 4) ea = (byte*)taskData->stack->p_sp + offset;
+            else ea = (get_reg(taskData, base))->AsCodePtr()+offset;
+            return (PolyWord*)ea;
+        }
+    }
+    else if (md == 0 && rm == 5)
+    {
+        Crash("Immediate operand???");
+        PSP_INCR_PC(taskData->stack, 4);
+    }
+    else
+    {
+        int offset = 0;
+        if (md == 1)
+        {
+            // One byte offset
+            offset = PSP_IC(taskData->stack)[0];
+            if (offset >= 128) offset -= 256;
+            PSP_INCR_PC(taskData->stack, 1);
+        }
+        else if (md == 2)
+        {
+            // Four byte offset
+            offset = PSP_IC(taskData->stack)[3];
+            if (offset >= 128) offset -= 256;
+            offset = offset*256 + PSP_IC(taskData->stack)[2];
+            offset = offset*256 + PSP_IC(taskData->stack)[1];
+            offset = offset*256 + PSP_IC(taskData->stack)[0];
+            PSP_INCR_PC(taskData->stack, 4);
+        }
+        PolyWord base = *(get_reg(taskData, rm + (rexPrefix & 0x1)*8));
+        byte *ea = base.AsCodePtr() + offset;
+        return (PolyWord*)ea;
+    }
+}
+
 // Called as a result of a heap overflow trap
 void X86Dependent::HeapOverflowTrap(TaskData *taskData)
 {
@@ -1197,13 +1276,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             break;
 
         case 0x3b: /* Compare. */
-            if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                Crash("Expected register");
-            src1 = rrr;
-            src2 = bbb;
-            do_compare(taskData, *(get_reg(taskData, src1)), *(get_reg(taskData, src2)));
-            PSP_INCR_PC(taskData->stack, 2);
-            return true;
+            {
+                PSP_INCR_PC(taskData->stack, 1);
+                int modRm = PSP_IC(taskData->stack)[0];
+                PSP_INCR_PC(taskData->stack, 1);
+                PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
+                do_compare(taskData, *(get_reg(taskData, rrr)), arg);
+                return true;
+            }
 
         case 0x8d: /* leal - Used to remove a tag before an add and multiply. */
             // Also used to put the tag on after a subtraction.
@@ -1233,16 +1313,21 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             break;
 
         case 0x83: { /* One byte immediate: Add, sub or compare. */
-            int cval = PSP_IC(taskData->stack)[2];
-            if (cval >= 128) cval -= 256;
+            PSP_INCR_PC(taskData->stack, 1);
+            int modRm = PSP_IC(taskData->stack)[0];
+            PSP_INCR_PC(taskData->stack, 1);
+            PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
 
-            switch (PSP_IC(taskData->stack)[1] & (7 << 3)) // This is a code.  Ignore any REX override.
+            int cval = PSP_IC(taskData->stack)[0];
+            if (cval >= 128) cval -= 256;
+            PSP_INCR_PC(taskData->stack, 1);
+
+            switch (modRm & (7 << 3)) // This is a code.  Ignore any REX override.
             {
                 case (0 << 3): /* add */
                 {
                     if (dest != bbb) { // New format: Same register for source and destination.
                         // We didn't have a move instruction before this.
-                        PolyWord arg = *(get_reg(taskData, bbb));
                         // We may come here either because we had an overflow or because we found
                         // that the argument was long.  If it was oveflow we will have already
                         // added the value so must substract before we redo the operation
@@ -1274,37 +1359,34 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
                 case (7 << 3): /* cmp */
                 {
-                    if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                        Crash("Can't test with store.");
-                    src1 = bbb;
-
                     /* immediate value is already tagged */
-                    do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
+                    do_compare(taskData, arg, PolyWord::FromSigned(cval));
                     break;
                 }
 
                 default: Crash("Unknown instruction after overflow trap");
             }
-
-            PSP_INCR_PC(taskData->stack, 3);
             return true;
             }
 
         case 0x81: { /* 4 byte immediate: Add, sub or compare. */
-            int cval = PSP_IC(taskData->stack)[5];
-            if (cval >= 128) cval -= 256;
-            cval = cval*256 + PSP_IC(taskData->stack)[4];
-            cval = cval*256 + PSP_IC(taskData->stack)[3];
-            cval = cval*256 + PSP_IC(taskData->stack)[2];
-            if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                Crash("Expected register");
+            PSP_INCR_PC(taskData->stack, 1);
+            int modRm = PSP_IC(taskData->stack)[0];
+            PSP_INCR_PC(taskData->stack, 1);
+            PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
 
-            switch (PSP_IC(taskData->stack)[1] & (7 << 3))
+            int cval = PSP_IC(taskData->stack)[3];
+            if (cval >= 128) cval -= 256;
+            cval = cval*256 + PSP_IC(taskData->stack)[2];
+            cval = cval*256 + PSP_IC(taskData->stack)[1];
+            cval = cval*256 + PSP_IC(taskData->stack)[0];
+            PSP_INCR_PC(taskData->stack, 4);
+
+            switch (modRm & (7 << 3))
             {
                 case (0 << 3): /* add */
                 {
                     if (dest != bbb) { // New format: Same register for source and destination.
-                        PolyWord arg = *(get_reg(taskData, bbb));
                         if (arg.IsTagged()) {
                             arg = PolyWord::FromUnsigned(arg.AsUnsigned() - cval);
                         }
@@ -1318,7 +1400,6 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 {
                     if (dest != bbb) { // New format: Same register for source and destination.
                         // We didn't have a move instruction before this.
-                        PolyWord arg = *(get_reg(taskData, bbb));
                         if (arg.IsTagged()) arg = PolyWord::FromUnsigned(arg.AsUnsigned() + cval);
                         do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
                     }
@@ -1328,16 +1409,13 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
                 case (7 << 3): /* cmp */
                 {
-                    src1 = bbb;
-                    /* immediate value is already tagged */
-                    do_compare(taskData, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval));
+                    // Immediate value is already tagged or may be an address.
+                    do_compare(taskData, arg, PolyWord::FromSigned(cval));
                     break;
                 }
 
                 default: Crash("Unknown instruction after overflow trap");
             }
-
-            PSP_INCR_PC(taskData->stack, 6);
             return true;
             }
 
