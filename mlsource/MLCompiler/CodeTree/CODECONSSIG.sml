@@ -153,8 +153,6 @@ sig
     (* Compare and branch for fixed and arbitrary precision. *)
     val checkAndReduceBranches: tests * 'a list * ('a -> machineWord option) -> (tests * 'a list) option
 
-    val preferLoadPush: bool
-
     datatype callKinds =
         Recursive
     |   ConstantFun of machineWord * bool
@@ -163,25 +161,27 @@ sig
 
     val procName:   code -> string      (* Name of the procedure. *)
 
-    val useIndexedCase: { min: word, max: word, number: int, isExhaustive: bool } -> bool
-
     type cases
 
     val constrCases : word * backwardLabel -> cases
 
-    datatype source =
-        LiteralSource of machineWord
-    |   InRegister of reg
-    |   BaseOffset of reg * int
-    |   CodeRefSource of code (* The address of another function *)
-    |   StackAddress of int (* Offset within the stack. *)
 
     type operation
     type operations = operation list
 
-    val moveOp: { source: source, output: reg } -> operations
-    val pushToStack: source -> operations
-    val storeToMemory: { toStore: source, offset: int, base: reg, index: reg option } -> operations
+    val moveRegisterToRegister: reg(*source*) * reg(*dest*) -> operations
+    and moveMemoryToRegister: reg (*base*) * int (*offset*) * reg (*dest*) -> operations
+    and moveConstantToRegister: machineWord * reg -> operations
+    and moveCodeRefToRegister: code * reg -> operations (* The address of another function *)
+    and moveStackAddress: int * reg -> operations (* Offset within the stack. *)
+
+    val pushRegisterToStack: reg -> operations
+    and pushConstantToStack: machineWord -> operations
+    and pushMemoryToStack: reg * int -> operations
+    
+    val storeRegisterToStack: reg * int -> operations
+    and storeConstantToStack: machineWord * int -> operations
+
     val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
     val callFunction: { callKind: callKinds } -> operations
     val jumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
@@ -203,13 +203,13 @@ sig
     val activeRegister: reg -> operations
     val freeRegister: reg -> operations
     val pushToReserveSpace: operations
+    val loadCurrentHandler: reg -> operations
+    val storeToHandler: reg -> operations
     val pushCurrentHandler: operations
-    val setHandlerToCurrentSP: operations
-    val reloadHandlerFromStack: int -> operations
 
     val printOperation: operation * (string -> unit) -> unit
 
-    datatype regHint = UseReg of reg | NoHint | NoResult
+    datatype regHint = UseReg of RegSet.regSet | NoHint | NoResult
 
     (* These are almost the same as source values except that a value
        may be in more than one register. *)
@@ -252,7 +252,6 @@ sig
         and  tests      = tests
         and  addrs      = addrs
         and  operation  = operation
-        and  source     = source
         and  regHint    = regHint
         and  argAction  = argAction
         and  regSet     = RegSet.regSet

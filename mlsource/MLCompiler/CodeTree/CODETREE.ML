@@ -1556,7 +1556,7 @@ DCJM 2000.
                    in the optimiser but it is only really possible when we have
                    removed redundant declarations. *)
             |   insert(Cond(condTest, condThen, condElse)) =
-                        copyCond (condTest, condThen, condElse)
+                        reconvertCase(copyCond (condTest, condThen, condElse))
 
             |   insert(Newenv ptElist) =
                 let
@@ -1737,7 +1737,7 @@ DCJM 2000.
                     fun allConsts []       = true
                       | allConsts (Constnt _ :: t) = allConsts t
                       | allConsts _ = false
-                    val _ = if allConsts processedFields then print "Found constant tuple\n" else ()
+                    (* This does occasionally happen. *)
                 in
                     mkTuple processedFields
                 end
@@ -1778,13 +1778,14 @@ DCJM 2000.
 
           and copyCond (condTest, condThen, condElse) =
             let
-              (* Process the then-part.  Save the usage set which
-                 corresponds to variables which are in use in the
-                 flow of control through the then-part and afterwards. *)
+              (* Process the then-part. *)
               val insThen = insert condThen
-              (* Process the else-part. *)
-              val insElse = insert condElse
-              (* Process the condition AFTER the then- and else-parts. *)
+              (* Process the else-part.  If it's a conditional process it here. *)
+              val insElse =
+                case condElse of
+                    Cond(i, t, e) => copyCond(i, t, e)
+                |   _ => insert condElse
+              (* Process the condition after the then- and else-parts. *)
               val insFirst = insert condTest
           
               type caseVal =
@@ -1838,15 +1839,14 @@ DCJM 2000.
              |  findCase(TagTest { test, tag, maxTag }) =
                     SOME { tag=tag, test=test, caseType=CaseTag maxTag }
 
-             |  findCase _ = NONE 
-               (* end findCase *);
+             |  findCase _ = NONE
         
-              val testCase  : caseVal  = findCase insFirst;
+              val testCase  : caseVal  = findCase insFirst
             in
 
               case testCase of
                     NONE => (* Can't use a case *)
-                        mkIf (insFirst, insThen, insElse)
+                        mkIf (insFirst, insThen, reconvertCase insElse)
                 |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
                         (* Can use a case. Can we combine two cases?
                           If we have an expression like 
@@ -1870,12 +1870,12 @@ DCJM 2000.
                                         }
 
                                     | _ => (* Two case expressions but they test different
-                                                  variables. We can't combine them. *)
+                                              variables. We can't combine them. *)
                                         Case
                                         {
                                             cases   = [(insThen, caseTags)],
                                             test    = caseTest,
-                                            default = insElse,
+                                            default = reconvertCase insElse,
                                             caseType=caseCaseTest
                                         }
                             )
@@ -1888,6 +1888,60 @@ DCJM 2000.
                                     caseType=caseCaseTest
                                 }
             end
+
+            (* Check something that's been created as a Case and see whether it is sparse.
+               If it is turn it back into a sequence of conditionals.  This was previously
+               done at the bottom level and the choice of when to use an indexed case was
+               made by the architecture-specific code-generator.  That's probably unnecessary
+               and complicates the code-generator. *)
+            and reconvertCase(Case{cases, test, default, caseType}) =
+                let
+                    (* Count the number of cases and compute the maximum and minimum. *)
+                    (* If we are testing on integers we could have negative values here.
+                       Because we're using "word" here any negative values are treated as
+                       large positive values and so we won't use a "case".
+                       If this is a case on constructor tags we know the range.  There
+                       will always be a "default" which may be anywhere in the range but
+                       if we construct a jump table that covers all the values we don't need
+                       the range checks. *)
+                    val useIndexedCase =
+                        case caseType of
+                            CaseTag _ => (* Exhaustive *) List.length cases > 4
+                        |   _ =>
+                            let
+                                val (_, aLabel) = hd cases
+                                fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                                val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                                val numberOfCases = List.length cases
+                            in
+                                numberOfCases > 7 andalso numberOfCases >= (Word.toInt max - Word.toInt min) div 3
+                            end
+                in
+                    if useIndexedCase
+                    then Case{cases=cases, test=test, default=default, caseType=caseType}
+                    else
+                    let
+                        fun reconvert [] = default
+                        |   reconvert ((c, t) :: rest) =
+                            let
+                                val test =
+                                    case caseType of
+                                        CaseInt =>
+                                            mkEval(Constnt(ioOp POLY_SYS_equala),
+                                                   [test, Constnt(toMachineWord t)], true)
+                                    |   CaseWord =>
+                                            mkEval(Constnt(ioOp POLY_SYS_word_eq),
+                                                   [test, Constnt(toMachineWord t)], true)
+                                    |   CaseTag maxTag => TagTest { test=test, tag=t, maxTag=maxTag }
+                            in
+                                Cond(test, c, reconvert rest)
+                            end
+                    in
+                        reconvert cases
+                    end
+                end
+            |   reconvertCase t = t (* Just a simple conditional. *)
+            
 
             (* If "makeClosure" is true the procedure will need a full closure. *)
             (* It may need a full closure even if makeClosure is false if it    *)

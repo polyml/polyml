@@ -86,26 +86,11 @@ struct
 
     fun isEndOfProc (EndOfProc _) = true | isEndOfProc _ = false;
 
-    fun chooseMergeRegister (transtable: ttab, whereto : regHint, tailKind : tail) : regHint =
-        case tailKind of
-            EndOfProc res => UseReg res
-        |   NotEnd    =>
-            (
-                case whereto of
-                    NoHint =>
-                        (
-                            (* TODO: This is almost certainly a bad idea now.  With the
-                               current code we'll probably use this register for the first
-                               temporary value in the branch we're processing and then find
-                               we have to move it out before we can put the result into
-                               this choice. *)
-                            case chooseRegister transtable of
-                                NONE => (* No register is free *)
-                                    UseReg(resultReg ArgGeneral)(* So choose an arbitrary register *)
-                            |   SOME rr =>UseReg rr
-                        )
-                |   whereto => whereto
-            )
+    fun chooseMergeRegister (_: ttab, whereto : regHint, tailKind : tail) : regHint =
+        case (tailKind, whereto) of
+            (EndOfProc res, _) => UseReg(singleton res)
+        |   (NotEnd, NoHint)   => UseReg generalRegisters
+        |   (_, whereto)       => whereto
 
     fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
 
@@ -248,17 +233,9 @@ struct
         (* Allocate a segment of the required size. *)
         fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex * operations =
         let
-           (* Get a register for the result. We cannot use the local ptr. for the
-              result because it's supposed always to point to the bottom of the
-              local area. If we get a persistent store trap which results
-               in a garbage-collection the newly allocated object might well be
-               moved. The local ptr would be updated to point to this new location
-               but would then be set to the bottom of store. *)
-            (* Use the preferred reg if we can. *)
-            val (resultReg, regCode) = 
-                case whereto of
-                    UseReg rr => let val regCode = getRegister (transtable, rr) in (rr, regCode) end
-                |   _ => getAnyRegister transtable
+            (* Get a register for the result. *)
+            val (resultReg, regCode) =
+                getRegisterInSet(transtable, case whereto of UseReg rr => rr | _ => generalRegisters)
         
             val resAddr = pushReg (transtable, resultReg);
         in
@@ -453,7 +430,6 @@ struct
                 code
             end;
             
-            (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
             val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
 
             val exp1Result = 
@@ -689,7 +665,7 @@ struct
                 let
                     val whereto =
                       case dest of
-                            ArgToRegister reg => UseReg reg
+                            ArgToRegister reg => UseReg (singleton reg)
                         |   ArgToStack _ => NoHint
                     val res = gencde (arg, true, whereto, NotEnd, matchFailFn, NONE)
                 in
@@ -824,7 +800,7 @@ struct
                 val handlerList = rev (map #1 tagAndLocnList)
       
                 (* Initialise regHandler from regStackPtr *)
-                val () = codeGenerate(setHandlerToCurrentSP, cvec)
+                val () = codeGenerate(storeToHandler regStackPtr, cvec)
 
                 val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
  
@@ -842,7 +818,6 @@ struct
                     val () = List.app remove tagAndLocnList
                 end
                 val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
-                (*val () = codeGenerate(removeStackEntry(transtable, oldIndex), cvec)*)
 
                 (* Optimisation: return immediately, if possible, rather than
                    jumping and then returning. This may turn the following
@@ -892,9 +867,7 @@ struct
 
         | Case {cases, test, default, caseType} =>
             let
-                (* Cases are constructed by the optimiser out of if-then-else
-                   expressions. *)                
-                (* Merged values don't necessarily go into regResult *)
+                (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
                 val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
                 
                 (* Sort the cases into ascending order.  It's possible that we may have
@@ -902,7 +875,7 @@ struct
                    need to retain the ordering for items with the same case label. *)
                 local
                     val labelCount = List.length cases
-                    (* Add an extra item before sorting which retains the ordering for
+                    (* Add an extra field before sorting which retains the ordering for
                        equal labels. *)
                     val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
                     fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
@@ -919,227 +892,128 @@ struct
                     val cases = filter sorted
                 end
 
-                (* This procedure decides whether to use a case instruction
-                   or a comparison depending on whether the cases are sparse.
-                   A more efficient algorithm, possibly using a binary chop,
-                   should probably be used for the sparse cases. *)
-                fun caseCode ([]) : mergeResult =
-                    (* Put in the default case. *)
-                    genToRegister (default, whereto, tailKind, matchFailFn, loopAddr)
-           
-                |   caseCode ((cp as (_, labels: word)) :: cps) =
-                    let
-                        (* Count the number of cases and compute the maximum and minimum. *)
-                        (* If we are testing on integers we could have negative values here.
-                           Because we're using "word" here any negative values are treated as
-                           large positive values and so we won't use a "case".
-                           If this is a case on constructor tags we know the range.  There
-                           will always be a "default" which may be anywhere in the range but
-                           if we construct a jump table that covers all the values we don't need
-                           the range checks. *)
-                        val numberOfCases = List.length cases
-                        val (isExhaustive, min, max) =
-                            case caseType of
-                                CaseTag max => (true, 0w0, max)
-                            |   _ =>
-                                let
-                                    fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                                    val (min, max) = List.foldl foldCases (labels, labels) (cp :: cps)
-                                in
-                                    (false, min, max)
-                                end
-                    in
-                        if useIndexedCase {min=min, max=max, number=numberOfCases, isExhaustive=isExhaustive}
-                        then
+                val (isExhaustive, min, max) =
+                    case caseType of
+                        CaseTag max => (true, 0w0, max)
+                    |   _ =>
                         let
-                            val testValue = genToStack (test, matchFailFn)
-                            val mark = markStack transtable
-     
-                            (* Get exclusive use so that
-                               indexedCase can modify the registers. *)
-                            val (testReg, testIndex, testCode)  =
-                                loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
-                            (* Need a work register. *)
-                            val (workReg, regCode) = getAnyRegister transtable
-
-                            val caseInstr = ref addrZero
-                            val () =
-                                codeGenerate(
-                                    indexedCase
-                                        {testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
-                                        isArbitrary = case caseType of CaseInt => true | _ => false,
-                                        isExhaustive=isExhaustive, tableAddrRef = caseInstr} @
-                                    regCode @ testCode, cvec);
-                            val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
-                            val () = codeGenerate(freeRegister (transtable, workReg), cvec)
-       
-                            val startOfCase = saveState transtable
-  
-                            (* Put in the default case, if there is one. *)
-                            val (defaultCase, startCode) = startCase (transtable, startOfCase)
-                            val () = codeGenerate(startCode, cvec)
-     
-                            val exitDefault =
-                            let
-                                val defaultRes =
-                                    genToRegister (default, whereto, tailKind, matchFailFn, loopAddr);
-           
-                                (* Optimisation: return immediately, if possible, rather than
-                                   jumping and then returning. This may turn the following
-                                   unconditional branch into dead code, in which case it
-                                   will be removed by the lower-level code generator.
-                                   SPF 25/11/96
-                                 *)
-                                val () =
-                                   if isEndOfProc tailKind andalso not (haveExited transtable)
-                                   then codeGenerate(exit (), cvec)
-                                   else ();
-          
-                                val (lab, branchCode) = unconditionalBranch (defaultRes, transtable)
-                                val () = codeGenerate(branchCode, cvec)
-
-                                val () =
-                                    case defaultRes of
-                                        MergeIndex defaultIndex =>
-                                            codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
-                                    |   NoMerge => ()
-                            in
-                                lab
-                            end
-
-                            (* Generate the cases. *)
-                            fun genCases ((caseExp, caseLabel: word) :: cps) ccl =
-                            let
-                                val (caseAddr, startCode) = startCase (transtable, startOfCase)
-                                val () = codeGenerate(startCode, cvec)
-                                val mark = markStack transtable
-       
-                                (* For each case label make an entry in the list.  Add
-                                  new entries at the beginning. *)
-                                val newCaseList = constrCases(caseLabel, caseAddr) :: ccl;
-          
-                                (* Generate this case and exit if tail-recursive. *)
-                                val expResult =
-                                    genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
-       
-                                val () =
-                                    if isEndOfProc tailKind andalso not (haveExited transtable)
-                                    then codeGenerate(exit (), cvec)
-                                    else ();
-                            in
-                                if null cps
-                                then
-                                (
-                                    (*  Finished. *)
-                                    codeGenerate(
-                                        fillJumpTable {tableAddr=caseInstr, cases=newCaseList, default=defaultCase,
-                                                       min=min, max=max}, cvec);
-                                    expResult (* Last expression. *)
-                                )
-                                else
-                                let
-                                    val (lab, branchCode) = unconditionalBranch (expResult, transtable)
-                                    val () = codeGenerate(branchCode, cvec)
-           
-                                    val () =
-                                        case expResult of
-                                            MergeIndex expIndex =>
-                                                codeGenerate(removeStackEntry(transtable, expIndex), cvec)
-                                        |   NoMerge => ();
-  
-                                    val lastResult = genCases cps newCaseList;
-                                    val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
-                                        merge (lab, transtable, lastResult, mark)
-                                    val () = codeGenerate(mergeCode, cvec)
-                                in
-                                    mergeRes
-                                end
-                            end
-                            | genCases [] _ = 
-                                raise InternalError "genCase - null case list"; (* genCases *)
-
-                            val caseResult = genCases (cp::cps) []
-                            val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
-                            val () = codeGenerate(mergeCode, cvec)
+                            val (_, aLabel) = hd cases
+                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
                         in
-                            mergeRes
-                        end (* useIndexedCase *)
-  
-                        else
-                        let
-                            (* Don't use indexing. *)
-                            val mark  = markStack transtable
-
-                            val (caseExp : codetree, caseLabel) = cp;
-    
-                            val lab =
-                                case checkAndReduceBranches(
-                                        case caseType of CaseInt => testNeqA | _ => testNeqW,
-                                        [test, Constnt(toMachineWord caseLabel)],
-                                        fn (Constnt w) => SOME w | _ => NONE) of
-                                    SOME(testType, args) =>
-                                        let
-                                            (* Because this is a case instruction the use counting will
-                                               count only one for this.  We have to adjust the counts to be sure
-                                               that this won't be lost.  *)
-                                            fun correctedArg arg =
-                                                if null cps
-                                                then arg (* Really the last. *)
-                                                else
-                                                let
-                                                    (* The optimiser only puts these in the "case". *)
-                                                    fun removeLasts(Extract{fpRel, addr, level, ...}) =
-                                                            Extract{fpRel=fpRel, addr=addr, level=level,lastRef=false}
-                                                    |   removeLasts(Indirect{base, offset}) =
-                                                            Indirect{base=removeLasts base, offset=offset}
-                                                    |   removeLasts(c as Constnt _) = c (* For the constant arg. *)
-                                                    |   removeLasts _ = raise InternalError "removeLasts"
-                                                in
-                                                    removeLasts arg
-                                                end
-                                            (* Code generate each argument to the pstack. *)
-                                            val argLocns =
-                                                List.map (fn arg => genToStack (correctedArg arg, matchFailFn)) args
-                                            val (label, testCode) =
-                                                compareAndBranch (argLocns, testType, transtable)
-                                            val () = codeGenerate(testCode, cvec)
-                                        in
-                                            label
-                                        end
-                                |   NONE => raise InternalError "checkAndReduceBranches failed in \"case\""
-  
-                            (* Generate this case and exit if tail-recursive. *)
-                            val thisCaseRes =
-                                genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
-  
-                            val () = 
-                              if isEndOfProc tailKind andalso not (haveExited transtable)
-                              then codeGenerate(exit (), cvec)
-                              else ();
-      
-                            (* Jump round the other cases. *)
-                            val (lab1, branchCode) = unconditionalBranch (thisCaseRes, transtable)
-                            val () = codeGenerate(branchCode, cvec)
-    
-                            (* remove result of this case from pstack *)
-                            val () =
-                              case thisCaseRes of
-                                MergeIndex resIndex => codeGenerate(removeStackEntry(transtable, resIndex), cvec)
-                              | NoMerge => ();
-  
-                            (* Do the other cases. *)
-                            val () = codeGenerate(fixup (lab, transtable), cvec);
-       
-                            val caseResult = caseCode cps
-                            val (mergeRes, mergeCode) = (* Merge all the results together. *)
-                                merge (lab1, transtable, caseResult, mark)
-                            val () = codeGenerate(mergeCode, cvec)
-                        in
-                            mergeRes
+                            (false, min, max)
                         end
-                    end  (* caseCode *)
+                val testValue = genToStack (test, matchFailFn)
+                val mark = markStack transtable
+
+                (* Get exclusive use so that
+                   indexedCase can modify the registers. *)
+                val (testReg, testIndex, testCode)  =
+                    loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
+                (* Need a work register. *)
+                val (workReg, regCode) = getRegisterInSet(transtable, generalRegisters)
+
+                val caseInstr = ref addrZero
+                val () =
+                    codeGenerate(
+                        indexedCase
+                            {testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
+                            isArbitrary = case caseType of CaseInt => true | _ => false,
+                            isExhaustive=isExhaustive, tableAddrRef = caseInstr} @
+                        regCode @ testCode, cvec);
+                val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
+                val () = codeGenerate(freeRegister (transtable, workReg), cvec)
+
+                val startOfCase = saveState transtable
+
+                (* Put in the default case, if there is one. *)
+                val (defaultCase, startCode) = startCase (transtable, startOfCase)
+                val () = codeGenerate(startCode, cvec)
+
+                val exitDefault =
+                let
+                    val defaultRes =
+                        genToRegister (default, whereto, tailKind, matchFailFn, loopAddr);
+
+                    (* Optimisation: return immediately, if possible, rather than
+                       jumping and then returning. This may turn the following
+                       unconditional branch into dead code, in which case it
+                       will be removed by the lower-level code generator.
+                       SPF 25/11/96
+                     *)
+                    val () =
+                       if isEndOfProc tailKind andalso not (haveExited transtable)
+                       then codeGenerate(exit (), cvec)
+                       else ();
+
+                    val (lab, branchCode) = unconditionalBranch (defaultRes, transtable)
+                    val () = codeGenerate(branchCode, cvec)
+
+                    val () =
+                        case defaultRes of
+                            MergeIndex defaultIndex =>
+                                codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
+                        |   NoMerge => ()
+                in
+                    lab
+                end
+
+                (* Generate the cases. *)
+                fun genCases ((caseExp, caseLabel: word) :: cps) ccl =
+                let
+                    val (caseAddr, startCode) = startCase (transtable, startOfCase)
+                    val () = codeGenerate(startCode, cvec)
+                    val mark = markStack transtable
+
+                    (* For each case label make an entry in the list.  Add
+                      new entries at the beginning. *)
+                    val newCaseList = constrCases(caseLabel, caseAddr) :: ccl;
+
+                    (* Generate this case and exit if tail-recursive. *)
+                    val expResult =
+                        genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
+
+                    val () =
+                        if isEndOfProc tailKind andalso not (haveExited transtable)
+                        then codeGenerate(exit (), cvec)
+                        else ();
+                in
+                    if null cps
+                    then
+                    (
+                        (*  Finished. *)
+                        codeGenerate(
+                            fillJumpTable {tableAddr=caseInstr, cases=newCaseList, default=defaultCase,
+                                           min=min, max=max}, cvec);
+                        expResult (* Last expression. *)
+                    )
+                    else
+                    let
+                        val (lab, branchCode) = unconditionalBranch (expResult, transtable)
+                        val () = codeGenerate(branchCode, cvec)
+
+                        val () =
+                            case expResult of
+                                MergeIndex expIndex =>
+                                    codeGenerate(removeStackEntry(transtable, expIndex), cvec)
+                            |   NoMerge => ();
+
+                        val lastResult = genCases cps newCaseList;
+                        val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
+                            merge (lab, transtable, lastResult, mark)
+                        val () = codeGenerate(mergeCode, cvec)
+                    in
+                        mergeRes
+                    end
+                end
+                | genCases [] _ = 
+                    raise InternalError "genCase - null case list"; (* genCases *)
+
+                val caseResult = genCases cases []
+                val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
+                val () = codeGenerate(mergeCode, cvec)
             in
-                caseCode cases
+                mergeRes
             end      
 
         | MutualDecs dl =>
@@ -1198,7 +1072,7 @@ struct
                     let
                         val v = genToStack (h, matchFailFn);
                         val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
-                        val moveCode = moveToVec (vec, v, wordOffset, instrStoreW, transtable)
+                        val moveCode = moveToVec (vec, v, wordOffset, transtable)
                     in
                         (vec, moveCode @ vecCode)
                     end;
@@ -1233,7 +1107,7 @@ struct
                         in
                             (* Move the entry into the container.  Does not affect the
                                use count for the container entry. *)
-                            codeGenerate(moveToVec (vec, entry, wordOffset, instrStoreW, transtable), cvec);
+                            codeGenerate(moveToVec (vec, entry, wordOffset, transtable), cvec);
                             wordOffset + 1
                         end
                     in
@@ -1260,7 +1134,7 @@ struct
                             val (entry, entryCode) = indirect (wordOffset, tup, transtable)
                             val () = codeGenerate(entryCode, cvec)
                         in
-                            codeGenerate(moveToVec (vec, entry, wordOffset, instrStoreW, transtable), cvec);
+                            codeGenerate(moveToVec (vec, entry, wordOffset, transtable), cvec);
                             copy (n+1)
                         end
                     in
@@ -1294,7 +1168,7 @@ struct
                         val (entry, entryCode) = indirect (n, vec, transtable)
                         val () = codeGenerate(entryCode, cvec)
                     in
-                        codeGenerate(moveToVec (tup, entry, n, instrStoreW, transtable), cvec);
+                        codeGenerate(moveToVec (tup, entry, n, transtable), cvec);
                         copy (n+1)
                     end
             in
@@ -1400,7 +1274,7 @@ struct
                        If we're at the end of a function, we're not merging, so we don't need
                        exclusive use. However, I don't think we actually save anything by trying
                        to make use of this fact so let's just be naive. SPF 27/11/96 *)
-                    val (mergeItem, mergeCode) = loadToSpecificReg (transtable, rr, index, true)
+                    val (_, mergeItem, mergeCode) = loadEntryToSet (transtable, index, rr, true)
                 in
                     codeGenerate(mergeCode, cvec);
                     MergeIndex mergeItem
@@ -1765,7 +1639,7 @@ struct
               val () = codeGenerate(vectorCode, cvec)
             in
               (* Put code address into closure *)
-              codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, instrStoreW, transtable), cvec);
+              codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec);
               vector
             end
             
@@ -1778,7 +1652,7 @@ struct
                 val valIndex = genToStack (h, matchFailFn);
                 val vec = loadItems t (offset + 1)
               in
-                codeGenerate(moveToVec (vec, valIndex, offset, instrStoreW, transtable), cvec);
+                codeGenerate(moveToVec (vec, valIndex, offset, transtable), cvec);
                 vec
               end;
               
@@ -1808,7 +1682,7 @@ struct
             local
                 val locn = pushConst (transtable, res);
             in
-                val () = codeGenerate(moveToVec (vector, locn, 0, instrStoreW, transtable), cvec)
+                val () = codeGenerate(moveToVec (vector, locn, 0, transtable), cvec)
             end;
 
             local
@@ -1820,7 +1694,7 @@ struct
            
                 (* N.B. moveToVec doesn't count as a use of vector. *)
                 fun storeWord i = 
-                    codeGenerate(moveToVec (vector, locn, i, instrStoreW, transtable), cvec)
+                    codeGenerate(moveToVec (vector, locn, i, transtable), cvec)
             in
                 val () = forLoop storeWord 1 wordsToClear
             end;
@@ -1842,7 +1716,7 @@ struct
             |   loadItems (h::t) addr =
             let
                 val loadEntry = genToStack (h, matchFailed)
-                val moveCode = moveToVec (vector, loadEntry, addr, instrStoreW, transtable)
+                val moveCode = moveToVec (vector, loadEntry, addr, transtable)
                 val () = codeGenerate(moveCode, cvec)
             in
                 loadItems t (addr + 1)
@@ -2175,7 +2049,6 @@ struct
             )
         else
           let
-            (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
             val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
     
             (* code for "then part" *)
@@ -2242,7 +2115,7 @@ struct
                                      there because loading other arguments may involve function
                                      calls which will use these registers. For that reason we
                                      don't put constants in yet. *)
-                                  val whereto = case arg of Constnt _ => NoHint | _ => UseReg argReg
+                                  val whereto = case arg of Constnt _ => NoHint | _ => UseReg(singleton argReg)
                                 in
                                     case gencde (arg, true, whereto, NotEnd, matchFailFn, NONE) of
                                         MergeIndex index => index
@@ -2837,7 +2710,7 @@ struct
                             (* Set value of static link register now. The static link entry
                                is now the address of the frame.  DCJM 2/1/01. *)
                             codeGenerate(
-                                moveOp {output=regClosure, source=StackAddress((realstackptr transtable - 1)*wordSize)},
+                                moveStackAddress(realstackptr transtable - 1, regClosure),
                                 cvec);
                             (SOME entryPt, false, [closureIndex], [regClosure])
                         end
@@ -2922,7 +2795,7 @@ struct
 
 
         val resReg = resultReg(codeToCgType resultType)
-        val _ = genToRegister (pt, UseReg resReg, EndOfProc resReg, matchFailed, NONE);
+        val _ = genToRegister (pt, UseReg(singleton resReg), EndOfProc resReg, matchFailed, NONE);
 
         val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
     in

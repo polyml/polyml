@@ -40,7 +40,7 @@ sig
 
     (* Register allocation *)
     val getRegister:    ttab * reg -> operation list
-    val getAnyRegister: ttab -> reg * operation list
+    val getRegisterInSet: ttab * regSet -> reg * operation list
     val freeRegister:   ttab * reg -> operation list
     val addRegUse:      ttab * reg -> operation list
     val removeRegistersFromCache: ttab * regSet -> operation list
@@ -70,7 +70,7 @@ sig
     val unlockRegister:    ttab * reg -> operation list
     val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
     val indirect:          int * stackIndex * ttab -> stackIndex * operation list
-    val moveToVec:         stackIndex * stackIndex * int * instrs * ttab -> operation list
+    val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
 
     val removeStackEntry: ttab*stackIndex -> operation list
 

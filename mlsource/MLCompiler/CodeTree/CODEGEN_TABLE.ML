@@ -694,9 +694,6 @@ struct
         if pstackTrace then printStack(table, "decsp", []) else () 
     )
 
-    (* Register to register move. *)
-    fun moveRR(rs, rd) = moveOp{source=InRegister rs, output=rd};
-
     (* Frees registers by pushing values onto the stack or moving them to
        other registers.  `selectRegister' selects which registers are
        affected, `selectEntry' selects which entries are affected. Used
@@ -750,8 +747,8 @@ struct
 
                         val pushInstr =
                             if regSetIntersect(cacheReg, generalRegisters) <> noRegisters
-                            then pushToStack(InRegister(oneOf(regSetIntersect(cacheReg, generalRegisters))))
-                            else pushToStack(BaseOffset(base, offset))
+                            then pushRegisterToStack(oneOf(regSetIntersect(cacheReg, generalRegisters)))
+                            else pushMemoryToStack(base, offset)
                   
                         val freeCode1 = free regset base
                         val (newCache, freeCode2) =
@@ -785,9 +782,9 @@ struct
                             then [] (* already cached in destination register. *)
                             else if regSetIntersect(cacheReg, generalRegisters) <> noRegisters
                             then (* Cached in a different register - move it there and free the cache. *)
-                                moveRR(oneOf(regSetIntersect(cacheReg, generalRegisters)), destReg)
+                                moveRegisterToRegister(oneOf(regSetIntersect(cacheReg, generalRegisters)), destReg)
                             else (* Not in a suitable cache register. *)
-                                moveOp{source=BaseOffset(base, offset), output=destReg}
+                                moveMemoryToRegister(base, offset, destReg)
                     in
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
@@ -820,7 +817,7 @@ struct
                     let
                         val alignInstrs = alignStack(table, [], destStack);
 
-                        val pushInstr = pushToStack(InRegister reg)
+                        val pushInstr = pushRegisterToStack reg
 
                         (* Have pushed a register - can treat the register as caching
                            the stack location we have pushed it into. *)
@@ -879,7 +876,7 @@ struct
                         val moveInstrs =
                             if inSet(destReg, cacheReg)
                             then [] (* already cached in destination register *)
-                            else moveRR(reg, destReg)
+                            else moveRegisterToRegister(reg, destReg)
                         (* Free this register *)
                         val freeCode1 = free regset reg
                         (* Free all cache registers except the destination, if it's in there. *)
@@ -1268,10 +1265,10 @@ struct
                                         val (reg, code) = getAnyRegister table
                                         val stackOffset = (addr - ! realstackptr + 1) * ~wordSize
                                         val fullCode =
-                                            moveOp{source=BaseOffset(regStackPtr, stackOffset), output=reg} @ code
+                                            moveMemoryToRegister(regStackPtr, stackOffset, reg) @ code
                                     in
                                         (reg, fullCode)
-                                    end;
+                                    end
                             (* Free all cache registers except the destination, if it's in there. *)
                             val freeCode = freeSet(regset, regSetMinus(cache, singleton reg))
                         in (* Clear out the cache and overwrite this entry with a reference to the register. *)
@@ -1355,38 +1352,30 @@ struct
             if inSet(destReg, cacheReg)
             then []
             else if cacheReg <> noRegisters
-            then moveRR(oneOf cacheReg, destReg)
+            then moveRegisterToRegister(oneOf cacheReg, destReg)
             else case ent of
 
                Register reg =>
                     if reg <> destReg
-                    then moveRR(reg, destReg)
+                    then moveRegisterToRegister(reg, destReg)
                     else []
           
-            |   Literal lit =>
-                    moveOp{source=LiteralSource lit, output=destReg}
+            |   Literal lit => moveConstantToRegister(lit, destReg)
 
-            |   CodeRef code =>
-                    moveOp{source=CodeRefSource code, output=destReg}
+            |   CodeRef code => moveCodeRefToRegister(code, destReg)
 
-            |   Direct {base, offset} =>
-                    moveOp{source=BaseOffset(base, offset), output=destReg}
+            |   Direct {base, offset} => moveMemoryToRegister(base, offset, destReg)
 
             |   StackW index =>
                 let
                     val stackOffset = (! realstackptr - index - 1) * wordSize
                 in
-                    moveOp{source=BaseOffset(regStackPtr, stackOffset), output=destReg}
+                    moveMemoryToRegister(regStackPtr, stackOffset, destReg)
                 end
     
             |   Container l => (* The first entry in the container gives us the address. *)
                 case pstackRealEntry(table, hd l) of
-                    {ent = StackW index, ...} =>
-                        let
-                            val stackOffset = (! realstackptr - index -1) * wordSize
-                        in
-                            moveOp{source=StackAddress stackOffset, output=destReg}
-                        end
+                    {ent = StackW index, ...} => moveStackAddress(! realstackptr - index -1, destReg)
                 |   _ => raise InternalError "loadPstackEntry: container entry is not on stack";
     in
        (* Decrement use count and remove if done. *)
@@ -1544,7 +1533,7 @@ struct
                                         val (reg, regCode) = getAnyRegister table
                                         val off = (! realstackptr - 1 - addr) * wordSize;
                                     in
-                                        (reg, moveOp{source=BaseOffset(regStackPtr, off), output=reg} @ regCode)
+                                        (reg, moveMemoryToRegister(regStackPtr, off, reg) @ regCode)
                                     end;
                   
                             (* Free all cache registers except the destination, if it's in there. *)
@@ -1601,13 +1590,13 @@ struct
                 then
                 (
                     inc realstackptr;
-                    pushToStack(InRegister reg)
+                    pushRegisterToStack reg
                 )
                 else
                 let
                     val loc = (! realstackptr - locn - 1) * wordSize
                 in
-                    storeToMemory{toStore=InRegister reg, offset=loc, base=regStackPtr, index=NONE}
+                    storeRegisterToStack(reg, loc)
                 end
         in
             unlockRegister (table, reg);
@@ -1632,7 +1621,7 @@ struct
                     (* Push-immediate. *)
                     incrUseCount (table, entry, ~1);
                     inc realstackptr;
-                    pushToStack(LiteralSource lit) @ loadCode
+                    pushConstantToStack lit @ loadCode
                 end
        
                 else if false (* isStoreI(lit, false) *) (* TEMPORARILY *)
@@ -1643,26 +1632,26 @@ struct
                 in
                     (* Remove the entry for the literal. *)
                     incrUseCount (table, entry, ~1);
-                    storeToMemory{toStore=LiteralSource lit, offset=locn, base=regStackPtr, index=NONE} @ loadCode
+                    storeConstantToStack(lit, locn) @ loadCode
                 end
 
                 else generalStoreInStack () 
   
         |   Direct {base, offset} =>
-                if preferLoadPush andalso isPush andalso cacheReg = noRegisters
+                if isPush andalso cacheReg = noRegisters
                 then
                 let (* Push memory. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
                 in
                     incrUseCount (table, entry, ~1);
                     inc realstackptr;
-                    pushToStack(BaseOffset(base, offset)) @ loadCode
+                    pushMemoryToStack(base, offset) @ loadCode
                 end
                 else generalStoreInStack ()
 
 
         |   StackW index =>
-                if preferLoadPush andalso isPush andalso cacheReg = noRegisters
+                if isPush andalso cacheReg = noRegisters
                 then
                 let (* Push stack entry. *)
                     val loadCode = loadEntryBeforeOverwriting(table, locn)
@@ -1670,7 +1659,7 @@ struct
                 in
                     incrUseCount (table, entry, ~1);
                     inc realstackptr;
-                    pushToStack(BaseOffset(regStackPtr, locn)) @ loadCode
+                    pushMemoryToStack(regStackPtr, locn) @ loadCode
                 end
           
                 else generalStoreInStack ()
@@ -2224,7 +2213,7 @@ struct
                         case (tabDest, saveDest) of
                             (tb as SOME tabDest, SOME saveDest) =>
                                 if tabDest <> saveDest
-                                then raise InternalError "merge: mismatched destination"
+                                then raise InternalError("merge: mismatched destination "^Int.toString tabDest^ " " ^ Int.toString saveDest)
                                 else tb
                         |   (NONE, saveDest) => saveDest
                         |   (tabDest, _) => tabDest
@@ -2726,24 +2715,14 @@ struct
     end
 
     (* Reload the handler "register" from an entry on the real stack. *)
-    fun reloadHandler(table as Ttab{pstackTrace, realstackptr, ...} , hIndex) =
+    fun reloadHandler(table, hIndex) =
     let
-        val { ent, ...} = pstackRealEntry(table, hIndex)
-        val loadCode =
-            case ent of
-                StackW index =>
-                    let
-                        val stackOffset = (! realstackptr - index - 1) * wordSize
-                        val code = reloadHandlerFromStack stackOffset
-                    in
-                        incrUseCount (table, hIndex, ~1);
-                        if pstackTrace then printStack(table, "reloadHandler", code) else ();
-                        code
-                    end
-            |   _ => raise InternalError "reloadHandler: Not on stack"
+        val (reg, entry, loadCode) = loadEntryToSet(table, hIndex, generalRegisters, false)
+        val storeCode = storeToHandler reg
+        val clear = incrUseCount (table, entry, ~1)
         val clearCode = removeOldItemsFromRealStack table
     in
-        clearCode @ loadCode
+        clearCode @ clear @ storeCode @ loadCode
     end
 
     (* Generate operations.  Negotiates the arguments and results with the machine-specific
@@ -2876,7 +2855,7 @@ struct
         (* Moves an expression into a newly created vector or into a container.
            The offset is the number of bytes if this a byte store and the number of
            words if this is word store. *)
-        and moveToVec (vecEntry, valueEntry, offset: int, instr, table) : operation list =
+        and moveToVec (vecEntry, valueEntry, offset: int, table) : operation list =
             let
                 val freeCode1 = incrUseCount (table, vecEntry, 1) (* This must be kept. *)
                 (* Turn this into an assignment operation. *)
@@ -2886,7 +2865,7 @@ struct
                         {ent = Literal lit, ...} => SOME lit
                     |   _ => NONE
             in
-                case checkAndReduce(instr, arguments, mapLiteral) of
+                case checkAndReduce(instrStoreW, arguments, mapLiteral) of
                     SOME(ins, args) =>
                         let
                             (* Decrement the use counts for entries that we're not using. *)
