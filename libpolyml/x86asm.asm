@@ -1791,7 +1791,6 @@ CALLMACRO   RegMask minus_word,(M_Reax)
 CALLMACRO   INLINE_ROUTINE  div_word
     SHRL    CONST TAGSHIFT,Rebx
     jz      raise_div_ex
-    MOVL    Reax,Redi
     SHRL    CONST TAGSHIFT,Reax
     MOVL    CONST 0,Redx
     div     Rebx
@@ -1804,7 +1803,6 @@ CALLMACRO   RegMask div_word,(M_Reax OR M_Rebx OR M_Redx)
 CALLMACRO   INLINE_ROUTINE  mod_word
     SHRL    CONST TAGSHIFT,Rebx
     jz      raise_div_ex
-    MOVL    Reax,Redi
     SHRL    CONST TAGSHIFT,Reax
     MOVL    CONST 0,Redx
     div     Rebx
