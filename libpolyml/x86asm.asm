@@ -164,6 +164,7 @@ NEGL         TEXTEQU <neg>
 PUSHL        TEXTEQU <push>
 POPL         TEXTEQU <pop>
 POPFL        TEXTEQU <popfd>
+PUSHFL       TEXTEQU <pushfd>
 PUSHAL       TEXTEQU <pushad>
 POPAL        TEXTEQU <popad>
 INCL         TEXTEQU <inc>
@@ -217,14 +218,14 @@ ENDIF
 
 IFDEF HOSTARCHITECTURE_X86_64
 #define MOVL         movq
-#define MOVB        movb
+#define MOVB         movb
 #define ADDL         addq
 #define SUBL         subq
 #define XORL         xorq
 #define ORL          orq
 #define ANDL         andq
 #define CMPL         cmpq
-#define CMPB        cmpb
+#define CMPB         cmpb
 #define LEAL         leaq
 #define SHRL         shrq
 #define SARL         sarq
@@ -236,20 +237,21 @@ IFDEF HOSTARCHITECTURE_X86_64
 #define PUSHL        pushq
 #define POPL         popq
 #define POPFL        popfq
+#define PUSHFL       pushfq
 #define PUSHAL       pushaq
 #define POPAL        popaq
 #define LOCKXADDL    lock xaddq
 
 ELSE
 #define MOVL         movl
-#define MOVB        movb
+#define MOVB         movb
 #define ADDL         addl
 #define SUBL         subl
 #define XORL         xorl
 #define ORL          orl
 #define ANDL         andl
 #define CMPL         cmpl
-#define CMPB        cmpb
+#define CMPB         cmpb
 #define LEAL         leal
 #define SHRL         shrl
 #define SARL         sarl
@@ -261,6 +263,7 @@ ELSE
 #define PUSHL        pushl
 #define POPL         popl
 #define POPFL        popfl
+#define PUSHFL       pushfl
 #define PUSHAL       pushal
 #define POPAL        popal
 ;# Older versions of GCC require a semicolon here.
@@ -713,6 +716,7 @@ ELSE
 GLOBAL EXTNAME(X86AsmSaveStateAndReturn)
 EXTNAME(X86AsmSaveStateAndReturn):
 ENDIF
+    PUSHFL                      ;# Save flags
     PUSHL   Reax                ;# Save eax
     MOVL    PolyStack[Rebp],Reax
     MOVL    Rebx,EBX_OFF[Reax]
@@ -733,6 +737,8 @@ IFDEF HOSTARCHITECTURE_X86_64
 ENDIF
     POPL    Rebx                ;# Get old eax value
     MOVL    Rebx,EAX_OFF[Reax]
+    POPL    Rebx
+    MOVL    Rebx,FLAGS_OFF[Reax]
     MOVL    Resp,SP_OFF[Reax]
 IFDEF WINDOWS
     mov     byte ptr [InRTS+Rebp],1

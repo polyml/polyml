@@ -256,23 +256,29 @@ static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmul
  * Register fields in the stack. 
  *
  **********************************************************************/
-#define PSP_EAX(stack)          (stack)->p_reg[0]
-#define PSP_EBX(stack)          (stack)->p_reg[1]
-#define PSP_ECX(stack)          (stack)->p_reg[2]
-#define PSP_EDX(stack)          (stack)->p_reg[3]
-#define PSP_ESI(stack)          (stack)->p_reg[4]
-#define PSP_EDI(stack)          (stack)->p_reg[5]
+#define PSP_EAX(stack)          ((PolyX86Stack*)(stack))->p_eax
+#define PSP_EBX(stack)          ((PolyX86Stack*)(stack))->p_ebx
+#define PSP_ECX(stack)          ((PolyX86Stack*)(stack))->p_ecx
+#define PSP_EDX(stack)          ((PolyX86Stack*)(stack))->p_edx
+#define PSP_ESI(stack)          ((PolyX86Stack*)(stack))->p_esi
+#define PSP_EDI(stack)          ((PolyX86Stack*)(stack))->p_edi
 
 // X64 registers only
-#define PSP_R8(stack)           (stack)->p_reg[6]
-#define PSP_R9(stack)           (stack)->p_reg[7]
-#define PSP_R10(stack)          (stack)->p_reg[8]
-#define PSP_R11(stack)          (stack)->p_reg[9]
-#define PSP_R12(stack)          (stack)->p_reg[10]
-#define PSP_R13(stack)          (stack)->p_reg[11]
-#define PSP_R14(stack)          (stack)->p_reg[12]
+#define PSP_R8(stack)           ((PolyX86Stack*)(stack))->p_r8
+#define PSP_R9(stack)           ((PolyX86Stack*)(stack))->p_r9
+#define PSP_R10(stack)          ((PolyX86Stack*)(stack))->p_r10
+#define PSP_R11(stack)          ((PolyX86Stack*)(stack))->p_r11
+#define PSP_R12(stack)          ((PolyX86Stack*)(stack))->p_r12
+#define PSP_R13(stack)          ((PolyX86Stack*)(stack))->p_r13
+#define PSP_R14(stack)          ((PolyX86Stack*)(stack))->p_r14
 
-#define PSP_EFLAGS(stack)       (stack)->p_reg[CHECKED_REGS+1]
+#define PSP_EFLAGS(stack)       ((PolyX86Stack*)(stack))->p_flags
+#define EFLAGS_CF               0x0001
+#define EFLAGS_PF               0x0004
+#define EFLAGS_AF               0x0010
+#define EFLAGS_ZF               0x0040
+#define EFLAGS_SF               0x0080
+#define EFLAGS_OF               0x0800
 
 #define PSP_IC(stack)           (stack)->p_pc
 #define PSP_INCR_PC(stack, n)   (stack)->p_pc += n
@@ -1063,7 +1069,7 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsi
         return get_reg(taskData, rm + (rexPrefix & 0x1)*8);
     else if (rm == 4)
     {
-        // s-i-b present.  Used for stack addresses as well as indexing.
+        // s-i-b present.  Used for esp and r12 as well as indexing.
         unsigned int sib = PSP_IC(taskData->stack)[0];
         unsigned int index = (sib >> 3) & 7;
         unsigned int ss = (sib >> 6) & 3;
@@ -1097,8 +1103,9 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsi
             }
             if (ss != 0 || index != 4) Crash("Index register present");
             byte *ea;
-            if (base == 4) ea = (byte*)taskData->stack->p_sp + offset;
-            else ea = (get_reg(taskData, base))->AsCodePtr()+offset;
+            if (rexPrefix & 0x1) base += 8;
+            if (base == 4) /* esp */ ea = (byte*)taskData->stack->p_sp + offset;
+            else ea = get_reg(taskData, base)->AsCodePtr()+offset;
             return (PolyWord*)ea;
         }
     }
@@ -1201,11 +1208,11 @@ void X86Dependent::do_compare(TaskData *taskData, PolyWord v1, PolyWord v2)
     val2 = taskData->saveVec.push(v2);
     int r = compareLong(taskData, val2, val1);
     /* Clear the flags. */
-    POLYUNSIGNED flags = PSP_EFLAGS(taskData->stack).AsUnsigned();
+    POLYUNSIGNED flags = PSP_EFLAGS(taskData->stack);
     flags &= -256;
-    if (r == 0) flags |= 0x40;
-    else if (r < 0) flags |= 0x80;
-    PSP_EFLAGS(taskData->stack) = PolyWord::FromUnsigned(flags);
+    if (r == 0) flags |= EFLAGS_ZF;
+    else if (r < 0) flags |= EFLAGS_SF;
+    PSP_EFLAGS(taskData->stack) = flags;
 }
 
 /******************************************************************************/
@@ -1228,10 +1235,14 @@ void X86Dependent::do_op(TaskData *taskData, int dest, PolyWord v1, PolyWord v2,
 }
 
 // Emulate a long precision operation.
+// The instruction formats have changed in 5.4 so this supports
+// both 5.3 and earlier and also 5.4 format.
 bool X86Dependent::emulate_instrs(TaskData *taskData)
 {
     int src1 = -1, src2 = -1, dest = -1;
     bool doneSubtraction = false;
+    POLYUNSIGNED flagsWord = PSP_EFLAGS(taskData->stack);
+    PSP_EFLAGS(taskData->stack) &= ~EFLAGS_OF; // Make sure the overflow flag is clear.
     while(1) {
         byte rexPrefix = 0;
 #ifdef HOSTARCHITECTURE_X86_64
@@ -1248,32 +1259,67 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
         int rrr = (PSP_IC(taskData->stack)[1] >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
 
-
         switch (PSP_IC(taskData->stack)[0]) {
-        case 0x03: /* add. */
-            if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                Crash("Expected register");
-            if (dest != rrr)
-                Crash("Expected same destination register.");
-            src2 = bbb;
-            do_op(taskData, dest, *(get_reg(taskData, src1)), *(get_reg(taskData, src2)), add_longc);
-            PSP_INCR_PC(taskData->stack, 2);
-            return true;
+        case 0x03: 
+            {
+                /* add. */
+                PSP_INCR_PC(taskData->stack, 1);
+                int modRm = PSP_IC(taskData->stack)[0];
+                PSP_INCR_PC(taskData->stack, 1);
+                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix));
+                if (dest == -1) { // New format
+                    PolyWord *destReg = get_reg(taskData, rrr);
+                    PolyWord arg1 = *destReg;
+                    // We could have come here because of testing the tags, which happens
+                    // before the operation, or as a result of adding two tagged values in which
+                    // case arg1 will contain the result after the addition.
+                    if (flagsWord & EFLAGS_OF) {
+                        arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() - arg2.AsUnsigned());
+                    }
+                    do_op(taskData, rrr, arg1, arg2, add_longc);
+                    // The next operation will subtract the tag.  We need to add in a dummy tag..
+                    // This may cause problems with CheckRegion which assumes that every register
+                    // contains a valid value.
+                    *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
+                }
+                else { // Legacy format
+                    if (dest != rrr)
+                        Crash("Expected same destination register.");
+                    do_op(taskData, dest, *(get_reg(taskData, src1)), arg2, add_longc);
+                }
+                return true;
+            }
 
         case 0x2b: /* Subtraction. */
-            if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
-                Crash("Expected register");
-            if (dest != rrr)
-                Crash("Expected same destination register.");
-            src2 = bbb;
-            do_op(taskData, dest, *(get_reg(taskData, src1)), *(get_reg(taskData, src2)), sub_longc);
-            PSP_INCR_PC(taskData->stack, 2);
-            // The next instruction should be a lea to put on the tag.
-            // The result is already tagged so we need to skip that.
-            // Previously this removed the tag and returned but CheckRegion
-            // didn't like this.
-            doneSubtraction = true;
-            break;
+            {
+                PSP_INCR_PC(taskData->stack, 1);
+                int modRm = PSP_IC(taskData->stack)[0];
+                PSP_INCR_PC(taskData->stack, 1);
+                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix));
+                if (dest == -1) { // New format
+                    PolyWord *destReg = get_reg(taskData, rrr);
+                    PolyWord arg1 = *destReg;
+                    // We could have come here because of testing the tags, which happens
+                    // before the operation, or as a result of subtracting two tagged values in which
+                    // case arg1 will contain the result after the subtraction.
+                    if (flagsWord & EFLAGS_OF) {
+                        arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() + arg2.AsUnsigned());
+                    }
+                    do_op(taskData, rrr, arg1, arg2, sub_longc);
+                    // The next operation will add the tag.  We need to subtract a dummy tag..
+                    // This may cause problems with CheckRegion which assumes that every register
+                    // contains a valid value.
+                    *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
+                    return true;
+                }
+                else { // Legacy format
+                    if (dest != rrr)
+                        Crash("Expected same destination register.");
+                    do_op(taskData, dest, *(get_reg(taskData, src1)), arg2, sub_longc);
+                    doneSubtraction = true;
+                    break;
+                }
+            }
 
         case 0x3b: /* Compare. */
             {
@@ -1419,11 +1465,10 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             return true;
             }
 
-        case 0xeb: /* jmp - used in branch forwarding. */
-            /* While forwarded jumps are always positive we may use backward
-               branches in the future. */
+        case 0xeb: // jmp - used in branch forwarding.
+            // This is used to skip back to the instruction being emulated.
             if (PSP_IC(taskData->stack)[1] >= 128)
-                PSP_INCR_PC(taskData->stack, 256 - PSP_IC(taskData->stack)[1] + 2);
+                PSP_INCR_PC(taskData->stack, PSP_IC(taskData->stack)[1] - 256 + 2);
             else PSP_INCR_PC(taskData->stack, PSP_IC(taskData->stack)[1] + 2);
             break;
 
