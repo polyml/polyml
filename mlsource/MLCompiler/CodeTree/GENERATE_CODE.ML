@@ -1724,7 +1724,11 @@ struct
     
             val () = loadItems closureList 1
             val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec) (* Increment the use count before the lock. *)
-            val (_, lockCode) = dataOp([vector], instrLockSeg, transtable, NoResult)
+            val lockInstr =
+                case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
+                    SOME(lockInstr, _) => lockInstr
+                |   NONE => raise InternalError "Lock instruction not implemented"
+            val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
             val () = codeGenerate(lockCode, cvec)
             val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
         in

@@ -27,8 +27,8 @@ sig
     type ttab;
     type code;
     type reg;   (* Machine registers *)
-    type tests;
-    type instrs;
+    type negotiateTests
+    type negotiation
     type addrs;
     type savedState;
     type regSet
@@ -113,9 +113,9 @@ sig
     val haveExited: ttab -> bool
 
     type regHint
-    val dataOp: stackIndex list * instrs * ttab * regHint -> stackIndex * operation list
+    val dataOp: stackIndex list * negotiation * ttab * regHint -> stackIndex * operation list
 
-    val compareAndBranch: stackIndex list * tests * ttab -> labels * operation list
+    val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
 
     val saveState : ttab -> savedState
     val startCase : ttab * savedState -> backwardLabel * operation list
@@ -144,9 +144,9 @@ sig
     structure Sharing:
     sig
         type code       = code
-        and  instrs     = instrs
+        and  negotiation = negotiation
         and  reg        = reg
-        and  tests      = tests
+        and  negotiateTests = negotiateTests
         and  addrs      = addrs
         and  operation  = operation 
         and  machineWord = machineWord

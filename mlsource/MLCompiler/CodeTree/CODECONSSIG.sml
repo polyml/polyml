@@ -71,87 +71,89 @@ sig
     val addrZero: addrs
 
     (* Operations. *)
-    type instrs
-    val instrVeclen: instrs
-    val instrVecflags: instrs
-    val instrGetFirstLong: instrs
-    val instrStringLength: instrs
+    type 'a instrs
+    val instrVeclen: 'a instrs
+    val instrVecflags: 'a instrs
+    val instrGetFirstLong: 'a instrs
+    val instrStringLength: 'a instrs
 
-    val instrAddA: instrs
-    and instrSubA: instrs
-    and instrMulA: instrs
-    and instrAddW: instrs
-    and instrSubW: instrs
-    and instrMulW: instrs
-    and instrDivW: instrs
-    and instrModW: instrs
-    and instrOrW: instrs
-    and instrAndW: instrs
-    and instrXorW: instrs
-    and instrLoad: instrs
-    and instrLoadB: instrs
-    and instrUpshiftW: instrs    (* logical shift left *)
-    and instrDownshiftW: instrs  (* logical shift right *)
-    and instrDownshiftArithW: instrs  (* arithmetic shift right *)
-    and instrSetStringLength: instrs
-    and instrThreadSelf: instrs
-    and instrAtomicIncr: instrs
-    and instrAtomicDecr: instrs
-    and instrStoreW: instrs
-    and instrStoreB: instrs
-    and instrLockSeg: instrs
-    and instrAddFP: instrs
-    and instrSubFP: instrs
-    and instrMulFP: instrs
-    and instrDivFP: instrs
-    and instrNegFP: instrs
-    and instrIntToRealFP: instrs
-    and instrRealToIntFP: instrs
-    and instrSqrtFP: instrs
-    and instrSinFP: instrs
-    and instrCosFP: instrs
-    and instrAtanFP: instrs
-    and instrExpFP: instrs
-    and instrLnFP: instrs
-    and instrAllocStore: instrs
-    and instrMoveBytes: instrs
-    and instrMoveWords: instrs
+    val instrAddA: 'a instrs
+    and instrSubA: 'a instrs
+    and instrMulA: 'a instrs
+    and instrAddW: 'a instrs
+    and instrSubW: 'a instrs
+    and instrMulW: 'a instrs
+    and instrDivW: 'a instrs
+    and instrModW: 'a instrs
+    and instrOrW: 'a instrs
+    and instrAndW: 'a instrs
+    and instrXorW: 'a instrs
+    and instrLoad: 'a instrs
+    and instrLoadB: 'a instrs
+    and instrUpshiftW: 'a instrs    (* logical shift left *)
+    and instrDownshiftW: 'a instrs  (* logical shift right *)
+    and instrDownshiftArithW: 'a instrs  (* arithmetic shift right *)
+    and instrSetStringLength: 'a instrs
+    and instrThreadSelf: 'a instrs
+    and instrAtomicIncr: 'a instrs
+    and instrAtomicDecr: 'a instrs
+    and instrStoreW: 'a instrs
+    and instrStoreB: 'a instrs
+    and instrLockSeg: 'a instrs
+    and instrAddFP: 'a instrs
+    and instrSubFP: 'a instrs
+    and instrMulFP: 'a instrs
+    and instrDivFP: 'a instrs
+    and instrNegFP: 'a instrs
+    and instrIntToRealFP: 'a instrs
+    and instrRealToIntFP: 'a instrs
+    and instrSqrtFP: 'a instrs
+    and instrSinFP: 'a instrs
+    and instrCosFP: 'a instrs
+    and instrAtanFP: 'a instrs
+    and instrExpFP: 'a instrs
+    and instrLnFP: 'a instrs
+    and instrAllocStore: 'a instrs
+    and instrMoveBytes: 'a instrs
+    and instrMoveWords: 'a instrs
 
     (* Check whether an operation is implemented and, if appropriate, remove
        constant values into the instruction part. *)
-    val checkAndReduce: instrs * 'a list * ('a -> machineWord option) -> (instrs * 'a list) option
+    type negotiation
+    val checkAndReduce: 'a instrs * 'a list * ('a -> machineWord option) -> (negotiation * 'a list) option
 
     val isPushI: machineWord -> bool
 
-    type tests
-    val testNeqW:  tests
-    val testEqW:   tests
-    val testGeqW:  tests
-    val testGtW:   tests
-    val testLeqW:  tests
-    val testLtW:   tests
-    val testNeqA:  tests
-    val testEqA:   tests
-    val testGeqA:  tests
-    val testGtA:   tests
-    val testLeqA:  tests
-    val testLtA:   tests
-    val Short:     tests
-    val Long:      tests
-    val testNeqFP: tests
-    val testEqFP:  tests
-    val testGeqFP: tests
-    val testGtFP:  tests
-    val testLeqFP: tests
-    val testLtFP:  tests
-    val byteVecEq: tests
-    and byteVecNe: tests
+    type 'a tests
+    val testNeqW:  'a tests
+    val testEqW:   'a tests
+    val testGeqW:  'a tests
+    val testGtW:   'a tests
+    val testLeqW:  'a tests
+    val testLtW:   'a tests
+    val testNeqA:  'a tests
+    val testEqA:   'a tests
+    val testGeqA:  'a tests
+    val testGtA:   'a tests
+    val testLeqA:  'a tests
+    val testLtA:   'a tests
+    val Short:     'a tests
+    val Long:      'a tests
+    val testNeqFP: 'a tests
+    val testEqFP:  'a tests
+    val testGeqFP: 'a tests
+    val testGtFP:  'a tests
+    val testLeqFP: 'a tests
+    val testLtFP:  'a tests
+    val byteVecEq: 'a tests
+    and byteVecNe: 'a tests
 
     type forwardLabel
     and  backwardLabel
 
     (* Compare and branch for fixed and arbitrary precision. *)
-    val checkAndReduceBranches: tests * 'a list * ('a -> machineWord option) -> (tests * 'a list) option
+    type negotiateTests
+    val checkAndReduceBranches: 'a tests * 'a list * ('a -> machineWord option) -> (negotiateTests * 'a list) option
 
     datatype callKinds =
         Recursive
@@ -233,8 +235,8 @@ sig
     withtype nextAction = actionSource list -> argAction
 
     (* Negotiate arguments *)
-    val negotiateArguments: instrs * regHint -> nextAction
-    val negotiateTestArguments: tests -> nextAction * forwardLabel
+    val negotiateArguments: negotiation * regHint -> nextAction
+    val negotiateTestArguments: negotiateTests -> nextAction * forwardLabel
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
@@ -246,16 +248,18 @@ sig
 
     structure Sharing:
     sig
-        type code       = code
-        and  instrs     = instrs
-        and  reg        = reg
-        and  tests      = tests
-        and  addrs      = addrs
-        and  operation  = operation
-        and  regHint    = regHint
-        and  argAction  = argAction
-        and  regSet     = RegSet.regSet
-        and  backwardLabel = backwardLabel
-        and  forwardLabel = forwardLabel
+        type code           = code
+        and  'a instrs      = 'a instrs
+        and  negotiation    = negotiation
+        and  negotiateTests = negotiateTests
+        and  reg            = reg
+        and  'a tests       = 'a tests
+        and  addrs          = addrs
+        and  operation      = operation
+        and  regHint        = regHint
+        and  argAction      = argAction
+        and  regSet         = RegSet.regSet
+        and  backwardLabel  = backwardLabel
+        and  forwardLabel  = forwardLabel
     end
 end;

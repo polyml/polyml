@@ -195,7 +195,7 @@ struct
         val useCount = Array.sub (v, r)
     in
         if useCount = 0
-        then raise InternalError ("free: register already free #" ^ Int.toString r)
+        then raise InternalError ("free: register already free:" ^ regRepr(regN r))
         else
         (
             Array.update (v, r, useCount - 1);
@@ -1345,34 +1345,40 @@ struct
     (* Generates code for an entry on the pseudo-stack. *)
     (* Moves the entry (at locn) into destReg, decrementing the
        use-count for entry. Doesn't push anything new on the pstack. *)
-    fun loadPstackEntry (table as Ttab{pstackTrace, realstackptr, ...}, locn (* Offset on the stack *), destReg) =
+    fun loadPstackEntry (table as Ttab{pstackTrace, realstackptr, regset, ...}, locn (* Offset on the stack *), destReg) =
     let
         val {cache = cacheReg, ent, ...} = pstackRealEntry(table, locn)
+        
+        fun moveFromMemory(base, offset, destReg) =
+            if inSet(destReg, floatingPtRegisters)
+            then
+                (* We can't load directly to the FP regs - put first into a general reg.
+                   This is X86-specific and really should be in a negotiator but since
+                   we only have FP regs on the X86 leave it. *)
+            let
+                val (aReg, regCode) = getAnyRegister table
+            in
+                free regset aReg @ moveRegisterToRegister(aReg, destReg) @
+                    moveMemoryToRegister(base, offset, aReg) @ regCode
+            end
+            else moveMemoryToRegister(base, offset, destReg)
+ 
         val loadCode =
             if inSet(destReg, cacheReg)
             then []
             else if cacheReg <> noRegisters
             then moveRegisterToRegister(oneOf cacheReg, destReg)
-            else case ent of
-
+            else
+            case ent of
                Register reg =>
                     if reg <> destReg
                     then moveRegisterToRegister(reg, destReg)
                     else []
-          
             |   Literal lit => moveConstantToRegister(lit, destReg)
-
             |   CodeRef code => moveCodeRefToRegister(code, destReg)
-
-            |   Direct {base, offset} => moveMemoryToRegister(base, offset, destReg)
-
+            |   Direct {base, offset} => moveFromMemory(base, offset, destReg)
             |   StackW index =>
-                let
-                    val stackOffset = (! realstackptr - index - 1) * wordSize
-                in
-                    moveMemoryToRegister(regStackPtr, stackOffset, destReg)
-                end
-    
+                    moveFromMemory(regStackPtr, (! realstackptr - index - 1) * wordSize, destReg)
             |   Container l => (* The first entry in the container gives us the address. *)
                 case pstackRealEntry(table, hd l) of
                     {ent = StackW index, ...} => moveStackAddress(! realstackptr - index -1, destReg)
@@ -1905,7 +1911,7 @@ struct
        Most of the complicating factors have now been removed. *) 
     fun setState (save : savedState,
                   table as
-                    Ttab{pstack, pstackTrace, printStream, exited, pstackptr, realstackptr, regset, ...},
+                    Ttab{pstack, pstackTrace, printStream, pstackptr, realstackptr, regset, ...},
                   carry, mark, isMerge): mergeResult * operation list =
     let 
         val () = if pstackTrace then printState printStream save "setState" else ()
@@ -1981,7 +1987,7 @@ struct
                           case pstackEntry(table, s) of
                             NoStackEntry           => (0, NONE)
                           | StackEntry {uses, destStack, ...} =>
-                                (uses, if ! exited then NONE else destStack)
+                                (uses, (*if ! exited then NONE else*) destStack)
                 in
                     (* Put the saved entry into the table. *)
                     StretchArray.update (pstack, s, saveEntry);
@@ -3099,11 +3105,11 @@ struct
     structure Sharing =
     struct
         type code       = code
-        and  instrs     = instrs
+        and  negotiation = negotiation
         and  reg        = reg
-        and  tests      = tests
+        and  negotiateTests = negotiateTests
         and  addrs      = addrs
-        and  operation  = operation
+        and  operation  = operation 
         and  machineWord = machineWord
         and  ttab       = ttab
         and  savedState = savedState
