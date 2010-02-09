@@ -106,10 +106,11 @@ struct
         argLifetimes     : int list,
         resultType       : argumentType,
         localCount       : int,
-        debugSwitches    : Universal.universal list) : operations * int * regSet =
+        debugSwitches    : Universal.universal list) : operations * int * regSet * bool =
     let
         val numOfArgs = List.length argTypes
         val cvec: operations ref = ref []
+        val callsAFunction = ref false
         fun codeGenerate(ops: operations, cvec) = cvec := ops @ ! cvec
 
         fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
@@ -1491,10 +1492,10 @@ struct
             (* Now code-generate the procedure, throwing away the result which
                will be put into the forward reference. *)
             val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
-            val (ops, maxStack, regList) = 
+            val (ops, maxStack, regList, callsAFunction) = 
               codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
                     argTypes, argLifetimes, resultType, localCount, debugSwitches)
-            val _ = copyCode (newCode, ops, maxStack, regList)
+            val _ = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
             result
         end
@@ -1553,13 +1554,13 @@ struct
                     Constnt cval => (pushConst (newtab, cval), [])
                  | _ => raise InternalError "previous: closure not constant";
           
-          val (ops, maxStack, regList) = 
+          val (ops, maxStack, regList, callsAFunction) = 
             codegen (lambdaBody, previous, fn _ => false,
               fn _ => raise InternalError "Not static link",
               fn _ => raise InternalError "Not static link",
               0, (* Discard regClosure *) argTypes, argLifetimes, resultType, localCount, debugSwitches);
                 
-            val closureAddr = copyCode (newCode, ops, maxStack, regList)
+            val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
             val result = pushConst (transtable, toMachineWord closureAddr);
           
           val () = mutualRecursive(result, NONE)
@@ -1616,13 +1617,13 @@ struct
         
         val _ = closureRefs = 0 andalso raise InternalError "Closure function but unreferenced cp"
         
-        val (ops, maxStack, regList) = (* code-gen procedure *)
+        val (ops, maxStack, regList, callsAFunction) = (* code-gen procedure *)
           codegen (lambdaBody, previous, fn _ => false,
             fn _ => raise InternalError "Not static link",
             fn _ => raise InternalError "Not static link",
             closureRefs, argTypes, argLifetimes, resultType, localCount, debugSwitches)
 
-        val codeAddr = copyCode (newCode, ops, maxStack, regList)
+        val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         
         val res = toMachineWord codeAddr
       in
@@ -2218,6 +2219,10 @@ struct
                     codeGenerate(resetStack stackMove, cvec);
                     (* Call the function.  If it's not recursive we have to get the
                        entry point. *)
+                    (* We have to include a stack check in this function to ensure that
+                       it's interruptible even though a tail jump doesn't require any
+                       more stack. *)
+                    callsAFunction := true; (* Don't really need this for RTS calls. *)
                     case codeAddrOpt of
                         NONE =>
                            codeGenerate(jumpToFunction{callKind=Recursive, returnReg=returnReg}, cvec)
@@ -2285,6 +2290,8 @@ struct
                       (* Make sure that the arguments are contiguous on the
                          stack and that there is nothing beyond them on it. *)
                       if endOfArgs >= 0 then resetButReload (transtable, endOfArgs) else []
+                    (* Record that we've called a function. *)
+                    val () = callsAFunction := true; 
                     val callCode =
                       case codeAddrOpt of
                          NONE => callFunction{callKind=Recursive}
@@ -2806,7 +2813,7 @@ struct
     
         (* Having code generated the body of the procedure,
           it is copied into a new data segment. *)
-        (!cvec, maxstack transtable, getModifedRegSet transtable)
+        (!cvec, maxstack transtable, getModifedRegSet transtable, !callsAFunction)
     end (* codegen *)
 
     fun gencode (Lambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
@@ -2826,7 +2833,7 @@ struct
             calling convention
             SPF 2/1/97
           *)
-            val (ops, maxStack, regList) =
+            val (ops, maxStack, regList, callsAFunction) =
                 codegen
                     (body,
                     fn (_ , _, newtab) => (pushCodeRef (newtab, newCode), []),
@@ -2836,7 +2843,7 @@ struct
                     0, (* Discard regClosure *)
                     argTypes, argLifetimes, resultType, localCount, debugSwitches)
 
-            val closureAddr = copyCode (newCode, ops, maxStack, regList)
+            val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
             val res : machineWord = toMachineWord closureAddr
         in
             (* Result is a procedure which returns the address of the procedure. *)
@@ -2848,7 +2855,7 @@ struct
             val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
 
             (* There should be *no* non-local references. *)
-            val (ops, maxStack, regList) =
+            val (ops, maxStack, regList, callsAFunction) =
                 codegen 
                     (pt,
                     fn _ => raise InternalError "top level reached",
@@ -2859,7 +2866,7 @@ struct
                     [], [], (* No args. *) GeneralType, (* General result (if any?) *)
                     localCount,
                     debugSwitches)
-            val closureAddr = copyCode (newCode, ops, maxStack, regList)
+            val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in (* Result is a procedure to execute the code. *)
             fn () => call (closureAddr, toMachineWord ())
         end (* gencode *)

@@ -72,20 +72,15 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
 
-    val toInt = Word.toIntX (* This previously just cast the value so continue to treat it as signed. *)
+    (*val toInt = Word.toIntX*) (* This previously just cast the value so continue to treat it as signed. *)
  
-    val exp2_3  =         0x8;
-    val exp2_6  =        0x40;
     val exp2_7  =        0x80;
     val exp2_8  =       0x100;
     val exp2_16 =     0x10000;
     val exp2_24 =   0x1000000;
-    val exp2_30 = 0x040000000;
-    val exp2_31 = 0x080000000;
-    val exp2_32 = 0x100000000;
     
     (* Let's check that we got them right! *)
-    local
+(*    local
         fun exp2 0 = 1
         |   exp2 n = 2 * exp2 (n - 1);
     in
@@ -102,7 +97,7 @@ struct
             exp2_32 = exp2 32
           )
              orelse raise InternalError "Powers of 2 incorrectly specified";
-    end;
+    end;*)
   
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
@@ -110,7 +105,7 @@ struct
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c;
   
-    fun is8Bit n = ~ exp2_7 <= n andalso n < exp2_7;
+    fun is8Bit n = ~ 0x80 <= n andalso n < 0x80
 
     local
         val shift =
@@ -175,14 +170,11 @@ struct
       ic:             addrs ref,      (* Pointer to first free location in "codevec" *)
       constVec:       (const * addrs * bool) list ref, (* Constants used in the code *)
       numOfConsts:    word ref,        (* size of constVec *)
-      pcOffset:       word ref,        (* Offset of code in final segment. *)
-                                      (* This is used also to test for identity of code segments. *)
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
       otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
-      mustCheckStack: bool ref,       (* Set to true if stack check must be done. *)
       justComeFrom:   labList ref,    (* The label we have just jumped from. *)
       exited:         bool ref,       (* False if we can fall-through to here *)
       selfCalls:      addrs list ref, (* List of recursive calls to patch up. *)
@@ -225,12 +217,12 @@ struct
 
   val codesize = 30; (* bytes. Initial size of segment. *)
 
-  (* Test for identity of the code segments by testing whether
-     the pcOffset ref is the same. N.B. NOT its contents. *)
+    (* Test for identity of the code segments by testing whether
+       the "ic" ref is the same. N.B. NOT its contents. *)
   
-  infix is;
+    infix is;
   
-  fun (Code{pcOffset=a, ...}) is (Code{pcOffset=b, ...}) = a=b;
+    fun (Code{ic=a, ...}) is (Code{ic=b, ...}) = a=b;
   
     (* create and initialise a code segment *)
     fun codeCreate (noClosure : bool, name : string, parameters) : code =
@@ -238,29 +230,27 @@ struct
         val words = Word.fromInt codesize div Word.fromInt wordSize
         val printStream = PRETTY.getSimplePrinter parameters;
     in
-    Code
-      { 
-        codeVec        = csegMake words, (* a byte array *)
-        ic             = ref addrZero,
-        constVec       = ref [],
-        numOfConsts    = ref 0w0,
-        pcOffset       = ref 0w0, (* only non-zero after code is copied *)
-        labelList      = ref [],
-        longestBranch  = ref addrLast, (* None so far *)
-        procName       = name,
-        otherCodes     = ref [],
-        resultSeg      = ref Unset,   (* Not yet done *)
-        mustCheckStack = ref false,
-        justComeFrom   = ref [],
-        exited         = ref false,
-        selfCalls      = ref [],
-        selfJumps      = ref [],
-        noClosure      = noClosure,
-        branchCheck    = ref addrZero,
-        printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-        printStream    = printStream
-      }
-    end;
+        Code
+        { 
+            codeVec        = csegMake words, (* a byte array *)
+            ic             = ref addrZero,
+            constVec       = ref [],
+            numOfConsts    = ref 0w0,
+            labelList      = ref [],
+            longestBranch  = ref addrLast, (* None so far *)
+            procName       = name,
+            otherCodes     = ref [],
+            resultSeg      = ref Unset,   (* Not yet done *)
+            justComeFrom   = ref [],
+            exited         = ref false,
+            selfCalls      = ref [],
+            selfJumps      = ref [],
+            noClosure      = noClosure,
+            branchCheck    = ref addrZero,
+            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printStream    = printStream
+          }
+    end
            
 
     (* Put 1 unsigned byte at a given offset in the segment. *)
@@ -360,55 +350,6 @@ struct
         ic := icVal addrPlus 4;
         set32s (ival, icVal, codeVec)
     end
-
-    datatype mode =
-        Based0    (* mod = 0 *)
-    |   Based8   (* mod = 1 *)
-    |   Based32  (* mod = 2 *)
-    |   Register (* mod = 3 *) ;
-
-
-    (* Put together the three fields which make up the mod r/m byte. *)
-    fun modrm (md : mode, rg: Word8.word, rm : Word8.word) : Word8.word =
-    let
-        val _ = if rg > 0w7 then raise InternalError "modrm: bad rg" else ()
-        val _ = if rm > 0w7 then raise InternalError "modrm: bad rm" else ()
-        val modField: Word8.word = 
-            case md of 
-                Based0   => 0w0
-            |   Based8   => 0w1
-            |   Based32  => 0w2
-            |   Register => 0w3
-    in
-        (modField <<- 0w6) orb8 (rg <<- 0w3) orb8 rm
-    end;
-
-    fun genmodrm (md : mode, rg: Word8.word, rm : Word8.word, cvec) : unit =
-    gen8u (modrm (md, rg, rm), cvec);
-
-  datatype scaleFactor =
-    Scale1 (* s = 0 *)
-  | Scale2 (* s = 1 *)
-  | Scale4 (* s = 2 *)
-  | Scale8 (* s = 3 *)
-
-  (* Put together the three fields which make up the s-i-b byte. *)
-  fun sib (s : scaleFactor, i: Word8.word, b : Word8.word) : Word8.word =
-  let
-    val sizeField =
-      case s of
-        Scale1 => 0w0 * Word8.fromInt exp2_6
-      | Scale2 => 0w1 * Word8.fromInt exp2_6
-      | Scale4 => 0w2 * Word8.fromInt exp2_6
-      | Scale8 => 0w3 * Word8.fromInt exp2_6
-   in
-       sizeField + (i * Word8.fromInt exp2_3) + b
-   end
-
-  fun gensib (s : scaleFactor, i: Word8.word, b : Word8.word, cvec : code) : unit =
-    gen8u (sib (s, i, b), cvec);
-
-  fun scSet (Set x) = x | scSet _ = raise InternalError "scSet";
 
   (* Add a constant to the list along with its address.  We mustn't put
      the constant directly in the code since at this stage the code is
@@ -679,6 +620,23 @@ struct
     |   shiftTypeRepr SRL = "Shift Right Logical"
     |   shiftTypeRepr SRA = "Shift Right Arithemetic"
 
+    datatype group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
+    
+    fun group3OpsToWord NOT  = 0w2: Word8.word
+    |   group3OpsToWord NEG  = 0w3
+    |   group3OpsToWord MUL  = 0w4
+    |   group3OpsToWord IMUL = 0w5
+    |   group3OpsToWord DIV  = 0w6
+    |   group3OpsToWord IDIV = 0w7
+
+    fun group3OpsRepr NOT  = "NOT"
+    |   group3OpsRepr NEG  = "NEG"
+    |   group3OpsRepr MUL  = "MUL"
+    |   group3OpsRepr IMUL = "IMUL"
+    |   group3OpsRepr DIV  = "DIV"
+    |   group3OpsRepr IDIV = "IDIV"
+
+
     datatype fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
 
     fun fpOpToWord FADD  = 0w0: Word8.word
@@ -699,6 +657,23 @@ struct
     |   fpOpRepr FDIV  = "FPDivide"
     |   fpOpRepr FDIVR = "FPReverseDivide"
 
+    datatype fpUnaryOps = FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
+    
+    fun fpUnaryToWords FCHS   = {rm=0w0:Word8.word, nnn=0w4: Word8.word}
+    |   fpUnaryToWords FSQRT  = {rm=0w2, nnn=0w7}
+    |   fpUnaryToWords FSIN   = {rm=0w6, nnn=0w7}
+    |   fpUnaryToWords FCOS   = {rm=0w7, nnn=0w7}
+    |   fpUnaryToWords FPATAN = {rm=0w3, nnn=0w6}
+    |   fpUnaryToWords FLD1   = {rm=0w0, nnn=0w5}
+    |   fpUnaryToWords FLDZ   = {rm=0w6, nnn=0w5}
+
+    fun fpUnaryRepr FCHS   = "FPChangeSign"
+    |   fpUnaryRepr FSQRT  = "FPSquareRoot"
+    |   fpUnaryRepr FSIN   = "FPSin"
+    |   fpUnaryRepr FCOS   = "FPCos"
+    |   fpUnaryRepr FPATAN = "FPPartialArctan"
+    |   fpUnaryRepr FLD1   = "FPLoadOne"
+    |   fpUnaryRepr FLDZ   = "FPLoadZero"
 
  (* Primary opCodes.  N.B. only opCodes actually used are listed here.
     If new instruction are added check they will be handled by the
@@ -853,9 +828,59 @@ SS-relative addressing modes:
 ... *)
 
 
-  (* Make a reference to another procedure. Usually this will be a forward reference but
+    datatype mode =
+        Based0    (* mod = 0 *)
+    |   Based8   (* mod = 1 *)
+    |   Based32  (* mod = 2 *)
+    |   Register (* mod = 3 *) ;
+
+    (* Put together the three fields which make up the mod r/m byte. *)
+    fun modrm (md : mode, rg: Word8.word, rm : Word8.word) : Word8.word =
+    let
+        val _ = if rg > 0w7 then raise InternalError "modrm: bad rg" else ()
+        val _ = if rm > 0w7 then raise InternalError "modrm: bad rm" else ()
+        val modField: Word8.word = 
+            case md of 
+                Based0   => 0w0
+            |   Based8   => 0w1
+            |   Based32  => 0w2
+            |   Register => 0w3
+    in
+        (modField <<- 0w6) orb8 (rg <<- 0w3) orb8 rm
+    end;
+
+    fun genmodrm (md : mode, rg: Word8.word, rm : Word8.word, cvec) : unit =
+    gen8u (modrm (md, rg, rm), cvec);
+
+
+    (* The X86 has the option to include an index register and to scale it. *)
+    datatype indexType =
+        NoIndex | Index1 of reg | Index2 of reg | Index4 of reg | Index8 of reg
+
+    (* Put together the three fields which make up the s-i-b byte. *)
+    fun sib (s : indexType, b : reg option) : Word8.word =
+    let
+        val sizeField =
+            case s of
+                NoIndex  => 0w4 <<- 0w3 (* No index reg. *)
+            |   Index1 i => (0w0 <<- 0w6) orb8 (getReg i <<- 0w3)
+            |   Index2 i => (0w1 <<- 0w6) orb8 (getReg i <<- 0w3)
+            |   Index4 i => (0w2 <<- 0w6) orb8 (getReg i <<- 0w3)
+            |   Index8 i => (0w3 <<- 0w6) orb8 (getReg i <<- 0w3)
+        val baseField =
+            case b of SOME r => getReg r | NONE => 0w5 (* No base *)
+            
+    in
+       sizeField orb8 baseField
+    end
+
+    fun gensib (s : indexType, b : reg option, cvec : code) = gen8u (sib (s, b), cvec);
+
+    fun scSet (Set x) = x | scSet _ = raise InternalError "scSet";
+
+    (* Make a reference to another procedure. Usually this will be a forward reference but
      it may have been compiled already, in which case we can put the code address in now. *)
-  fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
+    fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
     (* Already done. *) addConstToVec (WVal (toMachineWord(csegAddr seg)), isRel, into)
 
   | codeConst (r as Code {otherCodes, ... }, isRel, into) = (* forward *)
@@ -1285,9 +1310,9 @@ SS-relative addressing modes:
     )
   end (* genSelfBranch *)
  
-  (* Generate an effective address. *)
-  fun genEA (offset: int, rb: reg, r : reg, cvec) : unit =
-  let
+    (* Generate an effective address. *)
+    fun genEA (offset: int, rb: reg, r : reg, cvec) : unit =
+    let
     val offsetCode =
       (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
       if offset = 0 andalso (rb <> ebp) 
@@ -1295,22 +1320,23 @@ SS-relative addressing modes:
       else if is8Bit offset
         then Based8  (* use 8-bit disp field *)
         else Based32; (* use 32-bit disp field *)
-  in
-    if rb = esp
-    then (* Need to use s-i-b byte. *)
-      (
-        if offset < 0 then raise InternalError "Negative stack offset" else ();
-        genmodrm (offsetCode, getReg r, 0w4 (* use SIB *), cvec);
-        gensib   (Scale1, 0w4 (* no index *), getReg esp, cvec)
-      )
-    else genmodrm(offsetCode, getReg r, getReg rb, cvec);
+    in
+        if rb = esp
+        then (* Need to use s-i-b byte. *)
+        (
+            (* Normally we will have a non-zero offset for esp.  The
+               exception is computing the maximum stack in the prelude. *)
+            genmodrm (offsetCode, getReg r, 0w4 (* use SIB *), cvec);
+            gensib   (NoIndex, SOME esp, cvec)
+        )
+        else genmodrm(offsetCode, getReg r, getReg rb, cvec);
      
-    (* generate the disp field (if any) *)
-    case offsetCode of
-      Based8  => gen8s  (offset, cvec)
-    | Based32 => gen32s (offset, cvec)
-    | _       => ()
-  end;
+        (* generate the disp field (if any) *)
+        case offsetCode of
+            Based8  => gen8s  (offset, cvec)
+        |   Based32 => gen32s (offset, cvec)
+        |   _       => ()
+    end
 
   (* Similar to genEA, but used when regfield is an extended
      opCode rather than a real register. *)
@@ -1329,7 +1355,7 @@ SS-relative addressing modes:
       (
         if offset < 0 then raise InternalError "Negative stack offset" else ();
         genmodrm (offsetCode, opc, 0w4 (* use s-i-b *), cvec);
-        gensib (Scale1, 0w4 (* no index *), getReg esp, cvec)
+        gensib (NoIndex, SOME esp, cvec)
       )
     else genmodrm(offsetCode, opc, getReg rb, cvec);
      
@@ -1341,14 +1367,14 @@ SS-relative addressing modes:
   end;
 
 
-  (* Similar to genEA, but used when there is an index register.
+    (* Similar to genEA, but used when there is an index register.
      rb may be NONE if no base register is required (used
      with leal to tag values). *)
-  fun genIndexed (offset: int, rb: reg option, ri: reg, size : scaleFactor, rd: reg, cvec) =
-  let
+    fun genIndexed (offset: int, rb: reg option, ri, rd: reg, cvec) =
+    let
     val (offsetCode, basefield) =
         case rb of
-            NONE => (Based0, 0w5 (* no base register *))
+            NONE => (Based0, NONE (* no base register *))
         |   SOME rb =>
             let
                 val base =
@@ -1358,25 +1384,25 @@ SS-relative addressing modes:
                     then Based8   (* use 8-bit disp field *)
                     else Based32; (* use 32-bit disp field *)
             in
-                (base, getReg rb)
+                (base, SOME rb)
             end
-  in
-    genmodrm (offsetCode, getReg rd, 0w4 (* s-i-b *), cvec);
-    gensib   (size, getReg ri, basefield, cvec);
+    in
+        genmodrm (offsetCode, getReg rd, 0w4 (* s-i-b *), cvec);
+        gensib   (ri, basefield, cvec);
     
-    (* generate the disp field (if any) *)
-    case offsetCode of
-      Based8  => gen8s  (offset, cvec)
-    | Based32 => gen32s (offset, cvec)
-    | _       => case rb of NONE =>  (* 32 bit absolute used as base *) gen32s (offset, cvec) | _ => ()
-  end;
+        (* generate the disp field (if any) *)
+        case offsetCode of
+            Based8  => gen8s  (offset, cvec)
+        |   Based32 => gen32s (offset, cvec)
+        |   _       => case rb of NONE =>  (* 32 bit absolute used as base *) gen32s (offset, cvec) | _ => ()
+    end
 
     (* Tag the value in register r *)
     fun genTag (r : reg, cvec) : unit =
     (
         (* new, more compact code (4 bytes) SPF 27/4/95 *)
         genop (LEAL, cvec);
-        genIndexed (1, SOME r, r, Scale1, r, cvec)
+        genIndexed (1, SOME r, Index1 r, r, cvec)
     )       
 
     fun genImmed (opn: arithOp, rd: reg, imm: int, cvec) : unit =
@@ -1420,7 +1446,7 @@ SS-relative addressing modes:
     )
 
     (* Store an immediate value at a given address and offset. *)
-    fun genStoreIW (cnstnt: machineWord, offset: int, rb: reg, ri: reg option,
+    fun genStoreIW (cnstnt: machineWord, offset: int, rb: reg, ri: indexType,
                  cvec as Code{ic, ...}) =
     (
       (*  We have a little problem here: we have to be very careful that
@@ -1443,9 +1469,9 @@ SS-relative addressing modes:
         then
         (
             doPending(cvec, 12 + 2);
-            align(case ri of NONE => 0w2 | SOME _ => 0w1, cvec)
+            align(case ri of NoIndex => 0w2 | _ => 0w1, cvec)
         )
-        else if offset = 0 andalso rb = eax andalso not(isSome ri)
+        else if offset = 0 andalso rb = eax andalso (case ri of NoIndex => true | _ => false)
         then (* modrm will be zero.  We need to be sure that this is not the
               first byte in a word. *)
         (
@@ -1457,13 +1483,13 @@ SS-relative addressing modes:
         else ();
         genop (MOVL_32_A, cvec);
         case ri of
-            NONE => genop2 (offset, rb, 0w0, cvec)
-        |   SOME ri => genIndexed (offset-2, SOME rb, ri, Scale2, mkReg 0w0, cvec);
+            NoIndex => genop2 (offset, rb, 0w0, cvec)
+        |   ri => genIndexed (offset, SOME rb, ri, mkReg 0w0, cvec);
         addConstToVec (WVal cnstnt, false, cvec)
    )
 
 
-    fun genStoreIB (cnstnt: machineWord, offset: int, rb: reg, ri: reg option, cvec) : unit =
+(*    fun genStoreIB (cnstnt: machineWord, offset: int, rb: reg, ri: indexType, cvec) : unit =
     if not (isShort cnstnt)
     then (* This should never happen. *)
         raise InternalError "genStoreI: storing long constant as a byte"
@@ -1472,27 +1498,27 @@ SS-relative addressing modes:
         val v = toInt (toShort cnstnt)
     in
         case ri of
-            NONE =>
+            NoIndex =>
             (
                 genop (MOVB_8_A, cvec);
                 genop2 (offset, rb, 0w0, cvec);
                 gen8u (Word8.fromInt v, cvec)
             )
 
-        |   SOME ri =>
+        |   ri =>
             (
                 (* Untag the index first. *)
                 genop (Group2_1_A, cvec);
                 genmodrm(Register, 0w5 (* shr *), getReg ri, cvec);
 
                 genop (MOVB_8_A, cvec);
-                genIndexed (offset, SOME rb, ri, Scale1, mkReg 0w0, cvec);
+                genIndexed (offset, SOME rb, ri, mkReg 0w0, cvec);
                 gen8u (Word8.fromInt v, cvec);
           
                 (* Retag the index. *)
                 genTag (ri, cvec)
             )
-   end
+   end*)
 
     (* Store a value on the stack. *)
     fun genPush (r:reg, cvec) = genop (PUSH_R r, cvec);
@@ -1539,10 +1565,10 @@ SS-relative addressing modes:
         genop (MOVL_R_A, cvec);
         case ri of
             NONE => genEA (offset, rb, rs, cvec)
-        | SOME ri => genIndexed (offset-2, SOME rb, ri, Scale2, rs, cvec)
+        | _=> raise InternalError "genStoreW"
     )
 
-    fun genStoreB (rs, offset: int, rb, ri: reg option, cvec) =
+(*    fun genStoreB (rs, offset: int, rb, ri: reg option, cvec) =
         let
           (* Only some of the 32 bit registers can be used to store from.
              Eax, Ebx, Ecx and Edx are fine and the code used for those
@@ -1576,7 +1602,7 @@ SS-relative addressing modes:
             case ri of
                 NONE => ()
             |   SOME ri => (* retag the index as well. *) genTag (ri, cvec)
-        end;
+        end;*)
 
     (* Move an immediate value into a register. The immediate value may be
        any 32-bit number. *)
@@ -1584,7 +1610,7 @@ SS-relative addressing modes:
     (* There may be better ways e.g. xorl rd,rd; addl immed,rd. *)
     (* Need 32 bit immediate. *)
     (
-        genop  (MOVL_32_R rd, cvec); (* TODO: Have different kinds of constants here.  If it's semitagged use xor/add. *)
+        genop  (MOVL_32_R rd, cvec);
         gen32s (immed, cvec)
     )
 
@@ -1646,13 +1672,9 @@ Calling conventions:
      calls so is never indirect. 
 
 *****************************************************************************)    
-  (* Call a function. *)
-  fun callFunction (callKind,
-        cvec as Code {selfCalls, mustCheckStack, ic, ... }) : unit =
-     (* If we ever call a function we must do a stack check. *)
+    (* Call a function. *)
+    fun callFunction (callKind, cvec as Code {selfCalls, ic, ... }) : unit =
     (
-      mustCheckStack := true;
-      
       case callKind of 
        Recursive =>
        let
@@ -1728,8 +1750,7 @@ Calling conventions:
      stack check.  We need to make sure that we check the stack in any
      function that my be recursive, directly or indirectly.
   *)
-    fun jumpToFunction (callKind, returnReg,
-                      cvec as Code{selfJumps, exited, mustCheckStack, ...}) =
+    fun jumpToFunction (callKind, returnReg, cvec as Code{selfJumps, exited, ...}) =
     ( (* Must push the return register? *)
         case returnReg of
             NONE => ()
@@ -1738,37 +1759,32 @@ Calling conventions:
         case callKind of 
             Recursive =>
             let
-                val () = mustCheckStack := true;
-                val lab = genSelfBranch cvec;
+                val lab = genSelfBranch cvec
             in
                 selfJumps := lab @ ! selfJumps
             end
            
         |   FullCall =>
             ( (* Full closure call *)
-                mustCheckStack := true;
                 genop (Group5, cvec);
                 genmodrm(Based0, 0w4 (* jmp *), getReg regClosure, cvec)
             )
       
         |   CodeFun c =>
             (
-                mustCheckStack := true; (* May be recursive. *)
                 genop (JMP_32, cvec);
                 codeConst (c, true, cvec)
             )
 
         |   ConstantFun(w, false) =>
-            (      
-                mustCheckStack := true; (* May be recursive. *)
+            (
                 genop (JMP_32, cvec);
                 addConstToVec (WVal w, true, cvec)
             )
 
         |   ConstantFun(w, true) =>
             (
-                (* Indirect jumps are used to call into the RTS.  No need
-                   to check the stack. *)
+                (* Indirect jumps are used to call into the RTS. *)
                 genop (Group5, cvec);
                 genmodrm(Based0, 0w4 (* jmp *), 0w5 (* Immediate address. *), cvec);
                 addConstToVec (WVal w, false, cvec)
@@ -1785,11 +1801,11 @@ Calling conventions:
         then genop (RET, cvec)
         else
         let
-            val offset = args * 4
+            val offset = Word.fromInt(args * wordSize)
         in
             genop (RET_16, cvec);
-            gen8u (Word8.fromInt(offset mod exp2_8), cvec);
-            gen8s (offset div exp2_8, cvec)
+            gen8u (wordToWord8 offset, cvec);
+            gen8u (wordToWord8(offset >> 0w8), cvec)
         end;
      
         exited := true (* We're not coming back. *)
@@ -1874,7 +1890,6 @@ Calling conventions:
     fun allocStoreCode (size, resultReg, cvec as Code{ic, ...}) =
     let
         val bytes = (size + 1) * wordSize
-        val _ = (bytes > 0 andalso bytes < 10000) orelse raise InternalError "allocStoreCode"
     in
         (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
            call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
@@ -1928,11 +1943,16 @@ Calling conventions:
     (* Operations. *)
     type cases = word * backwardLabel
 
+    datatype memoryAddress =
+        BaseOffset of { base: reg, offset: int, index: indexType }
+    |   ConstantAddress of machineWord
+
     datatype operation =
         MoveRR of { source: reg, output: reg }
     |   MoveConstR of { source: int, output: reg }
     |   MoveLongConstR of { source: machineWord, output: reg }
-    |   LoadMemR of { base: reg, offset: int, output: reg }
+    |   LoadMemR of { source: memoryAddress, output: reg }
+    |   LoadByteR of { source: memoryAddress, output: reg }
     |   PushR of reg
     |   PushConst of int
     |   PushLongConst of machineWord
@@ -1947,15 +1967,16 @@ Calling conventions:
     |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: opCode, label: forwardLabel }
     |   LockMutableSegment of reg
-    |   Add3Const of { output: reg, source1: reg, source2: int }
+    |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
     |   LoadCodeRef of { output: reg, code: code }
-    |   LoadIndexed of { base: reg, offset: int, index: reg, output: reg }
     |   TestTagR of reg
-    |   TestTagM of { base: reg, offset: int }
-    |   CallEmulator
-    |   StoreRegToMemory of { toStore: reg, offset: int, base: reg, index: reg option }
-    |   StoreConstToMemory of { toStore: int, offset: int, base: reg, index: reg option }
-    |   StoreLongConstToMemory of { toStore: machineWord, offset: int, base: reg, index: reg option }
+    |   TestByteMem of { base: reg, offset: int, bits: word }
+    |   CallRTS of int
+    |   StoreRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreConstToMemory of { toStore: int, address: memoryAddress }
+    |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
+    |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
     |   AllocStore of { size: int, output: reg }
     |   CallFunction of { callKind: callKinds }
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
@@ -1978,6 +1999,9 @@ Calling conventions:
             { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word }
     |   RegisterStatusChange of { activate: regSet, free: regSet }
     |   MakeSafe of reg
+    |   CompareBytes
+    |   Group3Ops of reg * group3Ops
+    |   AtomicXAdd of {base: reg, output: reg}
     |   FPLoadFromGenReg of reg
     |   FPLoadFromFPReg of reg
     |   FPLoadFromConst of real
@@ -1986,15 +2010,28 @@ Calling conventions:
     |   FPArithR of { opc: fpOps, source: reg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
     |   FPArithMemory of { opc: fpOps, base: reg, offset: int }
+    |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadIntAndPop
+    |   FPFree of reg
 
     type operations = operation list
 
     fun printOperation(operation, stream) =
     let
         fun printReg r = stream(regRepr r)
-        fun printBaseOffset(r, i) = (stream(Int.toString i); stream "("; printReg r; stream ")")
+        fun printBaseOffset(b, x, i) =
+        (
+            stream(Int.toString i); stream "("; printReg b; stream ")";
+            case x of
+                NoIndex => ()
+            |   Index1 x => (stream "["; printReg x; stream "]")
+            |   Index2 x => (stream "["; printReg x; stream "*2]")
+            |   Index4 x => (stream "["; printReg x; stream "*4]")
+            |   Index8 x => (stream "["; printReg x; stream "*8]")
+        )
+        fun printMemAddress(BaseOffset{ base, offset, index }) = printBaseOffset(base, index, offset)
+        |   printMemAddress(ConstantAddress _) = stream "ADDRESS"
      in
         case operation of
             MoveRR { source, output } =>
@@ -2006,8 +2043,11 @@ Calling conventions:
         |   MoveLongConstR { output, ... } =>
                 (stream "MoveCR "; printReg output; stream " <= LONG")
 
-        |   LoadMemR { base, offset, output } =>
-                (stream "MoveMR "; printReg output; stream " <= "; printBaseOffset(base, offset) )
+        |   LoadMemR { source, output } =>
+                (stream "MoveMR "; printReg output; stream " <= "; printMemAddress source )
+
+        |   LoadByteR { source, output } =>
+                (stream "MoveByteR "; printReg output; stream " <= "; printMemAddress source )
 
         |   ArithRR { opc, output, source } =>
                 (stream (arithOpRepr opc ^ "RR "); printReg output; stream " <= "; printReg source )
@@ -2019,16 +2059,16 @@ Calling conventions:
                 (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= LONG" )
 
         |   ArithRMem { opc, output, offset, base } =>
-                (stream (arithOpRepr opc ^ "RM "); printReg output; stream " <= "; printBaseOffset(base, offset) )
+                (stream (arithOpRepr opc ^ "RM "); printReg output; stream " <= "; printBaseOffset(base, NoIndex, offset) )
 
         |   ArithMemConst { opc, offset, base, source } =>
             (
-                stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, offset);
+                stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, NoIndex, offset);
                 stream " "; stream(Int.toString source)
             )
 
         |   ArithMemLongConst { opc, offset, base, ... } =>
-                ( stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, offset); stream " <= LONG")
+                ( stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, NoIndex, offset); stream " <= LONG")
 
         |   ShiftConstant { shiftType, output, shift } =>
             (
@@ -2058,49 +2098,68 @@ Calling conventions:
 
         |   PushLongConst _ => stream "PushC LONG"
 
-        |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, offset))
+        |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, NoIndex, offset))
 
-        |   StoreRegToMemory { toStore, offset, base, index } =>
+        |   StoreRegToMemory { toStore, address } =>
             (
-                stream "StoreRegToMemory "; stream(regRepr toStore); stream " => "; stream(Int.toString offset);
-                stream "("; stream(regRepr base); stream ")";
-                case index of NONE => () | SOME reg => (stream "["; printReg reg; stream "]") 
+                stream "StoreRegToMemory "; printMemAddress address;
+                stream " <= "; stream(regRepr toStore)
             )
 
-        |   StoreConstToMemory { toStore, offset, base, index } =>
+        |   StoreConstToMemory { toStore, address } =>
             (
-                stream "StoreConstToMemory "; stream(Int.toString offset);
-                stream "("; stream(regRepr base); stream ") ";
-                case index of NONE => () | SOME reg => (stream "["; printReg reg; stream "]");
+                stream "StoreConstToMemory "; printMemAddress address;
                 stream " <= "; stream(Int.toString toStore)
             )
 
-        |   StoreLongConstToMemory { offset, base, index, ... } =>
+        |   StoreLongConstToMemory { address, ... } =>
             (
-                stream "StoreLongConstToMemory "; stream(Int.toString offset);
-                stream "("; stream(regRepr base); stream ") ";
-                case index of NONE => () | SOME reg => (stream "["; printReg reg; stream "]");
-                stream " <= LONG"
+                stream "StoreLongConstToMemory "; printMemAddress address; stream " <= LONG"
             )
 
-        |   Add3Const{output, source1, source2} =>
+        |   StoreByteRegToMemory { toStore, address } =>
             (
-                stream "Add3Const "; printReg source1; stream " + ";
-                stream(Int.toString source2); stream " => "; printReg output
+                stream "StoreByteRegToMemory "; printMemAddress address;
+                stream " <= "; stream(regRepr toStore)
+            )
+
+        |   StoreByteConstToMemory { toStore, address } =>
+            (
+                stream "StoreByteConstToMemory "; printMemAddress address;
+                stream " <= 0x"; stream(Word8.toString toStore)
+            )
+
+        |   LoadAddress{ output, offset, base, index } =>
+            (
+                stream "LoadAddress ";
+                case base of NONE => () | SOME r => (printReg r; stream " + ");
+                stream(Int.toString offset);
+                case index of
+                    NoIndex => ()
+                |   Index1 x => (stream " + "; printReg x)
+                |   Index2 x => (stream " + "; printReg x; stream "*2 ")
+                |   Index4 x => (stream " + "; printReg x; stream "*4 ")
+                |   Index8 x => (stream " + "; printReg x; stream "*8 ");
+                stream " => "; printReg output
             )
 
         |   LoadCodeRef { output, code=Code{procName, ...} } =>
             ( stream "LoadCodeRef "; stream procName; stream " => "; printReg output )
 
-        |   LoadIndexed { base, offset, index, output } =>
-            (
-                stream "MoveMRX "; printBaseOffset(base, offset); stream "[";
-                printReg index; stream "] => "; printReg output
-            )
-
         |   TestTagR reg => ( stream "TestTagR "; printReg reg )
-        |   TestTagM { base, offset } => ( stream "TestTagM "; printBaseOffset(base, offset) )
-        |   CallEmulator => stream "CallEmulator"
+        |   TestByteMem { base, offset, bits } =>
+                ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
+        |   CallRTS entry =>
+            (
+                stream "CallRTS ";
+                if entry = MemRegStackOverflowCall then stream "StackOverflowCall"
+                else if entry = MemRegHeapOverflowCall then stream "HeapOverflow"
+                else if entry = MemRegStackOverflowCallEx then stream "StackOverflowCallEx"
+                else if entry = MemRegRaiseException then stream "RaiseException"
+                else if entry = MemRegRaiseDiv then stream "RaiseDiv"
+                else if entry = MemRegArbEmulation then stream "ArbEmulation"
+                else stream(Int.toString entry)
+            )
 
         |   AllocStore { size, output } =>
                 (stream "AllocStore "; stream(Int.toString size); stream " => "; printReg output )
@@ -2144,6 +2203,9 @@ Calling conventions:
                 stream " -"; stream(regSetRepr free)
             )
         |   MakeSafe reg => ( stream "MakeSafe "; printReg reg)
+        |   CompareBytes => stream "CompareBytes"
+        |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printReg reg)
+        |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printReg base; stream ") <=> "; printReg output)
         |   FPLoadFromGenReg reg => (stream "FPLoad "; printReg reg)
         |   FPLoadFromFPReg reg => (stream "FPLoad "; printReg reg)
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
@@ -2152,13 +2214,16 @@ Calling conventions:
         |   FPStoreToMemory{ base: reg, offset: int, andPop: bool } =>
             (
                 if andPop then stream "FPStoreAndPop => " else stream "FPStore => ";
-                printBaseOffset(base, offset)
+                printBaseOffset(base, NoIndex, offset)
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printReg source)
         |   FPArithConst{ opc, source=_ } => (stream(fpOpRepr opc); stream " LONG")
-        |   FPArithMemory{ opc, base, offset } => (stream(fpOpRepr opc); stream " "; printBaseOffset(base, offset))
+        |   FPArithMemory{ opc, base, offset } => (stream(fpOpRepr opc); stream " "; printBaseOffset(base, NoIndex, offset))
+        |   FPUnary opc => stream(fpUnaryRepr opc)
         |   FPStatusToEAX => (stream "FPStatus "; printReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
+        |   FPFree reg => (stream "FPFree "; printReg reg)
+
         ;
  
         stream "\n"
@@ -2168,7 +2233,7 @@ Calling conventions:
     let
         val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
     in
-        [StoreConstToMemory{toStore=lengthWord, offset= ~wordSize, base=output, index=NONE},
+        [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
     end
 
@@ -2214,22 +2279,6 @@ Calling conventions:
                         then SOME(InstrMulAConst2, [arg2])
                         else SOME(InstrMulA, args)
                 |   _ => SOME(InstrMulA, args)
-            )
-
-        |   checkAndReduce(InstrMulW, args as [arg1, arg2], mapper) =
-            (
-                (* This is implemented for powers of 2. *)
-                case List.map (Option.composePartial(getPower2 o toShort, mapper)) args of
-                    [_, SOME shift] => SOME(InstrUpshiftWConst shift, [arg1])
-                |   [SOME shift, _] => SOME(InstrUpshiftWConst shift, [arg2])
-                |   _ => SOME(InstrMulW, args)
-            )
-
-        |   checkAndReduce(InstrLoadB, args as [arg1, arg2], mapper) =
-            (
-                case mapper arg2 of
-                    SOME lit => SOME(InstrLoadBConstOffset(toShort lit), [arg1])
-                |   NONE => SOME(InstrLoadB, args)
             )
 
         |   checkAndReduce(InstrAllocStore, [lengthArg, flagArg, initValArg], mapper) =
@@ -2309,7 +2358,7 @@ Calling conventions:
         datatype source =
             InRegister of reg
         |   LiteralSource of machineWord
-        |   BaseOffset of { base: reg, offset: int }
+        |   BaseOffsetSource of { base: reg, offset: int }
 
         fun getArg(instr, regSet, outputReg, operands) args =
         let
@@ -2375,10 +2424,12 @@ Calling conventions:
             end
         |   prefAsSet(_, regSet, _) = regSet
 
-        (* Get a register for the results. *)
-        fun getResultRegister(regSet, pref: regHint, whenDone) (operands, _) _ =
+        (* Get a register for the results. In some cases, e.g. loadWord/byte we may
+           already have a result register. *)
+        fun getResultRegister(regSet, pref: regHint, whenDone) (operands, NONE) _ =
             ActionGetWorkReg{regSet=prefAsSet(pref, regSet, operands), (* Use the preferred destination. *)
                 setReg = fn reg => whenDone (operands, SOME reg)}
+        |   getResultRegister(_, _, whenDone) operandAndResults args = whenDone operandAndResults args
 
         fun getWorkingRegister(regSet, whenDone) opAndResults _ =
             ActionGetWorkReg{regSet=regSet, setReg = fn reg => whenDone reg opAndResults}
@@ -2424,6 +2475,52 @@ Calling conventions:
                 ActLiteralSource lit => whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
             |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
 
+        (* Load a base address for a load or store operation. We can use a constant source but
+           only if the index is zero. The base address is the first argument and the index is the
+           second. *)
+        fun loadBaseAddress (pref, whenDone) (opAndResults as (_, resReg))
+                    (args as (ActLiteralSource base :: ActLiteralSource index :: _)) =
+            if isShort index andalso toShort index = 0w0
+            then whenDone (replaceOperand(0, LiteralSource base) opAndResults) args
+            else ActionLoadArg{argNo=0, regSet=generalRegisters,
+                        willOverwrite=
+                            case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
+                        next=loadBaseAddress(pref, whenDone) opAndResults}
+
+        |   loadBaseAddress (pref, whenDone) (opAndResults as (ops, resReg))
+                    (ActInRegisterSet{modifiable, readable} :: _) =
+                if modifiable ** generalRegisters <> noRegisters
+                then
+                let
+                    val reg = oneOf(prefAsSet(pref, modifiable ** generalRegisters, ops))
+                    (* We can use this for the result if we want one and don't already have one. *)
+                    val (outReg, modify) =
+                        case (resReg, pref) of
+                            (_, NoResult) => (resReg, false)
+                        |   (SOME _, _) => (resReg, false)
+                        |   _ => (SOME reg, true)
+                in
+                    ActionLockRegister { argNo=0, reg=reg, willOverwrite=modify,
+                        next=whenDone (replaceOperand(0, InRegister reg) (ops, outReg)) }
+                end
+                else if readable ** generalRegisters <> noRegisters (* The base register isn't modifiable. *)
+                then
+                let
+                    val reg = oneOf(prefAsSet(pref, readable ** generalRegisters, ops))
+                in
+                    ActionLockRegister { argNo=0, reg=reg, willOverwrite=false,
+                        next=whenDone (replaceOperand(0, InRegister reg) opAndResults) }
+                end
+                else ActionLoadArg { argNo=0, regSet=generalRegisters, willOverwrite=true,
+                                next=loadBaseAddress (pref, whenDone) opAndResults }
+
+        |   loadBaseAddress (pref, whenDone) (opAndResults as (_, resReg)) _ =
+                (* It's not a literal or in a register - load it. *)
+                ActionLoadArg{argNo=0, regSet=generalRegisters,
+                             willOverwrite=
+                                case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
+                             next=loadBaseAddress(pref, whenDone) opAndResults}
+
         (* Process all the remaining arguments i.e. those with NONE in the argument list. *)
         fun allArgs (eachArg, whenDone) (operands as (opers, _)) =
         let
@@ -2458,45 +2555,7 @@ Calling conventions:
             getResultRegister(generalRegisters, pref,
                 allInRegisters(generalRegisters, generateInstruction instr)
                 ) (List.map(fn _ => NONE) args, NONE) args
-        
-        
-        local
-            (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
-               registers the best arrangement for the arguments is to get the first argument into
-               eax and the second into edx. *)
-            val eaxSet = singleton eax and edxSet = singleton edx
 
-            fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
-                if regSetIntersect(modifiable, eaxSet) <> noRegisters
-                then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
-                else (* Not in the right register - move it. *)
-                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
-
-            |   loadArg1 instr [_, _] =
-                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
-
-            |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
-            
-            and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
-                if regSetIntersect(modifiable, edxSet) <> noRegisters
-                then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
-                else (* Not in the right register - move it. *)
-                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
-                    
-            |   loadArg2 instr [_, _] =
-                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
-
-            |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
-
-            and finished genInstr _ =
-                ActionDone{
-                    outReg=SOME eax,
-                    operation=genInstr([InRegister eax, InRegister edx], SOME eax)
-                    }
-        in
-            val multiplyNegotiator = loadArg1
-        end
-        
         local (* In many cases we want to use the same register for an argument as for the result. *)
             fun loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}, _] =
                     if regSetIntersect(modifiable, generalRegisters) <> noRegisters
@@ -2551,38 +2610,10 @@ Calling conventions:
 
 (*        fun genInstr instr (operands, results) =
             [DataOp{ instr = instr, operands = operands, output = results}]
-
-        (* Select the argument negotiator. *)
-        fun negotiateArguments(instr as InstrUpshiftW, pref) = shiftNegotiator(genInstr instr, pref)
-        |   negotiateArguments(instr as InstrDownshiftW, pref) = shiftNegotiator(genInstr instr, pref)
-        |   negotiateArguments(instr as InstrDownshiftArithW, pref) = shiftNegotiator(genInstr instr, pref)
     
         (*|   negotiateArguments(instr as InstrMulA, _) = multiplyNegotiator instr*)
             (* Only use the negotiator for word multiplication at the moment. *)
         |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator(genInstr instr)
-
-        |   negotiateArguments(instr as InstrStoreB, _) =
-                (* We can only store from some regs.  The address must be in a register. *)
-                loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
-                    loadToOneOf(generalRegisters, false, 0,
-                        loadToRegOrLiteral(generalRegisters, 1,
-                            generateInstruction(genInstr instr)))) ([NONE, NONE, NONE], NONE)
-
-        |   negotiateArguments(instr as InstrSetStringLength, _) = noresultNegotiator(genInstr instr)
-
-            (* Floating point functions. *)
-        |   negotiateArguments(instr as InstrUnaryFP _, pref) =
-                getResultRegister(floatingPtRegisters, pref,
-                        loadToOneOf(floatingPtRegisters, false, 0, generateInstruction(genInstr instr))
-                            ) ([NONE], NONE)
-
-        |   negotiateArguments(instr as InstrArctan, pref) =
-                (* Arctan requires two items on the stack.  The effect is to overwrite fp6 *)
-                getWorkingRegister(singleton fp6,
-                        fn _ =>
-                            getResultRegister(floatingPtRegisters, pref,
-                            loadToOneOf(floatingPtRegisters, false, 0, generateInstruction (genInstr instr)))
-                            ) ([NONE], NONE)
     
         |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) =
                 (* When allocating vectors/arrays we have to initialise the store and the easiest way to
@@ -2604,84 +2635,44 @@ Calling conventions:
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
 
         |   negotiateArguments(instr, pref) = generalNegotiator(genInstr instr, pref)
- *)
-        (* Actions for comparisons and tests. *)
-(*        local
-            fun unaryTestActions(test, label, registerSet) =
-                loadToOneOf(registerSet, false, 0, generateBranch(test, label)) ([NONE], NONE)
-        
-            fun binaryTestActions(test, label, registerSet) =
-                loadToOneOf(registerSet, false, 0,
-                    loadToOneOf(registerSet, false, 1,
-                        generateBranch(test, label))) ([NONE, NONE], NONE)
-        in
-            (* Select the argument negotiator. *)
-            fun negotiateTestArguments test =
-            let
-                val destLabel = Labels(ref [], ref 0)
-            in
-                case test of
-                    Arb _ => (binaryTestActions(test, destLabel, generalRegisters), destLabel)
-                |   ArbConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-                |   Wrd _ => ((*getOneArgInReg*)binaryTestActions(test, destLabel, generalRegisters), destLabel)
-                |   WrdConst _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-                |   Length _ => (unaryTestActions(test, destLabel, generalRegisters), destLabel)
-                    (* Floating point comparisons all require the ax register.  The other arguments
-                       are loaded into registers. *)
-                |   FloatingPt _ =>
-                        (fn _ =>
-                            ActionGetWorkReg{regSet=singleton eax,
-                                setReg = fn _ => binaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
-                |   FloatingPtConst _ =>
-                        (fn _ =>
-                            ActionGetWorkReg{regSet=singleton eax,
-                                setReg = fn _ => unaryTestActions(test, destLabel, floatingPtRegisters)}, destLabel)
-                |   ByteVec _ =>
-                        (* The vectors to compare are in esi and edi and the count in ecx.  Since it doesn't
-                           matter which is in esi and which in edi it would be nice if we could leave that open
-                           but for the moment we require the first in esi and the second in edi.
-                           The offsets can be in any register. *)
-                        (loadToSpecificReg(esi, true, 0,
-                            loadToSpecificReg(edi, true, 2,
-                                loadToSpecificReg(ecx, true, 4,
-                                    loadToRegOrLiteral(generalRegisters, 1,
-                                        loadToRegOrLiteral(generalRegisters, 3,
-                                            generateBranch(test, destLabel))))))
-                                            ([NONE, NONE, NONE, NONE, NONE], NONE), destLabel)
-            end
-        end*)
-        
+ *)        
         local
-            fun genStoreWord([SOME(InRegister address), SOME index, SOME value], NONE) _ =
+            fun genStoreWord([base, index, value], NONE) =
             let
-                val (offset, indexReg) =
-                    case index of
-                        InRegister indexR => (0, SOME indexR)
-                    |   LiteralSource offset => (Word.toInt(toShort offset)*wordSize, NONE)
-                    |   BaseOffset _ => raise InternalError "genStoreWord"
-                val code =
-                    case value of
-                        InRegister storeReg =>
-                            [StoreRegToMemory{toStore=storeReg, offset=offset, base=address, index=indexReg}]
-                    |   LiteralSource storeConst =>
-                            if isShort storeConst
-                            then [StoreConstToMemory{
-                                    toStore=tag(Word.toInt(toShort storeConst)), offset=offset,
-                                    base=address, index=indexReg}]
-                            else [StoreLongConstToMemory{toStore=storeConst, offset=offset, base=address, index=indexReg}]
-                    |   BaseOffset _ => raise InternalError "genStoreWord"
+                val address =
+                    case (base, index) of
+                        (InRegister address, InRegister indexR) =>
+                            if wordSize = 4
+                            then BaseOffset{offset= ~2, base=address, index=Index2 indexR} (* Index is tagged so double *)
+                            else (*8*) BaseOffset{offset= ~4, base=address, index=Index4 indexR}
+                    |   (InRegister address, LiteralSource offset) =>
+                            BaseOffset{offset=Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
+                    |   (LiteralSource address, LiteralSource index) =>
+                            if isShort index andalso toShort index = 0w0
+                            then ConstantAddress address
+                            else raise InternalError "genStoreWord"
+                    |   _ => raise InternalError "genStoreWord"
             in
-                ActionDone{ outReg=NONE, operation=code }
+                case value of
+                    InRegister storeReg =>
+                        [StoreRegToMemory{toStore=storeReg, address=address}]
+                |   LiteralSource storeConst =>
+                        if isShort storeConst
+                        then [StoreConstToMemory{ toStore=tag(Word.toInt(toShort storeConst)), address=address}]
+                        else [StoreLongConstToMemory{ toStore=storeConst, address=address}]
+                |   BaseOffsetSource _ => raise InternalError "genStoreWord"
             end
-            | genStoreWord _ _ = raise InternalError "genStoreWord"
+            | genStoreWord _ = raise InternalError "genStoreWord"
 
             fun storeWordNegotiator _ =
                 (* The first argument, the address needs to be in a register even if
-                   it's a constant.  The others may be literals. *)
-                loadToOneOf(generalRegisters, false, 0,
+                   it's a constant.  The others may be literals.  Actually the first
+                   argument could be a constant as well if the offset is zero. *)
+                loadBaseAddress(NoResult,
                     loadToRegOrLiteral(generalRegisters, 1,
                         loadToRegOrLiteral(generalRegisters, 2,
-                            genStoreWord))) ([NONE, NONE, NONE], NONE)
+                            generateInstruction genStoreWord
+                            ))) ([NONE, NONE, NONE], NONE)
         in
             val instrStoreW: 'a instrs = fn(args, _) => SOME(storeWordNegotiator, args)
         end
@@ -2695,74 +2686,96 @@ Calling conventions:
         end
 
         local
-            (* We can reuse the address for the result if we need to. *)
-            fun genLoadWord pref ([NONE, op2], NONE) ([ActInRegisterSet{modifiable, ...}, _]) =
-                (* Haven't yet got the first arg or the result but the arg is in a register.
-                   If we can use that we mark it as both the argument and the result. *)
+            (* Load word or load byte.  Load word with a constant offset is very common since it's used
+               for refs.  Load byte is more likely to be with an index and since we have to untag the
+               index it's better to reuse it for the result if we can. *)
+            fun loadIndex (pref, isWord, whenDone) (opAndResults as (ops, resReg))
+                    (_ :: ActInRegisterSet{modifiable, readable} ::_) =
+                if modifiable ** generalRegisters <> noRegisters
+                then (* It's in a modifiable register. *)
                 let
-                    val genPrefs =
-                        case pref of
-                            UseReg prefs => regSetIntersect(prefs, generalRegisters)
-                        |   _ => generalRegisters
-                    val rSet = regSetIntersect(genPrefs, modifiable)
+                    val reg = oneOf(prefAsSet(pref, modifiable ** generalRegisters, ops))
+                    (* We can use this for the result if we don't already have one. *)
+                    val outReg = case resReg of NONE => SOME reg | resReg => resReg
                 in
-                    if rSet <> noRegisters
-                    then
-                    let
-                        val reg = oneOf rSet
-                    in
-                        ActionLockRegister { argNo=0, reg=reg, willOverwrite=true,
-                            next=genLoadWord pref ([SOME(InRegister reg), op2], SOME reg) }
-                    end
-                    else (* We can't use the base register.  We might be able to use the index if it's in
-                            a register but that's much less common so probably not worth it. *)
-                    let
-                        val opReg = if genPrefs <> noRegisters then genPrefs else generalRegisters
-                    in
-                        ActionGetWorkReg{regSet=opReg,
-                            setReg=fn resReg =>genLoadWord pref ([NONE, op2], SOME resReg) }
-                                
-                    end
+                    ActionLockRegister { argNo=1, reg=reg, willOverwrite=true,
+                        next=whenDone (replaceOperand(1, InRegister reg) (ops, outReg)) }
+                end
+                else if isWord andalso readable ** generalRegisters <> noRegisters
+                    (* We don't have a writable index register. If this is a word operation we
+                        can use a readable one but if it's a byte operation we need to use a
+                        writable one. *)
+                then
+                let
+                    val reg = oneOf(readable ** generalRegisters)
+                in
+                    ActionLockRegister { argNo=1, reg=reg, willOverwrite=false,
+                        next=whenDone (replaceOperand(1, InRegister reg) opAndResults) }
+                end
+                else ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
+                                    next=loadIndex (pref, isWord, whenDone) opAndResults }
+
+            |   loadIndex (_, _, whenDone) opAndResults (args as [_, ActLiteralSource offset]) =
+                    (* Constant index - record it and go on to the base register *)
+                    whenDone (replaceOperand(1, LiteralSource offset) opAndResults) args
+
+            |   loadIndex (pref, isWord, whenDone) opAndResults _ =
+                    (* Not in a register or a literal.  Load it. *)
+                    ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
+                                    next=loadIndex (pref, isWord, whenDone) opAndResults }
+
+            fun genLoadInstr isWord ([LiteralSource base, LiteralSource offset], SOME destReg) =
+                    if isShort offset andalso toShort offset = 0w0
+                    then [(if isWord then LoadMemR else LoadByteR)
+                            {source=ConstantAddress base, output=destReg}]
+                    else raise InternalError "genLoadWord: not zero"
+
+            |   genLoadInstr true (*Word*) ([InRegister base, LiteralSource offset], SOME destReg) =
+                    [LoadMemR{
+                            source=BaseOffset{base=base, offset=Word.toInt(toShort offset)*wordSize, index=NoIndex},
+                            output=destReg}]
+
+            |   genLoadInstr false (*Byte*) ([InRegister base, LiteralSource offset], SOME destReg) =
+                    (* Byte values need to be tagged.  The offset is a byte offset. *)
+                    [TagValue{source=destReg, output=destReg},
+                     LoadByteR{source=BaseOffset{base=base, offset=Word.toInt(toShort offset), index=NoIndex},
+                               output=destReg}]
+
+            |   genLoadInstr true (*Word*) ([InRegister base, InRegister indexR], SOME destReg) =
+                let
+                    val (offset, scale) =
+                    (* The index is tagged: Multiply by the wordSize/2 and subtract the scaled tag. *)
+                        if wordSize = 4
+                        then (~2, Index2 indexR)
+                        else (~4, Index4 indexR)
+                in
+                    [LoadMemR{source=BaseOffset{base=base, offset=offset, index=scale}, output=destReg}]
                 end
 
-            |   genLoadWord pref ([NONE, op2], resReg as SOME _) ([ActInRegisterSet{readable, ...}, _]) =
-                (* We have the result register but haven't yet locked the base register. *)
-                    let
-                        val aReg = oneOf readable (* Should check that it's a general reg? *)
-                    in
-                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=false,
-                                       next=genLoadWord pref ([SOME(InRegister aReg), op2], resReg)}
-                    end
+            |   genLoadInstr false (*Byte*) ([InRegister base, InRegister indexR], SOME destReg) =
+                    (* The index needs to be made safe unless it's actually the result. *)
+                let
+                    val safeIndex =
+                        if indexR = destReg then [] else [MakeSafe indexR] (* Retag the index. *)
+                in
+                    safeIndex @
+                        [TagValue{source=destReg, output=destReg},
+                         LoadByteR{source=BaseOffset{base=base, offset=0, index=Index1 indexR}, output=destReg},
+                         ShiftConstant{shiftType=SRL, output=indexR, shift=0w1} (* Untag. *)]
+                end
 
-            |   genLoadWord pref ([NONE, op2], resReg) ([_, _]) =
-                (* It wasn't in a register: load it. We might be better using the preferred reg. *)
-                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                            next=genLoadWord pref ([NONE, op2], resReg) }
+            |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
 
-                (* We've now got the first argument into a register and selected the result reg.
-                   Look at the second argument.  This may be a literal (usually) or a register. *)
-            |   genLoadWord _ ([SOME(InRegister base), NONE], SOME destReg) ([_, ActLiteralSource offset]) =
-                    ActionDone{ outReg=SOME destReg,
-                        operation=[LoadMemR{base=base, offset=Word.toInt(toShort offset)*wordSize, output=destReg}]}
-
-            |   genLoadWord _ ([SOME(InRegister base), NONE], SOME destReg) ([_, ActInRegisterSet{readable, ...}]) =
-                    let
-                        val indexR = oneOf readable (* Should check that it's a general reg? *)
-                    in
-                        ActionDone{ outReg=SOME destReg,
-                            operation=[LoadIndexed{base=base, offset=0, index=indexR, output=destReg}]}
-                    end
-
-            |   genLoadWord pref ([op1 as SOME _, NONE], destReg) ([_, _]) =
-                    (* Index isn't a literal or a register: load it. *)
-                        ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
-                            next=genLoadWord pref ([op1, NONE], destReg) }
-
-            |   genLoadWord _ _ _ = raise InternalError "genLoadWord"
-
-            fun loadWordNegotiator pref = genLoadWord pref ([NONE, NONE], NONE)
+            fun genLoadWord isWord pref =
+                loadIndex(pref, isWord,
+                    loadBaseAddress(pref,
+                        getResultRegister(generalRegisters, pref,
+                            generateInstruction(genLoadInstr isWord))
+                        )
+                    ) ([NONE, NONE], NONE)
         in
-            fun instrLoad(args, _) = SOME(loadWordNegotiator, args)
+            fun instrLoad(args, _) = SOME(genLoadWord true, args)
+            and instrLoadB(args, _) = SOME(genLoadWord false, args)
         end
 
         local
@@ -2774,7 +2787,8 @@ Calling conventions:
             fun genFixedAlloc(length, flags) ([InRegister initReg], SOME output) =
                 let
                     fun initialiser n =
-                        StoreRegToMemory{toStore=initReg, offset=n * wordSize, base=output, index=NONE}
+                        StoreRegToMemory{
+                            toStore=initReg, address=BaseOffset{offset=n * wordSize, base=output, index=NoIndex}}
                 in
                     List.tabulate(length, initialiser) @
                     allocStore{size=length, flags=flags, output=output}
@@ -2816,7 +2830,7 @@ Calling conventions:
 
         local
             fun makeTest(InRegister reg) = TestTagR reg
-            |   makeTest(BaseOffset baseOffset) = TestTagM baseOffset
+            |   makeTest(BaseOffsetSource{base, offset}) = TestByteMem{base=base, offset=offset,bits=0w1}
             |   makeTest _ = raise InternalError "makeTest"
 
             (* Test tags for the arguments and call the emulator if either is long. Unless the
@@ -2858,7 +2872,7 @@ Calling conventions:
                     val skipEmulator = Labels(ref [], ref 0)
                     val backToInstr = BackLabels(ref addrZero, ref 0)
                 in
-                    [ForwardJumpLabel skipEmulator, JumpBack backToInstr, CallEmulator] @
+                    [ForwardJumpLabel skipEmulator, JumpBack backToInstr, CallRTS MemRegArbEmulation] @
                     overflowLab @ tag2Lab @ tag1Lab @ [UncondBranch skipEmulator] @ (* Skip the emulator call. *)
                     overflowCheck @ operations (* The actual instruction *) @
                     [BackJumpLabel backToInstr] @ tag2Check @ tag1Check
@@ -2871,9 +2885,9 @@ Calling conventions:
                completely when comparing short constants for equality.  Otherwise we
                only need emulation if both arguments are long. *)
             fun eqTestTags(operations, LiteralSource l1, _) =
-                    if isShort l1 then operations else operations @ [CallEmulator]
+                    if isShort l1 then operations else operations @ [CallRTS MemRegArbEmulation]
             |   eqTestTags(operations, _, LiteralSource l2) =
-                    if isShort l2 then operations else operations @ [CallEmulator]
+                    if isShort l2 then operations else operations @ [CallRTS MemRegArbEmulation]
             |   eqTestTags(operations, tag1, tag2) =
                 let
                     val lab1 = Labels(ref [], ref 0)
@@ -2883,7 +2897,7 @@ Calling conventions:
                     [
                         ForwardJumpLabel lab1,
                         ForwardJumpLabel lab2,
-                        CallEmulator,
+                        CallRTS MemRegArbEmulation,
                         ConditionalBranch{test=JNE, label=lab2},
                         makeTest tag2,
                         ConditionalBranch{test=JNE, label=lab1},
@@ -2903,6 +2917,9 @@ Calling conventions:
             |   tagAdjust(AND, _) = [] (* Doesn't affect the tag. *)
             |   tagAdjust(XOR, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
             |   tagAdjust(CMP, _) = raise InternalError "tagAdjust"
+
+            (* TODO: If we have the same argument on both sides (e.g. a+a) this seems to
+               force them into different registers.  That also involves a double tag test. *)
 
             (* First select an output register.  Unless this is a SUB instruction we can choose
                a modifiable register from either argument. *)
@@ -3000,7 +3017,7 @@ Calling conventions:
                     ActionDone{ outReg=SOME result,
                             operation=tagAdjust(opcode, result) @
                                       tagTest([ArithRMem{opc=opcode, base=base, offset=offset, output=result}],
-                                               InRegister result, BaseOffset{base=base, offset=offset})}
+                                               InRegister result, BaseOffsetSource{base=base, offset=offset})}
 
             |   wordSelectedLeft _ _  = raise InternalError "addWordArg"
 
@@ -3016,7 +3033,7 @@ Calling conventions:
             and instrSubA = fn (args, _) => SOME(wordSelectDest(SUB, testTagsForArithmetic), args)
             and instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
             and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
-            and instrOrW = fn (args, _) => SOME(wordSelectDest(OR, noTagTest), args)
+            and instrOrW  = fn (args, _)  => SOME(wordSelectDest(OR, noTagTest), args)
             and instrAndW = fn (args, _) => SOME(wordSelectDest(AND, noTagTest), args)
             and instrXorW = fn (args, _) => SOME(wordSelectDest(XOR, noTagTest), args)
         end
@@ -3024,24 +3041,137 @@ Calling conventions:
         local
             val unimplementedInstr = fn _ => NONE
         in
-            val instrVecflags = unimplementedInstr
-            val instrGetFirstLong = unimplementedInstr
-            val instrStringLength = unimplementedInstr
-            and instrMulA = unimplementedInstr
-            and instrMulW = unimplementedInstr
-            and instrDivW = unimplementedInstr
+            val instrDivW = unimplementedInstr
             and instrModW = unimplementedInstr
-            and instrLoadB = unimplementedInstr
-            and instrSetStringLength = unimplementedInstr
-            and instrAtomicIncr = unimplementedInstr
-            and instrAtomicDecr = unimplementedInstr
-            and instrStoreB = unimplementedInstr
             and instrMoveBytes = unimplementedInstr
             and instrMoveWords = unimplementedInstr
         end
 
         local
-            (* Shift operations: shifting by a variable amount requires ecx. *)
+            (* If the source or the index are in registers they have to be untagged first and
+               then retagged afterwards. *)
+            fun genStoreByte([base, index, toStore], NONE) =
+                let
+                    val (untagIndex, retagIndex) =
+                        case index of
+                            InRegister indexReg =>
+                                ([ShiftConstant{shiftType=SRL, output=indexReg, shift=0w1}],
+                                 [TagValue{source=indexReg, output=indexReg }])
+                        |   _ => ([], [])
+                    val address =
+                        case (base, index) of
+                            (InRegister address, InRegister index) =>
+                                BaseOffset{offset=0, base=address, index=Index1 index}
+                        |   (InRegister address, LiteralSource offset) =>
+                                BaseOffset{offset=Word.toInt(toShort offset), base=address, index=NoIndex }
+                        |   (LiteralSource address, LiteralSource offset) =>
+                                if isShort offset andalso toShort offset = 0w0
+                                then ConstantAddress address
+                                else raise InternalError "genStoreByte"
+                        |   _ => raise InternalError "genStoreByte"
+                in
+                    case toStore of
+                        InRegister toStore =>
+                            retagIndex @
+                            [
+                                TagValue{source=toStore, output=toStore },
+                                StoreByteRegToMemory{ toStore=toStore, address=address },
+                                ShiftConstant{shiftType=SRL, output=toStore, shift=0w1}(* Untag value to store *)
+                            ] @ untagIndex
+                    |   LiteralSource toStore =>
+                            retagIndex @
+                                [ StoreByteConstToMemory{ toStore=wordToWord8(toShort toStore), address=address}] @
+                            untagIndex
+                    |   _ => raise InternalError "genStoreByte"
+                            
+                end
+            |   genStoreByte _ = raise InternalError "genStoreByte"
+
+            (* We store from the low order byte of a register so we want the value in one of
+               the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
+            fun storeByte _ =
+               loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
+                    loadBaseAddress(NoResult,
+                        loadToRegOrLiteral(generalRegisters, 1,
+                            generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE)
+        in
+            fun instrStoreB(args, _) = SOME(storeByte, args)
+        end
+
+        local
+            (* Load the flags byte from a memory segment.  The result must be tagged. *)
+            (* We could reuse the base register for the output. *)
+            fun genVecFlags([InRegister baseReg], SOME outReg) =
+                [TagValue{source=outReg, output=outReg},
+                 LoadByteR{source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
+            |   genVecFlags _ = raise InternalError "genVecFlags"
+        in
+            fun instrVecflags(args, _) = SOME(fn pref => generalNegotiator(genVecFlags, pref), args)
+        end
+
+        local
+            (* Get the first word of a long integer.  Used when converting to "word". *)
+            fun genFirstLong([InRegister baseReg], SOME outReg) =
+                let
+                    val lab = Labels(ref [], ref 0)
+                in
+                    [
+                        TagValue{source=outReg, output=outReg},
+                        ForwardJumpLabel lab,
+                        Group3Ops(outReg, NEG), (* Negate if the sign was set. *)
+                        ConditionalBranch{ test=JE, label=lab },
+                        (* Test the the sign bit in the header. *)
+                        TestByteMem{offset= ~1, base=baseReg, bits=0w16 },
+                        LoadMemR{source=BaseOffset{base=baseReg, offset=0, index=NoIndex}, output=outReg}
+                    ]
+                end
+            |   genFirstLong _ = raise InternalError "genFirstLong"
+        in
+            (* This is another case where we could reuse the argument for the result. *)
+            fun instrGetFirstLong(args, _) = SOME(fn pref => generalNegotiator(genFirstLong, pref), args)
+        end
+
+        local (* Get the length of a string. *)
+            fun genStringLength([InRegister rs], SOME rd) =
+                let
+                    val lab1 = Labels(ref [], ref 0)
+                    and lab2 = Labels(ref [], ref 0)
+                in
+                    [
+                        ForwardJumpLabel lab2,
+                        TagValue{source=rd, output=rd},
+                        LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd}, (* It's an address. *)
+                        ForwardJumpLabel lab1,
+                        UncondBranch lab2,
+                        MoveConstR{source=tag 1, output=rd}, (* It's a byte: result is 1 *)
+                        ConditionalBranch{test=JE, label=lab1},
+                        TestTagR rs (* Is it a single byte? *)
+                    ]
+                end
+            |   genStringLength _ = raise InternalError "genStringLength"
+
+            (* We could use the same register for the result and the argument.  For the
+               moment we force it to use different regs. *)
+        in
+            fun instrStringLength(args, _) =
+                    SOME(fn pref => generalNegotiator(genStringLength, pref), args)
+        end
+
+        local (* Set the length word of a string. *)
+            fun genSetStringStringLength ([InRegister base, InRegister length], NONE) =
+                [
+                    TagValue{ source=length, output=length }, (* Retag it *)
+                    StoreRegToMemory{ toStore=length, address=BaseOffset{offset=0, base=base, index=NoIndex }},
+                    ShiftConstant{shiftType=SRL, output=length, shift=0w1 } (* Untag it *)
+                ]
+            |   genSetStringStringLength _ = raise InternalError "genSetStringStringLength"
+        in
+            fun instrSetStringLength(args, _) = SOME(fn _ => noresultNegotiator genSetStringStringLength, args)
+        end
+
+        local
+            (* Shift operations: shifting by a variable amount requires ecx.
+               Some special cases of multiplication can be implemented as shifts. *)
             (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
             fun loadShiftArg (instr, pref) opAndResult =
                 loadToSpecificReg(ecx, true, 1, loadResultArg(instr, pref)) opAndResult
@@ -3083,15 +3213,20 @@ Calling conventions:
             fun genConstShift(_, 0w0) _ = [] (* Zero shifts do nothing *)
 
             |   genConstShift(SLL, shift) (_, SOME reg) =
-                    (* Left shift. There are various possible ways of using the LEAL instruction
-                       here to shift and add. Ignore that for the moment and just perform the
+                    (* Left shift. Use LEAL for some cases otherwise perform the
                        shift and then subtract 1 << shift -1.  This removes the existing shifted
                        tag and sets the bottom bit. *)
                     if shift > maxShift
                     then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
                     else
-                        [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
-                        ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                    (
+                        case shift of
+                            0w1 => [LoadAddress{output=reg, base=NONE, index=Index2 reg, offset= ~1}]
+                        |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
+                        |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
+                        |   _ => [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
+                                  ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                    )
 
             |   genConstShift(SRL, shift) (_, SOME reg) = (* Right logical shift. *)
                     if shift > maxShift
@@ -3150,10 +3285,121 @@ Calling conventions:
                 |   NONE => SOME(variableShift opc, args)
             )
             |   shiftInstr _ _ = raise InternalError "shiftInstr"
-        in
+
+            fun getPower2 n =
+            let
+                fun p2(i, log) = if i < n then p2 (i*0w2, log+0w1) else if i = n then SOME log else NONE
+            in
+                p2(0w1, 0w0)
+            end
+
+            local
+                (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
+                   registers the best arrangement for the arguments is to get the first argument into
+                   eax and the second into edx. *)
+                val eaxSet = singleton eax and edxSet = singleton edx
+
+                fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
+                    if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                    then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
+                    else (* Not in the right register - move it. *)
+                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+                |   loadArg1 instr [_, _] =
+                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+                |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
+            
+                and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
+                    if regSetIntersect(modifiable, edxSet) <> noRegisters
+                    then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
+                    else (* Not in the right register - move it. *)
+                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                    
+                |   loadArg2 instr [_, _] =
+                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+
+                |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
+
+                and finished genInstr _ =
+                    ActionDone{
+                        outReg=SOME eax,
+                        operation=genInstr([InRegister eax, InRegister edx], SOME eax)
+                        }
+            in
+                val multiplyNegotiator = loadArg1
+            end
+
+            fun genMultiplyUnsigned _ = (* The arguments are in eax and edx and result in eax. *)
+            [
+                MakeSafe edx, (* Could just copy eax in here *)
+                (* Add back the tag, but don't shift. *)
+                ArithRConst{opc=ADD, output=eax, source=1},
+                Group3Ops(edx, MUL),
+                (* Shift down the multiplier. *)
+                ShiftConstant{shiftType=SRL, output=edx, shift=0w1 },
+                (* Untag, but don't shift the multiplicand. *)
+                ArithRConst{opc=SUB, output=eax, source=1}
+            ]
+
+            (* The only case we treat specially is multiplication by two because the overflow
+               flag isn't defined for larger shifts. *)
+            fun genAddSelf(_, SOME output) =
+                let
+                    val skipEmulator = Labels(ref [], ref 0)
+                    val lab1 = Labels(ref [], ref 0)
+                    val lab2 = Labels(ref [], ref 0)
+                    val backToInstr = BackLabels(ref addrZero, ref 0)
+                in
+                    [
+                        ArithRConst{opc=SUB, source=1, output=output},
+                        ForwardJumpLabel skipEmulator,
+                        JumpBack backToInstr,
+                        CallRTS MemRegArbEmulation,
+                        ForwardJumpLabel lab1,
+                        ForwardJumpLabel lab2,
+                        UncondBranch skipEmulator,
+                        ConditionalBranch{test=JO, label=lab2},
+                        ArithRR{opc=ADD, source=output, output=output},
+                        BackJumpLabel backToInstr,
+                        ConditionalBranch{test=JE, label=lab1},
+                        TestTagR output
+                    ]
+                end
+            |   genAddSelf _ = raise InternalError "genAddSelf"
+
+            fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
+         in
             fun instrUpshiftW am = shiftInstr SLL am
             and instrDownshiftW am = shiftInstr SRL am
             and instrDownshiftArithW am = shiftInstr SRA am
+
+            fun instrMulW(args as [arg1, arg2], mapper) =
+                (
+                   (* This is implemented specially for powers of 2.  It could also
+                      be implemented specially for some other cases as well. *)
+                    case List.map (Option.composePartial(getPower2 o toShort, mapper)) args of
+                        [_, SOME shift] => SOME(constantShift(SLL, shift), [arg1])
+                    |   [SOME shift, _] => SOME(constantShift(SLL, shift), [arg2])
+                    |   _ => SOME(fn _ => multiplyNegotiator genMultiplyUnsigned, args)
+                )
+            |   instrMulW _ = raise InternalError "instrMulW"
+
+            fun instrMulA(args as [arg1, arg2], mapper) =
+            (
+                (* The only special case we recognise is multiplication by 2. *)
+                case List.map mapper args of
+                    [_, SOME lit] =>
+                        if isShort lit andalso toShort lit = 0w2
+                        then SOME(mulAConst2, [arg1])
+                        else NONE(*SOME(InstrMulA, args)*)
+                |   [SOME lit, _] =>
+                        if isShort lit andalso toShort lit = 0w2
+                        then SOME(mulAConst2, [arg2])
+                        else NONE(*SOME(InstrMulA, args)*)
+                |   _ => NONE(*SOME(InstrMulA, args)*)
+            )
+            |   instrMulA _ = raise InternalError "instrMulA"
         end
 
         local
@@ -3162,7 +3408,7 @@ Calling conventions:
             fun vecLen([InRegister base], SOME output) =
                 [TagValue{source=output, output=output},
                  ArithRConst{opc=AND, output=output, source=exp2_24 - 1},
-                 LoadMemR{base=base, offset= ~ wordSize, output=output}]
+                 LoadMemR{source=BaseOffset{base=base, offset= ~ wordSize, index=NoIndex}, output=output}]
             |   vecLen _ = raise InternalError "vecLen"
         in
             fun instrVeclen(args, _) = SOME(fn prefs => generalNegotiator(vecLen, prefs), args)
@@ -3170,15 +3416,28 @@ Calling conventions:
 
         local
             (* Load the "self" entry from the thread-specific block. *)
-            fun threadSelf([], SOME output) = [LoadMemR{base=ebp, offset=MemRegThreadSelf, output=output}]
+            fun threadSelf([], SOME output) =
+                [LoadMemR{source=BaseOffset{base=ebp, offset=MemRegThreadSelf, index=NoIndex}, output=output}]
             |   threadSelf _ = raise InternalError "threadSelf"
         in
             fun instrThreadSelf(args, _) = SOME(fn prefs => generalNegotiator(threadSelf, prefs), args)
         end
 
         local
-            fun unimplementedTest _ = NONE
+            fun atomicOp incr ([InRegister rs], SOME rd) =
+                [
+                    (* Since xadd returns the original value we have to add in the value again. *)
+                    ArithRConst{opc=ADD, output=rd, source=semitag incr},
+                    AtomicXAdd{base=rs, output=rd},
+                    MoveConstR{source=semitag incr, output=rd}
+                ]
+            |   atomicOp _ _ = raise InternalError "atomicOp"
+        in
+            fun instrAtomicIncr(args, _) = SOME(fn pref => generalNegotiator(atomicOp 1, pref), args)
+            and instrAtomicDecr(args, _) = SOME(fn pref => generalNegotiator(atomicOp ~1, pref), args)
+        end
 
+        local
             fun reverseTestOp JE = JE
             |   reverseTestOp JNE = JNE
             |   reverseTestOp JA = JB
@@ -3255,7 +3514,7 @@ Calling conventions:
                                 operation=
                                     tagTest([ConditionalBranch { test=testType, label=destLabel },
                                              ArithRMem{opc=CMP, output=reg1, base=base, offset=offset}],
-                                           InRegister reg1, BaseOffset{base=base, offset=offset})}
+                                           InRegister reg1, BaseOffsetSource{base=base, offset=offset})}
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActInRegisterSet s2]) =
@@ -3266,7 +3525,7 @@ Calling conventions:
                                 operation=
                                     tagTest([ConditionalBranch { test=reverseTestOp testType, label=destLabel },
                                              ArithRMem{opc=CMP, output=reg2, base=base, offset=offset}],
-                                           InRegister reg2, BaseOffset{base=base, offset=offset})}
+                                           InRegister reg2, BaseOffsetSource{base=base, offset=offset})}
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
@@ -3278,7 +3537,7 @@ Calling conventions:
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffset{base=base, offset=offset}, LiteralSource constnt)}
+                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
                     ActionDone{ outReg=NONE,
@@ -3289,7 +3548,7 @@ Calling conventions:
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffset{base=base, offset=offset}, LiteralSource constnt) }
+                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt) }
 
             |   testActions _ _  = raise InternalError "testActions"
                 
@@ -3311,7 +3570,7 @@ Calling conventions:
                 |   testActions([ActBaseOffset(base, offset)]) =
                         ActionDone { outReg=NONE,
                             operation=[ConditionalBranch { test=test, label=destLabel },
-                                       TestTagM{base=base, offset=offset}]}
+                                       TestByteMem{base=base, offset=offset, bits=0w1}]}
                 |   testActions([ActLiteralSource _]) =
                         (* This should have been optimised away. *)
                         ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
@@ -3335,13 +3594,70 @@ Calling conventions:
             fun testLtA(args, _)  = SOME(makeBranch(JL, testTagsForComparison), args)
             fun Short(args, _)    = SOME(lengthTest JNE, args)
             fun Long(args, _)     = SOME(lengthTest JE, args)
-            val byteVecEq  = unimplementedTest
-            and byteVecNe  = unimplementedTest
         end
 
+        local
+            fun genByteVec test () =
+            let
+                val destLabel = Labels(ref [], ref 0)
+
+                fun generateByteVec([InRegister addr1, offset1, InRegister addr2, offset2, InRegister len]) =
+                let
+                    val () = if addr1 = esi andalso addr2 = edi andalso len = ecx then ()
+                             else raise InternalError "Incorrect registers"
+                    fun getOffset(InRegister offsetReg, baseReg) =
+                        [
+                            (* If it's in a register untag it, add it and then retag. *)
+                            TagValue{ source=offsetReg, output=offsetReg },
+                            ArithRR{opc=ADD, output=baseReg, source=offsetReg},
+                            ShiftConstant{shiftType=SRL, output=offsetReg, shift=0w1}
+                        ]
+                    |   getOffset(LiteralSource lit, baseReg) =
+                        let
+                            val shortLit = toShort lit
+                        in
+                            if shortLit = 0w0 then []
+                            else [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                        end
+                    |   getOffset _ = raise InternalError "getOffset"
+                in
+                    [
+                        ConditionalBranch { test=test, label=destLabel },
+                        MakeSafe ecx, (* These will now be invalid *)
+                        MakeSafe esi,
+                        MakeSafe edi,
+                        CompareBytes, (* Compare the bytes. *)
+                        ArithRR{opc=CMP, output=ecx, source=ecx}, (* Set the Z flag before we start. *)
+                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1} (* Untag the length. *)
+                    ] @ getOffset(offset2, edi) @ getOffset(offset1, esi)
+                end
+
+                |   generateByteVec _ = raise InternalError "generateByteVec"
+                fun generateCode (operands, _) _ =
+                    ActionDone{ outReg=NONE, operation=generateByteVec(List.map valOf operands) }
+                val testActions =
+                    (* The vectors to compare are in esi and edi and the count in ecx.  Since it doesn't
+                       matter which is in esi and which in edi it would be nice if we could leave that open
+                       but for the moment we require the first in esi and the second in edi.
+                       The offsets can be in any register. Edi, esi and ecx are marked as modifiable
+                       and are left as values that need to be made safe.  Offset values are
+                       read-only and need to be restored in case they're reused. *)
+                    loadToSpecificReg(esi, true, 0,
+                        loadToSpecificReg(edi, true, 2,
+                            loadToSpecificReg(ecx, true, 4,
+                                loadToRegOrLiteral(generalRegisters, 1,
+                                    loadToRegOrLiteral(generalRegisters, 3, generateCode)))))
+                                        ([NONE, NONE, NONE, NONE, NONE], NONE)
+            in
+                (testActions: nextAction, destLabel)
+            end
+        in
+            fun byteVecEq(args, _)  = SOME(genByteVec JE, args)
+            and byteVecNe(args, _)  = SOME(genByteVec JNE, args)
+        end
 
         local
-            fun loadBaseOffsets genInstr ops [ActBaseOffset _, _] =
+            fun loadBaseOffsets genInstr ops (ActBaseOffset _ :: _) = (* Unary or binary case. *)
                 (* Base-offset values need to be loaded into a general register because we
                    don't have a doubly indirect load, at least on X86/32. *)
                     ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
@@ -3434,9 +3750,19 @@ Calling conventions:
                             setReg = fn _ => loadBaseOffsets (genTest(opc, destLabel)) ([NONE, NONE], NONE)}, destLabel)
             end
             
-           fun getFP genInstr pref =
+            fun getFP genInstr pref =
                 getResultRegister(floatingPtRegisters, pref, loadBaseOffsets genInstr)
                     ([NONE, NONE], NONE)
+            and getUnaryFP genInstr pref =
+                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets genInstr)
+                    ([NONE], NONE)
+            and getArctanFP genInstr pref =
+                (* Arctan requires two items on the stack.  The effect is to overwrite fp6 *)
+                getWorkingRegister(singleton fp6,
+                        fn _ =>
+                            getResultRegister(floatingPtRegisters, pref, loadBaseOffsets genInstr)
+                            ) ([NONE], NONE)
+
 
             val unimplementedInstr = fn _ => NONE
             
@@ -3469,11 +3795,47 @@ Calling conventions:
                     ]
                 end
             |   genBinaryFP _ _ = raise InternalError "genBinaryFP"
+
+            fun genUnaryFP opc ([opn], SOME output) =
+                let
+                    val loadToStack =
+                        case opn of
+                            InRegister(reg as FPReg _) => FPLoadFromFPReg reg
+                        |   InRegister(reg as GenReg _) => FPLoadFromGenReg reg
+                        |   LiteralSource lit => loadFPConstant lit
+                        |   _ => raise InternalError "genUnaryFP"
+                in
+                    case opc of
+                        FPATAN =>
+                            (* The FPATAN function takes two arguments so we need to push 1.0.
+                               We must invalidate FP7 before we push the second argument otherwise
+                               we may get a stack overflow. *)
+                            [FPStoreToFPReg{output=output, andPop=true},
+                            FPUnary FPATAN,
+                            (* Because we have pushed an extra value this appears as
+                               modifying fp6. *)
+                            RegisterStatusChange{activate=singleton fp6, free=noRegisters},
+                            FPUnary FLD1,
+                            FPFree fp7,
+                            loadToStack
+                            ]
+                    |   _ => (* The rest are much simpler. *)
+                        [FPStoreToFPReg{output=output, andPop=true},
+                         FPUnary opc,
+                         loadToStack]
+                end
+            |   genUnaryFP _ _ = raise InternalError "genUnaryFP"
         in
             fun instrAddFP(args, _) = SOME(getFP(genBinaryFP(FADD, FADD)), args)
             and instrSubFP(args, _) = SOME(getFP(genBinaryFP(FSUB, FSUBR)), args)
             and instrMulFP(args, _) = SOME(getFP(genBinaryFP(FMUL, FMUL)), args)
             and instrDivFP(args, _) = SOME(getFP(genBinaryFP(FDIV, FDIVR)), args)
+
+            fun instrNegFP(args, _) = SOME(getUnaryFP(genUnaryFP FCHS), args)
+            and instrSqrtFP(args, _)= SOME(getUnaryFP(genUnaryFP FSQRT), args)
+            and instrSinFP(args, _) = SOME(getUnaryFP(genUnaryFP FSIN), args)
+            and instrCosFP(args, _) = SOME(getUnaryFP(genUnaryFP FCOS), args)
+            and instrAtanFP(args, _)= SOME(getArctanFP(genUnaryFP FPATAN), args)
 
             local
                 fun genIntToFPInstr([InRegister source], SOME output) =
@@ -3487,7 +3849,7 @@ Calling conventions:
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            ForwardJumpLabel skipEmulator, JumpBack backToInstr, CallEmulator,
+                            ForwardJumpLabel skipEmulator, JumpBack backToInstr, CallRTS MemRegArbEmulation,
                             ForwardJumpLabel gotoEmulator, 
                             UncondBranch skipEmulator, FPLoadIntAndPop, (* Do instr and skip. *)
                             BackJumpLabel backToInstr, (* Come here if emulating. *)
@@ -3505,12 +3867,7 @@ Calling conventions:
                 fun instrIntToRealFP(args, _) = SOME(genIntToFP, args)
             end
 
-            val instrNegFP = unimplementedInstr
-            and instrSqrtFP = unimplementedInstr
-            and instrSinFP = unimplementedInstr
-            and instrCosFP = unimplementedInstr
-            and instrAtanFP = unimplementedInstr
-            and instrExpFP = unimplementedInstr
+            val instrExpFP = unimplementedInstr
             and instrLnFP = unimplementedInstr
             and instrRealToIntFP = unimplementedInstr
 
@@ -3605,7 +3962,7 @@ Calling conventions:
         then
         ( (* Tag the result into the result register. *)
              genop (LEAL, cvec);
-             genIndexed (1, SOME eax, eax, Scale1, rd, cvec)
+             genIndexed (1, SOME eax, Index1 eax, rd, cvec)
         )
         else (* Add the tag back into the remainder. *)
              genLeal (rd, edx, 1, cvec);
@@ -3682,7 +4039,7 @@ Calling conventions:
            multiply by four to get the correct size. We subtract off
            the minimum value and also the shifted tag. *)
         genop (LEAL, cvec);
-        genIndexed (Word.toInt min * ~8 - 4, SOME r2, r1, Scale4, r2, cvec);
+        genIndexed (Word.toInt min * ~8 - 4, SOME r2, Index4 r1, r2, cvec);
         (* Jump into the jump table.  Since each entry in the table
            is 8 bytes long r2 will still be on a word + 2 byte
            boundary. *)
@@ -3754,7 +4111,6 @@ Calling conventions:
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
     fun codeGenerate (ops, code as Code{ic, printAssemblyCode, printStream, ...}) =
     let
-        val opList = List.rev ops
         val () =
             if printAssemblyCode
             then
@@ -3763,9 +4119,9 @@ Calling conventions:
                 fun setLabels(ForwardJumpLabel(Labels(_, lab)), labNo) = (lab := labNo; labNo+1)
                 |   setLabels(BackJumpLabel(BackLabels(_, lab)), labNo) = (lab := labNo; labNo+1)
                 |   setLabels(_, labNo) = labNo
-                val _ = List.foldl setLabels 1 opList
+                val _ = List.foldl setLabels 1 ops
             in
-                List.app(fn i => printOperation(i, printStream)) opList
+                List.app(fn i => printOperation(i, printStream)) ops
             end
             else ()
     
@@ -3774,110 +4130,15 @@ Calling conventions:
             List.app (fn r => if inSet(r, ! activeSet) then ()
             else print(concat["Inactive source ", regRepr r, " at ", Word.toString(!ic), "\n"])) l
         fun addDests l = activeSet := regSetUnion(! activeSet, listToSet l)
+        fun checkIndexSource NoIndex = ()
+        |   checkIndexSource (Index1 r) = checkSources[r]
+        |   checkIndexSource (Index2 r) = checkSources[r]
+        |   checkIndexSource (Index4 r) = checkSources[r]
+        |   checkIndexSource (Index8 r) = checkSources[r]
     
         fun cgOp [] = ()
 
-        (* cgOp(DataOp{ instr=InstrVecflags, operands=[InRegister rs], output=SOME rd} :: remainder) =  
-            (* Load the flags byte. *)
-            (
-                checkSources[rs]; addDests[rd];
-              genop (ESCAPE, code);
-              gen8u (0wxB6 (* movzx *), code);
-              genEA (~1, rs, rd, code);
-
-              (* Tag the result. *)
-              genTag (rd, code);
-              cgOp remainder          
-            )
-
-        |   cgOp(DataOp{ instr=InstrGetFirstLong, operands=[InRegister rs], output=SOME rd} :: remainder) =  
-            let
-                val _ = checkSources[rs]; val _ = addDests[rd];
-                (* Get the first word of a long integer.  We've already
-                   checked that it is long. *)
-                (* Test the "sign bit" of the object. *)
-                val _ =
-                    (
-                    genop    (Group3_a, code);
-                    genmodrm(Based8, 0w0 (* test *), getReg rs, code);
-                    gen8s (~1, code);
-                    gen8u (0w16, code)
-                    )
-                (* Load the unsigned, untagged, little-endian value. *)
-                val _ = genLoad  (0, rs, rd, code);
-                (* Skip if the sign bit wasn't set. *)
-                val l1 = [putConditional (JE, code)]
-            in
-                genop(Group3_A, code);
-                genmodrm(Register, 0w3 (* neg *), getReg rd, code);
-
-                fixup(l1, code);
-                genTag (rd, code);
-                cgOp remainder
-            end
-
-        |   cgOp(DataOp{ instr=InstrStringLength, operands=[InRegister rs], output=SOME rd} :: remainder) =  
-            let
-                val _ = checkSources[rs]; val _ = addDests[rd];
-                (* If it's tagged the result is 1 otherwise we need to load
-                   the length word and tag it. *)
-                val () = testTag(rs, code)
-                val l1 = [putConditional (JE, code)]
-                val _ = genMoveI (rd, tag 1, code)
-                val l2 = unconditionalBranch code
-            in
-                fixup(l1, code);
-                genLoad  (0, rs, rd, code); (* Load the length word. *)
-                genTag (rd, code); (* And tag the result. *)
-                fixup(l2, code);
-                cgOp remainder
-            end
-
-        |   cgOp(DataOp{ instr=InstrMulAConst2, operands=[InRegister rs], output=SOME rd} :: remainder) =
-            (* We only handle multiplication by two at the moment.  We
-               could handle a wider range but it's not that easy particularly
-               because the overflow flag is not defined on shifts of more than
-               one. *)
-            let 
-                val _ = checkSources[rs]; val _ = addDests[rd];
-                val addr = tagTest1 (rs, code);
-            in
-                (* Do the actual operation after removing a tag from one arg. *)
-                genLeal (rd, rs, ~1, code);
-                genReg  (ADD, rd, rs, code);
-                genJO8  (addr, code);
-                cgOp remainder
-            end
-
-        |   cgOp(DataOp{ instr=InstrLoadBConstOffset constnt, operands=[InRegister rs], output=SOME rd} :: remainder) =
-    		let
-                val _ = checkSources[rs]; val _ = addDests[rd];
-    		    val c = toInt constnt
-            in
-                genop (ESCAPE, code);
-                gen8u (0wxB6 (* movzx *), code);
-                genEA (c, rs, rd, code);
-
-                (* Tag the result. *)
-                genTag (rd, code);
-                cgOp remainder          
-            end
-
-        |   cgOp(DataOp{ instr=InstrAtomicAdd incr, operands=[InRegister rs], output=SOME rd} :: remainder) =
-            (* Atomic Increment/Decrement. *)
-            (
-                checkSources[rs]; addDests[rd];
-                genReg(XOR, rd, rd, code); (* Can't use MOVL because it's not tagged. *)
-                genImmed (ADD, rd, semitag incr, code);
-                genop (LOCK, code);
-                gen8u (0wx0f (* ESCAPE *), code);
-                gen8u(0wxC1 (* xaddl *), code);
-                genEA(0, rs, rd, code);
-                (* Since xadd returns the original value we have to add in the value again. *)
-                genImmed (ADD, rd, semitag incr, code);
-                cgOp remainder
-            )        
-  
+        (*
         |   cgOp(DataOp{ instr=InstrMulA, operands=[InRegister r1, InRegister r2], output=SOME rd } :: remainder) =
             (* Arbitrary precision multiplication. *)
             let
@@ -3922,26 +4183,6 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp(DataOp{ instr=InstrMulW, operands=[InRegister r1, InRegister r2], output=SOME rd } :: remainder) =
-            (* Fixed precision multiplication. (Doesn't test for overflow.) *)
-            (
-                checkSources[r1, r2]; addDests[rd];
-                (* The negotiator puts the arguments into specific registers. *)
-                if rd = eax andalso r1 = eax andalso r2 = edx then () else raise InternalError "InstrMulW: bad arguments";
-                (* Untag, but don't shift the multiplicand. *)
-                genLeal (eax, eax, ~1, code);
-                (* Shift down the multiplier. *)
-                genop (Group2_1_A, code);
-                genmodrm(Register, 0w5 (* shr *), getReg edx, code);
-                (* Do the multiplication. *)
-                genop (Group3_A, code);
-                genmodrm(Register, 0w4 (* mull *), getReg edx, code);
-                (* Add back the tag, but don't shift. *)
-                genLeal (eax, eax, 1, code);
-                genMove (edx, eax, code) (* Copy this into edx so it doesn't have a bad value. *);
-                cgOp remainder
-            )
-
         |   cgOp(DataOp{ instr=InstrDivW, operands=[InRegister r1, InRegister r2], output=SOME rd } :: remainder) =
             (
                 checkSources[r1, r2]; addDests[rd];
@@ -3957,97 +4198,6 @@ Calling conventions:
                 divmodWord(false, r1, r2, rd, code);
                 cgOp remainder
             )
-
-        |   cgOp(DataOp{ instr=InstrUnaryFP opn, operands=[InRegister reg], output=SOME rd } :: remainder) =
-            (
-                checkSources[reg]; addDests[rd];
-                loadFpRegToStack(reg, 0w0, code); (* FLD r1 *)
-                (* We use the change-sign operation here so that this works correctly for +/- zero. *)
-                genop(FPESC 0w1, code); (* FCHS/FSIN etc *)
-                gen8u(opn, code);
-                storeFpRegFromStack(rd, code);
-                cgOp remainder
-            )
-
-        |   cgOp(DataOp{ instr=InstrArctan, operands=[InRegister reg], output=SOME rd } :: remainder) =
-            (
-                checkSources[reg]; addDests[rd]; addDests[fp6]; (* The extra push affects fp6. *)
-                loadFpRegToStack(reg, 0w0, code); (* FLD r1 *)
-                (* The FPATAN function takes two arguments so we need to push 1.0.
-                   We must invalidate FP7 before we do that otherwise we may get a stack
-                   overflow. *)
-                genFloatingPt({escape=0w5, md=0w3, nnn=0w0, rm=0w7(* FP7*)}, code); (* FFREE FP(7) *)
-                genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w0}, code); (* FLD1 *)
-                genFloatingPt({escape=0w1, md=0w3, nnn=0w6, rm=0w3}, code); (* FPATAN *)
-                storeFpRegFromStack(rd, code);
-                cgOp remainder
-            )
-
-        |   cgOp(DataOp{ instr=InstrLoadB, operands=[InRegister r1, InRegister r2], output=SOME rd } :: remainder) =
-            (* Load a byte. *)
-            (        
-                checkSources[r1, r2]; addDests[rd];
-                (* mov r2,rd; shrl $1,rd; movzl 0(r1,rd,1),rd; leal 1(,rd,2),rd *)
-                genMove (rd, r2, code);
-         
-                genop (Group2_1_A, code);
-                genmodrm(Register, 0w5 (* shr *), getReg rd, code);
-         
-                genop (ESCAPE, code);
-                gen8u (0wxB6 (* movzl *), code);
-                genIndexed (0, SOME r1, rd, Scale1, rd, code);
-         
-                (* Tag the result. *)
-                genTag (rd, code);
-                cgOp remainder
-            )
-
-        |   cgOp(DataOp{ instr=InstrSetStringLength, operands=[InRegister r1, InRegister r2], output=NONE } :: remainder) =
-            (* Set the length word of a string. *)
-            (
-                checkSources[r1, r2];
-                (* The length is untagged. *)
-                genop (Group2_1_A, code);
-                genmodrm(Register, 0w5 (* shr *), getReg r2, code);
-
-                genop (MOVL_R_A, code);
-                genEA (0, r1, r2, code);
-
-                (* Restore the original value. This ensures we don't have a
-                   bad value around and also restores the original value
-                   since it may still be wanted. *)
-                genTag(r2, code);
-                cgOp remainder
-            )
-
-        |   cgOp(DataOp{ instr=InstrStoreB, operands, output=_ } :: remainder) =
-            (
-                case operands of
-                    [InRegister address, InRegister offset, InRegister toStore] =>
-                        (
-                            checkSources[offset, toStore];
-                            (* Value to store and index are in registers. *)
-                            genStoreB(toStore, 0, address, SOME offset, code)
-                        )
-                |   [InRegister address, LiteralSource offset, InRegister toStore] =>
-                        (
-                            checkSources[toStore];
-                            (* Index is a constant. *)
-                            genStoreB(toStore, Word.toInt(toShort offset), address, NONE, code)
-                        )
-                |   [InRegister address, InRegister offset, LiteralSource toStore] =>
-                        (
-                            checkSources[offset];
-                            (* Value to store is a constant *)
-                            genStoreIB(toStore, 0, address, SOME offset, code)
-                        )
-                |   [InRegister address, LiteralSource offset, LiteralSource toStore] =>
-                        genStoreIB(toStore, Word.toInt(toShort offset), address, NONE, code)
-
-                |   _ => raise InternalError "InstrStoreB: bad operands";
-                cgOp remainder
-            )
-
 *) 
         |   cgOp(LockMutableSegment baseReg :: remainder) =
                 (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
@@ -4265,7 +4415,7 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(LoadMemR{ base, offset, output as GenReg _ } :: ResetStack count :: remainder) =
+        |   cgOp(LoadMemR{ source=BaseOffset{base, offset, index=NoIndex}, output as GenReg _} :: ResetStack count :: remainder) =
             if base = esp andalso offset < count * wordSize
             then (* Can use a pop instruction. *)
             let
@@ -4282,7 +4432,7 @@ Calling conventions:
                     cgOp(if resetAfter = 0 then remainder else ResetStack resetAfter :: remainder)
                 end
                 else cgOp(ResetStack resetBefore ::
-                          LoadMemR{ base=base, offset=offset-resetBefore*wordSize, output=output } ::
+                          LoadMemR{source=BaseOffset{base=base, offset=offset-resetBefore*wordSize, index=NoIndex}, output=output } ::
                           (if count = resetBefore then remainder else ResetStack(count - resetBefore) :: remainder))
             end
             else
@@ -4292,10 +4442,48 @@ Calling conventions:
                 cgOp(ResetStack count :: remainder)
             )
 
-        |   cgOp(LoadMemR{ base, offset, output} :: remainder) =
+        |   cgOp(LoadMemR{source=BaseOffset{base, offset, index=NoIndex}, output} :: remainder) =
             (
                 checkSources[base]; addDests[output];
                 genLoad(offset, base, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadMemR{source=BaseOffset{base, offset, index}, output } :: remainder) =
+            (
+                checkSources[base]; checkIndexSource index; addDests[output];
+                genop(MOVL_A_R, code);
+                genIndexed(offset, SOME base, index, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadMemR{source=ConstantAddress addr, output } :: remainder) =
+            (
+                addDests[output];
+                genop(MOVL_A_R, code);
+                genmodrm (Based0, getReg output, 0w5 (* constant address *), code);
+                addConstToVec(WVal addr, false, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadByteR{source=BaseOffset{base, offset, index}, output } :: remainder) =
+            (
+                checkSources[base]; checkIndexSource index; addDests[output];
+                genop (ESCAPE, code);
+                gen8u (0wxB6 (* movzl *), code);
+                case index of
+                    NoIndex => genEA (offset, base, output, code)
+                |   _ => genIndexed (0, SOME base, index, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(LoadByteR{source=ConstantAddress addr, output } :: remainder) =
+            (
+                addDests[output];
+                genop (ESCAPE, code);
+                gen8u (0wxB6 (* movzl *), code);
+                genmodrm (Based0, getReg output, 0w5 (* constant address *), code);
+                addConstToVec(WVal addr, false, code);
                 cgOp remainder
             )
 
@@ -4307,21 +4495,16 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(LoadIndexed{ base, offset, index, output } :: remainder) =
+        |   cgOp(LoadAddress{ offset, base, index, output } :: remainder) =
             (
-                checkSources[base, index]; addDests[output];
-                (* The index is already multiplied by 2, so we need only multiply
-                   by two again to give a word offset.  Then we have to subtract
-                   2 to account for the tag. *)
-                genop(MOVL_A_R, code);
-                genIndexed(offset-2, SOME base, index, Scale2, output, code);
-                cgOp remainder
-            )
-
-        |   cgOp(Add3Const{ source1, source2, output } :: remainder) =
-            (
-                addDests[output]; checkSources[source1];
-                genLeal (output, source1, source2, code);
+                (* This provides a mixture of addition and multiplication in a single
+                   instruction. *)
+                addDests[output]; case base of NONE => () | SOME b => checkSources[b];
+                genop (LEAL, code);
+                case (index, base) of
+                    (NoIndex, SOME base) => genEA (offset, base, output, code)
+                |   (NoIndex, NONE) => raise InternalError "LoadAddress: no base or index"
+                |   _ => genIndexed(offset, base, index, output, code);
                 cgOp remainder
             )
 
@@ -4419,13 +4602,13 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(TestTagM{base, offset} :: remainder) =
+        |   cgOp(TestByteMem{base, offset, bits} :: remainder) =
             (
                 checkSources[base];
                 (* Test the tag bit and set the condition code. *)
                 genop(Group3_a, code);
                 genop2(offset, base, 0w0 (* test *), code);
-                gen8u(0w1, code);
+                gen8u(wordToWord8 bits, code);
                 cgOp remainder
             )
 
@@ -4437,11 +4620,11 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(CallEmulator :: remainder) =
+        |   cgOp(CallRTS entry :: remainder) =
             (
                 genop(Group5, code);
                 genmodrm (Based8, 0w2 (* call *), getReg ebp, code);
-                gen8u (Word8.fromInt MemRegArbEmulation, code);
+                gen8u (Word8.fromInt entry(*MemRegArbEmulation*), code);
                 cgOp remainder
             )
 
@@ -4450,51 +4633,35 @@ Calling conventions:
                 (* Convert an untagged integer into a tagged value by shifting and adding 1. *)
                 checkSources[source]; addDests[output];
                 genop (LEAL, code);
-                genIndexed (1, SOME source, source, Scale1, output, code);
+                genIndexed (1, SOME source, Index1 source, output, code);
                 cgOp remainder
             )
 
-(*
-        |   cgOp(CondBranch{ operands=[InRegister addr1, offset1, InRegister addr2, offset2, InRegister len],
-                             test=ByteVec opc, label=Labels(label, _) } :: remainder) =
-            let
-                val _ = checkSources[addr1, addr2, len]
-                val () = if addr1 = esi andalso addr2 = edi andalso len = ecx then ()
-                         else raise InternalError "Incorrect registers"
-                fun getOffset(InRegister offsetReg, baseReg) =
-                    (
-                        checkSources[offsetReg];
-                        (* If it's in a register untag it, add it and then retag. *)
-                        genop (Group2_1_A, code);
-                        genmodrm(Register, 0w5 (* shr *), getReg offsetReg, code);
-                        genReg(ADD, baseReg, offsetReg, code);
-                        genop (LEAL, code);
-                        genIndexed (1, SOME offsetReg, offsetReg, Scale1, offsetReg, code)
-                    )
-                |   getOffset(LiteralSource lit, baseReg) =
-                    let
-                        val shortLit = toShort lit
-                    in
-                        if shortLit = 0w0 then () else genImmed(ADD, baseReg, Word.toInt shortLit, code)
-                    end
-                |   getOffset _ = raise InternalError "getOffset"
-            in
-                getOffset(offset1, esi);
-                getOffset(offset2, edi);
-                (* Untag the length. *)
-                genop (Group2_1_A, code);
-                genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
-                (* Set the Z bit in the condition codes before we start by comparing a register with itself. *)
-                genReg (CMP, ecx, ecx, code);
+        |   cgOp(CompareBytes :: remainder) =
+            (
+                checkSources[esi, edi, ecx]; addDests[esi, edi, ecx];
                 genop(REP, code);
                 gen8u(0wxa6 (*cmpsb*), code);
-                genMove(ecx, eax, code); (* Set these to a valid value. EAX should be ok. *)
-                genMove(esi, eax, code);
-                genMove(edi, eax, code);
-                label := [putConditional (opc, code)];
                 cgOp remainder
-            end
-*)
+            )
+
+        |   cgOp(Group3Ops(output, ops) :: remainder) =
+            (
+                checkSources[output]; addDests[output];
+                genop(Group3_A, code);
+                genmodrm(Register, group3OpsToWord ops, getReg output, code);
+                cgOp remainder
+            )
+
+        |   cgOp(AtomicXAdd{base, output}:: remainder) =
+            (
+                checkSources[base, output]; addDests[output];
+                genop (LOCK, code);
+                gen8u (0wx0f (* ESCAPE *), code);
+                gen8u(0wxC1 (* xaddl *), code);
+                genEA(0, base, output, code);
+                cgOp remainder
+            )
 
         |   cgOp(PushR(reg as GenReg _ ) :: remainder) = (checkSources[reg]; genPush(reg, code); cgOp remainder)
         |   cgOp(PushR(src as FPReg _ ) :: remainder) =
@@ -4543,32 +4710,124 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(StoreRegToMemory{ toStore, offset, base, index } :: remainder) =
+        |   cgOp(StoreRegToMemory{ toStore, address } :: remainder) =
             (
-                checkSources[toStore, base];
-                case index of SOME r => checkSources[r] | NONE => ();
-                genStoreW(toStore, offset, base, index, code);
+                checkSources[toStore];
+                genop (MOVL_R_A, code);
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                    (
+                        checkSources[base];
+                        genEA(offset, base, toStore, code) 
+                    )
+                |   BaseOffset{offset, base, index} =>
+                    (
+                        checkSources[base];
+                        checkIndexSource index;
+                        genIndexed(offset, SOME base, index, toStore, code)
+                    )
+                |   ConstantAddress address =>
+                    (
+                        genmodrm(Based0, getReg toStore, 0w5 (* constant address *), code);
+                        addConstToVec(WVal address, false, code)
+                    );
                 cgOp remainder
             )
 
-        |   cgOp(StoreConstToMemory{ toStore=toStore, offset, base, index } :: remainder) =
+        |   cgOp(StoreConstToMemory{ toStore=toStore, address } :: remainder) =
             (
                 (* Short constant *)
-                checkSources[base];
-                case index of SOME r => checkSources[r] | NONE => ();
                 genop (MOVL_32_A, code);
-                case index of
-                    NONE => genop2 (offset, base, 0w0, code)
-                |   SOME ri => genIndexed (offset-2, SOME base, ri, Scale2, mkReg 0w0, code);
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                    (
+                        checkSources[base];
+                        genop2 (offset, base, 0w0, code) 
+                    )
+                |   BaseOffset{offset, base, index} =>
+                    (
+                        checkSources[base];
+                        checkIndexSource index;
+                        genIndexed (offset, SOME base, index, mkReg 0w0, code)
+                    )
+                |   ConstantAddress address =>
+                    (
+                        genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
+                        addConstToVec(WVal address, false, code)
+                    );
                 gen32s (toStore, code);
                 cgOp remainder
             )
 
-        |   cgOp(StoreLongConstToMemory{ toStore=toStore, offset, base, index } :: remainder) =
+        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address=BaseOffset{offset, base, index} } :: remainder) =
             (
-                checkSources[base];
-                case index of SOME r => checkSources[r] | NONE => ();
+                checkSources[base]; checkIndexSource index;
                 genStoreIW(toStore, offset, base, index, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address=ConstantAddress address } :: remainder) =
+            (
+                (* We have to be careful here that we don't accidentally produce a full word of
+                   zeros aligned on a word boundary.  Since we have two addresses here which
+                   could potentially have any combination of zeros in the high bytes of one and
+                   the low bytes of the next the only safe option is to ensure the addresses are
+                   on word boundaries. *)
+                doPending(code, wordSize*2 + 2);
+                align(0w2, code);
+                genop (MOVL_32_A, code);
+                genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
+                addConstToVec(WVal address, false, code);
+                addConstToVec(WVal toStore, false, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreByteRegToMemory{ toStore, address } :: remainder) =
+            (
+                checkSources[toStore];
+                genop (MOVB_R_A, code);
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                    (
+                        checkSources[base];
+                        genEA(offset, base, toStore, code) 
+                    )
+                |   BaseOffset{offset, base, index} =>
+                    (
+                        checkSources[base];
+                        checkIndexSource index;
+                        genIndexed(offset, SOME base, index, toStore, code)
+                    )
+                |   ConstantAddress address =>
+                    (
+                        genmodrm(Based0, getReg toStore, 0w5 (* constant address *), code);
+                        addConstToVec(WVal address, false, code)
+                    );
+                cgOp remainder
+            )
+
+        |   cgOp(StoreByteConstToMemory{ toStore=toStore, address } :: remainder) =
+            (
+                (* Short constant *)
+                genop (MOVB_8_A, code);
+                case address of
+                    BaseOffset{offset, base, index=NoIndex} =>
+                    (
+                        checkSources[base];
+                        genop2 (offset, base, 0w0, code) 
+                    )
+                |   BaseOffset{offset, base, index} =>
+                    (
+                        checkSources[base];
+                        checkIndexSource index;
+                        genIndexed (offset, SOME base, index, mkReg 0w0, code)
+                    )
+                |   ConstantAddress address =>
+                    (
+                        genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
+                        addConstToVec(WVal address, false, code)
+                    );
+                gen8u (toStore, code);
                 cgOp remainder
             )
 
@@ -4774,6 +5033,14 @@ Calling conventions:
                 cgOp remainder
             )
 
+        |   cgOp (FPUnary opc :: remainder) =
+            let
+                val {rm, nnn} = fpUnaryToWords opc
+            in
+                genFloatingPt({escape=0w1, md=0w3, nnn=nnn, rm=rm}, code); (* FCHS etc *)
+                cgOp remainder
+            end
+
         |   cgOp (FPStatusToEAX :: remainder) =
             (
                 addDests[eax];
@@ -4781,6 +5048,14 @@ Calling conventions:
                 gen8u(0wxe0, code);
                 cgOp remainder
             )
+
+        |   cgOp (FPFree reg :: remainder) =
+            let
+                val dest = case reg of FPReg fp => fp | _ => raise InternalError "fpreg"
+            in
+                genFloatingPt({escape=0w5, md=0w3, nnn=0w0, rm=dest}, code); (* FFREE FP(n) *)
+                cgOp remainder
+            end
 
         |   cgOp (FPLoadIntAndPop :: remainder) =
             (
@@ -4797,11 +5072,11 @@ Calling conventions:
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
             )
     in
-        cgOp opList
+        cgOp ops
     end
 
 
-    fun printCode (Code{procName, numOfConsts, pcOffset: word ref, constVec, printStream, ...}) seg endcode =
+    fun printCode (Code{procName, numOfConsts, constVec, printStream, ...}) seg endcode =
     let
         val print = printStream
         val ptr = ref 0w0;
@@ -4826,7 +5101,7 @@ Calling conventions:
                 val caddr = !ptr - 0w4
                 fun findRef [] = (* Not there - probably really tagged 0 *) printHex valu
                 |  findRef ((CVal(Code{procName, ...}), addr: word, _) :: rest) =
-                        if caddr = addr + ! pcOffset*0w4
+                        if caddr = addr
                         then print("=" ^ procName)
                         else findRef rest
                 |  findRef (_ :: rest) = findRef rest
@@ -5324,6 +5599,7 @@ Calling conventions:
                     |   (0w0, 0w5, rno) => print ("fsubr\tst,st(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w6, rno) => print ("fdiv\tst,st(" ^ Word8.toString rno ^ ")")
                     |   (0w0, 0w7, rno) => print ("fdivr\tst,st(" ^ Word8.toString rno ^ ")")
+                    |   (0w5, 0w0, rno) => print ("ffree\tst(" ^ Word8.toString rno ^ ")")
                     |   _ => (printHex(Word8.toInt opByte); printHex(Word8.toInt opByte2));
                     ptr +:= 0w1
                 )
@@ -5377,11 +5653,11 @@ Calling conventions:
     end (* printCode *);
 
     (* constLabels - fill in a constant in the code. *)
-    fun constLabels (Code{resultSeg=ref rseg, pcOffset=ref offset, ...},
+    fun constLabels (Code{resultSeg=ref rseg, ...},
                    addr : addrs, value : machineWord, isRel: bool) : unit =
     let
         val seg       = scSet rseg (* The address of the segment. *)
-        val constAddr = addr + wordsToBytes offset
+        val constAddr = addr
     in
         csegPutConstant (seg, constAddr, value, isRel)
     end;
@@ -5457,192 +5733,125 @@ Calling conventions:
   val minStackCheck = 20; 
   
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun copyCode (cvec, operations, stackRequired, registerSet) : address =
+    fun copyCode (cvec, operations, stackRequired, registerSet, callsAProc) : address =
     let
-        (* TODO: Previously we generated code as we went along and so could only
-           create the prelude at the end.  Now that we have the code as a list we
-           can generate the prelude first and then put the code into the segment.  *)
-    val () = codeGenerate(operations, cvec)
-
-    val Code{pcOffset, codeVec, noClosure, selfCalls = ref selfCalls, selfJumps = ref selfJumps,
-             mustCheckStack = ref callsAProc, numOfConsts, ic, constVec = ref constVec,
-             resultSeg, procName, printAssemblyCode, printStream, ...} = cvec
-    
-    (* This aligns ic onto a fullword boundary. *)
-    val ()   = align (0w0, cvec);
-    val endic      = !ic; (* Remember end *)
-    val ()   = gen32u (0w0, cvec); (* Marker - 0 (changes !ic) *)
-
-    (* Prelude consists of 
-       1) nops to make it a whole number of words
-       2) code to set the pointer to the constant area. 
-       3) stack checking code
-    *)
-    local
-      (* little-endian *)
-      fun getBytes (0, _) = []
-        | getBytes (n, x) = Word8.fromInt(x mod exp2_8) :: getBytes (n - 1, x div exp2_8);
-        
-      fun testRegAndTrap (reg, entryPt): Word8.word list =
-         [
-              (* cmp reg,16(%ebp)*)
-              opToInt(Arith (CMP, 0w3)),
-              modrm (Based8, getReg reg, getReg ebp),
-              Word8.fromInt MemRegStackLimit,
-              (* jnb 3 *)
-              opToInt JNB,
-              0w3,
-              (* call *)
-              opToInt Group5,
-              modrm (Based8, 0w2 (* call *), getReg ebp),
-              entryPt
-         ];
-
-      val stackCheckCode : Word8.word list =
-        if stackRequired >= minStackCheck
-        then let
-          val stackByteAdjust = ~4 * stackRequired;
-          val loadEdiCode : Word8.word list =
-            if is8Bit stackByteAdjust
-            then
-              [
-                opToInt LEAL,
-                modrm (Based8, getReg edi, 0w4), (* Need s-i-b byte for %esp *)
-                sib (Scale1, 0w4 (* no index *), getReg esp)
-              ] 
-              @ getBytes (1, stackByteAdjust)
-              
-                else
-              [
-                opToInt LEAL,
-                modrm (Based32, getReg edi, 0w4), (* Need s-i-b byte for %esp *)
-                sib (Scale1, 0w4 (* no index *), getReg esp)
-              ] 
-              @ getBytes (4, stackByteAdjust);
-          
-          val testEdiCode =
-            testRegAndTrap (edi, Word8.fromInt MemRegStackOverflowCallEx)
-        in
-          (* leal -stack_reqd(%esp),%edi; boundl %edi,16(%ebp); *)
-          loadEdiCode @ testEdiCode
-           (* The effect of this sequence is to generate an
-             overflow trap if sp < sl *)
-        end
-         
-        else if callsAProc (* check for user interrupt *)
-        then testRegAndTrap (esp, Word8.fromInt MemRegStackOverflowCall)
-               
-        else (* no stack check required *)
-          []; 
-
-(*****************************************************************************
-Functions now have up to 2 entry points:
-  (1) Standard entry point
-  (2) Self-call entry point - doesn't change %ecx
-
-Entry point 1 is always the first word of the actual code.
-Entry point 2 can be at various offsets (if it is needed at all),
-but that's OK because it is only used for calls within the procedure
-itself.
-
-*****************************************************************************)
-
-         val nopCode : Word8.word list =
+        (* Prelude consists of stack checking code.  N.B.  This is added on
+           after the main list is reversed so the code is not reversed. *)
+        val preludeCode =
+        let
+            fun testRegAndTrap(reg, entryPt) =
             let
-            (* Add sufficient No-ops to round this to a full word. *)
-                val len = List.length stackCheckCode mod wordSize
+                val callRTS = Labels(ref [], ref 0)
+                and skipCheck = Labels(ref [], ref 0)
             in
-                if len = 0
-                then []
-                else List.tabulate(wordSize - len, fn _ => opToInt NOP)
+                [
+                    ArithRMem{ opc=CMP, output=reg, offset=MemRegStackLimit, base=ebp },
+                    (* Normally we won't have a stack overflow so we will skip the check.
+                       To work with the static branch prediction algorithm add an extra
+                       branch here. *)
+                    ConditionalBranch{ test=JB, label=callRTS },
+                    UncondBranch skipCheck,
+                    ForwardJumpLabel callRTS,
+                    CallRTS entryPt,
+                    ForwardJumpLabel skipCheck
+                ]
             end
-            
-     in
-        val preludeCode = nopCode @ stackCheckCode;
-        val wordsForPrelude = Word.fromInt(List.length preludeCode) div Word.fromInt wordSize
+        in
+            if stackRequired >= minStackCheck
+            then
+            let
+                (* Compute the necessary amount in edi and compare that. *)
+                val stackByteAdjust = ~wordSize * stackRequired
+                val testEdiCode =
+                    testRegAndTrap (edi, MemRegStackOverflowCallEx)
+            in
+                 [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
+            end
+         
+            else if callsAProc (* check for interrupt *)
+            then testRegAndTrap (esp, MemRegStackOverflowCall)
+               
+            else [] (* no stack check required *)
+        end
+
+        (* The code is in reverse order.  Reverse it and put the prelude first. *)
+        val () = codeGenerate(preludeCode @ List.rev operations, cvec)
+
+        val Code{codeVec, noClosure, selfCalls = ref selfCalls, selfJumps = ref selfJumps,
+                 numOfConsts, ic, constVec = ref constVec,
+                 resultSeg, procName, printAssemblyCode, printStream, ...} = cvec
+    
+        (* This aligns ic onto a fullword boundary. *)
+        val ()   = align (0w0, cvec);
+        val endic      = !ic; (* Remember end *)
+        val ()   = gen32u (0w0, cvec); (* Marker - 0 (changes !ic) *)
+
+        val wordsForPrelude = 0w0
 
         (* +4 for code size, profile count, function name and constants count *)
          (* +1 for register mask. *)
-        val segSize = ((!ic)) div Word.fromInt wordSize + wordsForPrelude + 0w4 + 0w1;
+        val segSize = !ic div Word.fromInt wordSize + wordsForPrelude + 0w4 + 0w1;
        
         (* byte offset of L2 label relative to start of post-prelude code. *)
-        val stackCheckSize = List.length stackCheckCode;
-    end; (* local *)
+        val stackCheckSize = 0
 
-    (* fix-up all the self-calls to jump/call to the start of the stack check code. *)
-    val () = List.app (fixRecursiveCall (cvec, stackCheckSize)) selfCalls
-    val () = List.app (fixRecursiveBranch (cvec, stackCheckSize)) selfJumps
+        (* fix-up all the self-calls to jump/call to the start of the stack check code. *)
+        val () = List.app (fixRecursiveCall (cvec, stackCheckSize)) selfCalls
+        val () = List.app (fixRecursiveBranch (cvec, stackCheckSize)) selfJumps
 
-    (* Now make the byte segment that we'll turn into the code segment *)
-    val seg : cseg = csegMake segSize;
-    val offset     = wordsForPrelude;
+        (* Now make the byte segment that we'll turn into the code segment *)
+        val seg : cseg = csegMake segSize;
+        val offset     = wordsForPrelude;
     
-    val _ = resultSeg := Set seg;
+        val _ = resultSeg := Set seg;
     
-    (* Copy the code into the new segment. *)
-    val _ = pcOffset := offset;
-    val _ = csegCopySeg (codeVec, seg, (! ic), offset);
+        (* Copy the code into the new segment. *)
+        val _ = csegCopySeg (codeVec, seg, (! ic), offset);
 
-    (* insert prelude code into segment *)
-    
-    local
-        val ptr = ref 0w0;
-        (* Generate the prelude. *)
-        fun putPrelude (b: Word8.word) : unit =
+        local
+            val endOfCode = bytesToWords(! ic) + offset;
+        in
+            (* Byte offset of start of code. *)
+            local
+                val addr = wordsToBytes endOfCode
+            in
+                val () = set32u (Word.toLargeWord addr, addr, seg) 
+            end;
+      
+            (* Put in the number of constants. This must go in before we actually put
+               in any constants. There are now only two constants: the function name
+               and the register mask. All other constants are in the code. *)
+            local
+                val addr = wordsToBytes(endOfCode + 0w3 + 0w1)
+            in
+                val () = set32u (0w2, addr, seg) 
+            end;
+      
+            (* Next the profile count. *)
+            local
+                val addr = wordsToBytes(endOfCode + 0w1)
+            in
+                val () = set32u (0w0, addr, seg) 
+            end;
+      
+          (* Now we've filled in all the C integers; now we need to convert the segment
+             into a proper code segment before it's safe to put in any ML values.
+             SPF 13/2/97
+          *)
+            val () = csegConvertToCode seg;
+
+            local
+                (* why do we treat the empty string as a special case? SPF 15/7/94 *)
+                (* This is so that profiling can print "<anon>". Note that a
+                   tagged zero *is* a legal string (it's "\000"). SPF 14/10/94 *)
+                val nameWord : machineWord = if procName = "" then toMachineWord 0 else toMachineWord procName;
+            in
+                val _ = csegPutWord (seg, endOfCode + 0w2, nameWord);
+            end
+            val () = csegPutWord (seg, endOfCode + 0w3, toMachineWord(encodeRegSet registerSet))
+        end
+    in 
         let
-            val a = !ptr
-        in
-            csegSet (seg, a, b);
-            ptr := a + 0w1
-        end;
-    in
-        val () = List.app putPrelude preludeCode
-    end;
-    
-    local
-        val endOfCode = bytesToWords(! ic) + offset;
-    in
-        (* Byte offset of start of code. *)
-        local
-            val addr = wordsToBytes endOfCode
-        in
-            val () = set32u (Word.toLargeWord addr, addr, seg) 
-        end;
-      
-        (* Put in the number of constants. This must go in before we actually put
-           in any constants. There are now only two constants: the function name
-           and the register mask. All other constants are in the code. *)
-        local
-            val addr = wordsToBytes(endOfCode + 0w3 + 0w1)
-        in
-            val () = set32u (0w2, addr, seg) 
-        end;
-      
-        (* Next the profile count. *)
-        local
-            val addr = wordsToBytes(endOfCode + 0w1)
-        in
-            val () = set32u (0w0, addr, seg) 
-        end;
-      
-      (* Now we've filled in all the C integers; now we need to convert the segment
-         into a proper code segment before it's safe to put in any ML values.
-         SPF 13/2/97
-      *)
-      val () = csegConvertToCode seg;
-
-      local
-            (* why do we treat the empty string as a special case? SPF 15/7/94 *)
-            (* This is so that profiling can print "<anon>". Note that a
-               tagged zero *is* a legal string (it's "\000"). SPF 14/10/94 *)
-            val nameWord : machineWord = if procName = "" then toMachineWord 0 else toMachineWord procName;
-      in
-            val _ = csegPutWord (seg, endOfCode + 0w2, nameWord);
-      end;
-        val () = csegPutWord (seg, endOfCode + 0w3, toMachineWord(encodeRegSet registerSet))
-    end;  (* scope of endOfCode *)
-  in 
-    let
       (* and then copy the objects from the constant list. *)
       fun putConst (WVal c, addr, isRel) =
             ( (* Can put these in now. *)
@@ -5756,7 +5965,7 @@ itself.
 
     and moveMemoryToRegister(base, offset, output) =
         (* Destination can only be a general register not a FP reg. *)
-        [LoadMemR{base=base, offset=offset, output=output}]
+        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=output}]
 
     and moveConstantToRegister(lit, output as GenReg _) =
         if isShort lit
@@ -5775,17 +5984,21 @@ itself.
     and moveStackAddress(0, output) =
             [MoveRR{source=esp, output=output}]
     |   moveStackAddress(stackAddr, output) =
-            [Add3Const{source1=esp, source2=stackAddr*wordSize, output=output}]
+            [LoadAddress{base=SOME esp, offset=stackAddr*wordSize, index=NoIndex, output=output}]
 
     and storeRegisterToStack(reg, loc) =
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
-        else [StoreRegToMemory{toStore=reg, offset=loc, base=esp, index=NONE}]
+        else [StoreRegToMemory{toStore=reg, address=BaseOffset{offset=loc, base=esp, index=NoIndex}}]
 
     and storeConstantToStack(lit, loc) =
+    let
+        val addr = BaseOffset{offset=loc, base=regStackPtr, index=NoIndex}
+    in
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
         else if isShort lit
-        then [StoreConstToMemory{toStore=tag(Word.toInt(toShort lit)), offset=loc, base=regStackPtr, index=NONE}]
-        else [StoreLongConstToMemory{toStore=lit, offset=loc, base=regStackPtr, index=NONE}]
+        then [StoreConstToMemory{toStore=tag(Word.toInt(toShort lit)), address=addr}]
+        else [StoreLongConstToMemory{toStore=lit, address=addr}]
+    end
  
     fun pushRegisterToStack v = [PushR v]
     and pushConstantToStack lit =
@@ -5815,8 +6028,11 @@ itself.
         ([BackJumpLabel loopLabel], loopLabel)
     end
 
-    fun loadCurrentHandler output = [LoadMemR{ base=ebp, offset=MemRegHandlerRegister, output=output }]
-    and storeToHandler reg = [StoreRegToMemory{toStore=reg, offset=MemRegHandlerRegister, base=ebp, index=NONE}]
+    fun loadCurrentHandler output =
+        [LoadMemR{ source=BaseOffset{base=ebp, offset=MemRegHandlerRegister, index=NoIndex}, output=output }]
+    and storeToHandler reg =
+        [StoreRegToMemory{
+            toStore=reg, address=BaseOffset{offset=MemRegHandlerRegister, base=ebp, index=NoIndex}}]
     
     val pushCurrentHandler = [PushMem{base=ebp, offset=MemRegHandlerRegister}]
 

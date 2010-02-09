@@ -1383,13 +1383,11 @@ struct
                 case pstackRealEntry(table, hd l) of
                     {ent = StackW index, ...} => moveStackAddress(! realstackptr - index -1, destReg)
                 |   _ => raise InternalError "loadPstackEntry: container entry is not on stack";
-    in
        (* Decrement use count and remove if done. *)
-       incrUseCount (table, locn, ~1);
-
-       if pstackTrace then printStack(table, "loadPstackEntry", loadCode) else ();
-
-       loadCode
+       val codeAndRelease = incrUseCount (table, locn, ~1) @ loadCode
+    in
+       if pstackTrace then printStack(table, "loadPstackEntry", codeAndRelease) else ();
+       codeAndRelease
     end (* loadPstackEntry *)
 
     (* Pushes a new pstack entry; loads value into register;

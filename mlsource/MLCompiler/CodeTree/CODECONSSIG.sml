@@ -240,7 +240,7 @@ sig
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
-    val copyCode: code * operations * int * RegSet.regSet -> address
+    val copyCode: code * operations * int * RegSet.regSet * bool -> address
 
     val codeAddress: code -> address option
 
