@@ -370,7 +370,7 @@ structure TextIO :> TEXT_IO = struct
         val f = 
             sys_open_in_text s
                 handle exn => raise mapToIo(exn, s, "TextIO.openIn")
-        val buffsize = sys_get_buffsize f handle _ => 1024
+        val buffsize = sys_get_buffsize f
     in
         InStream(
             ref (Direct{descr=f, name=s, buffer=CharArray.array(buffsize, #" "),
@@ -381,7 +381,7 @@ structure TextIO :> TEXT_IO = struct
     (* Get the entries for standard input, standard output and standard error. *)
     val stdIn =
         let
-        val buffsize = sys_get_buffsize stdInDesc handle _ => 1024
+        val buffsize = sys_get_buffsize stdInDesc
         in
         InStream(
             ref (Direct{descr=stdInDesc, name="stdIn",
