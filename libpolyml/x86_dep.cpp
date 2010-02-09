@@ -1274,7 +1274,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     // before the operation, or as a result of adding two tagged values in which
                     // case arg1 will contain the result after the addition.
                     if (flagsWord & EFLAGS_OF) {
-                        arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() - arg2.AsUnsigned());
+                        if (rrr == bbb) { // Same register
+                            POLYUNSIGNED arg = arg1.AsUnsigned()/2;
+                            // If the carry flag was set the value was originally negative.
+                            if (flagsWord & EFLAGS_CF)
+                                arg |= (POLYUNSIGNED)1 << (sizeof(POLYUNSIGNED)*8-1);
+                            arg1 = arg2 = PolyWord::FromUnsigned(arg);
+                        }
+                        else arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() - arg2.AsUnsigned());
                     }
                     do_op(taskData, rrr, arg1, arg2, add_longc);
                     // The next operation will subtract the tag.  We need to add in a dummy tag..
