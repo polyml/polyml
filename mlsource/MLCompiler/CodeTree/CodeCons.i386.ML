@@ -1,5 +1,6 @@
 (*
-    Copyright (c) 2000-9
+    Copyright (c) 2000-10
+        David C.J. Matthews and
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -17,8 +18,15 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+structure X86OutputCode =
+    X86OUTPUTCODE(
+        structure DEBUG   = Debug
+        structure PRETTY  = Pretty
+    );
+
 structure CodeCons =
-  I386CODECONS (
-    structure DEBUG   = Debug
-    structure PRETTY  = Pretty
-  );
+    X86LOWLEVEL(
+        structure DEBUG   = Debug
+        structure PRETTY  = Pretty
+        structure X86CODE = X86OutputCode
+    );

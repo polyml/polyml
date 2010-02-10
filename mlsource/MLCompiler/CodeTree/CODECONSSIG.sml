@@ -244,8 +244,6 @@ sig
 
     val codeAddress: code -> address option
 
-    val traceContext: code -> string
-
     structure Sharing:
     sig
         type code           = code
