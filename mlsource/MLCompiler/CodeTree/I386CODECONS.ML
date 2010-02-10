@@ -636,6 +636,19 @@ struct
     |   group3OpsRepr DIV  = "DIV"
     |   group3OpsRepr IDIV = "IDIV"
 
+    datatype repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
+    
+    fun repOpsToWord CMPSB = 0wxa6: Word8.word
+    |   repOpsToWord MOVSB = 0wxa4
+    |   repOpsToWord MOVSL = 0wxa5
+    |   repOpsToWord STOSB = 0wxaa
+    |   repOpsToWord STOSL = 0wxab
+
+    fun repOpsRepr CMPSB = "CompareBytes"
+    |   repOpsRepr MOVSB = "MoveBytes"
+    |   repOpsRepr MOVSL = "MoveWords"
+    |   repOpsRepr STOSB = "StoreBytes"
+    |   repOpsRepr STOSL = "StoreWords"
 
     datatype fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
 
@@ -1606,14 +1619,14 @@ SS-relative addressing modes:
 
     (* Move an immediate value into a register. The immediate value may be
        any 32-bit number. *)
-    fun genMoveI (rd:reg, immed:int, cvec) =
+(*    fun genMoveI (rd:reg, immed:int, cvec) =
     (* There may be better ways e.g. xorl rd,rd; addl immed,rd. *)
     (* Need 32 bit immediate. *)
     (
         genop  (MOVL_32_R rd, cvec);
         gen32s (immed, cvec)
     )
-
+*)
     type handlerLab = addrs ref;
   
     (* Loads the address of the destination of a branch. Used to
@@ -1887,48 +1900,72 @@ Calling conventions:
     end
 
     (* Allocate store and put the resulting pointer in the result register. *)
-    fun allocStoreCode (size, resultReg, cvec as Code{ic, ...}) =
-    let
-        val bytes = (size + 1) * wordSize
-    in
-        (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
-           call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
-        genLoad (MemRegLocalMPointer, ebp, resultReg, cvec);
-        genLeal (resultReg, resultReg, ~ bytes, cvec);
-    
-        genop (Arith (CMP, 0w3 (* r/m to reg *)), cvec);
-        genmodrm(Based8, getReg resultReg, getReg ebp, cvec);
-        gen8s (MemRegLocalMbottom, cvec);
+    local
+        fun allocStoreCommonCode (resultReg, cvec as Code{ic, ...}) =
+        (
+            (* Common code.  resultReg contains the possible new address. *)
+            genop (Arith (CMP, 0w3 (* r/m to reg *)), cvec);
+            genmodrm(Based8, getReg resultReg, getReg ebp, cvec);
+            gen8s (MemRegLocalMbottom, cvec);
 
-        let
-            (* Normally we won't have run out of store so we want the default
-               branch prediction to skip the test here.  The default is not to
-               take conditional branches so we have to add an extra unconditional
-               branch. *)
-            val lab =
-                let
-                    val () = genop(JB, cvec);
-                    val () = gen8u (0w0, cvec);
-                    val lab2 = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                    val () = genop(JMP_8, cvec);
-                    val () = gen8u (0w0, cvec);
-                    val lab = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                in
-                    fixup(lab2, cvec);
-                    lab
-                end
-              (*val lab = [putConditional(JNB, cvec)]*)
-        in
-            (* If we don't have enough store for this allocation we call this
-               function. *)
-            genop (Group5, cvec);
-            genmodrm(Based8, 0w2 (* call *), getReg ebp, cvec);
-            gen8s (MemRegHeapOverflowCall, cvec);
-            fixup (lab, cvec)
-        end;
+            let
+                (* Normally we won't have run out of store so we want the default
+                   branch prediction to skip the test here.  The default is not to
+                   take conditional branches so we have to add an extra unconditional
+                   branch. *)
+                val lab =
+                    let
+                        val () = genop(JB, cvec);
+                        val () = gen8u (0w0, cvec);
+                        val lab2 = [makeShortLabel (!ic addrPlus ~1, cvec)]
+                        val () = genop(JMP_8, cvec);
+                        val () = gen8u (0w0, cvec);
+                        val lab = [makeShortLabel (!ic addrPlus ~1, cvec)]
+                    in
+                        fixup(lab2, cvec);
+                        lab
+                    end
+                  (*val lab = [putConditional(JNB, cvec)]*)
+            in
+                (* If we don't have enough store for this allocation we call this
+                   function. *)
+                genop (Group5, cvec);
+                genmodrm(Based8, 0w2 (* call *), getReg ebp, cvec);
+                gen8s (MemRegHeapOverflowCall, cvec);
+                fixup (lab, cvec)
+            end;
     
-        genStoreW (resultReg, MemRegLocalMPointer, ebp, regNone, cvec)
-     end
+            genStoreW (resultReg, MemRegLocalMPointer, ebp, regNone, cvec)
+         )
+
+    in
+        fun allocStoreCode (size, resultReg, cvec) =
+        let
+            val bytes = (size + 1) * wordSize
+        in
+            (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
+               call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
+            genLoad (MemRegLocalMPointer, ebp, resultReg, cvec);
+            genLeal (resultReg, resultReg, ~ bytes, cvec);
+            allocStoreCommonCode(resultReg, cvec)
+        end
+
+        and allocStoreVarCode(resultReg, code) =
+            (* The result reg contains the requested size as a number of bytes
+               on entry and returns with the base address. *)
+        (
+            (* Turn this into a negative value. *)
+            genop(Group3_A, code);
+            genmodrm(Register, 0w3 (* neg *), getReg edi, code);
+            (* Add this negative value to the current heap pointer. *)
+            genop (Arith (ADD, 0w3 (* r/m to reg *)), code);
+            genmodrm(Based8, getReg edi, getReg ebp, code);
+            gen8s (MemRegLocalMPointer, code);
+            allocStoreCommonCode(resultReg, code)
+        )
+    end
+
+
 
     fun allocStoreAndSetSize (size, flag, resultReg, cvec) =
     (
@@ -1957,6 +1994,7 @@ Calling conventions:
     |   PushConst of int
     |   PushLongConst of machineWord
     |   PushMem of { base: reg, offset: int }
+    |   PopR of reg
     |   ArithRR of { opc: arithOp, output: reg, source: reg }
     |   ArithRConst of { opc: arithOp, output: reg, source: int }
     |   ArithRLongConst of { opc: arithOp, output: reg, source: machineWord }
@@ -1978,6 +2016,7 @@ Calling conventions:
     |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
     |   AllocStore of { size: int, output: reg }
+    |   AllocStoreVariable of reg
     |   CallFunction of { callKind: callKinds }
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
     |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
@@ -1999,7 +2038,7 @@ Calling conventions:
             { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word }
     |   RegisterStatusChange of { activate: regSet, free: regSet }
     |   MakeSafe of reg
-    |   CompareBytes
+    |   RepeatOperation of repOps
     |   Group3Ops of reg * group3Ops
     |   AtomicXAdd of {base: reg, output: reg}
     |   FPLoadFromGenReg of reg
@@ -2100,6 +2139,8 @@ Calling conventions:
 
         |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, NoIndex, offset))
 
+        |   PopR dest => (stream "PopR "; printReg dest)
+
         |   StoreRegToMemory { toStore, address } =>
             (
                 stream "StoreRegToMemory "; printMemAddress address;
@@ -2164,6 +2205,8 @@ Calling conventions:
         |   AllocStore { size, output } =>
                 (stream "AllocStore "; stream(Int.toString size); stream " => "; printReg output )
 
+        |   AllocStoreVariable reg => (stream "AllocStoreVariable "; printReg reg )
+
         |   TagValue { source, output } =>
                 (stream "TagValue "; printReg output; stream " <= "; printReg source)
 
@@ -2203,7 +2246,7 @@ Calling conventions:
                 stream " -"; stream(regSetRepr free)
             )
         |   MakeSafe reg => ( stream "MakeSafe "; printReg reg)
-        |   CompareBytes => stream "CompareBytes"
+        |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
         |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printReg reg)
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printReg base; stream ") <=> "; printReg output)
         |   FPLoadFromGenReg reg => (stream "FPLoad "; printReg reg)
@@ -2280,38 +2323,6 @@ Calling conventions:
                         else SOME(InstrMulA, args)
                 |   _ => SOME(InstrMulA, args)
             )
-
-        |   checkAndReduce(InstrAllocStore, [lengthArg, flagArg, initValArg], mapper) =
-            let
-                (* This is used to allocate memory for refs, arrays, strings etc.  The first
-                   arg is the length, the second the flags byte and the third the initial
-                   value used to initialise each word, for word segments, or byte for
-                   byte segs. *)
-                val len = (* We only use the fixed length version for small segments of words. *)
-                    case (mapper lengthArg, mapper flagArg) of
-                        (SOME constLength, SOME constFlags) =>
-                            if toShort constLength < 0w5 andalso
-                                Word8.fromLargeWord(Word.toLargeWord(toShort constFlags)) = F_mutable
-                            then SOME(toShort constLength)
-                            else NONE
-                    |   _ => NONE
-            in
-                case mapper flagArg of
-                    NONE => NONE (* Non-constant flags: leave it to the RTS. *)
-
-                |   SOME constFlags =>
-                    let
-                        val flags = Word8.fromLargeWord(Word.toLargeWord(toShort constFlags))
-                    in
-                        case len of
-                            SOME len => SOME(InstrAllocStoreWordFixedLength{length=len, flags=flags}, [initValArg])
-                        |   NONE => SOME(InstrAllocStoreVarLength{flags=flags}, [lengthArg, initValArg])
-                    end
-            end
-
-        |   checkAndReduce(InstrUnimplemented, _, _) = NONE
-                (* The default is to return the instruction and arguments unchanged. *)
-        |   checkAndReduce(instr, args, _) = SOME(instr, args)
     end*)
 
     (* Argument negotiation.  The idea is to get the arguments into the "best" locations
@@ -2556,7 +2567,7 @@ Calling conventions:
                 allInRegisters(generalRegisters, generateInstruction instr)
                 ) (List.map(fn _ => NONE) args, NONE) args
 
-        local (* In many cases we want to use the same register for an argument as for the result. *)
+(*        local (* In many cases we want to use the same register for an argument as for the result. *)
             fun loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}, _] =
                     if regSetIntersect(modifiable, generalRegisters) <> noRegisters
                     then
@@ -2586,7 +2597,7 @@ Calling conventions:
             |   loadDestArg _ _ = raise InternalError "loadDestArg: not two arguments"
         in
             val sharedPairArgNegotiator = loadDestArg
-        end
+        end*)
 
         local (* Single argument case *)
             fun loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}] =
@@ -2607,35 +2618,7 @@ Calling conventions:
         in
             val sharedSingleArgNegotiator = loadDestArg
         end
-
-(*        fun genInstr instr (operands, results) =
-            [DataOp{ instr = instr, operands = operands, output = results}]
-    
-        (*|   negotiateArguments(instr as InstrMulA, _) = multiplyNegotiator instr*)
-            (* Only use the negotiator for word multiplication at the moment. *)
-        |   negotiateArguments(instr as InstrMulW, _) = multiplyNegotiator(genInstr instr)
-    
-        |   negotiateArguments(instr as InstrAllocStoreVarLength _, pref) =
-                (* When allocating vectors/arrays we have to initialise the store and the easiest way to
-                   do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-                 loadToSpecificReg(ecx, true, 0,
-                    (* We don't actually need this to be modifiable if we're initialising with words. *)
-                    loadToSpecificReg(eax, true, 1,
-                        getResultRegister(singleton edi, pref, generateInstruction (genInstr instr))))
-                    ([NONE, NONE], NONE)
-
-        |   negotiateArguments(instr as InstrMemMove _, _) =
-                (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
-                   The source and destination offsets can be any registers.  We can't add the offsets in
-                   advance because that would create invalid addresses. *)
-                loadToSpecificReg(esi, true, 0,
-                    loadToSpecificReg(edi, true, 2,
-                        loadToSpecificReg(ecx, true, 4,
-                            allInRegsOrLiterals(generalRegisters, generateInstruction (genInstr instr))
-                            ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
-
-        |   negotiateArguments(instr, pref) = generalNegotiator(genInstr instr, pref)
- *)        
+       
         local
             fun genStoreWord([base, index, value], NONE) =
             let
@@ -2783,7 +2766,6 @@ Calling conventions:
                the flags byte to go into the newly allocated store, and the initial value
                for each of the words of the memory.  We implement some common cases here
                and leave the rest to the allocator in the RTS. *)
-            
             fun genFixedAlloc(length, flags) ([InRegister initReg], SOME output) =
                 let
                     fun initialiser n =
@@ -2794,6 +2776,47 @@ Calling conventions:
                     allocStore{size=length, flags=flags, output=output}
                 end
             |   genFixedAlloc _ _ = raise InternalError "genFixedAlloc"
+
+            (* Allocate memory whose length isn't known at compile time and initialise it. *)
+            fun genVarAlloc flags ([InRegister _(*ecx*), InRegister _(*eax*)], SOME _ (* edi*)) =
+                let
+                    val initialiser =
+                        if (flags andb8 F_bytes) <> 0w0
+                        then (* Initialise it as bytes. *)
+                            [MakeSafe eax, RepeatOperation STOSB,
+                             (* Untag the initialiser in eax. *)
+                             ShiftConstant{ shiftType=SRL, output=eax, shift=0w1},
+                             (* Convert the length, which is in words, to bytes. *)
+                             ShiftConstant{shiftType=SLL, output=ecx,
+                                shift=if wordSize=4 then 0w2 else 0w3}]
+                        else [RepeatOperation STOSL]
+                in
+                    [PopR edi] @ (* Pop the saved edi *)
+                    initialiser @
+                    [
+                        (* Now initialise the memory. *)
+                        (* Save edi before we start. *)
+                        PushR edi,
+                        (* Set the flags.  At least the mutable bit should be set. *)
+                        StoreByteConstToMemory{
+                            toStore=flags,
+                            address=BaseOffset{offset= ~1, base=edi, index=NoIndex}},
+                        (* Store it as the length field. *)
+                        StoreRegToMemory{toStore=ecx,
+                            address=BaseOffset{base=edi, offset= ~wordSize, index=NoIndex}},
+                        (* It's now safe to untag ecx *)
+                        ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1},
+                        (* Allocate the memory *)
+                        AllocStoreVariable edi,
+                        (* Compute the number of bytes into edi. The length in ecx is the number
+                           of words as a tagged value so we need to multiply it, add wordSize to
+                           include one word for the header then subtract the, multiplied, tag. *)
+                        if wordSize = 4
+                        then LoadAddress{output=edi, base=SOME ecx, offset=wordSize-2, index=Index1 ecx }
+                        else LoadAddress{output=edi, base=NONE, offset=wordSize-4, index=Index4 ecx }
+                    ]
+                end
+            |   genVarAlloc _ _ = raise InternalError "genVarAlloc"
         in
             (* Decide if we can implement it. *)
             fun instrAllocStore([lengthArg, flagArg, initValArg], mapper) =
@@ -2818,11 +2841,19 @@ Calling conventions:
                         val flags = wordToWord8(toShort constFlags)
                         fun allocStoreFixedLength(length, flags) prefs =
                                 (* Get a result reg and put the initial value in a reg. *)
-                                generalNegotiator(genFixedAlloc(length, flags), prefs)
+                            generalNegotiator(genFixedAlloc(length, flags), prefs)
+                        fun allocStoreVarLength flags pref =
+                            (* When allocating vectors/arrays we have to initialise the store and the easiest way to
+                                do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
+                            loadToSpecificReg(ecx, true, 0,
+                                (* We don't actually need this to be modifiable if we're initialising with words. *)
+                                loadToSpecificReg(eax, true, 1,
+                                    getResultRegister(singleton edi, pref, generateInstruction(genVarAlloc flags))))
+                                        ([NONE, NONE], NONE)
                     in
                         case len of
                             SOME len => SOME(allocStoreFixedLength(Word.toInt len, flags), [initValArg])
-                        |   NONE => NONE (*SOME(InstrAllocStoreVarLength{flags=flags}, [lengthArg, initValArg])*)
+                        |   NONE => SOME(allocStoreVarLength flags, [lengthArg, initValArg])
                     end
             end
             |   instrAllocStore _ = raise InternalError "instrAllocStore: Wrong number of args"
@@ -3037,15 +3068,6 @@ Calling conventions:
             and instrAndW = fn (args, _) => SOME(wordSelectDest(AND, noTagTest), args)
             and instrXorW = fn (args, _) => SOME(wordSelectDest(XOR, noTagTest), args)
         end
-        
-        local
-            val unimplementedInstr = fn _ => NONE
-        in
-            val instrDivW = unimplementedInstr
-            and instrModW = unimplementedInstr
-            and instrMoveBytes = unimplementedInstr
-            and instrMoveWords = unimplementedInstr
-        end
 
         local
             (* If the source or the index are in registers they have to be untagged first and
@@ -3221,7 +3243,7 @@ Calling conventions:
                     else
                     (
                         case shift of
-                            0w1 => [LoadAddress{output=reg, base=NONE, index=Index2 reg, offset= ~1}]
+                            0w1 => [LoadAddress{output=reg, base=SOME reg, index=Index1 reg, offset= ~1}]
                         |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
                         |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
                         |   _ => [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
@@ -3400,6 +3422,143 @@ Calling conventions:
                 |   _ => NONE(*SOME(InstrMulA, args)*)
             )
             |   instrMulA _ = raise InternalError "instrMulA"
+
+            local (* Unsigned word div and mod. *)
+                (* Division by a power of two is just a right shift. *)
+                fun shiftDown shift = constantShift(SRL, shift)
+                (* Modulo by a power of two is a mask. *)
+                fun maskBits shift pref =
+                let
+                    fun genMask(_, SOME resReg) =
+                        if shift > maxShift
+                        then []
+                        else (* Because we're going to mask a tagged value we need to add 1 to the shift. *)
+                           [ArithRConst{opc=AND, output=resReg, source=IntInf.<<(1, shift+0w1) -1 }]
+                    |   genMask _ = raise InternalError "genMask"
+                in
+                    sharedSingleArgNegotiator(genMask, pref)
+                end
+   (* Common code for div and mod word.  They are identical apart from
+       getting the result. *)
+(*    fun divmodWord(isDiv: bool, r1:reg, r2:reg, rd:reg, cvec) : unit =
+    let
+          (* The divisor needs to be a different register from
+             either eax or edx.  It also needs to be different from
+             r1 since we're going to modify divReg before we load r1
+             into eax. *)
+        val divReg =
+            if rd <> eax andalso rd <> edx
+            then rd
+            else if r1 <> ecx
+            then ecx
+            else esi
+    in
+        (* This is a bit complicated because the result is always placed
+            in the EDX:EAX register pair so we have to save one or both. *)
+        if rd <> eax then genPush(eax, cvec) else ();
+        if rd <> edx then genPush(edx, cvec) else ();
+        if divReg <> rd then genPush(divReg, cvec) else ();
+        (* Untag, but don't shift, the divisor and dividend. *)
+        if r2 = eax
+        then
+        (
+             if divReg = r1
+             then raise InternalError "Assertion failed: Invalid registers"
+             else ();
+             (* We use move followed by subtraction since that tests the result for zero. *)
+             genMove(divReg, r2, cvec);
+             genImmed (SUB, divReg, 1, cvec);
+             genLeal (eax, r1, ~1, cvec)
+        )
+        else
+        (
+             genLeal (eax, r1, ~1, cvec);
+             genMove(divReg, r2, cvec);
+             genImmed (SUB, divReg, 1, cvec)
+        );
+        let
+            val lab = [putConditional (JNE, cvec)]
+        in
+            (* call *) (* Use a call so we can get an exception trace. *)
+            genop(Group5, cvec);
+            genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
+            gen8u (Word8.fromInt MemRegRaiseDiv, cvec);
+            fixup (lab, cvec)
+        end;
+        (* Do the division. *)
+        genReg  (XOR, edx, edx, cvec);
+        genop (Group3_A, cvec);
+        genmodrm(Register, 0w6 (* div *), getReg divReg, cvec);
+         
+        if isDiv
+        then
+        ( (* Tag the result into the result register. *)
+             genop (LEAL, cvec);
+             genIndexed (1, SOME eax, Index1 eax, rd, cvec)
+        )
+        else (* Add the tag back into the remainder. *)
+             genLeal (rd, edx, 1, cvec);
+
+        (* Restore the saved registers.  N.B. This also has
+           the effect of making sure that both eax and edx contain
+           valid values. *)
+        if divReg <> rd then genop(POP_R divReg, cvec) else ();
+        if rd <> edx then genop(POP_R edx, cvec) else ();
+        if rd <> eax then genop(POP_R eax, cvec) else ()
+    end*)
+
+                (* If the dividend is not a power of two we have to use the DIV instruction.
+                   This takes the divisor in the EDX/EAX pair and the dividend in a separate
+                   register.  We get EDX as a work register and put the divisor in EAX. *)
+                fun genDivMod isDiv ([_, InRegister dividend], _) =
+                    let
+                        val notZero = Labels(ref [], ref 0)
+                    in
+                        (* Because we didn't shift the dividend and the divisor we don't
+                           need to shift the remainder but just add in the tag.  We do have
+                           to shift and tag the quotient.  Either way we have to make the
+                           other register safe. *)
+                        (if isDiv
+                        then [MakeSafe edx, TagValue{source=eax, output=eax}]
+                        else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
+                        [
+                            (* Clear the high order of the accumulator and do the division. *)
+                            Group3Ops(dividend, DIV),
+                            ArithRR{opc=XOR, source=edx, output=edx},
+                            (* Untag, but don't shift, the divisor and dividend.  At the
+                               same time check for zero and raise an exception if it is. *)
+                            ArithRConst{opc=SUB, source=1, output=eax},
+                            ForwardJumpLabel notZero,
+                            CallRTS MemRegRaiseDiv,
+                            ConditionalBranch{test=JNE, label=notZero},
+                            ArithRConst{opc=SUB, source=1, output=dividend}
+                        ]
+                    end
+
+                |   genDivMod _ _ = raise InternalError "genDivMod"
+
+                fun divModCode isDiv _ =
+                    getWorkingRegister(singleton edx,
+                        fn _ => loadToSpecificReg(eax, true, 0,
+                            loadToOneOf(generalRegisters, false, 1,
+                                generateInstruction(genDivMod isDiv)
+                            )
+                        )
+                    ) ([NONE, NONE], SOME(if isDiv then eax else edx))
+
+                fun checkPower2 (p2Code, genCode, args as [arg1, arg2], mapper) =
+                    ( (* Special case where the dividend is a power of two.  We could maybe
+                         take out the special case of zero here and just raise an exception but
+                         that's hardly worth it. *)
+                        case Option.composePartial(getPower2 o toShort, mapper) arg2 of
+                            SOME n => SOME(p2Code n, [arg1])
+                        |   NONE => SOME(genCode, args)
+                    )
+                |   checkPower2 _ = raise InternalError "checkPower2"
+            in
+                fun instrDivW(args, mapper) = checkPower2(shiftDown, divModCode true, args, mapper)
+                and instrModW(args, mapper) = checkPower2(maskBits, divModCode false, args, mapper)
+            end
         end
 
         local
@@ -3435,6 +3594,71 @@ Calling conventions:
         in
             fun instrAtomicIncr(args, _) = SOME(fn pref => generalNegotiator(atomicOp 1, pref), args)
             and instrAtomicDecr(args, _) = SOME(fn pref => generalNegotiator(atomicOp ~1, pref), args)
+        end
+        
+        local
+            fun byteMemMove([InRegister _, sourceOffset, InRegister _, destOffset, InRegister _], _) =
+                let (* Byte move.  The offsets are byte offsets. *)
+                    fun getOffset(InRegister offsetReg, baseReg) =
+                        [
+                            (* If it's in a register untag it, add it and then retag. *)
+                            TagValue{ source=offsetReg, output=offsetReg},
+                            ArithRR{ opc=ADD, output=baseReg, source=offsetReg },
+                            ShiftConstant{ shiftType=SRL, output=offsetReg, shift=0w1}
+                        ]
+                        |   getOffset(LiteralSource lit, baseReg) =
+                            let
+                                val shortLit = toShort lit
+                            in
+                                if shortLit = 0w0 then [] else
+                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                            end
+                        |   getOffset _ = raise InternalError "getOffset"
+                in
+                    [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSB] @
+                    getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
+                    (* Untag the length. *)
+                    [ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1}]
+                end
+
+            |   byteMemMove _ = raise InternalError "byteMemMove"
+            
+            and wordMemMove([InRegister _, sourceOffset, InRegister _, destOffset, InRegister _], _) =
+                let
+                    (* Word move.  The offsets and the count are the number of words.
+                       We can compute the offset by using the LEAL instruction. *)
+                    fun getOffset(InRegister offsetReg, baseReg) =
+                        if wordSize = 4
+                        then [LoadAddress{output=baseReg, offset= ~2, base=SOME baseReg, index=Index2 offsetReg }]
+                        else [LoadAddress{output=baseReg, offset= ~4, base=SOME baseReg, index=Index4 offsetReg }]
+                    |   getOffset(LiteralSource lit, baseReg) =
+                        let
+                            val shortLit = toShort lit
+                        in
+                            if shortLit = 0w0 then [] else
+                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit * wordSize}]
+                        end
+                    |   getOffset _ = raise InternalError "getOffset"
+                in
+                    [MakeSafe ecx, MakeSafe esi, MakeSafe edi, RepeatOperation MOVSL] @
+                    getOffset(destOffset, edi) @ getOffset(sourceOffset, esi) @
+                    (* Untag the length. *)
+                    [ShiftConstant{ shiftType=SRL, output=ecx, shift=0w1}]
+                end
+            |   wordMemMove _ = raise InternalError "byteMemMove"
+
+            fun genMemMove memMove _ =
+                (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
+                   The source and destination offsets can be any registers.  We can't add the offsets in
+                   advance because that would create invalid addresses. *)
+                loadToSpecificReg(esi, true, 0,
+                    loadToSpecificReg(edi, true, 2,
+                        loadToSpecificReg(ecx, true, 4,
+                            allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
+                            ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
+        in
+            fun instrMoveBytes(args, _) = SOME(genMemMove byteMemMove, args)
+            and instrMoveWords(args, _) = SOME(genMemMove wordMemMove, args)
         end
 
         local
@@ -3626,7 +3850,7 @@ Calling conventions:
                         MakeSafe ecx, (* These will now be invalid *)
                         MakeSafe esi,
                         MakeSafe edi,
-                        CompareBytes, (* Compare the bytes. *)
+                        RepeatOperation CMPSB, (* Compare the bytes. *)
                         ArithRR{opc=CMP, output=ecx, source=ecx}, (* Set the Z flag before we start. *)
                         ShiftConstant{shiftType=SRL, output=ecx, shift=0w1} (* Untag the length. *)
                     ] @ getOffset(offset2, edi) @ getOffset(offset1, esi)
@@ -3906,75 +4130,6 @@ Calling conventions:
             gen32u   (0w1, cvec)
         )
 
-    (* Common code for div and mod word.  They are identical apart from
-       getting the result. *)
-    fun divmodWord(isDiv: bool, r1:reg, r2:reg, rd:reg, cvec) : unit =
-    let
-          (* The divisor needs to be a different register from
-             either eax or edx.  It also needs to be different from
-             r1 since we're going to modify divReg before we load r1
-             into eax. *)
-        val divReg =
-            if rd <> eax andalso rd <> edx
-            then rd
-            else if r1 <> ecx
-            then ecx
-            else esi
-    in
-        (* This is a bit complicated because the result is always placed
-            in the EDX:EAX register pair so we have to save one or both. *)
-        if rd <> eax then genPush(eax, cvec) else ();
-        if rd <> edx then genPush(edx, cvec) else ();
-        if divReg <> rd then genPush(divReg, cvec) else ();
-        (* Untag, but don't shift, the divisor and dividend. *)
-        if r2 = eax
-        then
-        (
-             if divReg = r1
-             then raise InternalError "Assertion failed: Invalid registers"
-             else ();
-             (* We use move followed by subtraction since that tests the result for zero. *)
-             genMove(divReg, r2, cvec);
-             genImmed (SUB, divReg, 1, cvec);
-             genLeal (eax, r1, ~1, cvec)
-        )
-        else
-        (
-             genLeal (eax, r1, ~1, cvec);
-             genMove(divReg, r2, cvec);
-             genImmed (SUB, divReg, 1, cvec)
-        );
-        let
-            val lab = [putConditional (JNE, cvec)]
-        in
-            (* call *) (* Use a call so we can get an exception trace. *)
-            genop(Group5, cvec);
-            genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
-            gen8u (Word8.fromInt MemRegRaiseDiv, cvec);
-            fixup (lab, cvec)
-        end;
-        (* Do the division. *)
-        genReg  (XOR, edx, edx, cvec);
-        genop (Group3_A, cvec);
-        genmodrm(Register, 0w6 (* div *), getReg divReg, cvec);
-         
-        if isDiv
-        then
-        ( (* Tag the result into the result register. *)
-             genop (LEAL, cvec);
-             genIndexed (1, SOME eax, Index1 eax, rd, cvec)
-        )
-        else (* Add the tag back into the remainder. *)
-             genLeal (rd, edx, 1, cvec);
-
-        (* Restore the saved registers.  N.B. This also has
-           the effect of making sure that both eax and edx contain
-           valid values. *)
-        if divReg <> rd then genop(POP_R divReg, cvec) else ();
-        if rd <> edx then genop(POP_R edx, cvec) else ();
-        if rd <> eax then genop(POP_R eax, cvec) else ()
-    end
-
     (* Previously the jump table was a vector of destination addresses.
        Now changed to use a vector of jump instructions.  These are padded
        out to 8 bytes with no-ops.  The reason for the change is to ensure
@@ -4209,160 +4364,6 @@ Calling conventions:
                 gen8u(0wxff - 0wx40, code);
                 cgOp remainder
             )
-(*
-         |   cgOp(DataOp{instr=InstrAllocStoreVarLength{flags},
-                        operands=[InRegister lengthReg, InRegister initVal], output=SOME output} :: remainder) =
-                let
-                    val _ = checkSources[lengthReg, initVal]; val _ = addDests[output];
-                    val () =
-                        if lengthReg = ecx andalso initVal = eax andalso output = edi then ()
-                        else raise InternalError "InstrAllocStore: bad registers"
-                in
-                    (* Because we may get a garbage collection we need to put the untagged
-                       length in the edi register until we're sure we have the memory. *)
-                    genMove(edi, ecx, code);
-                    genop (Group2_1_A, code);
-                    genmodrm(Register, 0w5 (* shr *), getReg edi, code);
-                    (* Add one for the length word. *)
-                    genImmed (ADD, edi,  1, code);
-                    genop (Group2_8_A, code);
-                    (* Multiply by the word size. *)
-                    genmodrm(Register, 0w4 (* shl *), getReg edi, code);
-                    gen8s (if wordSize = 4 then 2 else 3, code);
-                    (* Turn this into a negative value. *)
-                    genop(Group3_A, code);
-                    genmodrm(Register, 0w3 (* neg *), getReg edi, code);
-                    (* Add this negative value to the current heap pointer. *)
-                    genop (Arith (ADD, 3 (* r/m to reg *)), code);
-                    genmodrm(Based8, getReg edi, getReg ebp, code);
-                    gen8s (MemRegLocalMPointer, code);
-                    (* Check there's space. *)
-                    genop (Arith (CMP, 3 (* r/m to reg *)), code);
-                    genmodrm(Based8, getReg edi, getReg ebp, code);
-                    gen8s (MemRegLocalMbottom, code);
-
-                    let
-                       val lab = [putConditional (JNB, code)]
-                    in
-                        (* If we don't have enough store for this allocation we call this
-                           function. *)
-                        genop (Group5, code);
-                        genmodrm(Based8, 0w2 (* call *), getReg ebp, code);
-                        gen8s (MemRegHeapOverflowCall, code);
-                        fixup (lab, code)
-                    end;
-                    (* Save the updated store pointer. *)
-                    genStoreW (edi, MemRegLocalMPointer, ebp, NONE, code);
-                    (* It's now safe to untag ecx *)
-                    genop (Group2_1_A, code);
-                    genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
-                    (* Store it as the length field. *)
-                    genStoreW (ecx, ~ wordSize, edi, NONE, code);
-                    (* Set the flags byte. *)
-                    genStoreIB(toMachineWord flags, ~1, edi, NONE, code);
-                    (* Now initialise the memory. *)
-                    (* Save edi before we start. *)
-                    genPush(edi, code);
-                    if (flags andb8 F_bytes) <> 0w0
-                    then
-                    (
-                        (* Convert the length, which is in words, to bytes. *)
-                        genop (Group2_8_A, code);
-                        (* Multiply by the word size. *)
-                        genmodrm(Register, 0w4 (* shl *), getReg ecx, code);
-                        gen8s (if wordSize = 4 then 2 else 3, code);
-                        (* Untag eax *)
-                        genop (Group2_1_A, code);
-                        genmodrm(Register, 0w5 (* shr *), getReg eax, code);
-                        genop(REP, code);
-                        gen8u(0wxaa (*stosb*), code)
-                    )
-                    else
-                    (
-                        genop(REP, code);
-                        gen8u(0wxab (*stosl*), code)
-                    );
-                    genop(POP_R edi, code);
-                    (* Finally copy the output value into ecx and eax so they're safe. *)
-                    genMove(ecx, edi, code);
-                    if (flags andb8 F_bytes) <> 0w0 then genMove(eax, edi, code) else ();
-                cgOp remainder
-                end
-
-        |   cgOp(DataOp{instr=InstrMemMove unitSize,
-                        operands=[InRegister sourceAddr, sourceOffset(* Literal or register *), InRegister destAddr,
-                                  destOffset(* Literal or register *), InRegister moveLength], output=NONE} :: remainder) =
-                let
-                    val _ = checkSources[sourceAddr, destAddr, moveLength]
-                    val () =
-                        if sourceAddr = esi andalso destAddr = edi andalso moveLength = ecx then ()
-                        else raise InternalError "InstrMemMove: bad registers"
-                    val () = if unitSize = 0w1 orelse unitSize = Word.fromInt wordSize then ()
-                        else raise InternalError "InstrMemMove: bad size"
-                in
-                    (* Untag the length. *)
-                    genop (Group2_1_A, code);
-                    genmodrm(Register, 0w5 (* shr *), getReg ecx, code);
-                    if unitSize = 0w1
-                    then (* Byte move.  The offsets are byte offsets. *)
-                    let
-                        fun getOffset(InRegister offsetReg, baseReg) =
-                            (
-                                checkSources[offsetReg];
-                                (* If it's in a register untag it, add it and then retag. *)
-                                genop (Group2_1_A, code);
-                                genmodrm(Register, 0w5 (* shr *), getReg offsetReg, code);
-                                genReg(ADD, baseReg, offsetReg, code);
-                                genop (LEAL, code);
-                                genIndexed (1, SOME offsetReg, offsetReg, Scale1, offsetReg, code)
-                            )
-                        |   getOffset(LiteralSource lit, baseReg) =
-                            let
-                                val shortLit = toShort lit
-                            in
-                                if shortLit = 0w0 then () else genImmed(ADD, baseReg, Word.toInt shortLit, code)
-                            end
-                        |   getOffset _ = raise InternalError "getOffset"
-                    in
-                        getOffset(sourceOffset, esi);
-                        getOffset(destOffset, edi);
-                        genop(REP, code);
-                        gen8u(0wxa4 (*movsb*), code)
-                    end
-                    else
-                    let
-                        (* Word move.  The offsets and the count are the number of words.
-                           We can compute the offset by using the LEAL instruction. *)
-                        fun getOffset(InRegister offsetReg, baseReg) =
-                            let
-                                val (scale, offset) =
-                                    if wordSize = 4 then (Scale2, ~2) else (*8 byte *) (Scale4, ~4)
-                            in
-                                genop (LEAL, code);
-                                genIndexed (offset, SOME baseReg, offsetReg, scale, esi, code)
-                            end
-                        |   getOffset(LiteralSource lit, baseReg) =
-                            let
-                                val shortLit = toShort lit
-                            in
-                                if shortLit = 0w0 then ()
-                                else genImmed(ADD, baseReg, Word.toInt shortLit  * wordSize, code)
-                            end
-                        |   getOffset _ = raise InternalError "getOffset"
-                    in
-                        getOffset(sourceOffset, esi);
-                        getOffset(destOffset, edi);
-                        genop(REP, code);
-                        gen8u(0wxa5 (*movsl*), code)
-                    end;
-                    genMove(edi, eax, code);
-                    genMove(esi, eax, code);
-                    genMove(ecx, eax, code);
-                cgOp remainder
-                end
-
-        |   cgOp(DataOp{ instr=_, operands=_, output=_ } :: _) =
-                raise InternalError "Not implemented (DataOp)"*)
 
         |   cgOp(MoveRR{ source=source, output } :: remainder) =
                 (* Move from one general register to another. *)
@@ -4510,7 +4511,11 @@ Calling conventions:
 
         |   cgOp(ArithRR{ opc, output, source } :: remainder) =
             (
-                checkSources[output, source]; case opc of CMP => () | _ => addDests[output];
+                case opc of
+                    XOR =>
+                        (if output = source then () else checkSources[output, source]; addDests[output])
+                |   CMP => checkSources[output, source]
+                |   _ => (checkSources[output, source]; addDests[output]);
                 genReg (opc, output, source, code);
                 cgOp remainder
             )
@@ -4637,19 +4642,30 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(CompareBytes :: remainder) =
+        |   cgOp(RepeatOperation repOp :: remainder) =
             (
-                checkSources[esi, edi, ecx]; addDests[esi, edi, ecx];
+                checkSources[edi, ecx]; addDests[edi, ecx];
+                case repOp of
+                    STOSB => checkSources[eax]
+                |   STOSL => checkSources[eax]
+                |   _ => (checkSources[esi]; addDests[esi]);
                 genop(REP, code);
-                gen8u(0wxa6 (*cmpsb*), code);
+                gen8u(repOpsToWord repOp, code);
                 cgOp remainder
             )
 
-        |   cgOp(Group3Ops(output, ops) :: remainder) =
+        |   cgOp(Group3Ops(reg, ops) :: remainder) =
             (
-                checkSources[output]; addDests[output];
+                checkSources[reg];
+                case ops of
+                    NOT => addDests[reg]
+                |   NEG => addDests[reg]
+                |   MUL => (checkSources[eax]; addDests[eax, edx])
+                |   IMUL => (checkSources[eax]; addDests[eax, edx])
+                |   DIV => (checkSources[eax, edx]; addDests[eax, edx])
+                |   IDIV => (checkSources[eax, edx]; addDests[eax, edx]);
                 genop(Group3_A, code);
-                genmodrm(Register, group3OpsToWord ops, getReg output, code);
+                genmodrm(Register, group3OpsToWord ops, getReg reg, code);
                 cgOp remainder
             )
 
@@ -4665,12 +4681,14 @@ Calling conventions:
 
         |   cgOp(PushR(reg as GenReg _ ) :: remainder) = (checkSources[reg]; genPush(reg, code); cgOp remainder)
         |   cgOp(PushR(src as FPReg _ ) :: remainder) =
-            (   (* We need to push a fp register to the stack.  This can't be done directly
-                   and it would be better if we could use a negotiator to get this into a
-                   general register first. *)
-                (* Push eax (any register would do), allocate memory into that, then
+            (
+                (* We need to push a fp register to the stack.  This can't be done directly so
+                   needs to go through a general register.
+                   Push eax (any register would do), allocate memory into that, then
                    swap the value with the top of the stack, restoring the original
-                   eax and putting the address of the store onto the stack. *)
+                   eax and putting the address of the store onto the stack.
+                   It would be better to choose a free register and use that since
+                   we wouldn't need to save it. *)
                 (* This originally used the XCHNG instruction to do the swap but
                    that is very expensive because it involves a lock.  This version is
                    slightly more complicated but much quicker. *)
@@ -4705,10 +4723,12 @@ Calling conventions:
 
         |   cgOp(PushLongConst constnt :: remainder) = 
             (
-                genop  (PUSH_32, code);
+                genop(PUSH_32, code);
                 addConstToVec (WVal constnt, false, code) (* Remember this constant and address. *);
                 cgOp remainder
             )
+
+        |   cgOp(PopR reg :: remainder) = (addDests[reg]; genop(POP_R reg, code); cgOp remainder)
 
         |   cgOp(StoreRegToMemory{ toStore, address } :: remainder) =
             (
@@ -4833,6 +4853,9 @@ Calling conventions:
 
         |   cgOp(AllocStore{ size, output } :: remainder) =
                 (addDests[output]; allocStoreCode(size, output, code); cgOp remainder)
+
+        |   cgOp(AllocStoreVariable reg :: remainder) =
+                (checkSources[reg]; addDests[reg]; allocStoreVarCode(reg, code); cgOp remainder)
 
         |   cgOp(CallFunction{ callKind } :: remainder) = (callFunction(callKind, code); cgOp remainder)
 
