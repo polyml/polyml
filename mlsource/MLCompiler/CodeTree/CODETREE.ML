@@ -669,102 +669,83 @@ struct
          List.foldl isImmutable true args
       else false
     end
-  
-(************************************************************************)
-(*    evaluate                                                          *)
-(************************************************************************)
-  (* Evaluates expressions by code-generating and running them. *)
-  (* "resultCode" is a copied code expression. The result is either *)
-  (* a constant or an exception. *)
-  fun evaluate (resultCode as Constnt _) _ =
-      (* May already have been reduced to a constant. *)
-      resultCode
 
-   | evaluate (resultCode as Eval { function=evalFunction, argList, ...}) codegen =
-       (* It's a function call - generate a call. This should only be
-          as a result of "early" evaluation when all the arguments are
-          constants or inline procedures. *)
-    (
-      case evaluate evalFunction codegen of
-        function as Raise _ => (* Could be an exception. *)
-            function
-
-        | function =>
-      let (* Evaluate each argument. *)
-(* NB This version of loadArgs is DIFFERENT from the old Poly version.
-      The Poly version stores the arguments in reverse order, then uses
-      "callcode" (run-time call POLY_SYS_callcode = 16) to apply the function.
-      The ML version stores the parameters in the usual order, then uses
-      "callcode_tupled" (run-time call POLY_SYS_callcode_tupled = 204) to apply
-      the function. [The other difference is that "callcode" expects its
-      two arguments in registers (Poly calling convention) but "callcode_tupled"
-      expects to receive an ML pair (ML calling convention).] These interface
-      differences are actually implicit in the fact that we use Address.call
-      rather than address$call.  SPF 8/7/94
-*)
-
-       val funcAddress =
-        case function of
-            Constnt addr =>
-              if isShort addr
-               then raise InternalError "Code address is not an address"
-               else toAddress addr
-          | _ => raise InternalError "Code address is not a constant";
-       
-       (* Finished loading the args; call the function. This may raise *)
-       (* an exception, in which case we just return the original code *)
-       (* rather than trying to sort out the exception packet.         *)
-       (* We would have a problem if the code we were executing could  *)
-       (* raise Interrupt ("is it the user, or is it the code?") but   *)
-       (* this isn't a problem because we never execute an explicit    *)
-       (* "raise" expression and none of the built-in functions can    *)
-       (* raise Interrupt.                                             *)
-       fun callFunction (argTuple:machineWord) = 
-            mkConst (call (funcAddress, argTuple))
-              handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
-                   | _         => resultCode
-
-       fun loadArgs (argVec : address, [],  _) =
-          (
-            lock argVec;
-            callFunction (toMachineWord argVec)
-          )
-               
-         | loadArgs (argVec : address, (h, _) :: t, locn) =
-            (
-            case evaluate h codegen of
-                arg as Raise _ => arg
-            (* if argument is a "raise" expression, so is final result *)
-              | Constnt cv =>
-                 ( 
-                  assignWord (argVec, toShort locn, cv);
-                  loadArgs(argVec, t, locn + 1)
-                 )
-              | _ => raise InternalError "Result of evaluate is not a constant"
-            )
-      in
-        case argList of
-          []      => callFunction word0  (* empty tuple - don't allocate *)
-          
-        | argList =>
-           let 
-             val argVec = alloc (toShort (List.length argList), F_mutable_words, word0);
-           in
-             loadArgs(argVec, argList, 0)
-           end
-      end
-    )
-    
-   | evaluate resultCode codegen =
-   (* Compile the expression, evaluate it, and catch any exceptions. *)
-    let
-      val compiledCode = codegen resultCode;
+    (* Evaluates expressions by code-generating and running them.
+       "resultCode" is a copied code expression. The result is either
+       a constant or an exception. *)
+    local
+        fun evaluateDefault(resultCode, codegen) =
+            (* Compile the expression, evaluate it, and catch any exceptions. *)
+            mkConst (codegen resultCode ())
+                handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
+                | _         => resultCode
     in
-      mkConst (compiledCode ())
-          handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
-               | _         => resultCode
-    end (* evaluate *);
-    
+        fun evaluate (resultCode as Constnt _) _ =
+            (* May already have been reduced to a constant. *)
+            resultCode
+
+        |   evaluate (resultCode as Eval { function=evalFunction, argList, resultType, ...}) codegen =
+            (* It's a function call - generate a call. This should only be
+              as a result of "early" evaluation when all the arguments are
+              constants or inline procedures. *)
+            if List.all(fn (_, GeneralType) => true | _ => false) argList andalso
+                (case resultType of GeneralType => true | _ => false)
+            then
+            (
+                case evaluate evalFunction codegen of
+                    function as Raise _ => function (* Could be an exception. *)
+
+                |   function =>
+                    let (* Evaluate each argument. *)
+                        val funcAddress =
+                            case function of
+                                Constnt addr =>
+                                    if isShort addr
+                                    then raise InternalError "Code address is not an address"
+                                    else toAddress addr
+                            |   _ => raise InternalError "Code address is not a constant";
+       
+                        (* Finished loading the args; call the function. This may raise an exception,
+                           in which case we just return the original code rather than trying to sort
+                           out the exception packet. We would have a problem if the code we were
+                           executing could raise Interrupt ("is it the user, or is it the code?") but
+                           this isn't a problem because we never execute an explicit "raise" expression
+                           and none of the built-in functions can raise Interrupt. *)
+                        fun callFunction (argTuple:machineWord) = 
+                            mkConst (call (funcAddress, argTuple))
+                                handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
+                                | _         => resultCode
+
+                        fun loadArgs (argVec : address, [],  _) =
+                            ( lock argVec; callFunction (toMachineWord argVec) )
+               
+                        |   loadArgs (argVec : address, (h, _) :: t, locn) =
+                            case evaluate h codegen of
+                                arg as Raise _ => arg
+                                (* if argument is a "raise" expression, so is final result *)
+                            |   Constnt cv =>
+                                ( 
+                                    assignWord (argVec, toShort locn, cv);
+                                    loadArgs(argVec, t, locn + 1)
+                                )
+                            |   _ => raise InternalError "Result of evaluate is not a constant"
+
+                    in
+                        case argList of
+                            []      => callFunction word0  (* empty tuple - don't allocate *)
+          
+                        |   argList =>
+                            let 
+                                val argVec = alloc (toShort (List.length argList), F_mutable_words, word0);
+                            in
+                                loadArgs(argVec, argList, 0)
+                            end
+                    end
+                )
+                else evaluateDefault(resultCode, codegen)
+        |   evaluate resultCode codegen = evaluateDefault(resultCode, codegen)
+    end
+   
 (************************************************************************)
 (*    preCode                                                           *)
 (************************************************************************)
@@ -2730,18 +2711,32 @@ DCJM 2000.
             val paramVec = stretchArray (initTrans, NONE);
             val localNewVec = stretchArray (initTrans, NONE);
             
-            (* copies the argument list. *)
-            fun copy []     _          = [] : codetree list
-              | copy ((h, _)::t) argAddress =
-              let
-                fun setTab (index, v) = update (paramVec, ~index, SOME v);
-                (* Make the declaration, picking out constants, inline
-                   procedures and load-and-stores. These are entered in the
-                   table, but nil is returned by "newDecl". *)
-                val lapt = newDecl (setTab, optimise(h, NONE), argAddress, false);
-              in (* Now process the rest of the declarations. *)
-                lapt @ copy t (argAddress + 1)
-              end (* end copy *);
+                (* copies the argument list. *)
+                fun copy []     _          = [] : codetree list
+                |   copy ((h, _)::t) argAddress =
+                    let
+                        fun setTab (index, v) = update (paramVec, ~index, SOME v);
+                        (* Make the declaration, picking out constants, inline
+                           procedures and load-and-stores. These are entered in the
+                           table, but nil is returned by "newDecl". *)
+                        (* If we are passing an inline-only function here we strip off
+                           the "special" field that was the unprocessed function.  This
+                           avoids problems if we expand it inside the body.  It's possible
+                           that this may mean some optimisations don't get made. *)
+                        val optValue = optimise(h, NONE)
+                        val copiedValue =
+                            case optGeneral optValue of
+                                general as Lambda{ isInline=MaybeInline, ...} =>
+                                    (
+                                        optVal {general = general, decs = optDecs optValue, special=CodeNil,
+                                                environ = optEnviron optValue, recCall = optRec optValue }
+                                    )
+                            |   _ => optValue
+                        
+                        val lapt = newDecl (setTab, copiedValue, argAddress, false);
+                    in (* Now process the rest of the declarations. *)
+                        lapt @ copy t (argAddress + 1)
+                    end (* end copy *);
 
             val nArgs = List.length argList
             val copiedArgs = copy argList (~nArgs);
