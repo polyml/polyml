@@ -652,7 +652,7 @@ struct
  
     fun branchOpRepr JO = "JumpOverflow"
     |   branchOpRepr JE = "JumpEqual"
-    |   branchOpRepr JNE = "JumpBoteEqual"
+    |   branchOpRepr JNE = "JumpNotEqual"
     |   branchOpRepr JL = "JumpLess"
     |   branchOpRepr JGE = "JumpGreaterOrEqual"
     |   branchOpRepr JLE = "JumpLessOrEqual"
@@ -2489,9 +2489,8 @@ Calling conventions:
                 addDests[output];
                 (* The RTS scans for possible addresses in MOV instructions so we
                    can only use MOV if this is a tagged value.  If it isn't we have
-                   to use something else such as XOR/ADD. This is also shorter
-                   if the value will fit in 8 bits *)
-                if is8Bit source orelse source mod 2 = 0
+                   to use something else such as XOR/ADD. *)
+                if source mod 2 = 0
                 then
                 (
                     genReg(XOR, output, output, code);

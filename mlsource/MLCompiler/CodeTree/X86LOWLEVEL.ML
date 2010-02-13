@@ -1010,7 +1010,7 @@ struct
             fun shiftNegotiator (instr, pref) = loadShiftArg (instr, pref) ([NONE, NONE], NONE)
 
             (* We have to consider what happens to the tag.  Shifts are word values so are
-               always non-negative. *)
+               always non-negative.  N.B. This is the untagged value i.e. 31 or 63. *)
             val maxShift = Word.fromInt wordSize * 0w8 - 0w1
 
             fun genConstShift(_, 0w0) _ = [] (* Zero shifts do nothing *)
@@ -1064,9 +1064,9 @@ struct
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
                         ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}, (* Untag ecx *)
                         ForwardJumpLabel lab,
-                        MoveConstR{ source=Word.toInt maxShift, output=ecx },
+                        MoveConstR{ source=tag(Word.toInt maxShift), output=ecx },
                         ConditionalBranch{ test=JNA, label=lab, predict=PredictTaken },
-                        ArithRConst{ opc=CMP, output=ecx, source=Word.toInt maxShift }
+                        ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
                     ] @
                     (
                         (* If this is a left shift we have to remove the tag.  That isn't needed

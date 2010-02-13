@@ -1834,6 +1834,9 @@ struct
            but this particular case is exceptionally important for
            handling inlined selector functions. SPF 24/2/1998
         *)
+            (* Previously Cases were generated from almost all simple comparisons.
+               Now that they are only generated if there are sufficient numbers of
+               branches this can probably be removed. *)
       | Case {cases = [(result, tag)], test, default, ...} =>
         let
           val equalFun  : codetree = Constnt (ioOp POLY_SYS_equala);
@@ -1858,22 +1861,32 @@ struct
             end
           else noJump (* else drop through. *)
 
-      | Newenv vl =>
-      let (* Blocks and particularly inline procedures. *)
-        (* Process the list up to the last item with "gencde",
-           and the last item with "genTest". *)
-        fun codeBlock []       = noJump
-          | codeBlock [h]      = genTest (h, jumpOn, matchFailFn)
-          | codeBlock (h :: t) = 
-          let
-            val _ : mergeResult =
-                gencde (h, true, NoResult, NotEnd, matchFailFn, NONE);
-          in
-            codeBlock t
-          end;
-      in
-        codeBlock vl 
-      end
+        |   Newenv vl =>
+            let (* Blocks and particularly inline procedures. *)
+                (* Process the list up to the last item with "gencde",
+                   and the last item with "genTest". *)
+                fun codeBlock []       = noJump
+                |   codeBlock [h]      = genTest (h, jumpOn, matchFailFn)
+                |   codeBlock (h :: t) = 
+                    (
+                        gencde (h, true, NoResult, NotEnd, matchFailFn, NONE);
+                        codeBlock t
+                    )
+            in
+                codeBlock vl 
+            end
+
+        |   TagTest { test, tag, ... } =>
+            let
+                (* Convert this into a simple equality function. *)
+                val code =
+                    Eval {
+                        function = Constnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                        earlyEval = false, resultType=GeneralType }
+            in
+                genTest(code, jumpOn, matchFailFn)
+            end
 
       | Eval {function = Constnt oper, argList = args, ...} =>
       (* May be an interface operation which can be put in line. *)
